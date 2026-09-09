@@ -22,7 +22,10 @@ cleanup_docker_environment() {
     echo "Stopping video-analytics-api integration stack..."
     cd "$INTEGRATION_TEST_DIR/docker_compose"
 
-    COMPOSE_CMD="docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml down --volumes --rmi all"
+    # No --rmi: the Elasticsearch image is the deployment's own, shared with any
+    # stack the developer is running outside this suite. --volumes still drops
+    # this project's data and log volumes, so each run starts on an empty index.
+    COMPOSE_CMD="docker compose --project-directory $INFRA_DIR -f $INFRA_DIR/compose.yml -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml down --volumes"
     if $COMPOSE_CMD; then
         echo "✓ Docker Compose down successfully"
     else
@@ -30,7 +33,10 @@ cleanup_docker_environment() {
         return 1
     fi
 
-    docker volume prune -f 2>/dev/null || true
+    # Scoped to this project rather than `docker volume prune -f`, which would
+    # reap unrelated volumes on a developer machine running other stacks.
+    docker volume ls -q --filter "label=com.docker.compose.project=${COMPOSE_PROJECT_NAME:-video-analytics-api-integration}" \
+        | xargs -r docker volume rm -f >/dev/null 2>&1 || true
     echo "✓ Cleanup complete"
     return 0
 }

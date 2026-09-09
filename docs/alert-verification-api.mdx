@@ -33,7 +33,7 @@ When deployed behind an API Gateway, authentication may be enforced at the gatew
 | `GET` | `/api/v1/realtime` | List active alert rules |
 | `DELETE` | `/api/v1/realtime/{alert_rule_id}` | Delete an alert rule |
 | `GET` | `/api/v1/realtime/{alert_rule_id}` | Get a single alert rule |
-| `GET` | `/api/v1/realtime/incidents` | List incidents from Elasticsearch |
+| `GET` | `/api/v1/realtime/incidents` | List incidents from Elasticsearch. With `consolidate=true`, groups confirmed RT-VLM chunks into events; see [Realtime incident consolidation](#realtime-incident-consolidation). |
 | `POST` | `/api/v1/realtime/replay` | Replay all persisted active or failed rules onto RTVI VLM |
 | `POST` | `/api/v1/realtime/always-on` | Start/stop always-on alert rules for an incoming camera event |
 
@@ -74,6 +74,200 @@ When deployed behind an API Gateway, authentication may be enforced at the gatew
 | `GET` | `/metrics` | Metrics |
 
 The machine-readable OpenAPI specification is `services/alert/openapi.json` in this repository.
+
+## Realtime incident consolidation
+
+The Real-Time VLM (RT-VLM) microservice evaluates a live stream chunk by chunk. While one physical event stays visible, every chunk can produce a confirmed incident, so a single intrusion that lasts a few minutes is stored as several incident documents. Consolidation groups consecutive confirmed chunks from the same camera and alert category into one event at the time the incidents are read.
+
+Consolidation is:
+
+- **Opt-in per request.** Pass `consolidate=true` on `GET /api/v1/realtime/incidents`. Omitting the parameter, or setting it to `false`, returns the raw incident documents exactly as before.
+- **Read-time only.** Grouping happens while the query runs. The raw Elasticsearch documents are never modified or deleted, and the raw view remains available for the same time window.
+- **API-only.** The current VSS UI does not use this option. Alerts are not deduplicated automatically in the UI.
+
+### Request
+
+`GET /api/v1/realtime/incidents`
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `consolidate` | No | `true` returns consolidated events. Omitted or `false` returns raw incident documents. |
+| `start_time` | With `consolidate=true` | Start of the time window in ISO-8601 format, for example `2026-09-04T10:00:00Z`. |
+| `end_time` | With `consolidate=true` | End of the time window in ISO-8601 format. |
+| `sensor_id` | No | Restrict the result to one camera. Matches the stored `sensorId`, which is the sensor name given when the rule was created. A rule created without a sensor name stores the VIOS stream UUID instead. |
+| `category` | No | Restrict the result to one alert category. |
+| `limit` | No | Page size, 1 to 1000, default 100. In the consolidated view this counts events. |
+| `offset` | No | Number of items to skip, default 0. In the consolidated view this counts events. |
+
+A consolidated query requires both `start_time` and `end_time`. If either is missing, the service returns HTTP 400 with `"error": "validation_failed"`. Grouping runs over the whole window before pagination is applied, so an event is never split across pages.
+
+<Note>
+Provide `sensor_id` and `category` when you want the events for one camera or one alert category. Without them the response contains events for every camera and category in the window. Chunks from different cameras or categories are never merged with each other.
+</Note>
+
+Consolidated query:
+
+```bash
+curl -sfG "http://<host>:9080/api/v1/realtime/incidents" \
+  --data-urlencode "sensor_id=warehouse_sample" \
+  --data-urlencode "category=intrusion" \
+  --data-urlencode "start_time=2026-09-04T10:00:00Z" \
+  --data-urlencode "end_time=2026-09-04T10:30:00Z" \
+  --data-urlencode "consolidate=true" \
+  --data-urlencode "limit=100"
+```
+
+Raw equivalent for the same window:
+
+```bash
+curl -sfG "http://<host>:9080/api/v1/realtime/incidents" \
+  --data-urlencode "sensor_id=warehouse_sample" \
+  --data-urlencode "start_time=2026-09-04T10:00:00Z" \
+  --data-urlencode "end_time=2026-09-04T10:30:00Z" \
+  --data-urlencode "consolidate=false"
+```
+
+Use the same window for both queries when you compare them. Without a window the raw view counts the whole incident history.
+
+### Response
+
+Both views return the same envelope: `status`, `incidents`, `count`, `total`, and `timestamp`. The consolidated view adds `truncated`.
+
+| Field | Raw view | Consolidated view |
+| --- | --- | --- |
+| `incidents` | Raw incident documents, newest first. | Consolidated events in the NvSchema incident shape. |
+| `count` | Number of documents on this page. | Number of events on this page. |
+| `total` | Number of raw documents matching the query, as reported by Elasticsearch. Exact below 10,000 and capped at 10,000 above that. | Number of consolidated events in the requested window. This is not the number of raw chunks. It is exact when `truncated` is `false`; when `truncated` is `true` it counts only the events built from the scanned chunks. |
+| `truncated` | Not present (the schema default is `false`). | `true` when the window matched more raw chunks than the internal scan cap. See below. |
+
+Each consolidated event:
+
+- Has a synthetic `Id` with the prefix `evt-`, derived from its chunks. The event is not a stored document and cannot be fetched by this ID.
+- Starts at the first chunk's `timestamp` and ends at the last chunk's `end`.
+- Lists the IDs of the underlying raw incidents in `chunk_ids`.
+- Carries `info.isConsolidated` set to `"true"` and `info.chunkCount` with the number of combined chunks. `info.chunkIdxRange` gives the lowest and highest chunk index among the merged chunks, for example `"41-44"`, and is present only when at least one chunk has a numeric `info.chunkIdx`. These `info` values are strings, matching the NvSchema-compatible response.
+- Copies its remaining fields from one representative chunk. The `representative` setting selects that chunk.
+- Merges the `llm.queries` lists of its chunks, capped at 200 entries. `info.mergedQueryCount` holds the true total and is present only when at least one chunk carried queries.
+
+Example consolidated response. The window holds five confirmed chunks that form two events, so `total` is 2 even though five raw documents were read:
+
+```json
+{
+  "status": "success",
+  "incidents": [
+    {
+      "Id": "evt-6d1c0a7b3f8e2d94a5c1b0e7f2a3d4c5b6e7f809",
+      "sensorId": "warehouse_sample",
+      "category": "intrusion",
+      "timestamp": "2026-09-04T10:12:00.000Z",
+      "end": "2026-09-04T10:12:30.000Z",
+      "analyticsModule": {
+        "id": "vlm-activity-detector",
+        "source": "rtvi-vlm"
+      },
+      "chunk_ids": ["c1e4b2d9-7a3f-4f8e-9b21-0d5e6f7a8b9c"],
+      "info": {
+        "requestId": "3d2f9b6e-1c4a-4e8b-b7a0-5f6e7d8c9a0b",
+        "chunkIdx": "52",
+        "prompt": "Is a person inside the restricted area? Answer in Yes or No",
+        "reasoning": "A person is standing inside the marked area.",
+        "verdict": "confirmed",
+        "isConsolidated": "true",
+        "chunkCount": "1",
+        "chunkIdxRange": "52-52",
+        "mergedQueryCount": "1"
+      },
+      "llm": {
+        "queries": [ { "id": "3d2f9b6e-1c4a-4e8b-b7a0-5f6e7d8c9a0b:52", "...": "..." } ]
+      }
+    },
+    {
+      "Id": "evt-0b9f8e7d6c5b4a39281706f5e4d3c2b1a0f9e8d7",
+      "sensorId": "warehouse_sample",
+      "category": "intrusion",
+      "timestamp": "2026-09-04T10:02:00.000Z",
+      "end": "2026-09-04T10:03:55.000Z",
+      "analyticsModule": {
+        "id": "vlm-activity-detector",
+        "source": "rtvi-vlm"
+      },
+      "chunk_ids": [
+        "8a7b6c5d-4e3f-4a2b-9c1d-0e1f2a3b4c5d",
+        "9b8c7d6e-5f4a-4b3c-8d2e-1f2a3b4c5d6e",
+        "ac9d8e7f-6a5b-4c4d-9e3f-2a3b4c5d6e7f",
+        "bdae9f80-7b6c-4d5e-8f4a-3b4c5d6e7f80"
+      ],
+      "info": {
+        "requestId": "3d2f9b6e-1c4a-4e8b-b7a0-5f6e7d8c9a0b",
+        "chunkIdx": "44",
+        "prompt": "Is a person inside the restricted area? Answer in Yes or No",
+        "reasoning": "A person is walking through the marked area toward the racks.",
+        "verdict": "confirmed",
+        "isConsolidated": "true",
+        "chunkCount": "4",
+        "chunkIdxRange": "41-44",
+        "mergedQueryCount": "4"
+      },
+      "llm": {
+        "queries": [ { "id": "3d2f9b6e-1c4a-4e8b-b7a0-5f6e7d8c9a0b:41", "...": "..." }, "..." ]
+      }
+    }
+  ],
+  "count": 2,
+  "total": 2,
+  "truncated": false,
+  "timestamp": "2026-09-04T10:31:02.417Z"
+}
+```
+
+Fields shown as `"..."` are the remaining per-chunk fields copied from the representative chunk and abbreviated here.
+
+When `truncated` is `true`, the window matched more than 10,000 raw chunks. Only the newest 10,000 were grouped, the oldest chunks were omitted, and the earliest events in the window may be incomplete. Retry with a narrower time window.
+
+### What is consolidated
+
+The consolidated view includes only:
+
+- Realtime RT-VLM incident documents. These carry `info.chunkIdx`. Incidents written by the alert verification path do not carry this field and are excluded.
+- Chunks whose `info.verdict` is `confirmed`.
+
+Chunks are grouped by `sensorId` and `category`. Within a group, the chunks are ordered by time and a chunk extends the current event when both conditions hold:
+
+- The gap from the previous chunk's `end` to this chunk's `timestamp` is at most `max_inter_alert_gap_seconds`.
+- The span from the event's first `timestamp` to this chunk's `end` is at most `max_event_duration_seconds`.
+
+Otherwise the chunk starts a new event. A single confirmed chunk with no neighbour becomes an event with `info.chunkCount` equal to `"1"`.
+
+Use the raw view (`consolidate=false`) for:
+
+- Forensic inspection of individual chunks and their VLM reasoning.
+- Rejected or verification-failed chunks.
+- Incidents produced by the alert verification path, which have no `info.chunkIdx`.
+- On-demand verification results and any other document that does not meet the realtime confirmed-chunk criteria.
+
+### Configuration
+
+Grouping is tuned in the `rtvi_vlm.consolidation` block of the Alerts Microservice configuration file. The block is present in the developer, Smart Cities, Warehouse, and Helm configurations.
+
+| Setting | Default | Valid values | User effect |
+| --- | ---: | --- | --- |
+| `max_inter_alert_gap_seconds` | `60` | Integer, 1 to 3600 | A later confirmed chunk starts a new event when its gap from the preceding chunk exceeds this value. |
+| `max_event_duration_seconds` | `300` | Integer, 1 to 3600, or `null` | Caps the duration of one event. `null` removes this outer cap. |
+| `representative` | `latest` | `latest`, `longest_reasoning` | Selects the chunk that supplies the representative incident fields. `latest` is the newest chunk; `longest_reasoning` is the chunk with the longest `info.reasoning`. |
+
+These settings tune grouping only. They do not enable consolidation. Callers must still request `consolidate=true`. Omitting the whole block applies the defaults shown above.
+
+Values outside the valid ranges are not checked at startup. They are rejected the first time `GET /api/v1/realtime/incidents` is called, and from then on every incidents query, raw or consolidated, fails with HTTP 500 while the service itself still reports healthy. Check the values before deploying.
+
+### Limitations
+
+- Consolidation is opt-in and has no current UI integration.
+- At most 10,000 of the newest matching raw chunks are scanned for one consolidated query. A truncated result is reported through `truncated: true`.
+- Grouping uses `sensorId` and `category` only. Separate rules that watch the same camera for the same category can be combined into one event.
+- A consolidated event's identity is derived from its chunks. It is not a persisted event record and cannot be retrieved by ID.
+- Raw and consolidated `total` values have different meanings. Compare them only for the same time window.
+
+The read-time consolidation metrics are described in [Realtime incident consolidation metrics](/vss/system-components/analytics-microservices/alerts-microservice#realtime-incident-consolidation-metrics).
 
 ## Schema References
 

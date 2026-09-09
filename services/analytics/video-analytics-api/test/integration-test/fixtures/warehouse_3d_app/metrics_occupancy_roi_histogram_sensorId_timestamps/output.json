@@ -1,4 +1,899 @@
 {
   "bucketSizeInSec": 15,
-  "rois": []
+  "rois": [
+    {
+      "id": "hazard_zone_1",
+      "histogram": [
+        {
+          "start": "2026-02-23T10:09:22.753Z",
+          "end": "2026-02-23T10:09:30.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:09:30.000Z",
+          "end": "2026-02-23T10:09:45.000Z",
+          "objects": [
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:09:45.000Z",
+          "end": "2026-02-23T10:10:00.000Z",
+          "objects": [
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Person",
+              "averageCount": 2,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:10:00.000Z",
+          "end": "2026-02-23T10:10:15.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:10:15.000Z",
+          "end": "2026-02-23T10:10:30.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:10:30.000Z",
+          "end": "2026-02-23T10:10:45.000Z",
+          "objects": [
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:10:45.000Z",
+          "end": "2026-02-23T10:11:00.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:11:00.000Z",
+          "end": "2026-02-23T10:11:15.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:11:15.000Z",
+          "end": "2026-02-23T10:11:30.000Z",
+          "objects": [
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:11:30.000Z",
+          "end": "2026-02-23T10:11:45.000Z",
+          "objects": [
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:11:45.000Z",
+          "end": "2026-02-23T10:12:00.000Z",
+          "objects": [
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:12:00.000Z",
+          "end": "2026-02-23T10:12:15.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:12:15.000Z",
+          "end": "2026-02-23T10:12:30.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:12:30.000Z",
+          "end": "2026-02-23T10:12:45.000Z",
+          "objects": [
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:12:45.000Z",
+          "end": "2026-02-23T10:13:00.000Z",
+          "objects": [
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:13:00.000Z",
+          "end": "2026-02-23T10:13:15.000Z",
+          "objects": [
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 4
+            },
+            {
+              "type": "Person",
+              "averageCount": 1,
+              "uniqueObjectCount": 3
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:13:15.000Z",
+          "end": "2026-02-23T10:13:29.453Z",
+          "objects": [
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 2,
+              "uniqueObjectCount": 2
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "buffer_zone_2",
+      "histogram": [
+        {
+          "start": "2026-02-23T10:09:22.753Z",
+          "end": "2026-02-23T10:09:30.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:09:30.000Z",
+          "end": "2026-02-23T10:09:45.000Z",
+          "objects": [
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:09:45.000Z",
+          "end": "2026-02-23T10:10:00.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:10:00.000Z",
+          "end": "2026-02-23T10:10:15.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:10:15.000Z",
+          "end": "2026-02-23T10:10:30.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:10:30.000Z",
+          "end": "2026-02-23T10:10:45.000Z",
+          "objects": [
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 1,
+              "uniqueObjectCount": 1
+            },
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:10:45.000Z",
+          "end": "2026-02-23T10:11:00.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:11:00.000Z",
+          "end": "2026-02-23T10:11:15.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:11:15.000Z",
+          "end": "2026-02-23T10:11:30.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:11:30.000Z",
+          "end": "2026-02-23T10:11:45.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:11:45.000Z",
+          "end": "2026-02-23T10:12:00.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:12:00.000Z",
+          "end": "2026-02-23T10:12:15.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:12:15.000Z",
+          "end": "2026-02-23T10:12:30.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:12:30.000Z",
+          "end": "2026-02-23T10:12:45.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:12:45.000Z",
+          "end": "2026-02-23T10:13:00.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:13:00.000Z",
+          "end": "2026-02-23T10:13:15.000Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        },
+        {
+          "start": "2026-02-23T10:13:15.000Z",
+          "end": "2026-02-23T10:13:29.453Z",
+          "objects": [
+            {
+              "type": "Person",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Agility_Digit_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Fourier_GR1_T2_Humanoid",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            },
+            {
+              "type": "Nova_Carter",
+              "averageCount": 0,
+              "uniqueObjectCount": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

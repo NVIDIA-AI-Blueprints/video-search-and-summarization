@@ -14,12 +14,18 @@
 # limitations under the License.
 
 # Video Analytics API app service for integration tests.
-# Depends on infra stack (Elasticsearch).
+#
+# The service under test is the only thing this suite defines itself;
+# Elasticsearch and its init container come from the deployment tree via
+# infra/video-analytics-api-infra.yml. Running on the Compose bridge network
+# means the app reaches Elasticsearch by its DNS name, exactly as it does in a
+# deployment, so the integration config points at http://elasticsearch:9200.
 
 services:
   video-analytics-api:
     image: ${VIDEO_ANALYTICS_API_IMAGE:-video-analytics-api:integration-test}
-    network_mode: "host"
+    ports:
+      - ${VIDEO_ANALYTICS_API_HOST_PORT:-8081}:8081
     volumes:
       - $INTEGRATION_TEST_DIR/docker_compose/apps/video-analytics-api-integration-config.json:/resources/config.json:ro
       - video-analytics-api-app:/web-api-app/files
@@ -28,6 +34,8 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+      elasticsearch-init-container:
+        condition: service_completed_successfully
     restart: always
 
 volumes:

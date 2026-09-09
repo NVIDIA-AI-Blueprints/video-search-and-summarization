@@ -14,7 +14,7 @@ import { InfoRound as InfoRoundIcon } from '@rsuite/icons';
 import { VideoModalTooltip } from 'common';
 
 // Types
-import { SearchComponentProps, SearchData, SearchParams } from './types';
+import { SearchComponentProps, SearchData } from './types';
 
 // Hooks
 import { useSearchByImage } from './hooks/useSearchByImage';
@@ -22,11 +22,7 @@ import {
   extractSearchResultsFromAgentResponse,
   normalizeSearchResultMediaUrls,
 } from './utils/agentResponseParser';
-import {
-  applySearchResultFilters,
-  buildSearchFilterChatContext,
-  prefixMessageWithSearchFilters,
-} from './utils/searchFilters';
+import { applySearchResultFilters } from './utils/searchFilters';
 
 // Components
 import { SearchHeader } from './components/SearchHeader';
@@ -82,29 +78,6 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
 
   const { videoModal, openVideoModal, closeVideoModal } = useVideoModal(vstApiUrl);  
   const { streams, filterParams, setFilterParams, addFilter, removeFilterTag, filterTags, refetch: refetchStreams } = useFilter({vstApiUrl});
-  const filterParamsRef = React.useRef(filterParams);
-  filterParamsRef.current = filterParams;
-
-  // Home rebuilds addChatQueryContext on every render, so hold it in a ref:
-  // callbacks below must keep a stable identity or the controls memo and the
-  // filter-sync effect re-fire on each render.
-  const addChatQueryContextRef = React.useRef(addChatQueryContext);
-  addChatQueryContextRef.current = addChatQueryContext;
-
-  const syncSearchFiltersToChat = React.useCallback((params: SearchParams) => {
-    addChatQueryContextRef.current?.(buildSearchFilterChatContext(params));
-  }, []);
-
-  const setFilterParamsAndSyncChat = React.useCallback(
-    (params: SearchParams | ((prev: SearchParams) => SearchParams)) => {
-      const prev = filterParamsRef.current;
-      const next = typeof params === 'function' ? params(prev) : { ...prev, ...(params ?? {}) };
-      filterParamsRef.current = next;
-      setFilterParams(next);
-      syncSearchFiltersToChat(next);
-    },
-    [setFilterParams, syncSearchFiltersToChat],
-  );
 
   // Map streamId (UUID) -> sensor name for /frames API lookup
   const sensorIdToNameMap = React.useMemo(() => {
@@ -163,16 +136,11 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
 
   const handleSearchByImageConfirm = React.useCallback((objectId: string) => {
     if (!submitChatMessage) return;
-    const prompt = prefixMessageWithSearchFilters(
-      `Find similar objects matching object_id=${objectId}`,
-      filterParamsRef.current,
-    );
-    submitChatMessage(prompt);
-    syncSearchFiltersToChat(filterParamsRef.current);
+    submitChatMessage(`Find similar objects matching object_id=${objectId}`);
     cancelSearchByImage();
     closeVideoModal();
     setActiveVideoData(null);
-  }, [submitChatMessage, syncSearchFiltersToChat, cancelSearchByImage, closeVideoModal]);
+  }, [submitChatMessage, cancelSearchByImage, closeVideoModal]);
 
   const refetchStreamsRef = React.useRef(refetchStreams);
 
@@ -185,17 +153,6 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       refetchStreamsRef.current();
     }
   }, [isActive]);
-
-  // Keyed on the serialized payload, not on filterParams identity, so the chip
-  // is written once per actual filter change.
-  const filterChatContextKey = React.useMemo(
-    () => JSON.stringify(buildSearchFilterChatContext(filterParams).data),
-    [filterParams],
-  );
-
-  React.useLayoutEffect(() => {
-    syncSearchFiltersToChat(filterParamsRef.current);
-  }, [syncSearchFiltersToChat, filterChatContextKey]);
 
   // Stable forwarder + ref so Home's register callback stays identity-stable while we always invoke the latest parser/setState.
   const deliverAgentAnswerRef = React.useRef<(answer: string) => boolean>(() => false);
@@ -222,11 +179,10 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
     const unsubscribe = registerSidebarChatEventSubscriber((event) => {
       if (event.type === 'messageSubmitted') {
         setAgentSearchResults(null);
-        syncSearchFiltersToChat(filterParamsRef.current);
       }
     });
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
-  }, [registerSidebarChatEventSubscriber, syncSearchFiltersToChat]);
+  }, [registerSidebarChatEventSubscriber]);
 
   const contentDisabled = !chatSidebarCollapsed || chatSidebarBusy;
 
@@ -248,7 +204,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
         outerPadding={renderControlsInLeftSidebar ? '8px 8px 12px' : 0}
         streams={streams}
         filterParams={filterParams}
-        setFilterParams={setFilterParamsAndSyncChat}
+        setFilterParams={setFilterParams}
         addFilter={addFilter}
         removeFilterTag={removeFilterTag}
         filterTags={filterTags}
@@ -260,7 +216,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
       renderControlsInLeftSidebar,
       streams,
       filterParams,
-      setFilterParamsAndSyncChat,
+      setFilterParams,
       addFilter,
       removeFilterTag,
       filterTags,
@@ -370,7 +326,7 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
             theme={isDark ? 'dark' : 'light'}
             streams={streams}
             filterParams={filterParams}
-            setFilterParams={setFilterParamsAndSyncChat}
+            setFilterParams={setFilterParams}
             addFilter={addFilter}
             removeFilterTag={removeFilterTag}
             filterTags={filterTags}

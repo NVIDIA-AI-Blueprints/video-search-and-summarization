@@ -1,0 +1,8011 @@
+{
+  "enhancedFrames": [
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.492Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 8.152852188200235,
+              "y": -11.352845604193675
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 918,
+            "embeddings": [],
+            "rightX": 556
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598098263259567,
+            "lat": 0.00021595927187511834
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5576685963723391,
+            "y": -12.884363541679813
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 343,
+            "confidence": 0,
+            "info": {},
+            "leftX": 508,
+            "topY": 138,
+            "embeddings": [],
+            "rightX": 601
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000026624330305942775,
+            "lat": 0.00020217561043774307
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 8.152852188200235,
+            "y": -11.352845604193675
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6666",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.459Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 8.074888961808485,
+              "y": -11.382682503453761
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 917,
+            "embeddings": [],
+            "rightX": 557
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000085981643174731,
+            "lat": 0.0002159756776324146
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5575952028017448,
+            "y": -12.88618640360162
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 346,
+            "confidence": 0,
+            "info": {},
+            "leftX": 507,
+            "topY": 139,
+            "embeddings": [],
+            "rightX": 602
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000027325999343470525,
+            "lat": 0.00020244414253108386
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 8.074888961808485,
+            "y": -11.382682503453761
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6665",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.426Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 8.023999711066192,
+              "y": -11.391864805752949
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 916,
+            "embeddings": [],
+            "rightX": 559
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598296425885988,
+            "lat": 0.00021600848914348473
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.557448415676314,
+            "y": -12.889832127053861
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 348,
+            "confidence": 0,
+            "info": {},
+            "leftX": 505,
+            "topY": 140,
+            "embeddings": [],
+            "rightX": 602
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000027784002600152614,
+            "lat": 0.00020252678325177655
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 8.023999711066192,
+            "y": -11.391864805752949
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6664",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.392Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.94842401462185,
+              "y": -11.410651317615526
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 916,
+            "embeddings": [],
+            "rightX": 560
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598362480085341,
+            "lat": 0.00021602489489725866
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5573750221214773,
+            "y": -12.891654988584294
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 351,
+            "confidence": 0,
+            "info": {},
+            "leftX": 504,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 601
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00002846418386815378,
+            "lat": 0.00020269586185853975
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.94842401462185,
+            "y": -11.410651317615526
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6663",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.359Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.924601535338935,
+              "y": -11.389252549202354
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 915,
+            "embeddings": [],
+            "rightX": 561
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598428534279966,
+            "lat": 0.0002160413006498585
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.557301628571893,
+            "y": -12.893477849984276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 352,
+            "confidence": 0,
+            "info": {},
+            "leftX": 501,
+            "topY": 142,
+            "embeddings": [],
+            "rightX": 598
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00002867858618170109,
+            "lat": 0.0002025032729428212
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.924601535338935,
+            "y": -11.389252549202354
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6662",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.326Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.9004823165936475,
+              "y": -11.378284723934186
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 915,
+            "embeddings": [],
+            "rightX": 562
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598494588469865,
+            "lat": 0.00021605770640128417
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5572282350275615,
+            "y": -12.895300711253798
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 353,
+            "confidence": 0,
+            "info": {},
+            "leftX": 499,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 596
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028895659150409588,
+            "lat": 0.00020240456251540768
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.9004823165936475,
+            "y": -11.378284723934186
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6661",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.292Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.8771082438241375,
+              "y": -11.351926539087478
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 914,
+            "embeddings": [],
+            "rightX": 563
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598560642655034,
+            "lat": 0.0002160741121515358
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5571548414884822,
+            "y": -12.897123572392866
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 354,
+            "confidence": 0,
+            "info": {},
+            "leftX": 496,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 592
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000029106025805336304,
+            "lat": 0.0002021673388517873
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.8771082438241375,
+            "y": -11.351926539087478
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6660",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.259Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.878147875911033,
+              "y": -11.326183935998053
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 914,
+            "embeddings": [],
+            "rightX": 564
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598626696835478,
+            "lat": 0.0002160905179006133
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.557081447954656,
+            "y": -12.898946433401475
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 354,
+            "confidence": 0,
+            "info": {},
+            "leftX": 494,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 589
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00002909666911655457,
+            "lat": 0.00020193565542398249
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.878147875911033,
+            "y": -11.326183935998053
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6659",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.226Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.87918750904862,
+              "y": -11.300441306892091
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 565
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598692751011195,
+            "lat": 0.0002161069236485167
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5570080544260816,
+            "y": -12.900769294279632
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 354,
+            "confidence": 0,
+            "info": {},
+            "leftX": 491,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 587
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000029087312418316628,
+            "lat": 0.00020170397176202883
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.87918750904862,
+            "y": -11.300441306892091
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6658",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.192Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.855510698447102,
+              "y": -11.284615797059262
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 566
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598758805182184,
+            "lat": 0.00021612332939524597
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5569346609027601,
+            "y": -12.902592155027328
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 355,
+            "confidence": 0,
+            "info": {},
+            "leftX": 489,
+            "topY": 142,
+            "embeddings": [],
+            "rightX": 584
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00002930040371373129,
+            "lat": 0.00020156154217353334
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.855510698447102,
+            "y": -11.284615797059262
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6657",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.159Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.856340308934146,
+              "y": -11.264073351161665
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 567
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598824859348447,
+            "lat": 0.00021613973514080116
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.556861267384691,
+            "y": -12.904415015644574
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 355,
+            "confidence": 0,
+            "info": {},
+            "leftX": 486,
+            "topY": 142,
+            "embeddings": [],
+            "rightX": 583
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000029292937219348167,
+            "lat": 0.000201376660160455
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.856340308934146,
+            "y": -11.264073351161665
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6656",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.126Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.856755114428569,
+              "y": -11.253802122000183
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 567
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598824859348447,
+            "lat": 0.00021613973514080116
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.556861267384691,
+            "y": -12.904415015644574
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 355,
+            "confidence": 0,
+            "info": {},
+            "leftX": 484,
+            "topY": 143,
+            "embeddings": [],
+            "rightX": 583
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00002928920396989849,
+            "lat": 0.00020128421909800166
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.856755114428569,
+            "y": -11.253802122000183
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6655",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.092Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.857169920090259,
+              "y": -11.243530888696904
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 567
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598824859348447,
+            "lat": 0.00021613973514080116
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.556861267384691,
+            "y": -12.904415015644574
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 355,
+            "confidence": 0,
+            "info": {},
+            "leftX": 482,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 583
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000029285470718943413,
+            "lat": 0.00020119177799827215
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.857169920090259,
+            "y": -11.243530888696904
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6654",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.059Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 567
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598824859348447,
+            "lat": 0.00021613973514080116
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.556861267384691,
+            "y": -12.904415015644574
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 355,
+            "confidence": 0,
+            "info": {},
+            "leftX": 479,
+            "topY": 145,
+            "embeddings": [],
+            "rightX": 583
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000029279870839688177,
+            "lat": 0.00020105311627878508
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.857792128896419,
+            "y": -11.228124030976117
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6653",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:33.026Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.784982117508972,
+              "y": -11.242709527760114
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 565
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598692751011195,
+            "lat": 0.0002161069236485167
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5570080544260816,
+            "y": -12.900769294279632
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 358,
+            "confidence": 0,
+            "info": {},
+            "leftX": 477,
+            "topY": 146,
+            "embeddings": [],
+            "rightX": 582
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00002993516094217726,
+            "lat": 0.00020118438574984104
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.784982117508972,
+            "y": -11.242709527760114
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6652",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.992Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.665410918591939,
+              "y": -11.28164374235359
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 563
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598560642655034,
+            "lat": 0.0002160741121515358
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5571548414884822,
+            "y": -12.897123572392866
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 363,
+            "confidence": 0,
+            "info": {},
+            "leftX": 475,
+            "topY": 148,
+            "embeddings": [],
+            "rightX": 582
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00003101130173243371,
+            "lat": 0.0002015347936811823
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.665410918591939,
+            "y": -11.28164374235359
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6651",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.959Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.5721335356310195,
+              "y": -11.305128427689654
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 560
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598362480085341,
+            "lat": 0.00021602489489725866
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5573750221214773,
+            "y": -12.891654988584294
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 367,
+            "confidence": 0,
+            "info": {},
+            "leftX": 472,
+            "topY": 149,
+            "embeddings": [],
+            "rightX": 582
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000031850798179084555,
+            "lat": 0.0002017461558492069
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.5721335356310195,
+            "y": -11.305128427689654
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6650",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.926Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.503709790251483,
+              "y": -11.31378247582845
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 558
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598230371681907,
+            "lat": 0.00021599208338853672
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5575218092364034,
+            "y": -12.888009265392967
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 370,
+            "confidence": 0,
+            "info": {},
+            "leftX": 469,
+            "topY": 151,
+            "embeddings": [],
+            "rightX": 581
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.0000324666118875024,
+            "lat": 0.00020182404228245604
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.503709790251483,
+            "y": -11.31378247582845
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6649",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.892Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.413546261207979,
+              "y": -11.336565334987931
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 556
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008598098263259567,
+            "lat": 0.00021595927187511834
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5576685963723391,
+            "y": -12.884363541679813
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 374,
+            "confidence": 0,
+            "info": {},
+            "leftX": 466,
+            "topY": 153,
+            "embeddings": [],
+            "rightX": 581
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000033278083648896446,
+            "lat": 0.00020202908801489138
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.413546261207979,
+            "y": -11.336565334987931
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6648",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.859Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.325290437233633,
+              "y": -11.354060371502742
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 913,
+            "embeddings": [],
+            "rightX": 554
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008597966154818315,
+            "lat": 0.00021592646035700351
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5578153835292858,
+            "y": -12.880717817444836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 378,
+            "confidence": 0,
+            "info": {},
+            "leftX": 463,
+            "topY": 155,
+            "embeddings": [],
+            "rightX": 580
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000034072386064668076,
+            "lat": 0.0002021865433435247
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.325290437233633,
+            "y": -11.354060371502742
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6647",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.826Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.282178052115961,
+              "y": -11.353019177587791
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 914,
+            "embeddings": [],
+            "rightX": 552
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008597834046358154,
+            "lat": 0.0002158936488341923
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5579621707072422,
+            "y": -12.877072092688033
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 380,
+            "confidence": 0,
+            "info": {},
+            "leftX": 460,
+            "topY": 157,
+            "embeddings": [],
+            "rightX": 579
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00003446039753072849,
+            "lat": 0.0002021771725982901
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.282178052115961,
+            "y": -11.353019177587791
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6646",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.792Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.2180740122785405,
+              "y": -11.356274080053103
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 914,
+            "embeddings": [],
+            "rightX": 550
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008597701937879086,
+            "lat": 0.00021586083730668466
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5581089579062086,
+            "y": -12.873426367409404
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 383,
+            "confidence": 0,
+            "info": {},
+            "leftX": 456,
+            "topY": 158,
+            "embeddings": [],
+            "rightX": 578
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00003503733388926724,
+            "lat": 0.00020220646672047793
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.2180740122785405,
+            "y": -11.356274080053103
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6645",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.759Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.1759652914664755,
+              "y": -11.35523470347222
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 915,
+            "embeddings": [],
+            "rightX": 549
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008597635883632459,
+            "lat": 0.00021584443154116966
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5581823515135707,
+            "y": -12.871603504574407
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 385,
+            "confidence": 0,
+            "info": {},
+            "leftX": 453,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 577
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00003541631237657715,
+            "lat": 0.00020219711233124998
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.1759652914664755,
+            "y": -11.35523470347222
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6644",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.726Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.1344398070520425,
+              "y": -11.349451196801159
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 915,
+            "embeddings": [],
+            "rightX": 548
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008597569829381107,
+            "lat": 0.00021582802577448055
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5582557451261854,
+            "y": -12.86978064160895
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 387,
+            "confidence": 0,
+            "info": {},
+            "leftX": 449,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 576
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00003579004173630843,
+            "lat": 0.00020214506077121045
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.1344398070520425,
+            "y": -11.349451196801159
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6643",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    },
+    {
+      "sensorId": "Camera",
+      "version": "4.0",
+      "congestions": [],
+      "timestamp": "2026-02-14T10:17:32.692Z",
+      "rois": [
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 5.200090188703412,
+              "y": -15.151591760677233
+            },
+            {
+              "z": 0,
+              "x": 7.902343134572646,
+              "y": -16.918276365809373
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "false"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "3",
+            "7"
+          ],
+          "type": "Pallet",
+          "count": 2
+        },
+        {
+          "coordinates": [
+            {
+              "z": 0,
+              "x": 7.113917173746994,
+              "y": -11.344208165618806
+            }
+          ],
+          "info": {
+            "restrictedAreaViolation": "true"
+          },
+          "id": "roi-id-1",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "fov": [
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "3",
+            "7",
+            "20",
+            "14",
+            "26"
+          ],
+          "type": "Pallet",
+          "count": 5
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "11"
+          ],
+          "type": "Forklift",
+          "count": 1
+        },
+        {
+          "coordinates": [],
+          "info": {},
+          "id": "",
+          "objectIds": [
+            "0"
+          ],
+          "type": "Person",
+          "count": 1
+        }
+      ],
+      "socialDistancing": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "false"
+        },
+        "clusters": [],
+        "proximityDetections": 0
+      },
+      "objects": [
+        {
+          "bbox": {
+            "bottomY": 494,
+            "confidence": 0,
+            "info": {},
+            "leftX": 831,
+            "topY": 405,
+            "embeddings": [],
+            "rightX": 990
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00005319918830146767,
+            "lat": 0.0002363643258460951
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 5.200090188703412,
+            "y": -15.151591760677233
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "3",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1019,
+            "topY": 291,
+            "embeddings": [],
+            "rightX": 1142
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000028878911788510135,
+            "lat": 0.00025226448729228436
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 7.902343134572646,
+            "y": -16.918276365809373
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "7",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 165,
+            "confidence": 0,
+            "info": {},
+            "leftX": 956,
+            "topY": 144,
+            "embeddings": [],
+            "rightX": 1018
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000048067842040792384,
+            "lat": 0.0002488284423858905
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 16.451982448900704,
+            "y": -16.536493598432276
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "20",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 183,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1001,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 1071
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.000034567215993252265,
+            "lat": 0.00025585928439476353
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 14.951912888067042,
+            "y": -17.317698266084836
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "14",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 217,
+            "confidence": 0,
+            "info": {},
+            "leftX": 976,
+            "topY": 187,
+            "embeddings": [],
+            "rightX": 1056
+          },
+          "location": {
+            "alt": 0,
+            "lon": -0.00001480303923441544,
+            "lat": 0.0002505732905152561
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Pallet",
+          "coordinate": {
+            "z": 0,
+            "x": 12.75589324820869,
+            "y": -16.73036561280623
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "26",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 916,
+            "embeddings": [],
+            "rightX": 547
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.00008597503775125028,
+            "lat": 0.00021581162000661736
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Forklift",
+          "coordinate": {
+            "z": 0,
+            "x": 1.5583291387440525,
+            "y": -12.86795777851304
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "11",
+          "info": {}
+        },
+        {
+          "bbox": {
+            "bottomY": 388,
+            "confidence": 0,
+            "info": {},
+            "leftX": 446,
+            "topY": 159,
+            "embeddings": [],
+            "rightX": 576
+          },
+          "location": {
+            "alt": 0,
+            "lon": 0.000035974745436054577,
+            "lat": 0.00020209787349056928
+          },
+          "embedding": {
+            "info": {},
+            "vector": []
+          },
+          "speed": 0,
+          "type": "Person",
+          "coordinate": {
+            "z": 0,
+            "x": 7.113917173746994,
+            "y": -11.344208165618806
+          },
+          "dir": [],
+          "confidence": 0,
+          "id": "0",
+          "info": {}
+        }
+      ],
+      "id": "6642",
+      "info": {
+        "confinedAreaTypes": "Forklift",
+        "place": "building=Warehouse/room=Room-1",
+        "confinedAreaViolation": "true",
+        "confinedAreaViolationObjects": "11"
+      },
+      "interactions": []
+    }
+  ]
+}

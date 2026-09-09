@@ -5,7 +5,7 @@
 
 Phase 1 deliberately keeps the existing skill-eval model/provider contract.
 The coordinator's Anthropic-compatible NVIDIA inference settings are mapped to
-the notebooks' native variables before both checked-in notebooks are executed
+the notebooks' native variables before the checked-in notebooks are executed
 in their documented order.
 
 Notebook parameterization and execution belong to
@@ -34,6 +34,7 @@ from urllib.parse import urlsplit
 DEFAULT_ENV_OUT = Path("/tmp/skill-eval/nemoclaw/nemoclaw.env")
 NOTEBOOK_RELATIVE_PATHS = (
     Path("deploy/docker/scripts/deploy_nemoclaw.ipynb"),
+    Path("deploy/docker/scripts/deploy_nemo_relay.ipynb"),
     Path("deploy/docker/scripts/deploy_vss_orchestrator.ipynb"),
 )
 _NOTEBOOK_RUNNER_RELATIVE_PATH = Path("deploy/docker/scripts/run_setup_notebook.py")
@@ -103,6 +104,7 @@ def prepare_environment(
     env.setdefault("HOST_INTERNAL_ALIAS", "host.openshell.internal")
     env.setdefault("VSS_ORCHESTRATOR_MCP_PORT", "9988")
     env.setdefault("NEMOCLAW_SANDBOX_NAME", "demo")
+    env.setdefault("RELAY_OBSERVABILITY", "true")
     env.setdefault("NEMOCLAW_GATEWAY_PORT", "8080")
     if not env["NEMOCLAW_GATEWAY_PORT"].isdigit() or not (
         1024 <= int(env["NEMOCLAW_GATEWAY_PORT"]) <= 65535
@@ -320,6 +322,13 @@ def run_notebooks(*, root: Path, env_out: Path, timeout: int) -> None:
         notebook_name=paths[0].name,
     )
 
+    relay = execute_notebook(paths[1], cwd=root, timeout=timeout)
+    _require_output(
+        relay,
+        "NEMO_RELAY_READY: enabled",
+        notebook_name=paths[1].name,
+    )
+
     # The orchestrator notebook creates this venv when the directory is absent.
     # A cancelled prior run can leave the directory without a Python executable,
     # which otherwise makes the notebook skip creation and fail at `uv sync`.
@@ -330,11 +339,11 @@ def run_notebooks(*, root: Path, env_out: Path, timeout: int) -> None:
     ):
         shutil.rmtree(orchestrator_venv)
 
-    orchestrator = execute_notebook(paths[1], cwd=root, timeout=timeout)
+    orchestrator = execute_notebook(paths[2], cwd=root, timeout=timeout)
     _require_output(
         orchestrator,
         "MCP health check passed:",
-        notebook_name=paths[1].name,
+        notebook_name=paths[2].name,
     )
     write_runtime_environment(env_out, os.environ)
 

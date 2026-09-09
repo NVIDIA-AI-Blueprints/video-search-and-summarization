@@ -73,24 +73,33 @@ export VIDEO_ANALYTICS_API_IMAGE
 
 # Start stack
 cd "$INTEGRATION_TEST_DIR/docker_compose"
-mkdir -p apps_data/data_log/elastic/data apps_data/data_log/elastic/logs
+# Elasticsearch storage is a plain Docker volume here (see infra overrides), so
+# only the app's bind-mounted files directory has to exist up front.
 mkdir -p apps_data/data_log/video-analytics-api-app/files
-chmod -R 777 apps_data/data_log
+# Best-effort: the app container runs as uid 1000 and owns files/ after a run,
+# so a re-run on the same checkout cannot chmod it. The directories it needs
+# are already world-writable, so a failure here is not fatal.
+chmod -R 777 apps_data/data_log 2>/dev/null || true
 
-# Port 9200 must be free (e.g. stop met-blueprints/mdx-elastic first if running)
+# Port 9200 must be free (e.g. stop any other deployment stack first)
 if command -v ss >/dev/null 2>&1; then
     if ss -tlnp 2>/dev/null | grep -q ':9200 '; then
-        echo "✗ Port 9200 is in use. Stop other Elasticsearch (e.g. met-blueprints: docker stop mdx-elastic) and retry."
+        echo "✗ Port 9200 is in use. Stop the other Elasticsearch and retry."
         exit 1
     fi
 elif command -v netstat >/dev/null 2>&1; then
     if netstat -tlnp 2>/dev/null | grep -q ':9200 '; then
-        echo "✗ Port 9200 is in use. Stop other Elasticsearch (e.g. met-blueprints: docker stop mdx-elastic) and retry."
+        echo "✗ Port 9200 is in use. Stop the other Elasticsearch and retry."
         exit 1
     fi
 fi
 
-COMPOSE_BASE="docker compose -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml"
+# The deployment's compose comes first, this suite's overrides second, its own
+# app last. --project-directory must be the deployment's infra directory: that
+# file has its own relative `include:`, which Compose resolves against the
+# project directory rather than against the file. Everything this suite
+# contributes uses absolute paths from .env, so nothing of ours depends on it.
+COMPOSE_BASE="docker compose --project-directory $INFRA_DIR -f $INFRA_DIR/compose.yml -f infra/video-analytics-api-infra.yml -f apps/video-analytics-api-app.yml"
 COMPOSE_TIMEOUT="${COMPOSE_TIMEOUT:-3600}"
 echo "Starting Docker Compose (timeout ${COMPOSE_TIMEOUT}s)..."
 $COMPOSE_BASE up -d --force-recreate & COMPOSE_PID=$!
@@ -111,8 +120,8 @@ if kill -0 $COMPOSE_PID 2>/dev/null; then
     wait $COMPOSE_PID 2>/dev/null || true
     COMPOSE_EXIT=1
 fi
-echo "--- Elasticsearch container logs (web-api-elastic) ---"
-docker logs web-api-elastic 2>&1 || true
+echo "--- Elasticsearch container logs (elasticsearch) ---"
+docker logs elasticsearch 2>&1 || true
 echo "--- end logs ---"
 
 if [ "$COMPOSE_EXIT" -ne 0 ]; then
@@ -131,8 +140,8 @@ for i in $(seq 1 60); do
     fi
     if [ "$i" -eq 60 ]; then
         echo "✗ Elasticsearch did not become ready"
-        echo "--- Elasticsearch container logs (web-api-elastic) ---"
-        docker logs web-api-elastic 2>&1 || true
+        echo "--- Elasticsearch container logs (elasticsearch) ---"
+        docker logs elasticsearch 2>&1 || true
         echo "--- end logs ---"
         cleanup_docker_environment
         exit 1
@@ -140,13 +149,21 @@ for i in $(seq 1 60); do
     sleep 1
 done
 
-# Create ingest pipeline required for config uploads (road-network, usd-assets, etc.)
-echo "Creating Elasticsearch ingest pipeline..."
-if ! bash "$SCRIPT_DIR/scripts/setup_elasticsearch_ingest_pipeline.sh" "$ES_URL"; then
-    echo "✗ Ingest pipeline setup failed"
+# The ILM policies, index templates and the insertion-timestamp-pipeline ingest
+# pipeline are created by the deployment's elasticsearch-init-container, which
+# compose runs to completion before starting the app. Confirm the pipeline the
+# config-upload endpoints depend on actually landed, so a silent init failure
+# surfaces here rather than as a confusing 500 midway through the suite.
+echo "Verifying Elasticsearch ingest pipeline..."
+if ! curl -sf "$ES_URL/_ingest/pipeline/insertion-timestamp-pipeline" >/dev/null; then
+    echo "✗ insertion-timestamp-pipeline missing; elasticsearch-init-container did not complete"
+    echo "--- init container logs (vss-elasticsearch-init) ---"
+    docker logs vss-elasticsearch-init 2>&1 || true
+    echo "--- end logs ---"
     cleanup_docker_environment
     exit 1
 fi
+echo "✓ Ingest pipeline present"
 
 # Load Elasticsearch data dump for testing remaining endpoints (if present)
 DUMP_DIR="$INTEGRATION_TEST_DIR/elasticsearch_data_dump"

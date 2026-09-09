@@ -119,7 +119,7 @@ The MV3DT journey exercises two skills:
 | Journey step | Skill | What it does |
 | --- | --- | --- |
 | Deploy and operate MV3DT | `vss-deploy-detection-tracking-3d` | Deploys RTVI-CV-3D / MV3DT perception, BEV Fusion, VST, the broker, and optional overlay services for sample data, custom videos, or RTSP inputs. |
-| Generate calibration when needed | `vss-generate-video-calibration` | Runs AutoMagicCalib (AMC) and exports the calibration files that MV3DT needs. The MV3DT skill invokes this skill automatically when calibration is missing. |
+| Generate calibration when needed | `vss-generate-video-calibration` | Runs Auto Calibration and exports the calibration files that MV3DT needs. The MV3DT skill invokes this skill automatically when calibration is missing. |
 
 The agent may pause for user input during the journey. Common prompts include
 `NGC_CLI_API_KEY` for NGC image and resource access, profile size
@@ -130,7 +130,7 @@ confirmation before starting containers or clearing state. For custom inputs, re
 MP4s, replace `<rtsp-url-1>`, `<rtsp-url-2>`, ... with the ordered RTSP
 stream list, and replace `<dataset-slug>` with a short name for the
 camera set. Calibration flows may also ask for a Hugging Face token to stage
-VGGT refinement, or direct you to the AMC UI when layout files, alignment data,
+the VGGT calibration model, or direct you to the Auto Calibration UI when layout files, alignment data,
 or alignment points are missing, or when you want to edit calibration
 parameters, ROI/tripwire definitions, or MV3DT `group` / `region` metadata.
 
@@ -176,19 +176,19 @@ parameters, ROI/tripwire definitions, or MV3DT `group` / `region` metadata.
    `videos` path.
 2. Asks for any missing inputs: video directory (`<path/to/files>`), dataset
    slug (`<dataset-slug>`), extended versus minimal profile, detector choice,
-   `NGC_CLI_API_KEY`, and whether to use VGGT refinement when calibration must
-   be generated.
+   `NGC_CLI_API_KEY`, and whether to run independent VGGT calibration when
+   calibration must be generated.
 3. Checks whether `calibration.json` and matching `camInfo/*.yml` or
    `camInfo/*.yaml` files already exist for the requested dataset slug under
    the MV3DT calibration mount path.
 4. If calibration is present, validates camera count, updates MV3DT camera
    configuration, and proceeds to deployment.
 5. If calibration is missing, invokes `vss-generate-video-calibration` to
-   deploy AMC, create a project from the synchronized videos at
-   `<path/to/files>`, run calibration with the requested detector, optionally
-   stage and run VGGT refinement using a Hugging Face token, and export both
-   MV3DT `camInfo` files and `calibration.json`.
-6. If layout or alignment data is missing, pauses and directs you to the AMC UI
+   deploy Auto Calibration, create a project from the synchronized videos at
+   `<path/to/files>`, run AMC with the requested detector, optionally stage and
+   run VGGT independently using a Hugging Face token, and export the selected
+   calibration as MV3DT `camInfo` files and `calibration.json`.
+6. If layout or alignment data is missing, pauses and directs you to the Auto Calibration UI
    to upload `layout.png` / `alignment_data.json` or mark and save
    correspondence points before calibration continues.
 7. Lands the exported calibration under
@@ -211,14 +211,15 @@ parameters, ROI/tripwire definitions, or MV3DT `group` / `region` metadata.
 2. Collects the ordered RTSP URL list (`<rtsp-url-1>`, `<rtsp-url-2>`,
    ...), dataset slug (`<dataset-slug>`), detector choice, profile size, and
    any user-supplied calibration path. It also checks for `NGC_CLI_API_KEY`
-   and asks for a VIOS endpoint if AMC needs VIOS to capture the streams.
+   and asks for a VIOS endpoint if Auto Calibration needs VIOS to capture the streams.
 3. If calibration is missing, invokes `vss-generate-video-calibration` in RTSP
-   mode, verifies VIOS reachability for AMC capture, creates the AMC project,
+   mode, verifies VIOS reachability for Auto Calibration capture, creates the Auto Calibration project,
    runs calibration, and exports MV3DT-ready files.
-4. If VGGT refinement is used for the calibration, stages the VGGT model with a
-   Hugging Face token and falls back to the AMC result if VGGT does not complete.
+4. If VGGT calibration is also requested, stages the VGGT model with a Hugging
+   Face token and runs it independently. If VGGT does not complete, the
+   independently generated AMC result remains available.
 5. If calibration settings, layout files, alignment data, or alignment points
-   are missing, pauses and directs you to the AMC UI to provide them before
+   are missing, pauses and directs you to the Auto Calibration UI to provide them before
    calibration continues.
 6. Generates or updates MV3DT camera configuration from the calibration file,
    including stream count and per-camera `camInfo` files.
@@ -261,7 +262,7 @@ parameters, ROI/tripwire definitions, or MV3DT `group` / `region` metadata.
    resetting named volumes so stale VST sensor records and broker state do not
    break the next deployment.
 3. Asks for confirmation before destructive cleanup such as removing named
-   volumes, clearing `data_log`, or deleting AMC project state.
+   volumes, clearing `data_log`, or deleting Auto Calibration project state.
 4. Preserves calibration outputs under
    `warehouse-mv3dt-app/calibration/sample-data/<dataset-slug>/` unless you
    explicitly ask to remove them.
@@ -356,7 +357,7 @@ To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent
 
 For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
-AMC relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
+The tracklet-based AMC method relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
 </Info>
 
 #### Step 1: Prepare video sources
@@ -495,7 +496,7 @@ sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
 sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 ```
 
-Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [Auto Calibration quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
 
 <a id="calibration-group-region-note-mv3dt"></a>
 
@@ -503,7 +504,6 @@ Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=
 - Maintain a single `calibration.json` file per deployment.
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
 - For MV3DT profile use cases, the ROIs and Tripwires must be drawn on the floor plan/layout map.
-- The AMC UI exports the `group` and `region` blocks under each entry in `sensors[]` with empty values. The MV3DT profile uses these fields for multi-camera grouping and BEV fusion, so populate them with valid values for each sensor before deploying the blueprint.
 - Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.

@@ -1,0 +1,1354 @@
+{
+  "alerts": [
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:49.126Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.561332969044999,
+                "y": -13.143072592366035
+              },
+              {
+                "x": 8.896530255005297,
+                "y": -11.471784216913907
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 293,
+            "confidence": 0,
+            "info": {},
+            "leftX": 702,
+            "topY": 95,
+            "embeddings": [],
+            "rightX": 796
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 546,
+            "topY": 99,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:49.092Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.527412046695748,
+                "y": -13.143181170923228
+              },
+              {
+                "x": 8.896530255005297,
+                "y": -11.471784216913907
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 294,
+            "confidence": 0,
+            "info": {},
+            "leftX": 701,
+            "topY": 95,
+            "embeddings": [],
+            "rightX": 796
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 546,
+            "topY": 99,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:49.059Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.493691588088366,
+                "y": -13.143289107809665
+              },
+              {
+                "x": 8.896530255005297,
+                "y": -11.471784216913907
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 295,
+            "confidence": 0,
+            "info": {},
+            "leftX": 700,
+            "topY": 96,
+            "embeddings": [],
+            "rightX": 796
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 546,
+            "topY": 100,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:49.026Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.46016982142619,
+                "y": -13.143396408696745
+              },
+              {
+                "x": 8.896300232436724,
+                "y": -11.477477031959546
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 296,
+            "confidence": 0,
+            "info": {},
+            "leftX": 700,
+            "topY": 96,
+            "embeddings": [],
+            "rightX": 795
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 547,
+            "topY": 101,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.992Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.426844995731217,
+                "y": -13.143503079189234
+              },
+              {
+                "x": 8.896300232436724,
+                "y": -11.477477031959546
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 297,
+            "confidence": 0,
+            "info": {},
+            "leftX": 699,
+            "topY": 97,
+            "embeddings": [],
+            "rightX": 795
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 547,
+            "topY": 103,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.959Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.393715380539252,
+                "y": -13.143609124826225
+              },
+              {
+                "x": 8.896300232436724,
+                "y": -11.477477031959546
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 298,
+            "confidence": 0,
+            "info": {},
+            "leftX": 698,
+            "topY": 97,
+            "embeddings": [],
+            "rightX": 795
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 547,
+            "topY": 105,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.926Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.360779265600346,
+                "y": -13.143714551082114
+              },
+              {
+                "x": 8.896300232436724,
+                "y": -11.477477031959546
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 299,
+            "confidence": 0,
+            "info": {},
+            "leftX": 698,
+            "topY": 98,
+            "embeddings": [],
+            "rightX": 794
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 547,
+            "topY": 106,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.892Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.328034960584503,
+                "y": -13.14381936336753
+              },
+              {
+                "x": 8.896300232436724,
+                "y": -11.477477031959546
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 300,
+            "confidence": 0,
+            "info": {},
+            "leftX": 697,
+            "topY": 98,
+            "embeddings": [],
+            "rightX": 794
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 547,
+            "topY": 108,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.859Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.295480794792507,
+                "y": -13.143923567030269
+              },
+              {
+                "x": 8.896300232436724,
+                "y": -11.477477031959546
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 301,
+            "confidence": 0,
+            "info": {},
+            "leftX": 696,
+            "topY": 98,
+            "embeddings": [],
+            "rightX": 794
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 547,
+            "topY": 110,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.826Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.263354497033658,
+                "y": -13.138104011127458
+              },
+              {
+                "x": 8.896530255005297,
+                "y": -11.471784216913907
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 302,
+            "confidence": 0,
+            "info": {},
+            "leftX": 695,
+            "topY": 99,
+            "embeddings": [],
+            "rightX": 793
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 546,
+            "topY": 112,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.792Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.230936294537035,
+                "y": -13.144130169570152
+              },
+              {
+                "x": 8.896530255005297,
+                "y": -11.471784216913907
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 303,
+            "confidence": 0,
+            "info": {},
+            "leftX": 695,
+            "topY": 99,
+            "embeddings": [],
+            "rightX": 793
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 546,
+            "topY": 115,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.759Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.19894271429611,
+                "y": -13.144232578836807
+              },
+              {
+                "x": 8.896530255005297,
+                "y": -11.471784216913907
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 304,
+            "confidence": 0,
+            "info": {},
+            "leftX": 694,
+            "topY": 100,
+            "embeddings": [],
+            "rightX": 793
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 546,
+            "topY": 117,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.726Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.167370089169747,
+                "y": -13.138462243552894
+              },
+              {
+                "x": 8.896530255005297,
+                "y": -11.471784216913907
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 305,
+            "confidence": 0,
+            "info": {},
+            "leftX": 693,
+            "topY": 100,
+            "embeddings": [],
+            "rightX": 792
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 546,
+            "topY": 118,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.692Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.104057567477351,
+                "y": -13.144536299715458
+              },
+              {
+                "x": 8.896760277625281,
+                "y": -11.46609140059594
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 307,
+            "confidence": 0,
+            "info": {},
+            "leftX": 692,
+            "topY": 101,
+            "embeddings": [],
+            "rightX": 792
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 545,
+            "topY": 119,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.659Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.072789187206418,
+                "y": -13.144636387666504
+              },
+              {
+                "x": 8.896760277625281,
+                "y": -11.46609140059594
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 308,
+            "confidence": 0,
+            "info": {},
+            "leftX": 691,
+            "topY": 101,
+            "embeddings": [],
+            "rightX": 792
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 545,
+            "topY": 119,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.626Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.04169825418393,
+                "y": -13.14473590762102
+              },
+              {
+                "x": 8.896990300296675,
+                "y": -11.460398583005642
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 309,
+            "confidence": 0,
+            "info": {},
+            "leftX": 691,
+            "topY": 102,
+            "embeddings": [],
+            "rightX": 791
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 544,
+            "topY": 120,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.592Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 9.010783262171003,
+                "y": -13.144834864400373
+              },
+              {
+                "x": 8.897220323019477,
+                "y": -11.454705764143013
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 310,
+            "confidence": 0,
+            "info": {},
+            "leftX": 690,
+            "topY": 102,
+            "embeddings": [],
+            "rightX": 791
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 543,
+            "topY": 120,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.559Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 8.980275991364236,
+                "y": -13.139160515011081
+              },
+              {
+                "x": 8.89745034579369,
+                "y": -11.449012944008054
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 311,
+            "confidence": 0,
+            "info": {},
+            "leftX": 689,
+            "topY": 103,
+            "embeddings": [],
+            "rightX": 790
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 542,
+            "topY": 121,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.526Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 8.949707770645258,
+                "y": -13.13927460153923
+              },
+              {
+                "x": 8.89745034579369,
+                "y": -11.449012944008054
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 312,
+            "confidence": 0,
+            "info": {},
+            "leftX": 688,
+            "topY": 103,
+            "embeddings": [],
+            "rightX": 790
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 542,
+            "topY": 122,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.492Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 8.91931107698372,
+                "y": -13.139388047895132
+              },
+              {
+                "x": 8.89768036861931,
+                "y": -11.443320122600763
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 313,
+            "confidence": 0,
+            "info": {},
+            "leftX": 687,
+            "topY": 104,
+            "embeddings": [],
+            "rightX": 790
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 541,
+            "topY": 124,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.459Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 8.889084470687585,
+                "y": -13.139500859452
+              },
+              {
+                "x": 8.89768036861931,
+                "y": -11.443320122600763
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 314,
+            "confidence": 0,
+            "info": {},
+            "leftX": 687,
+            "topY": 104,
+            "embeddings": [],
+            "rightX": 789
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 541,
+            "topY": 126,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.426Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 8.8590265281317,
+                "y": -13.139613041523075
+              },
+              {
+                "x": 8.89768036861931,
+                "y": -11.443320122600763
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 315,
+            "confidence": 0,
+            "info": {},
+            "leftX": 686,
+            "topY": 105,
+            "embeddings": [],
+            "rightX": 789
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 541,
+            "topY": 126,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.392Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 8.829135841534312,
+                "y": -13.139724599362482
+              },
+              {
+                "x": 8.89768036861931,
+                "y": -11.443320122600763
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 685,
+            "topY": 105,
+            "embeddings": [],
+            "rightX": 789
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 541,
+            "topY": 126,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.359Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 8.769850682989818,
+                "y": -13.13994586307198
+              },
+              {
+                "x": 8.89768036861931,
+                "y": -11.443320122600763
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 318,
+            "confidence": 0,
+            "info": {},
+            "leftX": 684,
+            "topY": 106,
+            "embeddings": [],
+            "rightX": 788
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 541,
+            "topY": 126,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:16:48.326Z",
+      "proximity": {
+        "threshold": 1.8,
+        "info": {
+          "proximityViolation": "true",
+          "proximityViolationObjects": "11,0"
+        },
+        "clusters": [
+          {
+            "points": [
+              {
+                "x": 8.740453472736199,
+                "y": -13.140055579161967
+              },
+              {
+                "x": 8.89745034579369,
+                "y": -11.449012944008054
+              }
+            ]
+          }
+        ],
+        "proximityDetections": 1
+      },
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 319,
+            "confidence": 0,
+            "info": {},
+            "leftX": 683,
+            "topY": 106,
+            "embeddings": [],
+            "rightX": 788
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 316,
+            "confidence": 0,
+            "info": {},
+            "leftX": 542,
+            "topY": 126,
+            "embeddings": [],
+            "rightX": 635
+          }
+        }
+      ]
+    }
+  ]
+}

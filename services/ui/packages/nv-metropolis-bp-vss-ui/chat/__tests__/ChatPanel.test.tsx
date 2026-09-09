@@ -81,6 +81,227 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
   });
 
+  it('renders and answers NAT interaction prompts', async () => {
+    const interaction = {
+      event_type: 'interaction_required',
+      execution_id: 'execution-1',
+      interaction_id: 'interaction-1',
+      prompt: {
+        text: 'Describe the scenario',
+        input_type: 'text',
+        placeholder: 'warehouse monitoring',
+        required: true,
+      },
+      response_url: '/executions/execution-1/interactions/interaction-1/response',
+    };
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `event: interaction_required\ndata: ${JSON.stringify(interaction)}\n\n`,
+          'data: {"choices":[{"delta":{"content":"started"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      )
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    global.fetch = fetchMock as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('start captioning'));
+
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+    expect(screen.getByTestId('hitl-modal-prompt')).toHaveTextContent('Describe the scenario');
+    fireEvent.change(screen.getByTestId('hitl-modal-textarea'), {
+      target: { value: 'warehouse monitoring' },
+    });
+    fireEvent.click(screen.getByTestId('hitl-modal-submit'));
+
+    await waitFor(() => expect(screen.getByText('started')).toBeInTheDocument());
+    expect(fetchMock.mock.calls[1][0]).toContain(
+      'interaction=%2Fexecutions%2Fexecution-1%2Finteractions%2Finteraction-1%2Fresponse',
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      response: { type: 'text', text: 'warehouse monitoring' },
+    });
+  });
+
+  it('submits an empty optional HITL confirmation with Enter', async () => {
+    const interaction = {
+      event_type: 'interaction_required',
+      execution_id: 'execution-confirm',
+      interaction_id: 'interaction-confirm',
+      prompt: {
+        text: 'Confirm these settings',
+        input_type: 'text',
+        required: false,
+      },
+      response_url: '/executions/execution-confirm/interactions/interaction-confirm/response',
+    };
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `event: interaction_required\ndata: ${JSON.stringify(interaction)}\n\n`,
+          'data: {"choices":[{"delta":{"content":"confirmed"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      )
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    global.fetch = fetchMock as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('start captioning'));
+
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+    fireEvent.keyDown(screen.getByTestId('hitl-modal-textarea'), {
+      key: 'Enter',
+      shiftKey: false,
+    });
+
+    await waitFor(() => expect(screen.getByText('confirmed')).toBeInTheDocument());
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      response: { type: 'text', text: '' },
+    });
+  });
+
+  it('keeps a pending prompt out of a conversation that did not ask for it', async () => {
+    const interaction = {
+      event_type: 'interaction_required',
+      execution_id: 'execution-a',
+      interaction_id: 'interaction-a',
+      prompt: { text: 'Which aisle?', input_type: 'text', required: true },
+      response_url: '/executions/execution-a/interactions/interaction-a/response',
+    };
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `event: interaction_required\ndata: ${JSON.stringify(interaction)}\n\n`,
+          'data: {"choices":[{"delta":{"content":"resumed"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      )
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    global.fetch = fetchMock as any;
+    const onControlsReady = jest.fn();
+
+    render(
+      <ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />,
+    );
+    await act(async () => typeAndSend('start captioning'));
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+
+    const controls = () => onControlsReady.mock.calls.at(-1)![0];
+    const originatingId = controls().selectedConversationId;
+    await act(async () => controls().onNewConversation());
+
+    expect(controls().selectedConversationId).not.toBe(originatingId);
+    expect(screen.queryByTestId('hitl-modal')).not.toBeInTheDocument();
+
+    await act(async () => controls().onSelectConversation(originatingId));
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId('hitl-modal-textarea'), { target: { value: 'aisle 4' } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('hitl-modal-submit'));
+    });
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[1][0]).toContain(
+      'interaction=%2Fexecutions%2Fexecution-a%2Finteractions%2Finteraction-a%2Fresponse',
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      response: { type: 'text', text: 'aisle 4' },
+    });
+  });
+
+  it('declines a pending prompt when its conversation is deleted', async () => {
+    const interaction = {
+      event_type: 'interaction_required',
+      execution_id: 'execution-gone',
+      interaction_id: 'interaction-gone',
+      prompt: { text: 'Which aisle?', input_type: 'text', required: true },
+      response_url: '/executions/execution-gone/interactions/interaction-gone/response',
+    };
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `event: interaction_required\ndata: ${JSON.stringify(interaction)}\n\n`,
+          'data: [DONE]\n\n',
+        ]),
+      )
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    global.fetch = fetchMock as any;
+    const onControlsReady = jest.fn();
+
+    render(
+      <ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />,
+    );
+    await act(async () => typeAndSend('start captioning'));
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+
+    const controls = () => onControlsReady.mock.calls.at(-1)![0];
+    await act(async () => controls().onDeleteConversation(controls().selectedConversationId));
+
+    expect(screen.queryByTestId('hitl-modal')).not.toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      response: { type: 'text', text: '/cancel' },
+    });
+  });
+
+  it('walks a turn through a sequence of prompts one at a time', async () => {
+    const prompts = [1, 2, 3, 4].map((n) => ({
+      event_type: 'interaction_required',
+      execution_id: 'execution-seq',
+      interaction_id: `interaction-${n}`,
+      prompt: { text: `Question ${n}`, input_type: 'text', required: true },
+      response_url: `/executions/execution-seq/interactions/interaction-${n}/response`,
+    }));
+    const fetchMock = jest.fn().mockImplementation((url: unknown) =>
+      String(url).includes('interaction=')
+        ? Promise.resolve({ ok: true, status: 204 })
+        : Promise.resolve(
+            sseResponse([
+              ...prompts.map(
+                (request) => `event: interaction_required\ndata: ${JSON.stringify(request)}\n\n`,
+              ),
+              'data: {"choices":[{"delta":{"content":"all set"}}]}\n\n',
+              'data: [DONE]\n\n',
+            ]),
+          ),
+    );
+    global.fetch = fetchMock as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('walk me through it'));
+
+    for (const request of prompts) {
+      await waitFor(() =>
+        expect(screen.getByTestId('hitl-modal-prompt')).toHaveTextContent(request.prompt.text),
+      );
+      // Each prompt waits for the previous answer: only one is ever on screen.
+      expect(screen.getAllByTestId('hitl-modal')).toHaveLength(1);
+      fireEvent.change(screen.getByTestId('hitl-modal-textarea'), {
+        target: { value: `answer ${request.interaction_id}` },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('hitl-modal-submit'));
+      });
+    }
+
+    await waitFor(() => expect(screen.getByText('all set')).toBeInTheDocument());
+    const answers = fetchMock.mock.calls.filter(([url]) => String(url).includes('interaction='));
+    expect(answers.map(([url]) => String(url))).toEqual(
+      prompts.map((request) =>
+        `/api/vss-chat?surface=main&interaction=${encodeURIComponent(request.response_url)}`,
+      ),
+    );
+    expect(answers.map(([, init]) => JSON.parse(init.body).response.text)).toEqual(
+      prompts.map((request) => `answer ${request.interaction_id}`),
+    );
+  });
+
   it('sends the whole thread when chat history is on, and one turn when off', async () => {
     const fetchMock = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
     global.fetch = fetchMock as any;
