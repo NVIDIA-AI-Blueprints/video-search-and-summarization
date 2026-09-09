@@ -1,0 +1,298 @@
+{
+  "bucketSizeInSec": 15,
+  "tripwires": [
+    {
+      "id": "tripwire-id-1",
+      "histogram": [
+        {
+          "start": "2026-02-14T10:13:51.292Z",
+          "end": "2026-02-14T10:14:00.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:14:00.000Z",
+          "end": "2026-02-14T10:14:15.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 1,
+              "actualCount": 1,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:14:15.000Z",
+          "end": "2026-02-14T10:14:30.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 1,
+              "actualCount": 1,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:14:30.000Z",
+          "end": "2026-02-14T10:14:45.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:14:45.000Z",
+          "end": "2026-02-14T10:15:00.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 1,
+              "actualCount": 1,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:15:00.000Z",
+          "end": "2026-02-14T10:15:15.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:15:15.000Z",
+          "end": "2026-02-14T10:15:30.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 1,
+              "actualCount": 1,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:15:30.000Z",
+          "end": "2026-02-14T10:15:45.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:15:45.000Z",
+          "end": "2026-02-14T10:16:00.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 1,
+              "actualCount": 1,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:16:00.000Z",
+          "end": "2026-02-14T10:16:15.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:16:15.000Z",
+          "end": "2026-02-14T10:16:30.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 1,
+              "actualCount": 1,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:16:30.000Z",
+          "end": "2026-02-14T10:16:45.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:16:45.000Z",
+          "end": "2026-02-14T10:17:00.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 1,
+              "actualCount": 1,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:17:00.000Z",
+          "end": "2026-02-14T10:17:15.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 1,
+              "actualCount": 1,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:17:15.000Z",
+          "end": "2026-02-14T10:17:30.000Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        },
+        {
+          "start": "2026-02-14T10:17:30.000Z",
+          "end": "2026-02-14T10:17:33.492Z",
+          "events": [
+            {
+              "type": "IN",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            },
+            {
+              "type": "OUT",
+              "count": 0,
+              "actualCount": 0,
+              "objectType": "Forklift"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
