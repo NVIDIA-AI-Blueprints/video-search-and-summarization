@@ -33,17 +33,17 @@ metadata:
   annotations:
     haproxy.org/path-rewrite: |
       ^/storage/(.*) /vst/storage/\1
-      ^/storage /vst/storage
-      /elasticsearch/(.*) /\1
-      /elasticsearch /
-      /rtvi-vlm/(.*) /\1
-      /rtvi-vlm /
-      /lvs/(.*) /\1
-      /lvs /
-      /phoenix/(.*) /\1
-      /phoenix /
-      /llm/(.*) /\1
-      /llm /
+      ^/storage$ /vst/storage
+      ^/elasticsearch/(.*) /\1
+      ^/elasticsearch$ /
+      ^/rtvi-vlm/(.*) /\1
+      ^/rtvi-vlm$ /
+      ^/lvs/(.*) /\1
+      ^/lvs$ /
+      ^/phoenix/(.*) /\1
+      ^/phoenix$ /
+      ^/llm/(.*) /\1
+      ^/llm$ /
 spec:
   ingressClassName: haproxy
   rules:

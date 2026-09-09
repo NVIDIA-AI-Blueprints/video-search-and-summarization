@@ -96,6 +96,16 @@ def canonical_table() -> list[dict]:
     return rows
 
 
+def rewrite_mount(src: str) -> str:
+    """The mount a `haproxy.org/path-rewrite` source came from.
+
+    Both rendered forms are anchored, and the bare form is terminated as well,
+    so recovering `/llm` needs the `^` and the `$` off `^/llm$` -- stripping
+    `/(.*)` alone leaves the terminator behind and every mount reads as surplus.
+    """
+    return src.removeprefix("^").removesuffix("$").replace("/(.*)", "")
+
+
 def render(profile: str, extra: list[str]) -> list[dict]:
     out = subprocess.run(
         [
@@ -185,10 +195,9 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                 if path in strips:
                     mounted_strip.add(path)
                     to = "" if row["rewrite"] == "strip" else row["rewrite"]
-                    anchor = "^" if row.get("anchored", False) else ""
                     for src, want in (
-                        (f"{anchor}{path}/(.*)", f"{to}/\\1"),
-                        (f"{anchor}{path}", to or "/"),
+                        (f"^{path}/(.*)", f"{to}/\\1"),
+                        (f"^{path}$", to or "/"),
                     ):
                         got = rewrites.get(src)
                         if got is None:
@@ -200,9 +209,7 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                                 f"{profile}: {src!r} rewrites to {got!r}, table says {want!r}"
                             )
 
-        surplus = {
-            src.removeprefix("^").replace("/(.*)", "") for src in rewrites
-        } - mounted_strip
+        surplus = {rewrite_mount(src) for src in rewrites} - mounted_strip
         if surplus:
             fails.append(f"{profile}: rewritten but not mounted: {sorted(surplus)}")
 
