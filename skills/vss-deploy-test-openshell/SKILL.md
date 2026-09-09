@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-test-openshell
-description: Use when the user asks to select, configure, deploy, verify, debug, or tear down only the VSS base or lvs profiles. For search, alerts, warehouse, or edge-only workflows, use vss-deploy-profile. Not for standalone microservices — use the vss-deploy-* skill.
+description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, or two-GPU warehouse agents profile on OpenShell. For search, alerts, or other warehouse variants, use vss-deploy-profile. Not for standalone microservices — use the vss-deploy-* skill.
 license: Apache-2.0
 metadata:
   version: "3.2.1"
@@ -8,13 +8,16 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
-# VSS Deploy (base and lvs)
+# VSS Deploy on OpenShell (base, lvs, and warehouse agents)
 
-This skill is a subset of `vss-deploy-profile`. It deploys only the **base** and **lvs** compose profiles.
+This skill is a subset of `vss-deploy-profile`. It deploys the **base** and
+**lvs** compose profiles, plus the two-GPU **warehouse agents** variant
+(`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM, local RT-CV and RTVI VLM).
 
 Do not use this skill for:
 
-- Search, alerts, warehouse, or other full-catalog profiles — use `vss-deploy-profile`.
+- Search, alerts, warehouse Kafka/Redis-only, 3D, MV3DT, auto-calibration, or
+  other full-catalog profiles — use `vss-deploy-profile`.
 - Standalone microservice deployment outside a compose profile — use the matching skill: `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, or `vss-deploy-video-embedding`.
 - Summarizing or querying a video once `lvs` is deployed — use `vss-summarize-video`.
 - NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or this skill will run it as part of the credential gate.
@@ -35,6 +38,13 @@ Match the user's request to a profile, then load that profile's reference for si
 |---|---|---|
 | "deploy vss" / "deploy base" | `base` | [`references/base.md`](references/base.md) |
 | "deploy lvs" / "video summarization" | `lvs` | [`references/lvs-profile.md`](references/lvs-profile.md) |
+| "deploy warehouse agents" / "`BP_PROFILE=bp_wh`, `MODE=2d`" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
+
+The warehouse agents path is intentionally narrow: it requires two GPUs,
+places RT-CV on GPU 0 and the always-local RTVI VLM on GPU 1, and uses a
+remote LLM so no third GPU is required. Follow `references/warehouse.md`
+instead of the generic developer-profile commands below because warehouse
+uses the industry-profile directory, three env files, and two compose files.
 
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the Spark Nano 9B standalone local LLM on port `30081`; AGX/IGX Thor uses the Edge 4B standalone vLLM fallback.
 
@@ -172,6 +182,13 @@ Layout (asset paths, ownership, mount points, profile-specific subdirs) is docum
 
 The skill's per-deploy working copy. Always start from a fresh copy of `overrides.env`, never mutate `.env` or `overrides.env`.
 
+**Warehouse exception:** for the warehouse agents variant, use
+`deploy/docker/industry-profiles/warehouse-operations/{.env,overrides.env,generated.env}`
+and the initialization procedure in
+[`references/warehouse.md`](references/warehouse.md). Do not set
+`PROFILE=warehouse` and do not use a nonexistent
+`developer-profiles/dev-profile-warehouse` directory.
+
 ```bash
 PROFILE=base
 ENV_SRC=$REPO/deploy/docker/developer-profiles/dev-profile-$PROFILE/.env
@@ -209,6 +226,11 @@ reference has worked examples for that profile's common scenarios.
 ### Step 3 — Apply overrides + dry-run
 
 **Working env files:** `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/.env` plus `<repo>/deploy/docker/developer-profiles/dev-profile-<profile>/generated.env` (created in Step 1c from `overrides.env`).
+
+**Warehouse exception:** use the three warehouse env files and compose file
+pair documented in [`references/warehouse.md`](references/warehouse.md) for
+both `config` and `up`. The two-file developer-profile command below applies
+only to base and lvs.
 
 > **Reminder (see Step 1c):** apply all overrides (Step 2 dict + Brev `EXTERNAL_IP`) to `generated.env`; Compose gets `.env` first and `generated.env` second, and post-deploy verifiers read `generated.env` for the actually-deployed override values.
 
@@ -329,7 +351,9 @@ selected `*_BASE_URL/v1/models` via `scripts/probe_remote_models.sh` — are in
 
 ## Limitations
 
-- This skill deploys only the `base` and `lvs` compose profiles; search, alerts, warehouse, and standalone microservices belong to other skills.
+- This skill deploys only `base`, `lvs`, and the two-GPU warehouse agents
+  variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM). Search, alerts, other
+  warehouse variants, and standalone microservices belong to other skills.
 - Hardware sizing, model placement, and profile-specific readiness are owned by profile references; do not infer them from memory.
 - Privileged host remediation requires user approval when passwordless sudo is unavailable.
 
