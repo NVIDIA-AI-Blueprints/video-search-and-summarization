@@ -308,7 +308,19 @@ class VstDirectIngest:
     same bytes, the same headers, the same anchor, with the upload URL built
     rather than fetched.
 
-    Three things are worse here, and they are why this is not the default:
+    **The timestamp anchor survives**, which is the thing worth checking before
+    trusting any of this: ground truth is matched by absolute-timestamp overlap
+    against ``2025-01-01T00:00:00``, so an ingest path that anchored chunks
+    anywhere else would score every query zero and read as a retrieval
+    collapse. It does not, because the anchor was never the agent's to set --
+    it rides in the ``metadata={"timestamp": ...}`` field of the upload itself,
+    which this backend sends byte-identically. ``/complete`` hard-codes the same
+    constant (``video_ingest.py``) because it is the shared convention, not the
+    source. The webhooks agree: the three ``camera_remove`` cleanup calls in
+    ``dev-profile-search/vios/configs/notification_config.json`` target
+    ``mdx-embed-filtered-2025-01-01`` and its two siblings by name.
+
+    Two things are still worse here, and they are why this is not the default:
 
     * **No completion proof.** ``/complete`` runs the embedding leg
       synchronously and returns ``chunks_processed``; the webhook fan-out is
@@ -316,17 +328,13 @@ class VstDirectIngest:
       readiness poll and the first query are all that confirm anything indexed,
       so ``chunks_processed`` is ``None`` -- not zero -- and the run records
       ``ingest_proof: "none"``.
-    * **The anchor is VIOS's to choose.** The webhook request bodies in
-      ``dev-profile-search/vios/configs/notification_config.json`` are empty
-      ``{}``, so nothing passes ``creation_time``; the agent's ``/complete``
-      hard-codes ``2025-01-01T00:00:00.000Z`` (``video_ingest.py``). Ground
-      truth is matched by absolute-timestamp overlap against that anchor, so if
-      VIOS anchors chunks anywhere else EVERY query scores zero and it reads as
-      a retrieval collapse. :meth:`verify_anchor` checks it rather than trusting
-      it.
     * **Helm has webhooks off.** ``webhooks.enabled`` is true only in the Docker
       search profile; the Helm chart ships the dummy item and false. On such a
-      deployment this backend uploads successfully and indexes nothing.
+      deployment this backend uploads successfully and indexes nothing, and
+      without a chunk count nothing says so until the first query returns empty.
+
+    :meth:`verify_anchor` remains as a cheap one-video sanity check, since a
+    wrong anchor is silent and indistinguishable from broken retrieval.
     """
 
     name = "vst-direct"
