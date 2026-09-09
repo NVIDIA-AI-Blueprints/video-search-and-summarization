@@ -725,7 +725,7 @@ Raising only `processes` multiplies all three. Keep the instance VLM concurrency
 
 #### Startup, readiness, and shutdown
 
-- `startup_timeout_seconds` covers topic metadata, prompt seeding, VLM warmup, and every process joining its consumer group. The default is 60 seconds and the minimum is 30. The startup watchdog stops the instance 5 seconds after the budget, so size a startup probe against 65 seconds at the default.
+- `startup_timeout_seconds` covers topic metadata, prompt seeding, VLM warmup, and every process joining its consumer group. The default is 60 seconds and the minimum is 30. With one process, the startup watchdog stops the instance when the budget runs out. With more than one process, it stops the instance 5 seconds after the budget, so size a startup probe against 65 seconds at the default.
 - `/health` and `/ready` return HTTP 503 until every configured process holds a decided Kafka assignment, and again during a rebalance until the assignment is decided. Do not point a liveness probe at them.
 - The shipped Docker and Helm definitions allow 60 seconds for shutdown. Keep that grace period so in-flight work can drain.
 - A pipeline process that exits takes the instance down, and the orchestrator restarts it. Processes are not respawned individually.
@@ -748,8 +748,8 @@ Monitor CPU, memory, Kafka consumer lag, and VLM latency, plus the following ser
 | `alert_bridge_pipeline_processes_alive` | Processes currently running. Should equal the configured count. |
 | `alert_bridge_pipeline_processes_ready` | Processes with a decided Kafka assignment. |
 | `alert_bridge_assigned_partitions` | Partitions currently assigned to the instance. A value below the process count means some processes hold nothing. |
-| `alert_bridge_pipeline_process_exits_total{reason}` | Expected versus unexpected process exits. |
-| `alert_bridge_rebalance_drains_total{outcome}` | Whether revoked-partition work drained before the deadline. |
+| `alert_bridge_pipeline_process_exits_total{reason}` | Process exits. `reason` is `shutdown` for an exit that a stop requested, or `unexpected`. |
+| `alert_bridge_rebalance_drains_total{outcome}` | Drains of revoked partitions. `outcome` is `drained` when the work finished before the deadline, or `timed_out`. |
 | `alert_bridge_records_read_after_revoke_total` | Records observed after partition ownership changed. Investigate sustained growth. |
 
 Metric names, labels, and scrape configuration are described under [Metrics](#metrics).
@@ -851,6 +851,13 @@ Known `mode` values are `sync`, `async`, `sync_fallback`, and `async_submit`. Kn
 
 | Metric | Labels | Meaning |
 | --- | --- | --- |
+| `alert_bridge_pipeline_processes_configured` | (none) | Pipeline processes requested by `alert_agent.processes`. |
+| `alert_bridge_pipeline_processes_alive` | (none) | Pipeline processes currently running. |
+| `alert_bridge_pipeline_processes_ready` | (none) | Pipeline processes holding a decided Kafka assignment. |
+| `alert_bridge_assigned_partitions` | (none) | Source partitions currently assigned to the instance, summed across its processes. |
+| `alert_bridge_pipeline_process_exits_total` | `reason` | Pipeline process exits, labelled `shutdown` or `unexpected`. |
+| `alert_bridge_rebalance_drains_total` | `outcome` | Drains of revoked partitions, labelled `drained` or `timed_out`. |
+| `alert_bridge_records_read_after_revoke_total` | (none) | Records read for a partition after this member lost it. |
 | `alert_bridge_realtime_rules_active` | (none) | Current in-memory realtime rules registered with the service. |
 | `alert_bridge_realtime_rules_count` | (none) | Current durable realtime rules with `status=ACTIVE` in Elasticsearch. |
 | `alert_bridge_realtime_rules_created_total` | (none) | Realtime rules created and committed to the live registry. |
@@ -994,11 +1001,17 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `alert_agent.num_workers` | `10` | Number of worker threads for concurrent processing. |
+| `alert_agent.pipeline_mode` | `event_loop` | Dispatch model: `sync`, `thread_bridge`, or `event_loop`. See [Pipeline Modes](#pipeline-modes). |
+| `alert_agent.processes` | `1` | Independent pipeline processes. Values above `1` require `event_loop`, `persistence.enabled: true`, and enough Kafka partitions. See [Scaling Across CPU Cores](#scaling-across-cpu-cores). |
+| `alert_agent.startup_timeout_seconds` | `60` | Budget for the whole of startup. Minimum 30. |
+| `alert_agent.num_workers` | `10` | Worker threads in `sync` mode. Not a throughput control in the other modes. |
+| `alert_agent.async_dispatch_workers` | `num_workers` | Dispatch pool threads in `thread_bridge` mode. |
+| `alert_agent.async_dispatch_max_in_flight` | `16` | Post-deduplication messages accepted but not finished, per process. |
+| `alert_agent.async_io.max_vlm_concurrent` | `4` | VLM requests in flight per process in `event_loop` mode. |
+| `alert_agent.async_io.max_vst_concurrent` | `8` | VIOS requests in flight per process in `event_loop` mode. |
 | `alert_agent.max_allowed_stream_size` | `2` | Maximum stream size in minutes. |
 | `alert_agent.default_stream_interval` | `1` | Default stream interval in minutes. |
 | `alert_agent.vst_pass_through_mode` | `false` | Skip VIOS lookup; use local media files directly. |
-| `alert_agent.chunk_size` | `1` | Chunk size for processing. |
 | `alert_agent.enrichment.enabled` | `false` | Enable alert enrichment for generating detailed event descriptions after verification. |
 | `alert_agent.metrics.per_sensor_labels` | `false` | When `true`, emits the opt-in `sensorId` histogram and counter variants documented under [Metrics](#metrics). |
 
