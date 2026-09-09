@@ -35,6 +35,43 @@ def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
+def supported_hardware_profiles(config_path: str | Path) -> tuple[str, ...]:
+    """Return the HARDWARE_PROFILE values *config_path* declares, in file order.
+
+    These are the ``model_resolution.hardware.hardware_profiles`` keys, which are
+    the orchestrator's supported set verbatim — ``docker_generate`` rejects a
+    HARDWARE_PROFILE that is not one of them, and it compares exactly, so a
+    notebook is better off reading them than restating the list.
+
+    Read by indentation rather than with PyYAML: the notebook kernel CI builds
+    carries ``nbclient`` and ``ipykernel`` only, so ``import yaml`` is not
+    available where this runs. Only the keys one level under the block are
+    returned; the env overrides and per-profile blocks nested below them are not.
+
+    Raises:
+        FileNotFoundError: if *config_path* does not exist.
+        ValueError: if the block is absent or declares no keys.
+    """
+    block_indent: int | None = None
+    profiles: list[str] = []
+    for line in Path(config_path).read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if block_indent is None:
+            if stripped == "hardware_profiles:":
+                block_indent = indent
+            continue
+        if indent <= block_indent:
+            break
+        if indent == block_indent + 2 and stripped.endswith(":") and " " not in stripped:
+            profiles.append(stripped[:-1])
+    if not profiles:
+        raise ValueError(f"{config_path} declares no model_resolution.hardware.hardware_profiles keys.")
+    return tuple(profiles)
+
+
 def gpu_device_ids() -> tuple[list[str], list[str]]:
     """Return the GPU indices and every device id ``nvidia-smi -L`` reports here.
 

@@ -187,6 +187,79 @@ class RequireGpuDeviceTests(unittest.TestCase):
         self.assertIn("nvidia-smi is not installed", str(ctx.exception))
 
 
+class SupportedHardwareProfilesTests(unittest.TestCase):
+    CONFIG_PATH = Path(__file__).parents[1] / "vss_orchestrator_mcp_config.yml"
+
+    BLOCK = """\
+functions:
+  vss_orchestrator:
+    model_resolution:
+      hardware:
+        edge_profiles:
+        - DGX-SPARK
+        edge_device_ids:
+          llm: "0"
+        # Keys define the set of supported hardware profiles.
+        hardware_profiles:
+          H100:
+          RTXPRO4500BW:
+            alerts:
+              RTVI_VLM_MAX_MODEL_LEN: "18000"
+          GB300:
+            # A comment inside the block.
+            VSS_RT_VLM_TAG: "develop-latest-sbsa"
+            alerts:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.2"
+          OTHER:
+        profile_mode_to_env_modes:
+          alerts:
+            verification: 2d_cv
+"""
+
+    def _write(self, text: str) -> Path:
+        path = Path(tempfile.mkdtemp()) / "config.yml"
+        path.write_text(text)
+        return path
+
+    def test_returns_only_the_profile_keys_in_file_order(self) -> None:
+        # Env overrides, per-profile blocks and comments all sit inside the
+        # block; none of them is a HARDWARE_PROFILE value.
+        profiles = helper.supported_hardware_profiles(self._write(self.BLOCK))
+        self.assertEqual(profiles, ("H100", "RTXPRO4500BW", "GB300", "OTHER"))
+
+    def test_stops_at_the_next_sibling_block(self) -> None:
+        profiles = helper.supported_hardware_profiles(self._write(self.BLOCK))
+        self.assertNotIn("profile_mode_to_env_modes", profiles)
+        self.assertNotIn("alerts", profiles)
+
+    def test_reads_the_checked_in_config(self) -> None:
+        profiles = helper.supported_hardware_profiles(self.CONFIG_PATH)
+        # The values section 1.1 offers, and what docker_generate accepts.
+        for expected in ("H100", "GB300", "L40S", "DGX-SPARK", "IGX-THOR", "AGX-THOR", "OTHER"):
+            with self.subTest(profile=expected):
+                self.assertIn(expected, profiles)
+        self.assertNotIn("alerts", profiles)
+
+    def test_raises_when_the_block_is_absent(self) -> None:
+        absent = "functions:\n  vss_orchestrator:\n    include:\n    - profiles\n"
+        with self.assertRaises(ValueError) as ctx:
+            helper.supported_hardware_profiles(self._write(absent))
+        self.assertIn("hardware_profiles", str(ctx.exception))
+
+    def test_raises_when_the_block_declares_nothing(self) -> None:
+        empty = (
+            "    model_resolution:\n      hardware:\n        hardware_profiles:\n"
+            "        edge_profiles:\n        - DGX-SPARK\n"
+        )
+        with self.assertRaises(ValueError) as ctx:
+            helper.supported_hardware_profiles(self._write(empty))
+        self.assertIn("hardware_profiles", str(ctx.exception))
+
+    def test_raises_when_the_config_is_missing(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            helper.supported_hardware_profiles(Path(tempfile.mkdtemp()) / "absent.yml")
+
+
 class ResolveOpenshellGatewayContainerTests(unittest.TestCase):
     def test_returns_first_matching_container_name(self) -> None:
         result = mock.Mock()
