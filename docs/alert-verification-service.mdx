@@ -749,7 +749,7 @@ Monitor CPU, memory, Kafka consumer lag, and VLM latency, plus the following ser
 | `alert_bridge_pipeline_processes_ready` | Processes with a decided Kafka assignment. |
 | `alert_bridge_assigned_partitions` | Partitions currently assigned to the instance. A value below the process count means some processes hold nothing. |
 | `alert_bridge_pipeline_process_exits_total{reason}` | Process exits. `reason` is `shutdown` for an exit that a stop requested, or `unexpected`. |
-| `alert_bridge_rebalance_drains_total{outcome}` | Drains of revoked partitions. `outcome` is `drained` when the work finished before the deadline, or `timed_out`. |
+| `alert_bridge_rebalance_drains_total{outcome}` | Drains of revoked partitions. `outcome` is `nothing_owed` when the partitions had no work in flight, `drained` when the work finished before the deadline, or `timed_out`. |
 | `alert_bridge_records_read_after_revoke_total` | Records observed after partition ownership changed. Investigate sustained growth. |
 
 Metric names, labels, and scrape configuration are described under [Metrics](#metrics).
@@ -856,7 +856,7 @@ Known `mode` values are `sync`, `async`, `sync_fallback`, and `async_submit`. Kn
 | `alert_bridge_pipeline_processes_ready` | (none) | Pipeline processes holding a decided Kafka assignment. |
 | `alert_bridge_assigned_partitions` | (none) | Source partitions currently assigned to the instance, summed across its processes. |
 | `alert_bridge_pipeline_process_exits_total` | `reason` | Pipeline process exits, labelled `shutdown` or `unexpected`. |
-| `alert_bridge_rebalance_drains_total` | `outcome` | Drains of revoked partitions, labelled `drained` or `timed_out`. |
+| `alert_bridge_rebalance_drains_total` | `outcome` | Drains of revoked partitions, labelled `nothing_owed`, `drained`, or `timed_out`. |
 | `alert_bridge_records_read_after_revoke_total` | (none) | Records read for a partition after this member lost it. |
 | `alert_bridge_realtime_rules_active` | (none) | Current in-memory realtime rules registered with the service. |
 | `alert_bridge_realtime_rules_count` | (none) | Current durable realtime rules with `status=ACTIVE` in Elasticsearch. |
