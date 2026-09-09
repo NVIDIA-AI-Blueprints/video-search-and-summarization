@@ -118,16 +118,19 @@ function_groups:
               RTVI_VLM_MAX_MODEL_LEN: "18000"
           RTXPRO6000BW:
           GB300:
-            # GB300 is SBSA/arm64. These are the same GHCR repositories as the
-            # x86 defaults, distinguished only by an -sbsa tag suffix, which
-            # containers.env appends for exactly these four images when
-            # VSS_CONTAINER_TAG_SUFFIX is set. containers.env is already
-            # resolved by the time this block applies, so pin the tags here
-            # instead, as DGX-SPARK does.
-            VSS_RT_VLM_TAG: "develop-latest-sbsa"
-            VSS_RT_CV_TAG: "develop-latest-sbsa"
-            VSS_RT_EMBED_TAG: "develop-latest-sbsa"
-            VSS_VIDEO_SUMMARIZATION_TAG: "develop-latest-sbsa"
+            # GB300 is SBSA/arm64. RT-VLM, RT-CV, RT-Embed and video
+            # summarization ship their arm64 builds in the same GHCR
+            # repositories as the x86 defaults, under an -sbsa tag suffix.
+            # containers.env appends the suffix to whatever VSS_CONTAINER_TAG
+            # selects, which keeps a release selectable -- pinning the four
+            # tags here would not, and would mix an -sbsa develop build into a
+            # deployment that asked for a release.
+            #
+            # Inert on its own: Compose reads the derived tags from its process
+            # environment, where containers.env was sourced without a suffix,
+            # and that beats the generated env file this lands in. The suffix
+            # has to be exported before that sourcing to take effect.
+            VSS_CONTAINER_TAG_SUFFIX: "-sbsa"
             # vLLM claims the whole fraction whether it needs it or not and
             # refuses to start unless free >= fraction x total, so the 0.4 used
             # on 80-96 GiB cards would hand RT-VLM ~100 GiB of GB300's ~250 GiB
@@ -151,11 +154,11 @@ function_groups:
               RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.2"
           OTHER:
           DGX-SPARK:
-            VSS_RT_VLM_TAG: "develop-latest-sbsa"
-            # SBSA shares the vss-rt-cv GHCR repository, distinguished only by
-            # an -sbsa tag suffix, so this is a tag-only override -- the image
-            # default already resolves to the managed GHCR channel.
-            VSS_RT_CV_TAG: "develop-latest-sbsa"
+            # SBSA/arm64 like GB300: same suffix, same caveat about when it
+            # takes effect. Covers all four suffixed images rather than the
+            # RT-VLM and RT-CV tags this used to pin, since the suffix is
+            # applied by containers.env per image, not per hardware profile.
+            VSS_CONTAINER_TAG_SUFFIX: "-sbsa"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
             # One value for every alerts mode: the 0.4 local_shared fraction
