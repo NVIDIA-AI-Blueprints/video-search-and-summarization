@@ -854,6 +854,8 @@ class RunInvocations(unittest.TestCase):
             str(run_leg.NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC),
         )
         self.assertNotIn("SKILL_EVAL_PRESERVE_DEPLOYMENT", seen_env[0])
+        self.assertEqual(seen_env[0]["SKILL_EVAL_PERSIST_AGENT_SERVICES"], "1")
+        self.assertNotIn("SKILL_EVAL_PERSIST_AGENT_SERVICES", seen_env[1])
         self.assertEqual(seen_env[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
 
     def test_failed_nemoclaw_setup_reward_stops_before_scenarios(self):
@@ -912,6 +914,7 @@ class RunInvocations(unittest.TestCase):
             self.assertIn("Deploy the requested system.", instruction)
             self.assertIn("/vss-build-vision-ai", instruction)
             self.assertIn("/vss-ask-video", instruction)
+            self.assertNotIn("HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
             self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
 
     def test_passing_step_lets_the_chain_continue(self):
