@@ -1219,6 +1219,54 @@ def test_outer_monitor_consumes_only_allowlisted_inner_progress(
     assert "secret" not in monitor.journal.path.read_text()
 
 
+def test_inner_compose_file_under_guest_repo_is_adopted(tmp_path: Path) -> None:
+    """The OpenShell layout: agent workspace and trial checkout differ.
+
+    Harbor deploys from the guest home clone, so the inner hook's
+    ``compose_file`` sits outside the agent's own ``repo_root``. Rejecting it
+    leaves the monitor with no container snapshot, and a stack warming after
+    ``up -d`` returned looks idle.
+    """
+    workspace = tmp_path / "workspace"
+    guest_repo = tmp_path / "home" / "video-search-and-summarization"
+    guest_repo.mkdir(parents=True)
+    workspace.mkdir()
+    compose = guest_repo / "resolved.yml"
+    compose.write_text("services: {}\n")
+    inner_state = tmp_path / "state.json"
+    inner_state.write_text(json.dumps({"compose_file": str(compose)}))
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=workspace,
+        guest_repo_root=guest_repo,
+    )
+    monitor.inner_journal_path = tmp_path / "absent.jsonl"
+    with mock.patch.object(progress, "_INNER_STATE", inner_state):
+        monitor._sample_inner_journal()
+    assert monitor.compose_file == compose.resolve()
+
+
+def test_inner_compose_file_outside_both_roots_is_rejected(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "elsewhere" / "resolved.yml"
+    outside.parent.mkdir(parents=True)
+    outside.write_text("services: {}\n")
+    inner_state = tmp_path / "state.json"
+    inner_state.write_text(json.dumps({"compose_file": str(outside)}))
+    monitor = progress.DirectAgentProgress(
+        results_root=tmp_path / "results",
+        spec_path=tmp_path / "absent.json",
+        repo_root=tmp_path / "workspace",
+        guest_repo_root=tmp_path / "guest",
+    )
+    monitor.inner_journal_path = tmp_path / "absent.jsonl"
+    with mock.patch.object(progress, "_INNER_STATE", inner_state):
+        monitor._sample_inner_journal()
+    assert monitor.compose_file is None
+
+
 def test_timeout_diagnostics_are_bounded_and_structural(tmp_path: Path) -> None:
     monitor = progress.DirectAgentProgress(
         results_root=tmp_path / "results",
