@@ -42,6 +42,7 @@ from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import _augment_context_clip_offsets
 from vss_agents.agents.top_agent import strip_frontend_tags
+from vss_agents.agents.top_agent import trace_step_title
 from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
 
 
@@ -60,6 +61,20 @@ class TestTopAgentConstants:
 
     def test_empty_scratchpad_error(self):
         assert "agent_scratchpad" in EMPTY_SCRATCHPAD_ERROR
+
+
+class TestTraceStepTitle:
+    def test_includes_the_tool_name_in_a_tool_call_step(self):
+        assert trace_step_title(2, "Tool Call", "Tool: vss_search\nArgs: {}") == "2 - Tool Call: vss_search"
+
+    def test_includes_the_tool_name_in_a_subagent_call_step(self):
+        assert (
+            trace_step_title(3, "Sub-Agent Call", "Calling sub-agent: video_search\nArgs: {}")
+            == "3 - Sub-Agent Call: video_search"
+        )
+
+    def test_escapes_tool_names_for_the_html_title_attribute(self):
+        assert trace_step_title(1, "Tool Call", 'Tool: search"<unsafe>') == "1 - Tool Call: search&quot;&lt;unsafe&gt;"
 
 
 class TestStripFrontendTags:

@@ -84,6 +84,31 @@ export function buildStepTree(steps: ChatStep[]): ChatStep[] {
   return roots;
 }
 
+/**
+ * The NAT event stream wraps a turn in a synthetic workflow span. It is
+ * bookkeeping rather than an action the user asked the agent to take, and
+ * nesting everything under it makes an "Intermediate steps (N)" disclosure
+ * appear to contain only one item. Show its descendants as the visible list.
+ */
+export function buildDisplayStepTree(steps: ChatStep[]): ChatStep[] {
+  const tree = buildStepTree(steps);
+  const visible: ChatStep[] = [];
+
+  for (const node of tree) {
+    if (/^Function (?:Start|Complete):\s*<workflow>$/i.test(node.name)) {
+      visible.push(...(node.children ?? []));
+    } else {
+      visible.push(node);
+    }
+  }
+  return visible;
+}
+
+/** Count the entries users can reach in a rendered step tree. */
+export function countDisplaySteps(steps: ChatStep[]): number {
+  return steps.reduce((count, step) => count + 1 + countDisplaySteps(step.children ?? []), 0);
+}
+
 const PREFIXES = {
   event: 'event:',
   data: 'data:',
