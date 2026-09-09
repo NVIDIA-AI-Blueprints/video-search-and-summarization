@@ -33821,12 +33821,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ********************************************************************************
-PACKAGE/COMPONENT: simplekml:1.3.6
-LICENSE TYPE:      LGPL
-********************************************************************************
-See license at: https://github.com/eisoldt/simplekml/blob/master/LICENSE.txt
-
-********************************************************************************
 PACKAGE/COMPONENT: smopy:0.0.8
 LICENSE TYPE:      BSD 3-Clause
 ********************************************************************************
