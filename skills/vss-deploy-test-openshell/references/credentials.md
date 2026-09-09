@@ -36,7 +36,7 @@ Run the credential-probe script. It validates each key that is set (`ok` /
 Compare each result with the chosen deployment mode before continuing.
 
 ```bash
-bash skills/vss-deploy-profile-base-lvs/scripts/check_credentials.sh
+bash skills/vss-deploy-test-openshell/scripts/check_credentials.sh
 ```
 
 After the NGC key validates, set **both** `NGC_CLI_API_KEY` and `NGC_API_KEY` to
@@ -99,9 +99,9 @@ Run the skill script:
 
 ```bash
 REMOTE_API_KEY="$NVIDIA_API_KEY" \
-  skills/vss-deploy-profile-base-lvs/scripts/probe_remote_models.sh "$LLM_BASE_URL" "$LLM_NAME"
+  skills/vss-deploy-test-openshell/scripts/probe_remote_models.sh "$LLM_BASE_URL" "$LLM_NAME"
 
-skills/vss-deploy-profile-base-lvs/scripts/probe_remote_models.sh \
+skills/vss-deploy-test-openshell/scripts/probe_remote_models.sh \
   "http://localhost:30081" "nvidia/nvidia-nemotron-nano-9b-v2-dgx-spark"
 ```
 

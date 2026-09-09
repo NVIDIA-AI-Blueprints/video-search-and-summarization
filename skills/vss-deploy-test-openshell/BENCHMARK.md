@@ -1,12 +1,12 @@
 # Evaluation Report
 
-Evaluation of the `vss-deploy-profile-base-lvs` skill before publication through NVSkills-Eval.
+Evaluation of the `vss-deploy-test-openshell` skill before publication through NVSkills-Eval.
 
 This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the skill. The goal is to document whether the skill is safe, discoverable, effective, and useful for agents before it is published for broader workflow use.
 
 ## Evaluation Summary
 
-- Skill: `vss-deploy-profile-base-lvs`
+- Skill: `vss-deploy-test-openshell`
 - Evaluation date: 2026-07-18
 - NVSkills-Eval profile: `external`
 - Environment: `astra-sandbox`
@@ -53,8 +53,8 @@ Tier 1 validation passed with observations. NVSkills-Eval ran 1 checks and found
 
 Top findings:
 
-- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-deploy-profile-base-lvs/SKILL.md`)
-- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-profile-base-lvs/SKILL.md`)
+- MEDIUM SCHEMA/body_recommended_section: Missing recommended section: '## Examples' (`skills/vss-deploy-test-openshell/SKILL.md`)
+- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/vss-deploy-test-openshell/SKILL.md`)
 
 ## Tier 2: Deduplication Summary
 

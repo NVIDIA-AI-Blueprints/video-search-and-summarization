@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Credential probes for vss-deploy-profile-base-lvs. Validates the keys a deploy needs
+# Credential probes for vss-deploy-test-openshell. Validates the keys a deploy needs
 # (NGC / NVIDIA_API_KEY / HF_TOKEN) against their services so a bad key fails in
 # seconds, not after a cold NIM start. Read-only: it reads env vars and curls —
 # it does NOT write generated.env (the skill writes the resolved key per

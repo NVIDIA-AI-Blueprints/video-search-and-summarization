@@ -1,6 +1,6 @@
 {
   "skills": [
-    "vss-deploy-profile-base-lvs"
+    "vss-deploy-test-openshell"
   ],
   "resources": {
     "platforms": {
@@ -11,7 +11,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS **warehouse** agents variant with `BP_PROFILE=bp_wh` and `MODE=2d` on this two-GPU {{platform}} host. Use remote LLM. Get the App Data from nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0. Use the `/vss-deploy-profile-base-lvs` skill end-to-end and autonomously.",
+      "query": "Deploy the VSS **warehouse** agents variant with `BP_PROFILE=bp_wh` and `MODE=2d` on this two-GPU {{platform}} host. Use remote LLM. Get the App Data from nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0. Use the `/vss-deploy-test-openshell` skill end-to-end and autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
         "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",

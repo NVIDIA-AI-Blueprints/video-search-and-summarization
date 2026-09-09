@@ -1,5 +1,5 @@
 ---
-name: vss-deploy-profile-base-lvs
+name: vss-deploy-test-openshell
 description: Use when the user asks to select, configure, deploy, verify, debug, or tear down only the VSS base or lvs profiles. For search, alerts, warehouse, or edge-only workflows, use vss-deploy-profile. Not for standalone microservices — use the vss-deploy-* skill.
 license: Apache-2.0
 metadata:
@@ -63,7 +63,7 @@ The deployment flow is always: copy `overrides.env` to `generated.env`, apply ov
 3. **System prerequisites (GPU driver, Docker, NVIDIA Container Toolkit, kernel sysctls, and — if `ufw` is active — the [Docker-bridge→host firewall allow](references/prerequisites.md#firewall) so bridge NIMs can fetch clips from host-mode VST)** — full checks in [`references/prerequisites.md`](references/prerequisites.md). Canonical hardware/driver matrix is the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html).
 
 The auto-detect snippet (git-root, then a common-path probe gated on
-`deploy/docker/compose.yml` + `dev-profile.sh` + `skills/vss-deploy-profile-base-lvs`)
+`deploy/docker/compose.yml` + `dev-profile.sh` + `skills/vss-deploy-test-openshell`)
 lives in [`references/prerequisites.md`](references/prerequisites.md#repo-detect).
 Export the resolved `$REPO`; if detection fails, ask the user for the checkout path.
 
@@ -250,7 +250,7 @@ Normalize - drop optional dependencies for services filtered out from resolved.y
 
 ```bash
 # From the repo root
-uv run skills/vss-deploy-profile-base-lvs/scripts/normalize_resolved_yml.py "$REPO/deploy/docker/resolved.yml"
+uv run skills/vss-deploy-test-openshell/scripts/normalize_resolved_yml.py "$REPO/deploy/docker/resolved.yml"
 ```
 If `uv` isn't on the host, install it once with `curl -LsSf https://astral.sh/uv/install.sh | sh` (no root needed).
 **Re-validate** before `up -d`:

@@ -24,7 +24,7 @@ If `resolved.yml` does not exist, return to `SKILL.md` Step 3 and run the compos
 
 | Symptom | Grep / check | Likely cause | Corrective action |
 |---|---|---|---|
-| REST call / endpoint returns connection refused | `curl -sf http://<host>:<port>/docs` or `/health`; `docker compose ps` | Target microservice is not running — crashed, never started, or wrong port. | Probe `/docs` or `/health`; if down, check the container logs, then redeploy via `vss-deploy-profile-base-lvs` or the matching `vss-deploy-*` skill. |
+| REST call / endpoint returns connection refused | `curl -sf http://<host>:<port>/docs` or `/health`; `docker compose ps` | Target microservice is not running — crashed, never started, or wrong port. | Probe `/docs` or `/health`; if down, check the container logs, then redeploy via `vss-deploy-test-openshell` or the matching `vss-deploy-*` skill. |
 | `resolved.yml` contains `${...}` | `grep -n '\${' "$REPO/deploy/docker/resolved.yml"` | Compose did not see required env values such as the selected `COMPOSE_PROFILES_WH_*` list or the `LLM_MODE` / `VLM_MODE` model selectors. This can leave the deployment empty or omit the selected NIM. | Fix the missing values in the profile `generated.env`, regenerate `resolved.yml`, re-run the grep check, then deploy. Full procedure under "Unexpanded `${...}`" below. |
 | `docker compose up` says no `resolved.yml` | `test -f "$REPO/deploy/docker/resolved.yml"` | The dry-run step was skipped. | Run `docker compose --env-file "$ENV_SRC" --env-file "$ENV_GEN" config > "$REPO/deploy/docker/resolved.yml"` first. |
 | NIM container is up but `/generate` or model calls time out | `docker logs <nim-container> --tail 200` and `curl -sf http://<host>:<port>/v1/models` | NIM cold start or model still loading. | Keep polling `/v1/models` or the service health endpoint before retrying the agent request. Do not restart a loading NIM unless logs show a hard failure. |
@@ -100,7 +100,7 @@ if [ "${PROFILE:-}" = "search" ] || [ "${BP_PROFILE:-}" = "bp_developer_search" 
 elif [ "${VLM_MODE:-}" = "remote" ]; then
   echo "VLM_MODE=remote — skip localhost:30082; probing ${VLM_BASE_URL:-<remote-vlm-base-url>}/v1/models"
   REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
-    "$REPO/skills/vss-deploy-profile-base-lvs/scripts/probe_remote_models.sh" "$VLM_BASE_URL" "${VLM_NAME:-}"
+    "$REPO/skills/vss-deploy-test-openshell/scripts/probe_remote_models.sh" "$VLM_BASE_URL" "${VLM_NAME:-}"
 else
   curl -sf http://localhost:30082/v1/models | python3 -m json.tool
 fi
@@ -109,7 +109,7 @@ fi
 if [ "${LLM_MODE:-}" = "remote" ]; then
   echo "LLM_MODE=remote — skip localhost:30081; probing ${LLM_BASE_URL:-<remote-llm-base-url>}/v1/models"
   REMOTE_API_KEY="${NVIDIA_API_KEY:-}" \
-    "$REPO/skills/vss-deploy-profile-base-lvs/scripts/probe_remote_models.sh" "$LLM_BASE_URL" "${LLM_NAME:-}"
+    "$REPO/skills/vss-deploy-test-openshell/scripts/probe_remote_models.sh" "$LLM_BASE_URL" "${LLM_NAME:-}"
 else
   curl -sf http://localhost:30081/v1/models | python3 -m json.tool
 fi

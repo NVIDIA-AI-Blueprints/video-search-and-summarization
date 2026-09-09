@@ -31,12 +31,12 @@ files. The dependencies are correctly marked optional in the source; profile
 filtering is what creates the dangling references in the resolved artifact.
 
 This MUST run after `docker compose ... config > resolved.yml` and before
-`docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`. The vss-deploy-profile-base-lvs skill (SKILL.md Step 3d)
+`docker compose --env-file <stable-env> --env-file <generated-env> -f resolved.yml up -d`. The vss-deploy-test-openshell skill (SKILL.md Step 3d)
 calls this as part of every deploy.
 
 Usage
 -----
-    uv run skills/vss-deploy-profile-base-lvs/scripts/normalize_resolved_yml.py [path/to/resolved.yml]
+    uv run skills/vss-deploy-test-openshell/scripts/normalize_resolved_yml.py [path/to/resolved.yml]
         # default path: ./resolved.yml in CWD
         # PEP 723 inline metadata declares pyyaml; uv pulls it into an
         # ephemeral env on demand, so no `pip install` on the host is needed.

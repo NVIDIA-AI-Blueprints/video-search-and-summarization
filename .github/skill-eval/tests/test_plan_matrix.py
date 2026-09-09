@@ -238,9 +238,9 @@ class RealSpecCorpus(unittest.TestCase):
                 "a40-1g": 12,
                 "a40-2g": 5,
                 # 1-GPU base + lvs for both vss-deploy-profile and
-                # vss-deploy-profile-base-lvs.
+                # vss-deploy-test-openshell.
                 "h200-1g": 4,
-                # vss-deploy-profile-base-lvs warehouse on 2-GPU H200.
+                # vss-deploy-test-openshell warehouse on 2-GPU H200.
                 "h200-2g": 1,
                 "rtxpro6000-2g": 12,
             },
@@ -796,9 +796,9 @@ class OpenshellGpuFleet(unittest.TestCase):
                 "a40-1g": 12,
                 "a40-2g": 5,
                 # 1-GPU base + lvs for both vss-deploy-profile and
-                # vss-deploy-profile-base-lvs.
+                # vss-deploy-test-openshell.
                 "h200-1g": 4,
-                # vss-deploy-profile-base-lvs warehouse on 2-GPU H200.
+                # vss-deploy-test-openshell warehouse on 2-GPU H200.
                 "h200-2g": 1,
                 "rtxpro6000-2g": 12,
             },

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Generate Harbor tasks for VSS vss-deploy-profile-base-lvs skill evaluation.
+"""Generate Harbor tasks for VSS vss-deploy-test-openshell skill evaluation.
 
 One task per (profile × platform). The adapter does **not** pick LLM/VLM
-placement — the `/vss-deploy-profile-base-lvs` skill reads `LLM_REMOTE_URL`/`VLM_REMOTE_URL`
+placement — the `/vss-deploy-test-openshell` skill reads `LLM_REMOTE_URL`/`VLM_REMOTE_URL`
 (forwarded by `brev_env.py`) plus what's locally available and decides at
 runtime. Specs declare `gpu_count` per platform; that's the only
 trial-level resource hint.
@@ -16,29 +16,29 @@ Matrix:
                is a dedicated two-GPU H200 job)
 
 Directory layout:
-    .github/skill-eval/datasets/vss-deploy-profile-base-lvs/<profile>/<platform_short>/
+    .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
         instruction.md, task.toml, tests/, solution/, skills/, environment/
 
 Usage from the repository root:
     # Generate every (profile, platform) the specs declare
-    python3 .github/skill-eval/adapters/vss-deploy-profile-base-lvs/generate.py \\
-        --output-dir .github/skill-eval/datasets/vss-deploy-profile-base-lvs \\
-        --skill-dir skills/vss-deploy-profile-base-lvs
+    python3 .github/skill-eval/adapters/vss-deploy-test-openshell/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-deploy-test-openshell \\
+        --skill-dir skills/vss-deploy-test-openshell
 
     # One profile
-    python3 .github/skill-eval/adapters/vss-deploy-profile-base-lvs/generate.py \\
-        --output-dir .github/skill-eval/datasets/vss-deploy-profile-base-lvs \\
-        --skill-dir skills/vss-deploy-profile-base-lvs --profile base
+    python3 .github/skill-eval/adapters/vss-deploy-test-openshell/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-deploy-test-openshell \\
+        --skill-dir skills/vss-deploy-test-openshell --profile base
 
     # One platform
-    python3 .github/skill-eval/adapters/vss-deploy-profile-base-lvs/generate.py \\
-        --output-dir .github/skill-eval/datasets/vss-deploy-profile-base-lvs \\
-        --skill-dir skills/vss-deploy-profile-base-lvs --platform RTXPRO6000BW
+    python3 .github/skill-eval/adapters/vss-deploy-test-openshell/generate.py \\
+        --output-dir .github/skill-eval/datasets/vss-deploy-test-openshell \\
+        --skill-dir skills/vss-deploy-test-openshell --platform RTXPRO6000BW
 
 Run with Harbor:
     export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
     uvx harbor run --environment-import-path "envs.brev_env:BrevEnvironment" \\
-        -p .github/skill-eval/datasets/vss-deploy-profile-base-lvs/base -a claude-code -n 1
+        -p .github/skill-eval/datasets/vss-deploy-test-openshell/base -a claude-code -n 1
 """
 
 from __future__ import annotations
@@ -132,9 +132,9 @@ PLATFORMS: dict[str, dict] = {
 # Eval-profile key (the dict key) is the spec/dataset name. Profile-level
 # fields:
 #   - description      → human label for task.toml
-#   - profile          → underlying `/vss-deploy-profile-base-lvs -p <profile>` arg (default:
+#   - profile          → underlying `/vss-deploy-test-openshell -p <profile>` arg (default:
 #                        the dict key itself when this field is omitted)
-#   - deploy_mode      → value of `/vss-deploy-profile-base-lvs -m <mode>` for this eval variant
+#   - deploy_mode      → value of `/vss-deploy-test-openshell -m <mode>` for this eval variant
 #                        (only the alerts profile splits this way today)
 #
 # `gpu_count` is owned by the spec — it's the trial's total GPU need. The
@@ -155,7 +155,7 @@ PROFILES: dict[str, dict] = {
 
 
 def deploy_profile(eval_profile: str) -> str:
-    """Resolve the eval-profile key to its actual `/vss-deploy-profile-base-lvs -p <profile>`
+    """Resolve the eval-profile key to its actual `/vss-deploy-test-openshell -p <profile>`
     argument. Eval keys like `alerts_cv` map to `-p alerts`; plain keys
     like `base` map to themselves."""
     override = PROFILES.get(eval_profile, {}).get("profile")
@@ -201,7 +201,7 @@ PREAMBLE = (
 
 
 def generate_instruction(profile: str, platform: str, spec_query: str | None = None) -> str:
-    """Short, query-style instruction. The `/vss-deploy-profile-base-lvs` skill reads the host
+    """Short, query-style instruction. The `/vss-deploy-test-openshell` skill reads the host
     and env vars and picks the actual LLM/VLM placement.
 
     When a spec_query is provided (the `expects[0].query` from the eval spec, with
@@ -227,7 +227,7 @@ def generate_instruction(profile: str, platform: str, spec_query: str | None = N
         "",
         verb_phrase,
         "",
-        "Use the `/vss-deploy-profile-base-lvs` skill.",
+        "Use the `/vss-deploy-test-openshell` skill.",
     ]) + "\n"
 
 
@@ -290,7 +290,7 @@ def generate_test_script(spec_name: str, profile: str) -> str:
     del profile  # retained in signature for caller compatibility
     return (
         "#!/bin/bash\n"
-        "# vss-deploy-profile-base-lvs verifier: delegates to the generic LLM-as-judge\n"
+        "# vss-deploy-test-openshell verifier: delegates to the generic LLM-as-judge\n"
         "# (.github/skill-eval/verifiers/generic_judge.py). Shell-wrapped\n"
         "# checks (curl/docker/grep) never call the LLM — only\n"
         "# trajectory/response-style checks pay the LLM cost.\n"
@@ -314,7 +314,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
     """Gold solution: sync repo to PR head, configure profile .env, deploy.
 
     No `LLM_MODE`/`VLM_MODE`/`LLM_BASE_URL`/`VLM_BASE_URL` overrides —
-    the agent's `/vss-deploy-profile-base-lvs` skill reads the forwarded env vars
+    the agent's `/vss-deploy-test-openshell` skill reads the forwarded env vars
     (`LLM_REMOTE_URL`, `VLM_REMOTE_URL`, `NGC_CLI_API_KEY`) and picks
     placement itself.
 
@@ -496,22 +496,22 @@ def generate_task(
     # -- task.toml --
     meta_lines = [
         "[task]",
-        f'name = "nvidia-vss/vss-deploy-profile-base-lvs-{profile}-{task_id}"',
+        f'name = "nvidia-vss/vss-deploy-test-openshell-{profile}-{task_id}"',
         f'description = "{profile_def["description"]} on {platform}"',
-        f'keywords = ["vss-deploy-profile-base-lvs", "{profile}", "{platform}"]',
+        f'keywords = ["vss-deploy-test-openshell", "{profile}", "{platform}"]',
         "",
         "[agent]",
         "timeout_sec = 600.0",
         "",
         "[environment]",
         '# Harbor copies this into $CLAUDE_CONFIG_DIR/skills so the agent',
-        '# can invoke /vss-deploy-profile-base-lvs via the skill.',
+        '# can invoke /vss-deploy-test-openshell via the skill.',
         'skills_dir = "/skills"',
         "",
         "[metadata]",
         # No `profile = "..."` is emitted — nothing in the harness reads
         # it anymore. The trial's first agent turn invokes
-        # /vss-deploy-profile-base-lvs -p X via its own prompt; the prior
+        # /vss-deploy-test-openshell -p X via its own prompt; the prior
         # _ensure_prerequisite_deployed pre-deploy hook is gone. The
         # `platform` key below is purely informational.
         f'platform = "{platform}"',
@@ -529,7 +529,7 @@ def generate_task(
         f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
         f'brev_search = "{platform_spec["brev_search"]}"',
         "# Disk + driver requirements — worst-case (covers a deploy with",
-        "# both LLM and VLM running as local NIMs). The /vss-deploy-profile-base-lvs skill",
+        "# both LLM and VLM running as local NIMs). The /vss-deploy-test-openshell skill",
         "# decides actual placement from forwarded env (LLM_REMOTE_URL,",
         "# VLM_REMOTE_URL); we don't try to second-guess it here.",
         f'min_root_disk_gb = {_DEFAULT_MIN_ROOT_DISK_GB}',
@@ -573,7 +573,7 @@ def generate_task(
     else:
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
-            f"echo 'FAIL: no eval spec at skills/vss-deploy-profile-base-lvs/evals/{profile}.json' >&2\n"
+            f"echo 'FAIL: no eval spec at skills/vss-deploy-test-openshell/evals/{profile}.json' >&2\n"
             "mkdir -p /logs/verifier\n"
             "echo 0 > /logs/verifier/reward.txt\n"
             "exit 0\n"
@@ -586,9 +586,9 @@ def generate_task(
         generate_solve_script(profile, platform),
     )
 
-    # -- skills/vss-deploy-profile-base-lvs/ --
+    # -- skills/vss-deploy-test-openshell/ --
     if skill_dir and skill_dir.exists():
-        skill_dest = task_dir / "skills" / "vss-deploy-profile-base-lvs"
+        skill_dest = task_dir / "skills" / "vss-deploy-test-openshell"
         if skill_dest.exists():
             shutil.rmtree(skill_dest)
         shutil.copytree(skill_dir, skill_dest)
@@ -663,7 +663,7 @@ def expand_matrix(
             continue
         spec_matrix = _spec_platforms_for(profile, skill_dir)
         if spec_matrix is None:
-            skipped.append((profile, "-", "no spec at skills/vss-deploy-profile-base-lvs/evals/"
+            skipped.append((profile, "-", "no spec at skills/vss-deploy-test-openshell/evals/"
                                           f"{profile}.json with resources.platforms"))
             continue
         for platform, spec_gpu_count in spec_matrix.items():
@@ -684,7 +684,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", required=True, help="Dataset output root")
-    parser.add_argument("--skill-dir", default=None, help="Path to skills/vss-deploy-profile-base-lvs")
+    parser.add_argument("--skill-dir", default=None, help="Path to skills/vss-deploy-test-openshell")
     selector = parser.add_mutually_exclusive_group()
     selector.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
     selector.add_argument(

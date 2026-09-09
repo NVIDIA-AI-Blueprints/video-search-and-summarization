@@ -17,7 +17,7 @@ run the cache-cleaner install and verification block in
 Auto-detect the `video-search-and-summarization/` checkout and export it as
 `$REPO` before asking the user. Probe the git root first, then common paths,
 accepting a candidate only if it carries `deploy/docker/compose.yml`,
-`deploy/docker/scripts/dev-profile.sh`, and `skills/vss-deploy-profile-base-lvs/`:
+`deploy/docker/scripts/dev-profile.sh`, and `skills/vss-deploy-test-openshell/`:
 
 ```bash
 REPO="${REPO:-}"
@@ -39,7 +39,7 @@ if [ -z "$REPO" ]; then
     if [ -n "$candidate" ] \
       && [ -f "$candidate/deploy/docker/compose.yml" ] \
       && [ -x "$candidate/deploy/docker/scripts/dev-profile.sh" ] \
-      && [ -d "$candidate/skills/vss-deploy-profile-base-lvs" ]; then
+      && [ -d "$candidate/skills/vss-deploy-test-openshell" ]; then
       REPO="$candidate"
       break
     fi
