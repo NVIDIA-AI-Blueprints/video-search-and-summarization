@@ -155,6 +155,7 @@ def _make_mock_args(**overrides):
         port="8000",
         max_asset_storage_size=None,
         max_live_streams=2,
+        max_async_workers=4,
         log_level="info",
         disable_ca_rag=True,
         summarization_query="Summarize",
@@ -201,6 +202,45 @@ class TestViaServerInit:
 
     def test_sse_active_clients_empty(self, mock_via_server):
         assert mock_via_server._sse_active_clients == {}
+
+    def test_async_workers_are_independent_of_live_stream_limit(self, mock_via_server):
+        assert mock_via_server._async_executor._max_workers == 4
+
+
+@pytest.mark.unit
+class TestSseCleanup:
+    def test_generator_close_requests_cleanup(self, mock_via_server):
+        async def messages():
+            yield "first"
+            yield "second"
+
+        async def close_after_first():
+            wrapped = mock_via_server._cleanup_sse_generator(messages(), "source-1", "request-1")
+            assert await anext(wrapped) == "first"
+            await wrapped.aclose()
+
+        mock_via_server._sse_active_clients["source-1"] = 1
+        asyncio.run(close_after_first())
+
+        assert "source-1" not in mock_via_server._sse_active_clients
+        mock_via_server._stream_handler.check_status_remove_req_id.assert_called_once_with(
+            "request-1"
+        )
+
+    def test_cancelled_non_stream_wait_requests_cleanup(self, mock_via_server):
+        async def cancel_wait():
+            mock_via_server._stream_handler.is_request_done.return_value = False
+            task = asyncio.create_task(mock_via_server._wait_for_request_done("request-2"))
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(cancel_wait())
+
+        mock_via_server._stream_handler.check_status_remove_req_id.assert_called_once_with(
+            "request-2"
+        )
 
 
 @pytest.mark.unit

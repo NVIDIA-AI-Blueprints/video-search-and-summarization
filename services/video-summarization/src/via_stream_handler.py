@@ -202,6 +202,9 @@ class RequestInfo:
         self.custom_metadata = None
         self.delete_external_collection = False
         self.error_message = ""
+        # Set when an HTTP/SSE consumer disconnects before processing reaches
+        # a terminal state. The processing path performs deferred cleanup.
+        self.cleanup_requested = False
         self.schema = None
         self.batch_response_method = None
         self.scenario = None
@@ -398,6 +401,23 @@ class ViaStreamHandler:
                 "vlm_latency_seconds_latest", "Latest VLM processing latency in seconds"
             )
 
+            self.context_managers_created = prom.Gauge(
+                "context_managers_created",
+                "Number of CA-RAG context-manager processes created by this replica",
+            )
+            self.context_managers_available = prom.Gauge(
+                "context_managers_available",
+                "Number of CA-RAG context managers available for new requests",
+            )
+            self.context_managers_in_use = prom.Gauge(
+                "context_managers_in_use",
+                "Number of CA-RAG context managers currently leased",
+            )
+            self.context_manager_rejections = prom.Counter(
+                "context_manager_rejections_total",
+                "Requests rejected because the CA-RAG context-manager pool is exhausted",
+            )
+
         def unregister(self):
             prom.REGISTRY.unregister(self.queries_processed)
             prom.REGISTRY.unregister(self.queries_pending)
@@ -414,6 +434,10 @@ class ViaStreamHandler:
             prom.REGISTRY.unregister(self.ca_rag_latency_latest)
             prom.REGISTRY.unregister(self.e2e_latency_latest)
             prom.REGISTRY.unregister(self.vlm_pipeline_latency_latest)
+            prom.REGISTRY.unregister(self.context_managers_created)
+            prom.REGISTRY.unregister(self.context_managers_available)
+            prom.REGISTRY.unregister(self.context_managers_in_use)
+            prom.REGISTRY.unregister(self.context_manager_rejections)
 
     def __init__(self, args) -> None:
         """Initialize the VIA Stream Handler"""
@@ -450,7 +474,18 @@ class ViaStreamHandler:
         self.NUM_CA_RAG_PROCESSES_LAUNCH = 10
         self.num_ctx_mgr = 0
         self.num_qa_ctx_mgr = 0
-        self.MAX_STREAMS = self._args.max_live_streams
+        self.MAX_CONTEXT_MANAGERS = self._args.max_context_managers
+        # Reset work can block on CA-RAG/DB teardown. Keep it off request and
+        # output threads while bounding the number of concurrent cleanups.
+        self._context_cleanup_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max(1, min(8, self.MAX_CONTEXT_MANAGERS)),
+            thread_name_prefix="vss-context-cleanup",
+        )
+        self._metrics.context_managers_created.set_function(lambda: self.num_ctx_mgr)
+        self._metrics.context_managers_available.set_function(lambda: len(self._ctx_mgr_pool))
+        self._metrics.context_managers_in_use.set_function(
+            lambda: max(0, self.num_ctx_mgr - len(self._ctx_mgr_pool))
+        )
 
         self._vlm_pipeline = RtviVlmClient(args)
         logger.info(
@@ -553,13 +588,8 @@ class ViaStreamHandler:
             # Create ctx mgr pool only if the pool is empty
             if len(self._ctx_mgr_pool) > 0:
                 return
-            if self.num_ctx_mgr >= self.MAX_STREAMS:
-                raise ViaException(
-                    "Server is already processing maximum number of live streams"
-                    f" ({self._args.max_live_streams})",
-                    "ServerBusy",
-                    503,
-                )
+            if self.num_ctx_mgr >= self.MAX_CONTEXT_MANAGERS:
+                return
             logger.info(  # noqa: BLK100
                 f"Context Manager Process Pool is empty,"
                 f" adding new processes from index {self.num_ctx_mgr}"
@@ -570,8 +600,38 @@ class ViaStreamHandler:
                 )
                 os.environ["CA_RAG_ENABLE_WARMUP"] = "false"
                 self.num_ctx_mgr = self.num_ctx_mgr + 1
-                if self.num_ctx_mgr >= self.MAX_STREAMS:
+                if self.num_ctx_mgr >= self.MAX_CONTEXT_MANAGERS:
                     return
+
+    def _acquire_ctx_mgr(self, config, *, record_rejection=True):
+        """Borrow a context manager or reject excess work immediately."""
+        with self._lock:
+            self._create_ctx_mgr_pool(config)
+            if self._ctx_mgr_pool:
+                return self._ctx_mgr_pool.pop()
+
+        if record_rejection:
+            self._metrics.context_manager_rejections.inc()
+        raise ViaException(
+            "Server is already processing the maximum number of concurrent "
+            f"summarization requests ({self.MAX_CONTEXT_MANAGERS} context managers)",
+            "ServerBusy",
+            503,
+        )
+
+    def _release_ctx_mgr(self, ctx_mgr) -> None:
+        """Return a context-manager lease to this replica's pool."""
+        if ctx_mgr is None:
+            return
+        with self._lock:
+            self._ctx_mgr_pool.append(ctx_mgr)
+
+    def _release_qa_ctx_mgr(self, ctx_mgr) -> None:
+        """Return a QA context-manager lease to its separate pool."""
+        if ctx_mgr is None:
+            return
+        with self._lock:
+            self._qa_ctx_mgr_pool.append(ctx_mgr)
 
     def _create_qa_ctx_mgr_pool(self, config):
         """Create a pool of ContextManagers configured only for QA (ingestion + retriever)."""
@@ -597,7 +657,7 @@ class ViaStreamHandler:
                 )
                 os.environ["CA_RAG_ENABLE_WARMUP"] = "false"
                 self.num_qa_ctx_mgr += 1
-                if self.num_qa_ctx_mgr >= self.MAX_STREAMS:
+                if self.num_qa_ctx_mgr >= self.MAX_CONTEXT_MANAGERS:
                     return
 
     @staticmethod
@@ -703,6 +763,9 @@ class ViaStreamHandler:
                 self._update_completion_metrics(req_info, chunk_responses)
         else:
             if req_info.status == RequestInfo.Status.FAILED:
+                req_info.progress = 100
+                if req_info.end_time is None:
+                    req_info.end_time = time.time()
                 logger.info(
                     "Summary generation failed for video file request %s", req_info.request_id
                 )
@@ -722,13 +785,19 @@ class ViaStreamHandler:
 
             self._metrics.queries_processed.inc()
             self._metrics.queries_pending.dec()
-        req_info.status_event.set()
         # For live streams _process_output runs per intermediate chunk
         # (is_live_stream_ended=False) and once at end-of-stream (True). Only end
         # the E2E span on the final call so the live span isn't truncated to the
         # first chunk. File requests are never live, so the span always ends here.
-        if not req_info.is_live or is_live_stream_ended:
+        request_finished = not req_info.is_live or is_live_stream_ended
+        if request_finished:
             self._end_e2e_span(req_info)
+            # Response metadata stays available for the HTTP/SSE consumer,
+            # but its process leases can be detached and reset independently.
+            self._release_request_contexts(req_info)
+        req_info.status_event.set()
+        if req_info.cleanup_requested:
+            self.check_status_remove_req_id(req_info.request_id)
 
     def _get_cv_metadata_for_chunk(self, json_file, frame_times):
         cv_meta = []
@@ -1676,7 +1745,10 @@ class ViaStreamHandler:
             self._end_vlm_pipeline_span(req_info)
             # This error exit returns before _process_output runs, so end the E2E span here too.
             self._end_e2e_span(req_info)
+            self._release_request_contexts(req_info)
             req_info.status_event.set()
+            if req_info.cleanup_requested:
+                self.check_status_remove_req_id(req_info.request_id)
             return
         except Exception as ex:
             logger.error("RTVI query %s failed: %s", req_info.request_id, ex)
@@ -1694,7 +1766,10 @@ class ViaStreamHandler:
             self._end_vlm_pipeline_span(req_info)
             # This error exit returns before _process_output runs, so end the E2E span here too.
             self._end_e2e_span(req_info)
+            self._release_request_contexts(req_info)
             req_info.status_event.set()
+            if req_info.cleanup_requested:
+                self.check_status_remove_req_id(req_info.request_id)
             return
 
         req_info.chunk_count = chunk_idx
@@ -1876,15 +1951,13 @@ class ViaStreamHandler:
 
         ctx_mgr = None
         try:
-            with self._lock:
-                self._create_ctx_mgr_pool(self._ca_rag_config)
-                if not self._ctx_mgr_pool:
-                    logger.warning(
-                        "_store_event_prompt_in_db: no ctx_mgr available for %s",
-                        asset_id,
-                    )
-                    return
-                ctx_mgr = self._ctx_mgr_pool.pop()
+            try:
+                ctx_mgr = self._acquire_ctx_mgr(
+                    self._ca_rag_config, record_rejection=False
+                )
+            except ViaException as ex:
+                logger.warning("_store_event_prompt_in_db: %s", ex)
+                return
 
             config = deepcopy(self._ca_rag_config)
             config["context_manager"]["uuid"] = asset_id
@@ -1954,8 +2027,7 @@ class ViaStreamHandler:
             )
         finally:
             if ctx_mgr is not None:
-                with self._lock:
-                    self._ctx_mgr_pool.append(ctx_mgr)
+                self._release_ctx_mgr(ctx_mgr)
 
     def summarize_stream(self, request: StreamSummarizeRequest, trace_context=None):
         """Summarize a live stream by aggregating captions from Elasticsearch via CA-RAG.
@@ -2029,15 +2101,7 @@ class ViaStreamHandler:
 
         ctx_mgr = None
         try:
-            with self._lock:
-                self._create_ctx_mgr_pool(self._ca_rag_config)
-                if not self._ctx_mgr_pool:
-                    raise ViaException(
-                        "No context manager available in pool",
-                        "InternalServerError",
-                        500,
-                    )
-                ctx_mgr = self._ctx_mgr_pool.pop()
+            ctx_mgr = self._acquire_ctx_mgr(self._ca_rag_config)
 
             config = deepcopy(self._ca_rag_config)
             config["context_manager"]["uuid"] = req_info.source_id
@@ -2130,8 +2194,7 @@ class ViaStreamHandler:
                         )
                     finally:
                         if qa_ctx is not None:
-                            with self._lock:
-                                self._qa_ctx_mgr_pool.append(qa_ctx)
+                            self._release_qa_ctx_mgr(qa_ctx)
 
                 req_info.response = [
                     RequestInfo.Response(
@@ -2164,7 +2227,7 @@ class ViaStreamHandler:
                                 req_info.source_id,
                                 reset_ex,
                             )
-                    self._ctx_mgr_pool.append(ctx_mgr)
+                    self._release_ctx_mgr(ctx_mgr)
 
         req_info.end_time = time.time()
         req_info.progress = 100
@@ -2276,8 +2339,7 @@ class ViaStreamHandler:
             ) from ex
         finally:
             if qa_ctx is not None:
-                with self._lock:
-                    self._qa_ctx_mgr_pool.append(qa_ctx)
+                self._release_qa_ctx_mgr(qa_ctx)
 
     def _publish_aggregate_to_kafka(
         self,
@@ -2453,11 +2515,12 @@ class ViaStreamHandler:
 
         ctx_mgr = None
         try:
-            with self._lock:
-                self._create_ctx_mgr_pool(self._ca_rag_config)
-                if not self._ctx_mgr_pool:
-                    return {"error": "no context manager available in pool"}
-                ctx_mgr = self._ctx_mgr_pool.pop()
+            try:
+                ctx_mgr = self._acquire_ctx_mgr(
+                    self._ca_rag_config, record_rejection=False
+                )
+            except ViaException as ex:
+                return {"error": str(ex)}
 
             config = deepcopy(self._ca_rag_config)
             config["context_manager"]["uuid"] = asset_id
@@ -2470,27 +2533,12 @@ class ViaStreamHandler:
             return {"error": str(ex)}
         finally:
             if ctx_mgr is not None:
-                with self._lock:
-                    self._ctx_mgr_pool.append(ctx_mgr)
+                self._release_ctx_mgr(ctx_mgr)
 
-    def get_ctx_mgr(self, source_id: str) -> None:
-        """
-        Return a ContextManager associated with the given source_id.
-        """
-        with self._lock:
-            for _, request_info in self._request_info_map.items():
-                if request_info.source_id == source_id:
-                    # Remove old data for the same source
-                    if request_info.summarize:
-                        request_info._ctx_mgr.reset(
-                            {
-                                "summarization": {"uuid": request_info.source_id},
-                            }
-                        )
-                    return request_info._ctx_mgr
-            # If ctx mgr not found in request info map
-            logger.info(f"Getting new Context Manager for {source_id}")
-            return self._ctx_mgr_pool.pop()
+    def get_ctx_mgr(self, source_id: str):
+        """Return a dedicated ContextManager lease for ``source_id``."""
+        logger.info("Getting new Context Manager for %s", source_id)
+        return self._acquire_ctx_mgr(self._ca_rag_config)
 
     def remove_request_id(self, request_id: str) -> None:
         """Remove request info for a single request ID"""
@@ -2637,9 +2685,7 @@ class ViaStreamHandler:
         req_info.objects_of_interest = query.objects_of_interest
         req_info.enable_qa = getattr(query, "enable_qa", False)
         if not self._args.disable_ca_rag and not skip_ca_rag:
-            with self._lock:
-                self._create_ctx_mgr_pool(self._ca_rag_config)
-                req_info._ctx_mgr = self.get_ctx_mgr(req_info.source_id)
+            req_info._ctx_mgr = self.get_ctx_mgr(req_info.source_id)
             try:
                 config = deepcopy(self._ca_rag_config)
                 config["context_manager"]["uuid"] = req_info.source_id
@@ -2648,9 +2694,8 @@ class ViaStreamHandler:
                 logger.error(traceback.format_exc())
                 logger.error("Query failed for %s - %s", req_info.request_id, str(ex))
                 if req_info._ctx_mgr is not None:
-                    with self._lock:
-                        self._ctx_mgr_pool.append(req_info._ctx_mgr)
-                        req_info._ctx_mgr = None
+                    self._release_ctx_mgr(req_info._ctx_mgr)
+                    req_info._ctx_mgr = None
                 return req_info.request_id
             # Reset the context manager for the first time
             if self.first_init and os.environ.get(
@@ -2685,9 +2730,15 @@ class ViaStreamHandler:
                     req_info._qa_ctx_mgr.configure(config=qa_config)
                     logger.info("Borrowed QA ctx_mgr for source_id=%s", req_info.source_id)
                 except ViaException:
+                    self._release_qa_ctx_mgr(req_info._qa_ctx_mgr)
+                    req_info._qa_ctx_mgr = None
+                    self._release_ctx_mgr(req_info._ctx_mgr)
+                    req_info._ctx_mgr = None
                     raise
                 except Exception as ex:
                     logger.error("Failed to configure QA ctx_mgr: %s", ex)
+                    self._release_qa_ctx_mgr(req_info._qa_ctx_mgr)
+                    req_info._qa_ctx_mgr = None
 
         req_info.summarize_top_p = query.summarize_top_p
         req_info.summarize_temperature = query.summarize_temperature
@@ -2988,11 +3039,10 @@ This is very important and you must follow this strictly.
                     ex,
                 )
             finally:
-                with self._lock:
-                    logger.info(
-                        f"Adding Context Manager no.: {ctx_mgr._process_index} back to process pool."
-                    )
-                    self._ctx_mgr_pool.append(ctx_mgr)
+                logger.info(
+                    f"Adding Context Manager no.: {ctx_mgr._process_index} back to process pool."
+                )
+                self._release_ctx_mgr(ctx_mgr)
         try:
             shutil.rmtree(f"/tmp/via/cached_frames/{source_id}")
         except FileNotFoundError:
@@ -3016,6 +3066,10 @@ This is very important and you must follow this strictly.
             except Exception as ex:
                 logger.warning("Error closing Kafka producer: %s", ex)
             self._kafka_producer = None
+
+        cleanup_executor = getattr(self, "_context_cleanup_executor", None)
+        if cleanup_executor is not None:
+            cleanup_executor.shutdown(wait=not force, cancel_futures=force)
 
         self._metrics.unregister()
 
@@ -3091,6 +3145,70 @@ This is very important and you must follow this strictly.
             req_info.response = req_info.response[chunk_response_size:]
         return req_info, response
 
+    def _reset_and_release_ctx_mgr(self, ctx_mgr, req_info: RequestInfo) -> None:
+        """Reset one detached lease, then make it available for reuse."""
+        try:
+            ctx_mgr.reset(
+                {
+                    "summarization": {"uuid": req_info.source_id},
+                    "delete_external_collection": req_info.delete_external_collection,
+                }
+            )
+            if not req_info.is_live:
+                try:
+                    self.drop_collection_for_asset(req_info.source_id, force_legacy=True)
+                except Exception as drop_ex:
+                    logger.warning(
+                        "post-summarize drop_collection_for_asset failed for %s: %s",
+                        req_info.source_id,
+                        drop_ex,
+                    )
+        except Exception as reset_ex:
+            logger.warning(
+                "ctx_mgr.reset failed during request cleanup for source_id=%s: %s",
+                req_info.source_id,
+                reset_ex,
+            )
+        finally:
+            self._release_ctx_mgr(ctx_mgr)
+            logger.info(
+                "Returning Context Manager Process%s to process pool",
+                ctx_mgr._process_index,
+            )
+
+    def _release_request_contexts(self, req_info: RequestInfo) -> None:
+        """Detach a request's process leases exactly once and recycle them."""
+        with self._lock:
+            ctx_mgr = req_info._ctx_mgr
+            qa_ctx_mgr = req_info._qa_ctx_mgr
+            req_info._ctx_mgr = None
+            req_info._qa_ctx_mgr = None
+
+        if ctx_mgr is not None:
+            reset_on_done = os.environ.get(
+                "LVS_DISABLE_DB_RESET_ON_REQUEST_DONE", "false"
+            ).lower() not in ("true", "1")
+            if reset_on_done:
+                executor = getattr(self, "_context_cleanup_executor", None)
+                if executor is None:
+                    self._reset_and_release_ctx_mgr(ctx_mgr, req_info)
+                else:
+                    try:
+                        executor.submit(self._reset_and_release_ctx_mgr, ctx_mgr, req_info)
+                    except RuntimeError:
+                        # Shutdown raced with terminal request cleanup. Avoid
+                        # leaking the detached process lease.
+                        self._reset_and_release_ctx_mgr(ctx_mgr, req_info)
+            else:
+                self._release_ctx_mgr(ctx_mgr)
+
+        if qa_ctx_mgr is not None:
+            self._release_qa_ctx_mgr(qa_ctx_mgr)
+            logger.info(
+                "Returning QA Context Manager Process%s to QA pool",
+                qa_ctx_mgr._process_index,
+            )
+
     def check_status_remove_req_id(self, request_id):
         with self._lock:
             req_info = self._request_info_map.get(request_id, None)
@@ -3098,7 +3216,7 @@ This is very important and you must follow this strictly.
                 return
             # If request for file summarization has completed
             lsinfo = self._live_stream_info_map.get(req_info.source_id)
-            if (
+            cleanup_ready = (
                 (not req_info.is_live and req_info.progress == 100)
                 or (
                     req_info.is_live
@@ -3107,56 +3225,25 @@ This is very important and you must follow this strictly.
                     and len(req_info.response) == 0
                 )
                 or (req_info.is_live and lsinfo is None)
-            ):
-                # Remove only this specific request, not all requests for the same asset
-                # This allows concurrent processing of the same asset by multiple requests
-                self.remove_request_id(request_id)
-                if req_info._ctx_mgr:
-                    if not os.environ.get(
-                        "LVS_DISABLE_DB_RESET_ON_REQUEST_DONE", "false"
-                    ).lower() in [
-                        "true",
-                        "1",
-                    ]:  # noqa: E501
-                        req_info._ctx_mgr.reset(
-                            {
-                                "summarization": {"uuid": req_info.source_id},
-                                "delete_external_collection": req_info.delete_external_collection,
-                            }
-                        )
-                        # Drop the per-file Elasticsearch
-                        # index after the summarize completes so the
-                        # cluster shard pool drains as fast as it fills.
-                        # Strictly file-path only; live-stream summarize
-                        # completion never triggers this drop because
-                        # streams reuse the same source_id across multiple
-                        # /v1/stream_summarize calls. force_legacy=True
-                        # bypasses drop_collection_for_asset's KAFKA_ENABLED
-                        # guard so the legacy in-process file path also
-                        # benefits — both paths create per-file indices.
-                        if not req_info.is_live:
-                            try:
-                                self.drop_collection_for_asset(
-                                    req_info.source_id, force_legacy=True
-                                )
-                            except Exception as drop_ex:
-                                logger.warning(
-                                    "post-summarize drop_collection_for_asset" " failed for %s: %s",
-                                    req_info.source_id,
-                                    drop_ex,
-                                )
-                    self._ctx_mgr_pool.append(req_info._ctx_mgr)
-                    logger.info(
-                        f"Returning Context Manager Process"
-                        f"{req_info._ctx_mgr._process_index} to process pool"
-                    )
-                if req_info._qa_ctx_mgr:
-                    self._qa_ctx_mgr_pool.append(req_info._qa_ctx_mgr)
-                    logger.info(
-                        "Returning QA Context Manager Process%s to QA pool",
-                        req_info._qa_ctx_mgr._process_index,
-                    )
-                    req_info._qa_ctx_mgr = None
+            )
+            if not cleanup_ready:
+                req_info.cleanup_requested = True
+                return
+
+            # Remove this request only; concurrent requests may share an asset ID.
+            self._request_info_map.pop(request_id, None)
+
+        # Usually already detached by the terminal processing path. This also
+        # covers legacy callers that mark progress without _process_output.
+        self._release_request_contexts(req_info)
+
+    def is_request_done(self, request_id):
+        """Return whether a request has completed or failed."""
+        with self._lock:
+            if request_id not in self._request_info_map:
+                raise ViaException(f"No such request-id {request_id}", "InvalidParameterValue", 400)
+            req_info = self._request_info_map[request_id]
+            return req_info.status in [RequestInfo.Status.FAILED, RequestInfo.Status.SUCCESSFUL]
 
     def wait_for_request_done(self, request_id):
         """Wait for request to either complete or fail."""
@@ -3692,6 +3779,21 @@ This is very important and you must follow this strictly.
         """Add VIA Stream Handler arguments to the argument parser"""
 
         parser.add_argument("--max-live-streams", type=int, default=256)
+        parser.add_argument(
+            "--max-context-managers",
+            type=int,
+            default=256,
+            help="Maximum CA-RAG ContextManager processes per service replica",
+        )
+        parser.add_argument(
+            "--max-async-workers",
+            type=int,
+            default=320,
+            help=(
+                "Maximum HTTP offload workers; includes admission headroom above "
+                "the ContextManager limit"
+            ),
+        )
         parser.add_argument("--enable-audio", action="store_true", default=False)
 
         parser.add_argument(

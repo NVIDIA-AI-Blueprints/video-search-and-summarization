@@ -48,6 +48,7 @@ class TestRequestInfo:
         assert ri.progress == 0
         assert ri.response == []
         assert ri.enable_audio is False
+        assert ri.cleanup_requested is False
 
     def test_status_enum_values(self):
         from via_stream_handler import RequestInfo
@@ -261,7 +262,7 @@ def _make_mock_stream_handler():
         handler.default_caption_prompt = "Summarize"
         handler.NUM_CA_RAG_PROCESSES_LAUNCH = 10
         handler.num_ctx_mgr = 0
-        handler.MAX_STREAMS = 4
+        handler.MAX_CONTEXT_MANAGERS = 4
         handler._start_time = time.time()
         # Bypass real __init__; empty-guard needs this (0 => single attempt).
         handler._aggregation_empty_retries = 0
@@ -490,6 +491,7 @@ class TestCheckStatusRemoveReqId:
 
         handler.check_status_remove_req_id(ri.request_id)
         assert ri.request_id in handler._request_info_map
+        assert ri.cleanup_requested is True
 
     def test_ctx_mgr_reset_and_returned_to_pool_when_removed(self):
         from via_stream_handler import RequestInfo
@@ -510,6 +512,25 @@ class TestCheckStatusRemoveReqId:
 
         mock_ctx.reset.assert_called_once()
         assert mock_ctx in handler._ctx_mgr_pool
+
+    def test_reset_is_detached_and_scheduled_off_request_path(self):
+        from via_stream_handler import RequestInfo
+
+        handler = _make_mock_stream_handler()
+        handler._context_cleanup_executor = MagicMock()
+        ri = RequestInfo()
+        ri.source_id = "test-stream"
+        mock_ctx = MagicMock()
+        ri._ctx_mgr = mock_ctx
+
+        with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
+            handler._release_request_contexts(ri)
+
+        assert ri._ctx_mgr is None
+        assert mock_ctx not in handler._ctx_mgr_pool
+        handler._context_cleanup_executor.submit.assert_called_once_with(
+            handler._reset_and_release_ctx_mgr, mock_ctx, ri
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1188,11 +1209,25 @@ class TestPopulateArgumentParser:
         ViaStreamHandler.populate_argument_parser(parser)
         add_calls = [c[0][0] for c in parser.add_argument.call_args_list]
         assert "--max-live-streams" in add_calls
+        assert "--max-context-managers" in add_calls
+        assert "--max-async-workers" in add_calls
         assert "--enable-audio" in add_calls
         assert "--enable-dev-dc-gen" in add_calls
         assert "--max-file-duration" in add_calls
         assert "--disable-ca-rag" in add_calls
         assert "--ca-rag-config" in add_calls
+
+    def test_worker_default_preserves_admission_headroom(self):
+        from argparse import ArgumentParser
+
+        from via_stream_handler import ViaStreamHandler
+
+        parser = ArgumentParser()
+        ViaStreamHandler.populate_argument_parser(parser)
+        args = parser.parse_args([])
+
+        assert args.max_context_managers == 256
+        assert args.max_async_workers == 320
 
 
 # ---------------------------------------------------------------------------
@@ -2084,6 +2119,26 @@ class TestProcessOutputAdditional:
         # Exception is caught internally; status should be FAILED for non-live
         assert ri.status == RequestInfo.Status.FAILED
 
+    def test_terminal_processing_releases_context_before_response_cleanup(self):
+        from via_stream_handler import RequestInfo
+
+        handler = self._make_handler()
+        handler._ctx_mgr_pool = []
+        handler._qa_ctx_mgr_pool = []
+        ri = RequestInfo()
+        ri.status = RequestInfo.Status.FAILED
+        ri.is_live = False
+        ri.source_id = "file-1"
+        ri.start_time = time.time()
+        mock_ctx = MagicMock()
+        ri._ctx_mgr = mock_ctx
+
+        with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "true"}):
+            handler._process_output(ri, False, [])
+
+        assert ri._ctx_mgr is None
+        assert mock_ctx in handler._ctx_mgr_pool
+
 
 # ---------------------------------------------------------------------------
 # _create_ctx_mgr_pool
@@ -2101,9 +2156,8 @@ class TestCreateCtxMgrPool:
         handler._lock = RLock()
         handler._ctx_mgr_pool = []
         handler._args = MagicMock()
-        handler._args.max_live_streams = 4
         handler.num_ctx_mgr = 0
-        handler.MAX_STREAMS = 4
+        handler.MAX_CONTEXT_MANAGERS = 4
         handler.NUM_CA_RAG_PROCESSES_LAUNCH = 2
         return handler
 
@@ -2130,14 +2184,33 @@ class TestCreateCtxMgrPool:
         # ContextManager should never have been called
         assert len(handler._ctx_mgr_pool) == 1  # unchanged
 
-    def test_raises_when_num_ctx_mgr_at_max_streams(self):
-        from via_stream_handler import ViaException
+    def test_does_not_create_when_num_ctx_mgr_at_capacity(self):
+        handler = self._make_handler()
+        handler.num_ctx_mgr = 4  # equal to MAX_CONTEXT_MANAGERS
+        with self._ctx_rag_patch():
+            handler._create_ctx_mgr_pool(config={})
+        assert handler._ctx_mgr_pool == []
+
+    def test_acquire_returns_fast_503_at_capacity(self):
+        from via_exception import ViaException
 
         handler = self._make_handler()
-        handler.num_ctx_mgr = 4  # equal to MAX_STREAMS
+        handler._metrics = MagicMock()
+        handler.num_ctx_mgr = 4
+        with self._ctx_rag_patch(), pytest.raises(ViaException) as exc_info:
+            handler._acquire_ctx_mgr(config={})
+        assert exc_info.value.code == "ServerBusy"
+        assert exc_info.value.status_code == 503
+        assert "summarization requests" in exc_info.value.message
+        assert "context managers" in exc_info.value.message
+        handler._metrics.context_manager_rejections.inc.assert_called_once()
+
+    def test_acquire_returns_available_context_manager(self):
+        handler = self._make_handler()
+        expected = MagicMock()
+        handler._ctx_mgr_pool = [expected]
         with self._ctx_rag_patch():
-            with pytest.raises(ViaException):
-                handler._create_ctx_mgr_pool(config={})
+            assert handler._acquire_ctx_mgr(config={}) is expected
 
     def test_creates_context_managers_up_to_launch_count(self):
         import sys
@@ -2161,7 +2234,7 @@ class TestCreateCtxMgrPool:
         import sys
 
         handler = self._make_handler()
-        handler.num_ctx_mgr = 3  # 1 away from MAX_STREAMS=4
+        handler.num_ctx_mgr = 3  # 1 away from MAX_CONTEXT_MANAGERS=4
         handler.NUM_CA_RAG_PROCESSES_LAUNCH = 5  # would add 5, but stops at MAX
         mock_cm_mod = MagicMock()
         mock_cm_mod.ContextManager.return_value = MagicMock()

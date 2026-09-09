@@ -69,7 +69,7 @@ def _make_handler():
         handler.default_caption_prompt = "Summarize"
         handler.NUM_CA_RAG_PROCESSES_LAUNCH = 10
         handler.num_ctx_mgr = 0
-        handler.MAX_STREAMS = 4
+        handler.MAX_CONTEXT_MANAGERS = 4
         handler._start_time = time.time()
         handler._kafka_enabled = False
         return handler

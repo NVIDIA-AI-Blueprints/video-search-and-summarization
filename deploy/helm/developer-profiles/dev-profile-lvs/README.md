@@ -271,6 +271,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vssIngress.kibanaPort`** | **`5601`** | Kibana **Service** port when Kibana is enabled. |
 | **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port when Phoenix is enabled. |
 | **`vss-summarization.enabled`** | **`true`** | Set **`false`** to disable the **LVS** summarization service. |
+| **`vss-summarization.replicas`** | **`1`** | Use one summarization replica per two **RTVI-VLM** replicas. Set **`2`** for 3X/4X VLM scale tests instead of increasing the per-process ContextManager limit. |
 | **`vss-summarization.elasticsearchHost`** | **`""`** | Elasticsearch hostname for **vss-summarization** **`ES_HOST`**. When empty, defaults to **`<release>-elasticsearch`**. |
 | **`vss-summarization.elasticsearchPort`** | **`9200`** | Elasticsearch HTTP port (**`ES_PORT`**). |
 | **`vss-summarization.llmService`** | **`nemotron-35-lightning-30b-a3b`** | NIM subchart **name segment** used to build **`LVS_LLM_BASE_URL`** as **`http://<release>-<value>:8000/v1`** when **`global.llmBaseUrl`** and **`vss-summarization.llmBaseUrl`** are empty. Keep it aligned with the enabled LLM NIM. |
