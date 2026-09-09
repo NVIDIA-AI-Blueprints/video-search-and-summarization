@@ -45,19 +45,27 @@ def _workflow_env_keys() -> set[str]:
 
 
 def _forwarded_keys() -> set[str]:
-    """Every string literal iterated by the forwarding loop in brev_env.py.
+    """String literals in brev_env.py's eval-env forwarding allowlist.
 
     Read from the source rather than by importing: brev_env imports harbor,
-    which is not installed in the unit-test environment.
+    which is not installed in the unit-test environment. The allowlist lives
+    in `_eval_env_forward_keys()`; older trees inlined the same names on a
+    `for name in (...):` loop.
     """
     tree = ast.parse(BREV_ENV.read_text())
     best: set[str] = set()
     for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_eval_env_forward_keys":
+            names: set[str] = set()
+            for child in ast.walk(node):
+                if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                    names.add(child.value)
+            if "PR_HEAD_SHA" in names:
+                return names
         if not isinstance(node, ast.For) or not isinstance(node.iter, ast.Tuple):
             continue
         names = {e.value for e in node.iter.elts
                  if isinstance(e, ast.Constant) and isinstance(e.value, str)}
-        # The forwarding loop is the one carrying the known-forwarded names.
         if "PR_HEAD_SHA" in names:
             best = names
     assert best, "could not locate the env-forwarding allowlist in brev_env.py"
