@@ -2856,7 +2856,7 @@ pywin32,311,Python Software Foundation License,services/video-summarization,pyth
 pywin32,312,PSF-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 pywin32,312,PSF-2.0,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,None
 pywin32,312,PSF-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-PyYAML,UNKNOWN,MIT License,deploy,python,usage,deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py,runtime,no,no,no,imported-only,None
+PyYAML,UNKNOWN,MIT License,deploy,python,usage,deploy/helm/industry-profiles/warehouse-operations/scripts/compute_model_selection.py,runtime,no,no,no,imported-only,None
 PyYAML,UNKNOWN,MIT License,skills/deployment,python,usage,skills/deployment/vss-deploy-profile/scripts/normalize_resolved_yml.py,runtime,no,no,no,imported-only,None
 PyYAML,UNKNOWN,MIT License,skills/vss-build-vision-ai,python,usage,skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py,runtime,no,no,no,imported-only,None
 pyyaml,6.0.2,MIT,services/rtvi/rt-cv-3d/rt-cv-config-init,python,lockfile;manifest,services/rtvi/rt-cv-3d/rt-cv-config-init/Pipfile.lock;services/rtvi/rt-cv-3d/rt-cv-config-init/tests/requirements.txt,runtime,no,no,no,declared-manifest,None
