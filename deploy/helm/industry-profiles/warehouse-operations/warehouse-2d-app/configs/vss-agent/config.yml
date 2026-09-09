@@ -257,6 +257,7 @@ llms:
 
 workflow:
   _type: top_agent
+  llm_reasoning: true
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   log_level: INFO
   max_iterations: 15
