@@ -646,6 +646,39 @@ Reading it, in the agent: `vss_agents/utils/gateway.py`
 fails CI if a route loses its marker, if a marker names the wrong backend, or if
 the header name drifts between the template and the agent.
 
+### Routes that outlast the default server timeout
+
+`defaults` sets `timeout server 120s`, which is ample for an API call and far
+too short for a model. A request that outlasts it is cut off with a **504 that
+is indistinguishable from a model failure**, so the backends below carry their
+own, per-backend rather than raised on the frontend — an ingress-wide ceiling
+would apply to every route sharing the origin.
+
+| Route | `timeout server` | Why |
+|---|---|---|
+| `/llm` | 600s | First token off a cold NIM. |
+| `/rtvi-vlm` | 600s | A caption on a cold or loaded RT-VLM. This route now carries the agent, alert-bridge and lvs-server, which previously called `rtvi-vlm:8000` with no proxy timeout at all. |
+| `/lvs`, `/video-summarization` | 3600s | A summarization run; the CLI bounds the wait itself. Both, because an alias that 504s where the original succeeds is worse than no alias. |
+| `/vst/api/v1/storage` | 3600s | Uploads of whole videos. |
+
+`/rtvi-cv` and `/rtvi-embed` are **deliberately left on the default**. What
+reaches them through the gateway is text embedding plus RT-CV's
+`/api/v1/stream/add` control plane, and both clients bound themselves at
+`read=120.0` — the same ceiling the default already gives, so raising it would
+truncate nothing. Their Helm charts do set `3600s`, which is not a
+contradiction: the HAProxy ingress controller's own default is 50s, below the
+clients' bound, so Kubernetes has to raise it to reach the ceiling Compose
+already has.
+
+If you raise one of these, raise it on **both edges**. Kubernetes expresses the
+same thing as `haproxy.org/timeout-server` on the backend's Service, fed by
+`ingressTimeoutServer` in the chart or the profile that enables it.
+`.github/scripts/check_gateway_slow_timeouts.py` fails CI if a listed backend
+drops to or below the `defaults` value, if a raised backend is not recorded, if
+two front doors onto one service disagree, or if a raised Docker timeout has no
+Kubernetes counterpart. It asserts "above the default", not a specific number,
+so retuning a value is free and reverting one is not.
+
 ### Elasticsearch through the gateway
 
 `/elasticsearch` is a **narrow** mount, not a general-purpose ES proxy. The
