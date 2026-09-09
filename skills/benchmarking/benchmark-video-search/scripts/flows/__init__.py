@@ -44,6 +44,7 @@ from .base import UPLOAD_URL_TIMEOUT
 from .base import VST_LIST_TIMEOUT
 from .base import IngestBackend
 from .base import QueryBackend
+from .base import cli_supports_flag
 from .base import configured_base_url
 from .base import default_vss_cmd
 from .base import ensure_vss_configured
@@ -184,6 +185,7 @@ __all__ = [
     "aggregate_upload_stats",
     "align_ts_to_segment",
     "classify_complete_failure",
+    "cli_supports_flag",
     "compare_inventory",
     "configured_base_url",
     "default_vss_cmd",
