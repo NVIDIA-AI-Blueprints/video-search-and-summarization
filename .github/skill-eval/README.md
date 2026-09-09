@@ -130,34 +130,43 @@ PROFILES = {
 
 An empty or absent `profile` means the dict key *is* the deploy profile (the `base` case). When `profile` is set, the agent is told to invoke `/vss-deploy-profile -p <profile>`; the optional `deploy_mode` becomes `-m <mode>`. This is how one skill profile (`alerts`) produces multiple eval variants (`alerts_cv`, `alerts_vlm`) with distinct spec files and distinct container-check sets while still deploying a shared compose stack.
 
-### Worked example — `skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`
+### Worked example — `skills/operations/vss-ask-video/evals/base_profile_video_understanding.json`
 
-13-query thread against VIOS / VST: upload, snapshot, clip, sensor info, recorder status, timelines, etc. There is no `/vss-deploy-profile` prerequisite — the **first query** tells the agent to stand VIOS up standalone via the skill's bundled `references/deploy-vios-service.md` runbook, and folds the environment prerequisites (required env vars, ports) into that same query. Produces 13 chained tasks on the targeted platform.
+Five-query thread: deploy the **base** profile, make sure the sample video is on
+VST, then ask visual questions against the resolved VLM endpoint. Step 1 carries
+the deploy; steps 2-5 operate the running stack. Produces 5 chained tasks on the
+targeted platform.
 
 ```json
 {
-  "skills": ["vss-manage-video-io-storage"],
+  "skills": ["vss-ask-video", "vss-deploy-profile"],
   "resources": {"platforms": {"L40S": {"gpu_count": 1}}},
   "expects": [
     {
-      "query": "Upload the sample warehouse video to VIOS with timestamp 2025-01-01T00:00:00.000Z.\n\n**Environment & prerequisites:** No VSS profile is pre-deployed. Probe http://localhost:30888/vst/api/v1/sensor/version first; if it fails, stand VIOS up standalone via this skill's bundled references/deploy-vios-service.md runbook (pre-authorized via SKILL.md § Pre-authorized autonomous mode). Required env vars: NGC_CLI_API_KEY, HOST_IP, VSS_DATA_DIR, VSS_APPS_DIR, plus the Brev secure-link env vars.",
+      "query": "Deploy the VSS **base** profile on `{{platform}}` via `/vss-deploy-profile -p base`. Run autonomously.\n\n**Environment & prerequisites:** VSS **base** profile on the target host: VST reachable at http://localhost:30888/vst/api/v1, VLM endpoint reachable at either ${VLM_BASE_URL}/v1 or ${RTVI_VLM_BASE_URL}/v1 ...",
       "checks": [
-        "The upload PUT to /vst/api/v1/storage/file/<filename>?timestamp=... either returns HTTP 2xx OR returns the VST sensor-cap error",
-        "curl -sf http://localhost:30888/vst/api/v1/sensor/list returns a JSON array containing a sensor whose name matches the uploaded video's filename stem"
+        "`curl -sf --max-time 15 http://localhost:8000/docs` returns exit 0 (Agent REST API responsive)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0"
       ]
     },
-    // ... 12 more entries ...
+    // ... 4 more entries ...
   ]
 }
 ```
 
-Source: [`skills/operations/vss-manage-video-io-storage/evals/vios_ops.json`](../../skills/operations/vss-manage-video-io-storage/evals/vios_ops.json)
+Source: [`skills/operations/vss-ask-video/evals/base_profile_video_understanding.json`](../../skills/operations/vss-ask-video/evals/base_profile_video_understanding.json)
 
 What the agent derives from this spec:
-- `profile` is absent → **no `/vss-deploy-profile` prerequisite is injected.** The trial runs on a bare Brev instance and the agent uses the skill's bundled deploy contract (documents direct-routing and SDRC-routed modes — either acceptable) when it finds VIOS missing.
+- `profile` is absent → the dict key in `evals.json` *is* the deploy profile. The
+  deploy is carried by the **first query**, which names `/vss-deploy-profile -p base`
+  explicitly, rather than being injected as a prerequisite.
+- `skills` lists both the skill under test and `vss-deploy-profile`, so the adapter
+  bundles the deploy skill into the dataset alongside `vss-ask-video`.
 - `resources.platforms` is `{L40S: {gpu_count: 1}}` → one dataset, one platform. No fan-out.
-- `expects[]` has 13 entries → 13 chained `vss-manage-video-io-storage` tasks, each gated on `requires_previous_passed`.
-- `checks` use a mix of curl probes and trajectory-style assertions — the generic judge routes each to the right evaluator.
+- `expects[]` has 5 entries → 5 chained `vss-ask-video` tasks, each gated on
+  `requires_previous_passed`, so a failed deploy skips the rest.
+- `checks` use a mix of curl probes, `docker ps` assertions and trajectory-style
+  assertions — the generic judge routes each to the right evaluator.
 
 ## Running a trial by hand
 
@@ -167,9 +176,10 @@ For debugging an adapter or verifier locally, outside CI:
 set -a && source /home/ubuntu/eval-coordinator/.env && set +a
 
 # 1. Generate the dataset for one spec.
-python3 .github/skill-eval/adapters/vss-manage-video-io-storage/generate.py \
-  --output-dir /tmp/skill-eval/datasets/vss-manage-video-io-storage \
-  --skill-dir skills/operations/vss-manage-video-io-storage \
+python3 .github/skill-eval/adapters/vss-ask-video/generate.py \
+  --output-dir /tmp/skill-eval/datasets/vss-ask-video \
+  --skill-dir skills/operations/vss-ask-video \
+  --deploy-skill-dir skills/deployment/vss-deploy-profile \
   --platform L40S
 
 # 2. Make sure you have a Brev instance for the target platform
@@ -188,10 +198,10 @@ export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
 
 python3 .github/skill-eval/run_leg.py \
   --instance "$INSTANCE_NAME" \
-  --dataset-root /tmp/skill-eval/datasets/vss-manage-video-io-storage \
+  --dataset-root /tmp/skill-eval/datasets/vss-ask-video \
   --results-root /tmp/skill-eval/results/manual-$(date +%Y%m%d-%H%M%S) \
   --scratch /tmp/skill-eval/manual \
-  --spec-stem vios_ops \
+  --spec-stem base_profile_video_understanding \
   --platform L40S
 ```
 
