@@ -82,6 +82,18 @@ Three defaults, each load-bearing:
   A `vss` older than the flag is detected by one `--help` probe at startup and
   the run continues without it, with a warning. Do not quote critic-filtered
   metrics from a run that printed that warning.
+- **Ingest goes through the agent** (`--ingest-flow agent-3step`). The UI has
+  moved to `vst-direct` — upload to VIOS, let its webhooks drive perception —
+  and that flow exists here too, but it is not the default and should not be
+  until two things are checked on the deployment. `/complete` is the only step
+  that returns a chunk count, and the only step that pins the
+  `2025-01-01T00:00:00` anchor every dataset's ground truth is written against;
+  the webhook request bodies are empty `{}`, so VIOS picks the anchor instead.
+  If it picks wall-clock time, every query scores zero and it reads as a
+  retrieval collapse. `VstDirectIngest.verify_anchor()` checks one video's
+  timeline; do that before scoring a `vst-direct` run. Also confirm
+  `webhooks.enabled` — it is true in the Docker search profile and **false** in
+  the Helm chart.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.

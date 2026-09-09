@@ -861,8 +861,128 @@ def test_flow_package_imports_nothing_from_run_eval() -> None:
 
 
 def test_registries_expose_the_implemented_backends() -> None:
-    assert set(flows.INGEST_BACKENDS) == {"legacy-put", "agent-3step"}
+    assert set(flows.INGEST_BACKENDS) == {"legacy-put", "agent-3step", "vst-direct"}
     assert set(flows.QUERY_BACKENDS) == {"cli"}
+
+
+def test_the_default_ingest_flow_is_the_one_that_proves_it_indexed() -> None:
+    """vst-direct is available but must not become the default by accident.
+
+    Only `agent-3step` returns a chunk count and pins the timestamp anchor the
+    ground truth is written against. A silent switch would turn "nothing
+    indexed" and "nothing matched" into the same result.
+    """
+    import run_eval_flows as rf
+
+    parsed = rf.parse_args(["--endpoint", "http://host:8000"])
+    assert parsed.ingest_flow == "agent-3step"
+
+
+# ---------------------------------------------------------------------------
+# vst-direct: what the UI does, minus the two steps that produced evidence
+# ---------------------------------------------------------------------------
+
+
+def test_vst_direct_posts_to_vios_and_never_calls_the_agent() -> None:
+    backend = flows.VstDirectIngest("http://host:30888/")
+    assert backend.upload_url == "http://host:30888/vst/api/v1/storage/file"
+    described = backend.describe()
+    assert described["flow"] == "vst-direct"
+    # Stated, not inferred: a reader comparing this against a 3-step run has to
+    # know the success criterion changed.
+    assert "none" in described["ingest_proof"]
+
+
+def test_vst_direct_reports_no_chunk_count_rather_than_zero(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """`None` means nobody counted; `0` would mean counted and empty.
+
+    The three-step flow fails an upload that reports zero chunks. There is no
+    equivalent signal here, so the record must not manufacture one.
+    """
+    import requests
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"not really an mp4")
+
+    class _Resp:
+        status_code = 200
+        text = '{"sensorId": "abc-123"}'
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"sensorId": "abc-123"}
+
+    posted: list[str] = []
+
+    def fake_post(url: str, **kw: Any) -> Any:
+        posted.append(url)
+        return _Resp()
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    record = flows.VstDirectIngest("http://host:30888").upload(video)
+
+    assert posted == ["http://host:30888/vst/api/v1/storage/file"]
+    assert record["success"] is True
+    assert record["sensor_id"] == "abc-123"
+    assert record["chunks_processed"] is None
+    assert record["ingest_proof"] == "none"
+
+
+def test_vst_direct_checks_the_anchor_instead_of_assuming_it(monkeypatch: Any) -> None:
+    """Ground truth is offsets from 2025-01-01; VIOS chooses the real anchor.
+
+    The webhook request bodies in the search profile's notification_config.json
+    are empty, so nothing passes creation_time the way the agent's /complete
+    does. If VIOS anchors elsewhere, every query scores zero and it reads as a
+    retrieval collapse rather than an ingest problem.
+    """
+    import requests
+
+    class _Resp:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return self._payload
+
+    backend = flows.VstDirectIngest("http://host:30888")
+
+    def anchored(*_a: Any, **_k: Any) -> Any:
+        return _Resp({"abc-123": [{"startTime": "2025-01-01T00:00:00.000Z",
+                                   "endTime": "2025-01-01T00:00:30.000Z"}]})
+
+    monkeypatch.setattr(requests, "get", anchored)
+    good = backend.verify_anchor("abc-123")
+    assert good["found"] is True
+    assert good["matches_expected_anchor"] is True
+
+    def wall_clock(*_a: Any, **_k: Any) -> Any:
+        return _Resp({"abc-123": [{"startTime": "2026-09-09T11:04:00.000Z",
+                                   "endTime": "2026-09-09T11:04:30.000Z"}]})
+
+    monkeypatch.setattr(requests, "get", wall_clock)
+    bad = backend.verify_anchor("abc-123")
+    assert bad["found"] is True
+    assert bad["matches_expected_anchor"] is False
+
+
+def test_an_unreachable_vst_is_unchecked_not_a_passing_anchor(monkeypatch: Any) -> None:
+    import requests
+
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise requests.ConnectionError("refused")
+
+    monkeypatch.setattr(requests, "get", boom)
+    result = flows.VstDirectIngest("http://host:30888").verify_anchor("abc-123")
+    assert result["checked"] is False
+    assert "matches_expected_anchor" not in result
 
 
 def test_default_vss_cmd_uses_the_project_local_cli() -> None:
