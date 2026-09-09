@@ -228,23 +228,50 @@ def helm_declarations(root: Path) -> tuple[dict[str, float | None], dict[str, li
     that switches it on, carrying that profile's override or ``None`` when it
     sets none -- which is the case that inherits the chart default, and the case
     a max-of-all-declarations check would miss entirely.
+
+    **Declarations are keyed by their full block path, not by the block's own
+    name, and an enablement is read through its ancestors.** Both halves of that
+    were wrong before and the second one silently:
+
+    * Profiles nest a service under its umbrella chart (``agent.vss-agent``,
+      ``rtvi.vss-rtvi-vlm``), and they also nest sub-feature blocks that carry
+      an ``enabled`` of their own -- ``waitForDependencies``, ``waitForKafka``,
+      ``engineCache``, ``init``, ``topicJob``. Keying by bare name puts a
+      service's ``ingressTimeoutServer`` and some unrelated block's ``enabled``
+      into the same record whenever the names collide within one file. Keying by
+      path cannot.
+    * A subchart's ``enabled: true`` means nothing when its umbrella is switched
+      off: ``warehouse-2d-app`` sets ``agent.enabled: false`` and still carries
+      ``agent.vss-va-mcp.enabled: true`` underneath it. Read without the
+      ancestor, that profile looks like it installs a service it does not, and
+      this guard would demand an ``ingressTimeoutServer`` for a Service that is
+      never created -- a failure a developer cannot act on. So an enablement
+      counts only when no enclosing block declares ``enabled: false``.
+
+    Sub-feature blocks are still recorded under their own name. That is
+    harmless -- nothing looks them up, because :data:`SLOW_BACKENDS` keys are
+    Helm service names -- and it is cheaper than teaching this parser which keys
+    name a subchart, which it has no way to know without reading every
+    ``Chart.yaml``.
     """
     chart_defaults: dict[str, float | None] = {}
     enabled: dict[str, list[tuple[Path, float | None]]] = {}
 
     for path in sorted(root.rglob("values.yaml")):
-        # service key -> (enabled, override), for blocks in this file
-        blocks: dict[str, tuple[bool, float | None]] = {}
+        # Declarations made *directly* on a block, keyed by that block's path
+        # from the root of the file, e.g. ("agent", "vss-agent").
+        declared_enabled: dict[tuple[str, ...], bool] = {}
+        declared_timeout: dict[tuple[str, ...], float | None] = {}
         stack: list[tuple[int, str]] = []
+
         for line in path.read_text().splitlines():
             timeout_match = INGRESS_TIMEOUT.match(line)
             if timeout_match:
                 indent = len(timeout_match.group("indent"))
                 value = seconds(timeout_match.group("value"))  # None for `""`
-                enclosing = [name for level, name in stack if level < indent]
-                if enclosing:
-                    was, _ = blocks.get(enclosing[-1], (False, None))
-                    blocks[enclosing[-1]] = (was, value)
+                block = tuple(name for level, name in stack if level < indent)
+                if block:
+                    declared_timeout[block] = value
                 else:
                     chart_defaults[path.parent.name] = value
                 continue
@@ -256,15 +283,17 @@ def helm_declarations(root: Path) -> tuple[dict[str, float | None], dict[str, li
             while stack and stack[-1][0] >= indent:
                 stack.pop()
             stack.append((indent, key_match.group("key")))
-            if key_match.group("key") == "enabled" and key_match.group("rest") == "true":
-                enclosing = [name for level, name in stack[:-1] if level < indent]
-                if enclosing:
-                    _, override = blocks.get(enclosing[-1], (False, None))
-                    blocks[enclosing[-1]] = (True, override)
+            if key_match.group("key") == "enabled" and key_match.group("rest") in ("true", "false"):
+                block = tuple(name for level, name in stack[:-1] if level < indent)
+                if block:
+                    declared_enabled[block] = key_match.group("rest") == "true"
 
-        for key, (is_on, override) in blocks.items():
-            if is_on:
-                enabled.setdefault(key, []).append((path, override))
+        for block, is_on in declared_enabled.items():
+            if not is_on:
+                continue
+            if any(declared_enabled.get(block[:depth]) is False for depth in range(1, len(block))):
+                continue  # an enclosing block switches the whole subtree off
+            enabled.setdefault(block[-1], []).append((path, declared_timeout.get(block)))
 
     return chart_defaults, enabled
 
@@ -422,7 +451,10 @@ def scan_helm(helm: Path, backends: dict[str, dict[str, object]]) -> list[str]:
         # timeout does nothing for a sibling that leaves it empty.
         default = chart_defaults[chart_dir.name]
         installers = enabled.get(str(entry["key"]), [])
-        for path, override in sorted(installers):
+        # Sorted by path alone: one file can now contribute two entries for one
+        # service key, and a tuple sort would compare a float override against
+        # a None one and raise.
+        for path, override in sorted(installers, key=lambda item: str(item[0])):
             effective = override if override is not None else default
             if effective is None:
                 failures.append(
