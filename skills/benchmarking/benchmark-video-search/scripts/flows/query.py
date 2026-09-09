@@ -113,6 +113,14 @@ class CliQueryBackend:
         cwd: str | None = None,
         timeout: int = SEARCH_TIMEOUT,
         decompositions: dict[str, dict[str, Any]] | None = None,
+        # Send the pre-decomposition question along with the decomposed
+        # arguments, so the critic verifies what the user asked rather than a
+        # string the host reassembles from the retrieval arguments. Default-on
+        # because it is what the REST path does (`tools/search.py` captures
+        # `original_query` BEFORE decomposition), so omitting it is what makes
+        # the two flows incomparable. Requires a CLI carrying
+        # `--original-query`; run_eval_flows probes for it.
+        pass_original_query: bool = True,
     ) -> None:
         if search_path not in SEARCH_PATHS:
             raise ValueError(f"search_path must be one of {SEARCH_PATHS}, got {search_path!r}")
@@ -125,6 +133,7 @@ class CliQueryBackend:
         self.merge_adjacent = merge_adjacent
         self.cwd = cwd
         self.timeout = timeout
+        self.pass_original_query = pass_original_query
         #: query text -> decomposition. Empty means fixed-flag behaviour.
         self.decompositions = decompositions or {}
         #: plans actually executed, so the summary can report the path split.
@@ -151,6 +160,7 @@ class CliQueryBackend:
             "attributes": self.attributes,
             "merge_adjacent": self.merge_adjacent,
             "decompositions": len(self.decompositions),
+            "pass_original_query": self.pass_original_query,
         }
 
     def plan_for_query(self, query: str) -> dict[str, Any]:
@@ -184,6 +194,17 @@ class CliQueryBackend:
         if path == "object":
             for object_id in plan["object_ids"]:
                 argv += ["--object-id", str(object_id)]
+
+        # The question, alongside the arguments derived from it. Retrieval
+        # ignores this; the critic reads it instead of the string the host
+        # would otherwise rebuild out of `--query` and `--attribute`.
+        #
+        # `query` is the dataset key -- what a user typed -- while
+        # `plan["query"]` is the decomposition's rewrite of it. On `object` this
+        # is the difference between verifying and not: that path sends no text
+        # at all, so the host finds nothing to ask about and skips the critic.
+        if self.pass_original_query and query.strip():
+            argv += ["--original-query", query]
 
         argv += ["--source-type", plan["source_type"]]
         argv += ["--top-k", str(plan.get("top_k") or self.top_k)]

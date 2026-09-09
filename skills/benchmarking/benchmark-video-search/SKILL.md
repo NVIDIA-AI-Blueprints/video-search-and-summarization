@@ -3,7 +3,7 @@ name: benchmark-video-search
 description: Measure retrieval quality and latency of a deployed VSS search profile — ingest a labelled dataset, run queries through the vss CLI across the embed/attribute/fusion/object paths, and report precision, recall, mAP, HIT@k and a per-stage latency breakdown.
 license: Apache-2.0
 metadata:
-  version: "3.7.0"
+  version: "3.8.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint search retrieval benchmarking evaluation"
@@ -70,6 +70,18 @@ Three defaults, each load-bearing:
   `devset_provenance.json` answer key is used only when you pass
   `--decompositions` explicitly, since scoring against perfect routing is a
   different experiment from scoring the live decomposer.
+- **The pre-decomposition question is sent with every query** as
+  `--original-query`. Retrieval ignores it; the critic verifies against it
+  instead of a question the library rebuilds out of `--query` and `--attribute`.
+  Without it the CLI's critic is asked a different question from the REST
+  flow's, so the two flows' rejection rates are not comparable — and on the
+  `object` path there is no question at all, so verification is skipped
+  outright. Turn it off only with `--no-original-query`, and only to reproduce
+  a result file captured before this existed.
+
+  A `vss` older than the flag is detected by one `--help` probe at startup and
+  the run continues without it, with a warning. Do not quote critic-filtered
+  metrics from a run that printed that warning.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
