@@ -96,7 +96,10 @@ class TestLVSConfigMediaModels:
             message="Caption generation has started and is in progress. Captions will become available shortly.",
         )
 
-        assert output.summary == "Caption generation has started and is in progress. Captions will become available shortly."
+        assert (
+            output.summary
+            == "Caption generation has started and is in progress. Captions will become available shortly."
+        )
 
 
 class TestUserRequestedCaptionGeneration:
@@ -206,7 +209,10 @@ class TestLVSConfigMediaInner:
         assert result.status == LVSMediaStatus.ACCEPTED
         assert result.configured is True
         assert result.media_id == "stream-uuid"
-        assert result.message == "Caption generation has started and is in progress. Captions will become available shortly."
+        assert (
+            result.message
+            == "Caption generation has started and is in progress. Captions will become available shortly."
+        )
         remembered_media = configured_media("stream", "cam_1")
         assert remembered_media is not None
         assert remembered_media.media_id == "stream-uuid"

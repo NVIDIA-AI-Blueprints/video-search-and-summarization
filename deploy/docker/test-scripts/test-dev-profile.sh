@@ -498,7 +498,7 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up
   "RT_VLM_DEVICE_ID" "1" \
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.2" \
   "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN" \
   "VSS_RT_EMBED_TAG" '"develop-latest-sbsa"' \
   "VSS_RT_CV_TAG" '"develop-latest-sbsa"'
@@ -555,7 +555,7 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= LLM_ENDPOINT_U
   "RT_VLM_DEVICE_ID" "1" \
   "LLM_NAME" "remote-llm" \
   "LLM_NAME_SLUG" "none" \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.2" \
   "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
 PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env \
   "generated.env search GB300 supports local LLM with remote VLM" "search" \
@@ -708,39 +708,24 @@ run_dry_run_test "edge (IGX-THOR) alerts verification uses device ID 0" up -p al
 run_dry_run_test "edge (AGX-THOR) alerts verification uses device ID 0" up -p alerts -i 127.0.0.1 -m verification -H AGX-THOR -d
 run_dry_run_test "edge (IGX-THOR) alerts real-time uses device ID 0 (no VLM overrides)" up -p alerts -i 127.0.0.1 -m real-time -H IGX-THOR -d
 run_dry_run_test "edge (AGX-THOR) alerts real-time uses device ID 0 (no VLM overrides)" up -p alerts -i 127.0.0.1 -m real-time -H AGX-THOR -d
-# Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION defaults to the Thor 0.35 fraction when the host env does not set it (an unset value would otherwise reach RT-VLM, which applies its own 0.7 and aborts on the shared pool).
+# Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION defaults to 0.35.
 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
   "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-# Both alerts modes take the default: real-time runs the same local RT-VLM as verification.
-run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR real-time RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35" "alerts" \
-  -i 127.0.0.1 -m real-time -H IGX-THOR -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR real-time RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35" "alerts" \
-  -i 127.0.0.1 -m real-time -H AGX-THOR -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-# Alerts on IGX-THOR/AGX-THOR: a host RTVI_VLLM_GPU_MEMORY_UTILIZATION still overrides that default (option pattern, like ${VLM_NIM_KVCACHE_PERCENT} in NIM hw-H100.env).
+# Alerts on IGX-THOR/AGX-THOR: a non-empty host env still overrides the 0.35 default.
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.5"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.6 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.6"
+# Alerts RT-VLM local VLM memory sizing.
 run_dry_run_up_and_check_generated_env "generated.env alerts DGX-SPARK shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35" "alerts" \
   -i 127.0.0.1 -m verification -H DGX-SPARK -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-run_dry_run_up_and_check_generated_env "generated.env alerts DGX-SPARK real-time RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35" "alerts" \
-  -i 127.0.0.1 -m real-time -H DGX-SPARK -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
-run_dry_run_up_and_check_generated_env "generated.env alerts GB300 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2" "alerts" \
-  -i 127.0.0.1 -m verification -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.2"
-run_dry_run_up_and_check_generated_env "generated.env alerts GB300 real-time RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2" "alerts" \
-  -i 127.0.0.1 -m real-time -H GB300 --llm-device-id 1 --vlm-device-id 1 -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.2"
 run_dry_run_up_and_check_generated_env "generated.env alerts H100 shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
   -i 127.0.0.1 -m verification -H H100 -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"

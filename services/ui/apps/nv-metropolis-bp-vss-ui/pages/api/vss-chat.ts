@@ -51,7 +51,7 @@ export default async function handler(
         .json({ error: `no backend configured for surface: ${surface}` });
       return;
     }
-    const base = target.replace(/\/chat\/stream$/, "");
+    const base = target.replace(/(?:\/v1)?\/chat\/stream$/, "");
     // Forward the conversation so the adapter serves only that conversation's
     // result rather than whatever ran last, process-wide.
     const conversation = String(req.query.conversation ?? "");
@@ -87,6 +87,40 @@ export default async function handler(
   const controller = new AbortController();
   // Navigating away or pressing Stop should drop the upstream turn too.
   req.on("close", () => controller.abort());
+
+  const interactionPath = String(req.query.interaction ?? "");
+  if (interactionPath) {
+    if (
+      !/^\/executions\/[^/]+\/interactions\/[^/]+\/response$/.test(
+        interactionPath,
+      )
+    ) {
+      res.status(400).json({ error: "invalid interaction response path" });
+      return;
+    }
+    try {
+      const interactionTarget = new URL(interactionPath, target).toString();
+      const upstream = await fetch(interactionTarget, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req.body ?? {}),
+      });
+      if (!upstream.ok) {
+        res
+          .status(502)
+          .json({ error: `agent backend returned HTTP ${upstream.status}` });
+        return;
+      }
+      res.status(204).end();
+    } catch (err) {
+      res.status(502).json({
+        error: "agent interaction response failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
 
   let upstream: Response;
   try {
