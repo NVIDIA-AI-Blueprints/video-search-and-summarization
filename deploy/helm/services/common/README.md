@@ -127,6 +127,18 @@ stream affinity sits on `vss-rtvi-cv` / `vss-rtvi-embed`, the long server timeou
 `elasticsearch` Service. `path-rewrite` is Ingress-scope only, so the route shaping stays on
 the `Ingress`.
 
+**Every rewrite is anchored, and there is no per-row opt-out.** Each rewriting row renders
+`^<path>/(.*)` and `^<path>$`, matching the ~30 `replace-path` rules on the Docker edge.
+`replace-path` matches its regex *anywhere* in the path, and being Ingress-scope the pair
+reaches every backend of the Ingress that carries it — the NVStreamer and Kibana hosts
+included. A mid-path match is never intent: `path` is also the `pathType: Prefix` path, and
+the controller picks a backend on the *start* of the request path, so a request that matches
+a rewrite mid-path was routed there by a different row and rewriting it can only corrupt it.
+Unanchored, `/storage/(.*)` also matched NVStreamer's `POST /api/v1/storage/file` and VST's
+own `/vst/api/v1/storage/`, which is the 404 that
+[#2005](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/pull/2005)
+fixed for that one mount.
+
 `timeout-client` and `timeout-tunnel` are **ConfigMap-only** in this controller. The LVS and
 search charts still render them for continuity with earlier releases, but they have never had
 any effect as Ingress annotations — raising those means a cluster-wide controller setting,
@@ -147,7 +159,16 @@ the main object makes it easy to miss.
 
 ## Checking it
 
+Runs in CI on every pull request touching `deploy/helm/**`
+(`.github/workflows/helm-ingress-live.yml`). To run it yourself:
+
 ```bash
+# Vendoring first is load-bearing: a profile renders services/common from its
+# vendored charts/*.tgz, so an edit here that is not re-vendored is invisible to
+# the check and it reports OK on the stale copy.
+for p in base alerts lvs search; do
+  helm dependency update "deploy/helm/developer-profiles/dev-profile-$p"
+done
 python3 deploy/helm/scripts/verify-ingress-routes.py --verbose
 ```
 
