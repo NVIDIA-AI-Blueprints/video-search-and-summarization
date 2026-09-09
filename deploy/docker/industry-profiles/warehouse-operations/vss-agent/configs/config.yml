@@ -288,33 +288,22 @@ workflow:
     - User wants incident summaries or aggregated view
     - User wants to see incident statistics/charts
 
-    The system message includes "current time: <ISO timestamp>".
-    That value is NOW. Compute every start_time/end_time from it.
-    NEVER copy timestamps from this prompt.
+    The system message includes "current time: <ISO timestamp>" (NOW).
+    Compute any start_time/end_time from it; never copy dates from this prompt.
 
     multi_report_agent parameters (pass as DIRECT fields, NOT in additional_context):
-    - user_query: The original user question (REQUIRED)
-    - sensor_id: The sensor ID (REQUIRED)
-    - start_time: Start of time range (optional). Omit for "last N incidents"
-      so the tool returns the most recent incidents.
-    - end_time: End of time range (optional). Omit together with start_time
-      for "last N incidents".
-    - max_result_size: Number of incidents to return (use N for "last N")
+    - source: sensor or place ID (REQUIRED)
+    - source_type: "sensor" or "place" (REQUIRED; use "sensor" for cameras)
+    - start_time, end_time: optional ISO timestamps. Omit both for last-N / most recent.
+    - max_result_size: N when the user asks for last N
     - vlm_verified: true only if the current message asks for verified/VLM verified incidents; otherwise omit
 
-    Example tool call for "List the last 3 incidents for Camera_01"
-    (omit times; do NOT invent a historical date):
+    Example (last 3 incidents, no time window):
     {{
-      "user_query": "List the last 3 incidents for Camera_01",
-      "sensor_id": "Camera_01",
+      "source": "Camera_01",
+      "source_type": "sensor",
       "max_result_size": 3
     }}
-
-    If a time window is required (charts, "last hour", pagination with an
-    explicit range), compute it from NOW:
-    - end_time = the current time from this prompt
-    - start_time = NOW minus the requested duration (default 24 hours
-      when the user asks for last N incidents but a window is needed)
 
     Example user queries for multi_report_agent:
     - "List all incidents from sensor X in the last hour"
@@ -331,7 +320,7 @@ workflow:
        previous multi_report_agent call
     3. Extract the LAST incident's timestamp from that block
        (look for the last incident entry)
-    4. Extract the sensor_id that was used in the
+    4. Extract the source and source_type from the
        previous query
     5. Do NOT reuse vlm_verified from prior turns; set it only from the current message (see PARAMETER EXTRACTION)
     6. Calculate new time range:
@@ -374,15 +363,15 @@ workflow:
 
     PARAMETER EXTRACTION:
     - vlm_verified (current query only): Set vlm_verified=true when the **current** user message explicitly asks for "verified" or "VLM verified" incidents or reports (e.g. "Generate a verified incident report for incident X"). If the current message does not mention verified, omit vlm_verified (do not pass true or false; use default). Never inherit vlm_verified from prior turns — e.g. after a verified-incidents request, "list all incidents" means regular incidents (omit vlm_verified).
-    - If sensor_id is not provided AND there is no previous query context, use vst_sensor_list to show available sensors and ask user to choose
+    - If source is not provided AND there is no previous query context, use vst_sensor_list to show available sensors and ask user to choose
     - Parse time expressions like "last 5 minutes", "yesterday", "between 2pm-3pm" into ISO timestamps
-    - Extract max_incidents from phrases like "last 5", "show 10", etc.
+    - Extract max_result_size from phrases like "last 5", "show 10", etc.
 
     CONVERSATION HISTORY & CONTEXT EXTRACTION:
     - The conversation history includes a "PRESERVED STRUCTURED DATA" section that contains <incidents> blocks
     - Each <incidents> block is a JSON structure with incident details including timestamps
     - When user asks for "next", "more", or refers to "the Nth incident", look in this preserved data
-    - Extract sensor_id, timestamps, and incident_ids from these blocks to provide context continuity
+    - Extract source, timestamps, and incident_ids from these blocks to provide context continuity
     - This allows you to support follow-up queries without asking the user to repeat information
 
     TIME CALCULATION RULES (IMPORTANT - BE CAREFUL WITH MATH):
