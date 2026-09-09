@@ -84,16 +84,16 @@ Three defaults, each load-bearing:
   metrics from a run that printed that warning.
 - **Ingest goes through the agent** (`--ingest-flow agent-3step`). The UI has
   moved to `vst-direct` — upload to VIOS, let its webhooks drive perception —
-  and that flow exists here too, but it is not the default and should not be
-  until two things are checked on the deployment. `/complete` is the only step
-  that returns a chunk count, and the only step that pins the
-  `2025-01-01T00:00:00` anchor every dataset's ground truth is written against;
-  the webhook request bodies are empty `{}`, so VIOS picks the anchor instead.
-  If it picks wall-clock time, every query scores zero and it reads as a
-  retrieval collapse. `VstDirectIngest.verify_anchor()` checks one video's
-  timeline; do that before scoring a `vst-direct` run. Also confirm
-  `webhooks.enabled` — it is true in the Docker search profile and **false** in
-  the Helm chart.
+  and that flow works here too; the timestamp anchor rides in the upload
+  metadata, not in anything `/complete` does, so scores are comparable. It is
+  not the default only because `/complete` is the one step that returns
+  `chunks_processed`, and without it "nothing indexed" and "nothing matched"
+  produce the same result file. On a Docker search profile `vst-direct` is the
+  more faithful flow; prefer it when you want to measure what the UI does, and
+  read the readiness poll rather than a chunk count. Two checks first:
+  `webhooks.enabled` is true in Docker and **false** in the Helm chart, and
+  `VstDirectIngest.verify_anchor()` confirms one video's timeline landed on
+  `2025-01-01`.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
   stop describing a single query.
