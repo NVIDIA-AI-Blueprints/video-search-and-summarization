@@ -1,4 +1,5 @@
 {
+  "profile": "base",
   "skills": [
     "vss-generate-video-report",
     "vss-deploy-profile",

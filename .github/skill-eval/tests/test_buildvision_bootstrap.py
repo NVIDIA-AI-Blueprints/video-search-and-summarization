@@ -93,6 +93,13 @@ class BuildVisionBootstrapTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not a JSON object"):
                 bootstrap._spec_deployment(path)
 
+    def test_rejects_a_spec_without_an_explicit_profile(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "missing-profile.json"
+            path.write_text(json.dumps({"expects": []}))
+            with self.assertRaisesRegex(ValueError, "must declare a non-empty profile"):
+                bootstrap._spec_deployment(path)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

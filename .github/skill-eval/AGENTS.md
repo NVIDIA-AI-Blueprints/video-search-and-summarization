@@ -596,7 +596,9 @@ runtime with `/vss-build-vision-ai`; that skill owns deployment, readiness, and
 host-side NemoClaw setup. Harbor then sends only the operational prompts to the
 ready sandbox. A `vss-build-vision-ai` spec itself stays on the coding-agent
 runtime. Like every other runtime, worker selection and locking stay in
-`run_leg.py`.
+`run_leg.py`. The shared evaluation spec's top-level `profile` is authoritative
+for this deployment; operational specs must declare it explicitly rather than
+relying on a harness-specific default.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`

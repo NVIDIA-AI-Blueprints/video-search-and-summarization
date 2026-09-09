@@ -28,10 +28,10 @@ def _spec_deployment(spec_path: Path) -> tuple[str, str]:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     if not isinstance(spec, dict):
         raise ValueError(f"spec is not a JSON object: {spec_path}")
-    profile = str(spec.get("profile") or "base").strip()
+    profile = str(spec.get("profile") or "").strip()
     deploy_mode = str(spec.get("deploy_mode") or "").strip()
     if not profile:
-        raise ValueError(f"spec has an empty profile: {spec_path}")
+        raise ValueError(f"spec must declare a non-empty profile: {spec_path}")
     return profile, deploy_mode
 
 
