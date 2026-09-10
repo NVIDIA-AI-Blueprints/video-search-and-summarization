@@ -58,6 +58,7 @@ Examples
 from __future__ import annotations
 
 import argparse
+import collections
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
 import contextlib
@@ -510,6 +511,7 @@ def run_evaluation(
     vst_url: str | None = None,
     decomposer: Any = None,
     decompose_fallback: dict[str, Any] | None = None,
+    tolerate_unanswered: int = 0,
 ) -> dict[str, Any]:
     """Score every dataset query through ``query_backend``.
 
@@ -627,6 +629,10 @@ def run_evaluation(
 
     inventory_before = flows.inventory_snapshot(vst_url) if vst_url else {"ok": False}
 
+    #: Queries the backend never answered. Appended only from the single-
+    #: threaded as_completed loop below, so no lock.
+    unanswered: list[dict[str, Any]] = []
+
     wall_start = time.monotonic()
     with ThreadPoolExecutor(max_workers=concurrency) as executor:
         futures = {executor.submit(_run_single_query, qi, q): qi for qi, q in enumerate(queries)}
@@ -640,8 +646,20 @@ def run_evaluation(
                 for pending in futures:
                     pending.cancel()
                 break
-            except Exception as exc:
+            except flows.QueryUnanswerableError as exc:
+                # No answer is not no hits. Record it and leave it OUT of the
+                # scored set rather than letting an empty result average in.
                 qi = futures[future]
+                unanswered.append({"index": qi, "query": queries[qi], "reason": str(exc)[:300]})
+                print(f"  Query {qi} unanswerable: {exc}", file=sys.stderr)
+            except Exception as exc:
+                # Same rule for anything else that stopped this query from
+                # producing a result: scoring is only valid for queries the
+                # backend actually answered.
+                qi = futures[future]
+                unanswered.append(
+                    {"index": qi, "query": queries[qi], "reason": f"{type(exc).__name__}: {exc}"[:300]}
+                )
                 print(f"  Query {qi} raised: {type(exc).__name__}: {exc}", file=sys.stderr)
     wall_clock_s = time.monotonic() - wall_start
 
@@ -666,6 +684,28 @@ def run_evaluation(
     if not results:
         raise SystemExit("ABORTED: no query produced a result.")
 
+    # `total_queries` counts what was scored, so dropping failures quietly makes
+    # a partial run look complete -- 50 unanswered out of 673 reports
+    # `total_queries: 623` and reads as clean. Say it, loudly, and stop unless
+    # the caller has said how many they will accept.
+    if unanswered:
+        print("\n" + "!" * 60)
+        print(f"WARNING: {len(unanswered)}/{len(queries)} queries were never answered.")
+        for entry in unanswered[:10]:
+            print(f'  [{entry["index"]}] {entry["query"][:60]!r}: {entry["reason"][:120]}')
+        if len(unanswered) > 10:
+            print(f"  ... and {len(unanswered) - 10} more")
+        print("!" * 60 + "\n")
+        if len(unanswered) > tolerate_unanswered:
+            raise SystemExit(
+                f"ABORTED: {len(unanswered)} unanswered query/queries exceeds "
+                f"--tolerate-unanswered {tolerate_unanswered}.\n"
+                "  They are excluded from the metrics either way, so the numbers "
+                "below would describe\n"
+                f"  {len(results)} queries under a {len(queries)}-query label. "
+                "Raise the tolerance to accept that."
+            )
+
     summary = _summarize(
         results,
         dataset=dataset,
@@ -675,6 +715,7 @@ def run_evaluation(
         sources_seen=sources_seen,
         verdicts=verdicts,
         upload_stats=upload_stats,
+        unanswered=unanswered,
         path_counts=(
             flows.path_distribution(query_backend.executed_plans)
             if getattr(query_backend, "executed_plans", None)
@@ -741,6 +782,7 @@ def _summarize(
     upload_stats: dict[str, Any] | None,
     verdicts: dict[str, int] | None = None,
     path_counts: dict[str, int] | None = None,
+    unanswered: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Aggregate per-query metrics.
 
@@ -748,6 +790,7 @@ def _summarize(
     baselines from either script line up field for field.
     """
     n = len(results)
+    unanswered = unanswered or []
     def avg(key):
         return sum(r[key] for r in results) / n
     def avg_hit(k):
@@ -756,7 +799,11 @@ def _summarize(
     summary: dict[str, Any] = {
         "dataset": dataset,
         "subset": subset or "default",
+        # `total_queries` is the SCORED count, matching run_eval.py's field so
+        # baselines line up. When they differ, `queries_attempted` is what a
+        # reader needs to know the metrics cover less than the dataset.
         "total_queries": n,
+        "queries_attempted": n + len(unanswered),
         "mAP": round(avg("average_precision"), 4),
         "MRR": round(avg("reciprocal_rank"), 4),
         "avg_precision": round(avg("precision"), 4),
@@ -765,6 +812,17 @@ def _summarize(
     }
     for k in flows.HIT_K_VALUES:
         summary[f"HIT@{k}"] = round(avg_hit(k), 4)
+
+    # Absent, not zero, when every query was answered -- so its presence in a
+    # result file is itself the signal that the metrics above are partial.
+    if unanswered:
+        summary["unanswered"] = {
+            "count": len(unanswered),
+            "reasons": dict(
+                collections.Counter(e["reason"].split(":")[0] for e in unanswered)
+            ),
+            "queries": unanswered[:50],
+        }
 
     # Only report critic-filtered metrics when a verification block was
     # actually present. Emitting them off an unverified response would publish
@@ -1273,6 +1331,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "reason to pass this: A/B against an older result file."
         ),
     )
+    p.add_argument(
+        "--tolerate-unanswered",
+        type=int,
+        default=0,
+        help=(
+            "How many queries may go unanswered (timeout, unparseable CLI "
+            "output, or an exception) before the run aborts. Default 0. They "
+            "are excluded from the metrics either way -- this only decides "
+            "whether a partial run is allowed to publish numbers."
+        ),
+    )
     p.add_argument("--llm-model", help="Decomposition model id (default: ask the endpoint).")
     p.add_argument(
         "--name",
@@ -1493,6 +1562,7 @@ def main() -> None:
         subset=args.subset,
         decomposer=decomposer,
         decompose_fallback=decompose_fallback,
+        tolerate_unanswered=args.tolerate_unanswered,
         output_file=args.output_file,
         run_name=args.name,
         concurrency=args.concurrency,
