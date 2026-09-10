@@ -216,7 +216,7 @@ with no way to drive it.
   it, which will strand the build's own models. Reconcile that against
   [`sizing.md`](sizing.md) before choosing it, not after.
 - **The checkout's own assets**: `assets/vss_nemoclaw_policy.yaml`, `skills/`,
-  and `agent-harness/openclaw/` (the sandbox `Dockerfile`, the VSS OpenClaw
+  and `.openclaw/` (the sandbox `Dockerfile`, the VSS OpenClaw
   plugin and the `workspace/` docs). The notebook resolves them from
   `VSS_REPO_DIR`; for OpenClaw, onboard builds the sandbox image from that
   Dockerfile (`--from`), so the skills and docs arrive baked rather than
@@ -444,7 +444,7 @@ The OpenClaw sandbox image ships only the **operation** skills — the ones whos
 can serve (`vss-openclaw-sync` inside the sandbox re-selects after
 `vss configure`). It does **not** receive this skill: the sandbox operates the
 build it was given and is not expected to compose further builds or manage the
-`_builds/` tree this run produced. A Hermes sandbox (`agent-harness/hermes/`) ships the same operation skills and
+`_builds/` tree this run produced. A Hermes sandbox (`.hermes/`) ships the same operation skills and
 does not receive it either.
 
 ## Verification
@@ -502,4 +502,4 @@ reports as a skill failure rather than a missing deployment.
 - `deploy/docker/scripts/run_setup_notebook.py`
 - `deploy/docker/scripts/nemoclaw/README.md`
 - `assets/vss_nemoclaw_policy.yaml`
-- `agent-harness/openclaw/` — `Dockerfile`, `plugin/`, `workspace/` (and its `_nemoclaw` overlay)
+- `.openclaw/` — `Dockerfile`, `plugin/`, `workspace/` (and its `_nemoclaw` overlay)

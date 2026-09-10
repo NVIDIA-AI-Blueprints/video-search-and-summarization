@@ -5,7 +5,10 @@ SPDX-License-Identifier: Apache-2.0
 
 # Hermes harness
 
-Everything VSS needs to run on Hermes, in one place:
+Everything VSS needs to run on Hermes, in one place: Each agent harness has its own self-contained
+top-level directory (`.openclaw/`, `.hermes/`); the `SKILL.md` tree at the repo
+root (`skills/`) stays harness-neutral, and each directory packages it the way
+that harness loads skills.
 
 | Path | What it is |
 |---|---|
@@ -23,7 +26,7 @@ from `/sandbox`. The image puts each in place:
   `nemohermes <sb> skill install` places there. Unlike the OpenClaw image, all
   of them are active; each skill begins with `vss configure check` and reports
   what the deployment cannot serve.
-- **Workspace docs** — `agent-harness/openclaw/workspace/*.md` with the
+- **Workspace docs** — `.openclaw/workspace/*.md` with the
   `_nemoclaw/` overlay applied, flattened into `/sandbox/`, exactly where
   `deploy_nemoclaw.ipynb` used to upload them for Hermes. The docs are shared
   with the OpenClaw harness and come from the pinned checkout, not from this
@@ -54,11 +57,11 @@ release.
 ## Building
 
 ```
-docker build -t <registry>/vss-harness-hermes:<tag> agent-harness/hermes
+docker build -t <registry>/vss-harness-hermes:<tag> .hermes
 ```
 
 `deploy_nemoclaw.ipynb` does this through `nemohermes onboard --from
-agent-harness/hermes/Dockerfile` when `AGENT_RUNTIME=hermes`. The eval harness's
+.hermes/Dockerfile` when `AGENT_RUNTIME=hermes`. The eval harness's
 Provision panel lists this Dockerfile next to the OpenClaw one.
 
 | Build arg | Default | What it pins |

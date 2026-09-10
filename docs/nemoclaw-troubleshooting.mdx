@@ -125,9 +125,9 @@ The following diagnostic commands apply to OpenClaw. If you onboarded Hermes or 
    openshell sandbox exec -n <sandbox> -- sh -lc 'openclaw skills list --json'
    ```
 
-3. Confirm the VSS checkout includes the `skills/` directory and the agent harness directory for the selected harness, `agent-harness/openclaw/` or `agent-harness/hermes/` (each with its `Dockerfile`).
+3. Confirm the VSS checkout includes the `skills/` directory and the agent harness directory for the selected harness, `.openclaw/` or `.hermes/` (each with its `Dockerfile`).
 
-4. The skills and workspace docs are baked into the sandbox image (`agent-harness/<harness>/Dockerfile`); re-run Section 3.1 with `NEMOCLAW_RECREATE_SANDBOX` set to rebuild it. In an OpenClaw sandbox, `vss-openclaw-sync` re-selects the active skills from `vss configure check`.
+4. The skills and workspace docs are baked into the sandbox image (`.<harness>/Dockerfile`); re-run Section 3.1 with `NEMOCLAW_RECREATE_SANDBOX` set to rebuild it. In an OpenClaw sandbox, `vss-openclaw-sync` re-selects the active skills from `vss configure check`.
 
 ## NGC or Model Artifact Downloads Fail
 

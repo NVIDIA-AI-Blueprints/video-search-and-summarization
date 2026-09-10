@@ -16,7 +16,7 @@
 // manifest points OpenClaw at. Unconfigured deployment: all shipped skills.
 // And the OpenClaw workspace instructions
 // (`workspace/` — AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, BOOTSTRAP.md, copied
-// from agent-harness/openclaw/workspace at build) are seeded into the agent's
+// from .openclaw/workspace at build) are seeded into the agent's
 // configured workspace when they are not there yet, with the `_<variant>`
 // overlay applied on top (VSS_WORKSPACE_VARIANT, or `nemoclaw` when running in
 // a NemoClaw sandbox). Existing files are never overwritten: the workspace is

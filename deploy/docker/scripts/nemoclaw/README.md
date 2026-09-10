@@ -17,7 +17,7 @@ document is the equivalent command reference for running it by hand.
   `NEMOCLAW_ENDPOINT_URL` + `COMPATIBLE_API_KEY` for a custom OpenAI-compatible
   endpoint).
 - This repo checked out so the policy, the OpenClaw harness image definition
-  (`agent-harness/openclaw/`), skills, and workspace docs are available.
+  (`.openclaw/`), skills, and workspace docs are available.
 
 ## Canonical flow
 
@@ -37,14 +37,14 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 # brevlab.com on legacy ones (see orchestrator_mcp_helper.detect_brev_link_domain).
 # The sandbox image is built from the repo's own harness Dockerfile (NemoClaw's
 # custom-image workflow, `--from`; the Dockerfile's directory is the build
-# context). agent-harness/openclaw extends NemoClaw's managed OpenClaw runtime
+# context). .openclaw extends NemoClaw's managed OpenClaw runtime
 # with the VSS OpenClaw plugin (the `vss` CLI as a tool, the operation skills,
-# the workspace docs); agent-harness/hermes extends the managed Hermes runtime
+# the workspace docs); .hermes extends the managed Hermes runtime
 # with the same skills, docs and CLI. Nothing is installed into the sandbox
 # afterwards except the policy and, for Kubernetes, a rendered ENV.md.
 CHAT_UI_URL="https://18789-${BREV_ENV_ID}.<brev-link-domain>" \
   nemoclaw onboard --non-interactive --agent "$RUNTIME" --name "$SB" \
-    --from "$REPO/agent-harness/$RUNTIME/Dockerfile"
+    --from "$REPO/.$RUNTIME/Dockerfile"
 
 # 3. Apply the VSS sandbox policy (merges into the base OpenShell policy)
 nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --yes
@@ -53,7 +53,7 @@ nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --
 #    upload it over the image's copy. Compose deployments leave it as shipped.
 # NOTE: the destination is a DIRECTORY (OpenShell mkdir + tar-extracts into it)
 # sed "s|^export VSS_PUBLIC_URL=.*|export VSS_PUBLIC_URL=\"$VSS_PUBLIC_URL\"|" \
-#   "$REPO/agent-harness/openclaw/workspace/_nemoclaw/ENV.md" > /tmp/ENV.md
+#   "$REPO/.openclaw/workspace/_nemoclaw/ENV.md" > /tmp/ENV.md
 # nemoclaw "$SB" upload /tmp/ENV.md /sandbox/.openclaw/workspace/   # hermes: /sandbox/
 
 # 5. Orchestrator MCP registration — only for HTTPS.

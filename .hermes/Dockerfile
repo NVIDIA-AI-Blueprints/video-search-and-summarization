@@ -21,10 +21,10 @@
 # Move BASE_IMAGE together with ../openclaw/Dockerfile's BASE_IMAGE and the
 # notebook's NEMOCLAW_INSTALL_REF: NemoClaw requires CLI and images to be one release.
 #
-# Build context is this directory (agent-harness/hermes); skills, workspace docs
+# Build context is this directory (.hermes); skills, workspace docs
 # and the vss CLI all come from one pinned commit of this repo (VSS_REF).
 #
-#   docker build -t <registry>/vss-harness-hermes:<tag> agent-harness/hermes
+#   docker build -t <registry>/vss-harness-hermes:<tag> .hermes
 
 ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7ed6a6f1b682991818a2acaf5636d9fb066ae33265b011837b0ba601c0970
 ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
@@ -53,6 +53,8 @@ RUN mkdir -p /opt/vss-assets/skills \
 # Workspace docs: the shared set plus the _nemoclaw overlay, overlay winning,
 # flattened the way deploy_nemoclaw.ipynb uploads them for Hermes (into /sandbox).
 RUN mkdir -p /opt/vss-assets/workspace \
+    # Paths inside the pinned VSS_REF checkout, which predates the
+    # agent-harness -> .openclaw rename; move these with VSS_REF.
     && cp /opt/vss-src/agent-harness/openclaw/workspace/*.md /opt/vss-assets/workspace/ \
     && cp /opt/vss-src/agent-harness/openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
     && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md

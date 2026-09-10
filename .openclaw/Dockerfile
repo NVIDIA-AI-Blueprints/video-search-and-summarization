@@ -17,12 +17,12 @@
 # workflow publishes the image that Dockerfile produces, so we `FROM` that
 # image at an immutable digest instead: same layers, no foreign checkout.
 #
-# Build context is this directory (agent-harness/openclaw): the plugin source is
+# Build context is this directory (.openclaw): the plugin source is
 # COPYd from ./plugin and the OpenClaw workspace instructions from ./workspace;
 # the skills and the vss CLI come from a pinned commit of this repo so the two
 # always match.
 #
-#   docker build -t <registry>/vss-harness-openclaw:<tag> agent-harness/openclaw
+#   docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
 
 # NemoClaw v0.0.114 managed OpenClaw runtime: OpenClaw 2026.7.1, node 22.23.2,
 # python 3.13, git, the nemoclaw plugin, nemoclaw-start entrypoint. v0.0.114 is

@@ -5,7 +5,10 @@ SPDX-License-Identifier: Apache-2.0
 
 # OpenClaw harness
 
-Everything VSS needs to run on OpenClaw, in one place:
+Everything VSS needs to run on OpenClaw, in one place: Each agent harness has its own self-contained
+top-level directory (`.openclaw/`, `.hermes/`); the `SKILL.md` tree at the repo
+root (`skills/`) stays harness-neutral, and each directory packages it the way
+that harness loads skills.
 
 | Path | What it is |
 |---|---|
@@ -50,7 +53,7 @@ the OpenClaw SDK:
 ### Working on it
 
 ```
-cd agent-harness/openclaw/plugin
+cd .openclaw/plugin
 npm ci && npm run build          # type-check and compile against the pinned OpenClaw SDK
 npm run stage                    # stage skills/ and workspace/ from this checkout
 ```
@@ -64,7 +67,7 @@ plugin links to the image's own runtime, and fails if that link is missing.
 To use the plugin with a desktop OpenClaw instead of the sandbox image:
 
 ```
-cd agent-harness/openclaw/plugin && npm ci && npm run prepare-local
+cd .openclaw/plugin && npm ci && npm run prepare-local
 openclaw plugins install "$PWD" && openclaw plugins enable vss
 openclaw skills list | grep vss-
 ```
@@ -86,7 +89,7 @@ so they always match. `vss` is installed from source because `nvidia-vss` is on
 no reachable index. The workspace files come from this directory.
 
 ```
-docker build -t <registry>/vss-harness-openclaw:<tag> agent-harness/openclaw
+docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
 ```
 
 The eval harness's Provision panel does the same: it shows this Dockerfile,
