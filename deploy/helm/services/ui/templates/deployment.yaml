@@ -202,12 +202,22 @@ spec:
               value: {{ (default 900 $adapter.backendTimeoutSeconds) | quote }}
             - name: AGENT_RUN_RETENTION_SECONDS
               value: {{ (default 3600 $adapter.runRetentionSeconds) | quote }}
+            {{- /*
+              int64 before quote: Helm decodes values.yaml numbers as float64,
+              and `quote` formats those with %v, so 20000000 renders "2e+07".
+              Kubernetes accepts the quoted form, but re-serialising the
+              manifest drops the quotes (2e+07 is not a YAML 1.1 number, so
+              round-trippers emit it plain) and the API server then rejects
+              `value` as a number where a string is required. int64 keeps the
+              digits, matching the compose defaults in
+              deploy/docker/services/ui/compose.yml.
+            */}}
             - name: AGENT_MAX_EVENT_CHARS_PER_RUN
-              value: {{ (default 20000000 $adapter.maxEventCharsPerRun) | quote }}
+              value: {{ (default 20000000 $adapter.maxEventCharsPerRun) | int64 | quote }}
             - name: AGENT_MAX_THREAD_STATE_CHARS
-              value: {{ (default 20000000 $adapter.maxThreadStateChars) | quote }}
+              value: {{ (default 20000000 $adapter.maxThreadStateChars) | int64 | quote }}
             - name: AGENT_MAX_RETAINED_CHARS
-              value: {{ (default 64000000 $adapter.maxRetainedChars) | quote }}
+              value: {{ (default 64000000 $adapter.maxRetainedChars) | int64 | quote }}
             - name: NEXT_PUBLIC_AGENT_ADAPTER_ENABLED
               value: {{ $adapterEnabled | quote }}
             {{- $forceHttp := $adapter.forceHttpChatTransport }}
