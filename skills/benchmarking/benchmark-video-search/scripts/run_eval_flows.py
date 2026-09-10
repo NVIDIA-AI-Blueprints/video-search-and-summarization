@@ -1525,6 +1525,19 @@ def main() -> None:
         print("\nPruning sources that are not in this dataset (--only-dataset)...")
         cleared = prune_foreign_videos(args.endpoint, vst_url, video_dir)
 
+    # A source that would not delete is still searchable, so it still answers
+    # queries and still counts as a false positive. Continuing would score a run
+    # that claims to isolate this dataset against an index that does not.
+    if cleared and cleared.get("failed"):
+        raise SystemExit(
+            f"ABORTED: {len(cleared['failed'])} source(s) could not be deleted: "
+            f"{cleared['failed'][:10]}\n"
+            "  They remain searchable and would be scored as false positives, so "
+            "this run cannot claim\n"
+            "  to measure the selected dataset in isolation. Delete them by hand, "
+            "or use --skip-existing."
+        )
+
     upload_stats: dict[str, Any] | None = None
     readiness: dict[str, Any] | None = None
     index_probe: dict[str, Any] | None = None
@@ -1569,6 +1582,34 @@ def main() -> None:
         # Registered in VST is not the same as indexed in Elasticsearch. The
         # three-step flow already proved the difference with a chunk count; a
         # flow that reports no proof has to be asked.
+        # The anchor is the other half of "is this searchable": ground truth is
+        # matched by absolute-timestamp overlap against 2025-01-01, so media
+        # indexed at any other instant scores every query zero while looking
+        # perfectly healthy to the coverage probe. One timeline read on one
+        # uploaded video is the whole check, and it was defined and tested but
+        # never called until now.
+        anchor_check = getattr(ingest_backend, "verify_anchor", None)
+        first_sensor = next(
+            (r.get("sensor_id") for r in upload_stats.get("per_file", []) if r.get("sensor_id")),
+            None,
+        )
+        if anchor_check and first_sensor and not args.skip_index_probe:
+            anchor = anchor_check(first_sensor)
+            if anchor.get("found") and not anchor.get("matches_expected_anchor"):
+                raise SystemExit(
+                    f"ABORTED: {first_sensor} is indexed at {anchor.get('start_time')!r}, not at "
+                    f"the {anchor.get('expected_anchor')!r} anchor the ground truth is written "
+                    "against.\n"
+                    "  Every query would score 0.0 and read as a retrieval collapse. VIOS did not "
+                    "honour the\n"
+                    "  upload's metadata.timestamp -- check --upload-timestamp and the VIOS "
+                    "storage config."
+                )
+            if anchor.get("checked") and anchor.get("found"):
+                print(f"  Anchor confirmed at {anchor.get('start_time')}.")
+            else:
+                print(f"  (anchor unverified: {anchor})")
+
         if not ingest_backend.proves_indexing and not args.skip_index_probe:
             print(f"\nProbing index coverage for {len(expected)} source(s)...")
             index_probe = probe_index_coverage(
