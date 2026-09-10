@@ -1,0 +1,125 @@
+Third-Party and External Software Licenses
+================================================================================
+
+This file records the direct external software fetched when an operator runs
+scripts/train_rl_adapter.ipynb. The setup is off by default. VSS does not vendor
+these projects or install them into a VSS image.
+
+NeMo RL is fixed to the commit below. Its uv.lock at that same commit is the
+version and hash inventory for packages installed into the NeMo RL driver and
+worker environments:
+https://github.com/NVIDIA-NeMo/RL/blob/5fb588932bf835506a8a5bac01de4f8c7ab0a065/uv.lock
+
+NeMo Gym creates a separate resource-server environment. The notebook pins the
+three packages that its VSS resource server declares directly and records the
+complete resolved environment with `uv pip freeze` before baseline measurement.
+Other dependencies come from the pinned upstream NeMo RL and NeMo Gym project
+metadata and are downloaded by uv at operator execution time.
+
+The model checkpoint, judge service, serving image, and host tools are supplied
+by the operator and are not fixed or distributed by this notebook.
+
+================================================================================
+
+## nemo-rl (0.6.0)
+**License:** Apache-2.0
+
+Repository: https://github.com/NVIDIA-NeMo/RL
+Revision: 5fb588932bf835506a8a5bac01de4f8c7ab0a065
+Description: Stock GRPO training, checkpoint conversion, and worker launcher.
+Full License Text:
+https://github.com/NVIDIA-NeMo/RL/blob/5fb588932bf835506a8a5bac01de4f8c7ab0a065/LICENSE
+
+
+## nemo-gym (1a4912e231bb2795b062f7de97496caaf382c7f6)
+**License:** Apache-2.0
+
+Repository: https://github.com/NVIDIA-NeMo/Gym
+Description: Pinned NeMo RL submodule used for the resource server and data preparation.
+Full License Text:
+https://github.com/NVIDIA-NeMo/Gym/blob/1a4912e231bb2795b062f7de97496caaf382c7f6/LICENSE
+Upstream Attribution Notice:
+https://github.com/NVIDIA-NeMo/Gym/blob/1a4912e231bb2795b062f7de97496caaf382c7f6/ATTRIBUTIONS.md
+
+
+## nemo-automodel (92635e74f4fb16784268b9a9fd7b7d6a83fff6c5)
+**License:** Apache-2.0
+
+Repository: https://github.com/NVIDIA-NeMo/Automodel
+Description: Pinned submodule required while uv resolves the NeMo RL workspace.
+Full License Text:
+https://github.com/NVIDIA-NeMo/Automodel/blob/92635e74f4fb16784268b9a9fd7b7d6a83fff6c5/LICENSE
+
+
+## megatron-bridge (95e5f38f8727c4ab30830559c68939f35f4e52f6)
+**License:** Apache-2.0
+
+Repository: https://github.com/NVIDIA-NeMo/Megatron-Bridge
+Description: Pinned NeMo RL submodule used by the Megatron policy backend.
+Full License Text:
+https://github.com/NVIDIA-NeMo/Megatron-Bridge/blob/95e5f38f8727c4ab30830559c68939f35f4e52f6/LICENSE
+
+
+## megatron-core (d30c3ae5469fe3f6a64d4fd2e63b6e7f7844ea81)
+**License:** BSD-3-Clause AND Apache-2.0 AND MIT
+
+Repository: https://github.com/NVIDIA/Megatron-LM
+Description: Pinned Megatron-LM source used by the policy backend. Its composite
+license file includes the base BSD terms and additional notices for identified
+files and bundled components.
+Full License Text and Notices:
+https://github.com/NVIDIA/Megatron-LM/blob/d30c3ae5469fe3f6a64d4fd2e63b6e7f7844ea81/LICENSE
+
+
+## vllm (0.17.1)
+**License:** Apache-2.0
+
+Repository: https://github.com/vllm-project/vllm
+Description: Generation runtime selected by the pinned NeMo RL vllm extra.
+Full License Text:
+https://github.com/vllm-project/vllm/blob/v0.17.1/LICENSE
+
+
+## ray (2.54.0)
+**License:** Apache-2.0
+
+Repository: https://github.com/ray-project/ray
+Description: Distributed runtime installed explicitly from the pinned NeMo RL lock.
+Full License Text:
+https://github.com/ray-project/ray/blob/ray-2.54.0/LICENSE
+
+
+## openai (2.6.1)
+**License:** Apache-2.0
+
+Repository: https://github.com/openai/openai-python
+Description: API client installed explicitly from the pinned NeMo RL lock.
+Full License Text:
+https://github.com/openai/openai-python/blob/v2.6.1/LICENSE
+
+
+## fastapi (0.124.4)
+**License:** MIT
+
+Repository: https://github.com/fastapi/fastapi
+Description: Web framework imported directly by the VSS Gym resource server.
+Full License Text:
+https://github.com/fastapi/fastapi/blob/0.124.4/LICENSE
+
+
+## httpx (0.28.1)
+**License:** BSD-3-Clause
+
+Repository: https://github.com/encode/httpx
+Description: Judge HTTP client imported directly by the VSS Gym resource server.
+Full License Text:
+https://github.com/encode/httpx/blob/0.28.1/LICENSE.md
+
+
+## pydantic (2.12.4)
+**License:** MIT
+
+Repository: https://github.com/pydantic/pydantic
+Description: Data validation runtime imported directly by NeMo Gym and FastAPI.
+Full License Text:
+https://github.com/pydantic/pydantic/blob/v2.12.4/LICENSE
