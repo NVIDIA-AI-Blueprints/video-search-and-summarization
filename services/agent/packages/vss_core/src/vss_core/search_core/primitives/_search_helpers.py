@@ -529,6 +529,10 @@ async def execute_core_search(
         # The merge-adjacent headroom doubled ``top_k`` above, but tag mode never
         # runs that merge, so slicing with the doubled value would return up to
         # 2x the requested limit (e.g. top_k=2 returns 4). Cap with the original.
+        # Apply the top-percent filter the embed/attribute path applies after
+        # retrieval; tag mode returns before that common post-processing, so
+        # `--top-percent-filter` would otherwise be a no-op for tag.
+        search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
         yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
         return
 
@@ -651,6 +655,7 @@ async def execute_core_search(
             weights={"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute},
             rrf_k=config.rrf_k,
         )
+        search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
         if getattr(config, "merge_adjacent", True):
             search_results = _fusion.merge_consecutive_results(search_results)
         yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
