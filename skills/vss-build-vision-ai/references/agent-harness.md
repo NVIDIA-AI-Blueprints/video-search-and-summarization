@@ -13,10 +13,13 @@
 
 ## Model
 
-A **harness** is what a person or another agent talks to in order to drive a
-build. Two exist, they are **mutually exclusive**, and **at most one** is
-deployed. `vss-agent` is removed unless the request names it, so a build carries
-the NemoClaw sandbox, the in-stack agent, or no harness at all — never two.
+A **chat owner** is what a person or another agent talks to in order to drive a
+build. They are **mutually exclusive**, and **at most one** is deployed: the
+NemoClaw sandbox, an existing external OpenClaw/Hermes harness, the in-stack
+`vss-agent`, or none at all — never two. Q3 selects which, and `vss-agent` is
+removed on every answer except **Built-in VSS Agent**. An external owner does
+not add a service: `vss-ui` fronts it through the adapter that already ships in
+the UI image (see [External harness adapter](#external-harness-adapter)).
 
 | Harness | Where it runs | Reached by | Selected by |
 |---|---|---|---|
@@ -25,25 +28,26 @@ the NemoClaw sandbox, the in-stack agent, or no harness at all — never two.
 
 `vss-agent` is in-stack: it is a container, it is reached through the build's own
 origin, and forward closure retains it whenever agentic orchestration is
-requested or another owner declares it as a peer — unless NemoClaw is selected,
-which removes it. NemoClaw is host-side: an OpenShell sandbox running an agent
+requested or another owner declares it as a peer — unless Q3 selects a
+different chat owner, which removes it. NemoClaw is host-side: an OpenShell sandbox running an agent
 harness (OpenClaw or Hermes) with the repository's skills installed, driving the
 deployment from outside over the same public routes an operator would use.
 
-**NemoClaw is the default harness.** When a build has an interactive surface and
-the request names no harness, Q3 asks one yes/no question — deploy the NemoClaw
-sandbox as the harness? — and **yes** is the default, including for an
-unanswered Q3. A **no** means no harness: the build is driven by the `vss` CLI
-from the host. Never turn that into a menu of harnesses; the only question is
-whether NemoClaw is deployed.
+**NemoClaw is the recommended default.** When a build has an interactive surface
+and the request names no chat owner, Q3 asks which owner drives the deployment
+and offers NemoClaw first. The recommendation is not permission to skip the
+question: ask, and take the default only on an explicit deferral. Do not infer
+the answer from a credential that happens to be present or from the Foundation.
 
-**`vss-agent` is removed on either answer.** The in-stack agent is deployed only
-when the request names it — the chat agent, the Web UI, the agent REST API — and
-such a request skips Q3 the way any named harness does. Honour it; do not steer
-it to NemoClaw. Everything below about the removal therefore applies to a `no`
-as much as to a `yes`; only the [Prerequisites](#prerequisites),
+**`vss-agent` is removed on every answer except Built-in VSS Agent.** The
+in-stack agent survives when the user selects it at Q3, or when the request
+already names it — the chat agent, the Web UI, the agent REST API — which skips
+Q3 the way naming any harness does. Honour that; do not steer it to NemoClaw.
+Everything below about the removal therefore applies to NemoClaw, to an existing
+external harness, and to *No chat* alike; only the [Prerequisites](#prerequisites),
 [ingress](#ingress-is-still-required), and bring-up sections are NemoClaw's
-alone.
+alone, and the [adapter](#external-harness-adapter) is shared by NemoClaw and an
+existing harness.
 
 A build that reaches no interactive surface still has **no harness at all** — the
 correct outcome for one that only ingests, indexes, or serves an API. Defaulting
@@ -166,6 +170,38 @@ Two things the user should hear up front rather than discover:
   publishes for the ingress port, resolved rather than constructed
   ([`brev.md`](brev.md)). Never `EXTERNAL_IP`, which on a NemoClaw build holds
   `host.openshell.internal` and resolves only inside the sandbox.
+
+## External harness adapter
+
+An external chat owner — the NemoClaw sandbox or a harness the user already runs
+— is reached through the **adapter built into the `vss-ui` image**. There is no
+separate gateway service, and nothing named `agent-gateway` belongs in
+`COMPOSE_PROFILES`, `compose.yml`, or `patches/`.
+
+Write these into the build's protected env layer (`_builds/<name>/`, mode
+`0600`, gitignored), never into the checked-in profile `overrides.env`:
+
+| Variable | Value |
+|---|---|
+| `VSS_AGENT_ADAPTER_ENABLED=true` | **Required.** Turns on the server-side adapter *and* is what Compose derives `NEXT_PUBLIC_AGENT_ADAPTER_ENABLED` from. Without it the browser keeps targeting `vss-agent`, which an external-owner build no longer deploys. |
+| `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` for OpenClaw/NemoClaw; `responses` for Hermes or another Responses-compatible backend; `legacy-chat` for a plain chat-completions endpoint. |
+| `VSS_AGENT_BACKEND_URL` | Harness origin. `ws://` or `wss://` for `openclaw-ws`; `http://` or `https://` otherwise. No credentials, query, or fragment. |
+| `VSS_AGENT_BACKEND_PATH` | Defaults per protocol: `/` for `openclaw-ws`, `/v1/responses` for `responses`, `/chat/stream` for `legacy-chat`. |
+| `VSS_AGENT_BACKEND_TOKEN` | Harness bearer. Server-only — it carries no `NEXT_PUBLIC_` prefix, so it is never inlined into a browser bundle. |
+| `VSS_AGENT_BACKEND_MODEL` | Harness agent/model selector. |
+| `VSS_AGENT_BACKEND_SESSION_FIELD` | `user` for Hermes; **explicitly empty** for OpenClaw. Compose reads this with a single-dash default, so an empty value is preserved rather than falling back. |
+| `VSS_AGENT_BACKEND_SESSION_HEADER` | Optional routing header (`X-Hermes-Session-Key` for Hermes); empty for OpenClaw. |
+| `VSS_AGENT_BACKEND_HEADERS_JSON` | Optional upstream header object. **Unsupported with `openclaw-ws`** — any non-empty value is rejected at startup. Treat the whole value as credential-bearing. |
+| `NEXT_PUBLIC_ENABLE_CHAT_TAB=true` | Keeps the chat tab visible. |
+| `NEXT_PUBLIC_FORCE_HTTP_CHAT_TRANSPORT=true` | Locks chat to same-origin HTTP so a saved WebSocket preference cannot bypass the adapter. Compose already defaults this from `VSS_AGENT_ADAPTER_ENABLED`; set it explicitly when generating the layer. |
+
+Obtain the backend token from the selected sandbox CLI and capture it directly
+into the protected artifact; never print it in chat, logs, or notebook output,
+and never copy it into `override.env`.
+
+**Verify before calling the build complete:** `resolved.yml` shows `vss-ui` with
+`AGENT_ADAPTER_ENABLED` and a non-empty `AGENT_BACKEND_URL`, and one real chat
+turn through the VSS UI returns a response from the harness.
 
 ## Ordering
 
