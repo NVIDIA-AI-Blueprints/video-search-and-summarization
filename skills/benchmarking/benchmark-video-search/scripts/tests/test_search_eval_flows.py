@@ -1020,6 +1020,99 @@ def test_the_probe_gate_reads_a_flag_not_a_prose_string() -> None:
     assert flows.LegacyPutIngest.proves_indexing is True
 
 
+def test_a_crowded_out_video_is_confirmed_before_being_called_missing(
+    monkeypatch: Any,
+) -> None:
+    """The broad query samples by similarity, so absence from it proves nothing.
+
+    A fully indexed video whose chunks rank below other videos' would abort a
+    perfectly healthy run. Only a source-scoped query that ALSO comes back empty
+    counts as missing.
+    """
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    scoped_asked: list[str] = []
+
+    def backend(**kw: Any) -> Any:
+        decomps = kw.get("decompositions") or {}
+        source = next(iter(decomps.values()), {}).get("video_sources", [None])[0]
+
+        class _Probe:
+            def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
+                if source is None:  # the broad query: clip_b is crowded out
+                    return [{"video_name": "clip_a.mp4"}], 0.1
+                scoped_asked.append(source)
+                return [{"video_name": f"{source}.mp4"}], 0.1  # but it IS indexed
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", backend)
+    monkeypatch.setattr(flows, "list_sensor_names", lambda _u: {"clip_a", "clip_b"})
+    result = rf.probe_index_coverage(
+        _Backend(), ["clip_a", "clip_b"], vst_url="http://vst", attempts=2, backoff_s=0
+    )
+    assert result["covered"] is True
+    assert scoped_asked == ["clip_b"], "only the crowded-out source needs a scoped query"
+
+
+def test_a_genuinely_absent_source_survives_the_scoped_check(monkeypatch: Any) -> None:
+    """The confirmation must not turn every miss into a pass."""
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    def backend(**kw: Any) -> Any:
+        decomps = kw.get("decompositions") or {}
+        source = next(iter(decomps.values()), {}).get("video_sources", [None])[0]
+
+        class _Probe:
+            def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
+                if source is None:
+                    return [{"video_name": "clip_a.mp4"}], 0.1
+                return [], 0.1  # scoped query finds nothing: really not indexed
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", backend)
+    monkeypatch.setattr(flows, "list_sensor_names", lambda _u: {"clip_a", "clip_b"})
+    monkeypatch.setattr(rf.time, "sleep", lambda _s: None)
+    result = rf.probe_index_coverage(
+        _Backend(), ["clip_a", "clip_b"], vst_url="http://vst", attempts=2, backoff_s=0
+    )
+    assert result["covered"] is False
+    assert result["missing"] == ["clip_b"]
+    assert result["per_source_verified"] is True
+
+
+def test_without_vst_the_probe_says_it_could_not_verify_per_source(
+    monkeypatch: Any,
+) -> None:
+    """Weaker mode, and the artifact records that it was weaker."""
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    def backend(**kw: Any) -> Any:
+        class _Probe:
+            def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
+                return [{"video_name": "clip_a.mp4"}, {"video_name": "clip_b.mp4"}], 0.1
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", backend)
+    result = rf.probe_index_coverage(_Backend(), ["clip_a", "clip_b"], attempts=1, backoff_s=0)
+    assert result["covered"] is True
+    assert result["per_source_verified"] is False
+
+
 def test_partial_coverage_is_a_failure_not_a_pass(monkeypatch: Any) -> None:
     """"Something is indexed" passes on 1 video out of 32.
 
@@ -1082,7 +1175,10 @@ def test_full_coverage_passes_and_matches_names_the_way_scoring_does(
     monkeypatch.setattr(flows, "CliQueryBackend", all_videos)
     result = rf.probe_index_coverage(_Backend(), ["clip_a", "clip_b"], attempts=2, backoff_s=0)
 
-    assert result == {"checked": True, "covered": True, "attempts": 1, "sources": 2}
+    assert result == {
+        "checked": True, "covered": True, "attempts": 1, "sources": 2,
+        "per_source_verified": False,
+    }
     # A throwaway backend: the run's own --min-cosine-similarity floor or a
     # non-embed --search-path must not filter a healthy index into an alarm.
     assert built[0]["search_path"] == "embed"
