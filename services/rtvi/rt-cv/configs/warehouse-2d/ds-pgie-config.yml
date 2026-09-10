@@ -20,7 +20,7 @@ class-attrs-all:
 # Assign different thresholds for different classes for optimal performance
 class-attrs-0:
   pre-cluster-threshold: 0.85
-  topk: 20
+  topk: 50
 class-attrs-1:
   pre-cluster-threshold: 0.85
 class-attrs-2:
