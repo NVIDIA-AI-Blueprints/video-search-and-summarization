@@ -100,8 +100,11 @@ DEFAULT_PLATFORM = "RTXPRO6000BW"
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
+    "setup action the trial requires. This wording is what activates the skill's "
+    "autonomous-mode exception (SKILL.md, 'Exception — autonomous mode'), which "
+    "skips the Q1/Q2 intake, Q3 harness selection, and Step 6 diagram approval; "
+    "without it a trial hangs on a confirmation no human is present to give."
 )
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
