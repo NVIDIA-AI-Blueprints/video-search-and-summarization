@@ -65,10 +65,12 @@ after deployment (below).
 Applies to **both** Q3 answers — a `yes` and a `no` alike — and not to a build
 whose request named the in-stack agent.
 
-**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`, and change no
-other key.** `vss-ui`, `phoenix`, and the `llm_*` peer all stay. Pruning them is
-a capability decision, not a harness one: leave them and report `phoenix` as
-idle, since it collects the agent's traces and has no other client.
+**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`, then complete
+the normal capability-pruning pass.** Retain `vss-ui` only for an explicitly
+requested Web UI surface. Retain `phoenix`, the `llm_*` peer, or
+`vss-haproxy-ingress` only when requested or required by a selected
+capability-owner contract; those explicit contracts take precedence over this
+generic harness rule.
 
 `vss-ui`'s dependency on the agent ships as `required: false` so the filtered
 project still resolves, and `scripts/normalize_resolved_yml.py` drops the
@@ -76,10 +78,9 @@ dangling entry. Never re-add a hard `depends_on` in a build override — Compose
 rejects a project whose enabled service hard-depends on a filtered one, and
 Step 8 fails with no `resolved.yml`.
 
-`vss-ui` is worth keeping with no agent: its Alerts, Dashboard, and Video
-Management tabs address Alert Bridge, Kibana, and VST directly. An explicit
-"headless" request drops it as well — honour that, and report the loss of those
-three tabs.
+When retained for an explicitly requested UI surface, `vss-ui` can still serve
+its Alerts, Dashboard, and Video Management tabs directly through Alert Bridge,
+Kibana, and VST. Otherwise prune it and report the loss of those three tabs.
 
 ### What the removal costs, and what it does not
 
@@ -90,7 +91,7 @@ Report every one of these that the build has, whenever the agent is removed:
 | Web UI chat sidebar, Chat tab, Search tab | stop answering — they address `/chat/stream`, `/websocket`, and `/api/v1/search`. The Alerts, Dashboard, and Video Management tabs keep working, because they address Alert Bridge, Kibana, and VST directly — including Video Management's upload and delete, which never went through the agent |
 | Alerts tab, *Generate Report* | goes with the sidebar it drives. The incident list and rule CRUD stay, on `video-analytics-api` and Alert Bridge |
 | Web UI summarization on `lvs` | gone: the UI ships no LVS client and reaches summarization only through the agent's chat. On a build with no harness, the capability is `vss summarize` from the host and the UI is a dashboard |
-| Ingress `/api`, `/chat`, `/websocket` | `503`. HAProxy still starts — `bk_vss_agent` is declared `init-addr none` — and the origin's root still serves the UI |
+| Ingress `/api`, `/chat`, `/websocket` | The default curated headless ingress omits these routes (404); only an explicit as-is HAProxy configuration returns `503`. The origin serves the UI only when the UI is retained |
 | Search **ingestion and deletion** | no `vss` verb covers the RT-CV/RT-Embed fan-out the agent's `/complete` performs. Use the headless recipe below |
 | `vss-generate-video-report-rag` | unavailable: it drives the agent's `/v1/chat` and `/executions`. Route reports through `vss-generate-video-report`, which never calls the agent |
 

@@ -153,9 +153,12 @@ The only writable location is `_builds/<name>/`. Never create or edit files unde
 `override.env` contains:
 
 1. `FOUNDATION=<base|alerts|lvs|search>`.
-2. The full effective `COMPOSE_PROFILES` after additions and removals.
-3. Every customized environment value and every Foundation value transitively
-   derived from it. Do not repeat unrelated Foundation defaults.
+2. For an Alerts Foundation, the selected `MODE=<2d_vlm|2d_cv>`.
+3. The full effective `COMPOSE_PROFILES` after additions and removals.
+4. `VSS_DATA_DIR` as an absolute path outside the repository's `deploy/docker/`
+   tree, plus every customized environment value and every Foundation value
+   transitively derived from it. Do not repeat unrelated Foundation defaults or
+   an unchanged Foundation `${...}` expression.
 
 Compose expands each env file as it is read; values expanded in a Foundation
 file are not recomputed when a later file changes one of their inputs.
