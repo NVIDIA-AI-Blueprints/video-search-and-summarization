@@ -240,9 +240,31 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
 PROBE_QUERY = "a person"
 
 
+def _probe_backend(query_backend: Any, top_k: int, source: str | None = None) -> Any:
+    """A throwaway embed backend, optionally scoped to one registered source.
+
+    Never the run's own: a ``--min-cosine-similarity`` floor or a non-embed
+    ``--search-path`` would filter a healthy index into a false alarm.
+
+    Scoping rides on the decomposition machinery rather than a new argv branch --
+    ``{"video_sources": [name]}`` routes to embed (no attributes, no object ids)
+    and ``plan_for`` turns it into ``--video-source``.
+    """
+    decompositions = {PROBE_QUERY: {"video_sources": [source]}} if source else None
+    return flows.CliQueryBackend(
+        vss_cmd=query_backend.vss_cmd,
+        search_path="embed",
+        top_k=top_k,
+        cwd=query_backend.cwd,
+        pass_original_query=False,
+        decompositions=decompositions,
+    )
+
+
 def probe_index_coverage(
     query_backend: Any,
     expected_sources: list[str],
+    vst_url: str | None = None,
     attempts: int = 10,
     backoff_s: float = 15.0,
     top_k_per_source: int = 20,
@@ -250,41 +272,69 @@ def probe_index_coverage(
     """Confirm every ingested video is searchable before scoring a whole run.
 
     The three-step ingest flow proves this for free: ``/complete`` runs the
-    embedding leg synchronously per video and returns ``chunks_processed``, so
-    a zero fails that upload. ``vst-direct`` has no such step -- VIOS fans out
-    to the perception services by webhook and never reports the outcome -- and
-    the readiness poll does not close the gap, because it asks VST which
-    sources are *registered*. A source registered by an earlier run answers yes
-    while this run's re-ingest is still being embedded, so readiness returns in
-    0.0s against an index that is half rebuilt.
+    embedding leg synchronously per video and returns ``chunks_processed``, so a
+    zero fails that upload. ``vst-direct`` has no such step -- VIOS fans out to
+    the perception services by webhook and never reports the outcome -- and the
+    readiness poll does not close the gap, because it asks VST which sources are
+    *registered*. VST registers at upload time, synchronously, so that poll
+    returns in 0.0s against an index that has not been built yet.
 
-    That is not a hypothetical: it scored physicalai-dev at recall 0.3534
-    against the 0.5103 the same queries had reached, with routing unchanged,
-    and read as a retrieval regression.
+    Two stages, because one broad query is cheap but not conclusive:
 
-    So this asks the index itself, and asks about coverage rather than
-    existence -- "is anything indexed" passes on 1 video out of 32. One broad
-    embed query, matched back to the expected videos with the same name matcher
-    the scorer uses, retried because webhook perception is asynchronous.
+    1. One unscoped embed query. Embedding search returns the nearest ``top_k``
+       whatever they are, so what comes back samples what is indexed. Usually
+       every source appears and the probe is done in one call.
+    2. Anything still absent is queried again **scoped to that source**. A fully
+       indexed video can be crowded out of stage 1 by closer chunks from other
+       videos, and aborting a healthy run on that would be worse than the bug
+       this guards. Absence only counts once the source has been asked about
+       directly.
 
-    Returns the sources still missing. On a dataset large enough that ``top_k``
-    cannot reach every video, full coverage is unreachable by construction;
-    raise ``--index-probe-top-k``, or skip the probe and accept the risk.
+    Scoping needs the name VST actually registered, which is not always the
+    dataset's spelling (VST keeps the extension for some sources and not
+    others), so ``vst_url`` is read once to resolve them. Without it, stage 2 is
+    skipped and stage 1 alone decides -- weaker, and said so in the result.
     """
     if not expected_sources:
         return {"checked": False, "reason": "no expected sources"}
 
-    probe_backend = flows.CliQueryBackend(
-        vss_cmd=query_backend.vss_cmd,
-        search_path="embed",
-        top_k=min(1000, max(50, top_k_per_source * len(expected_sources))),
-        cwd=query_backend.cwd,
-        pass_original_query=False,
-    )
+    registered: dict[str, str] = {}
+    if vst_url:
+        try:
+            names = flows.list_sensor_names(vst_url)
+            for source in expected_sources:
+                variants = flows.name_variants(source)
+                match = next((n for n in names if n.lower() in variants), None)
+                if match:
+                    registered[source] = match
+        except Exception as e:
+            print(f"  (could not resolve VST source names, per-source probing off: {e})")
+
+    broad = _probe_backend(query_backend, min(1000, max(50, top_k_per_source * len(expected_sources))))
     missing = list(expected_sources)
+
     for attempt in range(1, attempts + 1):
         try:
-            hits, _latency = probe_backend.search(PROBE_QUERY)
+            hits, _latency = broad.search(PROBE_QUERY)
+            seen = {h.get("video_name", "") for h in hits if h.get("video_name")}
+            missing = [
+                source
+                for source in expected_sources
+                if not any(flows.video_name_matches(name, source) for name in seen)
+            ]
+
+            # Stage 2: ask directly about whatever the broad query did not
+            # surface, so ranking cannot be mistaken for absence.
+            confirmed_missing = []
+            for source in missing:
+                name = registered.get(source)
+                if not name:
+                    confirmed_missing.append(source)
+                    continue
+                scoped_hits, _ = _probe_backend(query_backend, 1, source=name).search(PROBE_QUERY)
+                if not scoped_hits:
+                    confirmed_missing.append(source)
+            missing = confirmed_missing
         except Exception as e:
             # An environment fault is worth reporting as itself rather than as
             # an empty index -- exit 4 means misconfigured, not unindexed.
@@ -295,20 +345,16 @@ def probe_index_coverage(
                 "error": f"{type(e).__name__}: {e}",
             }
 
-        seen = {h.get("video_name", "") for h in hits if h.get("video_name")}
-        missing = [
-            source
-            for source in expected_sources
-            if not any(flows.video_name_matches(name, source) for name in seen)
-        ]
         found = len(expected_sources) - len(missing)
         if not missing:
-            print(
-                f"  Index covers all {len(expected_sources)} source(s) "
-                f"after {attempt} attempt(s)."
-            )
-            return {"checked": True, "covered": True, "attempts": attempt,
-                    "sources": len(expected_sources)}
+            print(f"  Index covers all {len(expected_sources)} source(s) after {attempt} attempt(s).")
+            return {
+                "checked": True,
+                "covered": True,
+                "attempts": attempt,
+                "sources": len(expected_sources),
+                "per_source_verified": bool(registered),
+            }
         if attempt < attempts:
             print(
                 f"  Probe {attempt}/{attempts}: {found}/{len(expected_sources)} "
@@ -323,6 +369,7 @@ def probe_index_coverage(
         "sources": len(expected_sources),
         "missing": missing[:20],
         "missing_count": len(missing),
+        "per_source_verified": bool(registered),
     }
 
 
@@ -1527,6 +1574,7 @@ def main() -> None:
             index_probe = probe_index_coverage(
                 query_backend,
                 expected,
+                vst_url=vst_url,
                 attempts=args.index_probe_attempts,
                 backoff_s=args.index_probe_backoff,
                 top_k_per_source=args.index_probe_top_k,
