@@ -25,6 +25,10 @@ PATCH_PATH = (
     Path(__file__).parents[2]
     / "docker/rtvi_vlm/patches/apply_vllm_parakeet_transformers5_patch.py"
 )
+OVERLAY_PATH = (
+    Path(__file__).parents[2]
+    / "docker/rtvi_vlm/patches/evs_vllm_public_files/transformers_utils/configs/parakeet.py"
+)
 
 
 def _load_patch_module():
@@ -63,3 +67,16 @@ def test_parakeet_patch_makes_subclass_fields_keyword_only(tmp_path, monkeypatch
         "    projection_eps: float = 1e-5\n"
         "    sampling_rate: int = field(kw_only=True)\n"
     )
+
+
+def test_evs_overlay_keeps_parakeet_subclass_fields_keyword_only():
+    content = OVERLAY_PATH.read_text(encoding="utf-8")
+
+    assert "from dataclasses import dataclass, field" in content
+    for name, annotation in (
+        ("llm_hidden_size", "int"),
+        ("projection_hidden_size", "int"),
+        ("projection_bias", "bool"),
+        ("sampling_rate", "int"),
+    ):
+        assert f"    {name}: {annotation} = field(kw_only=True)" in content
