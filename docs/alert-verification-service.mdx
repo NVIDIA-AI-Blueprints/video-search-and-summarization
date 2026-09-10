@@ -867,6 +867,8 @@ Add the two profiles to the list definitions rather than to `COMPOSE_PROFILES`, 
 
 Each alert produces one root span, `Alert Verification`, covering the event from ingestion to sink completion. Child spans divide that interval.
 
+![One alert as a span tree in the Jaeger UI](/assets/images/alert-otel-trace-timeline.png)
+
 | Span | Covers |
 | --- | --- |
 | `Alert Verification` | Root span for one alert, from ingestion to sink-ready completion. |
@@ -882,6 +884,10 @@ Each alert produces one root span, `Alert Verification`, covering the event from
 `Dispatch Wait`, the two `Capacity Wait` spans, and `VLM Request` are emitted by the `event_loop` pipeline, which is the shipped default. The synchronous path does not emit them.
 
 Requests to the REST API produce their own server spans through FastAPI instrumentation, and outbound HTTP calls to VIOS (VST) and the VLM backend add client spans beneath whichever span is active.
+
+Each span carries its attributes, such as `category`, `sensorId`, `pipeline_mode`, and `verdict` on the root span. Spans rebuilt from recorded timestamps carry `timing.source=reconstructed`.
+
+![Span attributes in the Jaeger UI](/assets/images/alert-otel-span-detail.png)
 
 ### Trace context
 
