@@ -101,7 +101,9 @@ PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
     "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "setup action the trial requires. For this adapter, the deployment skill "
+    "under test is `/vss-build-vision-ai`; do not invoke `/vss-deploy-profile` "
+    "unless a spec explicitly asks for it."
 )
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"

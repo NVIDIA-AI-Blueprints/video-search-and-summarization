@@ -1,0 +1,33 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "stock-base",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. This eval transfers the old vss-deploy-profile base deployment coverage to Build Vision AI. Coverage boundary: no existing Build Vision AI eval validates a stock base runtime deployment with the base profile's Agent, UI, Redis, VIOS, Phoenix, LLM, and RT-VLM service set left unchanged.",
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-ai` to deploy the stock VSS **base** pre-built developer workflow on `{{platform}}` from `{{repo_root}}`. Keep the base profile's authoritative service set unchanged, write the build artifacts under `_builds/stock-base/`, validate the resolved Compose file, deploy it end-to-end, and leave the deployment running for readiness checks.",
+      "checks": [
+        "`{{repo_root}}/_builds/stock-base/override.env` exists and declares `FOUNDATION=base` and the full effective `COMPOSE_PROFILES`.",
+        "The effective service set matches the stock base profile and includes `vss-agent`, `vss-ui`, `phoenix`, `redis`, `vss-haproxy-ingress`, VIOS services, one LLM profile token, and `rtvi-vlm` without adding an invented `stock-base` or aggregate profile key.",
+        "`{{repo_root}}/_builds/stock-base/compose.yml` includes the root `deploy/docker/compose.yml`, and the build directory contains `override.env`, `compose.yml`, and `resolved.yml`.",
+        "The deployment is launched directly from `_builds/stock-base/resolved.yml` after validation.",
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive).",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive).",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-postgres` returns exit 0.",
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0.",
+        "The agent does not invoke `/vss-deploy-profile` or `scripts/dev-profile.sh`."
+      ]
+    }
+  ]
+}
