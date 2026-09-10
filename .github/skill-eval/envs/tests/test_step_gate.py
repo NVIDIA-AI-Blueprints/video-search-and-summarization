@@ -61,7 +61,7 @@ def _async_ok(*_a, **_kw):
 
 
 class StepGateTest(unittest.IsolatedAsyncioTestCase):
-    async def _run_start_for(self, task_dir_name: str):
+    async def _run_start_for(self, task_dir_name: str, *, preserve: bool = False):
         """Drive start() for a task dir named `task_dir_name`, with every
         box-side coroutine stubbed, and return the set of gated helpers that
         were awaited."""
@@ -76,8 +76,11 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         reset = mock.AsyncMock()
         purge = mock.AsyncMock()
         sync = mock.AsyncMock()
+        remote_exec = mock.AsyncMock(side_effect=_async_ok)
+        env_vars = {"SKILL_EVAL_PRESERVE_DEPLOYMENT": "1"} if preserve else {}
 
-        with mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-test"), \
+        with mock.patch.dict(brev_env.os.environ, env_vars, clear=True), \
+             mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-test"), \
              mock.patch.object(env, "_reset_docker_runtime", new=reset), \
              mock.patch.object(env, "_purge_host_data_dirs", new=purge), \
              mock.patch.object(env, "_sync_repo_to_pr_head", new=sync), \
@@ -88,8 +91,13 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
              mock.patch.object(brev_env, "_check_live_resources",
                                new=mock.AsyncMock(return_value=None)), \
              mock.patch.object(brev_env, "_run_brev_exec",
-                               new=mock.AsyncMock(side_effect=_async_ok)):
+                               new=remote_exec):
             await env.start(force_build=False)
+
+        self.remote_commands = [
+            call.args[1] for call in remote_exec.await_args_list
+            if len(call.args) > 1
+        ]
 
         calls: set[str] = set()
         if reset.await_count:
@@ -123,6 +131,21 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         # Guard the string compare: `step-10` must not be mistaken for step-1.
         calls = await self._run_start_for("step-10")
         self.assertEqual(calls, set(), "step-10 must skip all destructive prep")
+
+    async def test_preserved_step_skips_broad_stale_agent_reap(self):
+        calls = await self._run_start_for("step-2", preserve=True)
+        self.assertEqual(calls, set())
+        self.assertFalse(
+            any("MARKER_RE=" in command for command in self.remote_commands),
+            "a preserved step must not kill the setup agent services it reuses",
+        )
+
+    async def test_first_step_reaps_stale_agents(self):
+        await self._run_start_for("step-1")
+        self.assertTrue(
+            any("MARKER_RE=" in command for command in self.remote_commands),
+            "a fresh first step must still clean up agents from older runs",
+        )
 
 if __name__ == "__main__":
     unittest.main()

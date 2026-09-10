@@ -228,6 +228,10 @@ class BrevEnvironment(BaseEnvironment):
         # ~100 GB — which OOMs on local NIM pulls).
         await _check_live_resources(self._instance_name, requirements)
 
+        preserve_deployment = (
+            os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") == "1"
+        )
+
         # Reap stray on-box agent processes left by a previous trial whose
         # runner-side job was cancelled or SIGKILLed. Cancellation kills the
         # runner-side harbor tree (releasing the box's flock, which dies with
@@ -239,21 +243,28 @@ class BrevEnvironment(BaseEnvironment):
         # wipe (suspected in PR #1281's base/search legs losing SSH
         # mid-deploy on vss-eval-rtx-2g-2, minutes after a cancelled run's
         # legs died there). Must run before the /logs wipe and docker reset.
-        reap_result = await _run_brev_exec(
-            self._instance_name,
-            _stray_agent_reap_command(),
-            timeout=30,
-        )
-        if reap_result.return_code != 0:
-            tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
-            raise RuntimeError(
-                f"stray-agent reap failed on {self._instance_name}: "
-                f"exit {reap_result.return_code}; tail:\n{tail}"
+        if not preserve_deployment:
+            reap_result = await _run_brev_exec(
+                self._instance_name,
+                _stray_agent_reap_command(),
+                timeout=30,
             )
-        logger.info(
-            "Stray-agent reap on %s: %s",
-            self._instance_name, (reap_result.stdout or "").strip(),
-        )
+            if reap_result.return_code != 0:
+                tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
+                raise RuntimeError(
+                    f"stray-agent reap failed on {self._instance_name}: "
+                    f"exit {reap_result.return_code}; tail:\n{tail}"
+                )
+            logger.info(
+                "Stray-agent reap on %s: %s",
+                self._instance_name, (reap_result.stdout or "").strip(),
+            )
+        else:
+            logger.info(
+                "Skipping broad stray-agent reap on %s while preserving "
+                "the current leg's setup services",
+                self._instance_name,
+            )
 
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
@@ -462,7 +473,6 @@ class BrevEnvironment(BaseEnvironment):
         is_first_trial = not (
             task_dir_name.startswith("step-") and task_dir_name != "step-1"
         )
-        preserve_deployment = os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") == "1"
         if is_first_trial and not preserve_deployment:
             await self._reset_docker_runtime()
             # Host bind-mount purge runs AFTER the docker reset so every
