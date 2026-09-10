@@ -568,7 +568,16 @@ class TopAgent(AsyncMixin):
             result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
 
             _, parsed_plan = parse_reasoning_content(result)
-            updated_plan = parsed_plan or (str(result.content) if hasattr(result, "content") else clean_plan)
+            # parse_reasoning_content already returns plain content as `parsed_plan`,
+            # so it is empty only when the model produced reasoning and nothing else.
+            # Falling back to the raw `result.content` there is actively harmful: it is
+            # either "" (wiping the plan) or the unparsed "<think>...</think>" blob (making
+            # the reasoning *become* the plan). Both strand the agent, which then re-derives
+            # the same tool call every cycle until it exhausts the recursion limit. Keep the
+            # previous plan instead, matching the has_tool_failure branch above.
+            updated_plan = (parsed_plan or "").strip() or clean_plan
+            if not (parsed_plan or "").strip():
+                logger.warning("Plan update produced no usable plan; preserving the current plan")
 
         # Programmatically append exact tool results so the agent has them,
         # combining previous results with new ones from this cycle.
@@ -848,7 +857,11 @@ class TopAgent(AsyncMixin):
 
         plan_reasoning, plan_text = parse_reasoning_content(result)
         if not plan_text:
-            plan_text = str(result.content) if hasattr(result, "content") else ""
+            # Same hazard as plan_update: the raw content here is the unparsed reasoning
+            # blob. An empty initial plan is recoverable (plan_update builds one from the
+            # first tool result); a plan that is really a think-blob poisons every later turn.
+            plan_text = ""
+            logger.warning("Plan node produced no usable plan; continuing with an empty plan")
 
         logger.debug("Plan node produced plan:\n%s", plan_text)
         if plan_reasoning:
