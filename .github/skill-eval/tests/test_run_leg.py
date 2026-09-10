@@ -770,6 +770,167 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 124)
         run.assert_called_once()
 
+    def test_build_vision_ai_stays_on_the_coding_agent_path(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/build"),
+            include_task_name="l40s",
+            chain_key="build_l40s",
+        )
+        env = {**self.ENV, "EVAL_AGENT": "nemoclaw", "EVAL_SKILL": "vss-build-vision-ai"}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
+                mock.patch.object(run_leg, "run_command", return_value=0) as run,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation], "vss-eval-box", root / "results", root / "scratch",
+                    "build", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(command.call_args.args[4], "claude-code")
+        run.assert_called_once()
+
+    def test_operational_nemoclaw_leg_uses_first_expect_for_setup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invocations = [
+                run_leg.HarborInvocation(
+                    harbor_root=root / "dataset",
+                    include_task_name=f"step-{index}",
+                    chain_key="alerts",
+                    step_index=index,
+                    step_count=2,
+                )
+                for index in (1, 2)
+            ]
+            env = {
+                **self.ENV,
+                "EVAL_AGENT": "nemoclaw",
+                "EVAL_SKILL": "vss-manage-alerts",
+            }
+            seen_env = []
+
+            def run_command(_cmd, child_env, _timeout):
+                seen_env.append(child_env.copy())
+                return 0
+
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task") as prepare,
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
+                mock.patch.object(run_leg, "run_command", side_effect=run_command) as run,
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
+            ):
+                rc = run_leg.run_invocations(
+                    invocations, "vss-eval-box", root / "results", root / "scratch",
+                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        prepare.assert_called_once_with(invocations[0], "vss-manage-alerts")
+        self.assertEqual(command.call_args_list[0].args[4], "claude-code")
+        self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(
+            command.call_args_list[0].kwargs["agent_timeout_multiplier"],
+            run_leg.NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER,
+        )
+        self.assertNotIn("agent_timeout_multiplier", command.call_args_list[1].kwargs)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(
+            seen_env[0]["NEMOCLAW_SANDBOX_NAME"],
+            seen_env[1]["NEMOCLAW_SANDBOX_NAME"],
+        )
+        self.assertNotEqual(seen_env[0]["NEMOCLAW_SANDBOX_NAME"], "skill-eval")
+        self.assertEqual(seen_env[0]["NEMOCLAW_RECREATE_SANDBOX"], "0")
+        self.assertEqual(
+            seen_env[0]["BREV_EXEC_TIMEOUT"],
+            str(run_leg.NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC),
+        )
+        self.assertNotIn("SKILL_EVAL_PRESERVE_DEPLOYMENT", seen_env[0])
+        self.assertEqual(seen_env[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
+        marker = seen_env[0][run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV]
+        self.assertTrue(marker.startswith(run_leg.REMOTE_AGENT_RUN_PREFIX))
+        self.assertEqual(seen_env[0][run_leg.DEFER_AGENT_REAP_ENV], "1")
+        self.assertNotIn(run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV, seen_env[1])
+        self.assertNotIn(run_leg.DEFER_AGENT_REAP_ENV, seen_env[1])
+        cleanup.assert_called_once_with("vss-eval-box", marker)
+
+    def test_failed_nemoclaw_setup_reward_stops_before_scenarios(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invocation = run_leg.HarborInvocation(
+                harbor_root=root / "dataset",
+                include_task_name="step-1",
+                chain_key="alerts",
+                step_index=1,
+                step_count=2,
+            )
+            env = {
+                **self.ENV,
+                "EVAL_AGENT": "nemoclaw",
+                "EVAL_SKILL": "vss-manage-alerts",
+            }
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
+                mock.patch.object(run_leg, "run_command", return_value=0) as run,
+                mock.patch.object(run_leg, "latest_reward", return_value="0.5"),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation], "vss-eval-box", root / "results", root / "scratch",
+                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(run.call_count, 1)
+            cleanup.assert_called_once()
+            self.assertTrue((root / "scratch" / "skipped-alerts-L40S-step-2.txt").is_file())
+
+    def test_prepare_nemoclaw_setup_task_preserves_query_and_adds_build_vision(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task = root / "dataset" / "step-1"
+            task.mkdir(parents=True)
+            (task / "instruction.md").write_text("Deploy the requested system.\n")
+            build_skill = root / "repo" / "skills" / "vss-build-vision-ai"
+            build_skill.mkdir(parents=True)
+            (build_skill / "SKILL.md").write_text("# Build Vision AI\n")
+            invocation = run_leg.HarborInvocation(
+                harbor_root=task.parent,
+                include_task_name="step-1",
+                chain_key="spec",
+            )
+
+            with mock.patch.object(run_leg, "REPO_ROOT", root / "repo"):
+                run_leg.prepare_nemoclaw_setup_task(invocation, "vss-ask-video")
+
+            instruction = (task / "instruction.md").read_text()
+            self.assertTrue(instruction.startswith("Deploy the requested system.\n"))
+            self.assertIn(
+                "The evaluation query above is the complete deployment/setup intent",
+                instruction,
+            )
+            self.assertIn("/vss-build-vision-ai", instruction)
+            self.assertIn("/vss-ask-video", instruction)
+            self.assertIn(
+                'openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"',
+                instruction,
+            )
+            self.assertNotIn("HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
+            self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
+
     def test_passing_step_lets_the_chain_continue(self):
         """reward 1.0 and rc 0 must run step 2 and write no skip markers.
 
@@ -1752,6 +1913,20 @@ class BoxRejectedForCapacity(unittest.TestCase):
             run_leg.box_rejected_for_capacity(Path("/nonexistent-xyz"), 0))
 
 
+class NemoClawSandboxName(unittest.TestCase):
+    def test_is_stable_per_leg_and_isolates_legs(self):
+        first = run_leg.nemoclaw_sandbox_name("34118027479", "base__RTXPRO6000BW")
+        self.assertEqual(
+            first,
+            run_leg.nemoclaw_sandbox_name("34118027479", "base__RTXPRO6000BW"),
+        )
+        self.assertNotEqual(
+            first,
+            run_leg.nemoclaw_sandbox_name("34118027479", "other__RTXPRO6000BW"),
+        )
+        self.assertTrue(first.startswith("se-027479-"))
+        self.assertLessEqual(len(first), 19)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

@@ -86,6 +86,8 @@ CLAUDE_LOG_FALLBACK_BYTES = int(
 )
 REMOTE_AGENT_RUN_ENV = "HARBOR_SKILL_EVAL_AGENT_RUN"
 REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
+AGENT_RUN_MARKER_OVERRIDE_ENV = "SKILL_EVAL_AGENT_RUN_MARKER"
+DEFER_AGENT_REAP_ENV = "SKILL_EVAL_DEFER_AGENT_REAP"
 
 # Public relay used by the RT-VLM test suite. Operators can override it for
 # isolated environments, but the eval remains runnable without extra CI
@@ -226,6 +228,10 @@ class BrevEnvironment(BaseEnvironment):
         # ~100 GB — which OOMs on local NIM pulls).
         await _check_live_resources(self._instance_name, requirements)
 
+        preserve_deployment = (
+            os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") == "1"
+        )
+
         # Reap stray on-box agent processes left by a previous trial whose
         # runner-side job was cancelled or SIGKILLed. Cancellation kills the
         # runner-side harbor tree (releasing the box's flock, which dies with
@@ -237,21 +243,28 @@ class BrevEnvironment(BaseEnvironment):
         # wipe (suspected in PR #1281's base/search legs losing SSH
         # mid-deploy on vss-eval-rtx-2g-2, minutes after a cancelled run's
         # legs died there). Must run before the /logs wipe and docker reset.
-        reap_result = await _run_brev_exec(
-            self._instance_name,
-            _stray_agent_reap_command(),
-            timeout=30,
-        )
-        if reap_result.return_code != 0:
-            tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
-            raise RuntimeError(
-                f"stray-agent reap failed on {self._instance_name}: "
-                f"exit {reap_result.return_code}; tail:\n{tail}"
+        if not preserve_deployment:
+            reap_result = await _run_brev_exec(
+                self._instance_name,
+                _stray_agent_reap_command(),
+                timeout=30,
             )
-        logger.info(
-            "Stray-agent reap on %s: %s",
-            self._instance_name, (reap_result.stdout or "").strip(),
-        )
+            if reap_result.return_code != 0:
+                tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
+                raise RuntimeError(
+                    f"stray-agent reap failed on {self._instance_name}: "
+                    f"exit {reap_result.return_code}; tail:\n{tail}"
+                )
+            logger.info(
+                "Stray-agent reap on %s: %s",
+                self._instance_name, (reap_result.stdout or "").strip(),
+            )
+        else:
+            logger.info(
+                "Skipping broad stray-agent reap on %s while preserving "
+                "the current leg's setup services",
+                self._instance_name,
+            )
 
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
@@ -372,6 +385,14 @@ class BrevEnvironment(BaseEnvironment):
             "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
+            # The Build Vision AI provisioning task owns host-side NemoClaw
+            # setup. Forward its provider and lifecycle inputs exactly as
+            # supplied by CI; the harness invokes the worker's NemoClaw CLI.
+            "NEMOCLAW_SANDBOX_NAME", "NEMOCLAW_RECREATE_SANDBOX",
+            "NEMOCLAW_GATEWAY_PORT",
+            "NEMOCLAW_DASHBOARD_PORT", "NEMOCLAW_POLICY_MODE",
+            "NEMOCLAW_PROVIDER", "NEMOCLAW_ENDPOINT_URL",
+            "NEMOCLAW_MODEL", "COMPATIBLE_API_KEY",
             # Pin the eval's deploy step to the PR's actual head SHA on
             # the actual source repo — the pre-deploy script reads these
             # and resets $REPO to that SHA. Without them, the adapter's
@@ -452,7 +473,7 @@ class BrevEnvironment(BaseEnvironment):
         is_first_trial = not (
             task_dir_name.startswith("step-") and task_dir_name != "step-1"
         )
-        if is_first_trial:
+        if is_first_trial and not preserve_deployment:
             await self._reset_docker_runtime()
             # Host bind-mount purge runs AFTER the docker reset so every
             # container that writes into these dirs is already gone —
@@ -462,7 +483,7 @@ class BrevEnvironment(BaseEnvironment):
         else:
             logger.info(
                 "Skipping docker reset, host purge, and repo sync on %s — %s "
-                "of a multi-step spec must preserve step-1's deployment state "
+                "must preserve an existing deployment state "
                 "and its live bind-mount host dirs (e.g. deploy/docker/data-dir/, "
                 "whose clip_storage/vst_data are bind-mounted into the still-"
                 "running VIOS containers)",
@@ -518,7 +539,7 @@ class BrevEnvironment(BaseEnvironment):
         #     containers) — the regression, caught loudly.
         # Output lands in <trial>/artifacts/logs/artifacts/mount-probe.log.
         await self._probe_bind_mount(f"{task_dir_name}:before-sync")
-        if is_first_trial:
+        if is_first_trial and not preserve_deployment:
             await self._sync_repo_to_pr_head()
         await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
@@ -1195,11 +1216,22 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
             "claude --verbose --output-format=stream-json" in command
             or "codex exec " in command
         )
-        agent_run_marker = (
-            f"{REMOTE_AGENT_RUN_PREFIX}{uuid.uuid4().hex}"
-            if is_trial_agent
-            else None
-        )
+        requested_marker = os.environ.get(AGENT_RUN_MARKER_OVERRIDE_ENV)
+        if requested_marker is not None and (
+            not requested_marker.startswith(REMOTE_AGENT_RUN_PREFIX)
+            or len(requested_marker.removeprefix(REMOTE_AGENT_RUN_PREFIX)) != 32
+            or any(
+                char not in "0123456789abcdef"
+                for char in requested_marker.removeprefix(REMOTE_AGENT_RUN_PREFIX)
+            )
+        ):
+            raise ValueError("invalid remote agent run marker override")
+        agent_run_marker = None
+        if is_trial_agent:
+            agent_run_marker = requested_marker or (
+                f"{REMOTE_AGENT_RUN_PREFIX}{uuid.uuid4().hex}"
+            )
+        defer_agent_reap = os.environ.get(DEFER_AGENT_REAP_ENV) == "1"
 
         parts = [
             # Make sure user-installed binaries (claude, uv, etc.) are on PATH
@@ -1260,7 +1292,9 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
                 full_cmd,
                 timeout=timeout_sec or BREV_EXEC_TIMEOUT,
             )
-            if agent_run_marker is not None:
+            if agent_run_marker is not None and (
+                result.return_code != 0 or not defer_agent_reap
+            ):
                 await self._reap_remote_agent_after_interrupt(
                     agent_run_marker,
                     best_effort=result.return_code != 0,
@@ -1283,16 +1317,7 @@ echo "synced $REPO to $(git rev-parse --short HEAD)"
         """Kill every process carrying one agent run's inherited marker."""
         assert self._instance_name
         try:
-            result = await _run_brev_exec(
-                self._instance_name,
-                _stray_agent_reap_command(agent_run_marker),
-                timeout=30,
-            )
-            if result.return_code != 0:
-                raise RuntimeError(
-                    "remote agent reap failed: "
-                    + (result.stderr or result.stdout or "unknown error")
-                )
+            await reap_remote_agent_run(self._instance_name, agent_run_marker)
         except Exception as exc:
             if not best_effort:
                 raise
@@ -1408,6 +1433,20 @@ def _stray_agent_reap_command(agent_run_marker: str | None = None) -> str:
         '  echo "[stray-agent-reap] none"; '
         "fi"
     )
+
+
+async def reap_remote_agent_run(instance: str, agent_run_marker: str) -> None:
+    """Kill processes carrying one exact skill-eval marker on a remote box."""
+    result = await _run_brev_exec(
+        instance,
+        _stray_agent_reap_command(agent_run_marker),
+        timeout=30,
+    )
+    if result.return_code != 0:
+        raise RuntimeError(
+            "remote agent reap failed: "
+            + (result.stderr or result.stdout or "unknown error")
+        )
 
 
 def _prior_agent_output_archive_command() -> str:

@@ -11,6 +11,13 @@
   },
   "expects": [
     {
+      "query": "Deploy the VSS base profile on `{{platform}}` with the configured video-understanding VLM ready. The following query will deliberately exercise the standalone non-VSS fallback, so do not ingest its local video during setup. Run autonomously.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
+        "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup)."
+      ]
+    },
+    {
       "query": "There is no VSS deployment or VIOS sensor in scope. Explicitly use the standalone non-VSS fallback to answer 'Is the worker wearing PPE?' from local file warehouse_safety_0001.mp4. Send the complete MP4 bytes as one native data:video/mp4;base64 video_url input to the caller-provided OpenAI-compatible VLM; do not extract or send JPEG/PNG frames.",
       "checks": [
         "The response clearly labels this as the explicit non-VSS local-file fallback.",

@@ -154,6 +154,73 @@ class SubprocessCancellationTest(unittest.IsolatedAsyncioTestCase):
             run.await_args_list[1].args[1],
         )
 
+    async def test_successful_deferred_agent_is_not_reaped_immediately(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        marker = f"{brev_env.REMOTE_AGENT_RUN_PREFIX}{'a' * 32}"
+        with (
+            mock.patch.dict(
+                brev_env.os.environ,
+                {
+                    brev_env.AGENT_RUN_MARKER_OVERRIDE_ENV: marker,
+                    brev_env.DEFER_AGENT_REAP_ENV: "1",
+                },
+                clear=False,
+            ),
+            mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                new=mock.AsyncMock(
+                    return_value=brev_env.ExecResult(stdout="done", return_code=0)
+                ),
+            ) as run,
+        ):
+            result = await env.exec(
+                "claude --verbose --output-format=stream-json --print"
+            )
+
+        self.assertEqual(result.return_code, 0)
+        run.assert_awaited_once()
+        self.assertIn(
+            f"{brev_env.REMOTE_AGENT_RUN_ENV}={marker}",
+            run.await_args.args[1],
+        )
+
+    async def test_failed_deferred_agent_is_still_reaped_immediately(self):
+        env = brev_env.BrevEnvironment()
+        env._instance_name = "vss-eval-test"
+        marker = f"{brev_env.REMOTE_AGENT_RUN_PREFIX}{'b' * 32}"
+        with (
+            mock.patch.dict(
+                brev_env.os.environ,
+                {
+                    brev_env.AGENT_RUN_MARKER_OVERRIDE_ENV: marker,
+                    brev_env.DEFER_AGENT_REAP_ENV: "1",
+                },
+                clear=False,
+            ),
+            mock.patch.object(
+                brev_env,
+                "_run_brev_exec",
+                new=mock.AsyncMock(
+                    side_effect=[
+                        brev_env.ExecResult(stderr="failed", return_code=1),
+                        brev_env.ExecResult(stdout="reaped", return_code=0),
+                    ]
+                ),
+            ) as run,
+        ):
+            result = await env.exec(
+                "claude --verbose --output-format=stream-json --print"
+            )
+
+        self.assertEqual(result.return_code, 1)
+        self.assertEqual(run.await_count, 2)
+        self.assertIn(
+            f"{brev_env.REMOTE_AGENT_RUN_ENV}={marker}",
+            run.await_args_list[1].args[1],
+        )
+
     async def test_nonzero_codex_exec_is_marked_and_reaped(self):
         env = brev_env.BrevEnvironment()
         env._instance_name = "vss-eval-test"

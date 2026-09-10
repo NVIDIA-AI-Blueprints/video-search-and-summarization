@@ -180,12 +180,19 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # sees — they live in the spec, are copied into tests/, and the
         # verifier evaluates them independently. If the agent sees the checks
         # it can write to the test rather than do the work.
+        # Substitute {{platform}} (and any future template vars) so the
+        # instruction the agent sees contains the concrete platform name,
+        # not a raw placeholder.  Mirrors _render_eval_spec() in the
+        # vss-deploy-profile adapter.
+        raw_query = expect.get("query", "")
+        rendered_query = raw_query.replace("{{platform}}", platform)
+
         lines = [
             PREAMBLE,
             "",
             f"## Query {idx} of {len(expects)}",
             "",
-            expect.get("query", ""),
+            rendered_query,
             "",
             "Run autonomously without prompting for confirmation.",
             "",

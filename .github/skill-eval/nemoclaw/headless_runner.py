@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Run one Harbor prompt through the notebook-managed NemoClaw sandbox."""
+"""Run one Harbor prompt through the Build Vision AI-provisioned sandbox."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -33,20 +34,6 @@ def _load_env_file(path: Path) -> None:
         os.environ.setdefault(key, parsed[0] if parsed else "")
 
 
-def _gateway_name() -> str:
-    raw = os.environ.get("NEMOCLAW_GATEWAY_PORT", "8990").strip()
-    if not raw.isdigit() or not 1024 <= int(raw) <= 65535:
-        raise ValueError("invalid NEMOCLAW_GATEWAY_PORT")
-    return "nemoclaw" if int(raw) == 8080 else f"nemoclaw-{int(raw)}"
-
-
-def _dashboard_port() -> int:
-    raw = os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789").strip()
-    if not raw.isdigit() or not 1024 <= int(raw) <= 65535:
-        raise ValueError("invalid NEMOCLAW_DASHBOARD_PORT")
-    return int(raw)
-
-
 def _sandbox_exec(
     sandbox: str,
     script: str,
@@ -60,8 +47,6 @@ def _sandbox_exec(
             "exec",
             "--name",
             sandbox,
-            "-g",
-            _gateway_name(),
             "--",
             "sh",
             "-lc",
@@ -72,6 +57,67 @@ def _sandbox_exec(
         text=True,
         timeout=timeout,
         check=False,
+    )
+
+
+def _gateway_healthy(sandbox: str) -> bool:
+    dashboard_port = int(
+        os.environ.get("NEMOCLAW_DASHBOARD_PORT", "18789") or "18789"
+    )
+    result = _sandbox_exec(
+        sandbox,
+        (
+            "code=$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 5 "
+            f"-o /dev/null -w '%{{http_code}}' "
+            f"http://127.0.0.1:{dashboard_port}/health) "
+            '&& { [ "$code" = 200 ] || [ "$code" = 401 ] || '
+            '[ "$code" = 403 ]; }'
+        ),
+        timeout=20,
+    )
+    return result.returncode == 0
+
+
+def _ensure_gateway(sandbox: str) -> None:
+    """Restore the sandbox's managed gateway if it stopped between tasks."""
+    if _gateway_healthy(sandbox):
+        return
+    restarted = subprocess.run(
+        ["nemoclaw", sandbox, "gateway", "restart"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=360,
+        check=False,
+    )
+    # The managed restart performs its own sustained health check and forward
+    # recovery. Match the deployment notebook: a zero exit is authoritative.
+    if restarted.returncode == 0:
+        return
+    recovered = subprocess.run(
+        ["nemoclaw", sandbox, "recover"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=360,
+        check=False,
+    )
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        if _gateway_healthy(sandbox):
+            return
+        time.sleep(3)
+    restart_detail = (
+        restarted.stderr or restarted.stdout or "no restart output"
+    ).strip()[-500:]
+    recover_detail = (
+        recovered.stderr or recovered.stdout or "no recover output"
+    ).strip()[-500:]
+    raise RuntimeError(
+        "OpenClaw gateway is not healthy after bounded NemoClaw recovery "
+        f"(restart exit {restarted.returncode}; recover exit "
+        f"{recovered.returncode}): restart={restart_detail}; "
+        f"recover={recover_detail}"
     )
 
 
@@ -90,20 +136,6 @@ def _nemoclaw_exec(
         "unset OPENCLAW_GATEWAY_TOKEN; " + script
     )
     return _sandbox_exec(sandbox, wrapped, timeout=timeout)
-
-
-def _gateway_healthy(sandbox: str) -> bool:
-    port = _dashboard_port()
-    result = _sandbox_exec(
-        sandbox,
-        (
-            "code=$(curl --noproxy '*' -sS --connect-timeout 3 --max-time 10 "
-            f"-o /dev/null -w '%{{http_code}}' http://127.0.0.1:{port}/health) "
-            '&& { [ "$code" = 200 ] || [ "$code" = 401 ]; }'
-        ),
-        timeout=30,
-    )
-    return result.returncode == 0
 
 
 def _json_object(raw: str) -> dict[str, Any]:
@@ -280,8 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     prompt = Path(args.prompt_file).read_text(encoding="utf-8")
 
     try:
-        if not _gateway_healthy(sandbox):
-            raise RuntimeError("OpenClaw gateway is not healthy after notebook setup")
+        _ensure_gateway(sandbox)
         envelope, session = _run_openclaw(sandbox, prompt, args.timeout)
         (agent_log_dir / "openclaw.txt").write_text(
             json.dumps(envelope, separators=(",", ":")) + "\n",
