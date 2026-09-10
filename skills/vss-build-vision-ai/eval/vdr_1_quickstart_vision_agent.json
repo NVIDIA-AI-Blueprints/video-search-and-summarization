@@ -26,20 +26,20 @@
       "artifact_expected": false,
       "query": "what does the base vision agent harness include?",
       "checks": [
-        "The answer names the base profile's in-stack agent (`vss-agent`) and its Web UI, the `redis` cache, the VIOS video I/O and storage services, and the model tier of one LLM plus integrated RT-VLM. Naming `phoenix` as well is expected but the exact list wording is not prescribed.",
+        "The answer names the base profile's in-stack agent - by service key (`vss-agent`) or by name (\"the in-stack agent\"), either is fine - and its Web UI, the `redis` cache, the VIOS video I/O and storage services, and the model tier of one LLM plus integrated RT-VLM. Naming `phoenix` as well is expected but the exact list wording is not prescribed.",
         "The answer does not claim the base profile ships semantic search, real-time alerting, or video summarization - those belong to the `search`, `alerts` and `lvs` profiles.",
         "No deployment or composition side effects: the trajectory runs no `docker compose up`, creates no `_builds/` directory, and starts no container."
       ]
     },
     {
-      "query": "deploy a vision agent",
+      "query": "deploy vss vision agent autonomously, add nemoclaw, no teardown",
       "checks": [
         "`{{repo_root}}/_builds/vdr-1-quickstart/override.env` exists and declares `FOUNDATION=base` and the full effective `COMPOSE_PROFILES`.",
         "The effective service set is the `base` profile minus `vss-agent` and nothing else: `vss-ui`, `phoenix`, `redis`, the VIOS services, one LLM profile token and `rtvi-vlm` all remain, and no key is added. Removing `vss-agent` makes this a Delta build rather than a stock deploy, and the response says so.",
         "No build-directory label is used as a Compose profile: `COMPOSE_PROFILES` contains no key named `vdr-1-quickstart`, and every entry in it is a canonical service-profile key.",
         "`{{repo_root}}/_builds/vdr-1-quickstart/compose.yml` includes the root `deploy/docker/compose.yml`, and the build directory contains `override.env`, `compose.yml`, and `resolved.yml`.",
         "The deployment is launched directly from `_builds/vdr-1-quickstart/resolved.yml` after validation, not from a copied Compose project or the Foundation's own env files.",
-        "No host-side NemoClaw harness is installed: the trajectory runs no NemoClaw installer or notebook, and `COMPOSE_PROFILES` gains no `nemoclaw` key.",
+        "The NemoClaw harness the request asked for is brought up host-side after readiness, and `nemoclaw` stays a harness label - it appears in no `COMPOSE_PROFILES`, `compose.yml` or `patches/` entry. The build keeps `vss-haproxy-ingress`, which NemoClaw requires as its single origin.",
         "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do curl -sf --max-time 10 http://localhost:3000/ >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (Web UI still served with no agent; polls up to ~2 min).",
         "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do curl -sf --max-time 10 http://localhost:${RTVI_VLM_PORT:-8018}/v1/health/ready >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (integrated RT-VLM ready; polls up to ~2 min).",
         "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx vss-agent-ui && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (Web UI; polls up to ~2 min).",
