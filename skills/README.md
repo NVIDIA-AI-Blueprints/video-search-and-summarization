@@ -98,6 +98,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Run object detection & tracking on streams (2D) | [`vss-deploy-detection-tracking-2d`](deployment/vss-deploy-detection-tracking-2d/SKILL.md) |
 | Run standalone RTVI-CV-3D / MV3DT multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](deployment/vss-deploy-detection-tracking-3d/SKILL.md) |
 | Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](deployment/vss-deploy-dense-captioning/SKILL.md) |
+| Benchmark RT-VLM stream capacity, correctness, latency, or throughput | [`rtvi-vlm-perf-testing`](benchmarking/rtvi-vlm-perf-testing/SKILL.md) |
 | Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](deployment/vss-deploy-video-embedding/SKILL.md) |
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](tools/vss-generate-video-calibration/SKILL.md) |
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
@@ -129,6 +130,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | [vss-deploy-detection-tracking-2d](deployment/vss-deploy-detection-tracking-2d/SKILL.md) | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
 | [vss-deploy-detection-tracking-3d](deployment/vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
 | [vss-deploy-dense-captioning](deployment/vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
+| [rtvi-vlm-perf-testing](benchmarking/rtvi-vlm-perf-testing/SKILL.md) | Plan and execute fresh-container RT-VLM GPU canaries with semantic stream-isolation and reproducible evidence. |
 | [vss-deploy-video-embedding](deployment/vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
 
 ### Layer 2 — Downstream analytics
