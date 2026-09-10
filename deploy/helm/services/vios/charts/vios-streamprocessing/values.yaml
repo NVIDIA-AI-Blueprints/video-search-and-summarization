@@ -55,6 +55,10 @@ vstIngressEndpoint: ""   # default: <Release>-vss-vios-ingress:30888/vst (host:p
 redisServerAddress: ""
 # Kafka and MQTT use notification_config.json placeholders; video metadata and cloud storage remain in vst_config.json. Empty = release-based or Compose default.
 kafkaServerAddress: ""
+rtviVlmServerAddress: ""
+# Optional complete notification_config.json. Empty uses the chart default;
+# global.vios.notificationConfig provides one shared config to sensor and streamprocessing.
+notificationConfig: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""
