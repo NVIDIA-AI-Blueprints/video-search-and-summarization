@@ -183,9 +183,102 @@ The one failure is the same backend fault as the earlier run:
 `/llm/v1/models → 502` (NIM KV-cache exhaustion on 2× 48GB L40). The harness
 attributes it to the backend on the second origin.
 
+## `fr35-offhost-loadedcfg-2026-09-09`
+
+**26 pass / 1 fail / 5 skip, exit 1** — the same verdict as the DNS run, from a
+repeat of the same harness 63 minutes later.
+
+| | |
+|---|---|
+| Deployment | `deployment-host`, 10.176.222.x, machine-id `fa1e16e7…`, kernel 6.8.0-136, 2× L40 |
+| Agent | container on `agent-workstation`, 10.21.84.x |
+| Profile | `dev-profile-alerts`, Compose project `fr35` |
+| Harness commit | `7ee377496` |
+| Canonical name | `vss-gateway.fr35.corp` → 10.176.222.x, resolved by system resolution; **see the correction below** |
+| Second origin | `http://10.176.222.x:7777` |
+
+### What this run adds, and why its agent side is here at all
+
+The two runs above record what the gateway *did*. Neither records what the
+gateway had *loaded*. A template in the tree and a template in the running
+process are different claims, and a transcript that rests on the first is
+evidence about a file rather than about a deployment: the config has to be
+shipped and the container recreated for the run to be about the commit under
+test at all.
+
+This run's deployment side reads the config out of the **running** HAProxy and
+counts what is in it. Every count matches
+`deploy/docker/services/infra/haproxy/haproxy.cfg.template` at `7ee377496`
+exactly:
+
+| Loaded config | Count | Template |
+|---|---|---|
+| `internal-only` occurrences (FR-29) | 12 | 12 |
+| `x-vss-gateway-deny` markers | 6 | 6 |
+| `x-vss-gateway-unavailable` markers | 3 | 3 |
+| `acl known_host` lines | 18 | 18 |
+| `acl h_internal` lines | 8 | 8 |
+| `acl gw_internal_src` lines | 4 | 4 |
+| `timeout server 900s` (`bk_vss_agent`) | 1 | 1 |
+| `timeout server 600s` | 3 | 3 |
+
+So the 403s section 6 records are the deny rules in this tree firing, not a
+coincidence of some older config the container happened to still be holding.
+It also captures both root causes in the file itself — the LLM NIM's KV-cache
+`ValueError` and `rtvi-vlm`'s NGC authentication failure — which the runs above
+have only as prose here.
+
+Its **agent side is a near-duplicate of the DNS run** and is committed only so
+the pair is a pair. Line for line the two differ in timestamps, container id,
+temp paths, section 1a (below), and nothing else: the same 26/1/5, the same
+sections 2–6 outcomes, the same single `/llm` 502. A deployment-side capture
+with no agent side would leave the config counts unattached to any observed
+request, and pairing it with the DNS run's agent side would be pairing files
+from two different runs.
+
+### Corrections — the transcript is unedited, so they belong here
+
+**Section 1a overclaims, and the harness no longer emits that line.** It printed
+"this is the FR-35 claim in its strongest form: external resolution, no
+override". This run used the harness at `7ee377496`, which predates the source
+discrimination added in `50c21a145`; it reported that a name resolved without
+establishing *what* answered. The current harness probes for an A record, names
+the source, and flags a reserved TLD. **The DNS run above is the FR-35
+resolution evidence; this run is not, and its 1a line should not be quoted.**
+
+**The verbatim deny block prints four lines under a heading that says two.**
+Both are right and the heading is the loose one: there are two internal-only
+*routes*, each carrying two deny conditions — one for `!h_internal` and one for
+`!gw_internal_src` — so four rules. The capture truncates each line at a fixed
+width, which cuts off exactly the trailing `if …` clause that tells them apart,
+so they read as duplicated. The `12` in the count table is the authoritative
+figure. This is a defect in the out-of-tree ssh capture wrapper, not in the
+recorded config; the fix is to print the `if` clause rather than the first 140
+columns.
+
+**The raised agent timeout is evidenced as configured, not as exercised.**
+`timeout server 900s` on `bk_vss_agent` is shown to be in the loaded config. No
+request in this run ran long enough to need it, so nothing here shows a
+long summarization surviving the edge.
+
+### What this run does not show
+
+- **No ingest and no stored media.** As with the runs above, `vios list` and
+  `vst_sensor_list` returned empty sets. The repository's sample `.mp4`s are Git
+  LFS pointers, so no recording was available to register on either host.
+- **No real TLS.** The origin is plain HTTP. The warning in
+  `deploy/docker/remote-agent.env.example` — that the plaintext default is a
+  trusted-network assumption and not an approved one — applies to this run as
+  written.
+- **`/llm` is still 502**, for the reason recorded in the deployment-side file:
+  a 30B model cannot allocate a KV cache on a 48GB L40 when the profile expects
+  1× 96GB. It is attributed to the backend on the second origin and was **not**
+  tuned away with `gpu_memory_utilization`; a transcript nobody can reproduce
+  would be the worse outcome.
+
 ## Redactions
 
-Both transcripts were captured from live internal machines. What was changed
+All transcripts were captured from live internal machines. What was changed
 before committing, and nothing else:
 
 | Was | Now | Why |
@@ -197,9 +290,17 @@ before committing, and nothing else:
 | a GitLab runner's container name | `runner-<redacted>-build` | it embeds a runner token and a project id, and the runner is unrelated to the profile |
 | the MCP session id | first 8 hex + `…` | credential-shaped, though it expired with the run |
 
-One further edit, not a redaction: the deployment-side header pointed at the
-agent-side file by its original `.log` name, which is not the name it has here.
-Nothing in either file's recorded output was changed.
+The same table was applied to `fr35-offhost-loadedcfg-2026-09-09`, whose
+agent-side header additionally named both machines in prose
+(`AGENT_HOST_NOTE`); those two names are pseudonymised to the same
+`deployment-host` / `agent-workstation` pair used everywhere else, so the
+sentence still says the hosts are distinct physical machines on distinct
+subnets. Its `machine-id` and MCP session id are truncated to the first 8 hex
+in the `… (truncated)` form the other deployment-side files use.
+
+One further edit, not a redaction: each deployment-side header pointed at its
+agent-side file by that file's original `.log` name, which is not the name it
+has here. Nothing in any file's recorded output was changed.
 
 The `/24`s are deliberately left legible: that the two hosts were on different
 subnets is part of what the run demonstrates, so masking the host octet removes
@@ -207,5 +308,6 @@ the address without removing the topology. Docker bridge addresses
 (`172.17.0.x`, `172.18.0.1`) are untouched — they are defaults, and
 `172.17.0.3` is what shows the agent side was in a container.
 
-No credential values appear in either file. `NGC_API_KEY` appears above as a
-variable name in a quoted error message, not as a value.
+No credential values appear in any of these files. `NGC_API_KEY` appears above,
+and in `fr35-offhost-loadedcfg-2026-09-09.deployment-side.txt`, as a variable
+name inside a quoted error message — never as a value.
