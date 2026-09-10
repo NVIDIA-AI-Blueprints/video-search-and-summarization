@@ -246,7 +246,7 @@ class LiveStreamInfo(CommonBaseModel):
     id: str = Field(
         description="Unique identifier for the live stream",
         max_length=256,
-        pattern=STREAM_ID_PATTERN,
+        pattern=ANY_CHAR_PATTERN,
     )
     liveStreamUrl: str = Field(
         description="Live stream RTSP URL",
