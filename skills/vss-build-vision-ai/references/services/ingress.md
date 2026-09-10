@@ -66,11 +66,25 @@ backend rule**; tagging needs no new backend rule. For a build that resolves the
 not only the deploy host's loopback. This is a conscious tradeoff: it
 re-exposes RT-VLM's SSE-generation and stream/file-mutation endpoints through
 HAProxy, so the origin's host-allowlist is the only boundary — front RT-VLM only
-when the build needs remote-driven tagging, and never on an unauthenticated origin.
+when the build needs remote-driven tagging or has an in-deployment caller that
+reaches it through the origin (the alerts case below), and never on an
+unauthenticated origin.
 A side effect is that `vss configure` then records `rt_vlm` present, which
 activates the search CLI's fail-open critic (retrieval is unaffected). A build
-that uses RT-VLM only for Critic verification (no tagging leg) keeps it
-loopback-only and records `absent`, as before.
+that uses RT-VLM only for the search CLI's own Critic verification — no tagging
+leg and no in-deployment caller — keeps it loopback-only and records `absent`,
+as before.
+
+A third case, and in it the route is not optional: an **alerts** build fronts
+`/rtvi-vlm` whether or not it tags. The alert bridge's verifier reaches RT-VLM
+through this origin, because `RTVI_VLM_BASE_URL` and the profiles'
+`VLM_BASE_URL` both resolve to `${VSS_GATEWAY_ORIGIN}/rtvi-vlm`
+(`deploy/docker/services/rtvi/rtvi.env` and each profile's `overrides.env`)
+rather than the `rtvi-vlm:8000` container name they named before the gateway
+consolidation. So a curated config that prunes the route breaks the `2d_cv`
+candidate-to-verified path outright and no `mdx-vlm-incidents` document is ever
+written. What the route carries here is an in-deployment caller rather than a
+remote operator, so the re-exposure tradeoff above is not the deciding question.
 
 `/va-mcp` is the same shape: `vss configure` probes it, but no command group
 requires it — the agent is the MCP server's client, not the CLI. Keep the route
@@ -281,8 +295,9 @@ frontend fe_http
 
     # Landing + catch-all: only the bare origin bounces to Kibana (no UI in
     # headless); every other unmatched path 404s, so `vss configure` probes for
-    # unrouted services (agent, rt-vlm) record absent instead of following a
-    # unrouted services (agent, and rt-vlm on non-tagging builds) record absent instead of following a
+    # unrouted services (the agent, and rt-vlm on a build that fronts neither a
+    # tagging leg nor an alerts verifier) record absent instead of following a
+    # redirect to Kibana's 200. HAProxy runs all http-request rules before any
     # use_backend, so p_routed must exclude the kept routes from the 404 (drop
     # any whose backend the build does not deploy).
     acl p_root path /
