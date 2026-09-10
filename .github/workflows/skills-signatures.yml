@@ -112,7 +112,7 @@ jobs:
                 | sort -u > "$targets_file"
             else
               if ! [[ "$MANUAL_SKILLS" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
-                echo "::error::skills='$MANUAL_SKILLS' is not a valid skill-dir name. Use a bare name like 'vss-deploy-profile' or '*'."
+                echo "::error::skills='$MANUAL_SKILLS' is not a valid skill-dir name. Use a bare name like 'vss-build-vision-ai' or '*'."
                 exit 1
               fi
               if [ -z "$(find skills -type d -name "$MANUAL_SKILLS" -exec test -f '{}/SKILL.md' ';' -print)" ]; then

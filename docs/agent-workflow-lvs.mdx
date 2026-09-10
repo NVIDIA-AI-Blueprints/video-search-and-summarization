@@ -69,11 +69,11 @@ For instructions on downloading sample data and the deployment package, see [Dow
 #### Step 1: Deploy the Agent
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and operate the video summarization workflow.
-First, install the `vss-deploy-profile` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
+First, install the `vss-build-vision-ai` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
-The `vss-deploy-profile` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The `vss-build-vision-ai` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 **Deploy prompt structure**
@@ -84,7 +84,7 @@ Deploy the VSS video summarization profile (lvs).
 
 What the agent does:
 
-1. Loads the `vss-deploy-profile` skill and detects the repository, GPU hardware, and host networking values.
+1. Loads the `vss-build-vision-ai` skill and detects the repository, GPU hardware, and host networking values.
 2. Validates required credentials (such as `NGC_CLI_API_KEY`) and prompts you if any are missing.
 3. Selects the `lvs` profile and a platform and mode that fit your hardware, then builds the deployment configuration.
 4. Reviews the configuration with you, then deploys the containers.

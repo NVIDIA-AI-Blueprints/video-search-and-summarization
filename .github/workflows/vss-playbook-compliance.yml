@@ -25,7 +25,7 @@ on:
         #
         # Valid values are `*` or a bare skill directory name from
         # skills/<name>/ on the current ref.
-        description: "Which skill to check. `*` sweeps every skill; otherwise type a bare skill dir name such as `vss-deploy-profile`."
+        description: "Which skill to check. `*` sweeps every skill; otherwise type a bare skill dir name such as `vss-build-vision-ai`."
         required: false
         default: "*"
         type: string
@@ -94,7 +94,7 @@ jobs:
               echo "manual: scanning entire skills/ tree"
             else
               if ! [[ "${INPUT_SKILLS}" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
-                echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-deploy-profile' or '*' to sweep all."
+                echo "::error::skills='${INPUT_SKILLS}' is not a valid skill-dir name. Type a bare name like 'vss-build-vision-ai' or '*' to sweep all."
                 exit 1
               fi
               # Accept a leaf skill-name at the top level (skills/<name>/) or one

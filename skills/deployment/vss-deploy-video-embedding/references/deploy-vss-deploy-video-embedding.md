@@ -89,7 +89,7 @@ Work from the standalone RT-Embed service directory:
 cd "{{repo_root}}/deploy/docker/services/rtvi/rtvi-embed"
 ```
 
-Do not use `/vss-deploy-profile` or `scripts/dev-profile.sh` for this standalone
+Do not use `/vss-build-vision-ai` or `scripts/dev-profile.sh` for this standalone
 deployment.
 
 Set a minimal standalone environment before `docker compose up`. If `sudo -n

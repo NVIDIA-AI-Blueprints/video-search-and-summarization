@@ -9,7 +9,7 @@
     "expected_behavior": [
       "The agent reads the vss-deploy-detection-tracking-2d skill before acting.",
       "The agent uses one of the supported 2D use cases and does not fabricate unsupported values such as default, auto, retail, or general.",
-      "The agent uses the skill's staged deploy flow and helper scripts for RTVI-CV 2D rather than routing to vss-deploy-profile, VLM, embedding, or analytics skills.",
+      "The agent uses the skill's staged deploy flow and helper scripts for RTVI-CV 2D rather than routing to vss-build-vision-ai, VLM, embedding, or analytics skills.",
       "The agent uses a headless-safe output sink such as fakesink when no display is required.",
       "The agent does not print plaintext API tokens or other secrets."
     ]

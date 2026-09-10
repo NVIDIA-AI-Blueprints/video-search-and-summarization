@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-warehouse-helm
-description: Use when the user asks to deploy, upgrade, or size the VSS warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm — as opposed to Docker Compose, which is covered by vss-deploy-profile's warehouse reference. Handles GPU-aware NUM_STREAMS capping so the deployment matches what the perception pipeline can actually sustain.
+description: Use when the user asks to deploy, upgrade, or size the VSS warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm — as opposed to Docker Compose, which is covered by vss-build-vision-ai's warehouse reference. Handles GPU-aware NUM_STREAMS capping so the deployment matches what the perception pipeline can actually sustain.
 license: Apache-2.0
 metadata:
   version: "1.0.0"
@@ -12,8 +12,8 @@ metadata:
 
 Do not use this skill for:
 
-- Docker Compose warehouse deployment — use `vss-deploy-profile`'s
-  [`references/warehouse.md`](../vss-deploy-profile/references/warehouse.md); it owns the
+- Docker Compose warehouse deployment — use `vss-build-vision-ai`'s
+  [`references/warehouse.md`](../../vss-build-vision-ai/references/profiles/warehouse.md); it owns the
   `HARDWARE_PROFILE` → GPU mapping table and the `blueprint_config.yml` stream-cap semantics
   this skill reuses.
 - Non-warehouse Helm profiles (`base`, `search`, `lvs`, `alerts`) — those don't have a
@@ -144,8 +144,8 @@ directly (`python3 compute_stream_cap.py --mode 2d --num-streams 8`) and pass th
      See
      [`references/streams.md`](references/streams.md#if-your-install-customizes-bp-configuratorenv).
    - Without `--hardware-profile`, it runs `nvidia-smi` on GPU index 0 and maps the name to a
-     `HARDWARE_PROFILE` using the same table as [`vss-deploy-profile`'s warehouse
-     reference](../vss-deploy-profile/references/warehouse.md#supported-hardware). If detection
+     `HARDWARE_PROFILE` using the same table as [`vss-build-vision-ai`'s warehouse
+     reference](../../vss-build-vision-ai/references/sizing.md). If detection
      fails or the GPU isn't in that table, pass `--hardware-profile` explicitly. `IGX-THOR`/
      `DGX-SPARK` edge devices aren't supported by this Helm path.
    - No local `nvidia-smi` (running `helm`/`kubectl` from a bastion, laptop, or CI runner rather
