@@ -179,6 +179,23 @@ Section 1d still refuses an undeclared origin with `404` and
 against the canonical hostname and answering through it — ordinary resolution,
 not a per-request pin.
 
+This run's section 1a is **not** the retracted line. It was produced by the
+harness at `70be8984e`, which is byte-identical to the current one and already
+carried the resolution-source discrimination added in `50c21a145`; the header
+records `resolve override <none>`, so no `curl --resolve` pin was in play
+either. The retraction below applies to `fr35-offhost-loadedcfg-2026-09-09`,
+whose out-of-tree harness predates that change, and to the first run at the top
+of this file — not to this one. The recipe that produced this run is in
+"Serve the name from a name server instead" in the harness README.
+
+What 1a asserts here is that a name server returned an A record for the
+canonical name: `dig` queries the resolver directly, so that is a zone answer
+rather than `nsswitch` reading a file. It does not separately assert that no
+`/etc/hosts` entry existed — that the client container was started with `--dns`
+and no `--add-host` is recorded in `AGENT_HOST_NOTE`, which is
+operator-supplied. The A record is what the §7 acceptance line asks for either
+way, and it is the reason this run, not the other two, is the one to quote.
+
 The one failure is the same backend fault as the earlier run:
 `/llm/v1/models → 502` (NIM KV-cache exhaustion on 2× 48GB L40). The harness
 attributes it to the backend on the second origin.
