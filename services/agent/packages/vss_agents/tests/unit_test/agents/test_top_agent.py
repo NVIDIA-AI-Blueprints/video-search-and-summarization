@@ -374,6 +374,65 @@ class TestRequestOptionsContext:
         assert "Request options context" in captured["system"]
 
     @pytest.mark.asyncio
+    async def test_plan_node_does_not_turn_reasoning_into_the_initial_plan(self, monkeypatch):
+        """A reasoning-only first plan must yield an empty plan, never the think-blob.
+
+        There is no previous plan to fall back to here, so empty is the degraded path:
+        `_agent_node` gates on `if state.plan and self.plan_exec_prompt`, so an empty plan
+        falls through to the regular agent prompt and `_plan_update_node` rebuilds a plan
+        from the first tool result. A plan that is really reasoning would instead be fed
+        to the plan-execution prompt on every later turn.
+        """
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="<think>Okay, let's see. The user wants me to analyze the video.</think>")
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == ""
+        assert "Okay, let's see." not in result.plan
+        assert "<think>" not in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_node_does_not_turn_a_separate_reasoning_field_into_the_plan(self, monkeypatch):
+        """NIM-style split: reasoning in `reasoning_content`, content empty."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="",
+                additional_kwargs={"reasoning_content": "I should call the search agent."},
+            )
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == ""
+        assert "I should call the search agent." not in result.plan
+
+    @pytest.mark.asyncio
     async def test_failed_tool_call_cannot_be_marked_complete(self, monkeypatch):
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
