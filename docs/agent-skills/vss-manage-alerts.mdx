@@ -1,0 +1,517 @@
+---
+title: "Manage Alerts"
+description: ""
+position: 1
+---
+<Warning>
+Agent Skills are released as **Early Access** and are not intended for use in production environments.
+Agent Skills for VSS were validated using Claude Opus 4.6.
+</Warning>
+
+The `vss-manage-alerts` Skill operates the alert pipeline of a deployed VSS **alerts**
+profile from natural language. It creates, lists, and stops real-time alert rules, queries
+detected incidents, inspects CV verification verdicts, runs one-shot verification on a clip
+you point it at, and reports whether always-on alerting is active.
+
+The Skill drives the **Alert Microservice REST API** directly. It does not go through the VSS
+Agent `/generate` endpoint and does not call the RT-VLM microservice, so alert operations
+behave the same whether or not the deployment carries the in-stack agent and its Web UI.
+
+<Note>
+Nothing here works against a host with no alerts profile running on it. If you are starting
+from scratch, [Deploy first](#deploy-first) is the four-step path to a deployment this Skill
+can drive.
+</Note>
+
+## What this Skill does
+
+- Create, list, and stop persistent real-time alert rules on a sensor.
+- Query detected incidents, optionally scoped by sensor and time range.
+- Inspect CV verification results and verdicts, and customize the VLM-verifier prompts.
+- Run a one-shot on-demand verification of a specific video or image URL.
+- Report whether always-on alerting is active, and troubleshoot missing always-on alerts.
+- Onboard a camera into the alert pipeline, through the `vss-manage-video-io-storage` Skill.
+
+**What it does not do.** Video summarization, highlight reels, report generation, and
+non-alert analytics are out of scope — the Skill hands those to `vss-generate-video-report`
+or `vss-query-analytics` rather than answering them from alert rules or incidents. It also
+never deploys or redeploys the stack: bringing up the alerts profile, or switching its mode,
+belongs to the deployment Skills — `vss-build-vision-ai`, or `vss-deploy-profile` for a
+profile-level redeploy. See [Deploy first](#deploy-first) for that path.
+
+## The two alert modes
+
+The alerts profile runs in one of two modes, chosen at deploy time. Which mode is live
+determines which alert operations are available.
+
+| Mode | Deploy flag | Env | What runs | What you can do |
+| --- | --- | --- | --- | --- |
+| **Verification (CV)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + the Alert Microservice VLM verifier + RT-VLM | Camera onboarding, verification results and verdicts, on-demand verification, incident queries |
+| **Real-time (VLM)** | `-m real-time` | `MODE=2d_vlm` | Alert Microservice + RT-VLM | Alert rule create / list / stop, always-on operation, incident queries |
+
+![Vision Agent with Real-Time Alerting Architecture](/assets/images/agent-workflows/profile-alerts-vlm-arch.png)
+
+The Skill detects the deployed mode before running any alert workflow. RT-VLM runs in
+**both** modes, so its presence is not a mode signal; `vss-behavior-analytics` is CV-only,
+and on Docker the `MODE` value in the profile's generated env is the direct answer.
+
+Switching modes is a teardown plus redeploy with the other flag, which stops all currently
+running monitoring. The Skill always asks for confirmation before triggering one, and never
+redeploys on its own.
+
+## Deploy first
+
+This Skill operates a deployment; it does not create one. Starting from an empty host, these
+four steps get you to alerts you can query. Steps 1 and 2 are documented elsewhere and linked
+below rather than repeated here.
+
+1. **Install the Skills into your coding agent.** Follow
+   [Installing Skills](/vss/vision-agent/agent-skills#installing-skills) and confirm the host
+   meets the [Prerequisites](/vss/getting-started/prerequisites). For how each harness loads
+   Skills, see [Agent Harnesses](/vss/vision-agent/agent-harnesses).
+
+2. **Deploy the alerts profile in the mode you need.** This belongs to a deployment Skill —
+   `vss-build-vision-ai`, or `vss-deploy-profile` for a profile-level redeploy — not to
+   `vss-manage-alerts`. Each mode has its own walkthrough, with the hardware requirements and
+   the full service list.
+
+   For real-time (VLM), see
+   [Deploy with Agent Skills](/vss/vision-agent/agent-workflows/real-time-alerts#with-agent-skills)
+   in the Real-Time Alerts workflow:
+
+   ```text title="Deploy in real-time mode"
+   Deploy the VSS alerts profile in real-time mode.
+   ```
+
+   For verification (CV), see
+   [Deploy with Agent Skills](/vss/vision-agent/agent-workflows/alert-verification#deploy-with-agent-skills)
+   in the Alert Verification workflow:
+
+   ```text title="Deploy in verification mode"
+   Deploy the VSS alerts verification profile.
+   ```
+
+3. **Register the sensor you want to watch.** Every alert prompt addresses a camera by name,
+   and none of them work until VIOS holds one — see
+   [Get a video and register the sensor](#get-a-video-and-register-the-sensor).
+
+4. **Create and retrieve alerts.** This is where `vss-manage-alerts` takes over; the prompts
+   are in [Sample prompts](#sample-prompts).
+
+Which prompts apply in step 4 follows from the mode you deployed in step 2 — rule create,
+list and stop in real-time mode, verdicts and on-demand verification in verification mode,
+incident queries in either. The table in [The two alert modes](#the-two-alert-modes) is the
+full split.
+
+## Prerequisites
+
+- An **alerts** profile deployed in one of the two modes above — see
+  [Deploy first](#deploy-first).
+- The Alert Microservice reachable from the agent host — `http://<HOST_IP>:9080` on Docker Compose, or
+  `${VSS_PUBLIC_URL}/alert-bridge` on Kubernetes. The health path is `/health`, not
+  `/api/v1/health`.
+- `curl` and `jq` available on the agent host.
+- A camera already registered in VIOS as a live RTSP stream. Both modes require this — see
+  [Get a video and register the sensor](#get-a-video-and-register-the-sensor) below.
+
+On Kubernetes, supply the single public Ingress origin as `VSS_PUBLIC_URL` and let the Skill
+derive its routes from it. The Skill does not use `kubectl port-forward`, Service DNS,
+NodePorts, or `docker exec` to reach a service.
+
+### Get a video and register the sensor
+
+Every prompt on this page addresses a camera by its **sensor name**, so the sensor has to exist
+in VIOS before any of them work. This Skill does not onboard one for you as a side effect: a
+sensor name it cannot resolve ends the request rather than being created.
+
+**Where the sample video comes from.** The developer profiles use a sample-data bundle from
+NGC, which includes `warehouse_sample.mp4` — the clip the alerts prompts on this page assume.
+Download it with the steps in
+[Download Sample Data From NGC](/vss/getting-started/quickstart#download-sample-data-from-ngc).
+
+**If you have no RTSP camera.** Upload the file to NVStreamer at `http://<HOST_IP>:31000` and
+it serves an RTSP stream for you — see
+[Uploading Videos to NVStreamer](/vss/system-components/middleware/video-io-storage-vios/nvstreamer#uploading-videos-to-nvstreamer).
+NVStreamer names the stream **after the file**, which is where the sensor name in these prompts
+comes from: `warehouse_sample.mp4` is served as `warehouse_sample`. Register that stream in
+VIOS with the `vss-manage-video-io-storage` Skill:
+
+```text title="Register the stream in VIOS"
+Add RTSP stream <rtsp-url> to VIOS with the sensor name warehouse_sample.
+```
+
+Take the RTSP URL from NVStreamer verbatim rather than assembling one by hand — a guessed
+host and port is usually unreachable from the VST container, and the stream then never goes
+online. For the same step in a full walkthrough, including the UI route, see
+[Add a Video Stream](/vss/vision-agent/agent-workflows/real-time-alerts#step-2-add-a-video-stream)
+in the Real-Time Alerts workflow; for the API surface itself, see
+[Video IO & Storage (VIOS)](/vss/system-components/middleware/video-io-storage-vios).
+
+**Then use that exact name.** Whatever VIOS reports back is the string every prompt below
+needs. Confirm it before you start, because a name that differs by one character returns an
+empty result rather than an error:
+
+```text title="Confirm the registered sensor"
+List all sensors registered in VIOS.
+```
+
+## Install this Skill
+
+To install the whole catalog at once, use the prompt in
+[Installing Skills](/vss/vision-agent/agent-skills#installing-skills). To install only this
+Skill, ask your coding agent:
+
+```text title="Install this Skill only"
+Install only skills/operations/vss-manage-alerts/ for this host the same way.
+```
+
+## Capabilities by mode
+
+| Capability | Verification (CV) | Real-time (VLM) |
+| --- | --- | --- |
+| Create, list, and stop alert rules | Not available | Yes |
+| Incident queries | Yes | Yes |
+| Verification results and verdicts | Yes | Explain only |
+| On-demand verification of a clip | Yes | Explain only |
+| Always-on operation | Not available | Yes |
+| Camera onboarding | Yes — the whole onboarding step | Yes — prerequisite for a rule |
+| Slack and webhook notification relay | Not available | Yes, not covered on this page |
+
+When you ask for a capability the deployed mode does not serve, the Skill refuses with an
+explicit message naming the flag you would redeploy with — it does not silently do something
+adjacent, and it does not redeploy for you. *Explain-only* questions are different: "how does
+alert verification work?" is answered in either mode, because it needs no API call.
+
+## Sample prompts
+
+Each block below is **one** prompt — type it to your coding agent as it stands. Every prompt
+is followed by what the agent does and what a correct result looks like, so you can use them
+to check a fresh deployment. Where the wording changes which workflow the Skill picks,
+alternate phrasings are called out after the prompt.
+
+The prompts use `warehouse_sample`, the sensor name that follows from the sample clip — replace
+it with your own. Use the name exactly as VIOS stored it: `warehouse_sample` and
+`warehouse-sample` are two different values, and the wrong one returns an empty result rather
+than an error. If you have no sensor registered yet, start with
+[Get a video and register the sensor](#get-a-video-and-register-the-sensor).
+
+### Real-time alert rules
+
+Requires **real-time** mode.
+
+#### Create a rule
+
+```text title="Create a rule"
+Watch warehouse_sample for anyone without a safety vest.
+```
+
+**What the agent does:**
+
+1. Confirms the deployment is in real-time mode and that the Alert Microservice answers its
+   health probe.
+2. Resolves the sensor name through VIOS into its `sensor_id` (a UUID) and the URL of its
+   main RTSP stream.
+3. Derives a short `snake_case` `alert_type` from the detection condition in this request —
+   for example `ppe_vest_violation`.
+4. Creates the rule with `POST /api/v1/realtime`, passing your condition through **verbatim**
+   as the rule's `prompt`.
+5. Reports the rule UUID from the response, along with the sensor name and the tag.
+
+**Expected result:** HTTP 201 and a rule ID such as
+`496aebd1-16d0-4123-81cf-10603e047d02`.
+
+Other phrasings that create a rule the same way: *Send me alerts for fallen boxes in camera
+warehouse_sample*, or *Set up a realtime alert on warehouse_sample for PPE violations*. Naming
+a new condition to watch for is always a create, even when phrased as a request to be notified.
+
+A prompt that names **no** detection condition — *Start a real-time alert on sensor
+warehouse_sample* — still creates a rule. The Skill uses its default prompt,
+`Describe any notable events or anomalies in this video stream.`, with the
+`general_monitoring` tag, and does not ask you to supply a condition.
+
+A sensor name that does not resolve **ends the request.** The agent reports it as not found,
+lists the sensors that do exist, and asks you to pick one. It does not register a new sensor
+to stand in for it, and it does not create the rule anyway — a rule pointing at a sensor that
+does not exist never fires, but afterwards reads like monitoring that is in place.
+
+#### List rules
+
+```text title="List rules"
+Show me all realtime alert rules that are currently running.
+```
+
+**What the agent does:**
+
+1. Fetches the rule inventory with `GET /api/v1/realtime`.
+2. Applies any sensor or `alert_type` filter from your prompt.
+3. Resolves stream URLs back to readable sensor names and renders the sensor, tag, prompt,
+   creation time, and rule ID for each rule.
+
+**Expected result:** a readable list, with no raw `rtsp://` URLs in it. An empty list is a
+success, not an error — the agent answers that no real-time alert rules are currently
+running.
+
+To narrow the list, name the filter in the prompt: *List active rules on warehouse_sample*
+scopes to one sensor, and *Which realtime rules are PPE-related?* filters by tag.
+
+#### Stop a rule
+
+```text title="Stop a rule"
+Stop the PPE alert on warehouse_sample.
+```
+
+**What the agent does:**
+
+1. Resolves the rule with `GET /api/v1/realtime` — by rule ID for an exact request, otherwise
+   by sensor plus `alert_type`.
+2. Replies with a confirmation question naming the matched rule and sensor, and stops there.
+3. Only after you answer yes, calls `DELETE /api/v1/realtime/<rule-id>` and reports the
+   outcome.
+
+**Expected result:** the first reply is **only a question**, in the form
+`Stop alert ppe_vest_violation on warehouse_sample? (rule ID: 496aebd1-…) — yes/no`. Nothing
+is deleted until you answer. If several rules match, the agent lists each with its rule ID and
+asks which one you meant. If none match, it says so and issues no delete at all.
+
+A rule ID can stand in for the sensor and tag: *Stop rule 496aebd1-16d0-4123-81cf-10603e047d02*
+resolves that rule directly, and still goes through the same confirmation.
+
+### Incident queries
+
+Works in **both** modes.
+
+```text title="Query incidents"
+Any alerts on warehouse_sample today?
+```
+
+**What the agent does:**
+
+1. When the question names a sensor, resolves its exact stored name through VIOS first,
+   rather than deriving an identifier from your phrasing.
+2. Queries `GET /api/v1/realtime/incidents`, scoped with `sensor_id` and — only when you named
+   a period — a real start and end time.
+3. Summarizes each incident's timestamp, sensor, and category.
+
+**Expected result:** `count: 0` is a **valid answer**, not a failure. It means the store holds
+nothing matching, and the agent reports "none found" and stops rather than falling back to
+listing rules.
+
+Casual phrasings land here too — *What's been triggered lately?* or *Anything detected
+recently?* are incident lookups. A bare "alerts" question is always an incident lookup, never
+a rule listing; drop the sensor name and time to get recent incidents across every sensor.
+
+<Note>
+The query parameter is named `sensor_id`, but its value is the sensor **name** — it matches the
+name that the incident documents carry. Passing the VIOS UUID there returns zero incidents
+silently. This is the opposite of rule creation, where `sensor_id` must be the UUID.
+</Note>
+
+On a CV deployment this endpoint covers real-time incident-kind results only. CV
+behavior-alert verdicts live in a separate store, covered next. For time-range, occupancy, or
+PPE **metrics**, use the `vss-query-analytics` Skill instead.
+
+### CV verification
+
+Requires **verification** mode for anything that calls an API. Explain-only questions are
+answered in either mode.
+
+#### Onboard a camera
+
+```text title="Onboard a camera"
+Add camera dock-1 to the alerts pipeline.
+```
+
+**What the agent does:** checks whether the sensor is already in VIOS before adding anything,
+registers the RTSP source when you asked for onboarding and supplied it, then asserts that the
+sensor's main stream reports `online`. VIOS posts its `camera_streaming` webhook, which
+registers the stream with RT-CV.
+
+**Expected result:** in CV mode this is the *entire* onboarding step — CV alerts are
+deployment-driven, so there is no rule to create afterwards. In real-time mode the same step
+is the prerequisite for creating a rule.
+
+The agent never onboards a sensor you did not explicitly ask it to onboard. A camera you named
+that turns out to be missing is reported as not found, not created. Supply the RTSP URL in the
+prompt, or register the stream first as in
+[Get a video and register the sensor](#get-a-video-and-register-the-sensor).
+
+#### Inspect verdicts
+
+```text title="Inspect verification results"
+Show me the verification results.
+```
+
+**What the agent does:** reads the verified documents and reports each one's category,
+timestamp, sensor, verdict, and the VLM's reasoning.
+
+**Expected result:** a verdict is one of `confirmed`, `rejected`, `not-confirmed`,
+`verification-failed`, or empty. An **empty verdict is a valid success**, not a failure: the
+default deployment runs the verifier freestyle (`use_verdict: false`), stores the raw VLM text,
+and stamps no verdict. Expect the agent to quote that text rather than resolve it into a
+confirmed or rejected. "No verification results yet" is likewise a complete answer — CV
+detection has real latency, and the agent reports the empty result instead of substituting
+another source for it.
+
+Two related phrasings behave differently. *Was the ladder alert confirmed?* asks about one
+alert rather than the most recent ones. *How does alert verification work?* is answered with
+no API call at all — the pipeline is RT-CV detections, a candidate alert from Behavior
+Analytics, the Alert Microservice VLM verifier prompting per `alert_type`, and the verified
+document that results — so it works on a real-time deployment too.
+
+<Note>
+The verified-alert store has no REST query endpoint yet. On Docker Compose the Skill queries
+Elasticsearch directly as an interim path; on Kubernetes, Elasticsearch is not published on the
+alerts Ingress, so verdict inspection is not available over `${VSS_PUBLIC_URL}` and the agent
+will say so rather than working around it.
+</Note>
+
+#### Customize the verifier prompts
+
+```text title="Customize verifier prompts"
+Update the PPE verifier prompt to also check for hard hats.
+```
+
+**What the agent does:** reads and writes the verifier configuration over REST on
+`/api/v1/verification/config` and `/api/v1/verification/config/<alert_type>`. A `PUT` is a
+partial update — only the fields sent change.
+
+**Expected result:** REST edits take effect on the live deployment with no restart. The
+equivalent deploy-time path is the profile's `alert_type_config.json`, and edits there need a
+restart of the `vss-alert-bridge` container. Real-time (VLM) prompts are not configured this
+way at all — they are per-request, shaped from the detection condition in your prompt.
+
+To read a configuration before changing it, ask for it by alert type: *Show me the verifier
+prompt for ladder_safety_violation*.
+
+#### Verify one clip on demand
+
+```text title="On-demand verification"
+Verify this clip for ladder safety: https://example.com/clip.mp4
+```
+
+**What the agent does:**
+
+1. Lists the verifier configs and picks the existing `alert_type` that matches your ask. It
+   never invents a category — an unknown one is a deterministic HTTP 400.
+2. Submits `POST /api/v1/verification/ondemand` with the media URL and media type.
+3. Reports the `correlationId` from the response, then polls the incident store for the
+   result.
+
+**Expected result:** HTTP 202 `accepted` with a `correlationId` — **accepted, not verified.**
+No verdict exists at submit time, and the agent will not report one. The result lands
+asynchronously; allow at least two minutes. By default the result is incident-kind, so it
+surfaces through the incident query above, matched on that `correlationId`.
+
+The URL must be reachable **from the VLM**, not just from your host — by default the VLM
+fetches it itself, so a container-internal or `localhost` URL fails. An unreachable URL still
+produces a document, through the error path, with a non-200 `verificationResponseCode` and the
+`verification-failed` verdict.
+
+Continuous monitoring is never an on-demand request: "watch camera X for PPE" creates a rule,
+while "verify this clip for PPE" is the one-shot above.
+
+### Always-on operation
+
+Requires **real-time** mode. This is an operate-only workflow — the Skill checks status,
+queries results, and troubleshoots, but never authors or edits always-on rule configuration.
+
+```text title="Always-on operation"
+Is always-on alerting active?
+```
+
+**What the agent does:**
+
+1. For status, reads the `ALERT_AGENT_ALWAYS_ON` feature gate, or probes
+   `POST /api/v1/realtime/always-on` with a benign `camera_remove` event and reads the reason
+   code. There is no always-on health endpoint.
+2. For results, queries incidents as above — once started, always-on rules are ordinary
+   real-time rules.
+3. For troubleshooting, walks the chain in order and reports the first broken link: the
+   feature gate, the rules YAML validating at boot, VIOS webhooks actually reaching the Alert
+   Microservice, the stream registered on RT-VLM, and finally the incident query.
+
+**Expected result:** on a Docker real-time deployment the gate is normally **already on**, so a
+missing always-on alert is usually not the gate. Expect the agent to report the state it
+actually probed and keep walking the chain rather than blaming a disabled gate.
+
+*Why aren't always-on alerts appearing?* is the troubleshooting entry point and walks that
+whole chain. Asking for the results instead — *Show me the always-on incidents* — is an
+ordinary incident query.
+
+Always-on rules live in an in-memory sidecar rather than the rules index, so their **absence
+from the rules list is expected**, not a bug. Turning the feature on or off is a deploy-mode
+choice, not a runtime config edit; on Kubernetes the chart exposes no switch for it, and the
+agent reports that instead of offering a set-the-gate-and-restart recipe that would not work.
+
+## Alert Microservice endpoints the Skill calls
+
+Resolved once per deployment — `http://<HOST_IP>:9080` on Docker Compose, or
+`${VSS_PUBLIC_URL}/alert-bridge` on Kubernetes. The service's identifiers still carry its
+former name: the container is `vss-alert-bridge` and the public route is `/alert-bridge`.
+
+| Method and path | Used for |
+| --- | --- |
+| `GET /health` | Reachability probe. Not `/api/v1/health`, which returns 404. |
+| `POST /api/v1/realtime` | Create a real-time alert rule. `sensor_id` here is the VIOS UUID. |
+| `GET /api/v1/realtime` | List rules — the inventory of what is configured. |
+| `DELETE /api/v1/realtime/<rule-id>` | Delete a rule, only after your confirmation. |
+| `GET /api/v1/realtime/incidents` | Query incidents — what has fired. `sensor_id` here is the sensor **name**. |
+| `POST /api/v1/realtime/always-on` | Camera lifecycle fan-out, and the always-on status probe. |
+| `GET`, `POST`, `PUT`, `DELETE` on `/api/v1/verification/config` and `/api/v1/verification/config/<alert_type>` | Read and customize the CV verifier prompts. |
+| `POST /api/v1/verification/ondemand` | One-shot verification. Returns 202; the result is asynchronous. |
+
+CV behavior-alert verdicts are the one thing not behind a REST endpoint yet — see the note
+under [Inspect verdicts](#inspect-verdicts). For the full service contract, see
+[Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice) and the
+[Alert Verification API](/vss/system-components/analytics-microservices/alerts-microservice/alert-verification-api).
+
+## Behavior to expect
+
+Three behaviors surprise people the first time, and none of them is a malfunction.
+
+**Stopping a rule always takes two turns.** A stop, delete, or remove request produces a
+question naming the rule ID and sensor, never a deletion. Only an explicit yes deletes. This
+holds even under an autonomous or non-interactive run: an instruction to "run without asking"
+authorizes deployment and setup, not this gate. If no one can answer, the agent still asks and
+then stops.
+
+**A capability the deployed mode does not serve is refused, not approximated.** On a CV
+deployment, an alert-rule, always-on, or notification request gets this answer verbatim:
+
+> Alert subscriptions, always-on operation, and Slack notifications are only supported in VLM
+> real-time mode. Your current deployment is `CV verification`. To use these features, redeploy
+> with `/vss-deploy-profile -p alerts -m real-time` (note: switching tears down current CV
+> monitoring).
+
+The mirror case on a real-time deployment names `-m verification` for verdict inspection,
+verifier-prompt configuration, and on-demand verification. Neither refusal redeploys anything
+— that decision stays with you.
+
+**"alerts" and "alert rules" are two different questions.** *What happened* — recent alerts, a
+time range, "anything today?" — is an incident query. *What is configured or running* — rules,
+subscriptions, active rules — is the rule inventory. The agent runs exactly one of the two, and
+answers neither from memory.
+
+## Troubleshooting
+
+| Symptom | What it means |
+| --- | --- |
+| Connection refused reaching the Alert Microservice | The microservice is not running. Probe `/health` and redeploy the alerts profile if needed. |
+| A rule was created but no alerts appear | Check the RT-VLM logs with `docker logs -f vss-rtvi-vlm` to confirm the rule is being processed, that the stream is valid, and that the deployment has GPU memory free. In real-time mode, also confirm the Kafka override that the verification mode ships is no longer active — real-time alerting depends on RT-VLM publishing to Kafka. |
+| An incident query returns zero for a sensor you know is firing | The scoping value was probably wrong rather than the store empty: the incident query takes the sensor **name**, and a `_` swapped for a `-` returns zero rather than an error. |
+| A verdict field is empty | Expected on the default freestyle deployment. Read the VLM's reasoning text instead. |
+| HTTP 401 or 403 on NGC pulls | A missing or expired `NGC_CLI_API_KEY`. Log in to the registry and re-export the key. |
+| Out of memory, or a model fails to load | Not enough GPU memory for the profile. Use a smaller variant or free the GPUs. |
+
+For the alerts profile as a whole, see the Troubleshooting and Known Issues sections of
+[Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts).
+
+## Related documentation
+
+- [Agent Skills](/vss/vision-agent/agent-skills) — the Skill catalog, install, update, and uninstall flows.
+- [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts) — deploying and using the real-time (VLM) mode.
+- [Alert Verification](/vss/vision-agent/agent-workflows/alert-verification) — deploying and using the verification (CV) mode.
+- [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice) — the service itself, its message formats and configuration.
+- [Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics) — the rule engine that raises CV candidate alerts.
+- [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) — the inference microservice behind both modes.
+- [Video IO & Storage (VIOS)](/vss/system-components/middleware/video-io-storage-vios) — camera and stream registration, a prerequisite for either mode.
