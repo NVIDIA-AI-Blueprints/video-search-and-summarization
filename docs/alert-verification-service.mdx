@@ -604,7 +604,7 @@ Verified alerts include the original fields plus an extended `info` section cont
 
 ## Scaling and Performance Tuning
 
-The Alerts Microservice scales along two independent dimensions: how many CPU cores one instance can use, and how many requests it keeps in flight against the VLM and VIOS backends. This section describes the pipeline modes that govern in-process concurrency, the settings that control each dimension, and how to tell which one is limiting a deployment before changing anything.
+The Alerts Microservice scales along two independent dimensions: how many pipeline processes one instance runs, each using about one CPU core, and how many requests it keeps in flight against the VLM and VIOS backends. This section describes the pipeline modes that govern in-process concurrency, the settings that control each dimension, and how to tell which one is limiting a deployment before changing anything.
 
 ### Pipeline Modes
 
@@ -641,9 +641,8 @@ The following settings control concurrency and CPU use:
 | `alert_agent.pipeline_mode` | `event_loop` in the shipped profile | — | Dispatch model, as described above. |
 | `alert_agent.async_io.max_vlm_concurrent` | `4` in the shipped profile | `event_loop` | VLM requests in flight per process. Keep at or below the VLM backend's measured ceiling. |
 | `alert_agent.async_io.max_vst_concurrent` | `8` in the shipped profile | `event_loop` | VIOS requests in flight per process. |
-| `alert_agent.async_dispatch_max_in_flight` | `16` in the shipped profile | `thread_bridge`, `event_loop` | Post-deduplication messages accepted but not finished, per process. Bounds memory and applies backpressure to the Kafka consumer. It does not raise the throughput ceiling. |
-| `alert_agent.num_workers` | `10` in the shipped profile | `sync` | Batch worker threads. The throughput control for `sync` mode only. |
-| `alert_agent.async_dispatch_workers` | `num_workers` | `thread_bridge` | Dispatch pool threads. The throughput control for `thread_bridge` mode only. |
+| `alert_agent.async_dispatch_max_in_flight` | `16` in the shipped profile | `thread_bridge`, `event_loop` | Post-deduplication messages accepted but not finished, per process. Offsets are committed when a record is read, so this bounds memory and the number of read-but-unfinished messages lost if a process exits. `max_vlm_concurrent` alone does not bound the messages waiting for a VLM slot. It does not raise the throughput ceiling. |
+| `alert_agent.num_workers` | `10` in the shipped profile | `sync` | Batch worker threads in `sync` mode only. The shipped `event_loop` mode does not use it. Kept for the `sync` rollback path. |
 | `alert_agent.startup_timeout_seconds` | `60` | All modes | Budget for the whole of startup: topic metadata, prompt seeding, VLM warmup, and every pipeline process joining its consumer group. Minimum 30. |
 
 ### Sizing VLM Concurrency
@@ -657,7 +656,7 @@ async_dispatch_max_in_flight ≈ 2 to 4 × max_vlm_concurrent
 
 The sustainable rate is `max_vlm_concurrent ÷ VLM_latency`. Below it, consumer lag stays flat. Above it, the in-flight bound applies backpressure to the consumer and lag grows by design.
 
-`max_vlm_concurrent` must not exceed what the VLM backend serves concurrently. Past that point requests queue inside the backend and per-call latency grows without adding throughput. To find the ceiling, ramp offered concurrency stepwise against the production backend, for at least 60 seconds per step, and record `alert_bridge_vlm_duration_seconds` at each step. The ceiling is the last step where per-call latency stays within about 120% of the low-concurrency baseline. In production, `alert_bridge_event_loop_vlm_in_flight` never exceeds the cap, and growth in `alert_bridge_capacity_wait_seconds` shows backpressure building.
+`max_vlm_concurrent` caps the load one process offers the VLM backend and is sized to what the backend serves concurrently. Above that capacity, requests queue inside the backend and per-call latency grows without adding throughput. When the VLM is the limiting service, capacity comes from the VLM side, for example more replicas behind the same endpoint, and the cap follows the new capacity; the instance-wide offered load is `processes × max_vlm_concurrent`. To find the capacity, ramp offered concurrency stepwise against the production backend, for at least 60 seconds per step, and record `alert_bridge_vlm_duration_seconds` at each step. The capacity is the last step where per-call latency stays within about 120% of the low-concurrency baseline. In production, `alert_bridge_event_loop_vlm_in_flight` never exceeds the cap, and growth in `alert_bridge_capacity_wait_seconds` shows backpressure building.
 
 ### Scaling Across CPU Cores
 
@@ -693,21 +692,22 @@ persistence:
   enabled: true
 ```
 
-The one-process profile sets these limits to 16, 4, and 8. Dividing them by four keeps the VLM and VIOS backends at the same offered load after enabling CPU scaling. Raise the per-process limits afterwards, once you have confirmed that the backends have headroom.
+The one-process profile sets these limits to 16, 4, and 8. Dividing them by four keeps the VLM and VIOS backends at the same offered load after enabling CPU scaling.
 
 #### Rules
 
 1. `processes` above `1` requires `pipeline_mode: event_loop`. The other modes hold their concurrency in threads, with no per-process cap on the load offered to the backends.
 2. `processes` above `1` requires shared alert-configuration storage: `persistence.enabled: true` with Elasticsearch reachable.
-3. Every input topic must have at least as many partitions as processes, counted per topic and not summed:
+3. Every input topic must have at least as many partitions as consumer-group members, counted per topic and not summed. The members are the pipeline processes of every Alerts Microservice instance that shares the consumer group, so with `replicas` instances:
 
    ```text
    replicas × processes ≤ partitions on every input topic
    ```
 
-   The developer profile creates eight partitions on each topic. One replica can run four processes without changing the Kafka layout; two replicas with four processes each use all eight assignments.
-4. Allocate about one CPU core per pipeline process, plus capacity for the parent and API processes.
-5. Redeploy after changing the process count.
+   The developer profile creates eight partitions on each topic. One instance can run four processes without changing the Kafka layout; two instances with four processes each use all eight assignments.
+4. Work is spread across processes at stream granularity. Every message of one stream carries the same `sensorId` and lands on one partition, so every process receives work only when there are at least as many active streams as processes, and the spread evens out as the stream count grows.
+5. Allocate about one CPU core per pipeline process, plus capacity for the parent and API processes. Each process holds its own Kafka consumers, HTTP connection pools to the VLM and VIOS backends, Elasticsearch clients, and memory, so connection, file-descriptor, and memory use grow with the process count.
+6. Redeploy after changing the process count.
 
 Startup validates the count against the mode, the persistence setting, and the live partition count of every input topic. A combination the deployment cannot honor fails startup with a message that names the topic and its partition count. The service never runs fewer processes than configured.
 
@@ -736,7 +736,7 @@ Set `processes: 1` and redeploy without overlapping the old and new instances. N
 
 ### Scaling Across Instances
 
-Multiple instances share `event_bridge.kafka_source.group_id`, and the broker distributes partitions across them. Consumer-group members are instances and processes together. The partition rule above applies to the product `replicas × processes`. Scale partitions before scaling either dimension. Instances share no state: deduplication follows the partition key (`sensorId`), and confirmed-verdict protection is stored in Elasticsearch.
+Multiple Alerts Microservice instances share `event_bridge.kafka_source.group_id`, and the broker distributes partitions across them. Consumer-group members are instances and processes together, so the partition rule above applies to the product `replicas × processes`. Instances share no state: deduplication follows the partition key (`sensorId`), and confirmed-verdict protection is stored in Elasticsearch.
 
 ### Monitoring
 

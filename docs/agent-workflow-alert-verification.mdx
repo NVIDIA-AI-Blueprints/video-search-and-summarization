@@ -696,13 +696,14 @@ persistence:
   enabled: true
 ```
 
-Every per-process limit is multiplied by the process count, which is why the three limits above are divided by four from the one-process profile values of 16, 4, and 8.
+Every per-process limit is multiplied by the process count, which is why the three limits above are divided by four from the one-process profile values of 16, 4, and 8. `max_vlm_concurrent` caps what each process offers the VLM backend and does not raise the backend's throughput. When the VLM is the limiting service, capacity comes from the VLM side, for example more replicas behind the same endpoint.
 
 Before raising the process count, confirm the following:
 
 - `pipeline_mode` is `event_loop` and `persistence.enabled` is `true`. Both are the profile defaults.
-- Every Alert input topic has at least as many partitions as `replicas × processes`, counted per topic. The profile creates eight partitions per topic, so one replica can run four processes as shipped.
-- The host has about one CPU core per process, plus capacity for the parent and API processes.
+- Every Alert input topic has at least as many partitions as the process count, counted per topic. The profile creates eight partitions per topic, so one instance can run four processes as shipped. When several Alerts Microservice instances share the consumer group, for example as replicas on Kubernetes, the bound applies to `instances × processes`.
+- At least as many active streams as processes. Every message of one stream carries the same `sensorId` and lands on one partition, so work is spread across processes at stream granularity. Fewer streams than processes leaves processes without work, and more streams spread the load more evenly.
+- The host has about one CPU core per process, plus capacity for the parent and API processes. Each process also holds its own Kafka consumers, HTTP connection pools to the VLM and VIOS backends, Elasticsearch clients, and memory, so connection, file-descriptor, and memory use grow with the process count.
 - The VLM and VIOS backends can serve `processes × max_vlm_concurrent` and `processes × max_vst_concurrent` requests concurrently.
 
 Startup refuses a combination the deployment cannot honor and names the reason. `/health` returns HTTP 503 until every process holds a Kafka assignment. Allow for `startup_timeout_seconds` before the instance reports ready.
