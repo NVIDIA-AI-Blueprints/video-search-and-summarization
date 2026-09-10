@@ -827,6 +827,7 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.object(run_leg, "run_command", side_effect=run_command) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
                 mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
             ):
                 rc = run_leg.run_invocations(
                     invocations, "vss-eval-box", root / "results", root / "scratch",
@@ -855,6 +856,12 @@ class RunInvocations(unittest.TestCase):
         )
         self.assertNotIn("SKILL_EVAL_PRESERVE_DEPLOYMENT", seen_env[0])
         self.assertEqual(seen_env[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
+        marker = seen_env[0][run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV]
+        self.assertTrue(marker.startswith(run_leg.REMOTE_AGENT_RUN_PREFIX))
+        self.assertEqual(seen_env[0][run_leg.DEFER_AGENT_REAP_ENV], "1")
+        self.assertNotIn(run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV, seen_env[1])
+        self.assertNotIn(run_leg.DEFER_AGENT_REAP_ENV, seen_env[1])
+        cleanup.assert_called_once_with("vss-eval-box", marker)
 
     def test_failed_nemoclaw_setup_reward_stops_before_scenarios(self):
         with tempfile.TemporaryDirectory() as td:
@@ -879,6 +886,7 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.object(run_leg, "run_command", return_value=0) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="0.5"),
                 mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
             ):
                 rc = run_leg.run_invocations(
                     [invocation], "vss-eval-box", root / "results", root / "scratch",
@@ -887,6 +895,7 @@ class RunInvocations(unittest.TestCase):
 
             self.assertEqual(rc, 1)
             self.assertEqual(run.call_count, 1)
+            cleanup.assert_called_once()
             self.assertTrue((root / "scratch" / "skipped-alerts-L40S-step-2.txt").is_file())
 
     def test_prepare_nemoclaw_setup_task_preserves_query_and_adds_build_vision(self):

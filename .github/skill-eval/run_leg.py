@@ -64,6 +64,9 @@ RTX4090_TESTS: dict[str, frozenset[str]] = {}
 # (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
 # the host, not per leg, so every leg publishes its trials in here.
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
+AGENT_RUN_MARKER_OVERRIDE_ENV = "SKILL_EVAL_AGENT_RUN_MARKER"
+DEFER_AGENT_REAP_ENV = "SKILL_EVAL_DEFER_AGENT_REAP"
+REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
 
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
@@ -1501,6 +1504,47 @@ def record_machine(
             _say(f"[run-leg] step-summary write failed: {exc!r}")
 
 
+def deferred_agent_run_marker(run_id: str, leg_slug: str) -> str:
+    """Return the stable marker shared by setup and end-of-leg cleanup."""
+    digest = hashlib.sha256(f"{run_id}:{leg_slug}".encode()).hexdigest()[:32]
+    return f"{REMOTE_AGENT_RUN_PREFIX}{digest}"
+
+
+def cleanup_deferred_agent_run(instance: str, marker: str) -> None:
+    """Best-effort end-of-leg cleanup for services left by setup Claude."""
+    try:
+        result = subprocess.run(
+            [
+                "uvx",
+                "--python",
+                sys.executable,
+                "--from",
+                HARBOR_REQUIREMENT,
+                "python",
+                "-c",
+                (
+                    "import asyncio,sys; "
+                    "from envs.brev_env import reap_remote_agent_run; "
+                    "asyncio.run(reap_remote_agent_run(sys.argv[1], sys.argv[2]))"
+                ),
+                instance,
+                marker,
+            ],
+            cwd=REPO_ROOT,
+            env=os.environ.copy(),
+            timeout=60,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"cleanup subprocess exited {result.returncode}")
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[run-leg] deferred agent cleanup failed: {exc!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def run_invocations(
     invocations: list[HarborInvocation],
     instance: str,
@@ -1559,6 +1603,7 @@ def run_invocations(
     # the coding agent follows Build Vision AI, deploys from expects[0], and
     # attaches NemoClaw. The remaining normal tasks run through that sandbox.
     nemoclaw_setup: HarborInvocation | None = None
+    deferred_agent_marker: str | None = None
     if agent == "nemoclaw" and os.environ.get("EVAL_SKILL") == "vss-build-vision-ai":
         print("[run-leg] Build Vision AI specs use the coding-agent runtime", flush=True)
         agent = "claude-code"
@@ -1597,8 +1642,20 @@ def run_invocations(
                 NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC,
             )
         )
+        # The setup coding agent may start the NemoClaw gateway or other
+        # services required by later expects[]. Keep those descendants alive
+        # only after a successful agent exit; failures and cancellation still
+        # trigger BrevEnvironment's immediate marker-scoped cleanup.
+        deferred_agent_marker = deferred_agent_run_marker(run_id, leg_slug)
+        env[AGENT_RUN_MARKER_OVERRIDE_ENV] = deferred_agent_marker
+        env[DEFER_AGENT_REAP_ENV] = "1"
     skipped_after: dict[str, int] = {}
     overall_rc = 0
+
+    def finish(rc: int) -> int:
+        if deferred_agent_marker is not None:
+            cleanup_deferred_agent_run(instance, deferred_agent_marker)
+        return rc
 
     for invocation in invocations:
         if (
@@ -1631,7 +1688,7 @@ def run_invocations(
                         "whole-leg-deadline",
                         invocation.step_count,
                     )
-                return 124
+                return finish(124)
 
         is_nemoclaw_setup = invocation is nemoclaw_setup
         invocation_agent = "claude-code" if is_nemoclaw_setup else agent
@@ -1700,10 +1757,12 @@ def run_invocations(
                     "NemoClaw scenarios were not started",
                     file=sys.stderr,
                 )
-                return rc or 1
+                return finish(rc or 1)
             # Later Harbor tasks must reuse the VSS containers, checked-out
             # repository, and sandbox created by the first task.
             env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
+            env.pop(AGENT_RUN_MARKER_OVERRIDE_ENV, None)
+            env.pop(DEFER_AGENT_REAP_ENV, None)
 
         # An outer Harbor timeout is terminal for the entire locked leg, not
         # only a multi-step chain. Continuing could wipe/reuse the same Brev
@@ -1711,9 +1770,9 @@ def run_invocations(
         # For chained tasks the block above writes every applicable skip marker
         # before this return.
         if rc == 124 or rc >= 128:
-            return rc
+            return finish(rc)
 
-    return overall_rc
+    return finish(overall_rc)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
