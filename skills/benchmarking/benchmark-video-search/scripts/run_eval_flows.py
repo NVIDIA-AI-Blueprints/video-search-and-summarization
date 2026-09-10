@@ -301,8 +301,17 @@ def probe_index_coverage(
     registered: dict[str, str] = {}
     if vst_url:
         try:
-            names = flows.list_sensor_names(vst_url)
+            # `list_sensor_streams`, NOT `list_sensor_names`: the latter
+            # lowercases for case-insensitive membership tests, and that value
+            # would go on to `--video-source`, where `should_clauses_for_source`
+            # matches it with `term`/`wildcard` against ES `.keyword` fields.
+            # Those are case-sensitive, so a lowercased "assault036_x264" never
+            # matches the stored "Assault036_x264" -- every scoped probe comes
+            # back empty and aborts a fully indexed run. physicalai-dev is named
+            # exactly that way.
+            names = list(flows.list_sensor_streams(vst_url).values())
             for source in expected_sources:
+                # Match case-insensitively, but keep VST's own spelling.
                 variants = flows.name_variants(source)
                 match = next((n for n in names if n.lower() in variants), None)
                 if match:
