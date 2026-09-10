@@ -90,12 +90,10 @@ def _ensure_gateway(sandbox: str) -> None:
         timeout=360,
         check=False,
     )
+    # The managed restart performs its own sustained health check and forward
+    # recovery. Match the deployment notebook: a zero exit is authoritative.
     if restarted.returncode == 0:
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
-            if _gateway_healthy(sandbox):
-                return
-            time.sleep(3)
+        return
     recovered = subprocess.run(
         ["nemoclaw", sandbox, "recover"],
         stdin=subprocess.DEVNULL,
