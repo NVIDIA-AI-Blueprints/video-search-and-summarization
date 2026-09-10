@@ -868,7 +868,11 @@ def test_vendored_dataset_registry_matches_run_eval() -> None:
     )
     for name in sorted(shared):
         assert flows.DATASETS[name] == legacy.DATASETS[name], f"{name} drifted"
-    assert flows.DEFAULT_DATA_DIR == legacy.DEFAULT_DATA_DIR
+    # Intentional divergence, like match_segment above: run_eval.py defaults to
+    # /tmp, which is world-writable, and this path holds the answer key. Pinned
+    # so the divergence stays deliberate rather than becoming drift.
+    assert flows.DEFAULT_DATA_DIR != legacy.DEFAULT_DATA_DIR
+    assert "/tmp" not in str(flows.DEFAULT_DATA_DIR)
     assert flows.vst_url_for("http://h:8000") == legacy._get_vst_url("http://h:8000")
 
 
