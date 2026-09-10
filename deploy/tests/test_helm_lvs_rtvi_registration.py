@@ -48,8 +48,8 @@ def _notification_configs(release_prefix: bool = False) -> dict[str, dict]:
     for doc in yaml.safe_load_all(_run(cmd)):
         if not doc or doc.get("kind") != "ConfigMap":
             continue
-        component = doc.get("metadata", {}).get("labels", {}).get(
-            "app.kubernetes.io/name"
+        component = (
+            doc.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/name")
         )
         if component in VIOS_COMPONENTS:
             configs[component] = json.loads(doc["data"]["notification_config.json"])
@@ -87,25 +87,29 @@ class LvsRtviRegistrationTests(unittest.TestCase):
                 )
 
     def test_release_prefix_is_applied_to_rtvi_webhook_target(self):
-        for component, config in _notification_configs(True).items():
+        configs = _notification_configs(True)
+        self.assertEqual(set(configs), VIOS_COMPONENTS)
+        expected = {
+            "http://vss-vss-rtvi-vlm:8000/v1/stream/add",
+            "http://vss-vss-rtvi-vlm:8000/v1/stream/remove",
+        }
+        for component, config in configs.items():
             with self.subTest(component=component):
-                urls = [
+                urls = {
                     request["url"]
                     for item in config["webhooks"]["items"]
                     for request in item["request"]
-                ]
-                self.assertTrue(
-                    all(url.startswith("http://vss-vss-rtvi-vlm:8000/") for url in urls)
-                )
+                }
+                self.assertEqual(urls, expected)
 
     def test_cluster_message_broker_addresses_are_rendered(self):
         for component, config in _notification_configs().items():
             with self.subTest(component=component):
                 broker = config["message_broker"]
                 self.assertEqual(broker["redis_server_env_var"], "redis:6379")
-                self.assertEqual(
-                    broker["kafka_server_address"], "kafka-kafka:9092"
-                )
-                self.assertEqual(
-                    broker["mqtt_broker_address"], "tcp://mosquitto:1883"
-                )
+                self.assertEqual(broker["kafka_server_address"], "kafka-kafka:9092")
+                self.assertEqual(broker["mqtt_broker_address"], "tcp://mosquitto:1883")
+
+
+if __name__ == "__main__":
+    unittest.main()
