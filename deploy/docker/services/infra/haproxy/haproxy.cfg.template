@@ -40,9 +40,19 @@ resolvers docker
 # --- Backends (services resolve by Docker DNS; override *_SERVICE_HOST for custom targets) ---
 
 backend bk_vss_ui
+    # Carries a whole agent turn: /api/vss-chat proxies through the UI to the
+    # agent, which in turn waits on bk_lvs_strip (3600s) and bk_llm_strip (600s).
+    # A turn is at least as long as the tools it calls, so the 120s default cuts
+    # it off mid-answer and the browser reports the truncated response as a
+    # backend failure. Matches `ingressTimeoutServer: "3600s"` that the Helm
+    # dev-profile-lvs and dev-profile-search charts already set on vss-agent.
+    timeout server 3600s
     server s1 "${VSS_UI_SERVICE_HOST}:${VSS_UI_PORT}" check resolvers docker init-addr none
 
 backend bk_vss_agent
+    # Same reasoning as bk_vss_ui: /chat and /api reach the agent directly, and a
+    # turn outlasts the 120s default whenever a tool does.
+    timeout server 3600s
     server s1 "${VSS_AGENT_SERVICE_HOST}:${VSS_AGENT_PORT}" check resolvers docker init-addr none
 
 backend bk_vst_ingress
