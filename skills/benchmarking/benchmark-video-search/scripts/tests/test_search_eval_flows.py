@@ -258,9 +258,21 @@ def test_parses_ndjson_with_a_trailing_job_event() -> None:
     assert messages == []
 
 
-def test_job_event_alone_is_not_mistaken_for_results() -> None:
-    hits, _, _ = flows.parse_cli_output('{"event":"vss_job_completed","status":"completed"}')
+def test_job_event_alone_is_unanswerable_not_zero_recall() -> None:
+    """A lifecycle event with no result envelope means the CLI never answered.
+
+    Returning [] here made it arithmetically identical to a search that ran and
+    matched nothing, so a protocol skew averaged into the aggregate as a miss.
+    """
+    with pytest.raises(flows.QueryUnanswerableError):
+        flows.parse_cli_output('{"event":"vss_job_completed","status":"completed"}')
+
+
+def test_an_empty_data_envelope_is_still_a_real_zero() -> None:
+    """The distinction the exception exists to draw: `"data": []` IS an answer."""
+    hits, messages, _ = flows.parse_cli_output('{"data": [], "search_messages": []}')
     assert hits == []
+    assert messages == []
 
 
 def test_ndjson_search_messages_are_surfaced() -> None:
@@ -275,8 +287,26 @@ def test_tolerates_banner_before_json() -> None:
     assert len(hits) == 1
 
 
-def test_garbage_output_does_not_raise() -> None:
-    assert flows.parse_cli_output("not json at all")[0] == []
+def test_unparseable_output_is_unanswerable() -> None:
+    """Deliberately NOT the old behaviour, which was to return [] and score 0."""
+    with pytest.raises(flows.QueryUnanswerableError):
+        flows.parse_cli_output("not json at all")
+
+
+def test_a_timeout_is_unanswerable_not_an_empty_result(monkeypatch: Any) -> None:
+    """A 300s hang is an environment fault, the same class as a non-zero exit.
+
+    It used to return ([], latency), which is what a perfect search that matched
+    nothing returns.
+    """
+    import subprocess
+
+    def hang(*_a: Any, **_k: Any) -> Any:
+        raise subprocess.TimeoutExpired(cmd="vss", timeout=300)
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    with pytest.raises(flows.QueryUnanswerableError):
+        flows.CliQueryBackend(["vss"]).search("red forklift")
 
 
 # ---------------------------------------------------------------------------
