@@ -1,9 +1,9 @@
 ---
 name: vss-ask-video
-description: Routes VSS video questions through hot conversation context, OpenClaw Markdown memory, structured VSS memory, bounded introspection, or an exact-window vss vlm run CLI job, including a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL. Not for retrieval or metadata-answerable questions.
+description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video. Route through hot context, agent Markdown memory, structured VSS memory, bounded introspection, or an exact-window vss vlm run. Not for retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
-  version: "3.4.0"
+  version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
@@ -69,22 +69,22 @@ configure a private Gateway URL reachable from the CLI execution environment.
 ## Memory layers
 
 - **Hot conversation context** is evidence already present in this conversation.
-- **OpenClaw Markdown memory** is searched with the harness-native OpenClaw
-  memory tools. Markdown search is not a `vss` command.
+- **Agent Markdown memory** is searched with the harness-native memory tools.
+  Markdown search is not a `vss` command.
 - **Structured VSS memory** is authoritative data in Elasticsearch, accessed
   only through `vss memory get` and `vss memory query`.
 - **Introspection** performs its own structured retrieval, judge call, and
   bounded visual follow-ups through `vss memory introspect`.
 
-The OpenClaw agent decides whether Markdown evidence already answers the
-question. Never send raw Markdown documents to the VSS judge.
+The agent decides whether Markdown evidence already answers the question.
+Never send raw Markdown documents to the VSS judge.
 
 ## Route the request
 
 For a general question about previously analyzed video, use this exact order:
 
 1. Use hot conversation context if it already answers the question.
-2. Search OpenClaw Markdown memory using the harness-native memory search.
+2. Search agent Markdown memory using the harness-native memory search.
 3. If Markdown contains enough evidence, answer directly.
 4. If Markdown contains a VSS job/record pointer, retain that pointer as
    grounded scope.
@@ -218,17 +218,21 @@ Handle the result fields `status`, `sufficient_from_memory`, `answer`,
 
 ## When introspection is disabled or unconfigured
 
-Do not call `vss memory introspect`, enable it automatically, or modify static
-configuration. If Markdown supplies a `job_id`, use `vss memory get`; otherwise
-use `vss memory query` with relevant text, sensor, and time filters. Answer from
+Do not call `vss memory introspect` while answering an ordinary video question,
+and do not enable it or rewrite static configuration automatically. Users and
+the agent may still configure and enable introspection when the user explicitly
+asks. If Markdown supplies a `job_id`, use `vss memory get`; otherwise use
+`vss memory query` with relevant text, sensor, and time filters. Answer from
 the returned records when sufficient. If insufficient, report what is known and
 what is missing.
 
 Do not simulate introspection by selecting a sensor/window and automatically
 calling VLM. Direct VLM is still allowed only for an explicit fresh-verification
 request, an exact grounded sensor/window, or a trusted bounded media handoff.
-If the user explicitly asks for introspection while it is disabled, explain the
-state and provide:
+If the user explicitly asks to enable or configure introspection, explain the
+current state and run the project-local configure command. `--enable` alone
+fails when introspection was never configured; include the judge endpoint on
+first setup:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
@@ -238,7 +242,9 @@ VSS=(uv run \
   --extra cli \
   vss)
 
-"${VSS[@]}" configure memory introspection --enable
+"${VSS[@]}" configure memory introspection \
+  --enable \
+  --judge-endpoint "${JUDGE_ENDPOINT}"
 ```
 
 Do not silently substitute ordinary VLM inspection.
@@ -258,6 +264,10 @@ VSS=(uv run \
 RC=0
 RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --media-url "${VIDEO_URL}") || RC=$?
 [ "${RC}" -eq 0 ] || [ "${RC}" -eq 6 ] || exit "${RC}"
+if [ -n "${RESULT}" ]; then
+  printf '%s\n' "${RESULT}" | jq .
+fi
+printf 'vss_exit_code=%s\n' "${RC}" >&2
 
 # A configured VSS local-file request uses:
 # RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --file "${VIDEO_FILE}") || RC=$?
@@ -280,6 +290,10 @@ RESULT=$("${VSS[@]}" vlm run \
   --start-time "${START_TIME}" \
   --end-time "${END_TIME}") || RC=$?
 [ "${RC}" -eq 0 ] || [ "${RC}" -eq 6 ] || exit "${RC}"
+if [ -n "${RESULT}" ]; then
+  printf '%s\n' "${RESULT}" | jq .
+fi
+printf 'vss_exit_code=%s\n' "${RC}" >&2
 ```
 
 For a confirmed search handoff, use only the supplied bounded `VIDEO_URL` and
@@ -293,7 +307,7 @@ answer and report that limitation.
 
 - **Hot conversation:** The previous turn says, "A forklift crossed the loading
   aisle at 10:14 UTC." Answer `10:14 UTC` directly; search nothing.
-- **Markdown sufficient:** Native OpenClaw memory search finds a note that
+- **Markdown sufficient:** Native agent Markdown memory search finds a note that
   directly answers the question -> answer from it; call no VSS command.
 - **Markdown incomplete:** Retain its `job_id`, inspect known/configured state,
   then introspect by that job when enabled.
@@ -304,8 +318,7 @@ answer and report that limitation.
 - **Exact fresh verification:** "Freshly verify whether the worker wore a hard
   hat on `dock_cam` from `2026-08-13T20:00:00Z` to
   `2026-08-13T20:00:30Z`." -> `vss vlm run` with that exact sensor/window.
-- **Search handoff:** confirmed unverified hit with bounded `VIDEO_URL` -> Path A
-  `--media-url`.
+- **Search handoff:** a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL -> Path A `--media-url`.
 - **No memory with scope:** Introspection returns `no_memory`, while trusted
   context provides `dock_cam` and `2026-08-13T20:00:00Z` through
   `2026-08-13T20:00:30Z` -> run one `vss vlm run` for exactly that interval.
@@ -330,9 +343,3 @@ answer and report that limitation.
 - **`/vss-generate-video-report`** — timestamped reports; this skill returns an
   ad-hoc answer.
 - **`/vss-query-analytics`** — already-computed incidents/metrics.
-
-`/vss-ask-video` is the canonical user-facing operation for both memory-aware
-introspection and direct `vss vlm run`. If OpenClaw exposes `/video-ask` or
-`/vlm`, that is a stale local installation; update the skill and invoke
-`/vss-ask-video`. Do not create or select a second overlapping VLM operation
-skill.

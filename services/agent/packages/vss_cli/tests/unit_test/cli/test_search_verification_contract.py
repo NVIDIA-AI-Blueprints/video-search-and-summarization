@@ -156,19 +156,20 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     ask_video = (ASK_VIDEO_SKILL / "SKILL.md").read_text(encoding="utf-8")
     normalized = " ".join(ask_video.split())
     evals = json.loads((ASK_VIDEO_SKILL / "evals/evals.json").read_text(encoding="utf-8"))
-    direct_vlm_evals = json.loads(
-        (ASK_VIDEO_SKILL / "evals/direct_vlm_video_understanding.json").read_text(encoding="utf-8")
+    harbor_evals = json.loads(
+        (ASK_VIDEO_SKILL / "evals/base_profile_video_understanding.json").read_text(encoding="utf-8")
     )
     evals_by_id = {case["id"]: case for case in evals}
 
-    assert 'version: "3.4.0"' in ask_video
+    assert 'version: "3.3.0"' in ask_video
     assert "user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL" in ask_video
-    assert "Search OpenClaw Markdown memory using the harness-native memory search" in normalized
+    assert "Search agent Markdown memory using the harness-native memory search" in normalized
     assert "Markdown search is not a `vss` command" in normalized
     assert "Never send raw Markdown documents to the VSS judge" in normalized
     assert "If introspection is enabled, call `vss memory introspect`" in normalized
     assert "If introspection is disabled or unconfigured" in normalized
-    assert "Do not call `vss memory introspect`, enable it automatically" in normalized
+    assert "do not enable it or rewrite static configuration automatically" in normalized
+    assert "Users and the agent may still configure and enable introspection" in normalized
     assert "Do not run `vss memory query` immediately before introspection" in normalized
     assert "Do not run `vss vlm run` after a completed or partial result" in normalized
     assert "Never pass `--record-id` alone" in normalized
@@ -191,6 +192,7 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
         "no-memory-grounded-window",
         "no-memory-without-scope",
         "invalid-child-identity",
+        "direct-file-vlm",
         "separate-shell-cli",
     } <= evals_by_id.keys()
     assert any(
@@ -199,10 +201,11 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     assert any(
         "Uses one vss vlm run" in behavior for behavior in evals_by_id["no-memory-grounded-window"]["expected_behavior"]
     )
-    serialized_direct = json.dumps(direct_vlm_evals)
-    assert "vss vlm run --file" in serialized_direct
-    assert "data:video/mp4;base64" not in serialized_direct
-    assert "call RT-VLM directly" in serialized_direct
+    serialized_harbor = json.dumps(harbor_evals)
+    assert "vss vlm run --file" in serialized_harbor
+    assert "data:video/mp4;base64" not in serialized_harbor
+    assert "call RT-VLM directly" in serialized_harbor
+    assert (ASK_VIDEO_SKILL / "evals/direct_vlm_video_understanding.json").exists() is False
 
 
 def test_search_harbor_eval_exercises_cli_verification_contract() -> None:

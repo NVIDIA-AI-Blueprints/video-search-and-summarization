@@ -48,7 +48,7 @@
       ]
     },
     {
-      "query": "Treat these as mocked prior tool results: native Markdown search found an incomplete note with pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue safely.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found an incomplete note with pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue by retrieving that stored job with ordinary structured memory. Do not treat the pointer as informational only.",
       "checks": [
         "It uses memory get --job-id sum-01JXYZ for ordinary structured retrieval.",
         "It never calls memory introspect, never enables it, and never automatically runs VLM when records are insufficient."
@@ -102,6 +102,13 @@
         "It never emits --record-id without both --job-id and --record-type and requests the missing identity or another valid scope.",
         "Any proposed VSS command defines VSS_REPO_ROOT and the uv run array in the same shell call, with --no-dev and --extra cli.",
         "It does not rely on a shell function or prior-shell state and does not use raw REST."
+      ]
+    },
+    {
+      "query": "Live VLM prerequisite: confirm a configured VSS deployment with reachable RT-VLM using the project-local CLI (`vss configure check`) before inspecting. Then freshly inspect local video file warehouse_safety_0001.mp4 using the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: Is the worker wearing PPE?",
+      "checks": [
+        "The run confirms VSS configuration / RT-VLM readiness with the project-local CLI, then uses the complete `uv run --project ... --no-dev --extra cli vss vlm run --file` invocation in one shell call and returns its answer.",
+        "It does not search Markdown, introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent."
       ]
     }
   ]
