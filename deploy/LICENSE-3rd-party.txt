@@ -323,6 +323,20 @@ and for Python packages installed at runtime.
     See: https://www.apache.org/licenses/LICENSE-2.0
 
 
+26. yacs
+    Package: yacs (PyPI)
+    License: Apache License 2.0
+    Registry: https://pypi.org/project/yacs/
+    Source: https://github.com/rbgirshick/yacs
+    License URL: https://github.com/rbgirshick/yacs/blob/v0.1.8/LICENSE
+    Description: Yet Another Configuration System. Installed at runtime by
+                 the ReID model-staging script; the CLIP-ReID converter
+                 imports it to load vit_clipreid.yml.
+    Full License Text:
+
+    See: https://www.apache.org/licenses/LICENSE-2.0
+
+
 ================================================================================
 
 Full License Texts / References:
