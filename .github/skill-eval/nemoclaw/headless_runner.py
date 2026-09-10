@@ -82,6 +82,20 @@ def _ensure_gateway(sandbox: str) -> None:
     """Restore the sandbox's managed gateway if it stopped between tasks."""
     if _gateway_healthy(sandbox):
         return
+    restarted = subprocess.run(
+        ["nemoclaw", sandbox, "gateway", "restart"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=360,
+        check=False,
+    )
+    if restarted.returncode == 0:
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            if _gateway_healthy(sandbox):
+                return
+            time.sleep(3)
     recovered = subprocess.run(
         ["nemoclaw", sandbox, "recover"],
         stdin=subprocess.DEVNULL,
@@ -95,10 +109,17 @@ def _ensure_gateway(sandbox: str) -> None:
         if _gateway_healthy(sandbox):
             return
         time.sleep(3)
-    detail = (recovered.stderr or recovered.stdout or "no output").strip()[-1000:]
+    restart_detail = (
+        restarted.stderr or restarted.stdout or "no restart output"
+    ).strip()[-500:]
+    recover_detail = (
+        recovered.stderr or recovered.stdout or "no recover output"
+    ).strip()[-500:]
     raise RuntimeError(
         "OpenClaw gateway is not healthy after bounded NemoClaw recovery "
-        f"(recover exit {recovered.returncode}): {detail}"
+        f"(restart exit {restarted.returncode}; recover exit "
+        f"{recovered.returncode}): restart={restart_detail}; "
+        f"recover={recover_detail}"
     )
 
 
