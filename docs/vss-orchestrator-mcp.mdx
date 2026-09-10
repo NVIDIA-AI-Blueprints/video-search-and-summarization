@@ -40,7 +40,7 @@ This section documents the environment variables read by the MCP server process.
 
 | Variable | Purpose |
 | --- | --- |
-| `NGC_CLI_API_KEY` | Used by pre-compose NGC artifact downloads for profiles such as `search` and `alerts`. |
+| `NGC_CLI_API_KEY` | Propagated into the generated VSS env, where the containers use it to download model weights from NGC. |
 | `NVIDIA_API_KEY` | Propagated into generated VSS env for NVIDIA-hosted endpoints. |
 | `HARDWARE_PROFILE` | Hardware profile applied by the orchestrator. Supported values are `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`, `IGX-THOR`, `AGX-THOR`, and `OTHER`. Edge profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`) are valid only for `base` and `alerts`. |
 | `EXTERNAL_IP` | Externally reachable host IP used when generating URLs. If blank, the notebook resolves it from `hostname -I`. |

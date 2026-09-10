@@ -16,6 +16,8 @@
 
 import json
 from pathlib import Path
+import re
+import subprocess
 from typing import ClassVar
 
 import pytest
@@ -1870,6 +1872,291 @@ class TestNestedOverrides:
         assert resolved["VSS_RT_CV_TAG"] == "tag-from-hw-root"
         assert resolved["RTVI_VLM_IMAGE_TAG"] == "img-from-hw-root"
         assert resolved["VLM_NIM_KVCACHE_PERCENT"] == "0.2"
+
+
+_CHECKED_IN_MCP_CONFIG = (
+    Path(__file__).resolve().parents[7] / "deploy" / "docker" / "scripts" / "vss_orchestrator_mcp_config.yml"
+)
+_CHECKED_IN_FUNCTION_GROUP = yaml.safe_load(_CHECKED_IN_MCP_CONFIG.read_text())["function_groups"]["vss_orchestrator"]
+_DEV_PROFILE_SCRIPT = Path(__file__).resolve().parents[7] / "deploy" / "docker" / "scripts" / "dev-profile.sh"
+_DEV_PROFILE_TEXT = _DEV_PROFILE_SCRIPT.read_text()
+
+
+def _dev_profile_function(name: str) -> str:
+    """Lift one function definition out of dev-profile.sh.
+
+    The script runs its deploy flow at the bottom, so it cannot be sourced. The pure
+    helpers are extracted by name and evaluated on their own instead, which keeps
+    dev-profile.sh the one place the values are written down.
+    """
+
+    match = re.search(rf"^function {re.escape(name)}\(\) \{{$.*?^\}}$", _DEV_PROFILE_TEXT, re.DOTALL | re.MULTILINE)
+    assert match is not None, f"{name}() is no longer defined in {_DEV_PROFILE_SCRIPT}; this mirror needs revisiting."
+    return match.group(0)
+
+
+def _call_dev_profile(name: str, *args: str) -> str:
+    """Answer with what dev-profile.sh's own helper returns for these arguments."""
+
+    result = subprocess.run(
+        ["bash", "-c", f'{_dev_profile_function(name)}\n{name} "$@"', "bash", *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _dev_profile_literal(pattern: str, label: str) -> str:
+    """Read a value dev-profile.sh sets inline, where there is no callable helper.
+
+    Requiring a single match means a rewrite of the surrounding block fails here naming
+    what went missing, rather than silently comparing against a stale expectation.
+    """
+
+    matches = re.findall(pattern, _DEV_PROFILE_TEXT, re.DOTALL)
+    assert len(matches) == 1, (
+        f"Expected exactly one {label} in {_DEV_PROFILE_SCRIPT}, found {len(matches)}; this mirror needs revisiting."
+    )
+    return matches[0]
+
+
+def _dev_profile_guarded_boards(anchor: str, label: str) -> tuple[str, ...]:
+    """The hardware profiles named by the ``if`` guarding the line that contains ``anchor``.
+
+    Part of dev-profile.sh's reconciliation is inline rather than in a helper, so the board
+    list is read off the guard instead of restated here. Scanning back to the nearest
+    ``if [[`` keeps this independent of the comments in between.
+    """
+
+    lines = _DEV_PROFILE_TEXT.splitlines()
+    hits = [index for index, line in enumerate(lines) if anchor in line]
+    assert len(hits) == 1, (
+        f"Expected exactly one {label} in {_DEV_PROFILE_SCRIPT}, found {len(hits)}; this mirror needs revisiting."
+    )
+    for line in reversed(lines[: hits[0]]):
+        if "if [[" not in line:
+            continue
+        boards = tuple(re.findall(r'"\$\{hardware_profile\}" == "([^"]+)"', line))
+        assert boards, f"The condition guarding {label} names no hardware profile: {line.strip()}"
+        return boards
+    raise AssertionError(f"Found no enclosing condition for {label} in {_DEV_PROFILE_SCRIPT}.")
+
+
+# Every board dev-profile.sh accepts, which is the set the config is expected to match.
+# Parametrizing on this rather than on the config's own keys means a board added to
+# dev-profile.sh is covered here immediately, instead of only once the config catches up.
+_DEV_PROFILE_BOARDS = tuple(
+    re.findall(
+        r"'([^']+)'",
+        _dev_profile_literal(r"_valid_hardware_profiles=\(([^)]*)\)", "supported hardware profile list"),
+    )
+)
+# Thor's fraction is set in dev-profile.sh's own block, which runs instead of the helper
+# (the helper would return its catch-all). The rest are the helper's to decide.
+_THOR_FRACTION_ANCHOR = 'set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-'
+_THOR_BOARDS = _dev_profile_guarded_boards(_THOR_FRACTION_ANCHOR, "Thor memory-fraction default")
+_THOR_FRACTION = _dev_profile_literal(r"RTVI_VLLM_GPU_MEMORY_UTILIZATION:-([0-9.]+)", "Thor memory-fraction default")
+_HELPER_FRACTION_BOARDS = tuple(board for board in _DEV_PROFILE_BOARDS if board not in _THOR_BOARDS)
+# The arm64 boards and the suffix they take, read off dev-profile.sh's export and its guard.
+_SBSA_SUFFIX = _dev_profile_literal(r'export VSS_CONTAINER_TAG_SUFFIX="([^"]+)"', "tag-suffix export")
+_SBSA_BOARDS = frozenset(_dev_profile_guarded_boards('export VSS_CONTAINER_TAG_SUFFIX="', "tag-suffix export"))
+# dev-profile.sh's RTXPRO4500BW block, which pins the board's checkpoint over the profile's.
+_BF16_MODEL_PATH = _dev_profile_literal(
+    r'== "RTXPRO4500BW".*?set_env_var "RTVI_VLM_MODEL_PATH" "([^"]+)"', "RTXPRO4500BW VLM model path"
+)
+_BF16_VLM_NAME = _dev_profile_literal(r'== "RTXPRO4500BW".*?set_env_var "VLM_NAME" "([^"]+)"', "RTXPRO4500BW VLM name")
+# Stands in for whatever checkpoint a profile pinned -- dev-profile-search's is the fp8
+# build. A sentinel rather than that literal, because the board has to win over any of them.
+_PROFILE_PINNED_MODEL_PATH = "ngc:nim/nvidia/cosmos3-nano-reasoner:profile-pinned"
+_PROFILE_PINNED_VLM_NAME = "nim_nvidia_cosmos3-nano-reasoner_profile-pinned"
+
+
+def _recipe_from_checked_in_config(
+    tmp_path: Path,
+    *,
+    hardware_profile: str,
+    profile: str = dcu.PROFILE_BASE,
+    extra_env: tuple[str, ...] = (),
+    overrides_env_text: str = "",
+    profile_mode: str | None = None,
+) -> dcu.DryRunRecipe:
+    """Build a recipe whose hardware rules are the checked-in MCP config's, not a synthetic
+    mapping. Everything else stays synthetic: only the hardware reconciliation is under test.
+    """
+
+    deployments_dir = tmp_path / "deployments"
+    profile_dir = deployments_dir / f"dev-profile-{profile}"
+    profile_dir.mkdir(parents=True)
+    # Both models on device 0, so LLM/VLM_MODE infer to local_shared -- the column
+    # dev-profile.sh's memory-fraction helper is being compared against.
+    env_lines = _base_env(hardware_profile, "LLM_DEVICE_ID=0", "VLM_DEVICE_ID=0")
+    if profile == dcu.PROFILE_ALERTS:
+        # alerts never deploys without a resolved MODE.
+        env_lines = (*env_lines, f"MODE={dcu.MODE_2D_CV}")
+    (profile_dir / ".env").write_text(_env_text(*env_lines, *extra_env) + "\n")
+    (profile_dir / "overrides.env").write_text(f"{overrides_env_text.strip()}\n" if overrides_env_text else "")
+    (deployments_dir / "compose.yml").write_text("services: {}\n")
+    (deployments_dir / "containers.env").write_text("")
+
+    return dcu.create_dry_run_recipe(
+        profile=profile,
+        env_overrides={},
+        hardware_profile=hardware_profile,
+        profile_mode=profile_mode,
+        model_resolution=_CHECKED_IN_FUNCTION_GROUP["model_resolution"],
+        output_env_file=str(tmp_path / "generated.env"),
+        output_compose_file=str(tmp_path / "compose.generated.yml"),
+        deployments_dir=str(deployments_dir),
+        mdx_data_dir=str(tmp_path / "mdx"),
+        profile_mode_to_env_modes=_CHECKED_IN_FUNCTION_GROUP["profile_mode_to_env_modes"],
+        source_compose_yaml=str(deployments_dir / "compose.yml"),
+        source_env=str(deployments_dir / "dev-profile-{profile}" / ".env"),
+    )
+
+
+class TestCheckedInHardwareProfiles:
+    """The MCP config's hardware_profiles block is a second copy of dev-profile.sh's
+    hardware reconciliation. These load that YAML and compare the environment it generates
+    against dev-profile.sh, so drift in either copy fails here instead of on a deployment.
+    The rest of the suite covers the merge mechanics with synthetic mappings.
+
+    Expectations are read out of dev-profile.sh rather than restated, so that a change
+    there fails these cases instead of leaving them asserting a stale third copy. Values
+    with no counterpart in the script are the orchestrator's own and are asserted directly;
+    each says so.
+    """
+
+    def test_config_supports_the_same_boards_as_dev_profile(self):
+        # Both are deployment paths for the same blueprint, so a board added to either has
+        # to reach the other. This is also what makes the cases below exhaustive: they are
+        # parametrized on dev-profile.sh's list, so a board missing from the config fails.
+        configured = _CHECKED_IN_FUNCTION_GROUP["model_resolution"]["hardware"]["hardware_profiles"]
+        assert set(configured) == set(_DEV_PROFILE_BOARDS)
+
+    @pytest.mark.parametrize("hardware_profile", _HELPER_FRACTION_BOARDS)
+    def test_gpu_memory_utilization_matches_dev_profile(
+        self, hardware_profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        expected = _call_dev_profile(
+            "get_rtvi_vllm_gpu_memory_utilization", hardware_profile, dcu.MODE_LOCAL_SHARED, dcu.PROFILE_BASE
+        )
+        recipe = _recipe_from_checked_in_config(tmp_path, hardware_profile=hardware_profile)
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VLM_MODE"] == dcu.MODE_LOCAL_SHARED
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == expected
+
+    @pytest.mark.parametrize("hardware_profile", _THOR_BOARDS)
+    def test_thor_gpu_memory_utilization_matches_dev_profile(
+        self, hardware_profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        recipe = _recipe_from_checked_in_config(tmp_path, hardware_profile=hardware_profile)
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == _THOR_FRACTION
+
+    @pytest.mark.parametrize("hardware_profile", _DEV_PROFILE_BOARDS)
+    def test_container_tag_suffix_matches_dev_profile(
+        self, hardware_profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        expected = _SBSA_SUFFIX if hardware_profile in _SBSA_BOARDS else ""
+        recipe = _recipe_from_checked_in_config(tmp_path, hardware_profile=hardware_profile)
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved.get("VSS_CONTAINER_TAG_SUFFIX", "") == expected
+
+    @pytest.mark.parametrize("hardware_profile", _DEV_PROFILE_BOARDS)
+    def test_vlm_max_model_len_matches_dev_profile(
+        self, hardware_profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        expected = _call_dev_profile("get_rtvi_vlm_max_model_len", hardware_profile)
+        recipe = _recipe_from_checked_in_config(tmp_path, hardware_profile=hardware_profile)
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved.get("RTVI_VLM_MAX_MODEL_LEN", "") == expected
+
+    @pytest.mark.parametrize("profile", [dcu.PROFILE_BASE, dcu.PROFILE_SEARCH, dcu.PROFILE_LVS, dcu.PROFILE_ALERTS])
+    def test_rtxpro4500bw_takes_bf16_whatever_the_profile_pinned(
+        self, profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # search is the profile that pins a different build; the board overrides it for all four.
+        recipe = _recipe_from_checked_in_config(
+            tmp_path,
+            hardware_profile="RTXPRO4500BW",
+            profile=profile,
+            overrides_env_text=_env_text(
+                f"RTVI_VLM_MODEL_PATH={_PROFILE_PINNED_MODEL_PATH}",
+                f"VLM_NAME={_PROFILE_PINNED_VLM_NAME}",
+            ),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["RTVI_VLM_MODEL_PATH"] == _BF16_MODEL_PATH
+        assert resolved["VLM_NAME"] == _BF16_VLM_NAME
+
+    def test_gb300_collapses_a_multi_gpu_profile_onto_one_device(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        # The single-device collapse is the orchestrator's own: dev-profile.sh spreads
+        # these over hardware_device_id instead, so there is nothing to mirror and the
+        # pins are asserted directly. dev-profile-search puts the LLM and RT-Embed on
+        # device 1, which is a hard startup failure on a single-device host.
+        recipe = _recipe_from_checked_in_config(
+            tmp_path,
+            hardware_profile="GB300",
+            profile=dcu.PROFILE_SEARCH,
+            overrides_env_text=_env_text(
+                "LLM_DEVICE_ID=1",
+                "RT_EMBED_DEVICE_ID=1",
+                "SHARED_LLM_VLM_DEVICE_ID=1",
+            ),
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        for key in (
+            "LLM_DEVICE_ID",
+            "VLM_DEVICE_ID",
+            "SHARED_LLM_VLM_DEVICE_ID",
+            "FIXED_SHARED_DEVICE_IDS",
+            "RT_CV_DEVICE_ID",
+            "RT_EMBED_DEVICE_ID",
+            "RT_VLM_DEVICE_ID",
+        ):
+            assert resolved[key] == "0", key
+        assert resolved["RTVI_VLLM_ATTENTION_BACKEND"] == "TRITON_ATTN"
+
+    def test_dgx_spark_scopes_the_kvcache_cap_to_base(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """VLM_NIM_KVCACHE_PERCENT appears nowhere in dev-profile.sh -- the cap is the
+        orchestrator's own, so 0.2 is asserted directly rather than mirrored."""
+
+        _patch_network(monkeypatch)
+
+        base = dcu.build_resolved_env(_recipe_from_checked_in_config(tmp_path / "base", hardware_profile="DGX-SPARK"))
+        alerts = dcu.build_resolved_env(
+            _recipe_from_checked_in_config(
+                tmp_path / "alerts",
+                hardware_profile="DGX-SPARK",
+                profile=dcu.PROFILE_ALERTS,
+                profile_mode="verification",
+            )
+        )
+
+        assert base["VLM_NIM_KVCACHE_PERCENT"] == "0.2"
+        assert "VLM_NIM_KVCACHE_PERCENT" not in alerts
+        # The cap is base-scoped; the memory fraction is not.
+        assert base["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.35"
+        assert alerts["RTVI_VLLM_GPU_MEMORY_UTILIZATION"] == "0.35"
 
 
 class TestComposeEnvFileLayering:
