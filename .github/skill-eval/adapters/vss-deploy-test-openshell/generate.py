@@ -10,10 +10,11 @@ runtime. Specs declare `gpu_count` per platform; that's the only
 trial-level resource hint.
 
 Matrix:
-    Profiles : base, lvs, warehouse
+    Profiles : base, lvs, warehouse, search, ask-video
     Platforms: H100, L40S, RTXPRO6000BW, H200, A40, DGX-SPARK, IGX-THOR
                (each spec declares which platforms it runs on; warehouse
-               is a dedicated two-GPU H200 job)
+               and search are dedicated two-GPU H200 jobs; ask-video
+               deploys base then chains to vss-ask-video)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
@@ -151,7 +152,28 @@ PROFILES: dict[str, dict] = {
     "warehouse": {
         "description": "VSS warehouse blueprint — RT-DETR 2D (`bp_wh_2d`) with always-local RTVI VLM, agent, UI, behavior analytics, Kafka",
     },
+    "search": {
+        "description": "VSS search profile — RT-CV, RT-Embed, remote VLM proxy, then vss-search-archive CLI",
+        "bundled_skills": ("vss-search-archive", "vss-ask-video"),
+    },
+    "ask-video": {
+        "description": "VSS base profile plus vss-ask-video CLI (`vss vlm run`)",
+        "profile": "base",
+        "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
+    },
 }
+
+
+def _find_bundled_skill(skills_root: Path, name: str) -> Path | None:
+    """Locate a sibling skill directory by leaf name."""
+    direct = skills_root / name
+    if direct.is_dir() and (direct / "SKILL.md").is_file():
+        return direct
+    for category in ("operations", "deployment", "tools"):
+        nested = skills_root / category / name
+        if nested.is_dir() and (nested / "SKILL.md").is_file():
+            return nested
+    return None
 
 
 def deploy_profile(eval_profile: str) -> str:
@@ -586,12 +608,24 @@ def generate_task(
         generate_solve_script(profile, platform),
     )
 
-    # -- skills/vss-deploy-test-openshell/ --
+    # -- skills/vss-deploy-test-openshell/ plus any operate skills the
+    # eval chains into (vss-search-archive, vss-ask-video, …).
     if skill_dir and skill_dir.exists():
         skill_dest = task_dir / "skills" / "vss-deploy-test-openshell"
         if skill_dest.exists():
             shutil.rmtree(skill_dest)
         shutil.copytree(skill_dir, skill_dest)
+        skills_root = skill_dir.parent
+        for extra in profile_def.get("bundled_skills") or ():
+            src = _find_bundled_skill(skills_root, extra)
+            if src is None:
+                print(f"WARN: bundled skill {extra!r} not found under {skills_root}",
+                      file=sys.stderr)
+                continue
+            extra_dest = task_dir / "skills" / extra
+            if extra_dest.exists():
+                shutil.rmtree(extra_dest)
+            shutil.copytree(src, extra_dest)
 
 
 # ---------------------------------------------------------------------------

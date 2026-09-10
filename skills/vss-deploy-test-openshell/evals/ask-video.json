@@ -1,0 +1,45 @@
+{
+  "skills": [
+    "vss-deploy-test-openshell",
+    "vss-ask-video"
+  ],
+  "profile": "base",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      },
+      "H200": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Deploy the VSS **base** profile on {{platform}}, using the `/vss-deploy-test-openshell` skill end-to-end and autonomously. After the stack is healthy, follow `/vss-ask-video`: set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, validate `services/agent/pyproject.toml`, run `cd \"${VSS_REPO_ROOT}\" && uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss vlm run --help`, and record the deployment with `vss configure --base-url http://localhost:7777`. Do not POST to the agent `/generate` endpoint and do not hand-roll `/v1/chat/completions`.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-postgres` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+        "The project-local CLI is usable from the validated checkout: `cd \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\" && uv run --project \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent\" --no-dev --extra cli vss vlm run --help` returns exit 0. The `--extra cli` flag is required; a globally installed `vss` is not an acceptable substitute",
+        "The agent recorded the deployment against the ingress origin `http://localhost:7777` with `vss configure --base-url`",
+        "The agent does not POST to the VSS agent `/generate` endpoint and does not hand-roll an OpenAI-compatible `/v1/chat/completions` request"
+      ]
+    }
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW",
+      "H200"
+    ]
+  }
+}
