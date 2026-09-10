@@ -583,10 +583,13 @@ class TestLiveStreamEndpoints:
         # Before the fix AddLiveStream.id was UUID-typed: a non-UUID id caused a 422
         # uuid_parsing error. After the fix the id is str-typed so the stream is added
         # successfully and camera-01 appears in results with no errors.
-        response = test_client.post(
-            f"{API_PREFIX}/streams/add",
-            json={"streams": [{"liveStreamUrl": "rtsp://example.com/live", "id": "camera-01", "description": "camera-01"}]},
-        )
+        # Patch _SKIP_INPUT_MEDIA_VERIFICATION to False so the endpoint skips the
+        # RTSP probe and adds the stream without reaching an external address.
+        with patch("server.rtvi_embed_server._SKIP_INPUT_MEDIA_VERIFICATION", False):
+            response = test_client.post(
+                f"{API_PREFIX}/streams/add",
+                json={"streams": [{"liveStreamUrl": "rtsp://example.com/live", "id": "camera-01", "description": "camera-01"}]},
+            )
         try:
             assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
             data = response.json()
