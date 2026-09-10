@@ -1,0 +1,77 @@
+# Deployment-side evidence for the FR-35 off-host proof
+# Captured 2026-09-09T20:15:49Z from the DEPLOYMENT host by ssh.
+# The agent side of this pair is fr35-offhost-loadedcfg-2026-09-09.agent-side.txt
+# (named .log when it was produced; *.log is gitignored repo-wide).
+
+## identity
+deployment-host
+machine-id: fa1e16e7... (truncated)
+addrs: 10.176.222.x 192.168.34.x 172.18.0.1 172.17.0.1 
+kernel: 6.8.0-136-generic
+
+## gateway identity (HAProxy container env)
+EXTERNAL_IP=10.176.222.x
+HAPROXY_PORT=7777
+HAPROXY_SERVICE_HOST=vss-haproxy-ingress
+HOST_IP=10.176.222.x
+VSS_GATEWAY_HOST=vss.local
+VSS_GATEWAY_PORT=7777
+VSS_PUBLIC_HOST=vss-gateway.fr35.corp
+VSS_PUBLIC_PORT=7777
+
+## gateway config actually loaded (proves the commit under test is live)
+internal-only deny rules (FR-29):      12
+x-vss-gateway-deny markers:            6
+x-vss-gateway-unavailable markers:     3
+timeout server 900s (bk_vss_agent):    1
+timeout server 600s:                   3
+known_host ACL lines:                  18
+h_internal ACL lines:                  8
+gw_internal_src ACL lines:             4
+
+the two internal-only deny conditions, verbatim:
+  http-request deny deny_status 403 hdr x-vss-gateway-deny internal-only content-type text/plain string "VSS gateway: /behavior-analytics is classifie
+  http-request deny deny_status 403 hdr x-vss-gateway-deny internal-only content-type text/plain string "VSS gateway: /behavior-analytics is classifie
+  http-request deny deny_status 403 hdr x-vss-gateway-deny internal-only content-type text/plain string "VSS gateway: /perception-sdr is classified in
+  http-request deny deny_status 403 hdr x-vss-gateway-deny internal-only content-type text/plain string "VSS gateway: /perception-sdr is classified in
+
+bk_vss_agent timeout stanza:
+  backend bk_vss_agent
+  # which reads as a failed ingest rather than an edge timeout. 900s is the
+  timeout server 900s
+
+## published port
+7777/tcp -> 0.0.0.0:7777
+7777/tcp -> [::]:7777
+
+## running services (compose project fr35)
+elasticsearch	Up 5 hours (healthy)
+kafka	Up 5 hours (healthy)
+kibana	Up 5 hours (healthy)
+logstash	Up 5 hours
+nemotron-3.5-lightning-30b-a3b	Up About a minute (health: starting)
+phoenix	Up 5 hours
+redis	Up 5 hours
+vss-agent	Up 5 hours (healthy)
+vss-agent-ui	Up 5 hours
+vss-alert-bridge	Up 5 hours
+vss-behavior-analytics	Up 5 hours
+vss-haproxy-ingress	Up About an hour
+vss-rtvi-vlm	Up 9 seconds (health: starting)
+vss-va-mcp	Up 5 hours (healthy)
+vss-video-analytics-api	Up 5 hours
+vss-vios-ingress	Up 5 hours (healthy)
+vss-vios-nvstreamer	Up 5 hours
+vss-vios-postgres	Up 5 hours (healthy)
+vss-vios-sensor	Up 5 hours (healthy)
+vss-vios-streamprocessing	Up 5 hours (unhealthy)
+
+## GPUs
+0, NVIDIA L40, 49140 MiB, 1106 MiB
+1, NVIDIA L40, 49140 MiB, 19727 MiB
+
+## why /llm answers 502 (root cause, from the NIM container log)
+(EngineCore pid=305) ERROR 09-09 15:03:54 [core.py:1231] ValueError: No available memory for the cache blocks. Try increasing `gpu_memory_utilization` when initializing the engine (this flag also controls CPU memory reservation on the CPU backend, despite its name). See https://docs.vllm.ai/en/latest/configuration/conserving_memory/ for more details.
+
+## why rtvi-vlm is absent (root cause, from its container log)
+2026-09-09 14:54:56,295 [91mERROR[0m Failed to initialize Inference pipeline: Could not authenticate with NGC. Check if NGC_API_KEY and model path is correct.
