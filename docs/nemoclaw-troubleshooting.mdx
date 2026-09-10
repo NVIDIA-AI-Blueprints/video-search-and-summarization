@@ -131,13 +131,13 @@ The following diagnostic commands apply to OpenClaw. If you onboarded Hermes or 
 
 ## NGC or Model Artifact Downloads Fail
 
-**Symptom**: `docker_up` fails during `ensure_model_artifacts`, NGC CLI commands fail, or `docker login nvcr.io` fails.
+**Symptom**: The perception container (`vss-rtvi-cv`) fails during `ds-start.sh` phase 0, NGC CLI commands fail, or `docker login nvcr.io` fails.
 
 **Solution**:
 
-* Verify `NGC_CLI_API_KEY` is set in `deploy_vss_orchestrator.ipynb` Section 1.1.
-* Re-run Section 3.1 and 3.2 of `deploy_vss_orchestrator.ipynb` on the host to configure `~/.ngc/config` and `docker login nvcr.io`.
-* Check that `mdx_data_dir` in `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` is writable. Model artifacts are extracted under `<mdx_data_dir>/models`.
+* Verify `NGC_CLI_API_KEY` is set in `deploy_vss_orchestrator.ipynb` Section 1.1. It is passed through to the perception container, which downloads the models listed in the profile's `models-download.json`.
+* Re-run Section 3.1 of `deploy_vss_orchestrator.ipynb` on the host to redo `docker login nvcr.io`. The host needs no NGC CLI and no `~/.ngc/config` — the perception container bootstraps its own and reads the key from the environment.
+* Check that `mdx_data_dir` in `deploy/docker/scripts/vss_orchestrator_mcp_config.yml` is writable. Model artifacts are written under `<mdx_data_dir>/models`.
 
 ## Compose Operation Stuck or Retried
 

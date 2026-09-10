@@ -77,7 +77,7 @@ Required values every VSS deployment needs are set in Section 1.1.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `NGC_CLI_API_KEY` | *(blank)* | NVIDIA legacy API key. Required for `docker login nvcr.io`, host NGC CLI configuration, and model artifact downloads. |
+| `NGC_CLI_API_KEY` | *(blank)* | NVIDIA legacy API key. Required for `docker login nvcr.io` and for the model weights the containers download from NGC. |
 | `NVIDIA_API_KEY` | *(blank)* | Required for NVIDIA-hosted VSS LLM/VLM endpoints and propagated to the MCP server. |
 | `HARDWARE_PROFILE` | `RTXPRO6000BW` | Hardware profile applied by the orchestrator. Supported values are `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`, `IGX-THOR`, `AGX-THOR`, and `OTHER`. Edge profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`) are valid only for `base` and `alerts`. |
 | `NEMOCLAW_SANDBOX_NAME` | `demo` | Sandbox created in `deploy_nemoclaw.ipynb`; the Agent UI you deploy VSS from lives here. |

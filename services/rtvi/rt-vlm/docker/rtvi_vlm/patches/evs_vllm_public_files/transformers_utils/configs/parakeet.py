@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from transformers import ParakeetEncoderConfig, PretrainedConfig
 
 
 class ParakeetConfig(ParakeetEncoderConfig):
-    llm_hidden_size: int
-    projection_hidden_size: int
-    projection_bias: bool
+    llm_hidden_size: int = field(kw_only=True)
+    projection_hidden_size: int = field(kw_only=True)
+    projection_bias: bool = field(kw_only=True)
     projection_eps: float = 1e-5
-    sampling_rate: int
+    sampling_rate: int = field(kw_only=True)
 
     @staticmethod
     def from_hf_config(

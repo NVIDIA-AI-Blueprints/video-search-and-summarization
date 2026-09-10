@@ -938,6 +938,7 @@ jobs:
             --noconftest \
             -m test_in_ci \
             tests/model/vllm_compatible/test_input_error_handling.py \
+            tests/rtvi_vlm/test_vlm_thor_runtime.py \
             -v
 
       - name: Run rt-embed unit tests

@@ -228,7 +228,7 @@ llms:
     model_kwargs:
       extra_body:
         chat_template_kwargs:
-          enable_thinking: false
+          enable_thinking: ${LLM_ENABLE_THINKING:-true}
 
   # --- VLM profiles (selected by VLM_MODEL_TYPE) ---
   nim_vlm:
@@ -278,7 +278,7 @@ workflow:
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   log_level: INFO
   max_iterations: 50
-  llm_reasoning: false
+  llm_reasoning: true
   planning_enabled: true
   tool_names:
   - video_understanding

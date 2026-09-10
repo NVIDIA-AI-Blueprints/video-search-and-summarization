@@ -63,6 +63,9 @@ UNRESOLVED_SHELL_VAR_PATTERN: Final[re.Pattern[str]] = re.compile(r"\$[A-Za-z_][
 ENV_VAR_INTERPOLATION_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
 )
+# Unlike the pattern above, this one keeps the name out of `${VAR:-default}` and the
+# other modifier forms, which is how every coordinate in containers.env is written.
+SHELL_PARAMETER_REFERENCE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)")
 PLACEHOLDER_VALUES: Final[frozenset[str]] = frozenset(
     {
         "<HOST_IP>",
@@ -541,6 +544,19 @@ def infer_runtime_mode(
     return MODE_LOCAL
 
 
+def _containers_env_seed(containers_env_file: Path, higher_precedence: Mapping[str, str]) -> dict[str, str]:
+    """The part of ``higher_precedence`` that has to be exported before sourcing containers.env.
+
+    containers.env derives the image coordinates rather than listing them, so whatever is
+    exported when it is sourced decides what they resolve to. Narrowed to the names it
+    actually expands so that sourcing it stays insulated from the rest of the caller's
+    environment.
+    """
+
+    referenced = frozenset(SHELL_PARAMETER_REFERENCE_PATTERN.findall(containers_env_file.read_text()))
+    return {key: value for key, value in higher_precedence.items() if key in referenced}
+
+
 def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #   (lowest -> highest precedence)
     #   0. containers.env first-party image coordinates (same position as
@@ -555,8 +571,7 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
     #      ... then yml edge_device_ids (for edge HW)
     #   4. notebook's other named recipe params (vlm_name, rtvi_vllm_gpu_memory_utilization, etc.)
     #   5. per-call env_overrides
-    merged = load_shell_env_file(config.containers_env_file)
-    merged.update(parse_env_file(config.source_env_file))
+    merged = parse_env_file(config.source_env_file)
     merged.update(parse_env_file(config.profile_env_override_file))
     if config.hardware_profile:
         merged["HARDWARE_PROFILE"] = config.hardware_profile
@@ -583,6 +598,19 @@ def build_resolved_env(config: DryRunRecipe) -> dict[str, str]:
         merged["VLM_DEVICE_ID"] = config.edge_device_ids["vlm"]
         merged["RT_VLM_DEVICE_ID"] = config.edge_device_ids["rt_vlm"]
         merged["RT_CV_DEVICE_ID"] = config.edge_device_ids["rt_cv"]
+    # containers.env computes its tags instead of stating them: VSS_RT_VLM_TAG is
+    # ${VSS_CONTAINER_TAG} with ${VSS_CONTAINER_TAG_SUFFIX} appended. Those inputs have to
+    # be set while it is sourced -- a hardware profile picking -sbsa afterwards is too
+    # late, because by then the tags read develop-latest and the suffix is just an unread
+    # value sitting beside them. So it is sourced here, last, with the layers above seeded
+    # into its environment, and merged underneath them to keep layer 0's precedence.
+    merged = (
+        load_shell_env_file(
+            config.containers_env_file,
+            os.environ | _containers_env_seed(config.containers_env_file, merged | config.env_overrides),
+        )
+        | merged
+    )
     if config.ngc_cli_api_key:
         merged["NGC_CLI_API_KEY"] = config.ngc_cli_api_key
     if config.nvidia_api_key:
@@ -805,18 +833,28 @@ def _compose_env_file_args(config: DryRunRecipe, generated_env_file: Path) -> li
 
 def _compose_subprocess_env_for_config(
     config: DryRunRecipe,
+    generated_env_file: Path,
     extra_defaults: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, str]:
-    """Source containers.env into the Compose process environment like dev-profile.sh."""
+    """Source containers.env into the Compose process environment like dev-profile.sh.
+
+    Compose gives the process environment precedence over every ``--env-file``, so the
+    generated file's image coordinates are seeded here first. Sourcing containers.env
+    against a bare environment re-derives those tags without the hardware profile's
+    ``VSS_CONTAINER_TAG_SUFFIX`` and then shadows the generated file with them, which is
+    how an SBSA host ends up resolving amd64 images.
+    """
 
     compose_env = _compose_subprocess_env(extra_defaults)
+    if generated_env_file.is_file():
+        compose_env.update(_containers_env_seed(config.containers_env_file, parse_env_file(generated_env_file)))
     compose_env.update(load_shell_env_file(config.containers_env_file, compose_env))
     return compose_env
 
 
 def resolve_compose(config: DryRunRecipe) -> str:
     env_file_args = _compose_env_file_args(config, config.output_env_file)
-    compose_env = _compose_subprocess_env_for_config(config)
+    compose_env = _compose_subprocess_env_for_config(config, config.output_env_file)
     try:
         result = subprocess.run(
             ["docker", "compose", "-f", str(config.compose_file), *env_file_args, "config"],
@@ -837,6 +875,7 @@ def run_compose_command(config: DryRunRecipe, env_file: Path, compose_file: Path
     env_file_args = _compose_env_file_args(config, env_file)
     compose_env = _compose_subprocess_env_for_config(
         config,
+        env_file,
         {"COMPOSE_PROGRESS": "plain", "COMPOSE_ANSI": "never"},
     )
     try:
