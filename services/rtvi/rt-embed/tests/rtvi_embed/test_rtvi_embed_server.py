@@ -599,6 +599,26 @@ class TestLiveStreamEndpoints:
         finally:
             rtvi_server._asset_manager.cleanup_asset("camera-01")
 
+    @pytest.mark.parametrize(
+        "stream_id",
+        ["camera/01", ".", "..", "camera 01", "camera?01", "camera#01", "camera\t01"],
+    )
+    def test_add_live_stream_rejects_unsafe_id(self, test_client, stream_id):
+        """Stream IDs with unsafe characters (path separators, spaces, etc.) must be rejected."""
+        response = test_client.post(
+            f"{API_PREFIX}/streams/add",
+            json={
+                "streams": [
+                    {
+                        "id": stream_id,
+                        "liveStreamUrl": "rtsp://example.com/stream",
+                        "description": "test",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 422
+
     def test_add_live_stream_missing_url(self, test_client):
         """Test adding live stream without URL"""
         response = test_client.post(
