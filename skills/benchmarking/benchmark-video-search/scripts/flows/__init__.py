@@ -94,6 +94,7 @@ from .query import CLI_FATAL_EXITS
 from .query import SEARCH_PATHS
 from .query import CliExitError
 from .query import CliQueryBackend
+from .query import QueryUnanswerableError
 from .query import is_fatal_exit
 from .query import parse_cli_output
 from .readiness import compare_inventory
@@ -184,6 +185,7 @@ __all__ = [
     "LegacyPutIngest",
     "LiveDecomposer",
     "QueryBackend",
+    "QueryUnanswerableError",
     "VstDirectIngest",
     "aggregate_upload_stats",
     "align_ts_to_segment",
