@@ -1617,3 +1617,80 @@ def test_overlap_does_not_turn_one_event_into_several_hits() -> None:
 def test_a_different_video_never_matches() -> None:
     gt = [_window("vidA", 10)]
     assert flows.match_segment(_window("vidB", 10), gt)[0] == -1
+
+
+# ---------------------------------------------------------------------------
+# no_opinion: the safety check that catches a critic which ran and said nothing
+# ---------------------------------------------------------------------------
+
+
+def _scored(**over: Any) -> dict[str, Any]:
+    """One query_result in the shape _summarize consumes."""
+    base = {
+        "precision": 0.5, "recall": 0.5, "f1": 0.5, "average_precision": 0.5,
+        "reciprocal_rank": 1.0, "hit_at_k": dict.fromkeys(flows.HIT_K_VALUES, 1),
+        "latency_s": 1.0, "num_rejected": 0,
+    }
+    base["critic_filtered"] = {k: base[k] for k in
+                               ("precision", "recall", "f1", "average_precision", "reciprocal_rank")}
+    base["critic_filtered"]["hit_at_k"] = dict(base["hit_at_k"])
+    base.update(over)
+    return base
+
+
+def _summary(sources: set[str], verdicts: dict[str, int]) -> dict[str, Any]:
+    import run_eval_flows as rf
+
+    return rf._summarize(
+        [_scored(), _scored()],
+        dataset="d", subset="", wall_clock_s=10.0, concurrency=1,
+        sources_seen=sources, upload_stats=None, verdicts=verdicts,
+    )
+
+
+def test_a_critic_that_only_ever_said_unverified_is_no_opinion() -> None:
+    """Blocks present, zero opinions -- the state that reads as agreement.
+
+    filter_rejected drops nothing, so critic_filtered comes out numerically
+    identical to raw and looks like the critic endorsed retrieval. Observed for
+    real: a loopback clip URL, RT-VLM's SSRF guard returning 422, and all 121
+    queries unverified at exit 0.
+    """
+    summary = _summary({"verification"}, {"unverified": 10})
+    assert summary["critic"]["status"] == "no_opinion"
+    assert "critic_filtered" not in summary, "suppressed, or it would equal raw"
+    assert "total_rejected" not in summary
+
+
+def test_one_real_verdict_is_enough_to_report_critic_filtered() -> None:
+    summary = _summary({"verification"}, {"confirmed": 1, "unverified": 9})
+    assert summary["critic"]["status"] == "ok"
+    assert "critic_filtered" in summary
+    assert summary["total_rejected"] == 0
+
+
+def test_rejections_alone_also_count_as_an_opinion() -> None:
+    """`rejected` is a verdict too -- only `unverified` is the absence of one."""
+    summary = _summary({"verification"}, {"rejected": 4})
+    assert summary["critic"]["status"] == "ok"
+    assert "critic_filtered" in summary
+
+
+def test_no_verification_blocks_at_all_omits_the_critic_key() -> None:
+    """Distinct from no_opinion: nothing ran, so there is nothing to report.
+
+    Both suppress critic_filtered, but a reader has to be able to tell "the
+    critic is broken" from "this deployment has no critic".
+    """
+    summary = _summary({flows.VERIFICATION_ABSENT}, {})
+    assert "critic" not in summary
+    assert "critic_filtered" not in summary
+
+
+def test_the_absent_sentinel_is_not_mistaken_for_a_real_source() -> None:
+    """A mixed run still reports, but the sentinel alone must not qualify."""
+    assert _summary({flows.VERIFICATION_ABSENT}, {"confirmed": 5}).get("critic") is None
+    assert _summary(
+        {flows.VERIFICATION_ABSENT, "verification"}, {"confirmed": 5}
+    )["critic"]["status"] == "ok"
+
