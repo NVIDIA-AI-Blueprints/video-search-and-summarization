@@ -24,6 +24,7 @@ result readers expect.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import statistics
 import sys
@@ -31,7 +32,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 #: Where DSS downloads land unless --data-dir says otherwise.
-DEFAULT_DATA_DIR = Path("/tmp/vss-devx-search")
+#:
+#: Deliberately NOT /tmp, which run_eval.py used and which is world-writable.
+#: These evals run on shared deployment boxes, where any other user can
+#: pre-create the directory and plant dataset files -- and this path holds the
+#: ground truth every metric is scored against, so poisoning it is not a
+#: hypothetical inconvenience but a way to make the eval report whatever the
+#: attacker chose. Under the user's own cache dir the OS enforces ownership.
+DEFAULT_DATA_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "vss-devx-search"
 
 #: The DSS dataset holding every eval fixture.
 DSS_DATASET_NAME = "vss-devx-search"
