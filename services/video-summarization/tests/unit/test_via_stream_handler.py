@@ -1493,6 +1493,7 @@ class TestGetAggregatedSummary:
         req_info.file = "/tmp/video.mp4"
         req_info.source_id = "source-1"
         req_info.request_id = "request-1"
+        req_info.rtvi_request_id = "rtvi-request-1"
         req_info.enable_audio = False
         req_info.is_live = False
         req_info.summarize = True
@@ -1523,7 +1524,7 @@ class TestGetAggregatedSummary:
         with patch.object(handler, "_wait_for_kafka_raw_events") as wait_mock:
             handler._get_aggregated_summary(req_info, [chunk_response])
 
-        wait_mock.assert_called_once_with("source-1", 1)
+        wait_mock.assert_called_once_with("source-1", 1, "rtvi-request-1")
         req_info._ctx_mgr.call.assert_called_once_with({"summarization": {"uuids": ["source-1"]}})
 
 
@@ -1576,15 +1577,38 @@ class TestKafkaRawEventsReadiness:
             patch("via_stream_handler.requests.post", side_effect=responses) as post_mock,
             patch("via_stream_handler.time.sleep") as sleep_mock,
         ):
-            handler._wait_for_kafka_raw_events("source-1", 3)
+            handler._wait_for_kafka_raw_events("source-1", 3, "rtvi-request-1")
 
         assert post_mock.call_count == 3
         assert sleep_mock.call_count == 2
         request = post_mock.call_args
         assert request.args[0] == "http://elasticsearch:9200/default_source_1/_count"
         assert request.kwargs["json"] == {
-            "query": {"term": {"metadata.content_metadata.doc_type": "raw_events"}}
+            "query": {
+                "bool": {
+                    "filter": [
+                        {
+                            "term": {
+                                "metadata.content_metadata.doc_type.keyword": "raw_events"
+                            }
+                        },
+                        {
+                            "term": {
+                                "metadata.content_metadata.requestId.keyword": "rtvi-request-1"
+                            }
+                        },
+                    ]
+                }
+            }
         }
+
+    def test_requires_current_rtvi_request_id(self):
+        from via_stream_handler import KafkaIngestionTimeout
+
+        handler = self._handler()
+
+        with pytest.raises(KafkaIngestionTimeout, match="RTVI request ID is unavailable"):
+            handler._wait_for_kafka_raw_events("source-1", 1, None)
 
     def test_timeout_has_service_unavailable_status(self):
         from via_stream_handler import KafkaIngestionTimeout
@@ -1594,7 +1618,7 @@ class TestKafkaRawEventsReadiness:
 
         with patch("via_stream_handler.requests.post", return_value=missing_index):
             with pytest.raises(KafkaIngestionTimeout) as exc_info:
-                handler._wait_for_kafka_raw_events("source-1", 2)
+                handler._wait_for_kafka_raw_events("source-1", 2, "rtvi-request-1")
 
         assert exc_info.value.status_code == 503
         assert "0/2 raw_events" in str(exc_info.value)
@@ -2912,9 +2936,9 @@ class TestClassifyEsError:
 
 @pytest.mark.unit
 class TestCheckStatusRemoveReqIdDropsIndex:
-    """``check_status_remove_req_id`` should call
-    ``drop_collection_for_asset(force_legacy=True)`` after a file
-    summarize completes, but ONLY when:
+    """``check_status_remove_req_id`` should drop the collection through
+    the request's leased context manager after a file summarize completes,
+    but ONLY when:
 
       * ``LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`` is unset / "false"
       * ``req_info.is_live`` is False (live-stream completions reuse
@@ -2941,22 +2965,21 @@ class TestCheckStatusRemoveReqIdDropsIndex:
         return handler, ri, mock_ctx
 
     def test_drops_index_when_gate_unset(self):
-        handler, ri, _ = self._make_completed_file_request()
-        handler.drop_collection_for_asset = MagicMock(return_value={"ok": True})
+        handler, ri, mock_ctx = self._make_completed_file_request()
+        mock_ctx.drop_collection.return_value = {"ok": True}
 
         with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
             handler.check_status_remove_req_id(ri.request_id)
 
-        handler.drop_collection_for_asset.assert_called_once_with(ri.source_id, force_legacy=True)
+        mock_ctx.drop_collection.assert_called_once_with()
 
     def test_skips_drop_when_gate_true(self):
-        handler, ri, _ = self._make_completed_file_request()
-        handler.drop_collection_for_asset = MagicMock(return_value={"ok": True})
+        handler, ri, mock_ctx = self._make_completed_file_request()
 
         with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "true"}):
             handler.check_status_remove_req_id(ri.request_id)
 
-        handler.drop_collection_for_asset.assert_not_called()
+        mock_ctx.drop_collection.assert_not_called()
 
     def test_skips_drop_for_live_stream_completion(self):
         from via_stream_handler import LiveStreamInfo, RequestInfo
@@ -2976,25 +2999,37 @@ class TestCheckStatusRemoveReqIdDropsIndex:
         lsi = LiveStreamInfo()
         lsi.live_stream_ended = True
         handler._live_stream_info_map[ri.source_id] = lsi
-        handler.drop_collection_for_asset = MagicMock(return_value={"ok": True})
 
         with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
             handler.check_status_remove_req_id(ri.request_id)
 
-        handler.drop_collection_for_asset.assert_not_called()
+        mock_ctx.drop_collection.assert_not_called()
 
     def test_drop_failure_does_not_break_pool_return(self):
-        """If drop_collection_for_asset raises (transient ES blip during
-        cleanup), the ctx_mgr must still be returned to the pool.
+        """If drop_collection raises during cleanup, the ctx_mgr must still
+        be returned to the pool.
         """
         handler, ri, mock_ctx = self._make_completed_file_request()
-        handler.drop_collection_for_asset = MagicMock(
-            side_effect=Exception("transient ES failure during cleanup")
+        mock_ctx.drop_collection.side_effect = Exception("transient ES failure during cleanup")
+
+        with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
+            handler.check_status_remove_req_id(ri.request_id)
+
+        assert mock_ctx in handler._ctx_mgr_pool
+
+    def test_drop_does_not_acquire_second_manager_at_capacity(self):
+        handler, ri, mock_ctx = self._make_completed_file_request()
+        handler._ctx_mgr_pool = []
+        handler.num_ctx_mgr = handler.MAX_CONTEXT_MANAGERS
+        handler._acquire_ctx_mgr = MagicMock(
+            side_effect=AssertionError("cleanup must not acquire another manager")
         )
 
         with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
             handler.check_status_remove_req_id(ri.request_id)
 
+        mock_ctx.drop_collection.assert_called_once_with()
+        handler._acquire_ctx_mgr.assert_not_called()
         assert mock_ctx in handler._ctx_mgr_pool
 
 

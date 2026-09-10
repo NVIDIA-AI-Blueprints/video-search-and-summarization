@@ -214,6 +214,10 @@ class RequestInfo:
         self.rtvi_status_code = None
         self.rtvi_error_code = None
         self.rtvi_error_message = None
+        # RTVI assigns a distinct ID to each caption-generation run. Keep it
+        # separate from the reusable source ID so Kafka readiness checks cannot
+        # be satisfied by raw events left over from an earlier run.
+        self.rtvi_request_id = None
         self.enable_qa = False
         self._qa_ctx_mgr = None
 
@@ -1623,6 +1627,20 @@ class ViaStreamHandler:
                 api_type=getattr(req_info, "api_type", None),
                 mm_processor_kwargs=getattr(req_info, "mm_processor_kwargs", None),
             ):
+                rtvi_request_id = sse_chunk.get("id")
+                if rtvi_request_id:
+                    rtvi_request_id = str(rtvi_request_id)
+                    if (
+                        req_info.rtvi_request_id
+                        and req_info.rtvi_request_id != rtvi_request_id
+                    ):
+                        raise RtviError(
+                            502,
+                            "DependencyError",
+                            "RTVI returned inconsistent request IDs for one caption run",
+                        )
+                    req_info.rtvi_request_id = rtvi_request_id
+
                 chunk_responses = sse_chunk.get("chunk_responses", [])
                 if not chunk_responses:
                     continue
@@ -3156,10 +3174,15 @@ This is very important and you must follow this strictly.
             )
             if not req_info.is_live:
                 try:
-                    self.drop_collection_for_asset(req_info.source_id, force_legacy=True)
+                    result = ctx_mgr.drop_collection()
+                    logger.info(
+                        "post-summarize drop_collection for source_id=%s -> %s",
+                        req_info.source_id,
+                        result,
+                    )
                 except Exception as drop_ex:
                     logger.warning(
-                        "post-summarize drop_collection_for_asset failed for %s: %s",
+                        "post-summarize drop_collection failed for %s: %s",
                         req_info.source_id,
                         drop_ex,
                     )
@@ -3582,7 +3605,9 @@ This is very important and you must follow this strictly.
                                 req_info.source_id,
                             )
                             self._wait_for_kafka_raw_events(
-                                req_info.source_id, len(chunk_responses)
+                                req_info.source_id,
+                                len(chunk_responses),
+                                req_info.rtvi_request_id,
                             )
                             sum_state: dict = {"uuids": [str(req_info.source_id)]}
                             _start_ts = getattr(req_info, "start_timestamp", None)
@@ -4103,7 +4128,9 @@ This is very important and you must follow this strictly.
             return default
         return parsed
 
-    def _wait_for_kafka_raw_events(self, source_id, expected_docs: int) -> None:
+    def _wait_for_kafka_raw_events(
+        self, source_id, expected_docs: int, rtvi_request_id: str | None
+    ) -> None:
         """Wait until Kafka/Logstash makes every video chunk searchable.
 
         The RTVI SSE ``[DONE]`` marker only means caption generation has
@@ -4114,6 +4141,10 @@ This is very important and you must follow this strictly.
         """
         if expected_docs <= 0:
             return
+        if not rtvi_request_id:
+            raise KafkaIngestionTimeout(
+                "RTVI request ID is unavailable while waiting for Kafka ingestion"
+            )
 
         db_name = self._get_db_tool_name(self._ca_rag_config) or "elasticsearch_db"
         params = (self._ca_rag_config or {}).get("tools", {}).get(db_name, {}).get("params", {})
@@ -4139,7 +4170,24 @@ This is very important and you must follow this strictly.
         )
         index_name = requests.utils.quote(_safe_collection_name(source_id), safe="")
         count_url = f"{base_url}/{index_name}/_count"
-        count_query = {"query": {"term": {"metadata.content_metadata.doc_type": "raw_events"}}}
+        count_query = {
+            "query": {
+                "bool": {
+                    "filter": [
+                        {
+                            "term": {
+                                "metadata.content_metadata.doc_type.keyword": "raw_events"
+                            }
+                        },
+                        {
+                            "term": {
+                                "metadata.content_metadata.requestId.keyword": rtvi_request_id
+                            }
+                        },
+                    ]
+                }
+            }
+        }
         started = time.monotonic()
         deadline = started + timeout
         last_count = 0

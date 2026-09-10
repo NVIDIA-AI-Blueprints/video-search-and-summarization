@@ -172,6 +172,40 @@ class TestStartStreamCaptionsRtviDown:
 
 @pytest.mark.unit
 class TestTriggerQueryRtviDown:
+    def test_records_rtvi_request_id_from_sse(self):
+        handler = _make_handler()
+        handler._vlm_pipeline.generate_captions_stream.return_value = iter(
+            [{"id": "rtvi-request-1", "chunk_responses": []}]
+        )
+
+        req_info = _make_req_info()
+        handler._request_info_map[req_info.request_id] = req_info
+
+        with patch.dict(os.environ, {"ENABLE_DENSE_CAPTION": ""}):
+            handler._trigger_query(req_info)
+
+        assert req_info.rtvi_request_id == "rtvi-request-1"
+
+    def test_rejects_inconsistent_rtvi_request_ids(self):
+        handler = _make_handler()
+        handler._vlm_pipeline.generate_captions_stream.return_value = iter(
+            [
+                {"id": "rtvi-request-1", "chunk_responses": []},
+                {"id": "rtvi-request-2", "chunk_responses": []},
+            ]
+        )
+
+        req_info = _make_req_info()
+        handler._request_info_map[req_info.request_id] = req_info
+
+        with patch.dict(os.environ, {"ENABLE_DENSE_CAPTION": ""}):
+            handler._trigger_query(req_info)
+
+        assert req_info.status == RequestInfo.Status.FAILED
+        assert req_info.rtvi_status_code == 502
+        assert req_info.rtvi_error_code == "DependencyError"
+        assert "inconsistent request IDs" in req_info.error_message
+
     @pytest.mark.parametrize("exc", CONNECTION_ERRORS, ids=["ConnectionError", "Timeout"])
     def test_request_info_marked_failed_503(self, exc):
         handler = _make_handler()
