@@ -1444,8 +1444,10 @@ def main() -> None:
             decompose_fallback = {"attempted": args.llm_url, "error": str(e)}
             print(f"\n  WARNING: decomposition LLM unreachable at {args.llm_url}")
             print(f"           {e}")
-            # Fall back to --search-path, which is `embed`: the one path that
-            # needs nothing but the query text. `attribute` and `fusion` both
+            # Fall back to --search-path, which defaults to `embed`: the one
+            # path that needs nothing but the query text. An explicit
+            # --search-path is honoured rather than overridden, but note what
+            # that means here -- `attribute` and `fusion` both
             # require a per-query attribute that only decomposition produces,
             # and handing them the whole query as its attribute is the failure
             # this eval already measured -- mAP -25%, HIT@1 halved, +59% latency.
