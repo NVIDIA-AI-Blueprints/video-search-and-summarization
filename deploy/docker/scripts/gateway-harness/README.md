@@ -312,6 +312,75 @@ deployment host** is not, which is the distinction section 0 enforces: 0b and
 Set `AGENT_HOST_NOTE`: inside a container `hostname` is a container id, which
 says nothing about the machine separation being claimed.
 
+### Serve the name from a name server instead
+
+`--add-host` still only satisfies SRD 9.3's `/etc/hosts` reading. The §7
+acceptance line asks for *external DNS*, and the only way to record that is to
+have a name server answer. This is the recipe that produced
+`transcripts/fr35-offhost-dns-2026-09-09`, which is FR-35's resolution
+evidence:
+
+```bash
+# on the remote agent host. Pick a zone that is NOT under a reserved TLD --
+# .test/.invalid/.example/.localhost can never be delegated (RFC 6761), and
+# section 1a flags them, because a name under one is not evidence of DNS.
+docker network create fr35net
+
+mkdir -p /tmp/fr35-dns
+cat > /tmp/fr35-dns/Corefile <<'EOF'
+fr35.corp {
+    file /etc/coredns/db.fr35.corp
+    log
+}
+. {
+    forward . 8.8.8.8
+}
+EOF
+cat > /tmp/fr35-dns/db.fr35.corp <<'EOF'
+$ORIGIN fr35.corp.
+@       3600 IN SOA ns.fr35.corp. admin.fr35.corp. 1 7200 3600 1209600 3600
+@       3600 IN NS  ns.fr35.corp.
+ns      3600 IN A   127.0.0.1
+vss-gateway 60 IN A <deployment address>
+EOF
+
+docker run -d --name fr35-dns --network fr35net --ip <resolver address> \
+  -v /tmp/fr35-dns:/etc/coredns:ro \
+  coredns/coredns:latest -conf /etc/coredns/Corefile
+```
+
+Then run the harness container on that network with `--dns` and **no
+`--add-host`**, so the canonical name has no local record to fall back to:
+
+```bash
+docker run --rm --network fr35net --dns <resolver address> \
+  -v "$PWD":/repo:ro -v ~/.cache/uv:/root/.cache/uv -v /tmp/fr35-out:/out \
+  -e UV_PROJECT_ENVIRONMENT=/tmp/venv -e SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
+  ghcr.io/astral-sh/uv:python3.13-bookworm \
+  bash -c 'apt-get update -qq && apt-get install -y -qq dnsutils && \
+    VSS_GATEWAY_ORIGIN=http://vss-gateway.fr35.corp:7777 \
+    DEPLOY_HOST=<deployment address> \
+    SECOND_ORIGIN=http://<deployment address>:7777 \
+    VSS_CLI_PROJECT=/repo/services/agent \
+    AGENT_HOST_NOTE="container on <your machine>, CoreDNS zone fr35.corp; no --add-host" \
+    TRANSCRIPT=/out/fr35-dns.log \
+    bash /repo/deploy/docker/scripts/gateway-harness/gateway-offhost.sh'
+```
+
+`dnsutils` is what makes this worth doing: without `dig` (or `nslookup`)
+section 1a cannot tell a zone record from a hosts-file entry and says so
+rather than guessing, which downgrades the very claim the run exists to make.
+`VSS_PUBLIC_HOST` on the deployment must be the same canonical name, or
+section 1c is refused by the `known_host` ACL.
+
+Note what 1a's DNS branch does and does not assert. It reports that a name
+server returned an A record — `dig` queries the resolver directly, so that is
+a real zone answer and not `nsswitch` reading a file. It does **not** assert
+that no `/etc/hosts` entry also exists, because the A record is what the
+acceptance line asks for either way. If you want the run to show the name
+resolving *only* through DNS, omit `--add-host` as above and say so in
+`AGENT_HOST_NOTE`.
+
 ### What it may not do, and why that is the point
 
 `gateway-brev.sh` is allowed `docker inspect` and `docker compose config`
