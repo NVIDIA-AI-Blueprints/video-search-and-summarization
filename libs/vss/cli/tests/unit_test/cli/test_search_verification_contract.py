@@ -161,14 +161,15 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     )
     evals_by_id = {case["id"]: case for case in evals}
 
-    assert 'version: "3.4.0"' in ask_video
+    assert 'version: "3.3.0"' in ask_video
     assert "user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL" in ask_video
-    assert "Search OpenClaw Markdown memory using the harness-native memory search" in normalized
+    assert "Search agent Markdown memory using the harness-native memory search" in normalized
     assert "Markdown search is not a `vss` command" in normalized
     assert "Never send raw Markdown documents to the VSS judge" in normalized
     assert "If introspection is enabled, call `vss memory introspect`" in normalized
     assert "If introspection is disabled or unconfigured" in normalized
-    assert "Do not call `vss memory introspect`, enable it automatically" in normalized
+    assert "do not enable it or rewrite static configuration automatically" in normalized
+    assert "Users and the agent may still configure and enable introspection" in normalized
     assert "Do not run `vss memory query` immediately before introspection" in normalized
     assert "Do not run `vss vlm run` after a completed or partial result" in normalized
     assert "Never pass `--record-id` alone" in normalized
@@ -191,6 +192,7 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
         "no-memory-grounded-window",
         "no-memory-without-scope",
         "invalid-child-identity",
+        "direct-file-vlm",
         "separate-shell-cli",
     } <= evals_by_id.keys()
     assert any(

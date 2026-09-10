@@ -83,6 +83,7 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
         "no-memory-grounded-window",
         "no-memory-without-scope",
         "invalid-child-identity",
+        "direct-file-vlm",
         "separate-shell-cli",
     } <= ids
 
@@ -93,6 +94,8 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
     assert "introspection=null" in contract
     assert "--record-id without both --job-id and --record-type" in contract
     assert "complete project-local uv run invocation" in contract
+    assert "vss vlm run --file" in contract
+    assert "vss configure check" in contract
 
 
 def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() -> None:

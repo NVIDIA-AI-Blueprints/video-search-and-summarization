@@ -120,6 +120,16 @@
     ]
   },
   {
+    "id": "direct-file-vlm",
+    "question": "Confirm the configured VSS deployment, then freshly inspect warehouse_safety_0001.mp4: is the worker wearing PPE?",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Use one project-local vss vlm run --file after configuration is confirmed.",
+    "expected_behavior": [
+      "Confirms VSS configuration before the live inspection.",
+      "Uses vss vlm run --file and does not search Markdown, introspect, or call backends directly."
+    ]
+  },
+  {
     "id": "separate-shell-cli",
     "question": "Show the command for querying structured VSS memory in a fresh OpenClaw shell.",
     "expected_skill": "vss-ask-video",
