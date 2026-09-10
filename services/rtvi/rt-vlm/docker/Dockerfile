@@ -346,11 +346,6 @@ COPY src/scripts/install_codecs_nonroot.sh /opt/nvidia/rtvi/
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_arch_patch.py
 
-# Transformers 5 makes Parakeet's base configuration a dataclass. vLLM's
-# positional required subclass fields must be keyword-only to remain valid.
-RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
-    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_parakeet_transformers5_patch.py
-
 # Qwen3-Omni's nightly processor incorrectly assumes every video item has
 # use_audio_in_video, including video-only requests.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
@@ -364,10 +359,12 @@ RUN set -eu; \
     cp -a /tmp/evs-public-overlay/. "$vllm_root"/; \
     rm -rf /tmp/evs-public-overlay
 
-# Apply the remaining public compatibility patches after the overlay. The
-# protected serving module imports VideoClipAddRequest from the protocol.
+# Apply compatibility patches after the overlay so overlay-owned files cannot
+# replace their patched versions. The protected serving module imports
+# VideoClipAddRequest from the protocol.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
-    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_evs_protocol_patch.py \
+    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_parakeet_transformers5_patch.py \
+    && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_evs_protocol_patch.py \
     && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
 # Patch FlashInfer CUDA runtime discovery for the non-eager compile path.
@@ -399,7 +396,7 @@ RUN set -eu; \
 # compatibility types are not a coherent set. The SBSA build environment does
 # not mount the Tegra driver, which vLLM imports during this check.
 RUN if [ "$TARGETARCH" != "arm64" ] || [ "$ARM_PLATFORM" != "sbsa" ]; then \
-        python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions'; \
+        python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions; from vllm.model_executor.models.nano_nemotron_vl import NemotronH_Nano_VL_V2'; \
     fi
 
 # Remove unneeded media libraries shipped under /usr and DALI-bundled FFmpeg
