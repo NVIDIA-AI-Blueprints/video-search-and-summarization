@@ -54,10 +54,12 @@ Hand off to `/vss-manage-video-io-storage` to:
    # so a failed command with empty stdout reads as an empty answer.
    CLIP=$("${VSS[@]}" vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>]) || {
      echo "vss vios clip failed for <sensor-name>" >&2; exit 1; }
-   VIDEO_URL=$(printf '%s' "${CLIP}" | jq -r .media_url)
+   VIDEO_URL=$(printf '%s' "${CLIP}" | jq -er '.media_url | select(type=="string" and length>0)') \
+     || { echo "vss vios clip returned no media_url for <sensor-name>" >&2; printf '%s\n' "${CLIP}" >&2; exit 1; }
+   printf 'VIDEO_URL=%q\n' "${VIDEO_URL}"   # shell-quoted assignment to paste at the top of the Step 3 block (fresh shell)
    ```
 
-The block sets `VIDEO_URL` (used by the VLM in Step 3). Also set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
+The block prints a shell-quoted `VIDEO_URL=…` assignment (signed clip URLs carry `&` and `?`, so paste that line as printed, never the bare URL). Each fenced block is a fresh shell: at the top of the Step 3 block paste that line, `CLIP_SECONDS=<endTime-startTime>` when known, and the `VLM_ENDPOINT` / `VLM_MODEL` (and `VLM_BACKEND`) values Step 2 resolved — the Step 3 guards refuse to run without a video source and a VLM endpoint + model. Set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
 
 Remote VLM reachability guard (required):
 - If the selected `VLM_ENDPOINT` is remote/non-local, do not assume it can fetch `VIDEO_URL` when `VIDEO_URL` points to localhost/private VST addresses (for example `127.0.0.1`, `localhost`, `HOST_IP`, `172.16-31.x`, `192.168.x`, `10.x`, or in-cluster/internal DNS).
@@ -81,11 +83,11 @@ Local file requirement (strict):
 
 Bind:
 - `VIDEO_FILE` = user-provided local path (if using file path input)
-- `VIDEO_BASE64` = base64 bytes (if using base64 input; no data-uri prefix)
+- `VIDEO_B64_FILE` = a file holding the base64 bytes (if using base64 input; no data-uri prefix). Never paste base64 into a shell block: write the user's payload to a file with the Write tool and pass the path.
 - `VIDEO_MIME` = `video/mp4` unless user provided another valid mime type
-- `VIDEO_DATA_URL` = `"data:${VIDEO_MIME};base64,${VIDEO_BASE64}"` (used by Step 3 when sending inline bytes)
+- `VIDEO_DATA_URL` = `data:${VIDEO_MIME};base64,<payload>` — built inside the Step 3 block from `VIDEO_FILE` or `VIDEO_B64_FILE` (see the A2 note after that block)
 
-If `VIDEO_FILE` is provided, read/encode it at runtime to produce `VIDEO_BASE64`; do not paste raw base64 into chat output.
+If `VIDEO_FILE` is provided, the Step 3 block encodes it at runtime; never paste raw base64 into chat output or into a shell block.
 
 For this path, set report `Clip URL` row to `N/A (local/base64 input)` unless a public playback URL is also available.
 
@@ -201,15 +203,9 @@ case "$HITL_RESOLVED" in
   *)     echo "ERROR: HITL_RESOLVED must be exactly true or false, got '$HITL_RESOLVED'" >&2; exit 1 ;;
 esac
 
-# FINAL_PROMPT must come from the resolved HITL mode gate (SKILL.md § HITL prompt mode).
-# Resolution order:
-#   1) video_report_gen.hitl_enabled
-#   2) HITL_ENABLED (fallback only when runtime config is unavailable)
-#   3) default false when neither source is set
-# - resolved false: FINAL_PROMPT="$DEFAULT_PROMPT"
-# - resolved true : FINAL_PROMPT comes from the latest EDIT/NEW value after explicit APPROVE.
-FINAL_PROMPT="${FINAL_PROMPT:-$DEFAULT_PROMPT}"
-[ -n "$FINAL_PROMPT" ] || { echo "ERROR: FINAL_PROMPT is empty; refusing to call VLM with a blank prompt" >&2; exit 1; }
+# FINAL_PROMPT was set by the HITL_RESOLVED case above: false -> the default prompt file;
+# true -> the approved text from HITL_PROMPT_FILE (resolution order: video_report_gen.hitl_enabled,
+# then HITL_ENABLED, then default false — SKILL.md § HITL prompt mode). Both branches are non-empty (true: whitespace-stripped check; false: the [ -n ] guard above).
 PROMPT="$FINAL_PROMPT"
 
 # Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`).
@@ -271,9 +267,14 @@ if [ "${VLM_BACKEND}" = "nim_cosmos" ]; then
   esac
 fi
 
+# Fresh shell: Step 2's VLM discovery does not arrive on its own — set both at the top of this block.
+: "${VLM_ENDPOINT:?set VLM_ENDPOINT (Step 2) at the top of this block}" "${VLM_MODEL:?set VLM_MODEL (Step 2) at the top of this block}"
 # A1 sends the VST clip URL; A2 (Step 1) sends inline bytes — this one block serves both paths.
 VIDEO_SRC="${VIDEO_DATA_URL:-${VIDEO_URL:?set VIDEO_URL (A1) or VIDEO_DATA_URL (A2) at the top of this block}}"
-case "$VIDEO_SRC" in data:*,) echo "ERROR: VIDEO_DATA_URL carries no base64 payload (empty or unreadable VIDEO_FILE / VIDEO_BASE64)" >&2; exit 1 ;; esac
+case "$VIDEO_SRC" in
+  null|"") echo "ERROR: VIDEO_URL is null/empty — Step 1 clip resolution failed (no media_url)" >&2; exit 1 ;;
+  data:*,) echo "ERROR: VIDEO_DATA_URL carries no base64 payload (empty or unreadable VIDEO_FILE / VIDEO_B64_FILE)" >&2; exit 1 ;;
+esac
 
 curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
@@ -295,7 +296,7 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
 EOF
 ```
 
-For Mode A path A2 (inline bytes), run the same Step 3 block with `VIDEO_DATA_URL` (Step 1) set at its top instead of `VIDEO_URL`; the block sends whichever is set, so the HITL guard, prompt resolution, `CFG_JSON` and `MM_KWARGS` apply to A2 unchanged. Because the block is a fresh shell, build the data URL there too — for a local file: `[ -s "$VIDEO_FILE" ] || exit 1; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(base64 < "$VIDEO_FILE" | tr -d '\n')"` (the `tr` strips the line wrapping GNU `base64` adds, which would otherwise corrupt the data URL); for user-supplied base64, `VIDEO_DATA_URL="data:${VIDEO_MIME};base64,${VIDEO_BASE64}"`.
+For Mode A path A2 (inline bytes), run the same Step 3 block with `VIDEO_DATA_URL` (Step 1) set at its top instead of `VIDEO_URL`; the block sends whichever is set, so the HITL guard, prompt resolution, `CFG_JSON` and `MM_KWARGS` apply to A2 unchanged. Because the block is a fresh shell, build the data URL there too — for a local file: `[ -s "$VIDEO_FILE" ] || exit 1; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(base64 < "$VIDEO_FILE" | tr -d '\n')"` (the `tr` strips the line wrapping GNU `base64` adds, which would otherwise corrupt the data URL); for user-supplied base64 written to `VIDEO_B64_FILE`: `[ -s "$VIDEO_B64_FILE" ] || exit 1; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(tr -d '[:space:]' < "$VIDEO_B64_FILE")"`.
 
 > The kwargs block is backend-aware: on `nim_cosmos`, Reason2 variants (`nvidia/cosmos-reason2*`) use `mm_processor_kwargs.size{shortest_edge,longest_edge}` and other NIM Cosmos variants (`nvidia/cosmos*`) use `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; both also send `media_io_kwargs.video.num_frames`. On `rtvlm`, no Cosmos kwargs are sent.
 

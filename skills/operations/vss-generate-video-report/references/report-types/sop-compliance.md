@@ -37,13 +37,19 @@ SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
   -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
   | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
 [ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
-curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
-  | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
+# Same envelope selection as Step 2: the JSON-RPC response to OUR request (id 1) from SSE `data:` events or a
+# plain-JSON body (exactly one), and tell "the call failed" apart from "the tool is missing" before pointing at a rebuild.
+LIST=$(curl -sS --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}') || { echo "VA-MCP tools/list failed (transport error above)" >&2; exit 1; }
+ENVELOPE=$(printf '%s\n' "$LIST" | grep '^data: *{' | sed 's/^data: *//' | jq -c 'select(type=="object" and .id==1)' 2>/dev/null)
+[ -n "$ENVELOPE" ] || ENVELOPE=$(printf '%s' "$LIST" | jq -c 'select(type=="object" and .id==1)' 2>/dev/null)
+[ "$(printf '%s\n' "$ENVELOPE" | grep -c '^{')" = 1 ] && printf '%s' "$ENVELOPE" | jq -e '(.result.tools | type) == "array"' >/dev/null \
+  || { echo "VA-MCP tools/list did not return exactly one id-1 response holding a tool list (empty, non-JSON-RPC, error envelope, or duplicate responses) — VA-MCP problem, not a missing SOP patch:" >&2; printf '%s\n' "$LIST" >&2; exit 1; }
+printf '%s' "$ENVELOPE" | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
   || { echo "SOP tools absent — deployment lacks the SOP patch; hand off to /vss-build-vision-ai to compose the SOP profile" >&2; exit 1; }
 ```
 
-(No bash arrays — POSIX-`sh` safe; the session id is guarded, and the tool check exits non-zero when `get_sop_report` is missing.)
+(No bash arrays — POSIX-`sh` safe; the session id is guarded, a failed or malformed `tools/list` exits non-zero as a VA-MCP problem, and the tool check exits non-zero with its own message when `get_sop_report` is missing.)
 
 ### Step 2 — Fetch the aggregated SOP report from VA-MCP
 
@@ -71,10 +77,10 @@ CODE=$(curl -sS --max-time 30 -o "$BODY_FILE" -w '%{http_code}' -X POST "$MCP" -
   -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}') \
   || { echo "get_sop_report: curl failed (transport error above)" >&2; cat "$BODY_FILE" >&2; exit 1; }
 [ "$CODE" = "200" ] || { echo "get_sop_report tools/call failed: HTTP $CODE" >&2; cat "$BODY_FILE" >&2; exit 1; }
-# Pick the JSON-RPC response to OUR request (id 2) — not merely the last SSE event; accept a plain-JSON body too.
-ENVELOPE=$(grep '^data: *{' "$BODY_FILE" | sed 's/^data: *//' | jq -c 'select(type=="object" and .id==2)' 2>/dev/null | tail -n 1)
+# Pick the JSON-RPC response to OUR request (id 2) — exactly one, from SSE `data:` events or a plain-JSON body.
+ENVELOPE=$(grep '^data: *{' "$BODY_FILE" | sed 's/^data: *//' | jq -c 'select(type=="object" and .id==2)' 2>/dev/null)
 [ -n "$ENVELOPE" ] || ENVELOPE=$(jq -c 'select(type=="object" and .id==2)' "$BODY_FILE" 2>/dev/null)
-[ -n "$ENVELOPE" ] || { echo "get_sop_report: no JSON-RPC response with id 2 in the body (empty, non-SSE, or unparseable)" >&2; cat "$BODY_FILE" >&2; exit 1; }
+[ "$(printf '%s\n' "$ENVELOPE" | grep -c '^{')" = 1 ] || { echo "get_sop_report: expected exactly one JSON-RPC response with id 2 (body empty, non-JSON-RPC, unparseable, or duplicate responses)" >&2; cat "$BODY_FILE" >&2; exit 1; }
 printf '%s' "$ENVELOPE" | jq -e 'has("error") | not' >/dev/null || { echo "get_sop_report: JSON-RPC error" >&2; printf '%s\n' "$ENVELOPE" >&2; exit 1; }
 printf '%s' "$ENVELOPE" | jq -e '(.result | type) == "object" and .result.isError != true' >/dev/null || { echo "get_sop_report: missing result or tool returned isError" >&2; printf '%s\n' "$ENVELOPE" >&2; exit 1; }
 # The text may be the empty-range sentinel {"error": "No VisionLLM messages found for the given filters."} — Step 3 handles it.
@@ -90,4 +96,4 @@ Read-only boundary (mandatory): Mode C is strictly read-only. Never write, seed,
 
 Copy [`$SKILL_DIR/references/report-templates/sop-compliance-report.md`](../report-templates/sop-compliance-report.md), fill every placeholder from the Step 2 result (message count, compliance status, cycle counts, the missing / mis-ordered step tables, actions observed — set `{total_actions}` to `actions_observed.total_action_entries`, the field upstream `get_sop_report` itself maps to Total Actions Recorded; it is NOT `report_summary.total_messages_analyzed`: chunks with a null/empty VLM response record no action entry, so never substitute the message count for it, and treat a missing `total_action_entries` key as a schema mismatch to report, not a reason to fall back), and return the rendered markdown. For placeholders `get_sop_report` does not carry: generate `{report_id}` + `{report_date}`, set `{agent_version}` to `vss-generate-video-report (Mode C)`, and set `{video_analysis_details}` / `{snapshot_image}` to `N/A` (Mode C runs no report-time VLM and fetches no media). Fill `{notes}` with the data provenance and snapshot caveats (source/scope, the bounded `end_time` used, the doc count vs the 1000-doc `get_sop_report` cap, and that a live stream never reaches EOS so `final_*` counts stay 0 and every violation is per-chunk); fill `{recommendations}` with the compliance interpretation (recurring missing / mis-ordered steps and whether they reflect the source clip rather than an operator fault). Keep the source asset unchanged; never leave a placeholder, and never include template instructions in a filled cell.
 
-`get_sop_report` reports an empty range as the tool result `{"error": "No VisionLLM messages found for the given filters."}`: on that result, STOP and return exactly one plain-text line: `No SOP messages found for sensor <sensor_id> in range <start_time> to <end_time>.` Inspect the raw `tools/call` response before trusting `.result.content[0].text`: a failed call, an empty or non-SSE body, a JSON-RPC `error` envelope, `result.isError: true`, or any other error text is a failure — do NOT render that line; surface it per `SKILL.md` § Error Handling. In either case do not render the full template, invent data, or fall back to another mode.
+`get_sop_report` reports an empty range as the tool result `{"error": "No VisionLLM messages found for the given filters."}`: on that result, STOP and return exactly one plain-text line: `No SOP messages found for sensor <sensor_id> in range <start_time> to <end_time>.` Inspect the raw `tools/call` response before trusting `.result.content[0].text`: a failed call, an empty body or one with no JSON-RPC response for the request (neither SSE `data:` events nor plain JSON), a JSON-RPC `error` envelope, `result.isError: true`, or any other error text is a failure — do NOT render that line; surface it per `SKILL.md` § Error Handling. In either case do not render the full template, invent data, or fall back to another mode.

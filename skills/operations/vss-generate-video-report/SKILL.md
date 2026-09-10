@@ -46,7 +46,7 @@ Output contract for evaluators:
   `No incidents found for scope <scope> in range <start_time> to <end_time>.`
 - Mode B zero results: do not invent or seed incidents, and do not fall back to Mode A or call the VLM.
 - Mode C top title MUST be exactly `# SOP Compliance Report`, with the template's Basic Information / Compliance Summary / SOP Violations sections.
-- Mode C empty-range output MUST be exactly one plain-text line, no heading, table, or template: `No SOP messages found for sensor <sensor_id> in range <start_time> to <end_time>.` `get_sop_report` signals an empty range as the tool result `{"error": "No VisionLLM messages found for the given filters."}` — that result, and only that, renders this line (see `references/report-types/sop-compliance.md` Step 3). A failed `tools/call`, an empty or non-SSE / non-JSON body, a JSON-RPC `error` envelope, `result.isError: true`, or any other error text is a failure: surface it per *Error Handling* and never render this line for it.
+- Mode C empty-range output MUST be exactly one plain-text line, no heading, table, or template: `No SOP messages found for sensor <sensor_id> in range <start_time> to <end_time>.` `get_sop_report` signals an empty range as the tool result `{"error": "No VisionLLM messages found for the given filters."}` — that result, and only that, renders this line (see `references/report-types/sop-compliance.md` Step 3). A failed `tools/call`, an empty body or one with no JSON-RPC response for the request (neither SSE `data:` events nor plain JSON), a JSON-RPC `error` envelope, `result.isError: true`, or any other error text is a failure: surface it per *Error Handling* and never render this line for it.
 
 ---
 
@@ -113,7 +113,7 @@ host-side container discovery for VIOS, the VLM, or VA-MCP. Mode A uses
 | Mode / Path | User must provide | Services that must be reachable | Storage/location requirement | Not required |
 |---|---|---|---|---|
 | **Mode A / A1 (VIOS clip URL)** | sensor and/or clip time range | VIOS + VLM endpoint | Clip is fetched from VIOS timeline/URL APIs | VA-MCP analytics |
-| **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_BASE64`, plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
+| **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_B64_FILE` (base64 written to a file, never pasted into a shell block), plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
 | **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path |
 | **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `${VA_MCP_URL}` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
 
@@ -138,10 +138,11 @@ curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
 # Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
 # tools/list on ${VA_MCP_URL}/mcp must include video_analytics__get_sop_report. The runnable
 # probe is the initialize -> tools/list block in references/report-types/sop-compliance.md
-# Step 1: open that file now and run just that block as this gate (it exits non-zero when
-# the tool is missing); when you reach Instructions step 4, continue in that file without
-# repeating the probe. If absent, the deployment lacks the SOP patch —
-# hand off to /vss-build-vision-ai and do NOT proceed with Mode C.
+# Step 1: open that file now and run just that block as this gate; when you reach
+# Instructions step 4, continue in that file without repeating the probe. It exits non-zero
+# for two different reasons — read stderr: "VA-MCP problem" = the tools/list call itself failed
+# (report it per Error Handling, do NOT hand off); "SOP tools absent" = the deployment lacks the
+# SOP patch — hand off to /vss-build-vision-ai and do NOT proceed with Mode C.
 ```
 
 If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-ai` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
@@ -301,7 +302,7 @@ Mode letters are stable aliases (evals and other skills reference them); files a
 - If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
 - If a clip URL cannot be rewritten to the public host/port, omit it from the rendered report and call out that the browser-playable URL could not be produced.
 - For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.
-- For Mode C, the tool result `{"error": "No VisionLLM messages found for the given filters."}` means zero messages for the range/scope: render only the Mode C empty-range line from the *Output contract* (`references/report-types/sop-compliance.md` Step 3). Inspect the raw `tools/call` response before extracting `.result.content[0].text`: a non-2xx or empty / non-SSE body, a JSON-RPC `error` envelope, `result.isError: true`, or any other error text is a failure — do NOT render that line; report the failing call, the raw response, and the next recovery step.
+- For Mode C, the tool result `{"error": "No VisionLLM messages found for the given filters."}` means zero messages for the range/scope: render only the Mode C empty-range line from the *Output contract* (`references/report-types/sop-compliance.md` Step 3). Inspect the raw `tools/call` response before extracting `.result.content[0].text`: a non-200 status, an empty body or one with no JSON-RPC response for the request (neither SSE `data:` events nor plain JSON), a JSON-RPC `error` envelope, `result.isError: true`, or any other error text is a failure — do NOT render that line; report the failing call, the raw response, and the next recovery step.
 
 ---
 
