@@ -1,25 +1,27 @@
 ---
 name: vss-deploy-test-openshell
-description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, or two-GPU warehouse agents profile on OpenShell. For search, alerts, or other warehouse variants, use vss-deploy-profile. Not for standalone microservices — use the vss-deploy-* skill.
+description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, or two-GPU warehouse agents profile on OpenShell, including post-deploy vss-ask-video and vss-search-archive. For alerts or other warehouse variants, use vss-deploy-profile. Not for standalone microservices — use the vss-deploy-* skill.
 license: Apache-2.0
 metadata:
-  version: "3.2.1"
+  version: "3.2.2"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
-# VSS Deploy on OpenShell (base, lvs, and warehouse agents)
+# VSS Deploy on OpenShell (base, lvs, search, and warehouse agents)
 
-This skill is a subset of `vss-deploy-profile`. It deploys the **base** and
-**lvs** compose profiles, plus the two-GPU **warehouse agents** variant
-(`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM, local RT-CV and RTVI VLM).
+This skill is a subset of `vss-deploy-profile`. It deploys the **base**,
+**lvs**, and **search** compose profiles, plus the two-GPU **warehouse agents**
+variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM, local RT-CV and RTVI VLM).
+After `base` is up, visual Q&A uses `vss-ask-video`. After `search` is up,
+archive search uses `vss-search-archive`.
 
 Do not use this skill for:
 
-- Search, alerts, warehouse Kafka/Redis-only, 3D, MV3DT, auto-calibration, or
+- Alerts, warehouse Kafka/Redis-only, 3D, MV3DT, auto-calibration, or
   other full-catalog profiles — use `vss-deploy-profile`.
 - Standalone microservice deployment outside a compose profile — use the matching skill: `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, or `vss-deploy-video-embedding`.
-- Summarizing or querying a video once `lvs` is deployed — use `vss-summarize-video`.
+- Summarizing a video once `lvs` is deployed — use `vss-summarize-video`.
 - NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or this skill will run it as part of the credential gate.
 
 ## Available Scripts
@@ -37,8 +39,15 @@ Match the user's request to a profile, then load that profile's reference for si
 | User says | Profile | Reference |
 |---|---|---|
 | "deploy vss" / "deploy base" | `base` | [`references/base.md`](references/base.md) |
+| "ask about a clip" / `vss-ask-video` | `base`, then `vss-ask-video` | [`references/base.md`](references/base.md) then `skills/operations/vss-ask-video/SKILL.md` |
 | "deploy lvs" / "video summarization" | `lvs` | [`references/lvs-profile.md`](references/lvs-profile.md) |
+| "deploy search" / "search the archive" / `vss-search-archive` | `search`, then `vss-search-archive` | [`references/search.md`](references/search.md) then `skills/operations/vss-search-archive/SKILL.md` |
 | "deploy warehouse agents" / "`BP_PROFILE=bp_wh`, `MODE=2d`" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
+
+The search path is two-GPU: RT-CV plus the RT-VLM proxy on GPU 0, RT-Embed
+plus the LLM on GPU 1, with a remote VLM behind the local proxy. Follow
+`references/search.md`. After readiness, load `vss-search-archive` rather
+than inventing search HTTP calls.
 
 The warehouse agents path is intentionally narrow: it requires two GPUs,
 places RT-CV on GPU 0 and the always-local RTVI VLM on GPU 1, and uses a
@@ -230,7 +239,7 @@ reference has worked examples for that profile's common scenarios.
 **Warehouse exception:** use the three warehouse env files and compose file
 pair documented in [`references/warehouse.md`](references/warehouse.md) for
 both `config` and `up`. The two-file developer-profile command below applies
-only to base and lvs.
+only to base, lvs, and search.
 
 > **Reminder (see Step 1c):** apply all overrides (Step 2 dict + Brev `EXTERNAL_IP`) to `generated.env`; Compose gets `.env` first and `generated.env` second, and post-deploy verifiers read `generated.env` for the actually-deployed override values.
 
@@ -351,9 +360,10 @@ selected `*_BASE_URL/v1/models` via `scripts/probe_remote_models.sh` — are in
 
 ## Limitations
 
-- This skill deploys only `base`, `lvs`, and the two-GPU warehouse agents
-  variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM). Search, alerts, other
-  warehouse variants, and standalone microservices belong to other skills.
+- This skill deploys `base`, `lvs`, `search`, and the two-GPU warehouse agents
+  variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM). Alerts, other warehouse
+  variants, and standalone microservices belong to other skills. Post-deploy
+  Q&A and archive search chain to `vss-ask-video` and `vss-search-archive`.
 - Hardware sizing, model placement, and profile-specific readiness are owned by profile references; do not infer them from memory.
 - Privileged host remediation requires user approval when passwordless sudo is unavailable.
 

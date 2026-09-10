@@ -1,8 +1,9 @@
 ## Description: <br>
 Use when the user asks to select, configure, deploy, verify, debug, or tear
-down the VSS **base**, **lvs**, or two-GPU **warehouse agents** profile on
-OpenShell. For search, alerts, other warehouse variants, or the full catalog,
-use vss-deploy-profile. <br>
+down the VSS **base**, **lvs**, **search**, or two-GPU **warehouse agents**
+profile on OpenShell, including post-deploy **vss-ask-video** and
+**vss-search-archive**. For alerts, other warehouse variants, or the full
+catalog, use vss-deploy-profile. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -13,9 +14,10 @@ NVIDIA <br>
 Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers deploying NVIDIA Video Search and Summarization
-(VSS) **base** (quickstart), **lvs** (long-video summarization), or the
-two-GPU warehouse agents variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM)
-on OpenShell GPU hosts. <br>
+(VSS) **base** (quickstart, plus `vss-ask-video`), **lvs** (long-video
+summarization), **search** (plus `vss-search-archive`), or the two-GPU
+warehouse agents variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM) on
+OpenShell GPU hosts. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
@@ -68,7 +70,7 @@ Reported benchmark dimensions: <br>
 | Efficiency | N/A | N/A | N/A |
 
 ## Skill Version(s): <br>
-3.2.1 (source: frontmatter) <br>
+3.2.2 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>
