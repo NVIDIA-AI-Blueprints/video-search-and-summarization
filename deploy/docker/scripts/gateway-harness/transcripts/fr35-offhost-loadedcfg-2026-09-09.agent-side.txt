@@ -1,0 +1,218 @@
+================================================================
+ FR-35 off-host gateway proof
+================================================================
+started            2026-09-09T20:14:10Z
+agent host         8f1e8621c3bb
+agent host addrs   172.17.0.3 
+agent host note    container on agent-workstation (10.21.84.x), my workstation; deployment is on deployment-host (10.176.222.x) -- different physical machines, different subnets, no shared Docker network
+gateway origin     http://vss-gateway.fr35.corp:7777
+canonical host     vss-gateway.fr35.corp   port 7777
+resolve override   <none: using system resolution>
+second origin      http://10.176.222.x:7777
+deployment host    10.176.222.x
+harness            gateway-offhost.sh @ 7ee377496
+
+=== 0. This is a different machine, with no Docker network in common ===
+PASS  0a deployment host 10.176.222.x is not an address of this machine
+      this machine: 172.17.0.3 
+PASS  0b no Compose service name resolves here (no Docker embedded DNS)
+      checked: vss-haproxy-ingress vss-va-mcp vst-ingress elasticsearch alert-bridge
+PASS  0c raw Docker service endpoints are unreachable from here (gateway is load-bearing)
+
+=== 1. FR-35: the canonical gateway hostname resolves here to the external HAProxy endpoint ===
+PASS  1a canonical hostname 'vss-gateway.fr35.corp' resolves from this host by system resolution
+      getent hosts vss-gateway.fr35.corp -> 10.176.222.x
+      this is the FR-35 claim in its strongest form: external resolution, no override
+PASS  1b the resolved endpoint 10.176.222.x:7777 accepts TCP from this host
+PASS  1c HAProxy accepts 'vss-gateway.fr35.corp:7777' in the Host header (no unknown-host deny)
+      curl exit=0 http=200 (present:200)
+      body[0:200]: <!DOCTYPE html><html lang="en"><head><meta charSet="utf-8" data-next-head=""/><meta name="viewport" content="width=device-width" data-next-head=""/><title data-next-head="">VSS BLUEPRINT</title><meta 
+PASS  1d an undeclared origin is refused 404 with x-vss-gateway-deny: unknown-host
+      so 1c is the allowlist accepting a declared name, not the gateway answering anything
+
+=== 2. FR-36: required gateway routes from the remote agent host ===
+PASS  2 va-mcp /va-mcp/health -> backend answered
+      curl exit=0 http=200 (present:200)
+      body[0:200]: {"status":"healthy","error":null,"server_name":"NeMo Agent Toolkit MCP"} 
+PASS  2 vios (vst) /vst/api/v1/sensor/streams -> backend answered
+      curl exit=0 http=200 (present:200)
+      body[0:200]: [] 
+PASS  2 vios alias /vios/api/v1/sensor/streams -> backend answered
+      curl exit=0 http=200 (present:200)
+      body[0:200]: [] 
+PASS  2 elasticsearch /elasticsearch/ -> backend answered
+      curl exit=0 http=200 (present:200)
+      body[0:200]: {   "name" : "dc0f3c18bb9c",   "cluster_name" : "elasticsearch",   "cluster_uuid" : "hzI7JWjXTAqa8lYtyAdzeQ",   "version" : {     "number" : "9.4.4",     "build_flavor" : "default",     "build_type" :
+PASS  2 alert-bridge /alert-bridge/health -> backend answered
+      curl exit=0 http=200 (present:200)
+      body[0:200]: {"status":"ok","message":"Alert Bridge is running"} 
+PASS  2 alerts alias /alerts/health -> backend answered
+      curl exit=0 http=200 (present:200)
+      body[0:200]: {"status":"ok","message":"Alert Bridge is running"} 
+SKIP  2 rtvi-vlm /rtvi-vlm/v1/models
+      reason: gateway reports the backend absent via x-vss-gateway-unavailable: rtvi-vlm
+      curl exit=0 http=503 (absent:rtvi-vlm)
+      body[0:200]: VSS gateway: no server is up for rtvi-vlm, so it is not part of this deployment. This response was synthesised by the gateway; the service never saw the request. See deploy/docker/README.md. 
+PASS  2 phoenix /phoenix/ -> backend answered
+      curl exit=0 http=200 (present:200)
+      body[0:200]: <!DOCTYPE html> <html>   <head>     <title>Phoenix</title>     <link rel="icon" href="/phoenix/favicon.ico" type="image/x-icon"></link>     <meta charset="UTF-8" />     <meta name="title" content="Ari
+SKIP  2 lvs /lvs/v1/ready
+      reason: gateway reports the backend absent via x-vss-gateway-unavailable: lvs
+      curl exit=0 http=503 (absent:lvs)
+      body[0:200]: VSS gateway: no server is up for lvs, so it is not part of this deployment. This response was synthesised by the gateway; the service never saw the request. See deploy/docker/README.md. 
+SKIP  2 video-summ alias /video-summarization/v1/ready
+      reason: gateway reports the backend absent via x-vss-gateway-unavailable: video-summarization
+      curl exit=0 http=503 (absent:video-summarization)
+      body[0:200]: VSS gateway: no server is up for video-summarization, so it is not part of this deployment. This response was synthesised by the gateway; the service never saw the request. See deploy/docker/README.md
+FAIL  2 llm /llm/v1/models -> unexpected present:502
+      curl exit=0 http=502 (present:502)
+      body[0:200]: <html>
+ <head><title>502 Bad Gateway</title></head>
+ <body>
+ <center><h1>502 Bad Gateway</h1></center>
+ <hr><center>nginx/1.31.3</center>
+ </body>
+ </html>
+ 
+      attribution: the same 502 comes back on http://10.176.222.x:7777, so this is
+      the backend's own response relayed faithfully, not this origin's handling
+PASS  2z the absent-backend marker distinguished 3 absent service(s) from a real 503
+      absent: rtvi-vlm lvs video-summ alias
+      each answered 503 + x-vss-gateway-unavailable, which is how a remote
+      caller tells 'not deployed' from 'deployed and broken' without compose access
+
+=== 3. The MCP path carries real MCP protocol traffic, not just /health ===
+PASS  3a MCP initialize succeeded through the gateway
+      curl exit=0 http=200 session=d0785fc9... (truncated)
+      server: "serverInfo":{"name":"NeMo Agent Toolkit MCP","version":"1.28.1"}
+PASS  3b MCP tools/list returned 5 tool name(s) over the same session
+      http=200; tools: vst_sensor_list video_analytics__get_fov_histogram video_analytics__get_places video_analytics__get_incident video_analytics__get_incidents 
+PASS  3c MCP tool 'vst_sensor_list' executed through the gateway and returned a result
+      http=200; result[0:400]: "result":{"content":[{"type":"text","text":"sensor_names=[]"}],"structuredContent":{"result":"sensor_names=[]"},"isError":false}}
+ 
+ 
+      this is a tool answer produced off-host, not a health probe
+
+=== 4. Two-origin split: agent origin and public origin are both honoured ===
+PASS  4a the second origin 10.176.222.x:7777 is also an accepted gateway identity
+      curl exit=0 http=200 (present:200)
+      body[0:200]: {"status":"healthy","error":null,"server_name":"NeMo Agent Toolkit MCP"} 
+      both 'vss-gateway.fr35.corp:7777' and '10.176.222.x:7777' are in the known_host allowlist,
+      which is what lets an off-host agent and a browser use different names
+      probed /vst
+PASS  4b a redirect minted under X-Forwarded-Proto: https is not downgraded to http://
+      http=301 location: /vst/
+      a relative Location is equally safe: the browser re-anchors it on the page origin
+
+=== 5. A real tool answer through the gateway, via the vss CLI ===
+      VSS_CONFIG_HOME=/tmp/tmp.jCoqsTmuCw (empty: no previously configured origin can answer)
+--- vss configure --base-url http://vss-gateway.fr35.corp:7777 ---
+Using CPython 3.13.11 interpreter at: /usr/local/bin/python3
+Creating virtual environment at: /tmp/venv
+Installed 30 packages in 98ms
+probing http://vss-gateway.fr35.corp:7777
+  agent          /api             routed  HTTP 405   
+  vst            /vst             routed  HTTP 200   
+  elasticsearch  /elasticsearch   routed  HTTP 200   2 indices
+  rt_embed       /rtvi-embed      absent  HTTP 503   
+  rtvi_cv        /rtvi-cv         absent  HTTP 503   
+  rt_vlm         /rtvi-vlm        absent  HTTP 503   
+  lvs            /lvs             absent  HTTP 503   
+  va_mcp         /va-mcp          routed  HTTP 200   
+wrote /tmp/tmp.jCoqsTmuCw/config.json (4/8 services)
+note: elasticsearch is routed but holds no mdx-* search indices yet. They are created by ingestion, so re-run this command after ingesting video and before searching, or the recorded index list stays empty.
+      exit=0
+--- vss configure show ---
+{
+  "version": 1,
+  "base_url": "http://vss-gateway.fr35.corp:7777",
+  "written_at": "2026-09-09T20:14:21+00:00",
+  "services": {
+    "agent": {
+      "url": "http://vss-gateway.fr35.corp:7777/api"
+    },
+    "elasticsearch": {
+      "url": "http://vss-gateway.fr35.corp:7777/elasticsearch",
+      "indices": [
+        "ab-alert_configs",
+        "ab-confirmed-verdicts"
+      ]
+    },
+    "va_mcp": {
+      "url": "http://vss-gateway.fr35.corp:7777/va-mcp"
+    },
+    "vst": {
+      "url": "http://vss-gateway.fr35.corp:7777/vst"
+PASS  5a vss configure discovered the deployment through http://vss-gateway.fr35.corp:7777 and recorded it
+--- vss configure check ---
+configured 2026-09-09T20:14:21+00:00 against http://vss-gateway.fr35.corp:7777
+  agent          ok           http://vss-gateway.fr35.corp:7777/api  HTTP 405
+  elasticsearch  ok           http://vss-gateway.fr35.corp:7777/elasticsearch  HTTP 200
+  va_mcp         ok           http://vss-gateway.fr35.corp:7777/va-mcp  HTTP 200
+  vst            ok           http://vss-gateway.fr35.corp:7777/vst  HTTP 200
+
+commands:
+  configure      available    -
+  memory         available    -
+  search         unavailable  needs rt_embed, rtvi_cv
+  summarize      unavailable  needs lvs
+  vios           available    vst
+  vlm            unavailable  needs rt_vlm
+      exit=0
+--- vss vios list ---
+{"count": 0, "type": null, "sensors": []}
+      exit=0
+PASS  5b vss vios list returned an answer through the gateway (exit 0)
+      an empty result at exit 0 is an answer: the deployment has nothing matching
+--- vss search list ---
+Error: cannot reach unified memory: memory is not configured. Run `vss configure memory --enable --backend elasticsearch --index vss-memory` first.
+      exit=4
+SKIP  5b vss search list
+      reason: exit 4: a service this command group needs is not in this deployment
+--- vss summarize list ---
+Error: cannot reach unified memory: memory is not configured. Run `vss configure memory --enable --backend elasticsearch --index vss-memory` first.
+      exit=4
+SKIP  5b vss summarize list
+      reason: exit 4: a service this command group needs is not in this deployment
+PASS  5c at least one vss command produced a real answer from off-host through the gateway
+
+=== 6. FR-29: internal-only routes are refused off-host, remote-agent-accessible ones are not ===
+      /behavior-analytics/ -> http=403 x-vss-gateway-deny: internal-only
+      /perception-sdr/ -> http=403 x-vss-gateway-deny: internal-only
+PASS  6a all 2 internal-only route(s) are refused 403 + x-vss-gateway-deny: internal-only on the published origin
+      this is the FR-29 claim, and it is only testable from a caller that fails h_internal
+PASS  6b a remote-agent-accessible route (/va-mcp/health) is served to the same caller on the same origin
+      curl exit=0 http=200 (present:200)
+      body[0:200]: {"status":"healthy","error":null,"server_name":"NeMo Agent Toolkit MCP"} 
+      so 6a is a tier being enforced, not the gateway refusing this caller outright
+      Host: localhost -> http=503 deny=none unavailable=behavior-analytics
+PASS  6c an internal Host from a private-range caller is admitted past the internal-only gate, as documented
+      this caller holds an address in gw_internal_src's ranges, so both FR-29
+      predicates are met and no 403 is expected -- and none was returned
+      haproxy.cfg.template records this verbatim as the RESIDUAL: narrowing it
+      needs FR-29's source allowlist or FR-32's route auth. It is a known gap,
+      not a regression, and it is reachable from off-host on a corporate 10/8.
+
+=== Summary ===
+agent host        8f1e8621c3bb [172.17.0.3 ]
+deployment host   10.176.222.x
+gateway origin    http://vss-gateway.fr35.corp:7777
+routes present    va-mcp vios (vst) vios alias elasticsearch alert-bridge alerts alias phoenix
+routes absent     rtvi-vlm lvs video-summ alias (503 + x-vss-gateway-unavailable)
+finished          2026-09-09T20:14:27Z
+
+pass 26  fail 1  skip 5
+
+Failures:
+  - 2 llm /llm/v1/models -> unexpected present:502
+
+Skips (each is a check that could not run here, never a check that failed):
+  - 2 rtvi-vlm /rtvi-vlm/v1/models -- gateway reports the backend absent via x-vss-gateway-unavailable: rtvi-vlm
+  - 2 lvs /lvs/v1/ready -- gateway reports the backend absent via x-vss-gateway-unavailable: lvs
+  - 2 video-summ alias /video-summarization/v1/ready -- gateway reports the backend absent via x-vss-gateway-unavailable: video-summarization
+  - 5b vss search list -- exit 4: a service this command group needs is not in this deployment
+  - 5b vss summarize list -- exit 4: a service this command group needs is not in this deployment
+
+RESULT: 1 assertion(s) failed. Read them against the deployment that
+        produced them -- an absent optional backend is a SKIP above, not a FAIL,
+        so a FAIL here is a gateway or backend problem rather than a profile gap.

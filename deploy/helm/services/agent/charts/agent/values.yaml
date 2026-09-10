@@ -31,9 +31,15 @@ service:
   type: ClusterIP
   nodePort: ""
 
-# Server-side ingress timeout for this backend. Empty leaves the controller
-# default; profiles whose agent runs long operations (search, LVS) raise it.
-ingressTimeoutServer: ""
+# Server-side ingress timeout for this backend. The chart default rather than a
+# per-profile override because /api/v1/videos/<sensor>/complete is served by
+# every profile that installs this chart, and it blocks on RT-Embed generation
+# for the agent's own 600s client timeout plus the VST calls around it; the
+# ingest contract bounds that request at 900s. Matches `timeout server 900s` on
+# the Docker edge's bk_vss_agent -- without it the same call succeeds on Compose
+# and is cut off on Kubernetes by the controller's own 50s default. Profiles
+# whose agent runs longer operations (search, LVS) raise it further.
+ingressTimeoutServer: "900s"
 profile: base
 # Alerts profile only: mount ConfigMap key(s) under /etc/vss-agent/report-templates. Must match keys baked into
 # vss-agent-config (e.g. dev-profile-alerts `configs/vss-agent/incident_report_template.md`). If disabled, omit the
@@ -93,6 +99,9 @@ evalLlmJudgeBaseUrl: ""
 reportsBaseUrl: ""
 vssAgentExternalUrl: ""
 externalIp: ""
+# Peers whose X-Forwarded-Proto the agent honours. Empty keeps the RFC1918
+# default in the env list below; set the cluster's pod CIDR to narrow it.
+forwardedAllowIps: ""
 vstInternalIp: ""
 vssAgentVersion: "3.3.0-65576357eb80"
 lvsBackendService: ""
@@ -144,6 +153,17 @@ env:
   value: '0.0.0.0'
 - name: VSS_AGENT_PORT
   value: '8000'
+# Which peers the agent believes about the scheme the client used. uvicorn
+# installs ProxyHeadersMiddleware but trusts only 127.0.0.1, so the
+# X-Forwarded-Proto the ingress sets is discarded and Starlette's /static
+# trailing-slash redirect goes out as http:// -- mixed content behind a TLS
+# terminator. Pod IPs come from the cluster's pod CIDR, which is per-cluster,
+# so the default is the RFC1918 space that pod CIDRs are drawn from. Only IP
+# addresses and CIDRs work: uvicorn compares this against the peer's address,
+# so a Service name is accepted, silently never matches, and puts the redirect
+# back on http. Compose parity: deploy/docker/services/agent/compose.yml.
+- name: FORWARDED_ALLOW_IPS
+  value: '{{ .Values.forwardedAllowIps | default "127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" }}'
 - name: LLM_MODE
   value: '{{- $g := .Values.global | default dict }}{{- $llm := (coalesce (.Values.llmBaseUrl | default "") ((index $g "llmBaseUrl") | default "") "") | default "" | toString | trim }}{{- if $llm }}remote{{- else }}local{{- end }}'
 - name: VLM_MODE

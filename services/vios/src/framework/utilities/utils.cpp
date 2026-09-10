@@ -3630,6 +3630,20 @@ int64_t parseTimestampValue(const Json::Value& timestampValue)
 string getIngressBaseUrl()
 {
     const DeviceConfig& config = GET_CONFIG();
+
+    // The endpoint may carry its own scheme. A deployment whose ingress is
+    // reached over TLS that terminates outside this process cannot say so
+    // through use_https: that flag also decides whether this process serves
+    // TLS itself (webServer.cpp) and is echoed to WebRTC and RTSP clients as
+    // "useHttps", so raising it to correct a URL scheme breaks the listener and
+    // misinforms every other client. Accepting the scheme alongside the
+    // authority keeps the two in one value, where they cannot disagree.
+    if (config.ingress_endpoint.rfind("http://", 0) == 0 ||
+        config.ingress_endpoint.rfind("https://", 0) == 0)
+    {
+        return config.ingress_endpoint;
+    }
+
     const string protocol = config.use_https ? "https" : "http";
     const string baseUrl = protocol + "://" + config.ingress_endpoint;
     return baseUrl;

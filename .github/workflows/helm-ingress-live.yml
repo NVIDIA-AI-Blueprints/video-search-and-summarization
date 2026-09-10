@@ -1,0 +1,152 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Guards the Helm ingress *routes* in two passes over the same rendered charts.
+#
+#   1. verify-ingress-routes.py -- static. Renders the four developer profiles
+#      and asserts the Ingress objects against the canonical route table in
+#      services/common. Seconds, no cluster.
+#   2. test_helm_ingress_live.py -- live. Deploys those objects to a throwaway
+#      kind cluster running a real HAProxy ingress controller and asserts which
+#      backend each request reaches and what path it arrives with.
+#
+# The static pass runs first so a rendering regression fails in seconds instead
+# of after a cluster spin-up. The two do not overlap: the static pass reads only
+# the Ingress objects of templates/vss-ingress.yaml, so Service-scoped
+# `backend-config-snippet` annotations -- the VIOS `Location` rewrite, the
+# Elasticsearch guard, the RT-CV stream affinity -- are invisible to it and are
+# asserted by the live pass alone. Neither pass covers the Docker edge.
+#
+# Separate from the lint job in ci.yml on purpose: the live pass needs Docker,
+# pulls a controller chart from the network and takes minutes, where those
+# checks are text assertions that take milliseconds. Folding it in would slow
+# every push and make a network blip look like a routing regression.
+#
+# No product image, GPU or NGC credential is involved. The backends are
+# path-echoing stubs, because what is under test is routing.
+name: Helm ingress routes
+
+on:
+  pull_request:
+    paths:
+      - "deploy/helm/**"
+      - ".github/scripts/test_helm_ingress_live.py"
+      - ".github/workflows/helm-ingress-live.yml"
+      # The static pass asserts that every mount `vss configure` probes exists
+      # in the route table, so a new INGRESS_SERVICES entry has to run it too.
+      - "services/agent/packages/vss_cli/src/vss_cli/config.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-ingress-routes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  routes:
+    name: Static route table, then live controller
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      # The static pass parses `helm template` output, and the CI interpreter
+      # carries no PyYAML (see .github/osrb/README.md). Pinned to the version
+      # OSRB approved, and installed explicitly so a PyPI blip reads as a failed
+      # install rather than an opaque ModuleNotFoundError. The live pass is
+      # stdlib-only and shells out to curl, so it is indifferent to which
+      # interpreter is on PATH.
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install --quiet 'PyYAML==6.0.3'
+
+      - name: Install kind, kubectl and helm
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSLo "$HOME/bin/kind" https://kind.sigs.k8s.io/dl/v0.30.0/kind-linux-amd64
+          curl -sSLo "$HOME/bin/kubectl" \
+            "https://dl.k8s.io/release/$(curl -sSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x "$HOME/bin/kind" "$HOME/bin/kubectl"
+          curl -sSL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar -xz -C /tmp
+          install -m 0755 /tmp/linux-amd64/helm "$HOME/bin/helm"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Vendor chart dependencies
+        # The umbrella charts have file:// dependencies, so this resolves
+        # offline; `helm template` cannot render them until it has run.
+        #
+        # This MUST precede both passes, and it is why neither of them vendors
+        # lazily. A profile renders services/common from the charts/*.tgz
+        # vendored here, not from the source tree, so an edit to
+        # services/common that is not re-vendored is invisible to a render --
+        # the checks then pass on the vendored copy and report on charts nobody
+        # is about to deploy. The .tgz artifacts are gitignored, so a fresh
+        # checkout always has to build them; that is what keeps this honest.
+        #
+        # The three warehouse charts are for the live pass; the four developer
+        # profiles are for both.
+        run: |
+          set -euo pipefail
+          for chart in \
+            deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
+            deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app \
+            deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app \
+            deploy/helm/developer-profiles/dev-profile-base \
+            deploy/helm/developer-profiles/dev-profile-alerts \
+            deploy/helm/developer-profiles/dev-profile-lvs \
+            deploy/helm/developer-profiles/dev-profile-search
+          do
+            helm dependency update "$chart" >/dev/null
+          done
+
+      # Pass 1, before any cluster work: ~6s of `helm template` against the
+      # canonical route table. It was previously a developer-only script
+      # documented in deploy/helm/services/common/README.md, and nothing ran
+      # it -- so two commits changed the rendered `haproxy.org/path-rewrite`
+      # annotation to an anchored form, left the script asserting the
+      # unanchored keys, and the resulting whole-file failure was found by hand
+      # several commits later and misread as pre-existing.
+      #
+      # Asserts the Ingress objects only. The Service-scoped rewrites are the
+      # live pass's job -- see the header.
+      - name: Verify the rendered Ingress routes against the canonical table
+        run: python3 deploy/helm/scripts/verify-ingress-routes.py
+
+      - name: Raise inotify limits for kind
+        # kind's default-limit failure mode is a node that never reports
+        # "Reached target Multi-User System", which reads as an unrelated
+        # timeout. Documented in kind's known-issues page.
+        run: |
+          sudo sysctl -w fs.inotify.max_user_instances=512
+          sudo sysctl -w fs.inotify.max_user_watches=524288
+
+      # Pass 2: the real controller. Everything below here needs the cluster.
+      - name: Assert live routing
+        id: live
+        run: python3 .github/scripts/test_helm_ingress_live.py
+
+      - name: Controller config and route maps on failure
+        # Scoped to the live pass. A static-pass failure never got as far as a
+        # cluster, and dumping kubectl connection errors underneath it would
+        # point at the controller for something `helm template` already decided.
+        if: failure() && steps.live.outcome == 'failure'
+        run: |
+          pod=$(kubectl -n haproxy-controller get pods -o jsonpath='{.items[0].metadata.name}' || true)
+          [ -n "$pod" ] || exit 0
+          echo "--- rendered Ingress objects ---"
+          kubectl -n vss-ingress-test get ingress -o yaml || true
+          echo "--- path maps (which mount a request selects) ---"
+          kubectl -n haproxy-controller exec "$pod" -- \
+            sh -c 'for f in /etc/haproxy/maps/path-*.map; do echo "== $f =="; cut -f1 "$f"; done' || true
+          echo "--- generated replace-path rules ---"
+          kubectl -n haproxy-controller exec "$pod" -- \
+            grep -n replace-path /etc/haproxy/haproxy.cfg || true

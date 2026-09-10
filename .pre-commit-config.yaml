@@ -67,6 +67,16 @@ repos:
     pass_filenames: true
     stages: [pre-commit]
 
+  # Agent HTTP services must use the HAProxy origin/path contract rather than
+  # Compose-only service names.
+  - id: agent-http-endpoints
+    name: Agent HTTP endpoints use gateway paths
+    entry: python3 .github/scripts/check_agent_http_endpoints.py
+    language: system
+    files: ^deploy/docker/(services/agent/|developer-profiles/[^/]+/(?:[^/]*\.env|vss-agent/)|industry-profiles/[^/]+/(?:[^/]*\.env|vss-agent/))
+    pass_filenames: false
+    stages: [pre-commit]
+
   # Mirrors CI Job 7 — SPDX copyright headers on source files
   - id: copyright-headers
     name: SPDX copyright headers

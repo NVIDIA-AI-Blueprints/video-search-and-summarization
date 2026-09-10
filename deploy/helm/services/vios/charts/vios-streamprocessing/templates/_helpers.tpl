@@ -83,23 +83,35 @@
 {{- if $pfx }}{{ printf "%s-%s" $root.Release.Name $short }}{{- else -}}{{ $short }}{{- end }}
 {{- end }}
 {{/*
-  VST_INGRESS_ENDPOINT: host[:port]/vst (no scheme; app prepends http://). Incident/video URLs must be reachable from remote VLM when global.vlmBaseUrl is set — use global.externalHost like vss-alert-bridge vst_config.
+  VST_INGRESS_ENDPOINT: scheme://host[:port]/vst. VIOS stamps this into every
+  imageUrl/videoUrl, so it has to be the origin the recipient can reach --
+  global.externalHost when set, the in-cluster ingress otherwise. Incident/video
+  URLs must also reach a remote VLM when global.vlmBaseUrl is set.
+
+  The scheme travels with the authority, from global.externalScheme, the same
+  way vios-sensor's vstIngressEndpointUrl and every other browser-facing URL in
+  this chart build theirs. getIngressBaseUrl() returns a scheme-carrying value
+  verbatim and only falls back to security.use_https without one -- and
+  use_https cannot express "TLS terminates upstream", since it also switches
+  VIOS's own listener and is echoed to WebRTC/RTSP clients. Emitting host[:port]
+  with no scheme therefore minted http:// against an https externalHost.
 */}}
 {{- define "vss-vios-streamprocessing.vstIngressEndpoint" -}}
 {{- $g := .Values.global | default dict }}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
 {{- $eh := index $g "externalHost" | default "" | trim }}
 {{- $ep := index $g "externalPort" | default "" | toString | trim }}
+{{- $es := index $g "externalScheme" | default "http" }}
 {{- $explicit := trim (default "" .Values.vstIngressEndpoint) }}
 {{- if ne $explicit "" }}
 {{- $explicit }}
 {{- else }}
-{{- $internal := ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx }}
+{{- $internal := printf "http://%s" (ternary (printf "%s-vss-vios-ingress:30888/vst" .Release.Name) "vss-vios-ingress:30888/vst" $pfx) }}
 {{- if ne $eh "" }}
 {{- if ne $ep "" }}
-{{- printf "%s:%s/vst" $eh $ep }}
+{{- printf "%s://%s:%s/vst" $es $eh $ep }}
 {{- else }}
-{{- printf "%s/vst" $eh }}
+{{- printf "%s://%s/vst" $es $eh }}
 {{- end }}
 {{- else }}
 {{- $internal }}

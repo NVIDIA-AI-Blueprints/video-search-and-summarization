@@ -28,6 +28,7 @@ metadata:
 - [`references/env-overrides.md`](references/env-overrides.md), [`references/data-directory.md`](references/data-directory.md), [`references/readiness.md`](references/readiness.md), [`references/troubleshooting.md`](references/troubleshooting.md), and [`references/brev.md`](references/brev.md) — deployment checks, mandatory data-directory preparation, and environment-specific runtime guidance.
 - [`references/profiles/`](references/profiles/) — current developer profile capabilities, exact service sets, owner mappings, knobs, readiness checks, and sources.
 - [`references/services/`](references/services/) — capability-owner contracts for service keys, required peers, configurable environment knobs, and sources.
+- [`references/services/sop.md`](references/services/sop.md) — read when the request involves SOP step detection or compliance monitoring (the `ds-sop` capability); it owns the delta-composition rules and patch specifics and routes on to [`sop/integrate-ds-sop.md`](references/services/sop/integrate-ds-sop.md), [`sop/deploy-ds-sop.md`](references/services/sop/deploy-ds-sop.md), and [`sop/build-ds-sop.md`](references/services/sop/build-ds-sop.md).
 
 ## Routing
 

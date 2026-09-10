@@ -457,7 +457,7 @@ The chart creates a Kubernetes Ingress resource when `vssIngress.enabled=true`. 
 | `vssIngress.hosts.kibana`    | `""` (auto: `kibana.<IP>.nip.io`)     | Kibana dashboards host        |
 | `vssIngress.hosts.phoenix`   | `""` (auto: `phoenix.<IP>.nip.io`)    | Phoenix tracing UI host       |
 | `vssIngress.tls`             | `[]`                             | TLS configuration (secretName + hosts) |
-| `vssIngress.elasticsearchPort` | `9200`                         | Backend port for `/elasticsearch`. The edge guard is on the `elasticsearch` Service (`infra.elasticsearch.ingressGuard`): denies PUT/DELETE, cluster-admin and two-segment mutating paths, but POST still reaches Elasticsearch |
+| `vssIngress.elasticsearchPort` | `9200`                         | Backend port for `/elasticsearch`. The edge guard is on the `elasticsearch` Service (`infra.elasticsearch.ingressGuard`): an allowlist of read operations (`_search`, `_msearch`, `_count`, `_mget`, `_field_caps`, index metadata, `_cat/*`, `_cluster/health`) plus `PUT vss-memory*/_doc/<id>`; everything else is denied, `_bulk` and `_reindex` included |
 | `vssIngress.rtviVlmPort` / `rtviCvPort` / `rtviEmbedPort` | `8000` / `9000` / `8000` | Backend ports for `/rtvi-vlm`, `/rtvi-cv`, `/rtvi-embed` |
 | `vssIngress.timeoutClient` / `timeoutTunnel` | `3600s`          | Rendered for continuity, but **inert**: this controller reads both only from its own ConfigMap, never from an Ingress annotation. Server-side timeouts do work per backend and are set on the rtvi and agent Services |
 

@@ -126,7 +126,17 @@ services:
     container_name: elasticsearch
     restart: always
     ports:
-      - ${ELASTICSEARCH_HOST_PORT:-9200}:9200
+      # Loopback by default, for the same reason and in the same shape as
+      # Phoenix above. The cluster runs with `xpack.security.enabled: false`
+      # (elk/elasticsearch/configs/elasticsearch.yml), so a published 9200 is
+      # an unauthenticated read AND write surface for anything that can route
+      # to the host -- and it bypasses the allowlist the gateway enforces on
+      # /elasticsearch, which is otherwise the only control in front of it.
+      # In-network callers use the service name and are unaffected; an operator
+      # who wants 9200 off-host sets ELASTICSEARCH_HOST_BIND=0.0.0.0
+      # deliberately. Split into a bind and a port because every shipped
+      # profile sets ELASTICSEARCH_HOST_PORT to a bare `9200`.
+      - ${ELASTICSEARCH_HOST_BIND:-127.0.0.1}:${ELASTICSEARCH_HOST_PORT:-9200}:9200
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?local=false&wait_for_status=yellow&wait_for_events=normal&timeout=5s' | grep -q '\"timed_out\"[[:space:]]*:[[:space:]]*false'"]
       interval: 10s

@@ -81,7 +81,7 @@ all of the following before `docker compose up`:
 4. Write `LLM_MODE=remote` + `LLM_NAME_SLUG=none` + `LLM_BASE_URL=<url>` +
    `LLM_NAME=<model>` into
    `deploy/docker/developer-profiles/dev-profile-<profile>/generated.env`
-   (the skill's per-deploy working copy — see ``SKILL.md`` (see `../SKILL.md`)
+   (the skill's per-deploy working copy — see [`SKILL.md`](../SKILL.md)
    Step 1c). Do the same set for VLM if the user said remote VLM. For the
    **search** profile, use the "Search remote VLM (local RT-VLM proxy)" row
    above instead (`VLM_NAME_SLUG=none` plus the `RTVI_VLM_*` proxy values so the
