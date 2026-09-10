@@ -33,6 +33,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def realtime_confirmed_clauses() -> List[dict]:
+    """The two clauses that select foldable realtime evidence.
+
+    ``mdx-vlm-incidents-*`` is shared: the realtime path sets ``info.chunkIdx``
+    per chunk while verifier-path documents never do, so requiring it keeps
+    verifier documents out. Only confirmed positives are folded; rejected and
+    missing-verdict chunks stay reachable through the raw view.
+
+    Defined once because the retrieval path and the background folder must
+    select exactly the same evidence — if they drifted, a persisted event and
+    the computed one would summarise different inputs.
+    """
+    return [
+        {"exists": {"field": "info.chunkIdx"}},
+        {"term": {"info.verdict.keyword": "confirmed"}},
+    ]
+
 try:
     from metrics import PROMETHEUS_ENABLED
     if PROMETHEUS_ENABLED:
@@ -274,20 +292,8 @@ class IncidentService:
                 must_clauses.append(range_query)
 
             if consolidate:
-                # Realtime-only discriminator (read-time filter — never mutates
-                # ES). mdx-vlm-incidents-* is shared: the realtime RT-VLM path
-                # sets info.chunkIdx per chunk (rtvi rt-vlm stream handler),
-                # whereas verifier-path incidents (detection modules, enriched by
-                # vlm_enhanced_sink) never set it. Requiring info.chunkIdx keeps
-                # the consolidated view to genuine RT-VLM chunks so verifier docs
-                # are never folded into an event. Raw view (consolidate=false) is
-                # unfiltered.
-                must_clauses.append({"exists": {"field": "info.chunkIdx"}})
-                # Only CONFIRMED positives consolidate; rejected or
-                # missing-verdict chunks stay queryable via the raw view.
-                must_clauses.append(
-                    {"term": {"info.verdict.keyword": "confirmed"}}
-                )
+                # Raw view (consolidate=false) stays unfiltered.
+                must_clauses.extend(realtime_confirmed_clauses())
 
             query = {"bool": {"must": must_clauses}} if must_clauses else {"match_all": {}}
             index_pattern = f"{self._index_base}-*"
@@ -338,7 +344,7 @@ class IncidentService:
                         extra={**ctx, "scanned": len(raw_docs), "cap": _SCAN_CAP},
                     )
 
-                events = self._consolidate(raw_docs)
+                events = self.consolidate(raw_docs)
                 page = events[offset:offset + limit]
 
                 logger.info(
@@ -432,13 +438,35 @@ class IncidentService:
             cfg.get("max_event_duration_seconds", 300),
         )
 
-    def _consolidate(self, docs: List[dict]) -> List[dict]:
-        """Group consecutive same-camera, same-alert-type positives on the
-        current page into single events.
+    def consolidation_bounds(self) -> dict:
+        """The grouping bounds in force, for callers that must agree with them.
 
-        Operates only on the documents already returned for this page; the
-        underlying store is never modified and raw documents stay available
-        via a ``consolidate=false`` query.
+        The folder needs the same numbers to decide when an event can no longer
+        grow. Exposed rather than read off the instance so the two cannot drift
+        apart silently.
+        """
+        return {
+            "max_inter_alert_gap_seconds": self._consolidation.get(
+                "max_inter_alert_gap_seconds", 60
+            ),
+            "max_event_duration_seconds": self._consolidation.get(
+                "max_event_duration_seconds", 300
+            ),
+            "representative": self._consolidation.get("representative", "latest"),
+        }
+
+    def consolidate(self, docs: List[dict]) -> List[dict]:
+        """Group consecutive same-camera, same-alert-type positives into events.
+
+        Operates only on the documents handed to it; the underlying store is
+        never modified and raw documents stay available via a
+        ``consolidate=false`` query.
+
+        Public because it has two callers that must agree exactly: the
+        retrieval path, which folds on demand, and the background folder, which
+        folds into a durable store. Sharing one implementation is what lets the
+        persisted events be compared document-for-document against the computed
+        view; two implementations would make that check meaningless.
         """
         representative = self._consolidation.get("representative", "latest")
         combiner = self._combiner()
@@ -501,6 +529,10 @@ class IncidentService:
             DEDUP_DURATION.observe(time.monotonic() - t_fold)
         return events
 
+    # Retained so existing callers and tests keep working after the rename.
+    def _consolidate(self, docs: List[dict]) -> List[dict]:
+        return self.consolidate(docs)
+
     @staticmethod
     def _split_reason(current: List[dict], doc: dict, gap_seconds, max_duration) -> str:
         """The split cause (``outer`` / ``gap`` / ``malformed``) when ``doc`` does
@@ -554,6 +586,26 @@ class IncidentService:
         # Raw chunk ids underlying the event, as a real list (traceability).
         chunk_ids = [str(cid) for cid in (c.get("Id") or c.get("_id") for c in chunks) if cid]
         event["chunk_ids"] = chunk_ids
+
+        # Per-member metadata, carried on the event itself. Raw chunks are
+        # deleted by their own retention policy long before an event expires,
+        # after which chunk_ids resolve to nothing; this keeps membership, span
+        # and verdict answerable from the event alone. Deliberately no model
+        # text: that would extend the exposure window of the raw content.
+        chunk_meta = []
+        for chunk in sorted(chunks, key=lambda c: _parse_ts(c.get("timestamp")) or _EPOCH):
+            cid = chunk.get("Id") or chunk.get("_id")
+            if not cid:
+                continue
+            chunk_info = _info_of(chunk)
+            chunk_meta.append({
+                "id": str(cid),
+                "timestamp": chunk.get("timestamp"),
+                "end": chunk.get("end") if _parse_ts(chunk.get("end")) else chunk.get("timestamp"),
+                "verdict": chunk_info.get("verdict"),
+                "chunkIdx": _to_int(chunk_info.get("chunkIdx")),
+            })
+        event["chunk_meta"] = chunk_meta
 
         info = dict(event.get("info") or {})
         info["isConsolidated"] = "true"
