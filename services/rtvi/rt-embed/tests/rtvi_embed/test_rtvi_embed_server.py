@@ -578,21 +578,23 @@ class TestLiveStreamEndpoints:
         finally:
             rtvi_server._asset_manager.cleanup_asset(stream_id)
 
-    def test_add_live_stream_request_accepts_non_uuid_id_field(self, test_client):
-        """POST /v1/streams/add body accepts a non-UUID id field (passes model validation)."""
+    def test_add_live_stream_request_accepts_non_uuid_id_field(self, test_client, rtvi_server):
+        """POST /v1/streams/add accepts a non-UUID id, adds the stream, and returns it in results."""
         # Before the fix AddLiveStream.id was UUID-typed: a non-UUID id caused a 422
-        # uuid_parsing error before the server even attempted to connect to the RTSP URL.
-        # After the fix the id field is str-typed so the request reaches the server-side
-        # URL check, returning 400 (connection failure) rather than 422 (model validation).
+        # uuid_parsing error. After the fix the id is str-typed so the stream is added
+        # successfully and camera-01 appears in results with no errors.
         response = test_client.post(
             f"{API_PREFIX}/streams/add",
-            json={"streams": [{"liveStreamUrl": "rtsp://127.0.0.1:1/nonexistent", "id": "camera-01", "description": "camera-01"}]},
+            json={"streams": [{"liveStreamUrl": "rtsp://example.com/live", "id": "camera-01", "description": "camera-01"}]},
         )
-        # 422 would mean the id field itself was rejected; anything else (400/500) means
-        # it passed model validation and was rejected for a different reason.
-        assert response.status_code != 422, (
-            "Non-UUID id was rejected by model validation — AddLiveStream.id must be str, not UUID"
-        )
+        try:
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+            data = response.json()
+            assert data["errors"] == [], f"Unexpected errors: {data['errors']}"
+            ids = [r["id"] for r in data["results"]]
+            assert "camera-01" in ids, f"camera-01 not in results: {ids}"
+        finally:
+            rtvi_server._asset_manager.cleanup_asset("camera-01")
 
     def test_add_live_stream_missing_url(self, test_client):
         """Test adding live stream without URL"""
