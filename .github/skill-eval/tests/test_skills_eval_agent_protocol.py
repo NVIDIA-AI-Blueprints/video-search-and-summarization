@@ -221,7 +221,7 @@ raise SystemExit("agent session outlived its work deadline")
 # a change that wired only the PR branch, leaving the nightly full sweep to
 # rebuild the table by hand, could look complete.
 
-_STEM = "profile_stock_search_runtime_harbor"
+_STEM = "vdr_1_quickstart_vision_agent"
 _SLUG = f"vss-build-vision-ai__{_STEM}__RTXPRO6000BW"
 _LEG = {
     "eval_kind": "eval",
