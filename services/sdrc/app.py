@@ -3207,16 +3207,33 @@ def readdStreams(podName, pod_spec):
                 if podInfoItm['podName'] == podName:
                     for spec in json_spec:
                         data = redisMsging.getMessageValue(spec)
-                        resp = pc.add(
-                            podInfo=podInfoItm, configData=spec
+                        if data is None:
+                            app.logger.error(
+                                "readdStreams: cached spec on pod %s is missing the %s field; "
+                                "skipping this stream, continuing with remaining streams",
+                                podInfoItm.get("podName"),
+                                app.config["WDM_EVENT_OBJECT_FIELD"],
                             )
-                        app.logger.info(f"readd status {resp.status_code}")
+                            continue
+                        try:
+                            resp = pc.add(
+                                podInfo=podInfoItm, configData=spec
+                                )
+                        except Exception:
+                            app.logger.exception(
+                                "readd failed with an unexpected exception for stream %s on pod %s; "
+                                "continuing with remaining streams",
+                                data.get(app.config["WDM_WL_ID_FIELD"], "unknown"),
+                                podInfoItm.get("podName"),
+                            )
+                            resp = None
+                        app.logger.info(
+                            "readd status %s",
+                            resp.status_code if resp is not None else "no_response",
+                        )
                         if app.config["WDM_CHECK_STATUS"] and (
-                            (
-                                resp is not None
-                                and resp.status_code != 200
-                            )
-                            or resp is None
+                            resp is None
+                            or resp.status_code != 200
                             ):
                             redisMsging.message_err(
                                 wlobject=wl_object_name,
