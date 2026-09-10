@@ -20,7 +20,6 @@ and CV-compatible models (/v1/stream/*) for cross-service interoperability.
 
 from datetime import datetime
 from typing import Annotated, Any, Optional, Union
-from uuid import UUID
 
 from pydantic import ConfigDict, Field, field_validator
 
@@ -138,10 +137,12 @@ class AddLiveStream(CommonBaseModel):
         ge=-1000000,
         le=1000000,
     )
-    id: Optional[UUID] = Field(
+    id: Optional[str] = Field(
         default=None,
-        description="The UUID of the live stream. If not provided, a new ID will be generated.",
-        examples=["cc06804c-7f11-4865-bb00-6b2db072086f"],
+        description="Unique identifier for the live stream. If not provided, a new ID will be generated.",
+        max_length=256,
+        pattern=ANY_CHAR_PATTERN,
+        examples=["cc06804c-7f11-4865-bb00-6b2db072086f", "camera-01"],
     )
     sensor_name: str = Field(
         default="",
@@ -155,8 +156,10 @@ class AddLiveStream(CommonBaseModel):
 class AddLiveStreamResponse(CommonBaseModel):
     """Response schema for the add live stream API."""
 
-    id: UUID = Field(
-        description="The stream identifier, which can be referenced in the API endpoints."
+    id: str = Field(
+        description="The stream identifier, which can be referenced in the API endpoints.",
+        max_length=256,
+        pattern=ANY_CHAR_PATTERN,
     )
 
 

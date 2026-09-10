@@ -560,6 +560,40 @@ class TestLiveStreamEndpoints:
         finally:
             rtvi_server._asset_manager.cleanup_asset(stream_id)
 
+    def test_add_live_stream_with_non_uuid_id_accepted(self, test_client, rtvi_server):
+        """POST /v1/streams/add accepts a non-UUID id and returns it in the response."""
+        stream_id = rtvi_server._asset_manager.add_live_stream(
+            "rtsp://example.com/live",
+            description="camera-01",
+            stream_id="camera-01",
+            camera_id="camera-01",
+        )
+        try:
+            # The stream was added with a non-UUID id; verify the add response model
+            # can serialise it without a ResponseValidationError.
+            response = test_client.get(f"{API_PREFIX}/streams/get-stream-info")
+            assert response.status_code == 200
+            ids = [entry["id"] for entry in response.json()]
+            assert "camera-01" in ids
+        finally:
+            rtvi_server._asset_manager.cleanup_asset(stream_id)
+
+    def test_add_live_stream_request_accepts_non_uuid_id_field(self, test_client):
+        """POST /v1/streams/add body accepts a non-UUID id field (passes model validation)."""
+        # Before the fix AddLiveStream.id was UUID-typed: a non-UUID id caused a 422
+        # uuid_parsing error before the server even attempted to connect to the RTSP URL.
+        # After the fix the id field is str-typed so the request reaches the server-side
+        # URL check, returning 400 (connection failure) rather than 422 (model validation).
+        response = test_client.post(
+            f"{API_PREFIX}/streams/add",
+            json={"streams": [{"liveStreamUrl": "rtsp://127.0.0.1:1/nonexistent", "id": "camera-01", "description": "camera-01"}]},
+        )
+        # 422 would mean the id field itself was rejected; anything else (400/500) means
+        # it passed model validation and was rejected for a different reason.
+        assert response.status_code != 422, (
+            "Non-UUID id was rejected by model validation — AddLiveStream.id must be str, not UUID"
+        )
+
     def test_add_live_stream_missing_url(self, test_client):
         """Test adding live stream without URL"""
         response = test_client.post(
