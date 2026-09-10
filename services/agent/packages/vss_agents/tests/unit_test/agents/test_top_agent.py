@@ -536,6 +536,8 @@ class TestRequestOptionsContext:
         assert "<think>" not in result.plan
         assert "1. [x] Call `rtvi_vlm_alert`." in result.plan
         assert "2. [ ] Call `video_understanding_iso`." in result.plan
+        assert "`video_understanding_iso` already completed successfully" in result.plan
+        assert "do not repeat a call whose result is already present" in result.plan
 
     @pytest.mark.asyncio
     async def test_plan_update_keeps_plan_when_reasoning_field_leaves_content_empty(self, monkeypatch):
@@ -571,6 +573,40 @@ class TestRequestOptionsContext:
 
         assert "1. [x] Call `rtvi_vlm_alert`." in result.plan
         assert "2. [ ] Call `video_understanding_iso`." in result.plan
+        assert "`video_understanding_iso` already completed successfully" in result.plan
+        assert "do not repeat a call whose result is already present" in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_update_does_not_claim_completion_for_a_failed_tool(self, monkeypatch):
+        """The preserved-plan note must never mark a failed call as done."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="<think>reasoning only</think>"))
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report."),
+            plan="1. [ ] Call `video_understanding_iso`.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[{"name": "video_understanding_iso", "args": {}, "id": "call_1"}],
+                ),
+                ToolMessage(
+                    name="video_understanding_iso",
+                    tool_call_id="call_1",
+                    content="Tool call failed: invalid timestamp",
+                    status="error",
+                ),
+            ],
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        assert "already completed successfully" not in result.plan
+        assert "1. [ ] Call `video_understanding_iso`." in result.plan
 
     @pytest.mark.parametrize(
         "tool_response",
