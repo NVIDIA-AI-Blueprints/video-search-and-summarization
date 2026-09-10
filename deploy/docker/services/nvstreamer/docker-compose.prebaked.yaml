@@ -1,0 +1,103 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NVStreamer counterpart of streamprocessing/docker-compose.prebaked.yaml:
+# moves the same runtime-media apt install from container start to image
+# build. Opt in with `dev-profile.sh up --prebake-vios-packages`, which applies
+# both overlays together.
+#
+# Same load-bearing constraints as over there: paths resolve against the
+# project dir; `build:` rather than a prebuilt tag because the deploy pulls
+# with `--pull always`; the image name stays off the first-party registry.
+#
+# EVERY variant is listed, not just nvstreamer-base. Compose resolves
+# `extends` when it loads a file, before overlays merge, so overriding only
+# the base would leave each variant on the registry image. The entrypoint's
+# install branch needs no change: the baked marker makes the script skip.
+# Profiles are inherited from the merged base definitions, so nothing here
+# changes which services start.
+
+services:
+  nvstreamer-base:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+
+  nvstreamer:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+
+  nvstreamer-2d:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+
+  nvstreamer-3d:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+
+  nvstreamer-mv3dt:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+
+  nvstreamer-amc:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+
+  nvstreamer-alerts:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+
+  nvstreamer-lvs:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+
+  nvstreamer-2d-fusion:
+    image: vss-vios-nvstreamer-prebaked:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+    build:
+      context: ./services/vios
+      dockerfile: streamprocessing/Dockerfile.prebaked
+      args:
+        VSS_VIOS_PREBAKE_BASE: ${VSS_NVSTREAMER_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-nvstreamer}:${VSS_NVSTREAMER_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}

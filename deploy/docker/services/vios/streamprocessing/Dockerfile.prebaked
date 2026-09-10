@@ -19,8 +19,8 @@
 #
 # Locally built images only. Never pushed.
 
-ARG VSS_VIOS_STREAMPROCESSING_BASE
-FROM ${VSS_VIOS_STREAMPROCESSING_BASE}
+ARG VSS_VIOS_PREBAKE_BASE
+FROM ${VSS_VIOS_PREBAKE_BASE}
 
 USER 0:0
 COPY scripts/user_additional_install.sh /home/vst/vst_release/tools/user_additional_install.sh
