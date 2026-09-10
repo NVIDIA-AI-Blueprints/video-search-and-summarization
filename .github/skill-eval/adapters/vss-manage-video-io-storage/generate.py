@@ -183,7 +183,7 @@ def generate_task(platform: str, spec: dict, output_root: Path,
         # Substitute {{platform}} (and any future template vars) so the
         # instruction the agent sees contains the concrete platform name,
         # not a raw placeholder.  Mirrors _render_eval_spec() in the
-        # vss-deploy-profile adapter.
+        # vss-build-vision-ai adapter.
         raw_query = expect.get("query", "")
         rendered_query = raw_query.replace("{{platform}}", platform)
 
