@@ -1051,12 +1051,53 @@ def test_a_crowded_out_video_is_confirmed_before_being_called_missing(
         return _Probe()
 
     monkeypatch.setattr(flows, "CliQueryBackend", backend)
-    monkeypatch.setattr(flows, "list_sensor_names", lambda _u: {"clip_a", "clip_b"})
+    monkeypatch.setattr(flows, "list_sensor_streams", lambda _u: {"s1": "clip_a", "s2": "clip_b"})
     result = rf.probe_index_coverage(
         _Backend(), ["clip_a", "clip_b"], vst_url="http://vst", attempts=2, backoff_s=0
     )
     assert result["covered"] is True
     assert scoped_asked == ["clip_b"], "only the crowded-out source needs a scoped query"
+
+
+def test_vsts_own_casing_reaches_the_scoped_probe(monkeypatch: Any) -> None:
+    """`--video-source` is matched case-sensitively, so it must not be folded.
+
+    `list_sensor_names` lowercases for case-insensitive membership tests. Passing
+    that value on reaches `should_clauses_for_source`, which builds `term` and
+    `wildcard` clauses against ES `.keyword` fields -- case-sensitive -- so
+    "assault036_x264" never matches the stored "Assault036_x264" and a fully
+    indexed run aborts. physicalai-dev is named exactly that way.
+    """
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    scoped: list[str] = []
+
+    def backend(**kw: Any) -> Any:
+        decomps = kw.get("decompositions") or {}
+        source = next(iter(decomps.values()), {}).get("video_sources", [None])[0]
+
+        class _Probe:
+            def search(self, query: str) -> tuple[list[dict[str, Any]], float]:
+                if source is None:
+                    return [], 0.1  # broad query surfaces nothing
+                scoped.append(source)
+                return [{"video_name": source}], 0.1
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", backend)
+    monkeypatch.setattr(
+        flows, "list_sensor_streams", lambda _u: {"s1": "Assault036_x264"}
+    )
+    result = rf.probe_index_coverage(
+        _Backend(), ["Assault036_x264.mp4"], vst_url="http://vst", attempts=1, backoff_s=0
+    )
+    assert scoped == ["Assault036_x264"], "VST's spelling must survive, not a lowercased copy"
+    assert result["covered"] is True
 
 
 def test_a_genuinely_absent_source_survives_the_scoped_check(monkeypatch: Any) -> None:
@@ -1080,7 +1121,7 @@ def test_a_genuinely_absent_source_survives_the_scoped_check(monkeypatch: Any) -
         return _Probe()
 
     monkeypatch.setattr(flows, "CliQueryBackend", backend)
-    monkeypatch.setattr(flows, "list_sensor_names", lambda _u: {"clip_a", "clip_b"})
+    monkeypatch.setattr(flows, "list_sensor_streams", lambda _u: {"s1": "clip_a", "s2": "clip_b"})
     monkeypatch.setattr(rf.time, "sleep", lambda _s: None)
     result = rf.probe_index_coverage(
         _Backend(), ["clip_a", "clip_b"], vst_url="http://vst", attempts=2, backoff_s=0
