@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from benchmark.spec import spec_kind  # noqa: E402
 from plan_matrix import EXCLUDED_SPEC_NAMES, REPO_ROOT, specs_for_skill  # noqa: E402
 
 # Scope taxonomy, most-specific first. First match wins, so ordering is part of
@@ -99,11 +100,11 @@ def all_skills() -> list[str]:
     root = REPO_ROOT / "skills"
     if not root.is_dir():
         raise SpecError(f"no skills directory at {root}")
-    return sorted(
-        d.name
-        for d in root.iterdir()
-        if d.is_dir() and any((d / sub).is_dir() for sub in ("evals", "eval"))
-    )
+    return sorted({
+        directory.parent.name
+        for directory in root.rglob("*")
+        if directory.is_dir() and directory.name in {"evals", "eval"}
+    })
 
 
 def scan_spec(rel_path: str) -> dict:
@@ -118,6 +119,21 @@ def scan_spec(rel_path: str) -> dict:
         raise SpecError(f"{rel_path}: unreadable: {exc}") from exc
     if not isinstance(data, dict):
         raise SpecError(f"{rel_path}: top level must be an object")
+
+    try:
+        kind = spec_kind(data)
+    except ValueError as exc:
+        raise SpecError(f"{rel_path}: {exc}") from exc
+    if kind == "dataset":
+        return {
+            "spec": rel_path,
+            "kind": "dataset",
+            "cells": 0,
+            "checks": 0,
+            "scopes": dict.fromkeys(SCOPES, 0),
+            "cells_with_host": 0,
+            "cell_detail": [],
+        }
 
     expects = data.get("expects")
     if not isinstance(expects, list):
@@ -146,6 +162,7 @@ def scan_spec(rel_path: str) -> dict:
 
     return {
         "spec": rel_path,
+        "kind": "expects",
         "cells": len(cells),
         "checks": sum(c["check_count"] for c in cells),
         "scopes": per_scope,

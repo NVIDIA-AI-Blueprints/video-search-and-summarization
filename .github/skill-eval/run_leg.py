@@ -51,6 +51,7 @@ from leg_timing import HEARTBEAT_SEC, leg_log, phase
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
 HARBOR_REQUIREMENT = "harbor==0.20.0"
+OPENCLAW_VERSION = "2026.7.1-2"
 STEP_COUNT_RE = re.compile(r"^\s*step_count\s*=\s*(\d+)\s*$", re.MULTILINE)
 SAFE_PART_RE = re.compile(r"[^A-Za-z0-9_-]+")
 RTX4090_PREFIX = "vss-eval-geforce-rtx4090-"
@@ -248,6 +249,17 @@ def _api_base_v1(base_url: str) -> str:
     return f"{stripped}/v1"
 
 
+def _openclaw_anthropic_model(model: str) -> str:
+    """Convert the shared Anthropic model ID to OpenClaw's provider form."""
+    if not model:
+        raise ValueError("ANTHROPIC_MODEL not set")
+    if model.startswith("anthropic/"):
+        raise ValueError(
+            "ANTHROPIC_MODEL must not include the OpenClaw 'anthropic/' prefix"
+        )
+    return f"anthropic/{model}"
+
+
 def validate_harbor_timeout_sec(timeout_sec: int) -> int:
     """Require the outer backstop to leave every Harbor phase recovery room."""
     if timeout_sec <= MIN_HARBOR_BACKSTOP_SEC:
@@ -334,10 +346,18 @@ def build_harbor_command(
             "-a", "agents.nemoclaw:NemoClaw",
             "--model", model,
         ]
+    elif agent == "openclaw":
+        agent_flags = [
+            "-a", "agents.openclaw_unified_memory:UnifiedMemoryOpenClaw",
+            "--model", model,
+            "--ak", f"version={OPENCLAW_VERSION}",
+            "--ak", "session_to_trajectory=true",
+            "--ak", "thinking=off",
+        ]
     else:
         raise ValueError(
             f"unsupported agent {agent!r} "
-            "(expected claude-code | codex | nemoclaw)"
+            "(expected claude-code | codex | nemoclaw | openclaw)"
         )
     return [
         "uvx",
@@ -1439,16 +1459,16 @@ def run_invocations(
     # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
     # silently fall through to the claude-code path and be indistinguishable
     # from a real claude-code run in the logs.
-    if agent not in ("claude-code", "codex", "nemoclaw"):
+    if agent not in ("claude-code", "codex", "nemoclaw", "openclaw"):
         print(
             f"FATAL: unsupported EVAL_AGENT {agent!r} "
-            "(expected claude-code | codex | nemoclaw)",
+            "(expected claude-code | codex | nemoclaw | openclaw)",
             file=sys.stderr,
         )
         return 1
     model = os.environ.get("ANTHROPIC_MODEL", "")
     base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-    if not base_url:
+    if agent != "openclaw" and not base_url:
         print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
         return 1
     if agent == "codex":
@@ -1464,6 +1484,19 @@ def run_invocations(
             return 1
         env["OPENAI_API_KEY"] = anthropic_key
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
+    elif agent == "openclaw":
+        try:
+            model = _openclaw_anthropic_model(model)
+        except ValueError as exc:
+            print(f"FATAL: {exc}", file=sys.stderr)
+            return 1
+        for required_name in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"):
+            if not env.get(required_name):
+                print(
+                    f"FATAL: {required_name} not set for OpenClaw model {model}",
+                    file=sys.stderr,
+                )
+                return 1
     if not model:
         print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
         return 1
@@ -1473,6 +1506,8 @@ def run_invocations(
     # the env vars are the authoritative source when the agent exports them.
     leg_slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
     run_id = os.environ.get("GITHUB_RUN_ID") or results_root.name
+    env["HARBOR_EVAL_RUN_ID"] = run_id
+    env["HARBOR_EVAL_LEG"] = leg_slug
     # Record which box this leg locked BEFORE the first Harbor invocation, so a
     # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
     # leaves a trail pointing at the machine to inspect.

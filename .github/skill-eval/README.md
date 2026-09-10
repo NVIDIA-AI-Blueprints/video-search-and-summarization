@@ -40,10 +40,12 @@ Per-CI-run hygiene is the trial's own responsibility: each spec's first agent tu
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Claude Code authentication (NVIDIA inference API key works) |
+| `ANTHROPIC_API_KEY` | Shared Claude Code, OpenClaw, and setup-judge authentication (NVIDIA inference API key works) |
 | `ANTHROPIC_BASE_URL` | Custom API base (e.g. `https://inference-api.nvidia.com`) |
 | `ANTHROPIC_MODEL` | Model ID (e.g. `aws/anthropic/bedrock-claude-sonnet-4-6`) |
 | `NGC_CLI_API_KEY` | Pull VSS NIM containers from `nvcr.io` |
+| `NGC_API_KEY` | Authenticate `nvdataset` downloads for dataset-backed benchmarks |
+| `NVDATASET_TENANTID` / `NVDATASET_GROUPID` | Select the dataset-service tenant and group used by `nvdataset` |
 | `LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` | Remote-LLM endpoint used by `remote-*` deploy modes |
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |
 | `HF_TOKEN` | Required by RT-VLM / RT-Embed when loading Hugging Face checkpoints |

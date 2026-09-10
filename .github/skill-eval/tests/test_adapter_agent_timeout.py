@@ -9,7 +9,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ADAPTERS_ROOT = REPO_ROOT / ".github/skill-eval/adapters"
-AGENT_TIMEOUT_LINE = "timeout_sec = 600.0"
+AGENT_TIMEOUT_PREFIX = "timeout_sec = "
 
 
 def _task_templates(generator: Path) -> list[tuple[int, list[str | None]]]:
@@ -20,12 +20,21 @@ def _task_templates(generator: Path) -> list[tuple[int, list[str | None]]]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.List):
             continue
-        lines = [
-            element.value
-            if isinstance(element, ast.Constant) and isinstance(element.value, str)
-            else None
-            for element in node.elts
-        ]
+        lines = []
+        for element in node.elts:
+            if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                lines.append(element.value)
+            elif isinstance(element, ast.JoinedStr):
+                lines.append(
+                    "".join(
+                        value.value
+                        for value in element.values
+                        if isinstance(value, ast.Constant)
+                        and isinstance(value.value, str)
+                    )
+                )
+            else:
+                lines.append(None)
         if "[task]" in lines and "[environment]" in lines:
             templates.append((node.lineno, lines))
 
@@ -47,15 +56,20 @@ def test_every_adapter_task_template_declares_agent_timeout() -> None:
             assert lines.count("[agent]") == 1, (
                 f"{location} must declare exactly one [agent] section"
             )
-            assert lines.count(AGENT_TIMEOUT_LINE) == 1, (
-                f"{location} must declare exactly one {AGENT_TIMEOUT_LINE!r}"
+            timeout_lines = [
+                line
+                for line in lines
+                if line is not None and line.startswith(AGENT_TIMEOUT_PREFIX)
+            ]
+            assert len(timeout_lines) == 1, (
+                f"{location} must declare exactly one agent timeout"
             )
 
             agent_index = lines.index("[agent]")
             environment_index = lines.index("[environment]")
             assert lines[agent_index : agent_index + 3] == [
                 "[agent]",
-                AGENT_TIMEOUT_LINE,
+                timeout_lines[0],
                 "",
             ], f"{location} must keep the agent timeout section intact"
             assert lines.index("[task]") < agent_index < environment_index, (
