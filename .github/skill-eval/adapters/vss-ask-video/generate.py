@@ -277,13 +277,19 @@ def generate_task(
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
 
-        # skills/ — vss-ask-video + deploy + VIOS (the spec env mentions
-        # pre-uploading a sample warehouse video via VIOS before running checks).
+        # skills/ — vss-ask-video + VIOS (the spec env mentions pre-uploading a
+        # sample warehouse video via VIOS before running checks). The deploy
+        # skill is mounted only when the spec asks for it: these specs answer
+        # questions about an existing deployment or a local file, and one of
+        # them states outright that no VSS deployment is in scope. Mounting a
+        # ~480 KB deployment skill into that trial is noise at best, and at
+        # worst offers a deploy path to an agent told not to deploy.
         copies = [
-            (skill_dir,        "vss-ask-video"),
-            (deploy_skill_dir, "vss-build-vision-ai"),
-            (video_io_skill_dir,   "vss-manage-video-io-storage"),
+            (skill_dir,          "vss-ask-video"),
+            (video_io_skill_dir, "vss-manage-video-io-storage"),
         ]
+        if "vss-build-vision-ai" in (spec.get("skills") or []):
+            copies.insert(1, (deploy_skill_dir, "vss-build-vision-ai"))
         for src, name in copies:
             if src and src.exists():
                 dst = step_dir / "skills" / name
