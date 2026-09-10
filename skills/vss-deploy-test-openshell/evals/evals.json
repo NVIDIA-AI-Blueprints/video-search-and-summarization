@@ -53,10 +53,36 @@
     ]
   },
   {
+    "id": "search-openshell-compose-generate",
+    "question": "Deploy the VSS search profile on a two-GPU H200 OpenShell host and then search the archive.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell and routes to references/search.md. Deploys the developer search profile with two GPUs, a remote VLM behind the local vss-rtvi-vlm proxy, local RT-CV and RT-Embed, then bootstraps the project-local CLI and uses vss-search-archive (`vss configure` plus `vss search run`) rather than hand-rolled /api/v1/search.",
+    "expected_behavior": [
+      "Loads references/search.md instead of rejecting search as out of scope or routing only to vss-deploy-profile.",
+      "Places RT-CV and the RT-VLM proxy on GPU 0 and RT-Embed on GPU 1, with VLM_MODE=remote and a local vss-rtvi-vlm proxy.",
+      "Keeps vss-rtvi-vlm, vss-rtvi-cv, and vss-rtvi-embed in the running compose graph.",
+      "After readiness, uses the project-local `vss search run` CLI from vss-search-archive rather than POST /api/v1/search.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "ask-video-openshell-after-base",
+    "question": "Deploy VSS base on OpenShell and then ask a visual question about a clip.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, deploys the base profile via references/base.md, then chains to vss-ask-video: project-local `vss configure --base-url` and `vss vlm run`, never POST /generate or a hand-rolled /v1/chat/completions call.",
+    "expected_behavior": [
+      "Loads vss-deploy-test-openshell and deploys the base profile (references/base.md).",
+      "After the stack is healthy, follows vss-ask-video rather than calling the VSS agent /generate endpoint.",
+      "Bootstraps the project-local CLI with --extra cli and runs vss configure against the ingress origin.",
+      "Uses vss vlm run for a fresh visual question and does not hand-roll /v1/chat/completions.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
     "id": "deploy-profile-negative-standalone-microservice",
     "question": "Stand up just the RT-VLM microservice on this host, outside of any compose profile.",
     "expected_skill": null,
-    "ground_truth": "This is a standalone microservice deployment, explicitly out of scope for vss-deploy-test-openshell (which deploys the compose-based VSS base and lvs profiles plus the two-GPU warehouse agents variant). The agent routes to the matching vss-deploy-* standalone-microservice skill instead.",
+    "ground_truth": "This is a standalone microservice deployment, explicitly out of scope for vss-deploy-test-openshell (which deploys the compose-based VSS base, lvs, and search profiles plus the two-GPU warehouse agents variant). The agent routes to the matching vss-deploy-* standalone-microservice skill instead.",
     "expected_behavior": [
       "Does not load vss-deploy-test-openshell for a standalone microservice request.",
       "Does not run the profile-routing table or the generated.env dry-run flow.",
