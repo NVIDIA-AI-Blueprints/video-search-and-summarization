@@ -195,7 +195,7 @@ RESULT=$("${VSS[@]}" memory introspect \
   --sensor "${SENSOR_NAME}") || RC=$?
 
 if [ -n "${RESULT}" ]; then
-  printf '%s\n' "${RESULT}" | jq .
+  printf '%s\n' "${RESULT}"
 fi
 printf 'vss_exit_code=%s\n' "${RC}" >&2
 ```
@@ -265,7 +265,7 @@ RC=0
 RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --media-url "${VIDEO_URL}") || RC=$?
 [ "${RC}" -eq 0 ] || [ "${RC}" -eq 6 ] || exit "${RC}"
 if [ -n "${RESULT}" ]; then
-  printf '%s\n' "${RESULT}" | jq .
+  printf '%s\n' "${RESULT}"
 fi
 printf 'vss_exit_code=%s\n' "${RC}" >&2
 
@@ -291,7 +291,7 @@ RESULT=$("${VSS[@]}" vlm run \
   --end-time "${END_TIME}") || RC=$?
 [ "${RC}" -eq 0 ] || [ "${RC}" -eq 6 ] || exit "${RC}"
 if [ -n "${RESULT}" ]; then
-  printf '%s\n' "${RESULT}" | jq .
+  printf '%s\n' "${RESULT}"
 fi
 printf 'vss_exit_code=%s\n' "${RC}" >&2
 ```
