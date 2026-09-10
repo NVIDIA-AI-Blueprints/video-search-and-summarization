@@ -1512,6 +1512,40 @@ def test_sidecar_is_found_only_when_it_carries_an_answer_key(tmp_path: Path) -> 
     assert flows.sidecar_decompositions_for(tmp_path, "no-file") is None
 
 
+def test_the_llm_unreachable_fallback_lands_on_embed() -> None:
+    """Not fusion. The default --search-path IS the fallback, so it has to be
+    the path that needs nothing a decomposition would have supplied.
+
+    `attribute` and `fusion` both require a per-query attribute that only
+    decomposition produces. Falling back to either means handing them the whole
+    query as one attribute -- the failure this eval already measured at mAP
+    -25%, HIT@1 halved and +59% latency.
+    """
+    import run_eval_flows as rf
+
+    assert rf.parse_args(["--endpoint", "http://host:8000"]).search_path == "embed"
+
+
+def test_the_fallback_path_needs_nothing_a_decomposition_would_supply() -> None:
+    """The property that makes embed the right fallback, not just the default."""
+    argv = flows.CliQueryBackend(["vss"], search_path="embed").build_argv("a person running")
+    assert argv[:4] == ["vss", "search", "run", "embed"]
+    assert "--attribute" not in argv, "an attribute could only have come from a decomposition"
+    assert "--object-id" not in argv
+    assert argv[argv.index("--query") + 1] == "a person running"
+
+
+def test_the_two_paths_that_must_not_be_fallbacks_are_refused_without_attributes() -> None:
+    """And the refusal happens before any network call, not on query 1."""
+    import run_eval_flows as rf
+
+    for path in ("attribute", "fusion"):
+        args = rf.parse_args(["--endpoint", "http://host:8000", "--search-path", path])
+        with pytest.raises(SystemExit) as exc:
+            rf.build_query_backend(args)
+        assert "requires at least one --attribute" in str(exc.value)
+
+
 def test_flow_records_that_the_run_fell_back(tmp_path: Path) -> None:
     """A fallback run must not read as a deliberate fixed-path choice."""
     import run_eval_flows as rf
