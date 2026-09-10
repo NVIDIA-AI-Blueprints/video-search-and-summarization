@@ -63,7 +63,7 @@ def _async_ok(*_a, **_kw):
 class StepGateTest(unittest.IsolatedAsyncioTestCase):
     async def _run_start_for(self, task_dir_name: str):
         """Drive start() for a task dir named `task_dir_name`, with every
-        box-side coroutine stubbed, and return the set of gated helpers that
+        box-side coroutine stubbed, and return the ordered gated helpers that
         were awaited."""
         tmp = Path(tempfile.mkdtemp())
         env_dir = tmp / task_dir_name / "environment"
@@ -73,9 +73,15 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
         env.environment_dir = env_dir
         env._instance_name = "vss-eval-test"
 
-        reset = mock.AsyncMock()
-        purge = mock.AsyncMock()
-        sync = mock.AsyncMock()
+        calls: list[str] = []
+        reset = mock.AsyncMock(side_effect=lambda: calls.append("reset"))
+        purge = mock.AsyncMock(side_effect=lambda: calls.append("purge"))
+        sync = mock.AsyncMock(side_effect=lambda: calls.append("sync"))
+
+        async def run_brev_exec(*args, **_kwargs):
+            if "[stray-agent-reap]" in args[1]:
+                calls.append("reap")
+            return _async_ok()
 
         with mock.patch.object(env, "_resolve_instance_name", return_value="vss-eval-test"), \
              mock.patch.object(env, "_reset_docker_runtime", new=reset), \
@@ -88,41 +94,34 @@ class StepGateTest(unittest.IsolatedAsyncioTestCase):
              mock.patch.object(brev_env, "_check_live_resources",
                                new=mock.AsyncMock(return_value=None)), \
              mock.patch.object(brev_env, "_run_brev_exec",
-                               new=mock.AsyncMock(side_effect=_async_ok)):
+                               new=mock.AsyncMock(side_effect=run_brev_exec)):
             await env.start(force_build=False)
 
-        calls: set[str] = set()
-        if reset.await_count:
-            calls.add("reset")
-        if purge.await_count:
-            calls.add("purge")
-        if sync.await_count:
-            calls.add("sync")
         return calls
 
     async def test_step1_runs_all_prep(self):
         calls = await self._run_start_for("step-1")
-        self.assertEqual(calls, {"reset", "purge", "sync"},
-                         "step-1 must reset, purge, and sync (clean slate)")
+        self.assertEqual(calls, ["reap", "reset", "purge", "sync"] * 2,
+                         "step-1 must repeat all prep at handoff")
 
     async def test_single_step_runs_all_prep(self):
         # Single-step spec: task dir is the platform, not `step-N`.
         calls = await self._run_start_for("rtxpro6000bw")
-        self.assertEqual(calls, {"reset", "purge", "sync"},
-                         "single-step spec must reset, purge, and sync")
+        self.assertEqual(calls, ["reap", "reset", "purge", "sync"] * 2,
+                         "single-step spec must repeat all prep at handoff")
 
     async def test_step2_skips_all_prep(self):
         calls = await self._run_start_for("step-2")
         self.assertNotIn("sync", calls,
                          "step-2 must NOT re-sync: git clean would delete the "
                          "live deploy/docker/data-dir bind mounts")
-        self.assertEqual(calls, set(),
+        self.assertEqual(calls, ["reap"],
                          "step-2 must skip reset, purge, AND sync")
 
     async def test_step10_skips_all_prep(self):
         # Guard the string compare: `step-10` must not be mistaken for step-1.
         calls = await self._run_start_for("step-10")
-        self.assertEqual(calls, set(), "step-10 must skip all destructive prep")
+        self.assertEqual(calls, ["reap"], "step-10 must skip all destructive prep")
 
 if __name__ == "__main__":
     unittest.main()

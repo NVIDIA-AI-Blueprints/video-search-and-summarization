@@ -237,21 +237,7 @@ class BrevEnvironment(BaseEnvironment):
         # wipe (suspected in PR #1281's base/search legs losing SSH
         # mid-deploy on vss-eval-rtx-2g-2, minutes after a cancelled run's
         # legs died there). Must run before the /logs wipe and docker reset.
-        reap_result = await _run_brev_exec(
-            self._instance_name,
-            _stray_agent_reap_command(),
-            timeout=30,
-        )
-        if reap_result.return_code != 0:
-            tail = (reap_result.stderr or reap_result.stdout or "")[-500:]
-            raise RuntimeError(
-                f"stray-agent reap failed on {self._instance_name}: "
-                f"exit {reap_result.return_code}; tail:\n{tail}"
-            )
-        logger.info(
-            "Stray-agent reap on %s: %s",
-            self._instance_name, (reap_result.stdout or "").strip(),
-        )
+        await self._reap_stray_agents()
 
         # Pre-create harbor's expected directories with correct ownership
         # so that agent and verifier processes can write to them.
@@ -520,6 +506,15 @@ class BrevEnvironment(BaseEnvironment):
         await self._probe_bind_mount(f"{task_dir_name}:before-sync")
         if is_first_trial:
             await self._sync_repo_to_pr_head()
+            # A cancelled predecessor can have an on-box child that survives
+            # the initial reap long enough to recreate containers or files
+            # while the repository is syncing. Reap again, then repeat the
+            # verified prep at the final handoff boundary so the agent inherits
+            # neither runtime nor filesystem state from that race.
+            await self._reap_stray_agents()
+            await self._reset_docker_runtime()
+            await self._purge_host_data_dirs()
+            await self._sync_repo_to_pr_head()
         await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
         # The harness intentionally does NOT pre-deploy any VSS profile
@@ -532,6 +527,25 @@ class BrevEnvironment(BaseEnvironment):
 
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _reap_stray_agents(self) -> None:
+        """Fail closed after killing marked agent processes on the eval box."""
+        result = await _run_brev_exec(
+            self._instance_name,
+            _stray_agent_reap_command(),
+            timeout=30,
+        )
+        if result.return_code != 0:
+            tail = (result.stderr or result.stdout or "")[-500:]
+            raise RuntimeError(
+                f"stray-agent reap failed on {self._instance_name}: "
+                f"exit {result.return_code}; tail:\n{tail}"
+            )
+        logger.info(
+            "Stray-agent reap on %s: %s",
+            self._instance_name,
+            (result.stdout or "").strip(),
+        )
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
@@ -557,13 +571,13 @@ class BrevEnvironment(BaseEnvironment):
         NOTE: wiping all volumes also drops the model-weight caches
         (`rtvi-hf-cache`, `rtvi-ngc-model-cache`), so the next deploy pays the
         full cold model-weight download (~20 min vs ~55 s warm). The caller
-        gates this to a spec's first trial only (single-step, or step-1 of a
-        multi-step spec — later steps reuse step-1's deployment), so under the
-        canonical `-n 1 --max-retries 0` invocation (one trial per spec) the
-        cost is paid once per spec, not once per step. An `-n>1` rollout, a
-        harbor retry, or a repeated manual run on the same warm box each
-        re-wipes the caches and re-pays the cold start. The per-trial harbor
-        timeout already budgets for a cold deploy.
+        gates both pre-agent reset passes to a spec's first trial only
+        (single-step, or step-1 of a multi-step spec — later steps reuse
+        step-1's deployment). Both passes happen before deployment, so the
+        cold-download cost is still paid once per spec, not once per step. An
+        `-n>1` rollout, a harbor retry, or a repeated manual run on the same
+        warm box each re-wipes the caches and re-pays the cold start. The
+        per-trial harbor timeout already budgets for a cold deploy.
 
         Runs as the normal (docker-group) user — the same identity the
         trial's deploy uses; no sudo. `network prune` leaves the built-in
