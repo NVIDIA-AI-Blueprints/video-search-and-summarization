@@ -1,0 +1,44 @@
+{
+  "skills": [
+    "vss-deploy-test-openshell",
+    "vss-search-archive"
+  ],
+  "profile": "search",
+  "resources": {
+    "platforms": {
+      "H200": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Deploy the VSS **search** profile on this two-GPU {{platform}} host using the `/vss-deploy-test-openshell` skill end-to-end and autonomously. Override the default local RT-VLM and use the configured remote VLM endpoint instead; keep the local `vss-rtvi-vlm` service as the OpenAI-compatible proxy. After the stack is healthy, follow `/vss-search-archive`: set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, validate `services/agent/pyproject.toml`, run `cd \"${VSS_REPO_ROOT}\" && uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run --help`, and record the deployment with `vss configure --base-url http://localhost:7777`. Do not ingest sample media in this step.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-embed` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0",
+        "`curl -sf --max-time 15 http://localhost:8018/v1/models` returns exit 0 (search RT-VLM proxy responsive)",
+        "The deployed search configuration uses `VLM_MODEL_TYPE=rtvi`, `VLM_NAME_SLUG=none`, `VLM_MODE=remote`, `RTVI_VLM_MODEL_TO_USE=openai-compat`, and `RTVI_VLM_MODEL_PATH=none`",
+        "The project-local CLI is usable from the validated checkout: `cd \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\" && uv run --project \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent\" --no-dev --extra cli vss search run --help` returns exit 0. The `--extra cli` flag is required; a globally installed `vss` is not an acceptable substitute",
+        "The agent recorded the deployment against the ingress origin `http://localhost:7777` rather than a container port, and did not ingest sample media during this deployment step"
+      ]
+    }
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "H200"
+    ]
+  }
+}

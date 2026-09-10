@@ -223,7 +223,7 @@ class RealSpecCorpus(unittest.TestCase):
         finally:
             os.environ.pop("OPENSHELL_GPU_FLEET", None)
 
-        self.assertEqual(len(include), 57)
+        self.assertEqual(len(include), 59)
         self.assertEqual(
             len({leg["spec_path"] for leg in include}),
             len(include),
@@ -239,8 +239,8 @@ class RealSpecCorpus(unittest.TestCase):
             counts,
             {
                 "brev": 54,
-                "h200-1g": 2,
-                "h200-2g": 1,
+                "h200-1g": 3,
+                "h200-2g": 2,
             },
         )
         for leg in include:
@@ -513,6 +513,25 @@ class ListChangedFiles(unittest.TestCase):
             if orig_changed is not None:
                 os.environ["CHANGED_FILES"] = orig_changed
 
+    def test_manual_filter_matching_branch_name_explains_the_ui_mixup(self):
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        orig_base = os.environ.get("PR_BASE")
+        os.environ["MANUAL_SKILLS_FILTER"] = "openshell-rebase-testing"
+        os.environ["PR_BASE"] = "openshell-rebase-testing"
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                plan_matrix.list_changed_files()
+        finally:
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
+            if orig_base is None:
+                os.environ.pop("PR_BASE", None)
+            else:
+                os.environ["PR_BASE"] = orig_base
+        self.assertIn("Use workflow from", str(ctx.exception))
+        self.assertIn("vss-deploy-test-openshell", str(ctx.exception))
+
 
 class EmitSlugSafety(unittest.TestCase):
     def test_emit_rejects_unsafe_slug(self):
@@ -779,8 +798,8 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 57)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 57)
+        self.assertEqual(len(legs), 59)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 59)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
@@ -789,11 +808,11 @@ class OpenshellGpuFleet(unittest.TestCase):
             counts,
             {
                 "brev": 54,
-                "h200-1g": 2,
-                "h200-2g": 1,
+                "h200-1g": 3,
+                "h200-2g": 2,
             },
         )
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 3)
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 5)
 
     def test_codec_light_spec_explicitly_allows_a16(self):
         path = (
