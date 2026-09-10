@@ -70,6 +70,21 @@ class CliExitError(RuntimeError):
 
 
 
+class QueryUnanswerableError(RuntimeError):
+    """This query produced no answer, and no answer is not the same as no hits.
+
+    A timeout, unparseable stdout, or a payload with no ``data`` envelope all
+    mean the backend never told us what it found. Returning ``[]`` for those
+    makes them arithmetically identical to a search that ran perfectly and
+    matched nothing, so they land in the aggregate as zero recall and publish a
+    protocol fault as a retrieval regression.
+
+    Distinct from :class:`CliExitError`, which is fatal for the whole run: this
+    one is per query. The caller decides whether to abort or to exclude it, but
+    it must not score it.
+    """
+
+
 class CliQueryBackend:
     """``vss search run <path>`` as a subprocess.
 
@@ -238,10 +253,13 @@ class CliQueryBackend:
                 timeout=self.timeout,
                 cwd=self.cwd,
             )
-        except subprocess.TimeoutExpired:
-            latency = time.time() - start
-            print(f"  CLI timeout after {self.timeout}s: {shlex.join(argv)}")
-            return [], latency
+        except subprocess.TimeoutExpired as e:
+            # A 300s hang is an environment fault, not a query that found
+            # nothing. Scoring it 0 was the same silent-zero this module's exit
+            # handling exists to prevent, arriving by a different route.
+            raise QueryUnanswerableError(
+                f"vss timed out after {self.timeout}s: {shlex.join(argv)}"
+            ) from e
         latency = time.time() - start
 
         if is_fatal_exit(proc.returncode):
@@ -300,8 +318,7 @@ def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str], dict
                 continue
 
     if not documents:
-        print(f"  Could not parse CLI output as JSON: {text[:200]}")
-        return [], [], {}
+        raise QueryUnanswerableError(f"CLI output was not JSON: {text[:200]}")
 
     for payload in documents:
         if isinstance(payload, list):
@@ -320,7 +337,7 @@ def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str], dict
             timings = payload.get("timings") or {}
             return payload.get("data") or [], messages, timings
 
-    # Documents parsed, but none held a payload -- report it rather than
-    # returning an empty result that would score as zero recall.
-    print(f"  CLI output had no 'data' field: {text[:200]}")
-    return [], [], {}
+    # Documents parsed, but none held a payload. A search that matched nothing
+    # still emits `"data": []`; no `data` key at all means the CLI answered in a
+    # shape this parser does not know -- a version skew, not zero recall.
+    raise QueryUnanswerableError(f"CLI output had no 'data' field: {text[:200]}")
