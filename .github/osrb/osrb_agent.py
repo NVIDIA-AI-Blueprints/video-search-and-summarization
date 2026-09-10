@@ -399,7 +399,8 @@ def research_rows(triage: dict[str, list]) -> list[dict[str, str]]:
     """The agent's work list: new unknowns + licence changes, deduplicated.
 
     Order is deterministic (new_unknowns first, then license_changes, each in
-    delta order) so --max-unknowns cuts the same rows on every rerun.
+    delta order) so an explicit --max-unknowns cuts the same rows on every
+    rerun. There is no bound by default.
     """
     seen: set[tuple[str, str, str]] = set()
     out: list[dict[str, str]] = []
@@ -1522,9 +1523,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verdicts-out", help="where to write triage-verdicts.json")
     parser.add_argument("--skip-agent", action="store_true",
                         help="deterministic pre-pass + comment only, no model")
-    parser.add_argument("--max-unknowns", type=int, default=25,
-                        help="bound on rows handed to the agent; overflow rows "
-                             "go to the OSRB section as 'not triaged this run'")
+    parser.add_argument("--max-unknowns", type=int, default=0,
+                        help="bound on rows handed to the agent; 0 (the "
+                             "default) means no bound. A licence nobody "
+                             "researched is the one worth researching, so "
+                             "leaving rows untriaged is not a saving")
     parser.add_argument("--check-inventory-diff", nargs=2,
                         metavar=("OLD", "NEW"),
                         help="standalone guard mode: verify NEW differs from "
@@ -1559,13 +1562,24 @@ def main(argv: list[str] | None = None) -> int:
 
     triage = build_triage_input(delta_rows, compliance_rows, conditions)
     work = research_rows(triage)
-    overflow = work[args.max_unknowns:]
-    work = work[:args.max_unknowns]
+    # No bound by default. The work list is the unknowns THIS change
+    # introduces, so it is already bounded by the size of the change, and a
+    # default of 25 quietly left the rest unexamined -- on #2101, eleven rows
+    # the agent never looked at. The flag stays for a run that needs to be
+    # capped deliberately, and the overflow is still reported rather than
+    # dropped.
+    overflow: list[dict[str, str]] = []
+    if args.max_unknowns > 0:
+        overflow = work[args.max_unknowns:]
+        work = work[:args.max_unknowns]
 
     results: dict = {
         "validated": [], "rejected": [], "flagged": [], "unverifiable": [],
-        "not_triaged": [{"row": row, "reason": "over --max-unknowns bound"}
-                        for row in overflow],
+        "not_triaged": [
+            {"row": row,
+             "reason": f"over the --max-unknowns bound of {args.max_unknowns}"}
+            for row in overflow
+        ],
         "skip_agent": False, "agent_note": "",
     }
 

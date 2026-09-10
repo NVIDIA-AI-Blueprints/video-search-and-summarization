@@ -587,6 +587,81 @@ class CliTests(unittest.TestCase):
             writer.writeheader()
             writer.writerows(rows)
 
+    def test_no_unknown_is_left_untriaged_by_default(self) -> None:
+        """More unknowns than the old default of 25, none reported as skipped.
+
+        The bound used to be 25, so a change introducing more than that left
+        the rest unexamined and listed them as untriaged -- eleven such rows on
+        #2101. Driven through the CLI because the default lives on the parser
+        inside main(), which is the thing that actually has to change.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            delta = tmp_path / "license-diff.csv"
+            compliance = tmp_path / "osrb-compliance.csv"
+            comment = tmp_path / "triage-comment.md"
+            verdicts = tmp_path / "triage-verdicts.json"
+            self.write_csv(delta, [
+                delta_row(package=f"unknown-{i:02d}", new_license="UNKNOWN")
+                for i in range(40)
+            ])
+            self.write_csv(compliance, [{
+                "verdict": "", "package": "", "version": "", "module": "",
+                "source_file": "", "notes": "",
+            }])
+            rc = agent.main([
+                "--delta", str(delta),
+                "--compliance", str(compliance),
+                "--inventory", str(DIRECTORY / "inventory.csv"),
+                "--approved", str(DIRECTORY / "approved.csv"),
+                "--conditions", str(DIRECTORY / "conditions.csv"),
+                "--comment-out", str(comment),
+                "--verdicts-out", str(verdicts),
+                "--skip-agent",
+            ])
+            self.assertEqual(rc, 0)
+            doc = json.loads(verdicts.read_text(encoding="utf-8"))
+            bounded = [r for r in doc["not_triaged"]
+                       if "max-unknowns" in r.get("reason", "")]
+            self.assertEqual([], bounded,
+                             "no row may be withheld for a bound that is off")
+            self.assertNotIn("--max-unknowns bound",
+                             comment.read_text(encoding="utf-8"))
+
+    def test_an_explicit_bound_still_caps_and_still_reports(self) -> None:
+        """The flag still works when a run is capped on purpose."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            delta = tmp_path / "license-diff.csv"
+            compliance = tmp_path / "osrb-compliance.csv"
+            comment = tmp_path / "triage-comment.md"
+            verdicts = tmp_path / "triage-verdicts.json"
+            self.write_csv(delta, [
+                delta_row(package=f"unknown-{i:02d}", new_license="UNKNOWN")
+                for i in range(5)
+            ])
+            self.write_csv(compliance, [{
+                "verdict": "", "package": "", "version": "", "module": "",
+                "source_file": "", "notes": "",
+            }])
+            agent.main([
+                "--delta", str(delta),
+                "--compliance", str(compliance),
+                "--inventory", str(DIRECTORY / "inventory.csv"),
+                "--approved", str(DIRECTORY / "approved.csv"),
+                "--conditions", str(DIRECTORY / "conditions.csv"),
+                "--comment-out", str(comment),
+                "--verdicts-out", str(verdicts),
+                "--skip-agent", "--max-unknowns", "2",
+            ])
+            doc = json.loads(verdicts.read_text(encoding="utf-8"))
+            bounded = [r for r in doc["not_triaged"]
+                       if "max-unknowns bound of 2" in r.get("reason", "")]
+            self.assertEqual(3, len(bounded))
+            # capped rows are still named, as a gap rather than a finding
+            self.assertIn("were not researched this run",
+                          comment.read_text(encoding="utf-8"))
+
     def test_skip_agent_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
