@@ -642,6 +642,11 @@ Use `GET /v1/streams/get-stream-info` to list all currently registered live stre
 This is useful for verifying that a stream was added successfully or for retrieving
 the stream ID of an existing stream.
 
+The returned `id` is an opaque string of at most 256 characters. Streams added
+through `/v1/streams/add` normally use a generated UUID, while streams registered
+through the CV-/VIOS-compatible API retain their caller-supplied `camera_id`, such
+as `camera-entrance-east-01`.
+
 ```python
 import requests
 
@@ -967,8 +972,10 @@ Supported schemes: `http://`, `https://`, `s3://`, and `file://`.
 
 * `url` — media URL (any supported scheme).
 * `media_type` — `"video"` (default) or `"image"`.
-* `creation_time` — ISO 8601 timestamp used as the frame-time offset
-  baseline (useful for live-correlated archive playback).
+* `creation_time` — UTC ISO 8601 timestamp used as the frame-time offset
+  baseline (useful for live-correlated archive playback). Both whole-second
+  (`2025-01-15T10:00:00Z`) and millisecond
+  (`2025-01-15T10:00:00.123Z`) precision are accepted.
 * `url_headers` — per-request authorization headers (dict). HTTPS only;
   cross-domain redirects strip these headers.
 
@@ -1441,9 +1448,9 @@ standalone Helm override.
 | `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `true` |
 | `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Compose: Empty; Helm: `0.0` |
 | `VIA_EVS_SESSION` | Enable the optional EVS++ video-session path when set to `true` or `1` | Empty (disabled) |
-| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.2` when EVS++ session mode is enabled |
-| `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced | `20000` |
-| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `100` |
+| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ session mode is enabled |
+| `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced; `1` generates on every clip | `1` |
+| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `256` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
 | `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `0` |
 | `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
@@ -1651,7 +1658,11 @@ INSTALL_PROPRIETARY_CODECS=true # required for proprietary audio codecs
 Set `INSTALL_PROPRIETARY_CODECS=true` when audio inputs may contain
 proprietary audio codecs. Without it, the service falls back to the
 default codec set and may fail to decode the audio track of such
-inputs. The flag has no effect when audio is disabled.
+inputs. Enabling the flag downloads and extracts the codec overlay during
+service startup, verifies that the GStreamer `avdec_aac` decoder is available,
+and can therefore increase the first startup time. Enable it only when the
+deployment requires those codecs; request-level `enable_audio` remains the
+separate control for passing decoded audio to an Omni model.
 </Note>
 
 **Request side:** pass `enable_audio: true` on `POST /v1/generate_captions`
@@ -1694,7 +1705,7 @@ VLM_VIDEO_PRUNING_RATE=0.5
 # EVS++ session mode
 VIA_EVS_SESSION=true
 VLM_VIDEO_PRUNING_RATE=0.5
-VLLM_EVS_SIMILARITY_THRESHOLD=0.2
+VLLM_EVS_SIMILARITY_THRESHOLD=0.4
 ```
 
 Fixed-rate EVS is available on vLLM-compatible local models that use the
