@@ -98,6 +98,14 @@ _TOOL_FAILURE_PREFIX = "Tool call failed:"
 _TOOL_FAILURE_STATUSES = {"aborted", "error", "failed", "failure"}
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 _CONTEXT_BLOCK_PREFIX = "[Context:"
+_NULL_ARG_SENTINELS = {"none", "null"}
+# Original invocation plus this many identical retries. A further exact duplicate is skipped.
+MAX_IDENTICAL_TOOL_CALL_RETRIES = 2
+MAX_IDENTICAL_TOOL_CALL_ATTEMPTS = 1 + MAX_IDENTICAL_TOOL_CALL_RETRIES
+DUPLICATE_TOOL_CALL_SKIP_MESSAGE = (
+    "Identical tool call skipped: `{name}` was already executed {attempts} time(s) with the same "
+    "arguments. Do not call it again with these arguments. Use the previous result and continue."
+)
 _TRACE_TOOL_NAME = re.compile(r"^(?:Tool|Calling sub-agent):\s*([^\r\n]+)", re.IGNORECASE)
 
 
@@ -286,6 +294,32 @@ async def _augment_context_clip_offsets(message_text: str) -> str:
     return message_text[:prefix_idx] + augmented_block + message_text[wrapper_close + 1 :]
 
 
+def _llm_tool_args(args: dict[str, Any] | None) -> dict[str, Any]:
+    """Drop nulls and LLM-rendered null sentinels from a tool-call argument dict."""
+    if not args:
+        return {}
+    return {
+        key: value
+        for key, value in args.items()
+        if value is not None and not (isinstance(value, str) and value.strip().lower() in _NULL_ARG_SENTINELS)
+    }
+
+
+def identical_tool_call_key(name: str, args: dict[str, Any] | None) -> str:
+    """Stable fingerprint for an exact tool name + argument duplicate."""
+    return json.dumps({"name": name, "args": _llm_tool_args(args)}, sort_keys=True, default=str)
+
+
+def reserve_identical_tool_call(state: "TopAgentState", name: str, args: dict[str, Any] | None) -> bool:
+    """Count an identical call and return True when it is still within the retry cap."""
+    key = identical_tool_call_key(name, args)
+    attempts = state.identical_tool_call_attempts.get(key, 0)
+    if attempts >= MAX_IDENTICAL_TOOL_CALL_ATTEMPTS:
+        return False
+    state.identical_tool_call_attempts[key] = attempts + 1
+    return True
+
+
 class TopAgentState(BaseModel):
     """State for the Top Agent conversation tracking"""
 
@@ -311,6 +345,10 @@ class TopAgentState(BaseModel):
     previous_options: AgentRequestOptions | None = Field(
         default=None,
         description="Per-request options from the previous conversation turn.",
+    )
+    identical_tool_call_attempts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-request counts of exact tool name + argument invocations.",
     )
 
 
@@ -1108,6 +1146,14 @@ class TopAgent(AsyncMixin):
                 state.agent_scratchpad.append(error_message)
                 return state
 
+            # Reserve identical (name, args) slots sequentially so parallel calls cannot exceed the cap.
+            skipped_tool_call_ids: set[str] = set()
+            for tool, tool_call in zip(requested_tools, tool_calls, strict=False):
+                if tool is None:
+                    continue
+                if not reserve_identical_tool_call(state, tool_call["name"], tool_call.get("args")):
+                    skipped_tool_call_ids.add(tool_call["id"])
+
             # Run the tool/sub-agent
             async def run_tool(tool: BaseTool | None, tool_call: dict[str, Any]) -> ToolMessage:
                 try:
@@ -1123,6 +1169,31 @@ class TopAgent(AsyncMixin):
                     # Check if this is a sub-agent that we should call natively for streaming
                     tool_name = tool_call["name"]
                     is_subagent = tool_name in self.subagent_names
+                    if tool_call["id"] in skipped_tool_call_ids:
+                        skip_content = DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
+                            name=tool_name,
+                            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+                        )
+                        logger.warning(
+                            "Skipping duplicate %s after %d identical attempts",
+                            tool_name,
+                            MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+                        )
+                        writer(
+                            AgentMessageChunk(
+                                type=AgentMessageChunkType.TOOL_CALL,
+                                content=(
+                                    f"Tool: {tool_name}\n"
+                                    f"Args: {_llm_tool_args(tool_call.get('args'))}\n"
+                                    f"Result: {skip_content}"
+                                ),
+                            )
+                        )
+                        return ToolMessage(
+                            name=tool_name,
+                            tool_call_id=tool_call["id"],
+                            content=skip_content,
+                        )
 
                     # Caption HITL (lvs_config_media) is allowed only on an explicit user
                     # request. Summarize/report not_configured must stop in chat instead.
@@ -1146,12 +1217,7 @@ class TopAgent(AsyncMixin):
                     logger.info(f"Executing tool/sub-agent: {tool_name}")
 
                     # Build tool args once, filtering actual nulls and common LLM-rendered null sentinels.
-                    tool_args = {
-                        key: value
-                        for key, value in tool_call["args"].items()
-                        if value is not None
-                        and not (isinstance(value, str) and value.strip().lower() in {"none", "null"})
-                    }
+                    tool_args = _llm_tool_args(tool_call.get("args"))
                     if self._tool_accepts_param(tool_name, "request_options"):
                         tool_args["request_options"] = state.options.model_dump(mode="json")
                         logger.info("Passing request_options to %s", tool_name)
