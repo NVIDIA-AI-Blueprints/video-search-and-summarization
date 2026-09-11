@@ -56,7 +56,7 @@ on:
           - nvidia-build
           - custom
       model:
-        description: "Optional model for the evaluated agent; blank preserves the configured default."
+        description: "Evaluated-agent model ID, e.g. `nvidia/nemotron-3.5-lightning-30b-a3b`. Blank is allowed only with provider=default."
         required: false
         default: ""
         type: string

@@ -50,7 +50,7 @@ coordinator or judge:
 |---|---|
 | `runner` | Evaluated runtime: `claude-code` or `nemoclaw` |
 | `provider` | `default`, `nvidia-inference`, `nvidia-build` (NemoClaw only), or `custom` |
-| `model` | Optional evaluated-agent model; blank keeps the runner default |
+| `model` | Evaluated-agent model ID, for example `nvidia/nemotron-3.5-lightning-30b-a3b`; blank is allowed only with `provider=default` |
 | `endpoint_url` | Optional API base for either runtime; required with `custom` |
 
 The runner owns credentials. `default` preserves today's configured route.
