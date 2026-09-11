@@ -13,16 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Entity Management Default Values Configuration
+# Alert Request Defaults
 #
-# This file contains all default values for VSS and VLM parameters.
-# Operators can modify these values to tune system behavior without code changes.
+# Default values applied to fields an alert request entity omits: VLM sampling
+# parameters and optional top-level request fields.
+#
+# Scope: this feeds the request-entity validator, which the verification
+# pipeline does not call -- editing it does not change how a deployment
+# verifies. Live verification reads the vlm section of config.yaml and the
+# per-alert-type config served from Elasticsearch
+# (PUT /api/v1/verification/config/{alert_type}). See
+# src/schemas/config/README.md.
 
 # Schema version and metadata
 schema:
   version: "2.0.0"
-  last_updated: "2025-07-01"
-  description: "Default values for Alert Bridge VSS processing"
+  last_updated: "2026-09-07"
+  description: "Request defaults for Alert Bridge VLM verification"
 
 # VLM (Vision-Language Model) Parameter Defaults
 vlm_params:
@@ -36,14 +43,18 @@ vlm_params:
   top_k: 100
   seed: 10
 
-# Top-level request field defaults (optional fields only)
+# Top-level request field defaults (optional fields only).
+# Only confidence, meta_labels and cv_metadata_path are read; stream_name is
+# carried for compatibility with older files and has no default applied.
 request_defaults:
   confidence: 0.92
   meta_labels: []
   stream_name: null
   cv_metadata_path: null
 
-# Validation configuration
+# Validation configuration. Loaded but not consumed by the current runtime --
+# required-field enforcement lives in the Pydantic request models. Retained so
+# an existing file keeps loading.
 validation:
   continue_on_validation_error: true
   max_validation_errors_per_batch: 10
@@ -53,7 +64,8 @@ validation:
 # Constraint definitions (used for validation)
 constraints: {}
 
-# Field validation rules
+# Field validation rules. Inert for the same reason as the validation block
+# above; the authoritative list is in src/schemas/request_entity/models/.
 field_validation:
   required_fields:
     - id

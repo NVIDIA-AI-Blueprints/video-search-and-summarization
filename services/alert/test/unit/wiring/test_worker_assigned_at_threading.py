@@ -71,7 +71,6 @@ _stub_modules = [
     'handlers.async_vlm_mode_mixin',
     'utils.schema_util',
     'vlm.warmup',
-    'vss',
     'metrics', 'metrics.prometheus_metrics', 'metrics.recorder',
 ]
 # IMPORTANT: this test exercises the real ``AsyncDispatchMixin`` — do NOT
@@ -127,7 +126,6 @@ sys.modules['handlers.async_vlm_mode_mixin'].AsyncVLMModeMixin = _AsyncVLMModeMi
 sys.modules['utils.schema_util'].protobuf_anomalies_to_json_string_list = Mock()
 sys.modules['vlm.warmup'].warmup_vlm = Mock()
 sys.modules['vlm.warmup'].WARMUP_VIDEO = '/tmp/fake.mp4'
-sys.modules['vss'].VSSHandler = Mock
 
 sys.modules['metrics'].PROMETHEUS_ENABLED = False
 for name in (

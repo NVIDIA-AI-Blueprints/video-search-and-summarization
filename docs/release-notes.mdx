@@ -5,6 +5,48 @@ position: 1
 ---
 These Release Notes describe the key features, software enhancements and improvements, and known issues for the VSS release product package.
 
+## VSS 3.3.0
+
+### Agent Workflows
+
+<Tabs>
+<Tab title="Alerts">
+* **Redis is no longer a dependency of the Alerts microservice.** Deduplication
+  and filter state are in-process, and durable state — alert configs and
+  confirmed-verdict protection — lives in Elasticsearch. No Redis container is
+  required, and Redis Streams ingestion is gone: Kafka is the only supported
+  source and sink, and any other `event_bridge.sourceType` fails startup.
+* Dedup and filter tuning moved from `event_bridge.redis_source` to
+  `alert_agent.event_filters`.
+* Prompts and per-alert-type VLM parameters, previously held in RedisJSON, are
+  now seeded from `alert_type_config.json` into the Elasticsearch-backed
+  alert-config store and can be changed at runtime through
+  `PUT /api/v1/verification/config/{alert_type}` without a restart.
+* Verdict-store outages now surface on `alert_bridge_verdict_fail_open_total`.
+  The `redis_unavailable` verification-failure label is retained so existing
+  dashboards keep matching, but expect it to stay at zero.
+* Removed the legacy Alert-side VSS workflow. The Alerts microservice resolves
+  the verification clip through VIOS/VST and calls the VLM directly, so
+  `VSS_BASE_URL` and the `vss_agent` configuration section are ignored.
+  Directories named `vss-agent` in the deployment profiles refer to the
+  separate VSS Agent service and are unaffected.
+* VSS request parameters — chunking, RAG, captioning, and VLM input dimensions
+  — are no longer consumed. VLM sampling parameters belong in a top-level
+  `vlm_params` (or `vlmParams`); the nested `vss_params.vlm_params` form is
+  still accepted as compatibility behavior for older clients.
+* **Upgrading from 3.2.x.** One thing has to be done first, because it stops
+  the service from starting: a config that still sets `event_bridge.sourceType`
+  or `sinkType` to `redisStream`. Set both to `kafka` and repoint the producers
+  and consumers of those streams at Kafka topics. Everything else is cleanup
+  that can wait — the Redis container is unused, filter tuning keeps working
+  where it is until you move it under `alert_agent.event_filters`, and
+  `VSS_BASE_URL`, `vss_agent`, and `vss_params` are ignored rather than
+  rejected. The settings are listed one by one under Upgrading from 3.2.x in
+  the [Alerts Microservice](/vss/system-components/analytics-microservices/alerts-microservice)
+  guide.
+</Tab>
+</Tabs>
+
 ## VSS 3.2.1
 
 VSS 3.2.1 is a bug fix release for the VSS 3.2.0 release.

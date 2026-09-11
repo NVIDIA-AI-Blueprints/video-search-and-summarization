@@ -17,7 +17,7 @@
 # SIMPLIFIED ALERT AGENT CONFIGURATION
 # ============================================================================
 # This configuration supports the simplified alert processing flow:
-# JSON Input → Entity Building → VSS Video Analysis → Enhanced JSON Output
+# JSON Input → Entity Building → VIOS/VST Clip Resolution → VLM Verification → Enhanced JSON Output
 
 # Base directory for media used during alert review (optional)
 # If set, components can resolve relative media paths against this base dir
@@ -43,7 +43,7 @@ vst_config:
     showObjId: true
     objIdPosition: 0
 
-  # Storage service configuration (separate base URL and endpoint similar to vss_agent)
+  # Storage service configuration (its own base URL and endpoint, separate from the VST APIs above)
   storage:
     base_url: ${VST_INTERNAL_URL}
     # Endpoint to fetch media file path by VST id
@@ -351,15 +351,6 @@ webhook:
     group_id: "openclaw-webhook-group"            # Kafka consumer group (independent from main AB consumer)
     timeout_seconds: 5                            # HTTP POST timeout
     max_pending: 100                              # Max queued deliveries before dropping
-
-# WebSocket Configuration - Real-time alert broadcasting
-websocket:
-  enabled: false                                 # Enable/disable WebSocket service
-  consumer_group_prefix: "websocket_instance"  # Prefix for consumer groups
-  redis_consumer:
-    block_time: 1000                           # Redis XREAD block time in milliseconds
-    count: 1                                   # Number of messages to read per batch
-    reconnect_delay: 5                         # Seconds to wait before reconnecting on failure
 
 cors:
   enabled: true
