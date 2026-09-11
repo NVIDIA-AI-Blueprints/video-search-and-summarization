@@ -529,6 +529,96 @@ class TestLiveStreamEndpoints:
         data = response.json()
         assert isinstance(data, list)
 
+    def test_list_cv_live_stream_with_non_uuid_id(self, test_client, rtvi_server):
+        """CV camera identifiers remain valid when returned by the legacy list API."""
+        stream_id = rtvi_server._asset_manager.add_live_stream(
+            "rtsp://example.com/live",
+            description="camera-01",
+            stream_id="camera-01",
+            camera_id="camera-01",
+        )
+        try:
+            response = test_client.get(f"{API_PREFIX}/streams/get-stream-info")
+
+            assert response.status_code == 200
+            streams = {entry["id"]: entry for entry in response.json()}
+            assert stream_id in streams
+            assert streams[stream_id] == {
+                "id": stream_id,
+                "liveStreamUrl": "rtsp://example.com/live",
+                "description": "camera-01",
+                "chunk_duration": 0,
+                "chunk_overlap_duration": 0,
+                "place_name": "",
+                "place_type": "",
+                "place_lat": None,
+                "place_lon": None,
+                "place_alt": None,
+                "place_coordinate_x": None,
+                "place_coordinate_y": None,
+            }
+        finally:
+            rtvi_server._asset_manager.cleanup_asset(stream_id)
+
+    def test_add_live_stream_with_non_uuid_id_accepted(self, test_client, rtvi_server):
+        """POST /v1/streams/add accepts a non-UUID id and returns it in the response."""
+        stream_id = rtvi_server._asset_manager.add_live_stream(
+            "rtsp://example.com/live",
+            description="camera-01",
+            stream_id="camera-01",
+            camera_id="camera-01",
+        )
+        try:
+            # The stream was added with a non-UUID id; verify the add response model
+            # can serialise it without a ResponseValidationError.
+            response = test_client.get(f"{API_PREFIX}/streams/get-stream-info")
+            assert response.status_code == 200
+            ids = [entry["id"] for entry in response.json()]
+            assert "camera-01" in ids
+        finally:
+            rtvi_server._asset_manager.cleanup_asset(stream_id)
+
+    def test_add_live_stream_request_accepts_non_uuid_id_field(self, test_client, rtvi_server):
+        """POST /v1/streams/add accepts a non-UUID id, adds the stream, and returns it in results."""
+        # Before the fix AddLiveStream.id was UUID-typed: a non-UUID id caused a 422
+        # uuid_parsing error. After the fix the id is str-typed so the stream is added
+        # successfully and camera-01 appears in results with no errors.
+        # Patch _SKIP_INPUT_MEDIA_VERIFICATION to False so the endpoint skips the
+        # RTSP probe and adds the stream without reaching an external address.
+        with patch("server.rtvi_embed_server._SKIP_INPUT_MEDIA_VERIFICATION", False):
+            response = test_client.post(
+                f"{API_PREFIX}/streams/add",
+                json={"streams": [{"liveStreamUrl": "rtsp://example.com/live", "id": "camera-01", "description": "camera-01"}]},
+            )
+        try:
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+            data = response.json()
+            assert data["errors"] == [], f"Unexpected errors: {data['errors']}"
+            ids = [r["id"] for r in data["results"]]
+            assert "camera-01" in ids, f"camera-01 not in results: {ids}"
+        finally:
+            rtvi_server._asset_manager.cleanup_asset("camera-01")
+
+    @pytest.mark.parametrize(
+        "stream_id",
+        ["camera/01", ".", "..", "camera 01", "camera?01", "camera#01", "camera\t01"],
+    )
+    def test_add_live_stream_rejects_unsafe_id(self, test_client, stream_id):
+        """Stream IDs with unsafe characters (path separators, spaces, etc.) must be rejected."""
+        response = test_client.post(
+            f"{API_PREFIX}/streams/add",
+            json={
+                "streams": [
+                    {
+                        "id": stream_id,
+                        "liveStreamUrl": "rtsp://example.com/stream",
+                        "description": "test",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 422
+
     def test_add_live_stream_missing_url(self, test_client):
         """Test adding live stream without URL"""
         response = test_client.post(
