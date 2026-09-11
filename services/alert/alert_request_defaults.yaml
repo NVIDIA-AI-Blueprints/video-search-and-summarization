@@ -15,10 +15,14 @@
 
 # Alert Request Defaults
 #
-# Default values applied to fields an incoming alert request omits: VLM
-# sampling parameters and optional top-level request fields. The VLM endpoint
-# and model live in config.yaml, not here. Operators can modify these values to
-# tune request behavior without code changes; see
+# Default values applied to fields an alert request entity omits: VLM sampling
+# parameters and optional top-level request fields.
+#
+# Scope: this feeds the request-entity validator, which the verification
+# pipeline does not call -- editing it does not change how a deployment
+# verifies. Live verification reads the vlm section of config.yaml and the
+# per-alert-type config served from Elasticsearch
+# (PUT /api/v1/verification/config/{alert_type}). See
 # src/schemas/config/README.md.
 
 # Schema version and metadata

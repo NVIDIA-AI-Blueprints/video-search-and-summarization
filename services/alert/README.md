@@ -84,11 +84,13 @@ Or build/run with Docker (see Quick Start).
 ## Quick Start
 
 1. **Configure** — edit `config.yaml`: set the VLM `base_url`/`model`, the
-   Kafka/Elasticsearch endpoints, and the sink type. Optionally override
-   request defaults in `alert_request_defaults.yaml` (or point
-   `ALERT_BRIDGE_DEFAULTS_FILE` at a custom file — see
-   [`src/schemas/config/README.md`](src/schemas/config/README.md)). Dedup / end-time-delta /
-   verdict-protection tuning lives under `alert_agent.event_filters`.
+   Kafka/Elasticsearch endpoints, and the sink type. Dedup / end-time-delta /
+   verdict-protection tuning lives under `alert_agent.event_filters`, and
+   per-alert-type prompts and VLM parameters come from the Elasticsearch
+   alert-config store, seeded from `alert_type_config.json`. Request defaults
+   in `alert_request_defaults.yaml` are a compatibility layer the verification
+   pipeline does not read — see
+   [`src/schemas/config/README.md`](src/schemas/config/README.md).
 
 2. **Start the stack** (Kafka source/sink is the default; no Redis):
 
