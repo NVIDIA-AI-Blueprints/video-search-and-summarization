@@ -39,10 +39,9 @@ if TYPE_CHECKING:
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _TERMINAL_WRITE_RESERVE_SECONDS = 1.0
 _CLEANUP_TIMEOUT_SECONDS = 1.0
-# Matches the ``vss vlm run --num-frames`` default. RT-VLM samples the opening
-# frame alone when the budget is absent, which is not enough to ground a
-# question about an interval.
-_RT_VLM_FRAME_BUDGET = 8
+# Matches the ``vss vlm run --num-frames`` fallback. RT-VLM samples the opening
+# frame alone when no sampling control is sent.
+_DEFAULT_FIXED_FRAME_BUDGET = 8
 
 
 def _ulid() -> str:
@@ -65,6 +64,14 @@ class VLMJobRequest(BaseModel):
     end_time: str = Field(min_length=1)
     prompt: str = Field(min_length=1, max_length=512_000)
     intent: Literal["video-qa", "introspection"] = "video-qa"
+    num_frames: int | None = Field(default=None, ge=1, le=256)
+    fps: float | None = Field(default=None, gt=0, le=256)
+
+    @model_validator(mode="after")
+    def _one_sampling_mode(self) -> Self:
+        if self.num_frames is not None and self.fps is not None:
+            raise ValueError("num_frames and fps are mutually exclusive")
+        return self
 
     @field_validator("sensor", "prompt")
     @classmethod
@@ -152,6 +159,7 @@ class IntrospectionVLMJobRunner:
         end_time: str,
         prompt: str,
         intent: str,
+        fps: float | None = None,
         timeout_seconds: float | None = None,
     ) -> VLMEvidence:
         from vss_core.introspection import VLMEvidence
@@ -164,6 +172,7 @@ class IntrospectionVLMJobRunner:
             end_time=end_time,
             prompt=prompt,
             intent="introspection",
+            fps=fps,
         )
         effective_timeout = float(self._timeout_seconds)
         if timeout_seconds is not None:
@@ -202,14 +211,15 @@ class IntrospectionVLMJobRunner:
             answer=result.answer,
             intent="introspection",
             model=result.model,
-            num_frames=_introspection_frame_budget(self._analyzer),
+            num_frames=None if fps is not None else _introspection_frame_budget(self._analyzer),
+            fps=fps,
             timeout_seconds=effective_timeout,
         )
 
 
 def _introspection_frame_budget(analyzer: Any | None) -> int | None:
     if analyzer is None:
-        return _RT_VLM_FRAME_BUDGET
+        return _DEFAULT_FIXED_FRAME_BUDGET
     budget = getattr(analyzer, "_rt_vlm_frame_budget", None)
     if budget is None:
         return None
@@ -223,7 +233,13 @@ def _is_backend_error(error: BaseException) -> bool:
     )
 
 
-def _production_analyzer(deployment: config_mod.Deployment, timeout_seconds: int) -> tuple[VLMAnalyzer, str]:
+def _production_analyzer(
+    deployment: config_mod.Deployment,
+    timeout_seconds: int,
+    *,
+    num_frames: int | None,
+    fps: float | None,
+) -> tuple[VLMAnalyzer, str]:
     from vss_core.vios import VSTClient
     from vss_core.vlm import OpenAIVLMAnalyzer
 
@@ -248,7 +264,8 @@ def _production_analyzer(deployment: config_mod.Deployment, timeout_seconds: int
             # not reject the host-side localhost origin.
             video_url_scope="internal",
             cosmos_nim_runtime_options=False,
-            rt_vlm_frame_budget=_RT_VLM_FRAME_BUDGET,
+            rt_vlm_frame_budget=fps if fps is not None else (num_frames or _DEFAULT_FIXED_FRAME_BUDGET),
+            rt_vlm_use_fps_for_chunking=fps is not None,
         ),
         model,
     )
@@ -442,7 +459,12 @@ async def run_vlm_job(
                 start_time, end_time = resolve_window(segments, request.start_time, request.end_time, sensor.kind)
 
                 if analyzer is None:
-                    analyzer, model = _production_analyzer(deployment, max(1, int(remaining_seconds())))
+                    analyzer, model = _production_analyzer(
+                        deployment,
+                        max(1, int(remaining_seconds())),
+                        num_frames=request.num_frames,
+                        fps=request.fps,
+                    )
                 elif not model:
                     model = type(analyzer).__name__
 
@@ -453,6 +475,10 @@ async def run_vlm_job(
                     "time_format": "iso",
                     "timeout_seconds": timeout_seconds,
                 }
+                if request.fps is not None:
+                    params["fps"] = request.fps
+                else:
+                    params["num_frames"] = request.num_frames or _DEFAULT_FIXED_FRAME_BUDGET
                 input_data = adapter.build_input(
                     prompt=request.prompt,
                     intent=request.intent,

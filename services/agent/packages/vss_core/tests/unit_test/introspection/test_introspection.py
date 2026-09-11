@@ -85,7 +85,6 @@ def test_settings_defaults_and_strict_types() -> None:
     assert IntrospectionSettings().model_dump() == {
         "max_memory_records": 10,
         "max_vlm_queries": 3,
-        "max_clip_duration_seconds": 60,
         "timeout_seconds": 180,
         "sufficiency_threshold": 0.7,
     }
@@ -189,6 +188,7 @@ def test_vlm_evidence_records_call_parameters() -> None:
         "intent": "introspection",
         "model": "nim_nvidia_cosmos3-nano-reasoner",
         "num_frames": 8,
+        "fps": None,
         "timeout_seconds": 180.0,
     }
 

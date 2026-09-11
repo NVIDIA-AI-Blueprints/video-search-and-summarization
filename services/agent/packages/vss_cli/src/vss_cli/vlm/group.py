@@ -70,6 +70,7 @@ if TYPE_CHECKING:
 _JOB_DOMAIN = "vlm"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _COMPLETIONS_PATH = "/v1/chat/completions"
+_DEFAULT_FIXED_FRAME_BUDGET = 8
 
 
 def _ulid() -> str:
@@ -186,14 +187,20 @@ class VlmInput(BaseModel):
     )
     max_tokens: int | None = Field(None, ge=1, le=1_000_000, description="Maximum tokens to generate.")
     temperature: float | None = Field(None, ge=0.0, le=1.0, description="Sampling temperature.")
-    num_frames: int = Field(
-        8,
+    num_frames: int | None = Field(
+        None,
         ge=1,
         le=256,
         description=(
-            "Frame-sampling budget sent to RT-VLM as num_frames_per_second_or_fixed_frames_chunk. "
-            "RT-VLM defaults this to 0 (opening frame only) when absent, so the CLI always includes it."
+            "Fixed frame count sampled across the clip. Mutually exclusive with --fps. "
+            "Defaults to 8 when neither sampling option is supplied."
         ),
+    )
+    fps: float | None = Field(
+        None,
+        gt=0,
+        le=256,
+        description="Frames sampled per second across the clip. Mutually exclusive with --num-frames.",
     )
 
     @model_validator(mode="after")
@@ -206,6 +213,8 @@ class VlmInput(BaseModel):
             raise ValueError("exactly one of --sensor, --media-url, or --file is required")
         if not has_sensor and (self.start_time or self.end_time):
             raise ValueError("--start-time / --end-time require --sensor")
+        if self.num_frames is not None and self.fps is not None:
+            raise ValueError("--num-frames and --fps are mutually exclusive")
         return self
 
 
@@ -264,7 +273,8 @@ def _build_vlm_request(
     model: str,
     max_tokens: int | None,
     temperature: float | None,
-    num_frames: int,
+    num_frames: int | None,
+    fps: float | None,
 ) -> dict[str, Any]:
     """Build an OpenAI-compatible /v1/chat/completions payload for a URL source."""
     request: dict[str, Any] = {
@@ -278,7 +288,10 @@ def _build_vlm_request(
                 ],
             }
         ],
-        "num_frames_per_second_or_fixed_frames_chunk": num_frames,
+        "num_frames_per_second_or_fixed_frames_chunk": (
+            fps if fps is not None else (num_frames or _DEFAULT_FIXED_FRAME_BUDGET)
+        ),
+        "use_fps_for_chunking": fps is not None,
     }
     if max_tokens is not None:
         request["max_tokens"] = max_tokens
@@ -294,7 +307,8 @@ def _iter_base64_json(
     model: str,
     max_tokens: int | None,
     temperature: float | None,
-    num_frames: int,
+    num_frames: int | None,
+    fps: float | None,
 ) -> Any:
     """Yield the VLM request body as a JSON byte stream, reading the file in 192 KB chunks.
 
@@ -315,7 +329,10 @@ def _iter_base64_json(
                 ],
             }
         ],
-        "num_frames_per_second_or_fixed_frames_chunk": num_frames,
+        "num_frames_per_second_or_fixed_frames_chunk": (
+            fps if fps is not None else (num_frames or _DEFAULT_FIXED_FRAME_BUDGET)
+        ),
+        "use_fps_for_chunking": fps is not None,
     }
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
@@ -369,7 +386,11 @@ class VlmGroup(CommandGroup):
         adapter = VlmAdapter()
         created_at = utc_now_iso()
 
-        model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout, "num_frames": inputs.num_frames}
+        model_params: dict[str, Any] = {"model": model, "timeout": inputs.timeout}
+        if inputs.fps is not None:
+            model_params["fps"] = inputs.fps
+        else:
+            model_params["num_frames"] = inputs.num_frames or _DEFAULT_FIXED_FRAME_BUDGET
         if inputs.max_tokens is not None:
             model_params["max_tokens"] = inputs.max_tokens
         if inputs.temperature is not None:
@@ -571,6 +592,7 @@ class VlmGroup(CommandGroup):
                         max_tokens=inputs.max_tokens,
                         temperature=inputs.temperature,
                         num_frames=inputs.num_frames,
+                        fps=inputs.fps,
                     ),
                     headers={"Content-Type": "application/json"},
                     timeout=float(inputs.timeout),
@@ -585,6 +607,7 @@ class VlmGroup(CommandGroup):
                         max_tokens=inputs.max_tokens,
                         temperature=inputs.temperature,
                         num_frames=inputs.num_frames,
+                        fps=inputs.fps,
                     ),
                     timeout=float(inputs.timeout),
                 )

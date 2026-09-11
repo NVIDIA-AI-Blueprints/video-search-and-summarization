@@ -131,6 +131,7 @@ class VLMEvidence(_StrictModel):
     intent: str = "introspection"
     model: str | None = None
     num_frames: int | None = Field(default=None, ge=1)
+    fps: float | None = Field(default=None, gt=0, le=256)
     timeout_seconds: float | None = Field(default=None, gt=0)
 
     @field_validator("job_id", "sensor", "question", "answer", "intent", mode="after")
@@ -156,7 +157,6 @@ class IntrospectionSettings(_StrictModel):
 
     max_memory_records: int = Field(default=10, ge=1)
     max_vlm_queries: int = Field(default=3, ge=0)
-    max_clip_duration_seconds: int = Field(default=60, ge=1)
     timeout_seconds: int = Field(default=180, ge=1)
     sufficiency_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
@@ -172,6 +172,7 @@ class IntrospectionRequest(_StrictModel):
     group: MemoryGroup | None = None
     start_time: str | None = None
     end_time: str | None = None
+    fps: float | None = Field(default=None, gt=0, le=256)
 
     @field_validator("query", "sensor", "job_id", "record_id", mode="after")
     @classmethod

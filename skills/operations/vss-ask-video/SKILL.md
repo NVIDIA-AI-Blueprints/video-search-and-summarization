@@ -169,6 +169,21 @@ Valid introspection scope is established by one of:
 Never pass `--record-id` alone. `--record-type` and `--group` may refine valid
 scope but do not establish it independently.
 
+## Choose visual sampling density
+
+For every introspection or direct VLM call, choose `VLM_FPS` from the visual
+task. RT-VLM samples at that rate across the requested window:
+
+- **Skim (`0.5`)**: locate whether or roughly when a sustained event occurred.
+- **Locate (`1`)**: default event and action questions.
+- **Inspect (`2`)**: fine details such as labels, clothing, object state, or
+  precise spatial relationships. Prefer a shorter grounded window before
+  increasing density.
+
+Do not use fixed `--num-frames` unless the user explicitly requests a fixed
+frame budget or a reproducibility workflow requires it. Never combine
+`--num-frames` and `--fps`.
+
 ## When introspection is enabled
 
 For a general memory-aware question that Markdown does not fully answer:
@@ -188,11 +203,13 @@ VSS=(uv run \
   --no-dev \
   --extra cli \
   vss)
+VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
 RC=0
 RESULT=$("${VSS[@]}" memory introspect \
   --query "${USER_QUESTION}" \
-  --sensor "${SENSOR_NAME}") || RC=$?
+  --sensor "${SENSOR_NAME}" \
+  --fps "${VLM_FPS}") || RC=$?
 
 if [ -n "${RESULT}" ]; then
   printf '%s\n' "${RESULT}"
@@ -260,9 +277,13 @@ VSS=(uv run \
   --no-dev \
   --extra cli \
   vss)
+VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
 RC=0
-RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --media-url "${VIDEO_URL}") || RC=$?
+RESULT=$("${VSS[@]}" vlm run \
+  --prompt "${USER_QUESTION}" \
+  --media-url "${VIDEO_URL}" \
+  --fps "${VLM_FPS}") || RC=$?
 [ "${RC}" -eq 0 ] || [ "${RC}" -eq 6 ] || exit "${RC}"
 if [ -n "${RESULT}" ]; then
   printf '%s\n' "${RESULT}"
@@ -282,13 +303,15 @@ VSS=(uv run \
   --no-dev \
   --extra cli \
   vss)
+VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
 RC=0
 RESULT=$("${VSS[@]}" vlm run \
   --prompt "${USER_QUESTION}" \
   --sensor "${SENSOR_NAME}" \
   --start-time "${START_TIME}" \
-  --end-time "${END_TIME}") || RC=$?
+  --end-time "${END_TIME}" \
+  --fps "${VLM_FPS}") || RC=$?
 [ "${RC}" -eq 0 ] || [ "${RC}" -eq 6 ] || exit "${RC}"
 if [ -n "${RESULT}" ]; then
   printf '%s\n' "${RESULT}"

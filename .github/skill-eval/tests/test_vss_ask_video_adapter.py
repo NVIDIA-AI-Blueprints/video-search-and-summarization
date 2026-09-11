@@ -96,6 +96,8 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
     assert "complete project-local uv run invocation" in contract
     assert "vss vlm run --file" in contract
     assert "vss configure check" in contract
+    assert "--fps chosen from the skim/locate/inspect policy" in contract
+    assert "--fps rather than a fixed --num-frames" in contract
 
 
 def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() -> None:
@@ -115,3 +117,17 @@ def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() ->
             assert "--job-id" in block
             assert "--record-type" in block
     assert "vss() {" not in skill
+    assert "## Choose visual sampling density" in skill
+    assert "Skim (`0.5`)" in skill
+    assert "Locate (`1`)" in skill
+    assert "Inspect (`2`)" in skill
+    visual_blocks = [
+        block
+        for block in shell_blocks
+        if '"${VSS[@]}" memory introspect' in block or '"${VSS[@]}" vlm run' in block
+    ]
+    assert visual_blocks, "skill must show introspection and VLM invocations"
+    for block in visual_blocks:
+        assert "--fps" in block
+        assert "VLM_FPS=" in block
+        assert "--num-frames" not in block
