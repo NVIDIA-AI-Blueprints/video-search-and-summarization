@@ -154,7 +154,7 @@ def _config(**overrides: Any) -> SimpleNamespace:
         "attribute_search_tool": "attribute_search",
         "embed_confidence_threshold": 0.1,
         "default_max_results": 5,
-        "fusion_method": "rrf",
+        "fusion_method": "weighted_rrf",
         "w_attribute": 0.55,
         "w_embed": 0.35,
         "w_tag": 0.45,
@@ -933,3 +933,39 @@ class TestTagOnlyDeploymentAndFusionWeights:
                 tag_search=tag,
                 config=_config(fusion_method="weighted_rrf", w_tag=0, w_embed=0, w_attribute=1),
             )
+
+    @pytest.mark.asyncio
+    async def test_legacy_rrf_fusion_uses_old_pipeline_no_tag(self) -> None:
+        # The default fusion_method is now the legacy `rrf` (embed + optional
+        # attribute, no VLM tag leg). With no --attribute and no tag, it
+        # ranks embed hits by the RRF formula 1/(rank + rrf_k) and does NOT
+        # require a tag provider (the weighted_rrf path does).
+        embed = _FakeEmbed(
+            [
+                _embed_output(
+                    [
+                        _embed_item(
+                            video_name="e1",
+                            sensor_id="camE",
+                            similarity=0.9,
+                            start="2025-01-01T00:00:00Z",
+                            end="2025-01-01T00:00:05Z",
+                        ),
+                        _embed_item(
+                            video_name="e2",
+                            sensor_id="camE",
+                            similarity=0.8,
+                            start="2025-01-01T00:10:00Z",
+                            end="2025-01-01T00:10:05Z",
+                        ),
+                    ]
+                )
+            ]
+        )
+        out = await _run(
+            SearchInput(query="red", source_type="video_file", search_mode="fusion"),
+            embed_search=embed,
+            config=_config(fusion_method="rrf"),
+        )
+        assert [r.video_name for r in out.data] == ["e1", "e2"]
+        assert out.data[0].similarity == pytest.approx(1.0 / 61)
