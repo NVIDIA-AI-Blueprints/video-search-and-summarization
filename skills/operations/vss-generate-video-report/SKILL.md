@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.4.0"
+  version: "3.3.0"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -25,8 +25,8 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 ## Instructions
 
-0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths. If no base directory was announced (this file was opened directly), `SKILL_DIR` is the directory containing this `SKILL.md`. Re-set `SKILL_DIR=<that path>` at the top of every shell block you run — each fenced block is its own shell — the same way the *HITL prompt mode* bullet has you set `HITL_RESOLVED` (and `HITL_PROMPT_FILE`) at the top of the Mode A Step 3 block.
-1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request is about incidents / alerts (usually with a time range), Mode C when the request asks for an SOP / compliance report (match against *Examples*).
+0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths. If no base directory was announced (this file was opened directly), `SKILL_DIR` is the directory containing this `SKILL.md`. Each fenced block is its own shell and nothing survives it, so the skill hands state over explicitly: the blocks that resolve shared values end by printing shell-quoted `NAME=value` lines (*Endpoint resolution* → `DEPLOYMENT_KIND`, `VSS_PUBLIC_URL`, `HOST_IP`, `VST_API_BASE`, `VA_MCP_URL`, `VLM_ENDPOINT`; Mode A Step 1 → `VIDEO_URL`; Mode A Step 2 → `VLM_BACKEND`, `VLM_ENDPOINT`, `VLM_MODEL`; the clip-URL rewrite blocks (Kubernetes / Docker) take `RAW_URL` in and print `BROWSER_CLIP_URL`). Paste those lines as printed, plus `SKILL_DIR=<that path>` and any gate result (`HITL_RESOLVED` / `HITL_PROMPT_FILE`, *HITL prompt mode*), at the top of the next block you run, with any caller-supplied value (e.g. `VLM_ENDPOINT` / `VLM_MODEL`) pasted **after** them so it wins; consuming blocks refuse to run (`${VAR:?}`) when a required value is missing.
+1. **Pick the mode** — Mode A for a single recorded clip/sensor video (path `A1` VST clip URL or `A2` local file / base64 — the *Mode-by-mode checklist* rows), Mode B when the request is about incidents / alerts (usually with a time range), Mode C when the request asks for an SOP / compliance report (match against *Examples*).
 2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-ai` for the SOP tools).
 3. **Apply HITL mode** under *HITL prompt mode (runtime-first, harness fallback)* before Mode A Step 3 (`references/report-types/video-analysis.md`). (Mode B and Mode C have no prompt-approval step.)
 4. **Run that mode's numbered steps** from its report-type file — the *Steps* column of the mode table above; open only the one you routed to, via `$SKILL_DIR/references/report-types/<file>`. This file holds routing, gates and the shared setup (endpoint resolution, VLM selection, HITL, clip-URL rewrite); the numbered steps live only in the report-type files.
@@ -87,6 +87,10 @@ Helm), resolve public endpoints once. Follow
 [`../vss-build-vision-ai/references/deployment_resolution.md`](../../vss-build-vision-ai/references/deployment_resolution.md):
 
 ```bash
+# VSS_ENDPOINT is the legacy alias for VSS_PUBLIC_URL (deployment_resolution.md); honour it here so
+# every mode resolves the same way (the Mode C blocks apply the same alias).
+[ -n "${VSS_PUBLIC_URL:-}" ] || VSS_PUBLIC_URL="${VSS_ENDPOINT:-}"
+VLM_ENDPOINT="${VLM_ENDPOINT%/}"   # a caller-supplied endpoint keeps working with a trailing slash
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
@@ -98,10 +102,18 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 else
   DEPLOYMENT_KIND="docker"
+  HOST_IP="${HOST_IP:-localhost}"   # effective host — later blocks read HOST_IP directly, so hand it over resolved
   VSS_VIOS_URL="http://${HOST_IP}:30888/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   VA_MCP_URL="http://${HOST_IP}:9901"
 fi
+# Hand-off — shell state does not survive this block: paste these lines, as printed, at the top of
+# every later block (probes, Mode A Step 2), BEFORE any caller-supplied VLM_ENDPOINT / VLM_MODEL line
+# (later lines win). VLM_ENDPOINT is printed only when known (Kubernetes route or caller-supplied);
+# on Docker, Mode A Step 2 discovers it.
+printf 'DEPLOYMENT_KIND=%q\nVSS_PUBLIC_URL=%q\nHOST_IP=%q\nVST_API_BASE=%q\nVA_MCP_URL=%q\n' \
+  "$DEPLOYMENT_KIND" "${VSS_PUBLIC_URL:-}" "${HOST_IP:-}" "$VST_API_BASE" "$VA_MCP_URL"
+[ -z "${VLM_ENDPOINT:-}" ] || printf 'VLM_ENDPOINT=%q\n' "$VLM_ENDPOINT"
 ```
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
@@ -126,24 +138,43 @@ Hard gate behavior:
 Probe examples:
 
 ```bash
-# Mode A path A1 — VIOS reachable
-curl -sf --max-time 5 "${VST_API_BASE}/sensor/version" >/dev/null
-
-# Mode A — VLM reachable (Kubernetes public /v1, or caller-supplied / Docker host port)
-curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null
-
-# Mode B — VA-MCP reachable via /health (K8s: ${VA_MCP_URL}/health; Docker: :9901/health)
-curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
-
-# Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
-# tools/list on ${VA_MCP_URL}/mcp must include video_analytics__get_sop_report. The runnable
-# probe is the initialize -> tools/list block in references/report-types/sop-compliance.md
-# Step 1: open that file now and run just that block as this gate; when you reach
-# Instructions step 4, continue in that file without repeating the probe. It exits non-zero
-# for two different reasons — read stderr: "VA-MCP problem" = the tools/list call itself failed
-# (report it per Error Handling, do NOT hand off); "SOP tools absent" = the deployment lacks the
-# SOP patch — hand off to /vss-build-vision-ai and do NOT proceed with Mode C.
+# Fresh shell: paste the Endpoint resolution hand-off lines above these probes and set the mode you
+# picked in Instructions step 1 (A1 | A2 | B | C). No Docker fallbacks here — a missing value must
+# fail loudly, not silently probe the wrong deployment. Only the probes for that mode run and decide
+# the exit code (non-zero = a required service is missing: stop and report it).
+: "${REPORT_MODE:?set REPORT_MODE=A1|A2|B|C at the top of this block (Instructions step 1; A1 = VST clip URL, A2 = local file / base64 — the Mode-by-mode checklist rows)}"
+case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this block}" in
+  kubernetes|docker) ;;
+  *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
+esac
+VLM_ENDPOINT="${VLM_ENDPOINT%/}"   # tolerate a trailing slash on a caller-supplied endpoint
+FAIL=0
+case "${REPORT_MODE}" in
+  A1|A2)
+    if [ "${REPORT_MODE}" = "A1" ]; then   # A2 (local file / base64) needs no VIOS
+      curl -sf --max-time 5 "${VST_API_BASE:?}/sensor/version" >/dev/null \
+        && echo "VIOS ok: ${VST_API_BASE}" || { echo "VIOS unreachable: ${VST_API_BASE}" >&2; FAIL=1; }
+    fi
+    # VLM. Kubernetes: the public route from Endpoint resolution (a missing line is a paste error).
+    # Docker: VLM_ENDPOINT is unknown until Mode A Step 2 discovers it — that block IS the VLM probe.
+    if [ -n "${VLM_ENDPOINT:-}" ]; then
+      curl -sf --max-time 5 "${VLM_ENDPOINT}/models" >/dev/null \
+        && echo "VLM ok: ${VLM_ENDPOINT}" || { echo "VLM unreachable: ${VLM_ENDPOINT}" >&2; FAIL=1; }
+    elif [ "${DEPLOYMENT_KIND}" = "docker" ]; then
+      echo "VLM probe deferred: run Mode A Step 2 (discovery) next — Docker has no VLM_ENDPOINT yet" >&2
+    else
+      echo "ERROR: VLM_ENDPOINT line missing — re-paste the Endpoint resolution output" >&2; FAIL=1
+    fi ;;
+  B|C)
+    curl -sf --max-time 5 "${VA_MCP_URL:?}/health" >/dev/null \
+      && echo "VA-MCP ok: ${VA_MCP_URL}" || { echo "VA-MCP unreachable: ${VA_MCP_URL}" >&2; FAIL=1; }
+    [ "${REPORT_MODE}" = "C" ] && echo "Mode C: reachability is not sufficient — now run the tools/list gate (bullet below)" ;;
+  *) echo "ERROR: REPORT_MODE must be A1, A2, B or C, got '${REPORT_MODE}'" >&2; exit 1 ;;
+esac
+[ "${FAIL}" = 0 ] || exit 1
 ```
+
+- **Mode C gate** — reachability is not sufficient: `tools/list` on `${VA_MCP_URL}/mcp` must include `video_analytics__get_sop_report`. The runnable probe is the initialize → `tools/list` block in `references/report-types/sop-compliance.md` Step 1 (paste the *Endpoint resolution* hand-off at its top so it reuses the validated `VA_MCP_URL`; without it the block re-derives VA-MCP from exported `VSS_PUBLIC_URL` / `HOST_IP`): open that file now and run just that block as this gate; when you reach *Instructions* step 4, continue in that file without repeating it. It exits non-zero for two different reasons — read stderr: `VA-MCP problem` = the `tools/list` call itself failed (report it per *Error Handling*, do **not** hand off); `SOP tools absent` = the deployment lacks the SOP patch — hand off to `/vss-build-vision-ai` and do **not** proceed with Mode C.
 
 If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-ai` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
 
@@ -169,10 +200,15 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/rtvi-vlm/v1/models" | jq -r '.data[].id'
 fi
 
-# Docker only — probe common local endpoints without inspecting any container.
-if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  curl -sf --max-time 5 "http://${HOST_IP}:30082/v1/models" | jq -r '.data[].id'   # local NIM / base default
-  curl -sf --max-time 5 "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'    # RT-VLM / alerts default
+# Docker only — probe common local endpoints without inspecting any container
+# (DEPLOYMENT_KIND comes from the Endpoint resolution hand-off; no silent Docker default).
+case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this block}" in
+  kubernetes|docker) ;;
+  *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
+esac
+if [ "${DEPLOYMENT_KIND}" = "docker" ]; then
+  curl -sf --max-time 5 "http://${HOST_IP:-localhost}:30082/v1/models" | jq -r '.data[].id'   # local NIM / base default
+  curl -sf --max-time 5 "http://${HOST_IP:-localhost}:8018/v1/models" | jq -r '.data[].id'    # RT-VLM / alerts default
 fi
 ```
 
@@ -223,8 +259,15 @@ responses return a bare `/storage/temp_files/...` path (and can carry a doubled
 VIOS. Reduce to a path, then restore `/vst` — the same compat mapping Docker HAProxy
 applies:
 
+Rewrite and verify in ONE block (fresh shell: paste the Endpoint resolution hand-off and set
+`RAW_URL` at its top). The result must begin with `${VSS_PUBLIC_URL}/vst/`. Probe with GET, not
+HEAD: VST lazy-renders clips and returns 404 to HEAD until a GET materializes the file. If the
+URL fails either check the block prints an empty `BROWSER_CLIP_URL`; omit the link from the
+report and call out why; do not block local VLM analysis:
+
 ```bash
 : "${VSS_PUBLIC_URL:?Set VSS_PUBLIC_URL before rewriting clip URLs on Kubernetes}"
+: "${RAW_URL:?set RAW_URL to the clip URL from Mode A Step 1 / the Mode B incident at the top of this block}"
 CLIP_PATH=$(printf '%s' "${RAW_URL}" | sed -E 's|^(https?://)+||; s|^[^/]*||')
 case "${CLIP_PATH}" in
   /vst/*) BROWSER_CLIP_URL="${VSS_PUBLIC_URL%/}${CLIP_PATH}" ;; # already public VIOS
@@ -234,27 +277,21 @@ case "${CLIP_PATH}" in
     BROWSER_CLIP_URL=""
     ;;
 esac
-```
-
-Verify the result before putting it in the report — it must begin with
-`${VSS_PUBLIC_URL}/vst/`. Probe with GET, not HEAD: VST lazy-renders clips and
-returns 404 to HEAD until a GET materializes the file. If the URL fails either
-check, omit it from the report and call out why; do not block local VLM analysis:
-
-```bash
 case "${BROWSER_CLIP_URL}" in
   "${VSS_PUBLIC_URL%/}"/vst/*)
     # A GET materializes lazy VIOS clips. Fail fast when Ingress is unreachable,
     # but allow bounded time for the first render and fetch only the first byte.
     curl -fsS --connect-timeout 5 --max-time 125 --range 0-0 -o /dev/null \
-      "${BROWSER_CLIP_URL}" || BROWSER_CLIP_URL=""
+      "${BROWSER_CLIP_URL}" || { echo "Clip link did not materialize: ${BROWSER_CLIP_URL}" >&2; BROWSER_CLIP_URL=""; }
     ;;
-  "") ;;  # unsupported source URL shape; already reported above
+  "") ;;  # unsupported source URL shape; reported above
   *)
     echo "Refusing to render a clip link outside the public VIOS route" >&2
     BROWSER_CLIP_URL=""
     ;;
 esac
+# Hand-off for the report step (empty = omit the link and say why).
+printf 'BROWSER_CLIP_URL=%q\n' "${BROWSER_CLIP_URL}"
 ```
 
 **Docker Compose** — the deploy layer exports the browser-facing host:port as
@@ -264,8 +301,11 @@ in every profile `.env` — Brev or bare-metal — so the report-link rewrite is
 ```bash
 : "${VSS_PUBLIC_HOST:?Set VSS_PUBLIC_HOST before rewriting clip URLs}"
 : "${VSS_PUBLIC_PORT:?Set VSS_PUBLIC_PORT before rewriting clip URLs}"
+: "${RAW_URL:?set RAW_URL to the clip URL from Mode A Step 1 / the Mode B incident at the top of this block}"
 VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
-BROWSER_CLIP_URL=$(echo "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
+BROWSER_CLIP_URL=$(printf '%s' "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
+# Hand-off for the report step.
+printf 'BROWSER_CLIP_URL=%q\n' "${BROWSER_CLIP_URL}"
 ```
 
 If the required public origin values are missing, omit the report-facing clip
@@ -290,9 +330,9 @@ Adding a report type — touch points, in order:
 
 1. `references/report-types/<type>.md` (skeleton above) and `references/report-templates/<type>-report.md`.
 2. In this file: frontmatter `description`; the mode table row (Backend + Steps); *Instructions* steps 1–3 (mode pick, deploy hand-off target, HITL applicability); *Examples*; *Runtime prerequisites* (intro sentence, *Mode-by-mode checklist* row, probe / gate line, hand-off sentence, and the mode sentence in *Endpoint resolution* if it shares `${VA_MCP_URL}` or needs a new endpoint); the *HITL prompt mode* scope sentence if the type has a prompt-approval step; *Output contract for evaluators*; the per-mode clip-URL sentence if the report embeds clips; the *Templates* link line in this section; optionally *Error Handling* and *Cross-Reference* lines.
-3. `skill-card.md` (description, use case, references), the skill's `evals/`, and — when the mode list changes — the `skills/README.md` rows that enumerate this skill's modes (not updated in this refactor; follow-up).
+3. When the mode list changes, the `skills/README.md` rows that enumerate this skill's modes.
 
-Mode letters are stable aliases (evals and other skills reference them); files are named by report type.
+Mode letters are stable aliases (other skills reference them); files are named by report type.
 
 ---
 

@@ -16,13 +16,19 @@ Numbered steps for Mode A, loaded on demand from [`SKILL.md`](../../SKILL.md) (`
 **If the VSS `lvs` profile is deployed** — probe LVS readiness, then hand off:
 
 ```bash
+# Fresh shell: paste the Endpoint resolution hand-off (SKILL.md) at the top of this block.
+case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this block}" in
+  kubernetes|docker) ;;
+  *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
+esac
 # Kubernetes public Exact path when VSS_PUBLIC_URL is set; Docker host port otherwise.
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  _lvs_ready="${VSS_PUBLIC_URL%/}/lvs/v1/ready"
+if [ "${DEPLOYMENT_KIND}" = "kubernetes" ]; then
+  _lvs_ready="${VSS_PUBLIC_URL:?}/lvs/v1/ready"
 else
-  _lvs_ready="http://${HOST_IP}:38111/v1/ready"
+  _lvs_ready="http://${HOST_IP:-localhost}:38111/v1/ready"
 fi
-curl -sf --max-time 5 "${_lvs_ready}" >/dev/null
+# Exit 0 = LVS ready (hand off to /vss-summarize-video); non-zero = not ready (take the VLM-direct path).
+curl -sf --max-time 5 "${_lvs_ready}" >/dev/null && echo "LVS ready: ${_lvs_ready}" || { echo "LVS not ready (${_lvs_ready}) — take the VLM-direct path" >&2; exit 1; }
 ```
 
 When that returns HTTP 200, run `/vss-summarize-video` to produce the summary,
@@ -109,54 +115,72 @@ The deploy may serve the VLM through either of two stacks. Both expose an OpenAI
 | **NIM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:30082/v1` | Docker: port 30082 responds with at least one model |
 | **RT-VLM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:8018/v1` | Docker: port 8018 responds with at least one model |
 
-If the user already supplied a `VLM_ENDPOINT` + model id, use those directly.
+If the user already supplied a `VLM_ENDPOINT` + model id, paste them at the top of the block below **after** the *Endpoint resolution* hand-off lines (later lines win); the block then only confirms them.
 
-When `VSS_PUBLIC_URL` is set and `VLM_ENDPOINT` is still empty, use the public
-Ingress RT-VLM route (do **not** probe `/vlm/v1`):
+One block, one shell — paste the *Endpoint resolution* hand-off lines (SKILL.md) at its top. It picks the public Ingress RT-VLM route on Kubernetes (do **not** probe `/vlm/v1`), probes the standard host endpoints on Docker only (same endpoint-selection contract as `/vss-ask-video`), confirms `/v1/models`, and prints the hand-off for Step 3:
 
 ```bash
-if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
+case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output (SKILL.md § Endpoint resolution) at the top of this block}" in
+  kubernetes|docker) ;;
+  *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
+esac
+VLM_ENDPOINT="${VLM_ENDPOINT%/}"   # tolerate a trailing slash on a pasted / caller-supplied endpoint
+
+# 1) Kubernetes: the public Ingress RT-VLM route — normally pasted from Endpoint resolution;
+#    re-derived here only when that line is missing.
+if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND}" = "kubernetes" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VLM_ENDPOINT="${VSS_PUBLIC_URL%/}/rtvi-vlm/v1"
-  VLM_BACKEND="rtvlm"
 fi
-```
 
-Otherwise, on **Docker only**, probe the standard host endpoints directly,
-following the same endpoint-selection contract as `/vss-ask-video`.
-
-```bash
-if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  for _candidate in \
-    "nim_cosmos|http://${HOST_IP}:30082/v1" \
-    "rtvlm|http://${HOST_IP}:8018/v1"; do
-    _backend="${_candidate%%|*}"
-    _endpoint="${_candidate#*|}"
-    if _models="$(curl -sf --max-time 5 "${_endpoint}/models")" &&
-       _model="$(printf '%s' "${_models}" | jq -er '.data[0].id')"; then
-      VLM_BACKEND="${_backend}"
-      VLM_ENDPOINT="${_endpoint}"
-      VLM_MODEL="${VLM_MODEL:-$_model}"
-      break
-    fi
+# 2) Docker only: probe the standard host endpoints. A caller-supplied VLM_MODEL must be served by the
+#    candidate, otherwise keep looking (so :8018 is still tried when :30082 serves another model).
+if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND}" = "docker" ]; then
+  for _endpoint in "http://${HOST_IP:-localhost}:30082/v1" "http://${HOST_IP:-localhost}:8018/v1"; do
+    _models="$(curl -sf --max-time 5 "${_endpoint}/models")" || continue
+    _model="$(printf '%s' "${_models}" | jq -er --arg m "${VLM_MODEL:-}" \
+      'if $m == "" then (.data[0].id // empty) else (.data[]?.id | select(. == $m)) end' | head -n 1)" || continue
+    [ -n "$_model" ] || continue
+    VLM_ENDPOINT="${_endpoint}"
+    VLM_MODEL="${_model}"
+    break
   done
 fi
 
 [ -n "${VLM_ENDPOINT:-}" ] || {
-  echo "ERROR: no VLM found on ${HOST_IP}:30082 or ${HOST_IP}:8018; provide VLM_ENDPOINT and VLM_MODEL" >&2
+  if [ "${DEPLOYMENT_KIND}" = "kubernetes" ]; then
+    echo "ERROR: VLM_ENDPOINT and VSS_PUBLIC_URL are missing from the pasted Endpoint resolution output — re-paste it (or supply VLM_ENDPOINT)" >&2
+  else
+    echo "ERROR: no VLM serving ${VLM_MODEL:-any model} on ${HOST_IP:-localhost}:30082 or ${HOST_IP:-localhost}:8018; provide VLM_ENDPOINT and VLM_MODEL" >&2
+  fi
   exit 1
 }
-```
 
-Probe `/v1/models` before sending a chat request to confirm the chosen endpoint is alive and the model is loaded:
-
-```bash
+# 3) Confirm the chosen endpoint is alive and the model is loaded.
 _models="$(curl -sf --max-time 5 "${VLM_ENDPOINT}/models")" || {
   echo "ERROR: VLM endpoint is not reachable: ${VLM_ENDPOINT}" >&2
   exit 1
 }
-printf '%s' "${_models}" | jq -er '.data[].id'
+printf '%s' "${_models}" | jq -er '.data[].id' >&2   # served ids, on stderr so stdout stays paste-clean
 [ -n "${VLM_MODEL:-}" ] ||
-  VLM_MODEL="$(printf '%s' "${_models}" | jq -er '.data[0].id')"
+  VLM_MODEL="$(printf '%s' "${_models}" | jq -er '.data[0].id // empty')"
+[ -n "${VLM_MODEL:-}" ] || { echo "ERROR: ${VLM_ENDPOINT}/models lists no model ids; provide VLM_MODEL" >&2; exit 1; }
+# Never silently use an unknown model: the chosen / caller-supplied id must be one the endpoint serves.
+printf '%s' "${_models}" | jq -e --arg m "$VLM_MODEL" 'any(.data[]?.id; . == $m)' >/dev/null || {
+  echo "ERROR: VLM_MODEL '${VLM_MODEL}' is not served at ${VLM_ENDPOINT}; pick one of the ids listed above or use a *VLM selection when unclear* option (SKILL.md)" >&2
+  exit 1
+}
+
+# Backend, derived once from the FINAL endpoint / model (a pasted VLM_BACKEND from an earlier run is
+# ignored): the public /rtvi-vlm route and :8018 are RT-VLM (never send them NIM Cosmos kwargs), :30082 is
+# NIM Cosmos, anything else follows the model id — the same rule Step 3 applies when it runs standalone.
+case "${VLM_ENDPOINT}" in
+  */rtvi-vlm/*|*:8018/*) VLM_BACKEND="rtvlm" ;;
+  *:30082/*)             VLM_BACKEND="nim_cosmos" ;;
+  *) case "${VLM_MODEL}" in nvidia/cosmos*) VLM_BACKEND="nim_cosmos" ;; *) VLM_BACKEND="rtvlm" ;; esac ;;
+esac
+
+# Hand-off — paste these lines at the top of the Step 3 block (fresh shell).
+printf 'VLM_BACKEND=%q\nVLM_ENDPOINT=%q\nVLM_MODEL=%q\n' "$VLM_BACKEND" "$VLM_ENDPOINT" "$VLM_MODEL"
 ```
 
 If `VLM_MODEL` is empty, adopt the first id the endpoint advertises. If the probe fails or the listed ids don't include `${VLM_MODEL}`, either:
@@ -226,9 +250,9 @@ fi
 
 # If Step 3 is run standalone, derive a missing backend from endpoint/model.
 [ -z "${VLM_BACKEND:-}" ] && {
-  if [[ "${VLM_ENDPOINT:-}" == *":8018/"* ]]; then
+  if [[ "${VLM_ENDPOINT:-}" == *":8018/"* || "${VLM_ENDPOINT:-}" == *"/rtvi-vlm/"* ]]; then
     VLM_BACKEND="rtvlm"
-  elif [[ "${VLM_MODEL:-}" == nvidia/cosmos* ]]; then
+  elif [[ "${VLM_ENDPOINT:-}" == *":30082/"* || "${VLM_MODEL:-}" == nvidia/cosmos* ]]; then
     VLM_BACKEND="nim_cosmos"
   else
     VLM_BACKEND="rtvlm"

@@ -21,15 +21,16 @@ Use for "generate an SOP compliance report" over a sensor + time range. Data com
 - Confirm the SOP tools are present (once). The four `get_sop_*` tools are added by the SOP patch and are **not** in the base `/vss-query-analytics` tool set, so call the VA-MCP endpoint directly (two-step MCP JSON-RPC: `initialize` → `tools/list`):
 
 ```bash
-# Each fenced block is its own shell — re-derive VA-MCP here (do not rely on
-# SKILL.md § Endpoint resolution). Force public path when VSS_PUBLIC_URL is set.
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
-  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-fi
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
-else
-  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+# Fresh shell: paste the SKILL.md § Endpoint resolution hand-off at the top of this block so the
+# VA_MCP_URL it validated is reused. Without it the block re-derives VA-MCP the same way (incl. the
+# VSS_ENDPOINT alias) from exported VSS_PUBLIC_URL / HOST_IP. Public path wins.
+if [ -z "${VA_MCP_URL:-}" ]; then
+  [ -n "${VSS_PUBLIC_URL:-}" ] || VSS_PUBLIC_URL="${VSS_ENDPOINT:-}"
+  if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+    VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+  else
+    VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+  fi
 fi
 MCP="${VA_MCP_URL%/}/mcp"
 CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
@@ -56,13 +57,14 @@ printf '%s' "$ENVELOPE" | jq -r '.result.tools[].name' | grep -qx video_analytic
 Call `video_analytics__get_sop_report` on the same endpoint. Each fenced block runs as its own shell, so `$MCP` / `$SID` / `$CT` / `$AC` from Step 1 do NOT carry over — re-establish them and re-`initialize` for a fresh session id here:
 
 ```bash
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
-  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-fi
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
-else
-  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+# Fresh shell: paste the Endpoint resolution hand-off here too; otherwise re-derive as in Step 1.
+if [ -z "${VA_MCP_URL:-}" ]; then
+  [ -n "${VSS_PUBLIC_URL:-}" ] || VSS_PUBLIC_URL="${VSS_ENDPOINT:-}"
+  if [ -n "${VSS_PUBLIC_URL:-}" ]; then
+    VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+  else
+    VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
+  fi
 fi
 MCP="${VA_MCP_URL%/}/mcp"
 CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
