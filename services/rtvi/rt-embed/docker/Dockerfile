@@ -44,6 +44,14 @@ FROM nvcr.io/nvidia/deepstream:9.1-triton-multiarch AS rtpmanager-prebuilt
 RUN test -s /tmp99/libgstrtpmanager.so \
     && test -s /tmp99/libgstrtsp.so \
     && test -s /tmp99/libgstvideoparsersbad.so
+
+# Use nvunixfd plugin with SEI support from latest DeepStream containers.
+# Use the RTVI DeepStream builds that publish it for each target
+# architecture so RTVI Embed can consume decoded frames from RTVI CV.
+FROM --platform=linux/amd64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111 AS nvunixfd-amd64
+FROM --platform=linux/arm64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255 AS nvunixfd-arm64
+FROM nvunixfd-${TARGETARCH} AS nvunixfd-prebuilt
+RUN test -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so
 ###############################
 
 # Build a Thor-compatible PyDS wheel from the public DeepStream Python bindings.
@@ -235,6 +243,9 @@ COPY --from=rtpmanager-prebuilt \
      /tmp99/libgstrtsp.so \
      /tmp99/libgstvideoparsersbad.so \
      /tmp/rtpmanager-plugins/
+COPY --from=nvunixfd-prebuilt \
+     /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so \
+     /tmp/rtpmanager-plugins/libgstnvunixfd.so
 RUN case "$(uname -m)" in \
         aarch64) plugin_dir=/usr/lib/aarch64-linux-gnu/gstreamer-1.0 ;; \
         x86_64) plugin_dir=/usr/lib/x86_64-linux-gnu/gstreamer-1.0 ;; \
@@ -243,7 +254,8 @@ RUN case "$(uname -m)" in \
     && test -d "$plugin_dir" \
     && install -m 0644 /tmp/rtpmanager-plugins/libgstrtpmanager.so \
         /tmp/rtpmanager-plugins/libgstrtsp.so \
-        /tmp/rtpmanager-plugins/libgstvideoparsersbad.so "$plugin_dir/" \
+        /tmp/rtpmanager-plugins/libgstvideoparsersbad.so \
+        /tmp/rtpmanager-plugins/libgstnvunixfd.so "$plugin_dir/" \
     && rm -rf /tmp/rtpmanager-plugins
 
 RUN apt remove libslurm40t64 libpmi2-0t64 -y --purge && apt autoremove --purge -y
