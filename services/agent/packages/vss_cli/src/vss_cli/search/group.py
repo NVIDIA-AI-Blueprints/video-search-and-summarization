@@ -361,12 +361,21 @@ async def _critic_from(
         # fetches the bounded VST clip. Inlining the MP4 is subject to the
         # proxy's base64-size cap and makes otherwise valid hits unverifiable.
         media_mode="video_url",
-        video_url_scope="external",
+        # RT-VLM fetches the clip itself. Use VST's in-cluster videoUrl (the
+        # URL VST returns) rather than rewriting it to the client-facing origin,
+        # so a container-hosted RT-VLM is not handed a localhost clip link its
+        # SSRF guard rejects. Mirrors `vss vlm run` (vss_cli/vlm/runner.py).
+        video_url_scope="internal",
         # A Cosmos model id does not make this a direct Cosmos NIM endpoint.
         # RT-VLM performs its own preprocessing, so the direct-NIM
         # media_io_kwargs that OpenAIVLMAnalyzer normally adds do not belong
         # in this proxy request.
         cosmos_nim_runtime_options=False,
+        # RT-VLM samples the opening frame alone when the budget is absent,
+        # which is not enough to ground a question about an interval. Match
+        # `vss vlm run`'s default (vss_cli/vlm/runner.py:_RT_VLM_FRAME_BUDGET)
+        # so the critic judges the whole clip, not its first frame.
+        rt_vlm_frame_budget=8,
     )
     return CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="offset"), vlm
 

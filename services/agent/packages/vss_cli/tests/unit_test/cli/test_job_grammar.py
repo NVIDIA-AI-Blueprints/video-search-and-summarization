@@ -521,8 +521,11 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
     assert vlm._base_url == "https://vss.example/rtvi-vlm/v1"
     assert vlm._model == "cosmos-reason3"
     assert vlm._media_mode == "video_url"
-    assert vlm._video_url_scope == "external"
+    assert vlm._video_url_scope == "internal"
     assert vlm._cosmos_nim_runtime_options is False
+    # RT-VLM samples the opening frame alone when the budget is absent; the
+    # search critic must match `vss vlm run`'s default so it judges the clip.
+    assert vlm._rt_vlm_frame_budget == 8
 
 
 def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
