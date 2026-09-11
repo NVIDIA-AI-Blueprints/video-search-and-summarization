@@ -654,11 +654,16 @@ Notes that have burned prior runs:
   - `--environment-build-timeout-multiplier 3.0` → 1800s env start.
     Massedcompute L40S provisioning can exceed 10 min; 600s fires
     `EnvironmentStartTimeoutError` before the box is READY.
-  - `--agent-timeout-multiplier 6.0` → 3600s (1 h) per trial. Cold
+  - `--agent-timeout-multiplier 9.0` → 5400s (1.5 h) per trial. Cold
     `/vss-build-vision-ai` (esp. `lvs` / `alerts_*` pulling local NIMs)
     plus follow-on ingest / multi-step work overran the old 30-min
     ceiling and harbor logged `NonZeroAgentExitCodeError` (exit 124).
-    Only this multiplier is 6.0 — it's the trial-work budget.
+    The later 1-h ceiling left deploy steps finishing at 1h02–1h04 on
+    single-digit turn counts — waiting on image and weight pulls, not
+    reasoning — so they raised `AgentTimeoutError` with their checks
+    already passing, and which spec tipped over tracked the box's image
+    cache rather than the change under test.
+    Only this multiplier is 9.0 — it's the trial-work budget.
   - `--verifier-timeout-multiplier 3.0` → 1800s verify. `generic_judge.py`
     runs a judge per check (4-6 on specs like `vss-manage-video-io-storage`),
     which compounds past 600s and raises `VerifierTimeoutError`.
@@ -676,13 +681,13 @@ real failure: the wrapper exits 4, see § Output requirements).
 Don't background the trial (`run_in_background`, `&`/`nohup`/`disown`):
 the harness blocks those and raises the Bash timeout cap so the long
 foreground wrapper call is not auto-backgrounded into a pollable task.
-`run_leg.py` applies a 12000s (200 min) hard backstop to each internal Harbor
-subprocess: 7560s for environment build + agent setup + agent + verifier,
+`run_leg.py` applies a 13800s (230 min) hard backstop to each internal Harbor
+subprocess: 9360s for environment build + agent setup + agent + verifier,
 2520s for four bounded artifact-transfer/recovery windows, and 1920s of
 scheduling/non-transfer teardown headroom. `brev_env.py` caps each transfer's
 active work at 600s and its total process-reap wall time at 630s, so that
 recovery term is real rather than aspirational. The normal
-3600s agent deadline should fire first; the outer backstop is emergency-only
+5400s agent deadline should fire first; the outer backstop is emergency-only
 and requests SIGINT before bounded TERM/KILL escalation. The agent publishes a
 12-hour SDK deadline inside the 14-hour job and an earlier 11.5-hour Harbor
 deadline, reserving 30 minutes for result inspection, the PR comment, and the
