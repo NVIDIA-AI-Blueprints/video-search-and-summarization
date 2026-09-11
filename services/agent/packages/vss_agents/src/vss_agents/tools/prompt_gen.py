@@ -25,6 +25,8 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from vss_agents.prompt import VSS_SUMMARIZE_PROMPT
+from vss_agents.utils.reasoning_parsing import parse_reasoning_content
+from vss_agents.utils.reasoning_utils import get_llm_reasoning_bind_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +51,36 @@ class PromptGenInput(BaseModel):
 async def prompt_gen(config: PromptGenConfig, builder: Builder) -> AsyncGenerator[FunctionInfo]:
     """Generate a prompt for the user's query."""
 
+    def _content_of(result: object, step: str) -> str:
+        """Return the answer, dropping any reasoning the model emitted alongside it."""
+        # No raw-content fallback: parse_reasoning_content already returns plain
+        # content as the second element, so None means the model produced reasoning
+        # and no answer. Substituting result.content there would hand back the
+        # unparsed "<think>...</think>" blob as the detection prompt.
+        _reasoning, content = parse_reasoning_content(result)
+        content = (content or "").strip()
+        if not content:
+            # Empty here means the model spent its whole max_tokens budget on
+            # reasoning and was cut off (finish_reason=length). Returning "" sends
+            # the agent into a retry loop against a tool that can never answer, so
+            # say what happened instead.
+            raise ValueError(
+                f"prompt_gen produced no content during {step}. The LLM likely exhausted "
+                f"max_tokens on reasoning; raise max_tokens for '{config.llm_name}' or "
+                "disable its thinking mode."
+            )
+        return content
+
     async def _prompt_gen(prompt_gen_input: PromptGenInput) -> str:
         llm = await builder.get_llm(config.llm_name, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+        # This helper writes one short Yes/No detection question, so reasoning buys
+        # nothing and on a small max_tokens budget consumes the entire answer. Bind
+        # the caller's intent explicitly rather than inheriting the server default,
+        # which `--default-chat-template-kwargs {"enable_thinking":true}` now sets on
+        # every hardware profile.
+        reasoning_kwargs = get_llm_reasoning_bind_kwargs(llm, prompt_gen_input.detailed_thinking)
+        if reasoning_kwargs:
+            llm = llm.bind(**reasoning_kwargs)
         messages = []
         if prompt_gen_input.detailed_thinking:
             messages.append(("system", "detailed thinking on"))
@@ -61,7 +91,7 @@ async def prompt_gen(config: PromptGenConfig, builder: Builder) -> AsyncGenerato
         result = await qa_chain.ainvoke(
             {"user_query": prompt_gen_input.user_query, "user_intent": prompt_gen_input.user_intent}
         )
-        result = result.content
+        result = _content_of(result, "prompt generation")
         if prompt_gen_input.previous_prompt:
             merge_quesion_prompt = ChatPromptTemplate.from_messages(
                 [
@@ -80,7 +110,7 @@ async def prompt_gen(config: PromptGenConfig, builder: Builder) -> AsyncGenerato
                     "new_prompt": result,
                 }
             )
-            result = result.content
+            result = _content_of(result, "prompt merge")
         return str(result)
 
     yield FunctionInfo.create(
