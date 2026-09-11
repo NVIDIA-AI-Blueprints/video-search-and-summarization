@@ -77,7 +77,7 @@ def resolve_model_config(
         raise ValueError(
             "SKILLS_EVAL_MODEL is required when SKILLS_EVAL_ENDPOINT_URL is set"
         )
-    if requested_provider in {"custom", "nvidia-build"} and not requested_model:
+    if requested_provider != "default" and not requested_model:
         raise ValueError(
             f"SKILLS_EVAL_MODEL is required for provider={requested_provider}"
         )

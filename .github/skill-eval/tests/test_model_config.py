@@ -101,6 +101,22 @@ def test_nemoclaw_nvidia_inference_maps_to_custom() -> None:
     assert config.api_key == "secret"
 
 
+def test_explicit_nvidia_inference_requires_model() -> None:
+    with pytest.raises(
+        ValueError,
+        match="SKILLS_EVAL_MODEL is required for provider=nvidia-inference",
+    ):
+        model_config.resolve_model_config(
+            {
+                "EVAL_AGENT": "nemoclaw",
+                "SKILLS_EVAL_PROVIDER": "nvidia-inference",
+                "NEMOCLAW_MODEL": "runner/default-model",
+                "NEMOCLAW_ENDPOINT_URL": "https://inference-api.nvidia.com/v1",
+                "COMPATIBLE_API_KEY": "secret",
+            }
+        )
+
+
 def test_nemoclaw_nvidia_build_uses_build_contract() -> None:
     config = model_config.resolve_model_config(
         {
