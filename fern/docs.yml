@@ -254,6 +254,9 @@ navigation:
       - page: "Agent Skills"
         slug: agent-skills
         path: ../docs/agent-skills.mdx
+      - page: "Build Vision AI Skill"
+        slug: build-vision-ai
+        path: ../docs/build-vision-ai.mdx
       - section: "Agent Harnesses"
         slug: agent-harnesses
         path: ../docs/agent-harnesses.mdx

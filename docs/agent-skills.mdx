@@ -54,9 +54,9 @@ VSS Agent Skills are used in two complementary ways:
 
 - **Deployment.** A coding agent such as Claude Code or Codex loads the Skills, takes a
   natural-language request like *"Deploy VSS for video search"*, and invokes
-  `vss-deploy-profile` to select the profile, run pre-flight checks, and bring up the
-  Docker Compose stack. The developer does not need to remember exact flags, profile
-  names, or compose commands.
+  `vss-build-vision-ai` to select the profile or capability set, run pre-flight
+  checks, generate the Compose plan, and bring up the stack. The developer does
+  not need to remember exact flags, profile names, or compose commands.
 - **Runtime.** Once VSS is running, an always-on coding agent such as NemoClaw loads
   the same Skills and acts as the operational interface to the deployment. The user can
   manage cameras and streams, submit and verify alerts, run searches, summarize videos,
@@ -65,7 +65,7 @@ VSS Agent Skills are used in two complementary ways:
 ## Available Skills
 
 The official VSS Agent Skills are published in the `skills/` folder of the
-[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/skills)
+[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/skills)
 on GitHub, and mirrored to the public NVIDIA Skills catalog at
 [github.com/nvidia/skills](https://github.com/nvidia/skills).
 
@@ -80,13 +80,13 @@ the installed path or in the slash command.**
 
 | Skill | Description |
 | --- | --- |
-| `vss-build-vision-ai` | Add agent-ready vision capabilities to an app or agent. Pick capabilities through guided intake ("build a vision agent") or name them directly ("add agentic search to my base deployment"), then route, compose, configure, and deploy a stock developer profile, the warehouse industry profile, or a lean delta overlay on top of one. Hands off to the operations Skills once a stack is running, and to a single deployment Skill when only one microservice is wanted. |
+| [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) | Primary build and deployment Skill for VSS. Deploys stock developer profiles, warehouse industry profiles, and custom capability combinations from natural-language requests. Hands off to the operations Skills once a stack is running, and to a single deployment Skill when only one microservice is wanted. |
 
 ### Deployment
 
 | Skill | Description |
 | --- | --- |
-| `vss-deploy-profile` | Configure, deploy, debug, verify, or tear down any VSS profile using a Docker Compose-centric workflow. |
+| `vss-deploy-profile` | Legacy profile-only deployment Skill. Use `vss-build-vision-ai` for new profile, warehouse, and custom deployment workflows. |
 | `vss-deploy-warehouse-helm` | Deploy or upgrade the warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
 | `vss-deploy-dense-captioning` | Deploy and call the RT-VLM dense captioning microservice on stored video files and live RTSP streams. Captions, alerts, stream management, or OpenAI-compatible completions. |
 | `vss-deploy-detection-tracking-2d` | Deploy, operate, debug, or tear down the RTVI-CV (Real Time Video Intelligence CV) perception microservice locally, and call its REST API to manage streams, health probes, and metrics. Supports the `warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, and `smartcity-gdino` use cases. |
@@ -112,7 +112,7 @@ the installed path or in the slash command.**
 
 | Skill | Description |
 | --- | --- |
-| `vss-generate-video-calibration` | Calibrate a multi-camera dataset with Auto Calibration from local MP4s, live RTSP streams, or the bundled sample dataset. For sample prompts and expected agent steps, see the [Auto Calibration Agent Skills walkthrough](/vss/vision-agent/agent-skills). |
+| `vss-generate-video-calibration` | Calibrate a multi-camera dataset with AutoMagicCalib (AMC) from local MP4s, live RTSP streams, or the bundled sample dataset. For sample prompts and expected agent steps, see the [Auto Calibration Agent Skills walkthrough](/vss/system-components/calibration/auto-calibration/getting-started#agent-skills-walkthrough). |
 
 ### Benchmarking
 
@@ -126,7 +126,7 @@ the installed path or in the slash command.**
 The `vss-generate-video-report` skill applies the following fail-fast handling:
 
 - **Profile probe failure**: stop and ask the user to deploy the required profile
-  via `vss-deploy-profile` (`base` for Mode A, `alerts` for Mode B).
+  via `vss-build-vision-ai` (`base` for Mode A, `alerts` for Mode B).
 - **Clip URL rewrite env missing**: if any of `VSS_PUBLIC_HTTP_PROTOCOL`,
   `VSS_PUBLIC_HOST`, or `VSS_PUBLIC_PORT` is unset, fail with the missing
   variable instead of emitting malformed browser URLs.
@@ -167,7 +167,7 @@ register each Skill into the host's skills directory. Symlinks are used so that 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.2.1
+git checkout develop
 ```
 
 ### Step 2: Ask the coding agent to install the Skills
@@ -220,6 +220,7 @@ profile or operate the deployment. The agent invokes the matching Skill from the
 catalog. After installing Skills, see the following guides to get started:
 
 - [Quickstart: Agent Skills Walkthrough](/vss/getting-started/quickstart#agent-skills-walkthrough) — deploy and operate the base profile using Skills.
+- [Build Vision AI Skill](/vss/vision-agent/build-vision-ai) — primary deployment entry point for stock profiles, warehouse profiles, and custom vision stacks.
 - [Video Summarization](/vss/vision-agent/agent-workflows/video-summarization) — skills-based workflow for video summarization.
 - [Video Search](/vss/vision-agent/agent-workflows/search) — skills-based workflow for natural language video search.
 - [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts) — skills-based workflow for real-time alert generation.
