@@ -121,10 +121,10 @@ class SearchRuntime:
     # Search orchestrator default from functions.search.default_max_results.
     default_max_results: int = 10
     embed_confidence_threshold: float = 0.1  # config.yml:80 override; code default is 0.2
-    fusion_method: FusionMethod = "weighted_rrf"
+    fusion_method: FusionMethod = "rrf"
     w_attribute: float = 0.55
     w_embed: float = 0.35
-    w_tag: float = 0.45
+    w_tag: float = 0.0  # VLM tag leg off by default; opt in via --w-tag (auto-selects weighted_rrf)
     rrf_k: int = 60
     rrf_w: float = 0.5
     top_percent_filter: float | None = None

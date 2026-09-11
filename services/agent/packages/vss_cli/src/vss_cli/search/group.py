@@ -444,6 +444,19 @@ class SearchGroup(CommandGroup):
         # The flag reads as a negation; the runtime field is positive.
         if tuning.pop("no_merge_adjacent", False):
             tuning["merge_adjacent"] = False
+        # Auto-select the fusion method from the VLM tag leg choice. The
+        # legacy `rrf` (embed + attribute, no tag leg) is the default; opting
+        # into the VLM tag leg (--w-tag > 0) auto-selects `weighted_rrf`
+        # (the only method that fuses a tag leg). An explicit
+        # `--fusion-method rrf` with `--w-tag > 0` is a contradiction —
+        # surface it as an input error rather than silently dropping the tag leg.
+        if tuning.get("fusion_method") is None:
+            if (tuning.get("w_tag") or 0.0) > 0:
+                tuning["fusion_method"] = "weighted_rrf"
+            else:
+                tuning["fusion_method"] = "rrf"
+        elif tuning["fusion_method"] == "rrf" and (tuning.get("w_tag") or 0.0) > 0:
+            raise InvalidInput("`rrf` fusion has no VLM tag leg; use `weighted_rrf` or set `--w-tag 0`.")
         # The library still selects a path by `search_mode`; the CLI just no
         # longer asks the caller to name it. The sub-action is the mode.
         payload["search_mode"] = action

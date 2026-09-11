@@ -557,8 +557,6 @@ async def execute_core_search(
         attribute_list = [attr.strip() for attr in attribute_list if attr.strip()]
 
     if search_input.search_mode == "fusion":
-        if tag_search is None:
-            raise ConfigurationError("tag_search must be pre-loaded by the Search primitive")
         query_params["top_k"] = str(min(top_k, _DOWNSTREAM_MAX_TOP_K))
         query_input_json = json.dumps(
             {
@@ -578,6 +576,48 @@ async def execute_core_search(
                 else EmbedSearchOutput.model_validate(output)
             )
             return _fusion.embed_output_to_search_results(validated)
+
+        if config.fusion_method == "rrf":
+            # Legacy rrf fusion: embed + optional attribute (per-embed attribute
+            # lookup), NO VLM tag leg. Reuses the pre-tag-search rrf_fusion
+            # pipeline: score = 1/(rank + rrf_k) + rrf_w * normalised_attribute_score.
+            # The VLM tag leg is off by default (w_tag=0); opt in via --w-tag,
+            # which the CLI auto-routes to weighted_rrf.
+            yield AgentMessageChunk(
+                type=AgentMessageChunkType.TOOL_CALL,
+                content="Running embedding and optional attribute retrieval for rrf fusion",
+            )
+            embed_results = await _embed_provider()
+            if attribute_list and attribute_search_fn is not None:
+                search_results = await fusion_search_rerank(
+                    embed_results,
+                    attribute_list,
+                    attribute_search_fn,
+                    vst_internal_url=getattr(config, "vst_internal_url", None),
+                    source_type=search_input.source_type,
+                    fusion_method="rrf",
+                    rrf_k=config.rrf_k,
+                    rrf_w=config.rrf_w,
+                )
+            else:
+                candidates = [
+                    _fusion.FusionCandidate(
+                        embed_result=result,
+                        embed_score=_coerce_float(result.similarity),
+                        normalised_attribute_score=0.0,
+                        screenshot_url=_coerce_str(result.screenshot_url),
+                        object_ids=[],
+                    )
+                    for result in embed_results
+                ]
+                search_results = _fusion.rrf_fusion(candidates, config.rrf_k, config.rrf_w)
+            if getattr(config, "merge_adjacent", True):
+                search_results = _fusion.merge_consecutive_results(search_results)
+            yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
+            return
+
+        if tag_search is None:
+            raise ConfigurationError("tag_search must be pre-loaded by the Search primitive")
 
         async def _tag_provider() -> tuple[list[SearchResult], int]:
             output = await tag_search.ainvoke(tag_params)
