@@ -203,11 +203,14 @@ you registered and which directory you used.
 The agent reads each `SKILL.md` frontmatter, creates the symlinks, and confirms what is
 installed. The Skills become invokable in the next agent session.
 
-To install only a single Skill, ask the agent:
+To install only a single Skill, give the agent the path as it appears in the catalog
+above — most Skills sit inside a category, while `vss-build-vision-ai` is at the top of
+`skills/`:
 
 ```text
-Install only skills/<category>/<name>/ for this host the same way, registering it as
-<name> without the category.
+Install only skills/<path-from-the-catalog>/ for this host the same way — for example
+skills/operations/vss-search-archive/ or skills/vss-build-vision-ai/. Register it under
+the skill's own directory name, without any category prefix.
 ```
 
 ## Using Skills
@@ -235,13 +238,19 @@ and return a shareable URL.
 
 ## Updating Skills
 
-After a `git pull` of the Blueprint repository, the symlinks already point at the
-updated content. No further action is needed unless new Skills were added, renamed,
-or moved between category folders. To pick up newly added Skills, ask the agent:
+After a `git pull` of the Blueprint repository, the symlinks already resolve to the
+updated content, so a content change needs no action. Two cases do, because an install
+is a symlink to a repository path rather than to a name: a **new** Skill has no symlink
+yet, and a Skill that **moved between category folders** (or was renamed) leaves its old
+symlink dangling — the name still appears installed while its target no longer exists.
+To handle both, ask the agent:
 
 ```text
-Re-read skills/README.md and add any new skills missing from this host's skills
-directory.
+Re-check this host's skills directory against skills/README.md. Add a symlink for any
+catalog skill that is missing. Then check every VSS skill symlink already there: if its
+target no longer exists, or points somewhere other than that skill's current path in
+this checkout, repoint it. Remove symlinks for skills that are no longer in the catalog.
+Report what you added, repointed, and removed.
 ```
 
 To uninstall every Skill, ask the agent:

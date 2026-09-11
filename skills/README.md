@@ -253,17 +253,30 @@ it, ask questions of it, manage its alerts, and read its analytics.
 
 ### Single-skill install
 
-> Install only `skills/<category>/<name>/` for this host the same way — register it
-> as `<name>`, without the category.
+Most skills sit inside a category; `vss-build-vision-ai` is at the top of `skills/`.
+Give the agent the path as it appears in the catalog above:
+
+> Install only `skills/<path-from-the-catalog>/` for this host the same way — for
+> example `skills/operations/vss-search-archive/` or `skills/vss-build-vision-ai/`.
+> Register it under the skill's own directory name, without any category prefix.
 
 ### Update
 
-After `git pull`, the symlinks already point at the updated content — nothing to do
-unless skills were added, renamed, or moved between categories. To pick up new
-skills:
+After `git pull` the symlinks already resolve to the updated content, so a content
+change needs nothing. Two cases do need action, because an install is a symlink to a
+repository path rather than to a name:
 
-> Re-read `skills/README.md` and add any new skills missing from this host's skills
-> directory.
+- a **new** skill has no symlink yet
+- a skill that **moved between categories** (or was renamed) leaves its old symlink
+  dangling — the leaf name still appears installed, but its target no longer exists
+
+Both are covered by:
+
+> Re-check this host's skills directory against `skills/README.md`. Add a symlink for
+> any catalog skill that is missing. Then check every VSS skill symlink already there:
+> if its target no longer exists, or points somewhere other than that skill's current
+> path in this checkout, repoint it. Remove symlinks for skills that are no longer in
+> the catalog. Report what you added, repointed, and removed.
 
 ### Uninstall
 
