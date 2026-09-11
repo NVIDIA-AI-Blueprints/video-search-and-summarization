@@ -374,6 +374,7 @@ def backfill_embeddings(
 @click.option("--record-id")
 @click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
 @click.option("--group", type=click.Choice(("summary", "search", "alert")))
+@click.option("--fps", type=click.FloatRange(min=0, max=256, min_open=True), help="RT-VLM frames per second.")
 @_output_options
 def introspect_memory(
     query: str,
@@ -384,6 +385,7 @@ def introspect_memory(
     record_id: str | None,
     record_type: str | None,
     group: str | None,
+    fps: float | None,
     pretty: bool,
 ) -> None:
     """Answer via the configured text judge and bounded RT-VLM follow-ups."""
@@ -399,6 +401,7 @@ def introspect_memory(
             record_id=record_id,
             record_type=cast("RecordType | None", record_type),
             group=cast("MemoryGroup | None", group),
+            fps=fps,
         )
         has_time_range = request.start_time is not None and request.end_time is not None
         if not (request.sensor or request.job_id or has_time_range):

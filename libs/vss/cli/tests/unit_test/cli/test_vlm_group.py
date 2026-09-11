@@ -438,6 +438,35 @@ def test_run_request_carries_num_frames(
     group.run("", inputs, ctx)
 
     assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 16
+    assert captured["json"].get("use_fps_for_chunking") is False
+
+
+def test_run_request_carries_fps(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", fps=0.5), ctx)
+
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 0.5
+    assert captured["json"].get("use_fps_for_chunking") is True
+
+
+def test_num_frames_and_fps_are_mutually_exclusive() -> None:
+    with pytest.raises(Exception, match="mutually exclusive"):
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", num_frames=16, fps=1.0)
 
 
 def test_run_request_num_frames_default(
@@ -462,6 +491,7 @@ def test_run_request_num_frames_default(
     group.run("", inputs, ctx)
 
     assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 8
+    assert captured["json"].get("use_fps_for_chunking") is False
 
 
 def test_use_base64_with_sensor_is_invalid(

@@ -35,7 +35,7 @@
     {
       "query": "Treat these as mocked prior tool results: native Markdown search found a relevant but incomplete note with VSS job pointer sum-01JXYZ, and configure memory show reports introspection.enabled=true. Continue the question verbatim: Was the worker wearing a safety helmet?",
       "checks": [
-        "The next VSS operation is memory introspect with --job-id sum-01JXYZ and the user's question preserved verbatim.",
+        "The next VSS operation is memory introspect with --job-id sum-01JXYZ, the user's question preserved verbatim, and --fps chosen from the skim/locate/inspect policy.",
         "It does not run memory query first and does not manually duplicate an internal VLM follow-up.",
         "Any command uses a complete project-local uv run invocation in the same shell call."
       ]
@@ -43,7 +43,7 @@
     {
       "query": "Treat these as mocked tool results: native Markdown search returned no useful evidence, configure memory show reports introspection.enabled=true, and dock_cam is a grounded sensor. Continue: Was anyone missing PPE?",
       "checks": [
-        "The next VSS operation is memory introspect with --sensor dock_cam and the verbatim question.",
+        "The next VSS operation is memory introspect with --sensor dock_cam, the verbatim question, and --fps.",
         "It does not issue memory query first or call a backend directly."
       ]
     },
@@ -71,7 +71,7 @@
     {
       "query": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a safety helmet?",
       "checks": [
-        "It uses exactly one vss vlm run with dock_cam and both exact UTC bounds.",
+        "It uses exactly one vss vlm run with dock_cam, both exact UTC bounds, and --fps rather than a fixed --num-frames.",
         "It does not search Markdown or call memory introspect."
       ]
     },

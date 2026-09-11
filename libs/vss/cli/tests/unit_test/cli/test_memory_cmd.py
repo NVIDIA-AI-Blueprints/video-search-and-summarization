@@ -458,6 +458,7 @@ def test_introspect_help_exposes_exact_options() -> None:
         "--record-id",
         "--record-type",
         "--group",
+        "--fps",
         "--pretty",
     ):
         assert option in result.output
@@ -485,6 +486,20 @@ def test_introspect_accepts_each_selector(selector: tuple[str, ...]) -> None:
     result = _invoke("introspect", "--query", "What happened?", *selector)
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["status"] == "completed"
+
+
+def test_introspect_forwards_fps() -> None:
+    observed: list[Any] = []
+
+    async def fake(request: Any) -> IntrospectionResult:
+        observed.append(request)
+        return _introspection_result()
+
+    set_test_introspect(fake)
+    result = _invoke("introspect", "--query", "What happened?", "--sensor", "warehouse", "--fps", "0.5")
+
+    assert result.exit_code == 0, result.output
+    assert observed[0].fps == 0.5
 
 
 @pytest.mark.parametrize(

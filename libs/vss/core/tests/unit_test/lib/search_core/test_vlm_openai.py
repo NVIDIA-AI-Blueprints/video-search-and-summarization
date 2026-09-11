@@ -98,6 +98,7 @@ async def test_rt_vlm_frame_budget_is_sent_instead_of_media_io_kwargs() -> None:
         payload = json.loads(request.content)
         assert "media_io_kwargs" not in payload
         assert payload["num_frames_per_second_or_fixed_frames_chunk"] == 8
+        assert payload["use_fps_for_chunking"] is False
         return httpx.Response(
             200,
             json={"choices": [{"message": {"content": "No"}}]},
@@ -123,6 +124,34 @@ async def test_rt_vlm_frame_budget_is_sent_instead_of_media_io_kwargs() -> None:
             time_format="offset",
         )
         assert answer == "No"
+    finally:
+        await analyzer.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rt_vlm_fps_sampling_is_sent() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["num_frames_per_second_or_fixed_frames_chunk"] == 0.5
+        assert payload["use_fps_for_chunking"] is True
+        return httpx.Response(200, json={"choices": [{"message": {"content": "No"}}]}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(
+        base_url="https://rt-vlm.example/v1",
+        model="model",
+        vst=_VST(),  # type: ignore[arg-type]
+        rt_vlm_frame_budget=0.5,
+        rt_vlm_use_fps_for_chunking=True,
+    )
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        await analyzer.analyze(
+            sensor_id="sensor-1",
+            start_timestamp="0.0",
+            end_timestamp="5.0",
+            prompt="What happened?",
+            time_format="offset",
+        )
     finally:
         await analyzer.aclose()
 
