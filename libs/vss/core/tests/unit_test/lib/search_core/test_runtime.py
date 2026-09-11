@@ -44,6 +44,13 @@ class TestKnobValidation:
         with pytest.raises(ConfigurationError, match="at least one"):
             SearchRuntime.from_kwargs(w_tag=0.0, w_embed=0.0, w_attribute=0.0)
 
+    def test_defaults_disable_vlm_tag_and_use_legacy_rrf(self) -> None:
+        # The VLM tag leg is off by default and the default fusion method is
+        # the legacy `rrf` (embed + attribute, no tag leg), not `weighted_rrf`.
+        rt = SearchRuntime.from_kwargs(es_endpoint="http://es")
+        assert rt.w_tag == 0.0
+        assert rt.fusion_method == "rrf"
+
 
 class TestRequire:
     """Endpoints are checked at use, not at construction.
