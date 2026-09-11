@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
@@ -19,6 +20,14 @@ def _first(*values: object) -> str:
         if text:
             return text
     return ""
+
+
+def _validate_endpoint_url(endpoint_url: str) -> None:
+    if not endpoint_url:
+        return
+    parsed = urllib.parse.urlsplit(endpoint_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("SKILLS_EVAL_ENDPOINT_URL must be an HTTP(S) URL with a host")
 
 
 @dataclass(frozen=True)
@@ -155,6 +164,8 @@ def resolve_model_config(
     if not api_key:
         expected = credential_name if runtime == "nemoclaw" else "ANTHROPIC_API_KEY"
         raise ValueError(f"no API key is configured; set {expected} on the runner")
+
+    _validate_endpoint_url(endpoint_url)
 
     return SkillEvalModelConfig(
         runtime=runtime,
