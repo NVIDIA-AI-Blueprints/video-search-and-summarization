@@ -164,6 +164,8 @@ For docker compose environment, current utilization of the GPU can be checked us
 
 If you are consistently observing low FPS, try reducing the number of streams assigned to each GPU.
 
+For additional tuning guidance, see [Performance Notes](https://docs.nvidia.com/vss/latest/object-detection-tracking.html#performance-notes) in the Object Detection and Tracking documentation.
+
 ### Why does vss-rtvi-cv crash with NvBufSurfTransform error -2 when adding streams on IGX Thor Mini?
 
 On IGX Thor Mini, `vss-rtvi-cv` can log the following error: `NvVicCompose Failed NvBufSurfTransform failed with error -2 while converting buffer`. After the restart, `vss-rtvi-cv` may remain idle with `Active sources : 0` while the SDR controller exhausts retries to add streams.

@@ -56,6 +56,16 @@ For detailed installation instructions for the software requirements listed abov
 
 ## Runtime Environment Settings
 
+### File Creation Permissions
+
+Before cloning the VSS repository, check the user file-creation mode in the shell that you will use to run `git clone`:
+
+```bash
+umask
+```
+
+The `umask` must be `022` or less restrictive so containers that run as a different user can read cloned files and traverse cloned directories. A more restrictive value, such as `027`, can prevent containers from accessing files in the cloned repository. If necessary, change the `umask` to `022` or a less restrictive value before cloning.
+
 ### Linux Kernel Settings
 
 ```bash
