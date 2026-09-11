@@ -45,6 +45,26 @@ on:
         options:
           - claude-code
           - nemoclaw
+      provider:
+        description: "Evaluated-agent provider. `default` preserves the runner configuration."
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - nvidia-inference
+          - nvidia-build
+          - custom
+      model:
+        description: "Optional model for the evaluated agent; blank preserves the configured default."
+        required: false
+        default: ""
+        type: string
+      endpoint_url:
+        description: "Optional evaluated-agent API base URL; required for provider=custom."
+        required: false
+        default: ""
+        type: string
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -217,6 +237,9 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
+          SKILLS_EVAL_PROVIDER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || 'default' }}
+          SKILLS_EVAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
+          SKILLS_EVAL_ENDPOINT_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.endpoint_url || '' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -238,6 +261,10 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
+          skills_eval_harness="$EVAL_AGENT"
+          skills_eval_provider="$SKILLS_EVAL_PROVIDER_INPUT"
+          skills_eval_model="$SKILLS_EVAL_MODEL_INPUT"
+          skills_eval_endpoint="$SKILLS_EVAL_ENDPOINT_INPUT"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
@@ -248,8 +275,24 @@ jobs:
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
           export PATH="$skill_eval_venv_dir/bin:$PATH"
+          export EVAL_AGENT="$skills_eval_harness"
+          export SKILLS_EVAL_HARNESS="$skills_eval_harness"
+          export SKILLS_EVAL_PROVIDER="$skills_eval_provider"
+          if [ -n "$skills_eval_model" ]; then
+            export SKILLS_EVAL_MODEL="$skills_eval_model"
+          else
+            unset SKILLS_EVAL_MODEL
+          fi
+          if [ -n "$skills_eval_endpoint" ]; then
+            export SKILLS_EVAL_ENDPOINT_URL="$skills_eval_endpoint"
+          else
+            unset SKILLS_EVAL_ENDPOINT_URL
+          fi
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          # Fail before run_leg waits for or acquires a Brev worker. This logs
+          # the resolved route but never its credential.
+          python3 .github/skill-eval/model_config.py
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
           # the public relay for RTSP-dependent skill checks.
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
