@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -279,16 +280,20 @@ def generate_task(
 
         # skills/ — vss-ask-video + VIOS (the spec env mentions pre-uploading a
         # sample warehouse video via VIOS before running checks). The deploy
-        # skill is mounted only when the spec asks for it: these specs answer
-        # questions about an existing deployment or a local file, and one of
-        # them states outright that no VSS deployment is in scope. Mounting a
-        # ~480 KB deployment skill into that trial is noise at best, and at
-        # worst offers a deploy path to an agent told not to deploy.
+        # skill is mounted only when the spec actually needs it — declared in
+        # `skills`, or asked for by a step that deploys. Keying on `skills`
+        # alone is not enough: these specs gained a "Deploy the VSS base
+        # profile" first step without their `skills` array being updated.
         copies = [
             (skill_dir,          "vss-ask-video"),
             (video_io_skill_dir, "vss-manage-video-io-storage"),
         ]
-        if "vss-build-vision-ai" in (spec.get("skills") or []):
+        needs_deploy_skill = "vss-build-vision-ai" in (spec.get("skills") or []) or any(
+            "vss-build-vision-ai" in (e.get("query") or "")
+            or re.search(r"\bdeploy the vss\b", e.get("query") or "", re.I)
+            for e in (spec.get("expects") or [])
+        )
+        if needs_deploy_skill:
             copies.insert(1, (deploy_skill_dir, "vss-build-vision-ai"))
         for src, name in copies:
             if src and src.exists():
