@@ -67,7 +67,7 @@ operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
 requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
 skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 
-**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
+**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-build-vision-ai`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) — it routes to the right profile, or composes a delta overlay on one. **`vss-deploy-profile`** remains for the legacy profile-only path. Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
 
 | Profile | Workflow it deploys |
 |---|---|
@@ -86,7 +86,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | I want to… | Use this skill |
 |---|---|
 | Add vision capabilities to an app or agent, or build a stack from a description | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md) |
-| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](deployment/vss-deploy-profile/SKILL.md) |
+| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md); [`vss-deploy-profile`](deployment/vss-deploy-profile/SKILL.md) remains for the legacy profile-only path |
 | Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](deployment/vss-deploy-warehouse-helm/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](operations/vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](operations/vss-summarize-video/SKILL.md) |
@@ -112,7 +112,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 - `vss-ask-video` (one-off VLM question on a clip) vs. `vss-search-archive` (retrieval across an archive) vs. `vss-query-analytics` (read already-computed metrics/incidents — no live inference).
 - `vss-generate-video-report` (formatted report from per-clip VLM or an incident range) vs. `vss-generate-video-report-rag` (the frag/RAG pipeline with HITL parameter collection).
-- `vss-deploy-profile` (a whole workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
+- `vss-build-vision-ai` (compose and deploy a whole workflow stack) vs. `vss-deploy-profile` (the legacy profile-only path to the same stacks) vs. the other `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
 
 ---
 
@@ -138,7 +138,7 @@ repository organisation only and never appears in the installed path or in the
 
 | Skill | Layer | Description |
 |---|---|---|
-| [vss-deploy-profile](deployment/vss-deploy-profile/SKILL.md) | whole stack | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. |
+| [vss-deploy-profile](deployment/vss-deploy-profile/SKILL.md) | whole stack | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. **Legacy profile-only path** — reach for `vss-build-vision-ai` for new profile, warehouse, and custom deployment workflows. |
 | [vss-deploy-warehouse-helm](deployment/vss-deploy-warehouse-helm/SKILL.md) | whole stack | Deploy/upgrade the warehouse blueprint (2D/3D/MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
 | [vss-deploy-detection-tracking-2d](deployment/vss-deploy-detection-tracking-2d/SKILL.md) | 1 | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
 | [vss-deploy-detection-tracking-3d](deployment/vss-deploy-detection-tracking-3d/SKILL.md) | 1 | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
