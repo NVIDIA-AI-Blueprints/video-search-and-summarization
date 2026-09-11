@@ -43,13 +43,14 @@ references in the mounted configs and writes the rendered results to
 `/app/runtime/`, a tmpfs. That rendered copy is what the service reads, which is
 why the mounts are read-only.
 
-Request defaults — the `vlm_params` and `request_defaults` applied to fields a
-request omits — are not part of this contract. Profile deployments use the
-`alert_request_defaults.yaml` baked into the image; there is no mount or
-variable here to replace it. To change them, edit the per-alert-type
-verification config through the API, or run the service through
-`services/alert/deploy_docker-compose.yml`, which does support an override.
-The file itself is documented in
+Request defaults — the `vlm_params` and `request_defaults` in
+`alert_request_defaults.yaml` — are not part of this contract, and there is no
+mount or variable here to replace the copy baked into the image. Nothing is
+lost by that: the file feeds the request-entity validator, which the
+verification pipeline does not call, so its values never reach a VLM call.
+Per-request VLM tuning belongs in the per-alert-type verification config,
+served from Elasticsearch and changeable at runtime through
+`PUT /api/v1/verification/config/{alert_type}`. The file itself is documented in
 [`services/alert/src/schemas/config/README.md`](../../../../services/alert/src/schemas/config/README.md).
 
 ### Sections of `config.yml`
@@ -65,8 +66,8 @@ The file itself is documented in
   filters, and the `always_on` gate driven by `ALERT_AGENT_ALWAYS_ON`.
 - `prompt` — whether a payload-provided prompt takes precedence.
 - `alert_type_config_file` — path to the per-alert-type config.
-- `webhook` / `websocket` / `cors` — outbound notification and realtime
-  broadcast surfaces.
+- `webhook` / `cors` — outbound notification and the CORS policy of the HTTP
+  API.
 - `elastic` / `persistence` / `vlm_enhanced_sink` — Elasticsearch target and
   persistence of verification results.
 - `logging` — global level and format.

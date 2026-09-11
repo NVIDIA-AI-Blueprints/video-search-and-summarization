@@ -729,7 +729,7 @@ When per-sensor labels are enabled, missing, non-string, empty, or over-128-char
 
 **Verdicts** (`alert_bridge_events_total`): `confirmed`, `rejected`, `verification-failed`, `unknown`.
 
-**Verification failure reasons** (for breakdowns and operations that label by failure): `vst_timeout`, `vst_overloaded`, `vst_not_found`, `vst_unavailable`, `vst_client_error`, `vst_server_error`, `vst_unknown`, `url_validation`, `vlm_parse_failure`, `vlm_timeout`, `vlm_connection_error`, `vlm_server_error`, `vlm_invalid_payload`, `no_prompt`, `redis_unavailable`, `unknown`. `redis_unavailable` is a legacy label name, kept unchanged so existing dashboards and alerting rules keep matching; it now means the verdict-protection store was unreachable.
+**Verification failure reasons** (for breakdowns and operations that label by failure): `vst_timeout`, `vst_overloaded`, `vst_not_found`, `vst_unavailable`, `vst_client_error`, `vst_server_error`, `vst_unknown`, `url_validation`, `vlm_parse_failure`, `vlm_timeout`, `vlm_connection_error`, `vlm_server_error`, `vlm_invalid_payload`, `no_prompt`, `redis_unavailable`, `unknown`. `redis_unavailable` is a legacy label name, kept so existing dashboards and alerting rules keep matching. It is emitted only when the pre-pipeline confirmed-verdict check raises a Redis-named exception, which the Elasticsearch-backed verdict store does not do — expect it to stay at zero. Watch `alert_bridge_verdict_fail_open_total` for verdict-store trouble instead.
 
 ### Per-sensor variants
 
@@ -765,6 +765,18 @@ When `alert_agent.metrics.per_sensor_labels` is `true`, the service also emits t
 | `alert_bridge_async_sink_in_flight` | (none) | Current number of in-flight async sink operations. |
 
 Known `mode` values are `sync`, `async`, `sync_fallback`, and `async_submit`. Known `result` values are `success`, `error`, `timeout`, and `cancelled`. Known fallback `reason` values are `timeout`, `error`, `submit_error`, and `executor_unavailable`.
+
+**Confirmed-verdict protection** (active when `alert_agent.event_filters.protect_confirmed_verdicts.enabled` is `true`)
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `alert_bridge_verdict_fail_open_total` | `reason` | Verdict checks that could not confirm and so let the event proceed to the VLM. |
+| `alert_bridge_verdict_es_get_duration_seconds` | (none) | Latency of one confirmed-verdict marker read from Elasticsearch. |
+| `alert_bridge_verdict_retention_deleted_total` | (none) | Expired markers deleted by the retention job. |
+| `alert_bridge_verdict_retention_runs_total` | `outcome` | Retention job runs, labelled `success` or `failure`. |
+| `alert_bridge_verdict_retention_last_run_timestamp_seconds` | (none) | Unix timestamp of the last successful retention run. |
+
+The check is deliberately fail-open: an unreachable store re-verifies an event rather than blocking it, so the store's health shows up here and not as a verification failure. Known `reason` values are `es_down` (client unavailable, including while disabled by backoff), `error` (the read raised), and `write_error` (the marker write failed) — these three are the outage signal — plus `expired` and `malformed`, which describe the marker that was found rather than a store problem.
 
 **Realtime and API** (where enabled in the deployment)
 
@@ -956,3 +968,17 @@ individual alert type cannot ask for no system message; clearing its
 | `logging.level` | `DEBUG` | Application log level (DEBUG, INFO, WARNING, ERROR, CRITICAL). |
 | `logging.format` | (see config) | Log message format string. |
 | `logging.third_party_level` | `WARNING` | Log level for third-party libraries. |
+
+## Upgrading from 3.2.x
+
+Redis is no longer part of the service. Only the first row below has to be done before you upgrade — it is the one that stops the service from starting. The rest is cleanup you can do whenever.
+
+| 3.2.x setting | What 3.3 does with it | What to do |
+| --- | --- | --- |
+| `event_bridge.sourceType` or `sinkType` set to `redisStream` | Refuses to start: `Unsupported source type: redisStream (only 'kafka' is supported)` | Set both to `kafka`, and repoint whatever wrote to the input stream and whatever read the output stream at Kafka topics. |
+| Filter tuning under `event_bridge.redis_source` — `dedup_ttl_seconds`, `end_time_in_dedup_key_categories`, `protect_confirmed_verdicts`, `end_time_delta_filter` | Still read, with a warning naming the old section | Move these keys under `alert_agent.event_filters`. |
+| Connection keys under `event_bridge.redis_source` and `redis_sink` — `host`, `port`, `db`, `streams`, `consumer_group` | Ignored | Delete them, along with the `alert-bridge-redis` container, its volume, and the `depends_on` entry that referenced it. |
+| `VSS_BASE_URL` and any `vss_agent` section | Ignored | Delete. Clips are retrieved through VIOS/VST and the VLM is called directly. |
+| `vss_params` in `alert_request_defaults.yaml` | Ignored. The file still loads as long as `vlm_params` and `request_defaults` are present | Nothing — a file carried over from 3.2.x keeps working. |
+
+A `vss_params.vlm_params` block in a *request payload* is a separate thing and is still honoured, so older clients keep working. New clients should send `vlm_params` at the top level.
