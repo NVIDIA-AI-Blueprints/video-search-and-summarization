@@ -359,7 +359,6 @@ VST_NGINX_MODE=vst-sdrc
 ```ini
 MODE=auto-calibration
 BP_PROFILE=bp_wh_auto_calib
-STREAM_TYPE=kafka
 COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}
 
 # Auto-calibration does not use SDRC.
@@ -410,62 +409,6 @@ Container image coordinates are centralized in `containers.env` and loaded by th
 2. Choose exactly one deployment path and copy its settings into the same file.
 
 <Tabs>
-<Tab title="H100">
-<Tabs>
-<Tab title="Hardware Profile">
-
-**Published performance**
-
-| Workload | Streams | Input frame rate |
-| --- | ---: | ---: |
-| 2D | 26 | 30 FPS |
-| 3D | 16 | 30 FPS |
-| MV3DT | 13 | 30 FPS |
-
-```ini
-# The current Warehouse configurator maps H100 NVL and H100 SXM HBM3
-# to the same H100 profile key; variant-specific profile names are not defined.
-HARDWARE_PROFILE=H100
-```
-</Tab>
-<Tab title="Vision AI only">
-
-```ini
-# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
-RT_CV_DEVICE_ID=0
-LLM_MODE=none
-VLM_MODE=none
-```
-</Tab>
-<Tab title="Agents + Remote LLM">
-
-```ini
-# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
-RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=1
-LLM_MODE=remote
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
-
-LLM_NAME_SLUG=none
-LLM_BASE_URL=https://<llm-endpoint-without-v1>
-LLM_NAME=<llm-model-id-from-v1-models>
-LLM_MODEL_TYPE=<nim-or-openai>
-NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
-```
-</Tab>
-<Tab title="Agents + Local LLM">
-
-```ini
-# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
-RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=1
-LLM_DEVICE_ID=2
-LLM_MODE=local
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
-```
-</Tab>
-</Tabs>
-</Tab>
 <Tab title="RTXPRO6000BW">
 <Tabs>
 <Tab title="Hardware Profile">
@@ -541,6 +484,62 @@ RTVI_VLM_MAX_MODEL_LEN=18000
 
 ```ini
 # One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d or 3d.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="H100">
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 26 | 30 FPS |
+| 3D | 16 | 30 FPS |
+| MV3DT | 13 | 30 FPS |
+
+```ini
+# The current Warehouse configurator maps H100 NVL and H100 SXM HBM3
+# to the same H100 profile key; variant-specific profile names are not defined.
+HARDWARE_PROFILE=H100
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
 VLM_MODE=none
