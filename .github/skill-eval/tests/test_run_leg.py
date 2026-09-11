@@ -228,7 +228,7 @@ class PhaseBudgets(unittest.TestCase):
         self.assertEqual(run_leg.HARBOR_SHUTDOWN_GRACE_SEC, 1420)
         self.assertEqual(
             run_leg.invocation_reserve_sec(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC),
-            13480,
+            13480 + run_leg.remote_worker_lock.REMOTE_LEASE_RELEASE_BUDGET_SEC,
         )
         self.assertGreater(
             run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
@@ -557,6 +557,30 @@ class RunCommand(unittest.TestCase):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
         self.assertEqual(rc, 3)
+
+    def test_lost_worker_lease_aborts_harbor_without_sigint_grace(self):
+        proc = mock.Mock(pid=4321)
+        lost = run_leg.threading.Event()
+        lost.set()
+        with (
+            mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
+            mock.patch.object(
+                run_leg,
+                "_cancel_process_tree_after_lease_loss",
+                return_value=True,
+            ) as cancel,
+            mock.patch.object(run_leg, "_cancel_process_tree") as normal_cancel,
+        ):
+            rc = run_leg.run_command(
+                self.COMMAND,
+                self.ENV,
+                timeout_sec=42,
+                abort_event=lost,
+            )
+
+        self.assertEqual(rc, 125)
+        cancel.assert_called_once_with(proc, 4321, mock.ANY)
+        normal_cancel.assert_not_called()
 
     def test_signal_during_post_wait_group_scan_still_cleans_child_tree(self):
         proc = mock.Mock(pid=4321)
@@ -1530,6 +1554,13 @@ class PoolCandidates(unittest.TestCase):
 
 
 class HoldPoolLock(unittest.TestCase):
+    @staticmethod
+    def _lease():
+        lease = mock.Mock()
+        lease.lost_event = run_leg.threading.Event()
+        lease.release.return_value = True
+        return lease
+
     def test_claims_first_free_candidate(self):
         import fcntl
 
@@ -1539,10 +1570,15 @@ class HoldPoolLock(unittest.TestCase):
             held = (lock_dir / "box-a.lock").open("a+")
             fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             try:
-                with run_leg.hold_pool_lock(
-                    lambda: ["box-a", "box-b"], lock_dir, timeout_sec=5
-                ) as chosen:
-                    self.assertEqual(chosen, "box-b")
+                with mock.patch.object(
+                    run_leg,
+                    "_try_acquire_remote_worker_lease",
+                    return_value=self._lease(),
+                ):
+                    with run_leg.hold_pool_lock(
+                        lambda: ["box-a", "box-b"], lock_dir, timeout_sec=5
+                    ) as worker:
+                        self.assertEqual(worker.instance, "box-b")
             finally:
                 held.close()
 
@@ -1564,13 +1600,39 @@ class HoldPoolLock(unittest.TestCase):
             finally:
                 held.close()
 
+    def test_remote_busy_candidate_moves_to_next_worker(self):
+        lease = self._lease()
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                run_leg,
+                "_try_acquire_remote_worker_lease",
+                side_effect=[None, lease],
+            ) as acquire:
+                with run_leg.hold_pool_lock(
+                    lambda: ["box-a", "box-b"], Path(tmp), timeout_sec=5
+                ) as worker:
+                    self.assertEqual(worker.instance, "box-b")
+
+        self.assertEqual(
+            [call.args[0] for call in acquire.call_args_list],
+            ["box-a", "box-b"],
+        )
+        lease.release.assert_called_once_with()
+
     def test_lock_released_on_exit(self):
         import fcntl
 
         with tempfile.TemporaryDirectory() as tmp:
             lock_dir = Path(tmp)
-            with run_leg.hold_pool_lock(lambda: ["box-a"], lock_dir, 5) as chosen:
-                self.assertEqual(chosen, "box-a")
+            with mock.patch.object(
+                run_leg,
+                "_try_acquire_remote_worker_lease",
+                return_value=self._lease(),
+            ):
+                with run_leg.hold_pool_lock(
+                    lambda: ["box-a"], lock_dir, 5
+                ) as worker:
+                    self.assertEqual(worker.instance, "box-a")
             probe = (lock_dir / "box-a.lock").open("a+")
             try:
                 fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1590,7 +1652,9 @@ class TheHeartbeatNamesTheRightPhase(unittest.TestCase):
         @contextlib.contextmanager
         def fake_lock(*_args, **_kwargs):
             seen.append(leg_timing._CURRENT_PHASE)
-            yield "vss-eval-box-1"
+            yield run_leg.LockedWorker(
+                "vss-eval-box-1", run_leg.threading.Event()
+            )
 
         with mock.patch.object(run_leg, "hold_pool_lock", fake_lock):
             with self.assertRaises(SystemExit):
@@ -1667,7 +1731,9 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
     @contextlib.contextmanager
     def _held_lock(self):
         with mock.patch.object(run_leg, "hold_pool_lock") as lock:
-            lock.return_value.__enter__.return_value = "box-a"
+            lock.return_value.__enter__.return_value = run_leg.LockedWorker(
+                "box-a", run_leg.threading.Event()
+            )
             lock.return_value.__exit__.return_value = False
             yield lock
 

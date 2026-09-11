@@ -48,6 +48,7 @@ import urllib.parse
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
+import remote_worker_lock
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -144,6 +145,8 @@ HARBOR_SIGINT_GRACE_SEC = (
 )
 HARBOR_SIGTERM_GRACE_SEC = 30
 HARBOR_SIGKILL_GRACE_SEC = 10
+LEASE_LOSS_SIGTERM_GRACE_SEC = 30
+LEASE_LOSS_SIGKILL_GRACE_SEC = 10
 PROCESS_GROUP_POLL_INTERVAL_SEC = 0.1
 HARBOR_SHUTDOWN_GRACE_SEC = (
     HARBOR_SIGINT_GRACE_SEC
@@ -167,6 +170,14 @@ class HarborInvocation:
     chain_key: str
     step_index: int | None = None
     step_count: int | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class LockedWorker:
+    """A worker reserved on this coordinator and on the worker itself."""
+
+    instance: str
+    lost_event: threading.Event
 
 
 class LockTimeoutError(RuntimeError):
@@ -307,6 +318,7 @@ def invocation_reserve_sec(harbor_timeout_sec: int) -> int:
         harbor_timeout_sec
         + HARBOR_SHUTDOWN_GRACE_SEC
         + HARBOR_POSTPROCESS_HEADROOM_SEC
+        + remote_worker_lock.REMOTE_LEASE_RELEASE_BUDGET_SEC
     )
 
 
@@ -912,26 +924,88 @@ def box_rejected_for_capacity(results_root: Path, since: float) -> str | None:
     return None
 
 
+def _worker_uses_ssh(instance: str) -> bool:
+    """Return whether an admitted worker uses the registered-node transport."""
+    registered = _parse_pool_names(os.environ.get("BREV_REGISTERED_POOL", ""))
+    registered.update(_parse_pool_names(os.environ.get("BREV_RTX4090_POOL", "")))
+    return instance.lower() in registered
+
+
+def _remote_lock_executor(
+    instance: str,
+) -> remote_worker_lock.RemoteExecutor:
+    """Bind the worker-side lease protocol to Brev exec or direct SSH."""
+    use_ssh = _worker_uses_ssh(instance)
+
+    def execute(
+        command: str,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        if use_ssh:
+            cmd = [
+                "ssh",
+                "-T",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=15",
+                "-o",
+                "ServerAliveInterval=30",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ClearAllForwardings=yes",
+                "-o",
+                "PermitLocalCommand=no",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPath=none",
+                instance.lower(),
+                command,
+            ]
+            stdin = ""
+        else:
+            cmd = ["brev", "exec", instance, command]
+            stdin = "\n"
+        return subprocess.run(
+            cmd,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+
+    return execute
+
+
+def _try_acquire_remote_worker_lease(
+    instance: str,
+    deadline: float,
+) -> remote_worker_lock.RemoteWorkerLease | None:
+    return remote_worker_lock.try_acquire_remote_worker_lock(
+        _remote_lock_executor(instance),
+        instance,
+        deadline=deadline,
+    )
+
+
 @contextlib.contextmanager
 def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
-    """Claim the first candidate whose flock succeeds NON-BLOCKINGLY.
-
-    Selection and reservation are one atomic step: a busy box fails the
-    try-lock and we move to the next candidate, so concurrent legs fan
-    out across the pool instead of herding onto one "best" box. When
-    every candidate is held (or none is eligible), re-snapshot the fleet
-    and retry every 60s until `timeout_sec` — the pool is operator-managed
-    and a box may come online mid-run.
-
-    Yields the claimed instance name; the lock FD stays open until exit.
-    """
+    """Claim a candidate only after local and worker-side locks succeed."""
     lock_dir.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout_sec
     chosen: str | None = None
     fp = None
+    remote_lease: remote_worker_lock.RemoteWorkerLease | None = None
     while True:
         names = candidates_fn()
         for name in names:
+            if time.monotonic() >= deadline:
+                break
             if "/" in name or name in {"", ".", ".."}:
                 raise ValueError(f"invalid Brev instance name for lock file: {name!r}")
             lock_path = lock_dir / f"{name}.lock"
@@ -943,9 +1017,22 @@ def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
                 if exc.errno not in (errno.EACCES, errno.EAGAIN):
                     raise
                 continue
-            chosen, fp = name, candidate_fp
-            print(f"[run-leg] selected instance: {name} (lock acquired: {lock_path})",
-                  flush=True)
+            try:
+                candidate_lease = _try_acquire_remote_worker_lease(name, deadline)
+            except Exception:
+                fcntl.flock(candidate_fp.fileno(), fcntl.LOCK_UN)
+                candidate_fp.close()
+                raise
+            if candidate_lease is None:
+                fcntl.flock(candidate_fp.fileno(), fcntl.LOCK_UN)
+                candidate_fp.close()
+                continue
+            chosen, fp, remote_lease = name, candidate_fp, candidate_lease
+            print(
+                f"[run-leg] selected instance: {name} "
+                f"(local + remote locks acquired: {lock_path})",
+                flush=True,
+            )
             break
         if chosen:
             break
@@ -963,11 +1050,25 @@ def hold_pool_lock(candidates_fn, lock_dir: Path, timeout_sec: int):
         )
         time.sleep(min(60, remaining))
     try:
-        yield chosen
+        assert remote_lease is not None
+        yield LockedWorker(chosen, remote_lease.lost_event)
     finally:
-        fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
-        fp.close()
-        print(f"[run-leg] lock released: {chosen}", flush=True)
+        assert remote_lease is not None
+        remote_released = False
+        try:
+            remote_released = remote_lease.release()
+        finally:
+            fcntl.flock(fp.fileno(), fcntl.LOCK_UN)
+            fp.close()
+            if remote_released:
+                message = f"[run-leg] local + remote locks released: {chosen}"
+            else:
+                remote_lease.lost_event.set()
+                message = (
+                    "[run-leg] local lock released; exact remote lease retained "
+                    f"for safe reconciliation: {chosen}"
+                )
+            print(message, flush=True)
 
 
 def _process_group_exists(pgid: int) -> bool:
@@ -1174,7 +1275,36 @@ def _cancel_process_tree(
     return exited
 
 
-def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
+def _cancel_process_tree_after_lease_loss(
+    proc: subprocess.Popen,
+    pgid: int,
+    registry_path: Path,
+) -> bool:
+    """Stop Harbor promptly once this coordinator no longer owns the worker."""
+    exited = _signal_process_group_and_wait(
+        proc,
+        pgid,
+        signal.SIGTERM,
+        LEASE_LOSS_SIGTERM_GRACE_SEC,
+        registry_path,
+    )
+    if not exited:
+        exited = _signal_process_group_and_wait(
+            proc,
+            pgid,
+            signal.SIGKILL,
+            LEASE_LOSS_SIGKILL_GRACE_SEC,
+            registry_path,
+        )
+    return exited
+
+
+def run_command(
+    cmd: list[str],
+    env: dict[str, str],
+    timeout_sec: int,
+    abort_event: threading.Event | None = None,
+) -> int:
     print(f"[run-leg] exec: {' '.join(cmd)}", flush=True)
     registry_fd, registry_name = tempfile.mkstemp(
         prefix="skill-eval-transport-pgids-",
@@ -1231,13 +1361,39 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
                 cleanup_started = True
                 raise _RunCommandInterrupted(pending_signal)
 
-            try:
-                rc = proc.wait(timeout=timeout_sec)
-            except subprocess.TimeoutExpired:
-                cleanup_started = True
-                outcome = 124
-                reason = f"outer timeout after {timeout_sec}s"
+            if abort_event is None:
+                try:
+                    rc = proc.wait(timeout=timeout_sec)
+                except subprocess.TimeoutExpired:
+                    cleanup_started = True
+                    outcome = 124
+                    reason = f"outer timeout after {timeout_sec}s"
+                    rc = None
             else:
+                deadline = time.monotonic() + timeout_sec
+                rc = None
+                while rc is None:
+                    if abort_event.is_set():
+                        cleanup_started = True
+                        outcome = 125
+                        reason = "remote worker lease lost"
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        cleanup_started = True
+                        outcome = 124
+                        reason = f"outer timeout after {timeout_sec}s"
+                        break
+                    try:
+                        rc = proc.wait(timeout=min(1.0, remaining))
+                    except subprocess.TimeoutExpired:
+                        continue
+                if rc is not None and abort_event.is_set():
+                    cleanup_started = True
+                    outcome = 125
+                    reason = "remote worker lease lost"
+                    rc = None
+            if rc is not None:
                 if rc < 0:
                     cleanup_started = True
                     outcome = 128 + abs(rc)
@@ -1271,16 +1427,25 @@ def run_command(cmd: list[str], env: dict[str, str], timeout_sec: int) -> int:
             return outcome
 
         cleanup_started = True
-        print(
-            f"[run-leg] {reason}; "
-            "requesting graceful Harbor cancellation with SIGINT",
-            flush=True,
-        )
         # Ignore repeated workflow signals while bounded cleanup owns the
         # process tree. A later SIGKILL remains the unavoidable hard ceiling.
         for sig in previous_handlers:
             signal.signal(sig, signal.SIG_IGN)
-        exited = _cancel_process_tree(proc, pgid, registry_path)
+        if outcome == 125:
+            print(
+                f"[run-leg] {reason}; terminating the old Harbor tree",
+                flush=True,
+            )
+            exited = _cancel_process_tree_after_lease_loss(
+                proc, pgid, registry_path
+            )
+        else:
+            print(
+                f"[run-leg] {reason}; "
+                "requesting graceful Harbor cancellation with SIGINT",
+                flush=True,
+            )
+            exited = _cancel_process_tree(proc, pgid, registry_path)
         if not exited:
             print(
                 "[run-leg] Harbor tree could not be reaped after SIGKILL; "
@@ -1554,6 +1719,7 @@ def run_invocations(
     platform: str,
     harbor_timeout_sec: int,
     work_deadline: float | None = None,
+    abort_event: threading.Event | None = None,
 ) -> int:
     env = harbor_env(instance)
     agent = os.environ.get("EVAL_AGENT", "claude-code")
@@ -1712,7 +1878,10 @@ def run_invocations(
         )
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
-            rc = run_command(cmd, env, harbor_timeout_sec)
+            run_kwargs = (
+                {"abort_event": abort_event} if abort_event is not None else {}
+            )
+            rc = run_command(cmd, env, harbor_timeout_sec, **run_kwargs)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
@@ -1917,7 +2086,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 with hold_pool_lock(
                     remaining_candidates, args.lock_dir, attempt_timeout
-                ) as instance:
+                ) as worker:
                     lock_acquired = True
                     leg_timing.record_phase(
                         "lock-wait", lock_wait_started, leg_timing.leg_elapsed()
@@ -1928,35 +2097,40 @@ def main(argv: list[str] | None = None) -> int:
                     dispatch_started = time.time()
                     rc = run_invocations(
                         invocations,
-                        instance,
+                        worker.instance,
                         args.results_root,
                         args.scratch,
                         args.spec_stem,
                         args.platform,
                         args.harbor_timeout_sec,
                         work_deadline,
+                        abort_event=worker.lost_event,
                     )
-                    if rc == 0:
-                        return rc
-                    refusal = box_rejected_for_capacity(
-                        args.results_root, dispatch_started
-                    )
-                    if not refusal:
-                        # A real result. Report it.
-                        return rc
-                    rejected.add(instance)
-                    print(
-                        f"[run-leg] {instance} refused this task and ran no "
-                        f"trial ({refusal})",
-                        flush=True,
-                    )
-                    if attempt == _MAX_BOX_REJECTIONS:
-                        # Out of attempts; the refusal is the honest outcome.
-                        return rc
-                    print(
-                        f"[run-leg] trying another box "
-                        f"({attempt + 1}/{_MAX_BOX_REJECTIONS})", flush=True,
-                    )
+                # Context exit stops the heartbeat before accepting the result,
+                # closing the race between Harbor exit and exact-owner release.
+                if worker.lost_event.is_set():
+                    return 125
+                if rc == 0:
+                    return rc
+                refusal = box_rejected_for_capacity(
+                    args.results_root, dispatch_started
+                )
+                if not refusal:
+                    # A real result. Report it.
+                    return rc
+                rejected.add(worker.instance)
+                print(
+                    f"[run-leg] {worker.instance} refused this task and ran no "
+                    f"trial ({refusal})",
+                    flush=True,
+                )
+                if attempt == _MAX_BOX_REJECTIONS:
+                    # Out of attempts; the refusal is the honest outcome.
+                    return rc
+                print(
+                    f"[run-leg] trying another box "
+                    f"({attempt + 1}/{_MAX_BOX_REJECTIONS})", flush=True,
+                )
                 # Re-enter the lock wait for the next candidate.
                 lock_wait_started = leg_timing.leg_elapsed()
                 lock_acquired = False
