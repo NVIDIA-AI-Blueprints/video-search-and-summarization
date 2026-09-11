@@ -399,7 +399,8 @@ def research_rows(triage: dict[str, list]) -> list[dict[str, str]]:
     """The agent's work list: new unknowns + licence changes, deduplicated.
 
     Order is deterministic (new_unknowns first, then license_changes, each in
-    delta order) so --max-unknowns cuts the same rows on every rerun.
+    delta order) so an explicit --max-unknowns cuts the same rows on every
+    rerun. There is no bound by default.
     """
     seen: set[tuple[str, str, str]] = set()
     out: list[dict[str, str]] = []
@@ -498,9 +499,16 @@ Hard rules:
     evidence_url and DISCARDS your verdict when the licence is not in the
     document, so pick the URL that shows it (the registry JSON or the LICENSE
     file itself).
-  - permissive=true only for a single unambiguous permissive licence (MIT,
-    BSD, Apache-2.0, ISC, ...). Composite expressions (AND/OR/WITH), copyleft,
-    unknown, or ambiguous metadata => permissive=false, needs_osrb=true.
+  - permissive=true when every licence the expression names is permissive
+    (MIT, BSD, Apache-2.0, ISC, MPL-2.0, LGPL-2.1, BlueOak-1.0.0, ...).
+    "A OR B" is dual licensing and is permissive when either branch is;
+    "A AND B" is permissive only when both are. So "Apache-2.0 OR
+    BSD-3-Clause" and "MIT AND PSF-2.0" are permissive=true, needs_osrb=false.
+  - permissive=false, needs_osrb=true for a copyleft operand (GPL, AGPL,
+    LGPL-3.0), a WITH exception, a source-available licence (Elastic, SSPL,
+    BUSL), unknown metadata, or prose you cannot resolve to licence names.
+    Report the licence exactly as the evidence states it; do not simplify a
+    composite down to one operand.
 
 Output format — JSON ONLY:
 Your final message must be EXACTLY ONE fenced ```json code block containing a
@@ -1153,6 +1161,7 @@ def build_comment(
     }
 
     nvidia_owned_skipped: set[str] = set()
+    permissive_agent_verdicts: set[str] = set()
 
     def _osrb_skip_nvidia(package: str) -> bool:
         """Skip NVIDIA's own components, unless OSRB has ruled on them."""
@@ -1250,6 +1259,15 @@ def build_comment(
     for verdict in flagged:
         if _osrb_skip_nvidia(verdict.get("package", "")):
             continue
+        # The agent may report a licence the repo's own gate already clears --
+        # "Apache-2.0 OR BSD-3-Clause", "MIT AND PSF-2.0". Its prompt used to
+        # call every composite reviewable, which is what put cryptography,
+        # greenlet, numpy and packaging in front of OSRB on #2101. Judge the
+        # licence it found with the same rule everything else is judged by,
+        # rather than trusting the model to have applied it.
+        if is_permissive(verdict.get("license", ""), verdict.get("package", "")):
+            permissive_agent_verdicts.add(verdict.get("package", ""))
+            continue
         osrb_rows.append([
             verdict.get("package", ""),
             verdict.get("version", ""),
@@ -1257,17 +1275,15 @@ def build_comment(
             f"agent flagged for OSRB: {verdict.get('reasoning', '') or 'needs review'}",
             verdict.get("evidence_url", ""),
         ])
-    for entry in not_triaged:
-        row, why = entry["row"], entry["reason"]
-        if _osrb_skip_nvidia(row.get("package", "")):
-            continue
-        osrb_rows.append([
-            row.get("package", ""),
-            row.get("new_version", "") or row.get("version", ""),
-            row.get("module", ""),
-            f"not triaged this run ({why})",
-            "",
-        ])
+    # Rows the agent never looked at are NOT listed here. "over the
+    # --max-unknowns bound" is the tool describing its own budget, and putting
+    # it under a heading that means "a human must act" made eleven such rows on
+    # #2101 read as OSRB findings. They are reported below the table instead,
+    # so the gap is visible without being mistaken for a verdict.
+    untriaged_rows = [
+        entry for entry in not_triaged
+        if not _osrb_skip_nvidia(entry["row"].get("package", ""))
+    ]
 
     lines.append("## OSRB review required")
     lines.append("")
@@ -1280,6 +1296,32 @@ def build_comment(
             "conditional package is touched, every new dependency is "
             "permissively licensed, no licence change moves a risk band, and "
             "no usage drift was detected."
+        )
+    if permissive_agent_verdicts:
+        names = ", ".join(f"`{n}`" for n in sorted(permissive_agent_verdicts)[:6])
+        more = len(permissive_agent_verdicts) - 6
+        lines.append("")
+        lines.append(
+            f"_{len(permissive_agent_verdicts)} package(s) the agent raised "
+            f"({names}{f' and {more} more' if more > 0 else ''}) resolve to a "
+            "permissive licence under the repository's own rule, so they are "
+            "not listed. A composite is permissive when every branch it can "
+            "land on is._"
+        )
+    if untriaged_rows:
+        names = ", ".join(
+            f"`{e['row'].get('package', '')}`" for e in untriaged_rows[:6]
+        )
+        more = len(untriaged_rows) - 6
+        why = untriaged_rows[0]["reason"]
+        lines.append("")
+        lines.append(
+            f"_{len(untriaged_rows)} unknown licence(s) were not researched "
+            f"this run ({why}): {names}"
+            f"{f' and {more} more' if more > 0 else ''}. "
+            "This is a triage gap, not a verdict -- nobody has judged them "
+            "yet. They stay UNKNOWN in `inventory.csv` and come back next "
+            "run._"
         )
     if nvidia_owned_skipped:
         names = ", ".join(f"`{n}`" for n in sorted(nvidia_owned_skipped)[:6])
@@ -1481,9 +1523,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verdicts-out", help="where to write triage-verdicts.json")
     parser.add_argument("--skip-agent", action="store_true",
                         help="deterministic pre-pass + comment only, no model")
-    parser.add_argument("--max-unknowns", type=int, default=25,
-                        help="bound on rows handed to the agent; overflow rows "
-                             "go to the OSRB section as 'not triaged this run'")
+    parser.add_argument("--max-unknowns", type=int, default=0,
+                        help="bound on rows handed to the agent; 0 (the "
+                             "default) means no bound. A licence nobody "
+                             "researched is the one worth researching, so "
+                             "leaving rows untriaged is not a saving")
     parser.add_argument("--check-inventory-diff", nargs=2,
                         metavar=("OLD", "NEW"),
                         help="standalone guard mode: verify NEW differs from "
@@ -1518,13 +1562,24 @@ def main(argv: list[str] | None = None) -> int:
 
     triage = build_triage_input(delta_rows, compliance_rows, conditions)
     work = research_rows(triage)
-    overflow = work[args.max_unknowns:]
-    work = work[:args.max_unknowns]
+    # No bound by default. The work list is the unknowns THIS change
+    # introduces, so it is already bounded by the size of the change, and a
+    # default of 25 quietly left the rest unexamined -- on #2101, eleven rows
+    # the agent never looked at. The flag stays for a run that needs to be
+    # capped deliberately, and the overflow is still reported rather than
+    # dropped.
+    overflow: list[dict[str, str]] = []
+    if args.max_unknowns > 0:
+        overflow = work[args.max_unknowns:]
+        work = work[:args.max_unknowns]
 
     results: dict = {
         "validated": [], "rejected": [], "flagged": [], "unverifiable": [],
-        "not_triaged": [{"row": row, "reason": "over --max-unknowns bound"}
-                        for row in overflow],
+        "not_triaged": [
+            {"row": row,
+             "reason": f"over the --max-unknowns bound of {args.max_unknowns}"}
+            for row in overflow
+        ],
         "skip_agent": False, "agent_note": "",
     }
 

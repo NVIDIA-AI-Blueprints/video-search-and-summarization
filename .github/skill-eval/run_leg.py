@@ -28,6 +28,7 @@ import contextlib
 import dataclasses
 import errno
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -63,6 +64,9 @@ RTX4090_TESTS: dict[str, frozenset[str]] = {}
 # (AGENTS.md § Harbor viewer). Fixed path — the viewer is started once for
 # the host, not per leg, so every leg publishes its trials in here.
 VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
+AGENT_RUN_MARKER_OVERRIDE_ENV = "SKILL_EVAL_AGENT_RUN_MARKER"
+DEFER_AGENT_REAP_ENV = "SKILL_EVAL_DEFER_AGENT_REAP"
+REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
 
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
@@ -75,6 +79,14 @@ HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
 NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
+# Cold base-profile deployments can legitimately outlive the normal one-hour
+# scenario budget while pulling model weights. Keep provisioning bounded at
+# 90 minutes; together with Harbor's other phase and recovery ceilings this
+# remains below DEFAULT_HARBOR_TIMEOUT_SEC.
+NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER = 9.0
+NEMOCLAW_SETUP_AGENT_BUDGET_SEC = int(
+    HARBOR_BASE_PHASE_TIMEOUT_SEC * NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER
+)
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
     HARBOR_BASE_PHASE_TIMEOUT_SEC
@@ -117,6 +129,10 @@ DEFAULT_HARBOR_TIMEOUT_SEC = 12_000
 # agent deadline can fire and drive normal artifact/environment cleanup.
 MIN_BREV_EXEC_TIMEOUT_SEC = (
     HARBOR_AGENT_BUDGET_SEC + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
+)
+NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC = (
+    NEMOCLAW_SETUP_AGENT_BUDGET_SEC
+    + HARBOR_TRANSFER_OPERATION_BUDGET_SEC
 )
 
 # Emergency-only escalation after the outer backstop. SIGINT gives Harbor's
@@ -300,6 +316,7 @@ def build_harbor_command(
     model: str,
     anthropic_base_url: str,
     agent: str = "claude-code",
+    agent_timeout_multiplier: float = HARBOR_AGENT_TIMEOUT_MULTIPLIER,
 ) -> list[str]:
     environment_import_path = "envs.brev_env:BrevEnvironment"
     environment_build_timeout_multiplier = (
@@ -357,7 +374,7 @@ def build_harbor_command(
         "--environment-build-timeout-multiplier",
         str(environment_build_timeout_multiplier),
         "--agent-timeout-multiplier",
-        str(HARBOR_AGENT_TIMEOUT_MULTIPLIER),
+        str(agent_timeout_multiplier),
         "--verifier-timeout-multiplier",
         str(HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
         "--max-retries",
@@ -762,6 +779,69 @@ def pool_candidates(
         return (0 if registered else 1, exact, name.lower())
 
     return [name for name, _ in sorted(candidates, key=sort_key)]
+
+
+def nemoclaw_sandbox_name(run_id: str, leg_slug: str) -> str:
+    """Return the short, per-leg sandbox name owned by a CI evaluation.
+
+    Build Vision AI treats a sandbox as part of a build. A shared
+    ``skill-eval`` name lets a later leg reuse a previous leg's gateway and
+    sessions, so CI derives one name from its run and leg instead. Keep it
+    compact because NemoClaw limits sandbox names to 19 characters.
+    """
+    safe_run_id = SAFE_PART_RE.sub("-", run_id.lower()).strip("-") or "manual"
+    identity = f"{run_id}:{leg_slug}".encode("utf-8")
+    digest = hashlib.sha256(identity).hexdigest()[:8]
+    # ``se-`` + six run-id characters + ``-`` + eight digest characters =
+    # 18 characters: valid for the 19-character NemoClaw limit.
+    return f"se-{safe_run_id[-6:]}-{digest}"
+
+
+def prepare_nemoclaw_setup_task(
+    invocation: HarborInvocation,
+    operational_skill: str,
+) -> None:
+    """Make the spec's first task provision VSS and NemoClaw via Build Vision AI.
+
+    The generated task remains authoritative for the deployment intent and its
+    checks.  This only supplies the orchestration skill and tells the coding
+    agent which harness the current eval requested.
+    """
+    task_dir = invocation.harbor_root / invocation.include_task_name
+    instruction_path = task_dir / "instruction.md"
+    if not instruction_path.is_file():
+        raise FileNotFoundError(f"setup instruction missing: {instruction_path}")
+    build_vision_skill = REPO_ROOT / "skills" / "vss-build-vision-ai"
+    if not (build_vision_skill / "SKILL.md").is_file():
+        raise FileNotFoundError(f"Build Vision AI skill missing: {build_vision_skill}")
+
+    original_instruction = instruction_path.read_text(encoding="utf-8")
+    harness_requirement = f"""
+
+## Selected agent harness: NemoClaw
+
+The evaluation query above is the complete deployment/setup intent. Fulfil it
+through `/vss-build-vision-ai` and attach NemoClaw to that same build before
+returning. Use the existing `$NEMOCLAW_SANDBOX_NAME` and model-provider
+environment values unchanged, install `/{operational_skill}` in that sandbox,
+and complete Build Vision AI's documented readiness verification. The task is
+not complete until `openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"` succeeds
+and the sandbox gateway is ready. Include the sandbox name and Agent UI link in
+the final response. Run non-interactively with the query's choices and the
+documented defaults.
+"""
+    instruction_path.write_text(
+        original_instruction.rstrip() + harness_requirement,
+        encoding="utf-8",
+    )
+
+    skills_dir = task_dir / "skills"
+    skills_dir.mkdir(exist_ok=True)
+    shutil.copytree(
+        build_vision_skill,
+        skills_dir / "vss-build-vision-ai",
+        dirs_exist_ok=True,
+    )
 
 
 def attempt_lock_timeout(
@@ -1424,6 +1504,47 @@ def record_machine(
             _say(f"[run-leg] step-summary write failed: {exc!r}")
 
 
+def deferred_agent_run_marker(run_id: str, leg_slug: str) -> str:
+    """Return the stable marker shared by setup and end-of-leg cleanup."""
+    digest = hashlib.sha256(f"{run_id}:{leg_slug}".encode()).hexdigest()[:32]
+    return f"{REMOTE_AGENT_RUN_PREFIX}{digest}"
+
+
+def cleanup_deferred_agent_run(instance: str, marker: str) -> None:
+    """Best-effort end-of-leg cleanup for services left by setup Claude."""
+    try:
+        result = subprocess.run(
+            [
+                "uvx",
+                "--python",
+                sys.executable,
+                "--from",
+                HARBOR_REQUIREMENT,
+                "python",
+                "-c",
+                (
+                    "import asyncio,sys; "
+                    "from envs.brev_env import reap_remote_agent_run; "
+                    "asyncio.run(reap_remote_agent_run(sys.argv[1], sys.argv[2]))"
+                ),
+                instance,
+                marker,
+            ],
+            cwd=REPO_ROOT,
+            env=os.environ.copy(),
+            timeout=60,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"cleanup subprocess exited {result.returncode}")
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[run-leg] deferred agent cleanup failed: {exc!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
 def run_invocations(
     invocations: list[HarborInvocation],
     instance: str,
@@ -1477,8 +1598,64 @@ def run_invocations(
     # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
     # leaves a trail pointing at the machine to inspect.
     record_machine(results_root, instance, leg_slug, run_id)
+    # Build Vision AI's own specs are coding-agent evaluations. For an
+    # operational spec, its first normal Harbor task is the setup contract:
+    # the coding agent follows Build Vision AI, deploys from expects[0], and
+    # attaches NemoClaw. The remaining normal tasks run through that sandbox.
+    nemoclaw_setup: HarborInvocation | None = None
+    deferred_agent_marker: str | None = None
+    if agent == "nemoclaw" and os.environ.get("EVAL_SKILL") == "vss-build-vision-ai":
+        print("[run-leg] Build Vision AI specs use the coding-agent runtime", flush=True)
+        agent = "claude-code"
+    elif agent == "nemoclaw":
+        if not invocations:
+            print("FATAL: no operational Harbor invocation to run", file=sys.stderr)
+            return 1
+        nemoclaw_setup = invocations[0]
+        operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
+        try:
+            prepare_nemoclaw_setup_task(nemoclaw_setup, operational_skill)
+        except OSError as exc:
+            print(f"FATAL: could not prepare NemoClaw setup task: {exc}", file=sys.stderr)
+            return 1
+
+        derived_sandbox_name = nemoclaw_sandbox_name(run_id, leg_slug)
+        sandbox_name = os.environ.get("NEMOCLAW_SANDBOX_NAME") or derived_sandbox_name
+        # Provisioning and later scenarios address one per-leg sandbox, so a
+        # warm worker cannot inherit another evaluation's sessions.
+        env["NEMOCLAW_SANDBOX_NAME"] = sandbox_name
+        env.setdefault("NEMOCLAW_RECREATE_SANDBOX", "0")
+        env.update(
+            {
+                "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
+                "NEMOCLAW_PROVIDER": os.environ.get("NEMOCLAW_PROVIDER", "custom"),
+                "NEMOCLAW_ENDPOINT_URL": os.environ.get("NEMOCLAW_ENDPOINT_URL", base_url),
+                "NEMOCLAW_MODEL": os.environ.get("NEMOCLAW_MODEL", model),
+                "COMPATIBLE_API_KEY": os.environ.get(
+                    "COMPATIBLE_API_KEY", env.get("ANTHROPIC_API_KEY", "")
+                ),
+            }
+        )
+        env["BREV_EXEC_TIMEOUT"] = str(
+            max(
+                int(env.get("BREV_EXEC_TIMEOUT", "0")),
+                NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC,
+            )
+        )
+        # The setup coding agent may start the NemoClaw gateway or other
+        # services required by later expects[]. Keep those descendants alive
+        # only after a successful agent exit; failures and cancellation still
+        # trigger BrevEnvironment's immediate marker-scoped cleanup.
+        deferred_agent_marker = deferred_agent_run_marker(run_id, leg_slug)
+        env[AGENT_RUN_MARKER_OVERRIDE_ENV] = deferred_agent_marker
+        env[DEFER_AGENT_REAP_ENV] = "1"
     skipped_after: dict[str, int] = {}
     overall_rc = 0
+
+    def finish(rc: int) -> int:
+        if deferred_agent_marker is not None:
+            cleanup_deferred_agent_run(instance, deferred_agent_marker)
+        return rc
 
     for invocation in invocations:
         if (
@@ -1511,9 +1688,28 @@ def run_invocations(
                         "whole-leg-deadline",
                         invocation.step_count,
                     )
-                return 124
+                return finish(124)
 
-        cmd = build_harbor_command(invocation, results_root, model, base_url, agent)
+        is_nemoclaw_setup = invocation is nemoclaw_setup
+        invocation_agent = "claude-code" if is_nemoclaw_setup else agent
+        command_kwargs = {}
+        if is_nemoclaw_setup:
+            command_kwargs["agent_timeout_multiplier"] = (
+                NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER
+            )
+            print(
+                "[run-leg] running expects[0] with Build Vision AI to deploy "
+                "VSS and NemoClaw",
+                flush=True,
+            )
+        cmd = build_harbor_command(
+            invocation,
+            results_root,
+            model,
+            base_url,
+            invocation_agent,
+            **command_kwargs,
+        )
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
             rc = run_command(cmd, env, harbor_timeout_sec)
@@ -1528,7 +1724,10 @@ def run_invocations(
         if rc != 0 and overall_rc == 0:
             overall_rc = rc
 
-        if invocation.step_index is not None and invocation.step_count is not None:
+        reward: str | None = None
+        if is_nemoclaw_setup or (
+            invocation.step_index is not None and invocation.step_count is not None
+        ):
             reward = latest_reward(results_root, invocation.include_task_name, started_at)
             reward_value = _reward_value(reward)
             print(
@@ -1536,7 +1735,11 @@ def run_invocations(
                 f"rc={rc} reward={reward if reward is not None else 'missing'}",
                 flush=True,
             )
-            if rc == 124 or rc >= 128 or reward_value < 1.0:
+            if (
+                invocation.step_index is not None
+                and invocation.step_count is not None
+                and (rc == 124 or rc >= 128 or reward_value < 1.0)
+            ):
                 write_skip_markers(
                     scratch,
                     spec_stem,
@@ -1547,15 +1750,29 @@ def run_invocations(
                 )
                 skipped_after[invocation.chain_key] = invocation.step_index
 
+        if is_nemoclaw_setup:
+            if rc != 0 or _reward_value(reward) < 1.0:
+                print(
+                    "[run-leg] expects[0] deployment/setup failed; "
+                    "NemoClaw scenarios were not started",
+                    file=sys.stderr,
+                )
+                return finish(rc or 1)
+            # Later Harbor tasks must reuse the VSS containers, checked-out
+            # repository, and sandbox created by the first task.
+            env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
+            env.pop(AGENT_RUN_MARKER_OVERRIDE_ENV, None)
+            env.pop(DEFER_AGENT_REAP_ENV, None)
+
         # An outer Harbor timeout is terminal for the entire locked leg, not
         # only a multi-step chain. Continuing could wipe/reuse the same Brev
         # box while descendants from the timed-out process are still settling.
         # For chained tasks the block above writes every applicable skip marker
         # before this return.
         if rc == 124 or rc >= 128:
-            return rc
+            return finish(rc)
 
-    return overall_rc
+    return finish(overall_rc)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

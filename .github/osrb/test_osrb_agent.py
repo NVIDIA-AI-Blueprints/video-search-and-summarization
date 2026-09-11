@@ -526,7 +526,14 @@ class CommentTests(unittest.TestCase):
         self.assertIn("Nothing in this change requires OSRB review", comment)
         self.assertIn("None.", comment)  # empty licence-change / drift sections
 
-    def test_overflow_rows_land_in_osrb_section_never_dropped(self) -> None:
+    def test_overflow_rows_are_named_but_are_not_osrb_findings(self) -> None:
+        """Never dropped, never presented as a verdict.
+
+        "over the --max-unknowns bound" is the tool describing its own budget.
+        Listed in the findings table it reads as "OSRB must act on this" -- on
+        #2101 eleven rows did exactly that. It has to stay visible, because a
+        licence nobody looked at is worth knowing about, but as a gap.
+        """
         row = delta_row(package="overflow-pkg", new_license="UNKNOWN")
         triage = agent.build_triage_input([row], [], [])
         comment = agent.build_comment(
@@ -536,8 +543,12 @@ class CommentTests(unittest.TestCase):
         )
         osrb = comment[comment.index("## OSRB review required")
                        :comment.index("## New dependencies")]
-        self.assertIn("overflow-pkg", osrb)
-        self.assertIn("not triaged this run", osrb)
+        self.assertIn("overflow-pkg", osrb)          # never dropped
+        self.assertIn("over --max-unknowns bound", osrb)
+        self.assertIn("triage gap, not a verdict", osrb)
+        # ...and not in the findings table
+        self.assertNotIn("| overflow-pkg |", osrb)
+        self.assertIn("Nothing in this change requires OSRB review", osrb)
 
     def test_unverifiable_verdicts_named_in_osrb_section(self) -> None:
         row = delta_row(package="shady", new_license="UNKNOWN")
@@ -576,6 +587,81 @@ class CliTests(unittest.TestCase):
             writer.writeheader()
             writer.writerows(rows)
 
+    def test_no_unknown_is_left_untriaged_by_default(self) -> None:
+        """More unknowns than the old default of 25, none reported as skipped.
+
+        The bound used to be 25, so a change introducing more than that left
+        the rest unexamined and listed them as untriaged -- eleven such rows on
+        #2101. Driven through the CLI because the default lives on the parser
+        inside main(), which is the thing that actually has to change.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            delta = tmp_path / "license-diff.csv"
+            compliance = tmp_path / "osrb-compliance.csv"
+            comment = tmp_path / "triage-comment.md"
+            verdicts = tmp_path / "triage-verdicts.json"
+            self.write_csv(delta, [
+                delta_row(package=f"unknown-{i:02d}", new_license="UNKNOWN")
+                for i in range(40)
+            ])
+            self.write_csv(compliance, [{
+                "verdict": "", "package": "", "version": "", "module": "",
+                "source_file": "", "notes": "",
+            }])
+            rc = agent.main([
+                "--delta", str(delta),
+                "--compliance", str(compliance),
+                "--inventory", str(DIRECTORY / "inventory.csv"),
+                "--approved", str(DIRECTORY / "approved.csv"),
+                "--conditions", str(DIRECTORY / "conditions.csv"),
+                "--comment-out", str(comment),
+                "--verdicts-out", str(verdicts),
+                "--skip-agent",
+            ])
+            self.assertEqual(rc, 0)
+            doc = json.loads(verdicts.read_text(encoding="utf-8"))
+            bounded = [r for r in doc["not_triaged"]
+                       if "max-unknowns" in r.get("reason", "")]
+            self.assertEqual([], bounded,
+                             "no row may be withheld for a bound that is off")
+            self.assertNotIn("--max-unknowns bound",
+                             comment.read_text(encoding="utf-8"))
+
+    def test_an_explicit_bound_still_caps_and_still_reports(self) -> None:
+        """The flag still works when a run is capped on purpose."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            delta = tmp_path / "license-diff.csv"
+            compliance = tmp_path / "osrb-compliance.csv"
+            comment = tmp_path / "triage-comment.md"
+            verdicts = tmp_path / "triage-verdicts.json"
+            self.write_csv(delta, [
+                delta_row(package=f"unknown-{i:02d}", new_license="UNKNOWN")
+                for i in range(5)
+            ])
+            self.write_csv(compliance, [{
+                "verdict": "", "package": "", "version": "", "module": "",
+                "source_file": "", "notes": "",
+            }])
+            agent.main([
+                "--delta", str(delta),
+                "--compliance", str(compliance),
+                "--inventory", str(DIRECTORY / "inventory.csv"),
+                "--approved", str(DIRECTORY / "approved.csv"),
+                "--conditions", str(DIRECTORY / "conditions.csv"),
+                "--comment-out", str(comment),
+                "--verdicts-out", str(verdicts),
+                "--skip-agent", "--max-unknowns", "2",
+            ])
+            doc = json.loads(verdicts.read_text(encoding="utf-8"))
+            bounded = [r for r in doc["not_triaged"]
+                       if "max-unknowns bound of 2" in r.get("reason", "")]
+            self.assertEqual(3, len(bounded))
+            # capped rows are still named, as a gap rather than a finding
+            self.assertIn("were not researched this run",
+                          comment.read_text(encoding="utf-8"))
+
     def test_skip_agent_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -610,7 +696,9 @@ class CliTests(unittest.TestCase):
             text = comment.read_text(encoding="utf-8")
             self.assertTrue(text.startswith(agent.MARKER))
             self.assertIn("mystery", text)
-            self.assertIn("not triaged this run", text)
+            # the skipped rows stay named, as a triage gap rather than a finding
+            self.assertIn("were not researched this run", text)
+            self.assertIn("agent skipped", text)
             doc = json.loads(verdicts.read_text(encoding="utf-8"))
             self.assertTrue(doc["skip_agent"])
             self.assertEqual(doc["validated"], [])
@@ -982,6 +1070,46 @@ class RepoStateSectionTest(unittest.TestCase):
         # the agent row for the SAME conditioned package must survive the guard
         self.assertIn("agent flagged for OSRB", comment)
         self.assertNotIn("NVIDIA-published component", comment)
+
+    def test_a_permissive_composite_the_agent_raised_is_not_a_finding(self) -> None:
+        """The repo's own rule outranks the model's opinion.
+
+        The prompt used to call every composite reviewable, so the agent put
+        cryptography (Apache-2.0 OR BSD-3-Clause), greenlet (MIT AND PSF-2.0),
+        numpy and packaging in front of OSRB on #2101 -- all expressions
+        license_passes already clears. Judging the licence it found with the
+        same rule everything else uses does not depend on the model obeying a
+        reworded prompt.
+        """
+        flagged = [
+            {"package": "cryptography", "version": "50.0.1",
+             "license": "Apache-2.0 OR BSD-3-Clause",
+             "reasoning": "composite requires OSRB", "evidence_url": "u"},
+            {"package": "greenlet", "version": "3.5.5",
+             "license": "MIT AND PSF-2.0",
+             "reasoning": "composite requires OSRB", "evidence_url": "u"},
+        ]
+        comment = agent.build_comment(
+            {"new_deps": [], "license_changes": [], "usage_drift": [],
+             "new_unknowns": [], "refused_or_conditional": [], "removed": []},
+            {"validated": [], "rejected": [], "unverifiable": [],
+             "not_triaged": [], "flagged": flagged})
+        self.assertIn("Nothing in this change requires OSRB review", comment)
+        self.assertNotIn("agent flagged for OSRB", comment)
+        self.assertIn("resolve to a permissive licence", comment)
+        self.assertIn("`cryptography`", comment)
+
+    def test_a_copyleft_composite_the_agent_raised_still_is_a_finding(self) -> None:
+        comment = agent.build_comment(
+            {"new_deps": [], "license_changes": [], "usage_drift": [],
+             "new_unknowns": [], "refused_or_conditional": [], "removed": []},
+            {"validated": [], "rejected": [], "unverifiable": [],
+             "not_triaged": [],
+             "flagged": [{"package": "copyleft-dep", "version": "1.0",
+                          "license": "MIT AND GPL-3.0",
+                          "reasoning": "copyleft operand", "evidence_url": "u"}]})
+        self.assertIn("agent flagged for OSRB", comment)
+        self.assertIn("copyleft-dep", comment)
 
     def test_no_repo_state_means_no_section(self) -> None:
         comment = agent.build_comment({"new_deps": [], "license_changes": [],

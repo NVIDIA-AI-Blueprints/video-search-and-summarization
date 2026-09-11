@@ -11,6 +11,13 @@
   },
   "expects": [
     {
+      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS and a video-understanding VLM ready for the following vss-ask-video queries. Use the configured remote model endpoints and run autonomously.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
+        "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup)."
+      ]
+    },
+    {
       "query": "The current conversation already states that the forklift crossed at 10:14 UTC. When did it cross?",
       "checks": [
         "The final answer says 10:14 UTC from hot conversation context.",

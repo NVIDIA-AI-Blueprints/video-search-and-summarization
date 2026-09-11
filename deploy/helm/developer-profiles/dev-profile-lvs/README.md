@@ -100,10 +100,11 @@ Choose the `nims.gpuType` matching the cluster GPU. Capacity and available NIM p
 
 ## RTVI-VLM integration (always on)
 
-The LVS profile always deploys **`vss-rtvi-vlm`**. VLM calls from both clients are routed through this in-cluster service:
+The LVS profile always deploys **`vss-rtvi-vlm`**. VLM calls from both HTTP clients are routed through this in-cluster service, and VIOS registers cameras with it on VST lifecycle events:
 
 - **`vss-agent`**: `video_understanding` picks the `rtvi_vlm` LLM profile (`configs/vss-agent/config.yml`) because `VLM_MODEL_TYPE=rtvi`. `RTVI_VLM_BASE_URL` resolves to the in-cluster `vss-rtvi-vlm` Service via `agent.vss-agent.rtviVlmServiceName` (default `vss-rtvi-vlm`).
 - **`vss-summarization`**: receives `RTVI_VLM_URL=http://vss-rtvi-vlm:8000` by default (`http://<release>-vss-rtvi-vlm:8000` only when `global.useReleaseNamePrefix=true`), plus `RTVI_VLM_URL_PASSTHROUGH=true` via `vss-summarization.extraEnv` — LVS backend forwards `/generate_captions` to the RTVI pod.
+- **VIOS** (sensor and stream-processing): `global.vios.notificationConfig` enables `camera_add` / `camera_streaming` / `camera_remove` webhooks to `http://<rtvi>/v1/stream/add` and `/v1/stream/remove`, matching Compose. The usable stream URL arrives on `camera_streaming`; `camera_add` may have an empty URL.
 
 Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` list):
 
@@ -117,6 +118,7 @@ Key values (see `values.yaml` for defaults and the full `rtvi.vss-rtvi-vlm.env` 
 | `rtvi.vss-rtvi-vlm.waitForKafka.enabled` | `true` | The RTVI-VLM init container waits for Kafka and required RTVI topics before startup. |
 | `rtvi.vss-rtvi-vlm.env` | full list | Replaces the subchart default `env`. Override individual values (e.g. edge `VLM_INPUT_*`) by editing the list in your overlay. |
 | `vss-summarization.extraEnv` | 2 RTVI vars | `RTVI_VLM_URL`, `RTVI_VLM_URL_PASSTHROUGH`. `RTVI_VLM_URL` is rendered with `tpl`, so it picks up `{{ .Release.Name }}` when `global.useReleaseNamePrefix` is true. |
+| `global.vios.notificationConfig` | LVS webhook JSON | Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. Empty on those subcharts uses the chart file default (webhooks off); this profile override registers VST cameras with RT-VLM. |
 | `agent.vss-agent.rtviVlmEnabled` / `rtviVlmServiceName` | `true` / `vss-rtvi-vlm` | Parity flags; `RTVI_VLM_BASE_URL` in the `env` list reads `rtviVlmServiceName`. |
 | `agent.vss-agent.env` → `VLM_MODEL_TYPE` | `rtvi` | Flip to `nim` only to bypass RTVI for the agent (video_understanding will then hit the VLM NIM directly). |
 

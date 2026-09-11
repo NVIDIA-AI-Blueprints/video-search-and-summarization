@@ -374,6 +374,65 @@ class TestRequestOptionsContext:
         assert "Request options context" in captured["system"]
 
     @pytest.mark.asyncio
+    async def test_plan_node_does_not_turn_reasoning_into_the_initial_plan(self, monkeypatch):
+        """A reasoning-only first plan must yield an empty plan, never the think-blob.
+
+        There is no previous plan to fall back to here, so empty is the degraded path:
+        `_agent_node` gates on `if state.plan and self.plan_exec_prompt`, so an empty plan
+        falls through to the regular agent prompt and `_plan_update_node` rebuilds a plan
+        from the first tool result. A plan that is really reasoning would instead be fed
+        to the plan-execution prompt on every later turn.
+        """
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="<think>Okay, let's see. The user wants me to analyze the video.</think>")
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == ""
+        assert "Okay, let's see." not in result.plan
+        assert "<think>" not in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_node_does_not_turn_a_separate_reasoning_field_into_the_plan(self, monkeypatch):
+        """NIM-style split: reasoning in `reasoning_content`, content empty."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = self._agent_with_search_tool()
+        agent.llm = MagicMock()
+        agent.llm.model_name = "test-model"
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="",
+                additional_kwargs={"reasoning_content": "I should call the search agent."},
+            )
+        )
+        agent.callbacks = []
+        agent.plan_prompt = None
+        agent.plan_system_prompt = "System prompt."
+        state = TopAgentState(
+            current_message=HumanMessage(content="person carrying boxes"),
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_node(state)
+
+        assert result.plan == ""
+        assert "I should call the search agent." not in result.plan
+
+    @pytest.mark.asyncio
     async def test_failed_tool_call_cannot_be_marked_complete(self, monkeypatch):
         chunks = []
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
@@ -501,6 +560,112 @@ class TestRequestOptionsContext:
         assert "A worker climbed a green ladder." in result.plan
         assert "Tool call failed: invalid timestamp" in result.plan
         assert "unsupported incident" not in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_update_keeps_plan_when_model_returns_only_reasoning(self, monkeypatch):
+        """With llm_reasoning on, the model can emit reasoning and no content.
+
+        The raw content is then the unparsed think-blob; using it as the plan strands the
+        agent, which re-derives the same tool call until it exhausts the recursion limit.
+        """
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(content="<think>Okay, let's see. The user wants me to analyze the video.</think>")
+        )
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report for the last verified alert."),
+            plan="1. [x] Call `rtvi_vlm_alert`.\n2. [ ] Call `video_understanding_iso`.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[{"name": "video_understanding_iso", "args": {}, "id": "call_1"}],
+                ),
+                ToolMessage(name="video_understanding_iso", tool_call_id="call_1", content="A worker on a ladder."),
+            ],
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        assert "Okay, let's see." not in result.plan
+        assert "<think>" not in result.plan
+        assert "1. [x] Call `rtvi_vlm_alert`." in result.plan
+        assert "2. [ ] Call `video_understanding_iso`." in result.plan
+        assert "`video_understanding_iso` already completed successfully" in result.plan
+        assert "do not repeat a call whose result is already present" in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_update_keeps_plan_when_reasoning_field_leaves_content_empty(self, monkeypatch):
+        """NIM-style responses carry reasoning in a separate field and can leave content empty.
+
+        The old fallback substituted that empty content, wiping the plan entirely.
+        """
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(
+            return_value=AIMessage(
+                content="",
+                additional_kwargs={"reasoning_content": "The user wants a report. I should keep analyzing."},
+            )
+        )
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report for the last verified alert."),
+            plan="1. [x] Call `rtvi_vlm_alert`.\n2. [ ] Call `video_understanding_iso`.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[{"name": "video_understanding_iso", "args": {}, "id": "call_1"}],
+                ),
+                ToolMessage(name="video_understanding_iso", tool_call_id="call_1", content="A worker on a ladder."),
+            ],
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        assert "1. [x] Call `rtvi_vlm_alert`." in result.plan
+        assert "2. [ ] Call `video_understanding_iso`." in result.plan
+        assert "`video_understanding_iso` already completed successfully" in result.plan
+        assert "do not repeat a call whose result is already present" in result.plan
+
+    @pytest.mark.asyncio
+    async def test_plan_update_does_not_claim_completion_for_a_failed_tool(self, monkeypatch):
+        """The preserved-plan note must never mark a failed call as done."""
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="<think>reasoning only</think>"))
+        agent.callbacks = []
+        state = TopAgentState(
+            current_message=HumanMessage(content="Generate a report."),
+            plan="1. [ ] Call `video_understanding_iso`.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[{"name": "video_understanding_iso", "args": {}, "id": "call_1"}],
+                ),
+                ToolMessage(
+                    name="video_understanding_iso",
+                    tool_call_id="call_1",
+                    content="Tool call failed: invalid timestamp",
+                    status="error",
+                ),
+            ],
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        assert "already completed successfully" not in result.plan
+        assert "1. [ ] Call `video_understanding_iso`." in result.plan
 
     @pytest.mark.parametrize(
         "tool_response",

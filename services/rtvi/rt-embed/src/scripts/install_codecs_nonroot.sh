@@ -142,6 +142,7 @@ PACKAGES=(
     libmbedcrypto7t64
     libhwy1t64
     libcjson1
+    libsodium23
 )
 
 if [ "$DEB_ARCH" = "amd64" ]; then
@@ -263,6 +264,50 @@ export PYTHONPATH=${PYTHON_CODEC_DIR}\${PYTHONPATH:+:\$PYTHONPATH}
 export LD_LIBRARY_PATH=${PYTHON_CODEC_DIR}/PyNvVideoCodec:${LIB_DIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}
 export PATH=${INSTALL_DIR}/usr/bin\${PATH:+:\$PATH}
 EOF
+
+# Do not record a successful installation merely because the packages were
+# extracted. GStreamer silently blacklists plugins with unresolved shared
+# libraries, which makes the libav package appear installed while avdec_aac is
+# unavailable at runtime. Use a fresh registry so a previous blacklist cannot
+# influence this check.
+LIBAV_PLUGIN="$GST_PLUGIN_DIR/libgstlibav.so"
+if [ ! -s "$LIBAV_PLUGIN" ]; then
+    echo "ERROR: GStreamer libav plugin is missing at $LIBAV_PLUGIN" >&2
+    exit 1
+fi
+
+if ! LDD_OUTPUT=$(
+    LD_LIBRARY_PATH="${PYTHON_CODEC_DIR}/PyNvVideoCodec:${LIB_DIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        ldd "$LIBAV_PLUGIN"
+); then
+    echo "ERROR: Failed to inspect GStreamer libav runtime dependencies" >&2
+    exit 1
+fi
+MISSING_LIBRARIES=$(awk '/not found/ { print $1 }' <<< "$LDD_OUTPUT")
+if [ -n "$MISSING_LIBRARIES" ]; then
+    echo "ERROR: GStreamer libav plugin has unresolved runtime dependencies:" >&2
+    sed 's/^/  /' <<< "$MISSING_LIBRARIES" >&2
+    exit 1
+fi
+
+if ! env \
+    GST_PLUGIN_PATH="${GST_PLUGIN_DIR}${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}" \
+    LD_LIBRARY_PATH="${PYTHON_CODEC_DIR}/PyNvVideoCodec:${LIB_DIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    GST_REGISTRY="$DEBS_DIR/gstreamer-registry.bin" \
+    python3 - <<'PY'
+import gi
+
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst
+
+Gst.init(None)
+if Gst.ElementFactory.find("avdec_aac") is None:
+    raise SystemExit("avdec_aac element factory is unavailable")
+PY
+then
+    echo "ERROR: GStreamer could not load the avdec_aac decoder from $LIBAV_PLUGIN" >&2
+    exit 1
+fi
 
 touch "$INSTALL_DIR/.installed"
 echo "Codec installation complete. Env written to $INSTALL_DIR/codec_env.sh"

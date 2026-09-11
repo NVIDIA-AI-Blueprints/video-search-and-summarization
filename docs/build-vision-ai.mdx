@@ -1,0 +1,203 @@
+---
+title: "Build Vision AI Skill"
+description: ""
+position: 3
+---
+
+<Warning>
+Agent Skills are released as **Early Access** and are not intended for use in production environments.
+Agent Skills for VSS were validated using Claude Opus 4.6.
+</Warning>
+
+The `vss-build-vision-ai` Skill is the recommended deployment entry point for
+VSS. Use it from a coding agent such as Claude Code or Codex when you want to
+deploy a ready-made VSS workflow, deploy a warehouse blueprint, or build a
+custom vision stack from the VSS microservices.
+
+For developer-profile and custom builds, the Skill can also set up a host-side
+NemoClaw harness after the VSS stack is ready. Warehouse deployments do not
+support the NemoClaw harness yet.
+
+Unlike runtime Skills that operate a running deployment, `vss-build-vision-ai`
+does the build-time work: it chooses the closest validated profile, resolves the
+required services, creates deployment artifacts, validates the Docker Compose
+plan, deploys the stack when requested, and returns the URL you use afterward.
+
+<Note>
+For the fastest first run, use `vss-build-vision-ai` to deploy the `base`
+profile from the [Quickstart](/vss/getting-started/quickstart#deploy-the-base-profile).
+</Note>
+
+## When to use it
+
+Use `vss-build-vision-ai` when you want to:
+
+- Deploy a pre-built developer workflow such as `base`, `alerts`, `lvs`, or
+  `search`.
+- Deploy a warehouse industry blueprint, including 2D, 3D, MV3DT, and
+  auto-calibration variants.
+- Build a custom stack from capabilities such as dense captioning, object
+  detection and tracking, semantic search, alerting, video summarization, or SOP
+  compliance monitoring.
+- Extend a running deployment with additional vision capabilities.
+- Tear down a stack that was created by the Skill.
+
+Do not use this Skill for ordinary runtime operations after deployment. Once the
+stack is running, use the matching runtime Skill from the
+[Agent Skills catalog](/vss/vision-agent/agent-skills#available-skills), or
+configure the checkout-local `vss` CLI wrapper for tasks such as uploading
+video, asking a question, searching an archive, managing alerts, or generating a
+report.
+
+## Deployment paths
+
+`vss-build-vision-ai` supports three entry paths.
+
+| Path | Use it for | What the Skill does |
+| --- | --- | --- |
+| Pre-built developer workflow | Quickstarts and standard workflows | Selects one validated developer profile: `base`, `alerts`, `lvs`, or `search`. |
+| Pre-built industry blueprint | Warehouse deployments | Selects a warehouse variant and expands its validated service list. |
+| Custom build | Capability combinations that do not exactly match a stock profile | Starts from the closest profile and creates the smallest delta needed for the requested capabilities. |
+
+## Supported profiles
+
+### Developer workflows
+
+| Profile | Best for | Main capabilities |
+| --- | --- | --- |
+| `base` | First run, video Q&A, and report generation on short clips | VSS Agent, UI, VIOS, LLM, and RT-VLM. |
+| `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, VA-MCP, RT-VLM, and optionally RT-CV with behavior analytics. |
+| `lvs` | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI/agent surfaces for summarization workflows. |
+| `search` | Natural-language video search | RT-CV detection and tracking, RT-Embed embeddings, Elasticsearch, Video Analytics API, and search services. |
+
+For `alerts`, the Skill asks which mode you want:
+
+- `2d_vlm` for continuous RT-VLM inspection and real-time alert APIs.
+- `2d_cv` for RT-CV detections, behavior analytics, and VLM verification.
+
+### Warehouse blueprint
+
+The warehouse path deploys validated industry-profile combinations rather than
+composing a custom delta. The Skill asks for the warehouse mode, deployment
+variant, size when applicable, and sample dataset.
+
+| Mode | Use it for |
+| --- | --- |
+| `2d` | Multi-camera RT-DETR perception and warehouse behavior analytics. |
+| `3d` | Depth-aware Sparse4D perception with behavior analytics. |
+| `mv3dt` | Multi-view 3D tracking with BEV fusion. |
+| `auto-calibration` | Producing calibration for a selected warehouse dataset. |
+
+Warehouse deployments register their own sample sources through the warehouse
+configurator. Do not manually provision sources during the build path unless you
+are working with a separate custom or headless deployment.
+
+## Custom capability builds
+
+For custom builds, describe the capabilities you want instead of choosing a
+profile directly. The Skill maps the request to VSS service owners, selects a
+Foundation profile, and creates a build-local delta.
+
+Common capability requests include:
+
+| Capability | Typical Foundation |
+| --- | --- |
+| Dense captioning or VLM Q&A | `base` |
+| Object detection and tracking | `search` or `alerts`, depending on the downstream workflow |
+| Semantic search over video | `search` |
+| Real-time alerting or alert verification | `alerts` |
+| Video summarization | `lvs` |
+| SOP compliance monitoring | `alerts` in VLM mode, with SOP services added as a delta |
+
+The Skill includes VIOS as the video input and storage layer for guided custom
+builds. It retains ingress only when the requested capability or harness needs a
+single public origin, and adds ELK/Kafka only for capabilities that publish to
+Kafka or index into Elasticsearch.
+
+## Agent harness
+
+When a developer-profile or custom build includes the in-stack VSS Agent, the
+Skill asks whether to deploy a host-side agent harness. The default harness is
+NemoClaw, which runs outside the Docker Compose project and operates the
+deployed stack through its public ingress URL.
+
+If you choose no harness, operate the deployment from the host with the `vss`
+CLI. If you explicitly request the in-stack VSS Agent, the Skill preserves that
+agent instead.
+
+<Note>
+A harness is not a Docker Compose service. The Skill never adds `nemoclaw` to
+`COMPOSE_PROFILES`; it installs and starts the harness only after the VSS stack
+passes readiness checks.
+</Note>
+
+Warehouse deployments do not enter the NemoClaw harness flow. The Skill deploys
+the selected Warehouse variant as-is; for the 2D `bp_wh` variant, that means
+preserving the in-stack VSS Agent.
+
+## What the Skill creates
+
+For each build, `vss-build-vision-ai` writes build-local artifacts under
+`_builds/<name>/`:
+
+```text
+_builds/<name>/
+|-- override.env
+|-- compose.yml
+|-- patches/      # optional; changed or new services only
+`-- resolved.yml
+```
+
+Warehouse builds also generate `configurator.env` because the warehouse
+configurator reads its own environment file.
+
+The Skill validates `resolved.yml` before deployment. If deployment is requested,
+it starts exactly the validated Compose plan and waits for profile-specific
+readiness checks before returning.
+
+## Example prompts
+
+```text title="Deploy the quickstart profile"
+Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
+```
+
+```text title="Deploy search"
+Use the vss-build-vision-ai skill to deploy the VSS search profile with remote LLM and VLM endpoints.
+```
+
+```text title="Deploy warehouse"
+Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior analytics.
+```
+
+```text title="Build a custom stack"
+Use the vss-build-vision-ai skill to build a custom VSS stack for streaming object detection, video embeddings, and semantic search.
+```
+
+```text title="Tear down"
+Use the vss-build-vision-ai skill to tear down the VSS build.
+```
+
+## After deployment
+
+After the Skill returns the deployment URL, configure the checkout-local `vss`
+CLI against that origin. Run this from the VSS Blueprint checkout:
+
+```bash
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$PWD}"
+vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
+vss --version
+
+vss configure --base-url "<VSS_PUBLIC_URL>"
+vss configure check
+```
+
+Then use the runtime Skills or CLI command groups that match the deployed
+services:
+
+- `vss-manage-video-io-storage` or `vss vios` for sensors, uploads, clips, and
+  snapshots.
+- `vss-ask-video` for one-off visual questions.
+- `vss-generate-video-report` for report generation.
+- `vss-summarize-video` or `vss summarize` for video summaries.
+- `vss-search-archive` or `vss search` for archive search.
+- `vss-manage-alerts` and `vss-query-analytics` for alerts and analytics data.

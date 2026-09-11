@@ -1,6 +1,6 @@
 # VSS Skills Eval
 
-Evaluate VSS skills (vss-deploy-profile, vss-deploy-dense-captioning, vss-manage-alerts, vss-manage-video-io-storage, vss-query-analytics, vss-search-archive, vss-summarize-video, vss-ask-video, vss-generate-video-report) against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor).
+Evaluate `vss-build-vision-ai` and operational VSS skills against a live GPU deployment using [Harbor](https://github.com/laude-institute/harbor). Individual deployment skills are not independently dispatched.
 
 Evaluation is **fully CI-driven**. [`.github/workflows/skills-eval.yml`](../workflows/skills-eval.yml) fires on every push to a `pull-request/<N>` mirror branch whose diff touches `skills/` or `.github/skill-eval/`, and runs a single claude-agent-sdk session ([`skills_eval_agent.py`](skills_eval_agent.py)) that:
 
@@ -35,6 +35,13 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 | `spark` | BYOH DGX Spark node registered via `brev register` | n/a |
 
 Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-deploy-profile` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
+
+For `EVAL_AGENT=nemoclaw`, that same first `expects[]` task runs with the coding
+agent and `/vss-build-vision-ai`; its query supplies the deployment intent and
+its checks supply the readiness verdict. Build Vision AI attaches NemoClaw in
+the same task, then the remaining entries run through the ready sandbox. Specs
+that need a deployment prerequisite declare it as a setup query at
+`expects[0]`; specs that do not need setup add nothing harness-specific.
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 

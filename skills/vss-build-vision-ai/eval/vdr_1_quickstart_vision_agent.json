@@ -1,0 +1,53 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "vdr-1-quickstart",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. Covers VDR row 1, \"Quickstart via vss-build-vision-ai skill\" - the prompts are the slide's verbatim.\n\nQueries 1 and 2 are questions, not build requests: answer from the skill's own SKILL.md and references without writing a build directory, running `docker compose`, or starting a container. Query 3 is the quickstart deploy.\n\nFor the deploy: write the artifacts under `_builds/vdr-1-quickstart/` and bring the stack up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes rather than spending the trial budget on a separate blocking image pull. This build uses the **NemoClaw harness**, as query 3 asks: the in-stack `vss-agent` is removed - harness selection removes it on either answer - and NemoClaw is brought up host-side after readiness, reaching the build through `vss-haproxy-ingress`. **Use the build.nvidia.com hosted-model provider (notebook option (c))** - an explicit request, which the skill's Default provider section allows as an override. It needs only `NVIDIA_API_KEY`, which this trial supplies; `COMPATIBLE_API_KEY` for the default option (a) endpoint is **not** provisioned here, so option (a) would block on a missing bearer token. The request says no teardown, so leave the deployment running. Removing `vss-agent` makes it a Delta build on its Foundation; `vss-ui`, `phoenix`, `redis`, the VIOS services and the LLM peer all stay, so the Web UI is still served, with its chat and search surfaces inactive. One GPU is the documented base sizing: LLM and integrated RT-VLM share the card (`references/sizing.md`).",
+  "expects": [
+    {
+      "artifact_expected": false,
+      "query": "what does this skill do?",
+      "checks": [
+        "The answer describes what the skill does: it composes and deploys agent-ready vision capabilities as a self-contained stack on the NVIDIA VSS Blueprint, either by deploying a stock developer profile or by composing a delta overlay on one.",
+        "The answer names the stock developer profiles `base`, `alerts`, `lvs` and `search`, and identifies `warehouse` as the supported industry profile.",
+        "The answer states the skill is not for operating an already-deployed stack, and not for deploying a single microservice on its own. The exact wording and the examples given are not prescribed.",
+        "No deployment or composition side effects: the trajectory runs no `docker compose up`, creates no `_builds/` directory, and starts no container."
+      ]
+    },
+    {
+      "artifact_expected": false,
+      "query": "what does the base vision agent harness include?",
+      "checks": [
+        "The answer names the base profile's in-stack agent - by service key (`vss-agent`) or by name (\"the in-stack agent\"), either is fine - and its Web UI, the `redis` cache, the VIOS video I/O and storage services, and the model tier of one LLM plus integrated RT-VLM. Naming `phoenix` as well is expected but the exact list wording is not prescribed.",
+        "The answer does not claim the base profile ships semantic search, real-time alerting, or video summarization - those belong to the `search`, `alerts` and `lvs` profiles.",
+        "No deployment or composition side effects: the trajectory runs no `docker compose up`, creates no `_builds/` directory, and starts no container."
+      ]
+    },
+    {
+      "query": "deploy vss vision agent autonomously, add nemoclaw, no teardown",
+      "checks": [
+        "`{{repo_root}}/_builds/vdr-1-quickstart/override.env` exists and declares `FOUNDATION=base` and the full effective `COMPOSE_PROFILES`.",
+        "The effective service set is the `base` profile minus `vss-agent` and nothing else: `vss-ui`, `phoenix`, `redis`, the VIOS services, one LLM profile token and `rtvi-vlm` all remain, and no key is added. Removing `vss-agent` makes this a Delta build rather than a stock deploy, and the response says so.",
+        "No build-directory label is used as a Compose profile: `COMPOSE_PROFILES` contains no key named `vdr-1-quickstart`, and every entry in it is a canonical service-profile key.",
+        "`{{repo_root}}/_builds/vdr-1-quickstart/compose.yml` includes the root `deploy/docker/compose.yml`, and the build directory contains `override.env`, `compose.yml`, and `resolved.yml`.",
+        "The deployment is launched directly from `_builds/vdr-1-quickstart/resolved.yml` after validation, not from a copied Compose project or the Foundation's own env files.",
+        "The NemoClaw harness the request asked for is brought up host-side after readiness, and `nemoclaw` stays a harness label - it appears in no `COMPOSE_PROFILES`, `compose.yml` or `patches/` entry. The build keeps `vss-haproxy-ingress`, which NemoClaw requires as its single origin.",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do curl -sf --max-time 10 http://localhost:3000/ >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (Web UI still served with no agent; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do curl -sf --max-time 10 http://localhost:${RTVI_VLM_PORT:-8018}/v1/health/ready >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (integrated RT-VLM ready; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx vss-agent-ui && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (Web UI; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx redis && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (shared cache peer; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx phoenix && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (tracing; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx vss-rtvi-vlm && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (integrated RT-VLM; polls up to ~2 min).",
+        "`docker ps --format '{{.Names}}' | awk '$0 == \"vss-agent\" { found=1 } END { exit found ? 1 : 0 }'` returns exit 0 (the in-stack agent is absent, as the harness choice requires)."
+      ]
+    }
+  ]
+}
