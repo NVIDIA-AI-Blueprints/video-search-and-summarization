@@ -1,26 +1,34 @@
 # Request Defaults Configuration
 
 This directory holds the loader for `alert_request_defaults.yaml`, the file that
-supplies default values for fields an incoming alert request may omit. It
+supplies default values for fields an alert *request entity* may omit. It
 covers two things and nothing else:
 
-- **`vlm_params`** — sampling parameters sent to the VLM when the request does
-  not carry its own.
+- **`vlm_params`** — sampling parameters attached to the entity when the
+  request does not carry its own.
 - **`request_defaults`** — values for optional top-level request fields.
 
-## What this file is not
+## Scope: compatibility and test only
 
-Three different things configure VLM behavior, and only the second one lives
-here:
+**Editing this file does not change live verification.** The values reach
+nothing but `AlertRequestEntity` and `VLMParams`, and those are built in one
+place — `EntityValidator.validate_and_build` — which the verification pipeline
+never calls. `AlertSubmissionService` does construct an `EntityValidator`, but
+only so `GET /api/v1/alerts/health` has a component to report on: a submission
+is converted to protobuf and published to Kafka without passing through it. The
+layer is kept for older clients and for the tests that exercise it.
+
+What a running deployment actually verifies with:
 
 | Concern | Where |
 |---------|-------|
 | VLM service endpoint, model name, frame sampling | `vlm` section of `config.yaml` |
-| Per-request sampling defaults | `alert_request_defaults.yaml` (this guide) |
-| Per-alert-type verification settings | `/api/v1/verification/config/{alert_type}` |
+| Per-alert-type prompt and VLM parameters | `PUT /api/v1/verification/config/{alert_type}`, served from the Elasticsearch alert-config store and seeded at startup from `alert_type_config.json` |
+| Clip window, event filters, concurrency | `vst_config` and `alert_agent` sections of `config.yaml` |
 
-Editing the wrong one is the common failure. A wrong `base_url` belongs to
-`config.yaml`; a `temperature` that should apply to every request belongs here.
+So a `temperature` that should apply to every verification belongs in the
+per-alert-type config, not here; a wrong `base_url` belongs in `config.yaml`.
+Setting either one here changes nothing an operator can observe.
 
 ## File resolution
 
@@ -32,9 +40,10 @@ Editing the wrong one is the common failure. A wrong `base_url` belongs to
    container that is `/app`, which is where the shipped copy lands.
 
 The first readable candidate wins; the result is cached for the process
-lifetime, so a change requires a restart. If no candidate is readable the
-service raises `FileNotFoundError` at startup rather than falling back to
-built-in values.
+lifetime, so a change requires a restart. Loading is lazy — it happens on the
+first entity build, not at startup — and if no candidate is readable the
+loader raises `FileNotFoundError` rather than falling back to built-in values.
+A deployment that never builds an entity never reads the file at all.
 
 In the service's own Compose definition, `ALERT_BRIDGE_DEFAULTS_FILE` selects
 the host file bind-mounted over that second path:
@@ -44,15 +53,14 @@ ALERT_BRIDGE_DEFAULTS_FILE=./your-defaults.yaml \
   docker compose -f deploy_docker-compose.yml up -d
 ```
 
-The profile deployments under `deploy/docker/` deliberately do **not** wire
-this up: they run with the `alert_request_defaults.yaml` baked into the image.
-Request-level tuning there belongs in the per-alert-type verification config,
-which is served from Elasticsearch and changeable at runtime through
-`PUT /api/v1/verification/config/{alert_type}` — no restart, no rebuild.
+That override replaces the file the compatibility layer reads; it does not
+change what the verification pipeline does. The profile deployments under
+`deploy/docker/` do not wire it up at all and run with the copy baked into the
+image.
 
 ## Required sections
 
-Startup fails unless both are present and non-empty:
+Loading fails unless both are present and non-empty:
 
 ```yaml
 vlm_params:
@@ -164,7 +172,7 @@ being silently ignored. Under the Compose override it is not a useful signal:
 the bind replaces the file at the path the loader would have used anyway, so
 `config_source` reads the same either way and the content is what to check.
 
-## Common startup errors
+## Common load errors
 
 | Message | Cause |
 |---------|-------|
