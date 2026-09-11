@@ -44,7 +44,7 @@ score tool-calling or trajectories.
   `vss configure --base-url http://<host-ip>:7777` avoids that — `--base-url` is a
   `vss configure` flag, not a benchmark one. `--inline-media` *is* a benchmark flag; it
   forces the old inline behaviour and is only safe for clips under ~10 MB.
-- `uv` and this checkout (CLI via `uv run --project services/agent --no-dev --extra cli vss`).
+- `uv` and this checkout (CLI via `uv run --project libs/vss vss`).
 - The `nvdataset` CLI. It is **not** on PyPI, and the index used by the old
   deep-search eval (`urm.nvidia.com/.../sw-ngc-data-platform-pypi`) returns 403.
   Install from the documented read-only index instead — no credentials needed:

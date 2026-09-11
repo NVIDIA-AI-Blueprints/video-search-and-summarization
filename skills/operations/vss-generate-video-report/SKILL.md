@@ -307,7 +307,7 @@ Hand off to `/vss-manage-video-io-storage` to:
    # Omit the window to take the whole recorded segment; the response echoes what it resolved.
    # CLI bootstrap and exit codes: AGENTS.md at the repo root
    VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-   VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+   VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
    VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
    "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"   # once per deployment
 
