@@ -28,6 +28,7 @@ Tests cover:
 
 import queue
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Thread
 from time import monotonic, sleep
 from unittest.mock import MagicMock, Mock, call, patch
@@ -42,6 +43,7 @@ from models.base_vlm_model import VlmModelOutput
 from server.rtvi_stream_handler import RequestInfo, RTVIStreamHandler, _get_bool_env
 from tests.tests_common import TempEnv
 from utils.asset_manager import Asset
+from utils.request_profiler import RequestMetrics
 from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmModelType
 
 # NOTE: `mock_args` and `stream_handler` fixtures are defined in
@@ -1521,6 +1523,69 @@ class TestRequestManagement:
         assert req_info.status_event.is_set()
         stop_request_profiling.assert_called_once_with(req_info, [])
         cleanup_request_files.assert_called_once_with(req_info)
+
+    def test_c64_profile_completion_never_stops_sampler_or_waits_for_export(self, stream_handler):
+        sampler = MagicMock()
+        exporter = MagicMock()
+        exporter.submit.return_value = True
+        stream_handler._request_profile_sampler = sampler
+        stream_handler._request_profile_exporter = exporter
+
+        requests = []
+        for index in range(64):
+            req_info = RequestInfo(request_id=f"request-{index}")
+            req_info.start_time = 10.0
+            req_info._profile_sample_start_time = 10.0
+            req_info._monitor = sampler
+            req_info._request_metrics = RequestMetrics()
+            requests.append(req_info)
+
+        with patch("server.rtvi_stream_handler.time.time", return_value=11.0):
+            with ThreadPoolExecutor(max_workers=64) as completions:
+                list(
+                    completions.map(
+                        lambda req_info: stream_handler.stop_request_profiling(req_info, []),
+                        requests,
+                    )
+                )
+
+        assert exporter.submit.call_count == 64
+        assert all(req_info._monitor is None for req_info in requests)
+        sampler.stop.assert_not_called()
+        sampler.stop_recording_nvdec.assert_not_called()
+        sampler.stop_recording_gpu.assert_not_called()
+
+    def test_requests_share_one_process_gpu_sampler(self, stream_handler):
+        sampler = MagicMock()
+        sampler.get_gpu_names.return_value = ["GPU"]
+        exporter = MagicMock()
+        stream_handler._profile_requests = True
+        stream_handler._request_profile_sampler = None
+        stream_handler._request_profile_exporter = None
+
+        requests = []
+        for index in range(2):
+            req_info = RequestInfo(request_id=f"request-{index}")
+            req_info.query = MagicMock(chunk_duration=10, chunk_overlap_duration=0)
+            req_info.file_duration = 10_000_000_000
+            requests.append(req_info)
+
+        with (
+            patch(
+                "server.rtvi_stream_handler.get_process_gpu_sampler",
+                return_value=sampler,
+            ) as get_sampler,
+            patch(
+                "server.rtvi_stream_handler.get_request_profile_exporter",
+                return_value=exporter,
+            ) as get_exporter,
+        ):
+            for req_info in requests:
+                stream_handler.start_request_profiling(req_info)
+
+        get_sampler.assert_called_once_with()
+        get_exporter.assert_called_once_with(sampler)
+        assert all(req_info._monitor is sampler for req_info in requests)
 
 
 def _admission_request(request_id: str, chunk_count: int = 2) -> RequestInfo:
