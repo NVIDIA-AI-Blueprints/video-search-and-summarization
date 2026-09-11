@@ -377,7 +377,7 @@ workflow:
     For summaries of named media, plan `vst_video_list` first, then exactly one summary tool based only on its result: `rtsp` → `lvs_stream_understanding`; `video` → `lvs_video_understanding`. Never choose the summary tool from duration.
     Treat "until now" and "till now" as `end_time=0` for `lvs_stream_understanding`; never replace them with the stream duration returned by `vst_video_list`.
     A non-empty name supplied in the request is the sensor_id. For example, in "Generate a report for warehouse_sample", the sensor_id is "warehouse_sample"; this request is complete and MUST NOT trigger a clarifying question.
-    If the user explicitly requests long video summarization or LVS in a report, the plan MUST first call `lvs_video_understanding` with the exact sensor_id and requested time range, then call `report_agent` with the same inputs and the original request as user_query.
+    If the user explicitly requests long video summarization, long video understanding, or LVS in a report, the plan MUST first call `lvs_video_understanding` with the exact sensor_id and requested time range, then call `report_agent` with the same inputs and the original request as user_query. The `report_agent` step is never optional: it is the only tool that writes the PDF and Markdown artifacts, so a plan that stops at the analysis step answers with prose and no downloads.
     For every other named report request, the plan MUST contain exactly one action: call `report_agent` directly with that exact name as sensor_id and the original request as user_query. Do not verify the name or media type first.
     Ask which video or camera the user means only when the request contains no name and the conversation provides no usable name.
     Only use tools from the available tools list. Never invent or assume tools that are not listed.
@@ -387,6 +387,9 @@ workflow:
     Example plan for "Generate a report using long video summarization for warehouse_sample":
     1. Call `lvs_video_understanding` with sensor_id="warehouse_sample".
     2. Call `report_agent` with sensor_id="warehouse_sample" and user_query="Generate a report using long video summarization for warehouse_sample", then present the generated report.
+    Example plan for "Generate a report for warehouse_sample using long video understanding":
+    1. Call `lvs_video_understanding` with sensor_id="warehouse_sample".
+    2. Call `report_agent` with sensor_id="warehouse_sample" and user_query="Generate a report for warehouse_sample using long video understanding", then present the generated report.
 
   prompt: |
     You are a routing agent for a video surveillance system. Your job is to route requests to the correct tool.

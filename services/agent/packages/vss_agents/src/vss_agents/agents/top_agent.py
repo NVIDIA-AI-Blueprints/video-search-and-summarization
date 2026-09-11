@@ -900,31 +900,6 @@ class TopAgent(AsyncMixin):
             )
             logger.warning("Corrected LVS report plan that omitted lvs_video_understanding")
 
-        # `report_agent` is the only tool that writes the PDF and Markdown artifacts, so a report
-        # plan that stops at the analysis step answers with prose and no downloads. The profile
-        # prompts already declare that a report request routes to `report_agent`; re-assert it here
-        # rather than trusting the planner to keep the step it was told to plan.
-        if (
-            "report" in lowered_question
-            and "report_agent" in self.tools_dict
-            and "report_agent" not in plan_text
-            and not plan_text.strip().startswith(PLAN_CLARIFY_PREFIX)
-        ):
-            report_step = (
-                "Call `report_agent` with every media name from the user's request (as a single list when the "
-                "request names more than one) and the original request as `user_query`, then present the "
-                "generated report."
-            )
-            planned_steps = [int(match.group(1)) for match in re.finditer(r"(?:^|\s)(\d+)\.\s", plan_text)]
-            if planned_steps:
-                plan_text = f"{plan_text.rstrip()}\n{max(planned_steps) + 1}. {report_step}"
-            else:
-                # No numbered step at all means the planner returned prose rather than a plan, and
-                # prose such as "route to the appropriate tools" steers the execution agent into a
-                # summary tool. Replace it instead of appending the report step underneath it.
-                plan_text = f"1. {report_step}"
-            logger.warning("Added the missing `report_agent` step to a report plan")
-
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
             clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()
