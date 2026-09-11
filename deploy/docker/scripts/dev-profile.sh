@@ -505,6 +505,11 @@ function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   local _vlm_mode="${2}"
   local _profile="${3}"
+  # Effective RT-VLM checkpoint, when known. The budget is per-checkpoint, not
+  # just per-board: Cosmos3 Super's weights are ~3x Nano's, so a fraction sized
+  # for Nano leaves Super almost no KV cache. Empty falls back to the Nano-sized
+  # defaults below.
+  local _model_path="${4:-}"
 
   if [[ "${_profile}" == "alerts" ]]; then
     case "${_hardware_profile}" in
@@ -532,7 +537,15 @@ function get_rtvi_vllm_gpu_memory_utilization() {
       # Spark/Thor unified memory: 0.35. Thor is applied in the Thor block
       # below (alerts and base both need it; the helper is skipped for Thor).
       DGX-SPARK) echo "0.35" ;;
-      H100|RTXPRO6000BW) echo "0.4" ;;
+      # Cosmos3 Super FP8 weights are 33.08 GB against Nano FP8's 9.87 GB, so the
+      # Nano-sized 0.4 (~38 GiB on a 95 GiB board) leaves Super ~5 GiB of KV cache.
+      # 0.55 is validated co-resident with RT-CV on a 95 GiB H100 NVL: RT-VLM and
+      # RT-CV both reach ready with ~31 GiB free. Super BF16 (62.14 GB) does not
+      # fit a shared GPU at all — RT-CV's TensorRT execution context OOMs — so
+      # shared placement is FP8-only; prefer BF16 where the VLM owns the GPU.
+      H100|RTXPRO6000BW)
+        if [[ "${_model_path}" == *cosmos3-super-reasoner* ]]; then echo "0.55"; else echo "0.4"; fi
+        ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
@@ -1391,6 +1404,8 @@ function process_args() {
         if contains_element "vlm" "${options_provided[@]}"; then
           if [[ -z "$(get_vlm_slug "${vlm}")" ]]; then
             echo "[ERROR] Invalid VLM model name: ${vlm}. Must be one of: nvidia/cosmos3-reasoner, nvidia/cosmos3-reasoner-fp8"
+            echo "        Cosmos3 Super is not selectable with --vlm. Set RTVI_VLM_MODEL_PATH and VLM_NAME in the"
+            echo "        profile's overrides.env instead; the shared-GPU memory fraction is derived from the checkpoint."
             ((_all_good++))
           fi
         fi
@@ -1863,7 +1878,19 @@ function state_up() {
     # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}")"
+      # Resolve the effective checkpoint first: the vLLM budget is per-checkpoint
+      # (Super needs a larger fraction than Nano). Same precedence the model vars
+      # themselves follow — --vlm when given, otherwise the profile env files.
+      local _effective_vlm_model_path=""
+      if [[ -n "${vlm}" ]]; then
+        _effective_vlm_model_path="$(get_rtvi_vlm_model_path "${vlm}")"
+      fi
+      if [[ -z "${_effective_vlm_model_path}" ]]; then
+        _effective_vlm_model_path="$(get_env_value_from_files "RTVI_VLM_MODEL_PATH" \
+          "${deployment_directory}/developer-profiles/dev-profile-${profile}/.env" \
+          "${deployment_directory}/developer-profiles/dev-profile-${profile}/overrides.env")"
+      fi
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}" "${_effective_vlm_model_path}")"
       if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi

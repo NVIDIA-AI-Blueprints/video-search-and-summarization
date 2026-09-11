@@ -15,7 +15,8 @@ contract.
    [RT-Embed](services/rt-embed.md).
 4. Place singleton RT-VLM last, into the capacity step 3 leaves behind; never
    displace or co-pack a fixed service to free a GPU for it. When composition
-   must converge different integrated Cosmos3 Nano variants, use BF16 only if a
+   must converge different integrated Cosmos3 variants (Nano or Super — the rule
+   is quantization-driven, not family-driven), use BF16 only if a
    GPU remains free after every fixed-footprint service has its preferred
    dedicated device; otherwise use FP8 co-resident on the RT-CV device
    (`RT_VLM_DEVICE_ID = RT_CV_DEVICE_ID`), which retains the most headroom among
@@ -106,13 +107,14 @@ RT-VLM is `0.40 + 0.40`, leaving 20% unallocated.
 | Alerts `2d_cv` | GPU 0: RT-CV. GPU 1: LLM + RT-VLM; `rtvi-vlm` performs per-clip verification through Alert Bridge. | Set `RESERVED_DEVICE_IDS=0`. Size the shared LLM and RT-VLM against the combined budget. |
 | Alerts `2d_vlm` | No RT-CV; default device values co-locate LLM + RT-VLM on GPU 1. Move RT-VLM to the free GPU 0 when possible. | Continuous VLM inference needs more headroom; prefer separate GPUs or a user-approved remote model endpoint. |
 | LVS | One GPU: LLM + RT-VLM shared. Two GPUs: LLM on GPU 0 and RT-VLM on GPU 1. | When shared on H100/RTX PRO 6000, set `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40` and cap the LLM at about `0.40`. |
-| Search | GPU 0: RT-CV + RT-VLM FP8 at `0.40`. GPU 1: RT-Embed + LLM. | The stock local profile uses two shared GPUs (`FIXED_SHARED_DEVICE_IDS=0,1`). |
+| Search | GPU 0: RT-CV + RT-VLM FP8 (Nano `0.40`, Super `0.55`). GPU 1: RT-Embed + LLM. | The stock local profile uses two shared GPUs (`FIXED_SHARED_DEVICE_IDS=0,1`). Shared placement is FP8-only: Super BF16 (62.14 GB) starves RT-CV's TensorRT execution context. |
 
 RT-VLM placement and utilization starting values:
 
 | Placement | Example profile and hardware | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` |
 |---|---|---:|
-| Shared with another GPU service | Search FP8 on H100 or RTX PRO 6000; Alerts/LVS BF16 on H100, RTX PRO 6000, or DGX Spark | 0.40 |
+| Shared with another GPU service | Search Nano FP8 on H100 or RTX PRO 6000; Alerts/LVS BF16 on H100, RTX PRO 6000, or DGX Spark | 0.40 |
+| Shared with another GPU service | Search **Super FP8** on H100 or RTX PRO 6000 (weights 33.08 GB vs Nano FP8's 9.87 GB) | 0.55 |
 | Dedicated | Alerts/LVS BF16 on H100, RTX PRO 6000, or supported discrete GPUs not listed below | 0.70 |
 | Dedicated | Alerts/LVS BF16 on L40S or RTX PRO 4500 | 0.80 |
 
