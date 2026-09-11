@@ -167,6 +167,8 @@ Check the dataset's stream count against the cell before deploying:
 - `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile.
 - `warehouse-loading-dock-3cams-synthetic` (2D kafka/redis) — 3 streams. Fits
   every profile.
+- `warehouse-loading-dock-3cams-degraded-synthetic` — 3 streams. Fits
+  every profile.
 - `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. **Exceeds `L4` (3).**
   Exactly saturates `RTXA6000` (4), which leaves no margin for a second workload
   on that GPU.

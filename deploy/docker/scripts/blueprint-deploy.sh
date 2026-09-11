@@ -120,7 +120,7 @@ function warehouse_dataset_type() {
     nv-warehouse-4cams)
       _inferred="real"
       ;;
-    warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
+    warehouse-loading-dock-3cams-synthetic | warehouse-loading-dock-3cams-degraded-synthetic | warehouse-4cams-20mx20m-synthetic)
       _inferred="synthetic"
       ;;
   esac
