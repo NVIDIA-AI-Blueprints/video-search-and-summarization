@@ -58,9 +58,13 @@ class FOVCountsWithChartInput(BaseModel):
         ...,
         description="End time in ISO format (e.g., '2025-10-14T14:01:00.000Z')",
     )
-    object_type: str | None = Field(
-        default=None,
-        description="Object type to count (e.g., 'Person'). If not specified, returns counts for all object types.",
+    object_type: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Required count scope. Pass the detector class name for the objects in the question "
+            "(use 'Person' for people), or pass 'All' only for an explicit all-class total."
+        ),
     )
     bucket_count: int = Field(
         default=10,
@@ -74,6 +78,10 @@ class FOVCountsWithChartOutput(BaseModel):
     summary: str = Field(..., description="Summary of the count data")
     latest_count: int = Field(..., description="Most recent object count")
     average_count: float = Field(..., description="Average count across all time bins")
+    per_type_average: dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-class averages, populated when object_type is 'All'",
+    )
     chart_url: str | None = Field(None, description="URL to the generated chart image")
     raw_histogram: dict = Field(..., description="Raw histogram data from the API")
 
@@ -96,6 +104,10 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
             f"Getting FOV histogram for sensor {input_data.sensor_id} from {input_data.start_time} to {input_data.end_time}"
         )
 
+        # "All" is an explicit public selector. The histogram API represents that scope by omitting
+        # its optional object_type filter.
+        selected_object_type = None if input_data.object_type.casefold() == "all" else input_data.object_type
+
         # Step 1: Get FOV histogram data
         tool_input = {
             "source": input_data.sensor_id,
@@ -103,8 +115,8 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
             "end_time": input_data.end_time,
             "bucket_count": input_data.bucket_count,
         }
-        if input_data.object_type:
-            tool_input["object_type"] = input_data.object_type
+        if selected_object_type:
+            tool_input["object_type"] = selected_object_type
 
         fov_result = await get_fov_histogram_tool.ainvoke(tool_input)
 
@@ -139,6 +151,7 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
         # Extract counts and time labels
         x_categories = []
         counts = []
+        per_type_totals: dict[str, int] = {}
         for entry in histogram:
             start_time = entry.get("start", "")
             # Format time to show only HH:MM:SS instead of full ISO timestamp
@@ -150,19 +163,22 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
                 # Fallback to original if parsing fails
                 x_categories.append(start_time)
 
-            # Get the count for the specified object type (or sum all if not specified)
+            # Get the selected class count, or sum all classes for the explicit "All" scope.
             objects = entry.get("objects", [])
             count = 0
-            if input_data.object_type:
+            if selected_object_type:
                 # Filter by specific object type
                 for obj in objects:
-                    if obj.get("type") == input_data.object_type:
+                    if obj.get("type") == selected_object_type:
                         count = max(0, int(obj.get("averageCount", 0)))
                         break
             else:
                 # Sum all object types
                 for obj in objects:
-                    count += max(0, int(obj.get("averageCount", 0)))
+                    obj_count = max(0, int(obj.get("averageCount", 0)))
+                    count += obj_count
+                    obj_type = obj.get("type", "Unknown")
+                    per_type_totals[obj_type] = per_type_totals.get(obj_type, 0) + obj_count
             counts.append(count)
 
         latest_count = counts[-1] if counts else 0
@@ -173,7 +189,7 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
         )
 
         # Step 3: Generate chart only if there is meaningful data to visualize
-        object_label = input_data.object_type if input_data.object_type else "All Objects"
+        object_label = selected_object_type or "All Objects"
         chart_url = None
 
         has_nonzero_data = any(c > 0 for c in counts)
@@ -222,6 +238,18 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
             f"- Time range: {input_data.start_time} to {input_data.end_time}"
         )
 
+        per_type_average = {obj_type: total / len(counts) for obj_type, total in sorted(per_type_totals.items())}
+
+        # The explicit All scope sums heterogeneous classes. Carry the per-class split so callers
+        # cannot mistake that aggregate for the count of one class.
+        if not selected_object_type and per_type_average:
+            breakdown = ", ".join(f"{obj_type}: {average:.1f}" for obj_type, average in per_type_average.items())
+            summary += (
+                "\n- Scope: All (the counts above are the sum of every detected class, not a count of"
+                " people or any other single class)"
+                f"\n- Per-class average: {breakdown}"
+            )
+
         # Embed the chart directly in the summary if available
         if chart_url:
             summary += f"\n\n![{object_label} Count Chart]({chart_url})"
@@ -230,13 +258,17 @@ async def get_fov_counts_with_chart(config: FOVCountsWithChartConfig, builder: B
             summary=summary,
             latest_count=latest_count,
             average_count=average_count,
+            per_type_average=per_type_average,
             chart_url=chart_url,
             raw_histogram=fov_data,
         )
 
     yield FunctionInfo.create(
         single_fn=_get_fov_counts_with_chart,
-        description="Get field-of-view object counts for a sensor and generate a visualization chart. Returns both count statistics and a chart image.",
+        description=(
+            "Get field-of-view counts and a chart. object_type is required: the detector class "
+            "for the asked objects ('Person' for people), or 'All' for an all-class aggregate."
+        ),
         input_schema=FOVCountsWithChartInput,
         single_output_schema=FOVCountsWithChartOutput,
     )

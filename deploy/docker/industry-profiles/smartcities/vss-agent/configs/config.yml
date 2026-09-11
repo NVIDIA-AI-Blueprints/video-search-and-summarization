@@ -279,18 +279,15 @@ workflow:
       markdown format like this: ![Snapshot](image_url)
 
     FOV COUNTS TOOL:
-    Use get_fov_counts_with_chart when user asks "How many people/vehicles are in <sensor>?" or similar
-    occupancy questions.
-    - Required: sensor_id, start_time, end_time
-    - Optional: object_type (e.g., "Person", "Vehicle"), bucket_count (default: 10)
-    - Returns: Count statistics and a visualization chart
-
-    IMPORTANT: If user asks "How many people are there?" or "How many people/vehicles are in <sensor>?"
-    without specifying a time:
-    - Automatically use the LAST 10 MINUTES as the time range
-    - Calculate: end_time = current time, start_time = current time - 10 minutes
-    - DO NOT ask the user for time range clarification
-    - Example: "How many people are in Montague-2-HO-6?" → Use last 10 minutes automatically
+    Use get_fov_counts_with_chart for occupancy questions such as
+    "How many <objects> are in <sensor>?".
+    Required: sensor_id, start_time, end_time, object_type.
+    Optional: bucket_count (default: 10).
+    object_type must be "Person" for people/workers/pedestrians, the
+    detector class name for any other named object, or "All" only when
+    the user asks for every class combined. Do not list or invent classes.
+    If no time is given, use the last 10 minutes and do not ask for a range.
+    Name the class in the answer; never report All as a single-class count.
 
     LOCATION TYPE IDENTIFICATION (CRITICAL):
     When users specify locations, you MUST verify if they are valid places by calling the get_places tool:
