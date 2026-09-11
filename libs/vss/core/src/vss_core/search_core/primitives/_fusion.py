@@ -502,11 +502,16 @@ def fuse_ranked_union(
     weights: dict[str, float],
     rrf_k: int,
 ) -> list[SearchResult]:
-    """Dispatch candidate-union fusion using the configured rank method."""
-    if method == "weighted_rrf":
-        effective_weights = weights
-    elif method == "rrf":
-        effective_weights = dict.fromkeys(provider_results, 1.0)
-    else:
-        raise InvalidInputError(f"Unknown union fusion_method: {method!r}. Must be 'weighted_rrf' or 'rrf'")
-    return weighted_rrf_union(provider_results, weights=effective_weights, rrf_k=rrf_k)
+    """Dispatch candidate-union fusion for the weighted_rrf method.
+
+    The legacy ``rrf`` method (embed + attribute, ``rrf_w`` attribute boost, no
+    tag leg) is handled by the restored ``rrf_fusion`` pipeline in
+    ``_search_helpers.execute_core_search`` — it does not go through
+    ``weighted_rrf_union``.
+    """
+    if method != "weighted_rrf":
+        raise InvalidInputError(
+            f"Unknown union fusion_method: {method!r}. Must be 'weighted_rrf' "
+            f"('rrf' is handled by the legacy rrf_fusion pipeline)"
+        )
+    return weighted_rrf_union(provider_results, weights=weights, rrf_k=rrf_k)
