@@ -335,6 +335,14 @@ Register your RTSP streams via the perception REST API — one
 ./scripts/add-streams.sh --list
 ```
 
+> **Wait for the full camera count before removing.** While fewer cameras are registered than the configured `batch-size`, the muxer is still waiting for the batch to fill and no source has activated. Removing one then parks the muxer and the perception REST API stops answering, so `add-streams.sh` refuses. Once `Active sources` has reached the full count, a removal no longer leaves the REST API unresponsive. To abandon a partial registration, recreate perception instead:
+>
+> ```bash
+> cd docker && docker compose up -d --force-recreate perception
+> ```
+>
+> **Adding streams after removing all of them needs a recreate.** The first-buffer alignment that gives the cameras a common time origin runs once per pipeline and is never re-armed, so streams added after the first batch are not guaranteed to be time synchronized. Recreate perception before registering the cameras again to avoid timing issues.
+
 **Expected:** the script waits for `ds-ready: YES`, then reports each stream as
 added. On the very first run for a given batch size, TensorRT builds the
 RT-DETR engine — allow several minutes; the script waits automatically.
