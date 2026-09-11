@@ -79,6 +79,20 @@ class _Common(BaseModel):
     # ignore a misspelled key and silently use the default.
     model_config = ConfigDict(extra="forbid")
 
+    # What the user actually asked, before whatever decomposed it produced the
+    # arguments on this command line. Retrieval never reads it; the critic does.
+    #
+    # A decomposed request is lossy in one direction that matters: `run
+    # attribute --attribute "white jacket"` is a perfectly good retrieval
+    # request but a poor question to verify against, and the host reconstructs
+    # one by pasting the attributes back onto the query string. That
+    # reconstruction is a guess, and it is the CLI's fault it has to guess --
+    # the caller had the sentence and dropped it at the argv boundary. Pass it
+    # here and the critic is asked the user's question instead.
+    original_query: str | None = Field(
+        None,
+        description="The user's question before decomposition; used for result verification, not retrieval.",
+    )
     source_type: Literal["video_file", "rtsp"] | None = Field(None, description="Media source type.")
     video_sources: list[str] = Field(
         default_factory=list,

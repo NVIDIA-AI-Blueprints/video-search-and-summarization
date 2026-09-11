@@ -81,6 +81,53 @@ def test_each_action_accepts_only_its_own_fields(capsys: pytest.CaptureFixture[s
     assert "--query" not in attribute_help
 
 
+def test_every_path_accepts_the_pre_decomposition_question(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--original-query` is on `_Common`, so it is on all five paths.
+
+    Retrieval never reads it. The critic does: without it the host has to
+    rebuild a question out of `--query` and `--attribute`, which is a guess, and
+    on `object` -- which sends no text at all -- the guess is empty and
+    verification is skipped outright. Callers that decomposed the question are
+    the ones that still have it, so this is the field where they hand it back.
+    """
+    for path in ("embed", "attribute", "tag", "fusion", "object"):
+        assert cli.main(["search", "run", path, "--help"]) == 0
+        assert "--original-query" in capsys.readouterr().out, path
+
+
+def test_the_question_reaches_the_library_request_unchanged() -> None:
+    """Through model_dump into SearchInput, which is extra=forbid."""
+    from vss_cli.search.group import AttributeInput
+    from vss_core.search_core.models.search import SearchInput
+
+    asked = "is anyone in a white jacket near the loading door?"
+    payload = AttributeInput(attributes=["white jacket"], original_query=asked).model_dump(
+        exclude_none=True, exclude_defaults=True
+    )
+    payload["search_mode"] = "attribute"
+    request = SearchInput(**payload)
+    request.validate_semantics()
+    assert request.original_query == asked
+    # Retrieval is untouched: the attribute leg still sees only its attributes.
+    assert request.query == ""
+    assert request.attributes == ["white jacket"]
+
+
+def test_an_omitted_question_leaves_the_request_exactly_as_before() -> None:
+    """Default None must not become an empty string in the payload.
+
+    `""` is falsy in the host's `if inp.original_query and ...` guard, so it
+    would behave the same -- but it would also appear in persisted memory as a
+    question the user never asked.
+    """
+    from vss_cli.search.group import EmbedInput
+
+    payload = EmbedInput(query="forklift").model_dump(exclude_none=True, exclude_defaults=True)
+    assert payload == {"query": "forklift"}
+
+
 def test_run_needs_a_configured_deployment(
     tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
