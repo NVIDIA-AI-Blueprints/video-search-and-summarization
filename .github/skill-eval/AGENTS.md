@@ -602,6 +602,14 @@ spec itself stays on the coding-agent runtime. Like every other runtime, worker
 selection and locking stay in `run_leg.py`; the harness does not infer a deploy
 profile from extra spec metadata.
 
+Manual dispatch may set `SKILLS_EVAL_PROVIDER`, `SKILLS_EVAL_MODEL`, and
+`SKILLS_EVAL_ENDPOINT_URL`. These select only the agent under evaluation and
+apply to both Claude Code and NemoClaw. The coordinator, judge, and the coding
+agent used for NemoClaw's first Build Vision AI setup task keep their existing
+runner configuration. `model_config.py` validates and normalizes the route
+before `run_leg.py` waits for a worker; do not infer or rewrite it in an
+adapter, skill, or notebook.
+
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
 path; concurrent legs share the host. `$RES` is the Harbor `-o` root

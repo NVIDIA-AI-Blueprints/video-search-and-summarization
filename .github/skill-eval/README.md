@@ -43,6 +43,22 @@ the same task, then the remaining entries run through the ready sandbox. Specs
 that need a deployment prerequisite declare it as a setup query at
 `expects[0]`; specs that do not need setup add nothing harness-specific.
 
+Manual runs can select the evaluated agent's route without changing the
+coordinator or judge:
+
+| Workflow input | Meaning |
+|---|---|
+| `runner` | Evaluated runtime: `claude-code` or `nemoclaw` |
+| `provider` | `default`, `nvidia-inference`, `nvidia-build` (NemoClaw only), or `custom` |
+| `model` | Optional evaluated-agent model; blank keeps the runner default |
+| `endpoint_url` | Optional API base for either runtime; required with `custom` |
+
+The runner owns credentials. `default` preserves today's configured route.
+For NemoClaw, the resolved values are passed to the existing Build Vision AI
+setup task as `NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, and
+`NEMOCLAW_ENDPOINT_URL`; the setup coding agent itself keeps the coordinator's
+normal Claude route.
+
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 
 | Variable | Purpose |

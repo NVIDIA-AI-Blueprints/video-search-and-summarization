@@ -48,6 +48,7 @@ import urllib.parse
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
+from model_config import resolve_model_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -1556,38 +1557,17 @@ def run_invocations(
     work_deadline: float | None = None,
 ) -> int:
     env = harbor_env(instance)
-    agent = os.environ.get("EVAL_AGENT", "claude-code")
-    # Reject unknown agents loudly — otherwise a typo (e.g. "Codex") would
-    # silently fall through to the claude-code path and be indistinguishable
-    # from a real claude-code run in the logs.
-    if agent not in ("claude-code", "codex", "nemoclaw"):
-        print(
-            f"FATAL: unsupported EVAL_AGENT {agent!r} "
-            "(expected claude-code | codex | nemoclaw)",
-            file=sys.stderr,
-        )
+    try:
+        model_config = resolve_model_config(os.environ)
+    except ValueError as exc:
+        print(f"FATAL: invalid evaluated-agent model configuration: {exc}", file=sys.stderr)
         return 1
-    model = os.environ.get("ANTHROPIC_MODEL", "")
-    base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-    if not base_url:
-        print("FATAL: ANTHROPIC_BASE_URL not set", file=sys.stderr)
-        return 1
+    agent = model_config.runtime
+    model = model_config.model
+    base_url = model_config.endpoint_url
     if agent == "codex":
-        model = os.environ.get("CODEX_MODEL", "")
-        if not model:
-            print("FATAL: CODEX_MODEL not set (required for EVAL_AGENT=codex)",
-                  file=sys.stderr)
-            return 1
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not anthropic_key:
-            print("FATAL: ANTHROPIC_API_KEY not set (required for EVAL_AGENT=codex)",
-                  file=sys.stderr)
-            return 1
-        env["OPENAI_API_KEY"] = anthropic_key
+        env["OPENAI_API_KEY"] = model_config.api_key
         env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
-    if not model:
-        print("FATAL: ANTHROPIC_MODEL not set", file=sys.stderr)
-        return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
@@ -1607,6 +1587,15 @@ def run_invocations(
     if agent == "nemoclaw" and os.environ.get("EVAL_SKILL") == "vss-build-vision-ai":
         print("[run-leg] Build Vision AI specs use the coding-agent runtime", flush=True)
         agent = "claude-code"
+        model = os.environ.get("ANTHROPIC_MODEL", "")
+        base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+        if not model or not base_url:
+            print(
+                "FATAL: ANTHROPIC_MODEL and ANTHROPIC_BASE_URL are required "
+                "for Build Vision AI evaluation",
+                file=sys.stderr,
+            )
+            return 1
     elif agent == "nemoclaw":
         if not invocations:
             print("FATAL: no operational Harbor invocation to run", file=sys.stderr)
@@ -1628,12 +1617,10 @@ def run_invocations(
         env.update(
             {
                 "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
-                "NEMOCLAW_PROVIDER": os.environ.get("NEMOCLAW_PROVIDER", "custom"),
-                "NEMOCLAW_ENDPOINT_URL": os.environ.get("NEMOCLAW_ENDPOINT_URL", base_url),
-                "NEMOCLAW_MODEL": os.environ.get("NEMOCLAW_MODEL", model),
-                "COMPATIBLE_API_KEY": os.environ.get(
-                    "COMPATIBLE_API_KEY", env.get("ANTHROPIC_API_KEY", "")
-                ),
+                "NEMOCLAW_PROVIDER": model_config.nemoclaw_provider,
+                "NEMOCLAW_ENDPOINT_URL": base_url,
+                "NEMOCLAW_MODEL": model,
+                "COMPATIBLE_API_KEY": model_config.api_key,
             }
         )
         env["BREV_EXEC_TIMEOUT"] = str(
@@ -1702,11 +1689,26 @@ def run_invocations(
                 "VSS and NemoClaw",
                 flush=True,
             )
+        invocation_model = model
+        invocation_base_url = base_url
+        if is_nemoclaw_setup:
+            # Model selection targets the agent being evaluated. The coding
+            # agent that provisions Build Vision AI is orchestration, like the
+            # coordinator and judge, and keeps the runner's normal route.
+            invocation_model = os.environ.get("ANTHROPIC_MODEL", "")
+            invocation_base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+            if not invocation_model or not invocation_base_url:
+                print(
+                    "FATAL: ANTHROPIC_MODEL and ANTHROPIC_BASE_URL are required "
+                    "for NemoClaw setup",
+                    file=sys.stderr,
+                )
+                return finish(1)
         cmd = build_harbor_command(
             invocation,
             results_root,
-            model,
-            base_url,
+            invocation_model,
+            invocation_base_url,
             invocation_agent,
             **command_kwargs,
         )
