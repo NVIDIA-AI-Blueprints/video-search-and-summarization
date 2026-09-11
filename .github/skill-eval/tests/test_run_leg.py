@@ -770,6 +770,167 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 124)
         run.assert_called_once()
 
+    def test_build_vision_ai_stays_on_the_coding_agent_path(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/build"),
+            include_task_name="l40s",
+            chain_key="build_l40s",
+        )
+        env = {**self.ENV, "EVAL_AGENT": "nemoclaw", "EVAL_SKILL": "vss-build-vision-ai"}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
+                mock.patch.object(run_leg, "run_command", return_value=0) as run,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation], "vss-eval-box", root / "results", root / "scratch",
+                    "build", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(command.call_args.args[4], "claude-code")
+        run.assert_called_once()
+
+    def test_operational_nemoclaw_leg_uses_first_expect_for_setup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invocations = [
+                run_leg.HarborInvocation(
+                    harbor_root=root / "dataset",
+                    include_task_name=f"step-{index}",
+                    chain_key="alerts",
+                    step_index=index,
+                    step_count=2,
+                )
+                for index in (1, 2)
+            ]
+            env = {
+                **self.ENV,
+                "EVAL_AGENT": "nemoclaw",
+                "EVAL_SKILL": "vss-manage-alerts",
+            }
+            seen_env = []
+
+            def run_command(_cmd, child_env, _timeout):
+                seen_env.append(child_env.copy())
+                return 0
+
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task") as prepare,
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
+                mock.patch.object(run_leg, "run_command", side_effect=run_command) as run,
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
+            ):
+                rc = run_leg.run_invocations(
+                    invocations, "vss-eval-box", root / "results", root / "scratch",
+                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        prepare.assert_called_once_with(invocations[0], "vss-manage-alerts")
+        self.assertEqual(command.call_args_list[0].args[4], "claude-code")
+        self.assertEqual(command.call_args_list[1].args[4], "nemoclaw")
+        self.assertEqual(
+            command.call_args_list[0].kwargs["agent_timeout_multiplier"],
+            run_leg.NEMOCLAW_SETUP_AGENT_TIMEOUT_MULTIPLIER,
+        )
+        self.assertNotIn("agent_timeout_multiplier", command.call_args_list[1].kwargs)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(
+            seen_env[0]["NEMOCLAW_SANDBOX_NAME"],
+            seen_env[1]["NEMOCLAW_SANDBOX_NAME"],
+        )
+        self.assertNotEqual(seen_env[0]["NEMOCLAW_SANDBOX_NAME"], "skill-eval")
+        self.assertEqual(seen_env[0]["NEMOCLAW_RECREATE_SANDBOX"], "0")
+        self.assertEqual(
+            seen_env[0]["BREV_EXEC_TIMEOUT"],
+            str(run_leg.NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC),
+        )
+        self.assertNotIn("SKILL_EVAL_PRESERVE_DEPLOYMENT", seen_env[0])
+        self.assertEqual(seen_env[1]["SKILL_EVAL_PRESERVE_DEPLOYMENT"], "1")
+        marker = seen_env[0][run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV]
+        self.assertTrue(marker.startswith(run_leg.REMOTE_AGENT_RUN_PREFIX))
+        self.assertEqual(seen_env[0][run_leg.DEFER_AGENT_REAP_ENV], "1")
+        self.assertNotIn(run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV, seen_env[1])
+        self.assertNotIn(run_leg.DEFER_AGENT_REAP_ENV, seen_env[1])
+        cleanup.assert_called_once_with("vss-eval-box", marker)
+
+    def test_failed_nemoclaw_setup_reward_stops_before_scenarios(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invocation = run_leg.HarborInvocation(
+                harbor_root=root / "dataset",
+                include_task_name="step-1",
+                chain_key="alerts",
+                step_index=1,
+                step_count=2,
+            )
+            env = {
+                **self.ENV,
+                "EVAL_AGENT": "nemoclaw",
+                "EVAL_SKILL": "vss-manage-alerts",
+            }
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
+                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
+                mock.patch.object(run_leg, "run_command", return_value=0) as run,
+                mock.patch.object(run_leg, "latest_reward", return_value="0.5"),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation], "vss-eval-box", root / "results", root / "scratch",
+                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(run.call_count, 1)
+            cleanup.assert_called_once()
+            self.assertTrue((root / "scratch" / "skipped-alerts-L40S-step-2.txt").is_file())
+
+    def test_prepare_nemoclaw_setup_task_preserves_query_and_adds_build_vision(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task = root / "dataset" / "step-1"
+            task.mkdir(parents=True)
+            (task / "instruction.md").write_text("Deploy the requested system.\n")
+            build_skill = root / "repo" / "skills" / "vss-build-vision-ai"
+            build_skill.mkdir(parents=True)
+            (build_skill / "SKILL.md").write_text("# Build Vision AI\n")
+            invocation = run_leg.HarborInvocation(
+                harbor_root=task.parent,
+                include_task_name="step-1",
+                chain_key="spec",
+            )
+
+            with mock.patch.object(run_leg, "REPO_ROOT", root / "repo"):
+                run_leg.prepare_nemoclaw_setup_task(invocation, "vss-ask-video")
+
+            instruction = (task / "instruction.md").read_text()
+            self.assertTrue(instruction.startswith("Deploy the requested system.\n"))
+            self.assertIn(
+                "The evaluation query above is the complete deployment/setup intent",
+                instruction,
+            )
+            self.assertIn("/vss-build-vision-ai", instruction)
+            self.assertIn("/vss-ask-video", instruction)
+            self.assertIn(
+                'openshell sandbox get "$NEMOCLAW_SANDBOX_NAME"',
+                instruction,
+            )
+            self.assertNotIn("HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
+            self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
+
     def test_passing_step_lets_the_chain_continue(self):
         """reward 1.0 and rc 0 must run step 2 and write no skip markers.
 
@@ -1225,7 +1386,14 @@ class PoolCandidates(unittest.TestCase):
             ["vss-eval-rtx-2g-VM1b"],
         )
 
-    def test_4090_pool_is_limited_to_approved_skills(self):
+    def test_4090_pool_is_not_added_by_the_legacy_skill_tables(self):
+        """The allowlist never grows by skill/stem: the tables are empty.
+
+        RTX 4090 routing moved to spec-level `gpu_type` opt-in, so
+        `_registered_pool_allowlist` returns the full-capability pool alone
+        no matter which leg asks. A non-empty `BREV_RTX4090_POOL` must not
+        leak in through the legacy path.
+        """
         env = {
             "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
             "BREV_RTX4090_POOL": (
@@ -1234,68 +1402,111 @@ class PoolCandidates(unittest.TestCase):
             ),
         }
         with mock.patch.dict(run_leg.os.environ, env, clear=True):
-            approved = run_leg._registered_pool_allowlist(
-                "vss-ask-video", "base_profile_video_understanding"
-            )
-            unapproved = run_leg._registered_pool_allowlist(
-                "vss-deploy-profile", "search"
-            )
-
-        self.assertEqual(
-            approved,
-            {
-                "vss-eval-rtx-2g-vm1b",
-                "vss-eval-geforce-rtx4090-vm1",
-                "vss-eval-geforce-rtx4090-vm2",
-            },
-        )
-        self.assertEqual(unapproved, {"vss-eval-rtx-2g-vm1b"})
+            for skill, stem in (
+                ("vss-ask-video", "base_profile_video_understanding"),
+                ("vss-manage-alerts", "subscriptions_lifecycle"),
+                ("vss-build-vision-ai", "vdr_1_quickstart_vision_agent"),
+            ):
+                self.assertEqual(
+                    run_leg._registered_pool_allowlist(skill, stem),
+                    {"vss-eval-rtx-2g-vm1b"},
+                    f"{skill}/{stem} pulled in the 4090 pool",
+                )
 
     def test_4090_test_capabilities_fail_closed(self):
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "alerts_cv"
-        ))
-        self.assertTrue(run_leg._rtx4090_supports(
-            "vss-manage-alerts", "subscriptions_lifecycle"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "search"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-profile", "warehouse"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-dense-captioning", "alerts_profile_api"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports(
-            "vss-deploy-detection-tracking-3d", "deploy"
-        ))
-        self.assertFalse(run_leg._rtx4090_supports("vss-ask-video", None))
+        """No skill/stem pair opts into RTX 4090 through the legacy tables.
 
-    def test_4090_capability_route_bypasses_rtx_pro_type_only_for_skill(self):
-        fleet = [{
-            "name": "vss-eval-geforce-rtx4090-vm1",
-            "status": "RUNNING",
-            "gpu": "GEFORCE RTX 4090",
-            "_registered": True,
-            "_rtx4090_capability_routed": True,
-        }]
-        run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: fleet
-        )
-        requirements = {"gpu_type": "RTX PRO 6000", "gpu_count": 1}
+        `RTX4090_ALL_TESTS` and `RTX4090_TESTS` are intentionally empty, so
+        this helper fails closed for every input and a 24 GB card is reached
+        only by a spec that declares `gpu_type` (see the pool_candidates
+        tests below).
+        """
+        self.assertEqual(run_leg.RTX4090_ALL_TESTS, frozenset())
+        self.assertEqual(run_leg.RTX4090_TESTS, {})
+        for skill, stem in (
+            ("vss-build-vision-ai", "vdr_2_add_alerting_summarization"),
+            ("vss-manage-alerts", "subscriptions_lifecycle"),
+            ("vss-build-vision-ai", "vdr_1_quickstart_vision_agent"),
+            ("vss-deploy-dense-captioning", "alerts_profile_api"),
+            ("vss-deploy-detection-tracking-3d", "deploy"),
+            ("vss-ask-video", None),
+            (None, "base_profile_video_understanding"),
+        ):
+            self.assertFalse(
+                run_leg._rtx4090_supports(skill, stem),
+                f"{skill}/{stem} opted into RTX 4090 via the legacy tables",
+            )
 
-        approved = run_leg.pool_candidates({
-            **requirements,
-            "skill": "vss-ask-video",
-        }, "base_profile_video_understanding")
-        unapproved = run_leg.pool_candidates({
-            **requirements,
-            "skill": "vss-deploy-dense-captioning",
-        }, "alerts_profile_api")
+    def test_4090_registered_node_is_never_discovered(self):
+        """A node listed only in `BREV_RTX4090_POOL` is not reachable at all.
 
-        self.assertEqual(approved, ["vss-eval-geforce-rtx4090-vm1"])
-        self.assertEqual(unapproved, [])
+        Exercises the real discovery path rather than a synthetic fleet.
+        `_list_pool_instances` admits a registered node only when it is in
+        `_registered_pool_allowlist`, and with the legacy tables empty that
+        allowlist is `BREV_REGISTERED_POOL` alone. So the 4090 pool is dead
+        weight until a spec-level `gpu_type` route is wired to it, and no
+        `gpu_type` a spec declares can resurrect it.
+        """
+        run_leg._list_pool_instances = self._orig          # undo setUp stub
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        env = {
+            "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
+            "BREV_RTX4090_POOL": "vss-eval-geforce-rtx4090-vm1",
+        }
+        try:
+            run_leg._list_brev_instances = lambda: []
+            run_leg._list_registered_nodes = lambda: [
+                {"name": "vss-eval-geforce-rtx4090-vm1", "status": "Connected"},
+            ]
+            with mock.patch.dict(run_leg.os.environ, env, clear=True):
+                discovered = run_leg._list_pool_instances(
+                    "vss-deploy-dense-captioning", "alerts_profile_api")
+                candidates = run_leg.pool_candidates({
+                    "gpu_type": "GEFORCE RTX 4090",
+                    "gpu_count": 1,
+                    "skill": "vss-deploy-dense-captioning",
+                }, "alerts_profile_api")
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
+
+        self.assertEqual(discovered, [], "4090-pool node entered discovery")
+        self.assertEqual(candidates, [], "4090-pool node was scheduled")
+
+    def test_managed_4090_is_selected_by_gpu_type_only(self):
+        """A managed 4090 instance is matched on `gpu_type`, never on skill.
+
+        Managed instances do not go through the registered allowlist, so this
+        is the one path on which a 24 GB card can legitimately serve a leg:
+        the spec has to ask for that GPU.
+        """
+        run_leg._list_pool_instances = self._orig          # undo setUp stub
+        orig_managed = run_leg._list_brev_instances
+        orig_registered = run_leg._list_registered_nodes
+        try:
+            run_leg._list_brev_instances = lambda: [{
+                "name": "vss-eval-geforce-rtx4090-vm1",
+                "status": "RUNNING",
+                "gpu": "GEFORCE RTX 4090",
+                "instance_type": "geforce_rtx4090",
+            }]
+            run_leg._list_registered_nodes = lambda: []
+            with mock.patch.dict(run_leg.os.environ, {}, clear=True):
+                asked = run_leg.pool_candidates({
+                    "gpu_type": "GEFORCE RTX 4090", "gpu_count": 1,
+                    "skill": "vss-deploy-dense-captioning",
+                }, "alerts_profile_api")
+                not_asked = run_leg.pool_candidates({
+                    "gpu_type": "RTX PRO 6000", "gpu_count": 1,
+                    "skill": "vss-ask-video",
+                }, "base_profile_video_understanding")
+        finally:
+            run_leg._list_brev_instances = orig_managed
+            run_leg._list_registered_nodes = orig_registered
+
+        self.assertEqual(asked, ["vss-eval-geforce-rtx4090-vm1"])
+        self.assertEqual(not_asked, [], "RTX PRO 6000 spec landed on a 4090")
 
     def test_underprovisioned_registered_node_is_filtered(self):
         fleet = [
@@ -1702,6 +1913,20 @@ class BoxRejectedForCapacity(unittest.TestCase):
             run_leg.box_rejected_for_capacity(Path("/nonexistent-xyz"), 0))
 
 
+class NemoClawSandboxName(unittest.TestCase):
+    def test_is_stable_per_leg_and_isolates_legs(self):
+        first = run_leg.nemoclaw_sandbox_name("34118027479", "base__RTXPRO6000BW")
+        self.assertEqual(
+            first,
+            run_leg.nemoclaw_sandbox_name("34118027479", "base__RTXPRO6000BW"),
+        )
+        self.assertNotEqual(
+            first,
+            run_leg.nemoclaw_sandbox_name("34118027479", "other__RTXPRO6000BW"),
+        )
+        self.assertTrue(first.startswith("se-027479-"))
+        self.assertLessEqual(len(first), 19)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-

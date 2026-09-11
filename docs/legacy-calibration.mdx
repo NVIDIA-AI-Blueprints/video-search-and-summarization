@@ -61,7 +61,7 @@ Through the provided tooling, essentially it helps to find the anchor point pair
 1. Pull the docker from NGC:
 
 ```
-docker pull nvcr.io/nvidia/vss-core/calibration:3.1.0
+docker pull nvcr.io/nvidia/vss-core/calibration:3.3.0
 ```
 
 2. Create a directory to store your data:
@@ -73,7 +73,7 @@ mkdir <path/to/dir>/data
 3. Run the docker container using host's port 8003, and mounting the aforementioned directory as your data folder.
 
 ```bash
-docker run -p 8003:8003 -v <path to data dir>/data:/calibration/server/data/ -it nvcr.io/nvidia/vss-core/calibration:3.1.0 deploy.sh 8003
+docker run -p 8003:8003 -v <path to data dir>/data:/calibration/server/data/ -it nvcr.io/nvidia/vss-core/calibration:3.3.0 deploy.sh 8003
 ```
 
 <Note>

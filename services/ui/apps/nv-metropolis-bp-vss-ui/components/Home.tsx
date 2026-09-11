@@ -98,27 +98,6 @@ const VssChatPanel = dynamic(
   { ssr: false },
 );
 
-/** Point an absolute VSS media URL at this app's same-origin proxy. */
-const proxyMediaUrl = (value: unknown): unknown => {
-  if (typeof value !== 'string' || !/^https?:\/\//.test(value)) return value;
-  try {
-    const { pathname, search } = new URL(value);
-    return `/api/proxy${pathname}${search}`;
-  } catch {
-    return value;
-  }
-};
-
-/** Rewrite every *_url field on each legacy search hit. */
-const withProxiedMedia = (hits: Array<Record<string, unknown>>) =>
-  hits.map((hit) => {
-    const next: Record<string, unknown> = { ...hit };
-    for (const key of Object.keys(next)) {
-      if (key.endsWith('_url')) next[key] = proxyMediaUrl(next[key]);
-    }
-    return next;
-  });
-
 const readEnv = (key: string) => env(key) || process.env[key] || '';
 
 /**
@@ -615,28 +594,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           // Structured artifact events are appended to this callback payload
           // by the chat transport, without leaking transport markup into the
           // visible assistant message.
-          onAnswer={(answer: string, conversationId: string) => {
-            handleSidebarAnswerCompleteWithContent(answer);
-            if (vssSidebarChatEndpoint.transport === 'agent-api') return;
-
-            // Legacy chat-SSE adapters expose search results through a
-            // conversation-scoped follow-up read rather than artifact events.
-            void (async () => {
-              try {
-                const response = await fetch(
-                  `/api/vss-chat?surface=sidebar&conversation=${encodeURIComponent(conversationId)}`,
-                );
-                if (!response.ok) return;
-                const last = await response.json();
-                if (!last?.data?.length) return;
-                handleSidebarAnswerCompleteWithContent(
-                  JSON.stringify({ data: withProxiedMedia(last.data) }),
-                );
-              } catch {
-                // Non-fatal: the chat answer has already been delivered.
-              }
-            })();
-          }}
+          onAnswer={handleSidebarAnswerCompleteWithContent}
           onSubmit={() => handleSidebarMessageSubmitted()}
         />
     ),

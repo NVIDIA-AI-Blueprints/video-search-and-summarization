@@ -30,6 +30,7 @@ const mockResponse = (): MockResponse => {
     response.body = body;
     return response;
   });
+  response.end = jest.fn(() => response);
   return response;
 };
 
@@ -52,26 +53,70 @@ describe("toolkit-free chat proxy", () => {
     originalEnvironment.clear();
   });
 
-  it.each([
-    ["GET", "sidebar"],
-    ["POST", "main"],
-  ])(
-    "returns a clear 503 for %s when no %s backend is configured",
-    async (method, surface) => {
-      const request = {
-        method,
-        query: {},
-        body: {},
-        on: jest.fn(),
-      } as unknown as NextApiRequest;
-      const response = mockResponse();
+  it("returns a clear 503 for POST when no main backend is configured", async () => {
+    const request = {
+      method: "POST",
+      query: {},
+      body: {},
+      on: jest.fn(),
+    } as unknown as NextApiRequest;
+    const response = mockResponse();
 
-      await handler(request, response);
+    await handler(request, response);
 
-      expect(response.statusCode).toBe(503);
-      expect(response.body).toEqual({
-        error: `no backend configured for surface: ${surface}`,
-      });
-    },
-  );
+    expect(response.statusCode).toBe(503);
+    expect(response.body).toEqual({
+      error: "no backend configured for surface: main",
+    });
+  });
+
+  // The Search tab's last-search hydrator was a client for a POC sidecar that
+  // no deployed agent replaces; artifacts on the stream carry hits now.
+  it("rejects GET, which no longer proxies a last-search read", async () => {
+    process.env.VSS_CHAT_BACKEND_SIDEBAR = "http://vss-agent:8000/chat/stream";
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock;
+    const request = {
+      method: "GET",
+      query: { surface: "sidebar", conversation: "conversation-1" },
+      on: jest.fn(),
+    } as unknown as NextApiRequest;
+    const response = mockResponse();
+
+    await handler(request, response);
+
+    expect(response.statusCode).toBe(405);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("proxies interaction responses to the agent origin", async () => {
+    process.env.VSS_CHAT_BACKEND_MAIN = "http://vss-agent:8000/v1/chat/stream";
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+    } as Response);
+    global.fetch = fetchMock;
+    const request = {
+      method: "POST",
+      query: {
+        surface: "main",
+        interaction:
+          "/executions/execution-1/interactions/interaction-1/response",
+      },
+      body: { response: { type: "text", text: "warehouse" } },
+      on: jest.fn(),
+    } as unknown as NextApiRequest;
+    const response = mockResponse();
+
+    await handler(request, response);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://vss-agent:8000/executions/execution-1/interactions/interaction-1/response",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(request.body),
+      }),
+    );
+    expect(response.statusCode).toBe(204);
+  });
 });

@@ -1,0 +1,1 @@
+Person:0.5;Fourier_GR1_T2_Humanoid:0.5;Agility_Digit_Humanoid:0.5;Nova_Carter:0.5;Transporter:0.5;Forklift:0.3;Forklift:0.3;

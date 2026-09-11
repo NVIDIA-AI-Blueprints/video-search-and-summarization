@@ -257,6 +257,7 @@ llms:
 
 workflow:
   _type: top_agent
+  llm_reasoning: true
   llm_name: ${LLM_MODEL_TYPE:-nim}_llm
   log_level: INFO
   max_iterations: 15
@@ -430,8 +431,10 @@ workflow:
          * action="get_incidents": Query detected incidents (requires sensor_name)
          * action="get_sensor_uuid": Get UUID for a sensor name (required before incident_report_agent)
        - For get_incidents, optional parameters:
-         * start_time, end_time: ISO 8601 format
-         * max_count: number of incidents (default 10)
+         * start_time, end_time: ISO 8601 format computed from the
+           "current time" in this prompt. Omit both for "last N incidents"
+           so the tool returns the most recent.
+         * max_count: number of incidents (use N for "last N"; default 10)
        - Returns: Id, timestamp, end, sensorId, plus category and info when present
        - Use when: User asks "show alerts", "list incidents", "start/stop monitoring"
 
@@ -453,12 +456,19 @@ workflow:
     When calling ANY tool that requires timestamps (start_time, end_time), you MUST use this exact format:
     YYYY-MM-DDTHH:MM:SS.sssZ.
 
-    If user does not specify time range when asking to retrieve a video or to generate a report, assume
-    start_time=jan 1 2025 and end_time is the current time. Otherwise, use the time range provided by the user.
+    NOW is the "current time" ISO timestamp in this system message.
+    NEVER copy calendar dates from this prompt.
 
-    Examples:
-    - 2020-01-01T00:00:00.000Z
-    - 2025-11-12T14:19:30.000Z
+    If the user does not specify a time range:
+    - For "last N incidents" / "last incident": omit start_time and end_time
+      (most recent). Set max_count = N when listing.
+    - For retrieve-video or generate-report with no range: end_time = NOW,
+      start_time = NOW minus 24 hours.
+    Otherwise, use the time range provided by the user, computed from NOW
+    (e.g. "last hour" = NOW minus 1 hour through NOW; "today" = today 00:00:00.000Z through NOW).
+
+    Use the current time from this prompt as the timestamp template.
+    Do not copy example dates from this prompt.
 
     NEVER use formats like "2020-01-01T00:00:00+00:00" or "2020-01-01T00:00:00Z"
     ALWAYS include milliseconds (.000) and use Z for timezone

@@ -69,27 +69,6 @@ function_groups:
     - agent_eval/results
     - videos/dev-profile-alerts
     - models
-    # NGC packages to download per profile. Each entry groups one package_ref
-    # with the artifacts to extract from it (src = path inside the downloaded
-    # package, out = destination under <mdx_data_dir>/models/).
-    model_artifacts:
-      search:
-      - package_ref: "nvidia/tao/rtdetr_2d_warehouse:deployable_rn50_v1.0.2"
-        artifacts:
-        - src: "rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx"  # yamllint disable-line rule:line-length
-          out: "rtdetr_warehouse_v1.0.2.fp16.onnx"
-          kind: "file"
-      alerts:
-      - package_ref: "nvidia/tao/trafficcamnet_transformer_lite:deployable_resnet50_v2.0"
-        artifacts:
-        - src: "trafficcamnet_transformer_lite_vdeployable_resnet50_v2.0/resnet50_trafficcamnet_rtdetr.fp16.onnx"  # yamllint disable-line rule:line-length
-          out: "rtdetr-its/model_epoch_035.fp16.onnx"
-          kind: "file"
-      - package_ref: "nvidia/tao/mask_grounding_dino:mask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm"  # yamllint disable-line rule:line-length
-        artifacts:
-        - src: "mask_grounding_dino_vmask_grounding_dino_swin_tiny_commercial_deployable_v2.1_wo_mask_arm/mgdino_mask_head_pruned_dynamic_batch.onnx"  # yamllint disable-line rule:line-length
-          out: "gdino/mgdino_mask_head_pruned_dynamic_batch.onnx"
-          kind: "file"
     model_resolution:
       hardware:
         edge_profiles:
@@ -107,45 +86,58 @@ function_groups:
         # Keys define the set of supported hardware profiles.
         # Values are env overrides (empty/null = supported, no overrides).
         hardware_profiles:
+          # RTVI_VLLM_GPU_MEMORY_UTILIZATION mirrors dev-profile.sh's
+          # get_rtvi_vllm_gpu_memory_utilization, local_shared column
           H100:
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.4"
           L40S:
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
           RTXPRO4500BW:
-            alerts:
-              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
-              RTVI_VLM_MAX_MODEL_LEN: "18000"
-            lvs:
-              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
-              RTVI_VLM_MAX_MODEL_LEN: "18000"
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
+            RTVI_VLM_MAX_MODEL_LEN: "18000"
+            # The board takes the bf16 checkpoint whatever the profile pins.
+            # base/alerts/lvs already default to it; search pins the fp8 build
+            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+            VLM_NAME: nim_nvidia_cosmos3-nano-reasoner_bf16-final
           RTXPRO6000BW:
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.4"
+          GB300:
+            # GB300 is SBSA/arm64: those builds live in the same GHCR repos under
+            # an -sbsa suffix, which containers.env appends to whatever
+            # VSS_CONTAINER_TAG selects, so a release stays selectable. Pinning
+            # tags here instead would force an -sbsa develop build into a release
+            # deployment. Exported before containers.env is sourced, or the
+            # derived tags are already fixed by the time it is read.
+            VSS_CONTAINER_TAG_SUFFIX: "-sbsa"
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.2"
+            RTVI_VLLM_ATTENTION_BACKEND: TRITON_ATTN
+            # One GPU for every model service. The profile envs pin multi-GPU
+            # layouts (search puts the LLM and RT-Embed on device 1), a hard
+            # startup failure on a single-device host. A GB300 at a non-zero
+            # index needs these passed as docker_generate env_overrides.
+            LLM_DEVICE_ID: "0"
+            VLM_DEVICE_ID: "0"
+            SHARED_LLM_VLM_DEVICE_ID: "0"
+            FIXED_SHARED_DEVICE_IDS: "0"
+            RT_CV_DEVICE_ID: "0"
+            RT_EMBED_DEVICE_ID: "0"
           OTHER:
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.7"
           DGX-SPARK:
-            VSS_RT_VLM_TAG: "develop-latest-sbsa"
-            # SBSA shares the vss-rt-cv GHCR repository, distinguished only by
-            # an -sbsa tag suffix, so this is a tag-only override -- the image
-            # default already resolves to the managed GHCR channel.
-            VSS_RT_CV_TAG: "develop-latest-sbsa"
+            # SBSA/arm64 like GB300: same suffix, same reasoning. Covers all
+            # four suffixed images rather than the RT-VLM and RT-CV tags this
+            # used to pin, since the suffix is applied by containers.env per
+            # image, not per hardware profile.
+            VSS_CONTAINER_TAG_SUFFIX: "-sbsa"
+            # 0.35 for base as well as alerts: Spark's 128 GB unified pool
+            # leaves RT-VLM no room at the 0.7 an unset value falls back to.
+            RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
             base:
               VLM_NIM_KVCACHE_PERCENT: "0.2"
-            # Unified alerts value, matching dev-profile.sh
-            # get_rtvi_vllm_gpu_memory_utilization (DGX-SPARK local_shared -> 0.4).
-            # The old per-mode 0.25/0.3 split was #477 bring-up tuning with no
-            # counterpart in the bash flow.
-            alerts:
-              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.4"
           IGX-THOR:
-            VLM_NAME_SLUG: none
-            VLM_NAME: nim_nvidia_cosmos3-nano-reasoner_bf16-final
-            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
-            RTVI_VLM_MODEL_TO_USE: cosmos-reason3
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
-            VLM_MODEL_TYPE: rtvi
           AGX-THOR:
-            VLM_NAME_SLUG: none
-            VLM_NAME: nim_nvidia_cosmos3-nano-reasoner_bf16-final
-            RTVI_VLM_MODEL_PATH: ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
-            RTVI_VLM_MODEL_TO_USE: cosmos-reason3
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.35"
-            VLM_MODEL_TYPE: rtvi
     profile_mode_to_env_modes:
       alerts:  # must set modes below for profile that has modes
         verification: 2d_cv

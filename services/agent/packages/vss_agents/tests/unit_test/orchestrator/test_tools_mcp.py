@@ -38,8 +38,6 @@ from vss_agents.orchestrator.tools import DockerPrereqsInput
 from vss_agents.orchestrator.tools import DockerProfilesInput
 from vss_agents.orchestrator.tools import GenerateInput
 from vss_agents.orchestrator.tools import HardwareResolutionConfig
-from vss_agents.orchestrator.tools import ModelArtifactEntry
-from vss_agents.orchestrator.tools import ModelPackageConfig
 from vss_agents.orchestrator.tools import ModelResolutionConfig
 from vss_agents.orchestrator.tools import OrchestratorToolConfig
 from vss_agents.orchestrator.tools import vss_orchestrator
@@ -89,7 +87,6 @@ def _make_orchestrator_config(
     tmp_path: Path,
     *,
     include: list[str] | None = None,
-    model_artifacts: dict[str, tuple[ModelPackageConfig, ...]] | None = None,
 ) -> OrchestratorToolConfig:
     mdx = tmp_path / "mdx"
     mdx.mkdir(parents=True, exist_ok=True)
@@ -119,7 +116,6 @@ def _make_orchestrator_config(
         mdx_data_dir=str(mdx),
         output_dir=str(out),
         mdx_data_directories=("models",),
-        model_artifacts={} if model_artifacts is None else model_artifacts,
         model_resolution=ModelResolutionConfig(
             hardware=HardwareResolutionConfig(
                 edge_profiles=("DGX-SPARK",),
@@ -743,22 +739,12 @@ async def test_docker_up_precompose_check_failure(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_docker_up_search_profile_runs_model_artifact_check(tmp_path: Path):
-    config = _make_orchestrator_config(
-        tmp_path,
-        model_artifacts={
-            "search": (
-                ModelPackageConfig(
-                    package_ref="nvidia/pkg:1",
-                    artifacts=(ModelArtifactEntry(src="model.onnx", out="model.onnx", kind="file"),),
-                ),
-            ),
-        },
-    )
-    async with _orchestrator_group(tmp_path, config=config) as (group, cfg, _tmp_path):
+async def test_docker_up_search_profile_does_not_download_models(tmp_path: Path):
+    """Model acquisition belongs to ds-start.sh phase 0, not to a pre-compose check."""
+    async with _orchestrator_group(tmp_path) as (group, config, _tmp_path):
         compose_id = "search-models"
-        env_path = Path(cfg.output_dir) / f"generated.{compose_id}.dry-run.env"
-        compose_path = Path(cfg.output_dir) / f"compose.resolved.{compose_id}.dry-run.yml"
+        env_path = Path(config.output_dir) / f"generated.{compose_id}.dry-run.env"
+        compose_path = Path(config.output_dir) / f"compose.resolved.{compose_id}.dry-run.yml"
         _register_compose_spec(
             docker_compose_id=compose_id,
             env_path=env_path,
@@ -768,13 +754,14 @@ async def test_docker_up_search_profile_runs_model_artifact_check(tmp_path: Path
 
         with (
             patch("vss_agents.orchestrator.tools.threading.Thread", side_effect=_run_target_immediately),
-            patch("vss_agents.orchestrator.tools.ensure_model_artifacts") as mock_models,
+            patch("vss_agents.orchestrator.tools.ensure_data_directories") as mock_data_dirs,
             patch("vss_agents.orchestrator.tools.subprocess.Popen", side_effect=FileNotFoundError("docker")),
         ):
             result = await _call(group, "docker_up", ComposeUpOperationInput(docker_compose_id=compose_id))
 
     assert result["status"] == ComposeStatus.STARTED.value
-    mock_models.assert_called_once()
+    mock_data_dirs.assert_called_once()
+    assert not hasattr(tools_mod, "ensure_model_artifacts")
 
 
 @pytest.mark.asyncio

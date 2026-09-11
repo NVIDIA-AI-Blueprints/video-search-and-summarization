@@ -40,36 +40,6 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse,
 ) {
-  // GET returns the most recent search result from the adapter, so the Search
-  // tab can render hits that never passed through the model's reply text.
-  if (req.method === "GET") {
-    const surface = String(req.query.surface ?? "sidebar");
-    const target = backendFor(surface);
-    if (!target) {
-      res
-        .status(503)
-        .json({ error: `no backend configured for surface: ${surface}` });
-      return;
-    }
-    const base = target.replace(/\/chat\/stream$/, "");
-    // Forward the conversation so the adapter serves only that conversation's
-    // result rather than whatever ran last, process-wide.
-    const conversation = String(req.query.conversation ?? "");
-    const qs = conversation
-      ? `?conversation=${encodeURIComponent(conversation)}`
-      : "";
-    try {
-      const upstream = await fetch(`${base}/v1/search/last${qs}`);
-      res.status(upstream.status).json(await upstream.json());
-    } catch (err) {
-      res.status(502).json({
-        error: "could not read last search result",
-        detail: err instanceof Error ? err.message : String(err),
-      });
-    }
-    return;
-  }
-
   if (req.method !== "POST") {
     res.status(405).json({ error: "method not allowed" });
     return;
@@ -87,6 +57,40 @@ export default async function handler(
   const controller = new AbortController();
   // Navigating away or pressing Stop should drop the upstream turn too.
   req.on("close", () => controller.abort());
+
+  const interactionPath = String(req.query.interaction ?? "");
+  if (interactionPath) {
+    if (
+      !/^\/executions\/[^/]+\/interactions\/[^/]+\/response$/.test(
+        interactionPath,
+      )
+    ) {
+      res.status(400).json({ error: "invalid interaction response path" });
+      return;
+    }
+    try {
+      const interactionTarget = new URL(interactionPath, target).toString();
+      const upstream = await fetch(interactionTarget, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req.body ?? {}),
+      });
+      if (!upstream.ok) {
+        res
+          .status(502)
+          .json({ error: `agent backend returned HTTP ${upstream.status}` });
+        return;
+      }
+      res.status(204).end();
+    } catch (err) {
+      res.status(502).json({
+        error: "agent interaction response failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
 
   let upstream: Response;
   try {

@@ -30,7 +30,7 @@ service:
 # the browser fetches agent and VST APIs from these URLs. Use in-cluster URLs (default) when
 # the UI is reached via Ingress/LoadBalancer that proxies to the same cluster. For local
 # port-forward, set to 127.0.0.1 and run three port-forwards (UI 3000, agent 8000, vst-ingress 30888);
-# see helm_dp/vss/values-local-portforward.example.yaml. Chat tab needs chatCompletionUrl and websocketChatUrl (agent serves /chat/stream and /websocket, not /api/chat).
+# see helm_dp/vss/values-local-portforward.example.yaml. Chat tab needs chatCompletionUrl and websocketChatUrl (agent serves /v1/chat/stream and /websocket, not /api/chat).
 # Parent developer-profile sets these (e.g. dev-profile-base, dev-profile-lvs, dev-profile-alerts, dev-profile-search).
 # Set global.externalHost to the browser-reachable host (e.g. vss-search.<ip>.nip.io). Trailing NEXT_PUBLIC_* URLs are derived from {scheme}://{externalHost} (and wss/ws for websockets).
 # If externalHost is vss-search.<ip>.nip.io, the Dashboard Kibana base defaults to http://kibana.<ip>.nip.io{kibanaNipPathSuffix} unless global.kibanaPublicUrl or dashboardKibanaBaseUrl is set.
@@ -54,7 +54,7 @@ vstApiUrl: ""
 # Server-only destination used by /api/proxy. Empty selects the in-cluster
 # vss-vios-ingress Service even when browser URLs use global.externalHost.
 proxyBaseUrl: ""
-# Empty: NEXT_PUBLIC_*_HTTP_CHAT_* → http://<release>-vss-agent:8000/chat/stream
+# Empty: NEXT_PUBLIC_*_HTTP_CHAT_* → http://<release>-vss-agent:8000/v1/chat/stream
 chatCompletionUrl: ""
 websocketChatUrl: ""
 # Server-only destinations used by /api/vss-chat and the /api/chat alias.

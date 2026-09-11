@@ -18,6 +18,7 @@ from collections.abc import Hashable
 import copy
 from datetime import UTC
 from datetime import datetime
+from html import escape
 import json
 import logging
 import re
@@ -97,6 +98,16 @@ _TOOL_FAILURE_PREFIX = "Tool call failed:"
 _TOOL_FAILURE_STATUSES = {"aborted", "error", "failed", "failure"}
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 _CONTEXT_BLOCK_PREFIX = "[Context:"
+_TRACE_TOOL_NAME = re.compile(r"^(?:Tool|Calling sub-agent):\s*([^\r\n]+)", re.IGNORECASE)
+
+
+def trace_step_title(step_number: int, step_type: str, content: str) -> str:
+    """Build a trace heading that exposes the called tool when one is present."""
+    tool_name = _TRACE_TOOL_NAME.match(content.strip())
+    if not tool_name:
+        return f"{step_number} - {step_type}"
+    # This becomes an HTML attribute in the legacy chat response.
+    return f"{step_number} - {step_type}: {escape(tool_name.group(1).strip(), quote=True)}"
 
 
 class TopAgentRequest(ChatRequestOrMessage):
@@ -478,6 +489,7 @@ class TopAgent(AsyncMixin):
         # tool_results_lines → exact results appended programmatically
         scratchpad_lines: list[str] = []
         tool_results_lines: list[str] = []
+        completed_tools: list[str] = []
         has_tool_failure = False
         pending_calls: dict[str, dict[str, Any]] = {}  # tool_call_id -> {name, args}
         for msg in state.agent_scratchpad:
@@ -494,6 +506,7 @@ class TopAgent(AsyncMixin):
                 # Full result for programmatic appendix
                 tool_results_lines.append(f"`{tool_name}` result:\n{result_text}")
                 if not tool_failed:
+                    completed_tools.append(tool_name)
                     if call_info:
                         scratchpad_lines.append(f"Called tool `{tool_name}` with args: {call_info['args']}")
                     # Failed results are deliberately excluded from the plan-tracking
@@ -557,7 +570,30 @@ class TopAgent(AsyncMixin):
             result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
 
             _, parsed_plan = parse_reasoning_content(result)
-            updated_plan = parsed_plan or (str(result.content) if hasattr(result, "content") else clean_plan)
+            # parse_reasoning_content already returns plain content as `parsed_plan`,
+            # so it is empty only when the model produced reasoning and nothing else.
+            # Falling back to the raw `result.content` there is actively harmful: it is
+            # either "" (wiping the plan) or the unparsed "<think>...</think>" blob (making
+            # the reasoning *become* the plan). Both strand the agent, which then re-derives
+            # the same tool call every cycle until it exhausts the recursion limit. Keep the
+            # previous plan instead, matching the has_tool_failure branch above.
+            updated_plan = (parsed_plan or "").strip()
+            if not updated_plan:
+                logger.warning("Plan update produced no usable plan; preserving the current plan")
+                updated_plan = clean_plan
+                if completed_tools:
+                    # The preserved plan still shows the just-run step as `[ ]`, because the
+                    # LLM that marks `[x]` is the one that returned nothing. Say so explicitly
+                    # instead: the scratchpad is cleared below, so the plan is the only state
+                    # carried forward, and a stale `[ ]` next to a fresh result invites the
+                    # agent to repeat the call.
+                    names = ", ".join(f"`{name}`" for name in dict.fromkeys(completed_tools))
+                    updated_plan += (
+                        f"\n\nNOTE: the plan above could not be refreshed this cycle. "
+                        f"{names} already completed successfully and the result appears below. "
+                        f"Treat those steps as done and continue with the next pending step; "
+                        f"do not repeat a call whose result is already present."
+                    )
 
         # Programmatically append exact tool results so the agent has them,
         # combining previous results with new ones from this cycle.
@@ -837,7 +873,11 @@ class TopAgent(AsyncMixin):
 
         plan_reasoning, plan_text = parse_reasoning_content(result)
         if not plan_text:
-            plan_text = str(result.content) if hasattr(result, "content") else ""
+            # Same hazard as plan_update: the raw content here is the unparsed reasoning
+            # blob. An empty initial plan is recoverable (plan_update builds one from the
+            # first tool result); a plan that is really a think-blob poisons every later turn.
+            plan_text = ""
+            logger.warning("Plan node produced no usable plan; continuing with an empty plan")
 
         logger.debug("Plan node produced plan:\n%s", plan_text)
         if plan_reasoning:
@@ -1828,13 +1868,13 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
                 elif chunk.type == AgentMessageChunkType.TOOL_CALL:
                     step_num += 1
                     clean_content = chunk.content.replace("\\n", " ").replace("\n", " ")
-                    steps.append(f'<agent-think-step title="{step_num} - Tool Call">{clean_content}</agent-think-step>')
+                    title = trace_step_title(step_num, "Tool Call", chunk.content)
+                    steps.append(f'<agent-think-step title="{title}">{clean_content}</agent-think-step>')
                 elif chunk.type == AgentMessageChunkType.SUBAGENT_CALL:
                     step_num += 1
                     clean_content = chunk.content.replace("\\n", " ").replace("\n", " ")
-                    steps.append(
-                        f'<agent-think-step title="{step_num} - Sub-Agent Call">{clean_content}</agent-think-step>'
-                    )
+                    title = trace_step_title(step_num, "Sub-Agent Call", chunk.content)
+                    steps.append(f'<agent-think-step title="{title}">{clean_content}</agent-think-step>')
                 elif chunk.type == AgentMessageChunkType.FINAL:
                     final_content.append(chunk.content)
                 elif chunk.type == AgentMessageChunkType.ERROR:

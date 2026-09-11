@@ -210,7 +210,7 @@ workflow:
   max_retries: 3
   max_iterations: 15
   max_history: 20
-  llm_reasoning: false
+  llm_reasoning: true
   planning_enabled: true
   tool_names:
   - get_fov_counts_with_chart
@@ -288,19 +288,21 @@ workflow:
     - User wants incident summaries or aggregated view
     - User wants to see incident statistics/charts
 
+    The system message includes "current time: <ISO timestamp>" (NOW).
+    Compute any start_time/end_time from it; never copy dates from this prompt.
+
     multi_report_agent parameters (pass as DIRECT fields, NOT in additional_context):
-    - user_query: The original user question (REQUIRED)
-    - sensor_id: The sensor ID (REQUIRED)
-    - start_time: Start of time range (datetime, REQUIRED)
-    - end_time: End of time range (datetime, REQUIRED)
+    - source: sensor or place ID (REQUIRED)
+    - source_type: "sensor" or "place" (REQUIRED; use "sensor" for cameras)
+    - start_time, end_time: optional ISO timestamps. Omit both for last-N / most recent.
+    - max_result_size: N when the user asks for last N
     - vlm_verified: true only if the current message asks for verified/VLM verified incidents; otherwise omit
 
-    Example tool call:
+    Example (last 3 incidents, no time window):
     {{
-      "user_query": "List the last 5 incidents for Camera_01",
-      "sensor_id": "Camera_01",
-      "start_time": "2025-11-13T16:00:00.000Z",
-      "end_time": "2025-11-13T17:00:00.000Z"
+      "source": "Camera_01",
+      "source_type": "sensor",
+      "max_result_size": 3
     }}
 
     Example user queries for multi_report_agent:
@@ -318,7 +320,7 @@ workflow:
        previous multi_report_agent call
     3. Extract the LAST incident's timestamp from that block
        (look for the last incident entry)
-    4. Extract the sensor_id that was used in the
+    4. Extract the source and source_type from the
        previous query
     5. Do NOT reuse vlm_verified from prior turns; set it only from the current message (see PARAMETER EXTRACTION)
     6. Calculate new time range:
@@ -344,13 +346,11 @@ workflow:
     - end_time: End of time range (optional, for finding last incident)
     - vlm_verified: true when the current message asks for a verified/VLM verified incident report; otherwise omit
 
-    Example tool call:
+    Example tool call for "last incident" (omit times so the tool
+    finds the most recent; do NOT invent a historical date):
     {{
-      "user_query": "Generate a detailed report for the
-        last incident at Camera_01",
-      "sensor_id": "Camera_01",
-      "start_time": "2025-11-13T16:00:00.000Z",
-      "end_time": "2025-11-13T17:00:00.000Z"
+      "user_query": "Generate a detailed report for the last incident at Camera_01",
+      "sensor_id": "Camera_01"
     }}
 
     Example user queries for report_agent:
@@ -363,22 +363,26 @@ workflow:
 
     PARAMETER EXTRACTION:
     - vlm_verified (current query only): Set vlm_verified=true when the **current** user message explicitly asks for "verified" or "VLM verified" incidents or reports (e.g. "Generate a verified incident report for incident X"). If the current message does not mention verified, omit vlm_verified (do not pass true or false; use default). Never inherit vlm_verified from prior turns — e.g. after a verified-incidents request, "list all incidents" means regular incidents (omit vlm_verified).
-    - If sensor_id is not provided AND there is no previous query context, use vst_sensor_list to show available sensors and ask user to choose
+    - If source is not provided AND there is no previous query context, use vst_sensor_list to show available sensors and ask user to choose
     - Parse time expressions like "last 5 minutes", "yesterday", "between 2pm-3pm" into ISO timestamps
-    - Extract max_incidents from phrases like "last 5", "show 10", etc.
+    - Extract max_result_size from phrases like "last 5", "show 10", etc.
 
     CONVERSATION HISTORY & CONTEXT EXTRACTION:
     - The conversation history includes a "PRESERVED STRUCTURED DATA" section that contains <incidents> blocks
     - Each <incidents> block is a JSON structure with incident details including timestamps
     - When user asks for "next", "more", or refers to "the Nth incident", look in this preserved data
-    - Extract sensor_id, timestamps, and incident_ids from these blocks to provide context continuity
+    - Extract source, timestamps, and incident_ids from these blocks to provide context continuity
     - This allows you to support follow-up queries without asking the user to repeat information
 
     TIME CALCULATION RULES (IMPORTANT - BE CAREFUL WITH MATH):
+    - NOW is the "current time" ISO timestamp in this system message.
+      Use that clock. Never reuse example dates from this prompt.
+    - "last N incidents" (no time range given): OMIT start_time and
+      end_time; set max_result_size = N.
     - "last X minutes" means: end_time = NOW, start_time = NOW - X minutes
-      Example: If NOW is 20:35:00, "last 20 minutes" means 20:15:00 to 20:35:00
     - "last X hours" means: end_time = NOW, start_time = NOW - X hours
-      Example: If NOW is 20:35:00, "last 2 hours" means 18:35:00 to 20:35:00
+    - "today" means: start_time = today 00:00:00.000Z, end_time = NOW
+      (date taken from the current time in this prompt)
     - ALWAYS double-check your time calculations before making tool calls
     - Time format: YYYY-MM-DDTHH:MM:SS.sssZ (ISO 8601 with milliseconds and Z timezone)
 
@@ -387,9 +391,8 @@ workflow:
     (start_time, end_time), you MUST use this exact format:
     YYYY-MM-DDTHH:MM:SS.sssZ
 
-    Examples:
-    - 2020-01-01T00:00:00.000Z
-    - 2025-11-12T14:19:30.000Z
+    Use the current time from this prompt as the template.
+    Do not copy calendar dates from this prompt.
 
     NEVER use formats like "2020-01-01T00:00:00+00:00" or "2020-01-01T00:00:00Z"
     ALWAYS include milliseconds (.000) and use Z for timezone

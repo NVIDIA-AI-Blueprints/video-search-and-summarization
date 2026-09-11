@@ -498,7 +498,7 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up
   "RT_VLM_DEVICE_ID" "1" \
   "LLM_NAME" "nvidia/nemotron-3.5-lightning-30b-a3b" \
   "LLM_NAME_SLUG" "nemotron-3.5-lightning-30b-a3b" \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.2" \
   "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN" \
   "VSS_RT_EMBED_TAG" '"develop-latest-sbsa"' \
   "VSS_RT_CV_TAG" '"develop-latest-sbsa"'
@@ -555,7 +555,7 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= LLM_ENDPOINT_U
   "RT_VLM_DEVICE_ID" "1" \
   "LLM_NAME" "remote-llm" \
   "LLM_NAME_SLUG" "none" \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4" \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.2" \
   "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
 PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env \
   "generated.env search GB300 supports local LLM with remote VLM" "search" \
@@ -708,14 +708,14 @@ run_dry_run_test "edge (IGX-THOR) alerts verification uses device ID 0" up -p al
 run_dry_run_test "edge (AGX-THOR) alerts verification uses device ID 0" up -p alerts -i 127.0.0.1 -m verification -H AGX-THOR -d
 run_dry_run_test "edge (IGX-THOR) alerts real-time uses device ID 0 (no VLM overrides)" up -p alerts -i 127.0.0.1 -m real-time -H IGX-THOR -d
 run_dry_run_test "edge (AGX-THOR) alerts real-time uses device ID 0 (no VLM overrides)" up -p alerts -i 127.0.0.1 -m real-time -H AGX-THOR -d
-# Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION is an option (mirrors NIM hw-H100.env pattern: ${VLM_NIM_KVCACHE_PERCENT}), flows through from env (unset → empty).
+# Alerts on IGX-THOR / AGX-THOR: RT_VLM_DEVICE_ID hardcoded to 0; RTVI_VLLM_GPU_MEMORY_UTILIZATION defaults to 0.35.
 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
 run_dry_run_up_and_check_generated_env "generated.env alerts AGX-THOR VLM vars (RT_VLM_DEVICE_ID=0)" "alerts" \
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
-  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0"
-# Alerts on IGX-THOR/AGX-THOR: RTVI_VLLM_GPU_MEMORY_UTILIZATION env var flows through to generated.env (option pattern, like ${VLM_NIM_KVCACHE_PERCENT} in NIM hw-H100.env).
+  "VLM_NAME_SLUG" "none" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final" "VLM_BASE_URL" "http://rtvi-vlm:8000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "RTVI_VLM_MODEL_TO_USE" "cosmos-reason3" "RT_VLM_DEVICE_ID" "0" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
+# Alerts on IGX-THOR/AGX-THOR: a non-empty host env still overrides the 0.35 default.
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.5 run_dry_run_up_and_check_generated_env "generated.env alerts IGX-THOR RTVI_VLLM_GPU_MEMORY_UTILIZATION env passes through" "alerts" \
   -i 127.0.0.1 -m verification -H IGX-THOR -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.5"
@@ -723,9 +723,9 @@ RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.6 run_dry_run_up_and_check_generated_env "gen
   -i 127.0.0.1 -m verification -H AGX-THOR -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.6"
 # Alerts RT-VLM local VLM memory sizing.
-run_dry_run_up_and_check_generated_env "generated.env alerts DGX-SPARK shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
+run_dry_run_up_and_check_generated_env "generated.env alerts DGX-SPARK shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35" "alerts" \
   -i 127.0.0.1 -m verification -H DGX-SPARK -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.35"
 run_dry_run_up_and_check_generated_env "generated.env alerts H100 shared RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4" "alerts" \
   -i 127.0.0.1 -m verification -H H100 -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.4"
@@ -1228,6 +1228,53 @@ else
   echo "FAIL: blueprint-deploy.sh should create flattened models/ and log ds-start warehouse model download"
   ((TESTS_FAILED++)) || true
 fi
+
+# Warehouse on GB300 must pin RT-VLM to the shared-GPU fraction (0.2), not
+# the 0.8 in warehouse overrides.env. vLLM reserves utilization x total
+# memory and will not start beside the local LLM/RT-CV otherwise.
+_warehouse_gen_env="${REPO_ROOT}/deploy/docker/industry-profiles/warehouse-operations/generated.env"
+_warehouse_gen_backup=""
+if [[ -f "${_warehouse_gen_env}" ]]; then
+  _warehouse_gen_backup="$(mktemp)"
+  cp "${_warehouse_gen_env}" "${_warehouse_gen_backup}"
+  CLEANUP_RESTORES+=("${_warehouse_gen_backup}|${_warehouse_gen_env}")
+fi
+_warehouse_data_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_warehouse_data_dir}")
+_warehouse_out="$(mktemp)"
+_warehouse_err="$(mktemp)"
+cd "${REPO_ROOT}"
+set +e
+PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" \
+  timeout 60 "${BLUEPRINT_DEPLOY}" up -d warehouse \
+  -D "${_warehouse_data_dir}" -i 127.0.0.1 -H GB300 \
+  -m 2d --bp-profile bp_wh \
+  --gpu-device-id 1 --llm-device-id 1 --vlm-device-id 1 \
+  --dry-run > "${_warehouse_out}" 2> "${_warehouse_err}"
+_warehouse_rc=$?
+set -e
+_warehouse_rtvi_ok=0
+if [[ ${_warehouse_rc} -eq 0 ]] \
+  && [[ -f "${_warehouse_gen_env}" ]] \
+  && grep -Eq "^RTVI_VLLM_GPU_MEMORY_UTILIZATION=['\"]?0\.2['\"]?$" "${_warehouse_gen_env}" \
+  && grep -Eq "^RTVI_VLLM_ATTENTION_BACKEND=['\"]?TRITON_ATTN['\"]?$" "${_warehouse_gen_env}" \
+  && grep -Eq "^RT_VLM_DEVICE_ID=['\"]?1['\"]?$" "${_warehouse_gen_env}"; then
+  _warehouse_rtvi_ok=1
+fi
+if [[ -n "${_warehouse_gen_backup}" && -f "${_warehouse_gen_backup}" ]]; then
+  mv "${_warehouse_gen_backup}" "${_warehouse_gen_env}"
+elif [[ -f "${_warehouse_gen_env}" ]]; then
+  rm -f "${_warehouse_gen_env}"
+fi
+if [[ ${_warehouse_rtvi_ok} -eq 1 ]]; then
+  echo "PASS: warehouse GB300 pins RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: warehouse GB300 should pin RT-VLM to 0.2 + TRITON_ATTN (rc=${_warehouse_rc})"
+  cat "${_warehouse_out}" "${_warehouse_err}" | sed 's/^/    /'
+  ((TESTS_FAILED++)) || true
+fi
+rm -f "${_warehouse_out}" "${_warehouse_err}"
 
 _warehouse_3d_skill="${REPO_ROOT}/skills/deployment/vss-deploy-detection-tracking-3d"
 if ! grep -R -E 'models/mv3dt/BodyPose3DNet|models/mtmc' \

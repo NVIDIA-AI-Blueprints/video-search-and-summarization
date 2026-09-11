@@ -57,10 +57,14 @@ sudo sysctl --system
 
 The following prerequisites are required **only** for Docker Compose deployments:
 
-- NVIDIA Driver 580.105.08
-- Docker 27.2.0 or later
-- Docker Compose v2.29.0 or later
-- NVIDIA Container Toolkit 1.17.8
+- NVIDIA Driver 580.105.08 on Ubuntu 24.04, with a CUDA 12.x-compatible runtime
+- Docker Engine 28.3.3 or later and earlier than 29.5.0
+- Docker Compose v2.39.1 or later
+- NVIDIA Container Toolkit 1.17.8 or later
+
+These match the platform-wide requirements in
+[Prerequisites](/vss/getting-started/prerequisites); the Smart City Blueprint does not
+relax or extend them.
 
 <Note>
 For detailed installation instructions, see the [Appendix](/vss/vision-agent/agent-workflows/industry-specific-examples/smart-city-blueprint/prerequisites#appendix-software-prerequisites-installation-guide):
@@ -143,7 +147,8 @@ This appendix provides installation instructions for the software prerequisites.
 
 #### Install NVIDIA Driver
 
-NVIDIA Driver version 580.105.08 is required for Docker Compose deployments.
+NVIDIA Driver version 580.105.08, with a CUDA 12.x-compatible runtime, is required on
+Ubuntu 24.04 for Docker Compose deployments.
 
 You can download the driver directly from:
 https://www.nvidia.com/en-us/drivers/details/257738/
@@ -235,7 +240,7 @@ These installation instructions are **only** required for Docker Compose deploym
 
 #### Install Docker
 
-Docker version 27.2.0 or later and earlier than 29.5.0 is recommended. Follow the guide here for installing Docker: https://docs.docker.com/engine/install/ubuntu/
+Docker Engine 28.3.3 or later and earlier than 29.5.0 is required. Follow the guide here for installing Docker: https://docs.docker.com/engine/install/ubuntu/
 
 <Note>
 Do not install Docker via `snap`. The snap-packaged Docker runs inside a confined sandbox with restricted filesystem access, which can perform differently in the deployment process. Install Docker using the official Docker apt repository as linked above.
@@ -280,7 +285,7 @@ Restarting Docker will temporarily stop all running containers. Plan accordingly
 
 #### Install Docker Compose
 
-Docker Compose v2.29.0 or later is required. Docker Compose v2 is typically installed as a plugin with modern Docker installations.
+Docker Compose v2.39.1 or later is required. Docker Compose v2 is typically installed as a plugin with modern Docker installations.
 
 **Verify if Docker Compose is already installed:**
 
