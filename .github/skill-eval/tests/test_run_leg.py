@@ -735,6 +735,7 @@ class RunInvocations(unittest.TestCase):
     ENV = {
         "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
         "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+        "ANTHROPIC_API_KEY": "test-secret",
     }
 
     def test_timeout_stops_all_single_step_invocations(self):
@@ -862,6 +863,72 @@ class RunInvocations(unittest.TestCase):
         self.assertNotIn(run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV, seen_env[1])
         self.assertNotIn(run_leg.DEFER_AGENT_REAP_ENV, seen_env[1])
         cleanup.assert_called_once_with("vss-eval-box", marker)
+
+    def test_nemoclaw_selection_does_not_change_setup_coding_agent(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invocations = [
+                run_leg.HarborInvocation(
+                    harbor_root=root / "dataset",
+                    include_task_name=f"step-{index}",
+                    chain_key="alerts",
+                    step_index=index,
+                    step_count=2,
+                )
+                for index in (1, 2)
+            ]
+            env = {
+                **self.ENV,
+                "EVAL_AGENT": "nemoclaw",
+                "EVAL_SKILL": "vss-manage-alerts",
+                "SKILLS_EVAL_PROVIDER": "custom",
+                "SKILLS_EVAL_MODEL": "selected/nemotron",
+                "SKILLS_EVAL_ENDPOINT_URL": "https://models.example.test/v1",
+                "SKILLS_EVAL_API_KEY": "compatible-secret",
+            }
+            seen_env = []
+
+            def run_command(_cmd, child_env, _timeout):
+                seen_env.append(child_env.copy())
+                return 0
+
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ) as command,
+                mock.patch.object(run_leg, "run_command", side_effect=run_command),
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(run_leg, "cleanup_deferred_agent_run"),
+            ):
+                rc = run_leg.run_invocations(
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "alerts",
+                    "L40S",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                )
+
+        self.assertEqual(rc, 0)
+        setup_args = command.call_args_list[0].args
+        eval_args = command.call_args_list[1].args
+        self.assertEqual(setup_args[2], self.ENV["ANTHROPIC_MODEL"])
+        self.assertEqual(setup_args[3], self.ENV["ANTHROPIC_BASE_URL"])
+        self.assertEqual(setup_args[4], "claude-code")
+        self.assertEqual(eval_args[2], "selected/nemotron")
+        self.assertEqual(eval_args[3], "https://models.example.test/v1")
+        self.assertEqual(eval_args[4], "nemoclaw")
+        self.assertEqual(seen_env[0]["NEMOCLAW_PROVIDER"], "custom")
+        self.assertEqual(seen_env[0]["NEMOCLAW_MODEL"], "selected/nemotron")
+        self.assertEqual(
+            seen_env[0]["NEMOCLAW_ENDPOINT_URL"],
+            "https://models.example.test/v1",
+        )
 
     def test_failed_nemoclaw_setup_reward_stops_before_scenarios(self):
         with tempfile.TemporaryDirectory() as td:
