@@ -188,7 +188,7 @@ class ViaServer:
                 {
                     "name": "Recommended Config",
                     "description": "Operations related to querying recommended"
-                    " LVS request parameters.",
+                    " Video Summarization MS request parameters.",
                 },
                 {
                     "name": "Summarization",
@@ -200,7 +200,11 @@ class ViaServer:
                 },
             ],
             servers=[
-                {"url": "/", "description": "LVS microservice local endpoint.", "x-internal": False}
+                {
+                    "url": "/",
+                    "description": "Video Summarization MS local endpoint.",
+                    "x-internal": False,
+                }
             ],
             version="v1",
         )
@@ -854,8 +858,8 @@ class ViaServer:
         # Mount the ASGI app exposed by prometheus client as a FastAPI endpoint.
         @self._app.get(
             f"{API_PREFIX}/metrics",
-            summary="Get LVS metrics",
-            description="Get LVS metrics in prometheus format.",
+            summary="Get Video Summarization MS metrics",
+            description="Get Video Summarization MS metrics in prometheus format.",
             responses={
                 200: {"description": "Successful Response."},
                 **add_common_error_responses([500]),
@@ -868,8 +872,8 @@ class ViaServer:
         # ======================= Health check API
         @self._app.get(
             "/v1/live",
-            summary="Get LVS liveness status",
-            description="Get LVS liveness status (v1 endpoint).",
+            summary="Get Video Summarization MS liveness status",
+            description="Get Video Summarization MS liveness status (v1 endpoint).",
             responses={
                 200: {"model": None, "description": "Successful Response."},
                 **add_common_error_responses([500]),
@@ -881,8 +885,8 @@ class ViaServer:
 
         @self._app.get(
             "/v1/ready",
-            summary="Get LVS readiness status",
-            description="Get LVS readiness status (v1 endpoint).",
+            summary="Get Video Summarization MS readiness status",
+            description="Get Video Summarization MS readiness status (v1 endpoint).",
             responses={
                 200: {"model": None, "description": "Successful Response."},
                 503: {
@@ -918,8 +922,8 @@ class ViaServer:
 
         @self._app.get(
             "/v1/startup",
-            summary="Get LVS startup status",
-            description="Get LVS startup status (v1 endpoint).",
+            summary="Get Video Summarization MS startup status",
+            description="Get Video Summarization MS startup status (v1 endpoint).",
             responses={
                 200: {"model": None, "description": "Successful Response."},
                 **add_common_error_responses([500]),
@@ -944,8 +948,8 @@ class ViaServer:
 
         @self._app.get(
             "/v1/metadata",
-            summary="Get LVS service metadata",
-            description="Get LVS service metadata information.",
+            summary="Get Video Summarization MS service metadata",
+            description="Get Video Summarization MS service metadata information.",
             responses={
                 200: {"description": "Successful Response."},
                 **add_common_error_responses([500]),
