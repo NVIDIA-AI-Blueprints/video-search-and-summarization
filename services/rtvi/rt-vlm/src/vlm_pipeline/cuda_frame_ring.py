@@ -56,6 +56,33 @@ def _frame_nbytes(frame) -> int:
     return 0
 
 
+def select_frame_indices(
+    pts_ns: Sequence[int],
+    start_ns: int,
+    end_ns: int,
+    target_pts_ns: Optional[Sequence[int]] = None,
+    target_indices: Optional[Sequence[int]] = None,
+    select_all: bool = False,
+) -> list[int]:
+    """Match sparse selection: consume coincident targets once, without EOS padding."""
+    if select_all:
+        first = bisect.bisect_left(pts_ns, start_ns)
+        last = bisect.bisect_right(pts_ns, end_ns)
+        return list(range(first, last))
+    if target_indices is not None:
+        return list(dict.fromkeys(index for index in target_indices if 0 <= index < len(pts_ns)))
+
+    indices = []
+    for target in target_pts_ns or ():
+        index = bisect.bisect_left(pts_ns, target)
+        if index >= len(pts_ns) or pts_ns[index] > end_ns:
+            continue
+        # Sparse decode consumes every reached target when it emits this frame.
+        if not indices or index != indices[-1]:
+            indices.append(index)
+    return indices
+
+
 class CudaFrameRing:
     """Retain complete dense frame windows under a strict byte budget.
 
@@ -227,7 +254,11 @@ class CudaFrameRing:
             return False
         if pts_ns:
             window = _FrameWindow(
-                coverage_start_ns=max(window.coverage_start_ns, pts_ns[0]),
+                coverage_start_ns=(
+                    max(window.coverage_start_ns, pts_ns[0])
+                    if len(frames) < len(window.frames)
+                    else window.coverage_start_ns
+                ),
                 coverage_end_ns=window.coverage_end_ns,
                 pts_ns=tuple(pts_ns),
                 frames=tuple(frames),
@@ -332,21 +363,9 @@ class CudaFrameRing:
                     return None
                 self._windows.move_to_end(key)
 
-                if select_all:
-                    first = bisect.bisect_left(window.pts_ns, start_ns)
-                    last = bisect.bisect_right(window.pts_ns, end_ns)
-                    indices = range(first, last)
-                elif target_indices is not None:
-                    if any(index < 0 or index >= len(window.frames) for index in target_indices):
-                        return None
-                    indices = target_indices
-                else:
-                    indices = []
-                    for target in target_pts_ns or ():
-                        index = bisect.bisect_left(window.pts_ns, target)
-                        if index >= len(window.pts_ns) or window.pts_ns[index] > end_ns:
-                            return None
-                        indices.append(index)
+                indices = select_frame_indices(
+                    window.pts_ns, start_ns, end_ns, target_pts_ns, target_indices, select_all
+                )
 
                 selected_frames = [window.frames[index] for index in indices]
                 selected_pts = [window.pts_ns[index] for index in indices]

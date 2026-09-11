@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
-import bisect
 import concurrent.futures
 import multiprocessing
 import os
@@ -43,6 +42,7 @@ from models.base_vlm_model import VlmGenerationConfig, VlmModelOutput
 from models.dynamic_model_loader import DynamicModelLoader, load_model
 from utils.asset_manager import Asset
 
+from .cuda_frame_ring import select_frame_indices
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
 from .ipc_frame_source import DEFAULT_IPC_SOCKET_DIR, select_ipc_stream_identity
 from .model_path_policy import validate_model_config, validate_model_path_source
@@ -208,21 +208,7 @@ def _ring_selection_key(query: dict) -> tuple:
 def _select_dense_frames(frames, frame_times, query):
     """Apply the existing first-frame-at-or-after sampling contract to dense frames."""
     pts_ns = [int(round(frame_time * 1_000_000_000)) for frame_time in frame_times]
-    if query["select_all"]:
-        first = bisect.bisect_left(pts_ns, query["start_ns"])
-        last = bisect.bisect_right(pts_ns, query["end_ns"])
-        indices = list(range(first, last))
-    elif query["target_indices"] is not None:
-        indices = query["target_indices"]
-        if any(index < 0 or index >= len(pts_ns) for index in indices):
-            return None
-    else:
-        indices = []
-        for target in query["target_pts_ns"]:
-            index = bisect.bisect_left(pts_ns, target)
-            if index >= len(pts_ns) or pts_ns[index] > query["end_ns"]:
-                return None
-            indices.append(index)
+    indices = select_frame_indices(pts_ns, **query)
 
     if isinstance(frames, torch.Tensor):
         selected_frames = frames[indices]
@@ -707,6 +693,16 @@ class DecoderProcess(ProcessBase):
                 use_fps_for_chunking=self._use_fps_for_chunking,
             )
 
+        min_required_frames = _required_file_chunk_frame_count(
+            chunk,
+            num_frames_per_second_or_fixed_frames_chunk or self._nfrms,
+            (
+                use_fps_for_chunking
+                if num_frames_per_second_or_fixed_frames_chunk
+                else self._use_fps_for_chunking
+            ),
+        )
+
         ring_key = None
         ring_query = None
         ring_selection_key = None
@@ -751,7 +747,9 @@ class DecoderProcess(ProcessBase):
                             cached = self._cuda_frame_ring.acquire(*ring_key, **ring_query)
                     else:
                         ring_fill_owner = self._cuda_frame_ring.claim_fill(*ring_key)
-            if packed is not None or cached is not None:
+            if (packed is not None and len(packed[0]) >= min_required_frames) or (
+                cached is not None and len(cached[0]) >= min_required_frames
+            ):
                 if packed is not None:
                     frames, cached_pts_ns = packed
                     # Keep the ring-owned allocation private.  The downstream
@@ -815,16 +813,6 @@ class DecoderProcess(ProcessBase):
                 frame_selector_for_decode = frame_selector
         else:
             frame_selector_for_decode = frame_selector
-
-        min_required_frames = _required_file_chunk_frame_count(
-            chunk,
-            num_frames_per_second_or_fixed_frames_chunk or self._nfrms,
-            (
-                use_fps_for_chunking
-                if num_frames_per_second_or_fixed_frames_chunk
-                else self._use_fps_for_chunking
-            ),
-        )
 
         enable_audio = vlm_query.enable_audio
         vlm_input_width = vlm_query.vlm_input_width
@@ -975,8 +963,7 @@ class DecoderProcess(ProcessBase):
                     frame_times = [pts / 1_000_000_000.0 for pts in selected_pts_ns]
                 else:
                     selected = _select_dense_frames(frames, frame_times, ring_query)
-                    if selected is not None:
-                        frames, frame_times = selected
+                    frames, frame_times = selected
                 if selected is not None and isinstance(frames, torch.Tensor):
                     self._cuda_frame_ring.publish_selection(
                         *ring_key,

@@ -3,6 +3,8 @@
 
 import threading
 
+import pytest
+
 from vlm_pipeline.cuda_frame_ring import CudaFrameRing
 
 
@@ -69,6 +71,48 @@ def test_ring_rejects_incomplete_window_and_stale_epoch():
             target_pts_ns=[1_500],
         )
         is None
+    )
+
+
+@pytest.mark.parametrize(
+    "targets, expected",
+    [([0, 50, 100], [0, 100]), ([0, 100, 150], [0, 100]), ([150], [])],
+)
+def test_ring_consumes_each_available_frame_once_at_eos(targets, expected):
+    ring = CudaFrameRing(max_bytes=16)
+    frames = [FakeFrame("first"), FakeFrame("last")]
+    ring.publish("video", "epoch", 0, 200, [0, 100], frames)
+
+    selected_frames, selected_pts = ring.acquire("video", "epoch", 0, 200, targets)
+
+    assert selected_pts == expected
+    assert selected_frames == [frames[index // 100] for index in expected]
+
+
+def test_ring_preserves_decoded_coverage_before_first_frame():
+    ring = CudaFrameRing(max_bytes=16)
+    frame = FakeFrame("delayed-first-frame")
+    ring.publish("video", "epoch", 0, 200, [70], [frame])
+
+    assert ring.acquire("video", "epoch", 0, 200, [0, 25, 50, 75]) == ([frame], [70])
+
+
+def test_ring_evicted_prefix_is_not_claimed_as_complete_coverage():
+    ring = CudaFrameRing(max_bytes=2)
+    ring.publish("video", "epoch", 0, 300, [0, 100, 200], [FakeFrame(i) for i in range(3)])
+
+    assert ring.acquire("video", "epoch", 0, 300, [0]) is None
+    assert ring.acquire("video", "epoch", 100, 300, [100, 200])[1] == [100, 200]
+
+
+def test_ring_index_sampling_does_not_pad_short_clips():
+    ring = CudaFrameRing(max_bytes=16)
+    frames = [FakeFrame("first"), FakeFrame("last")]
+    ring.publish("video", "epoch", 0, 200, [0, 100], frames)
+
+    assert ring.acquire("video", "epoch", 0, 200, target_indices=[0, 0, 1, 1, 2]) == (
+        frames,
+        [0, 100],
     )
 
 

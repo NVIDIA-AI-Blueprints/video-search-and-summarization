@@ -608,7 +608,10 @@ def test_decode_chunk_reuses_decoder_after_clean_success_by_default(monkeypatch)
 
 
 @pytest.mark.no_gpu
-def test_persistent_ring_decodes_file_once_and_reuses_pts_frames(monkeypatch, tmp_path):
+@pytest.mark.parametrize("requested_frames, expected", [(2, [0, 2]), (8, [0, 1, 2, 3])])
+def test_persistent_ring_decodes_file_once_and_reuses_pts_frames(
+    monkeypatch, tmp_path, requested_frames, expected
+):
     class DenseFrameGetter(CleanFrameGetter):
         def get_frames(self, chunk, frame_selector, *args, **kwargs):
             self.calls += 1
@@ -627,7 +630,7 @@ def test_persistent_ring_decodes_file_once_and_reuses_pts_frames(monkeypatch, tm
     decoder = _make_decoder()
     decoder._cuda_frame_ring = CudaFrameRing(max_bytes=1024)
     query = _make_vlm_query()
-    query.num_frames_per_second_or_fixed_frames_chunk = 2
+    query.num_frames_per_second_or_fixed_frames_chunk = requested_frames
     video = tmp_path / "fixture.mp4"
     video.write_bytes(b"content-version-1")
     chunk = ChunkInfo(file=str(video), start_pts=0, end_pts=4_000_000_000)
@@ -650,9 +653,96 @@ def test_persistent_ring_decodes_file_once_and_reuses_pts_frames(monkeypatch, tm
     )
 
     assert first_getter.calls == 1
-    assert first["frames"].flatten().tolist() == [0, 2]
-    assert second["frames"].flatten().tolist() == [0, 2]
-    assert second["frame_times"] == [0.0, 2.0]
+    assert first["frames"].flatten().tolist() == expected
+    assert second["frames"].flatten().tolist() == expected
+    assert first["frame_times"] == second["frame_times"] == [float(i) for i in expected]
+
+
+@pytest.mark.no_gpu
+@pytest.mark.parametrize("as_tensor", [False, True])
+@pytest.mark.parametrize("mode", ["pts", "indices", "all"])
+@pytest.mark.parametrize(
+    "pts_ns, end_ns",
+    [
+        ([0, 100_000_000], 200_000_000),
+        ([70_000_000, 100_000_000, 130_000_000, 170_000_000], 200_000_000),
+    ],
+)
+def test_dense_and_ring_sampling_match_sparse_selector(
+    monkeypatch, as_tensor, mode, pts_ns, end_ns
+):
+    from vlm_pipeline.video_file_frame_getter import DefaultFrameSelector
+
+    monkeypatch.setenv("RTVI_QWEN_REFERENCE_RESIZE", "false")
+    selector = DefaultFrameSelector(-1 if mode == "all" else 8)
+    chunk = ChunkInfo(file="fixture.mp4", start_pts=0, end_pts=end_ns)
+    query = vlm_pipeline_module._selector_ring_query(selector, chunk)
+    if mode == "indices":
+        query["target_indices"] = [round(i * (len(pts_ns) - 1) / 7) for i in range(8)]
+        selector._select_by_frame_index = True
+        selector._selected_frame_indices_array.extend(query["target_indices"])
+    expected_indices = [i for i, pts in enumerate(pts_ns) if selector.choose_frame(None, pts)]
+    expected_pts = [pts_ns[i] for i in expected_indices]
+    frames = torch.arange(len(pts_ns)).reshape(-1, 1) if as_tensor else list(range(len(pts_ns)))
+
+    selected, selected_times = vlm_pipeline_module._select_dense_frames(
+        frames, [pts / 1e9 for pts in pts_ns], query
+    )
+
+    assert (selected.flatten().tolist() if as_tensor else selected) == expected_indices
+    assert selected_times == [pts / 1e9 for pts in expected_pts]
+    ring = CudaFrameRing(max_bytes=1024)
+    ring.publish("source", "epoch", 0, end_ns, pts_ns, list(range(len(pts_ns))))
+    assert ring.acquire("source", "epoch", **query) == (expected_indices, expected_pts)
+
+
+@pytest.mark.no_gpu
+def test_dense_sampling_with_unavailable_targets_never_returns_full_batch():
+    query = dict(
+        start_ns=0,
+        end_ns=300_000_000,
+        target_pts_ns=[0, 250_000_000],
+        target_indices=None,
+        select_all=False,
+    )
+    assert vlm_pipeline_module._select_dense_frames([0, 1, 2], [0.0, 0.1, 0.2], query) == (
+        [0],
+        [0.0],
+    )
+
+
+@pytest.mark.no_gpu
+@pytest.mark.parametrize("packed", [False, True])
+def test_underfilled_ring_hit_preserves_strict_frame_count_check(monkeypatch, tmp_path, packed):
+    from vlm_pipeline.video_file_frame_getter import DefaultFrameSelector
+
+    monkeypatch.setenv("RTVI_PERSISTENT_CUDA_FRAME_RING", "true")
+    monkeypatch.setenv("RTVI_STRICT_FIXED_FRAME_CHUNK_DECODE", "true")
+    monkeypatch.setenv("RTVI_QWEN_REFERENCE_RESIZE", "false")
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "start_range", lambda *a, **kw: object())
+    monkeypatch.setattr(vlm_pipeline_module.nvtx, "end_range", lambda *a, **kw: None)
+    decoder = _make_decoder()
+    decoder._cuda_frame_ring = CudaFrameRing(max_bytes=1024)
+    video = tmp_path / "fixture.mp4"
+    video.write_bytes(b"content-version-1")
+    chunk = ChunkInfo(file=str(video), start_pts=0, end_pts=4_000_000_000)
+    key = vlm_pipeline_module._file_ring_identity(chunk, 0, 0, "HEVC")
+    decoder._cuda_frame_ring.publish(*key, 0, 4_000_000_000, [0], [torch.tensor([0])])
+    if packed:
+        selection_key = vlm_pipeline_module._ring_selection_key(
+            vlm_pipeline_module._selector_ring_query(DefaultFrameSelector(2), chunk)
+        )
+        decoder._cuda_frame_ring.publish_selection(*key, selection_key, torch.tensor([[0]]), [0])
+    query = _make_vlm_query()
+    query.num_frames_per_second_or_fixed_frames_chunk = 2
+    getter = UnderfilledFixedFrameGetter()
+
+    result = decoder._decode_chunk(getter, chunk, query, video_codec="HEVC", request_id="strict")
+
+    assert getter.calls == 2
+    assert result["error"] is None
+    assert result["decode_retry_count"] == 1
+    assert len(result["frames"]) == 30
 
 
 @pytest.mark.no_gpu
