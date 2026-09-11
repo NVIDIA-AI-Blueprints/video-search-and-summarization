@@ -20,10 +20,11 @@
 const mdx = require("@nvidia-mdx/web-api-core");
 const cache = require('./cache');
 const config = cache.get("bootstrap-config");
+const streamType = process.env.STREAM_TYPE || "kafka";
 
 let kafka = null;
 
-if(config.kafka.brokers!=null && config.kafka.brokers.length!=0){
+if(streamType === "kafka" && config.kafka.brokers!=null && config.kafka.brokers.length!=0){
     let kafkaConfigMap = new Map();
 
     // Custom log creator for KafkaJS to format logs with timestamp first
