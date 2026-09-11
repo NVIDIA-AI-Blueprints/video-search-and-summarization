@@ -140,6 +140,20 @@ def test_endpoint_requires_matching_explicit_model() -> None:
         )
 
 
+@pytest.mark.parametrize("endpoint", ["not-a-url", "https://"])
+def test_malformed_endpoint_is_rejected(endpoint: str) -> None:
+    with pytest.raises(ValueError, match="HTTP\\(S\\) URL with a host"):
+        model_config.resolve_model_config(
+            {
+                "EVAL_AGENT": "claude-code",
+                "SKILLS_EVAL_PROVIDER": "custom",
+                "SKILLS_EVAL_MODEL": "custom/claude",
+                "SKILLS_EVAL_ENDPOINT_URL": endpoint,
+                "ANTHROPIC_API_KEY": "secret",
+            }
+        )
+
+
 def test_missing_key_names_expected_runner_variable() -> None:
     with pytest.raises(ValueError, match="NVIDIA_API_KEY"):
         model_config.resolve_model_config(

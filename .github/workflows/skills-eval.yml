@@ -290,15 +290,16 @@ jobs:
           fi
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
-          # Fail before run_leg waits for or acquires a Brev worker. This logs
-          # the resolved route but never its credential.
-          python3 .github/skill-eval/model_config.py
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
           # the public relay for RTSP-dependent skill checks.
           export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
           if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
             export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
           fi
+          # Fail before run_leg waits for or acquires a Brev worker. This logs
+          # the resolved route but never its credential. Run after restoring
+          # the repository-secret fallback so every valid route is visible.
+          python3 .github/skill-eval/model_config.py
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
           # processes (reparented to PID 1, never killed) on every
           # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
