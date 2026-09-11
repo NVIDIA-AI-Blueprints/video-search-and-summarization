@@ -96,6 +96,8 @@ RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_form
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=<hardware-derived value>  # 0.4 on H100/RTX PRO 6000 in local_shared
 ```
 
+**CR3 Super FP8 variant.** Validated as a drop-in alternative within Path B — same GPU 0 shared placement with RT-CV, no dedicated 3rd GPU needed. Set `VLM_NAME=nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix`, `RTVI_VLM_MODEL_PATH=ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix`, and `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55` (not Nano's 0.4 — Super FP8's 33.08 GB weights need more headroom than Nano FP8's 9.87 GB). Confirmed on a 95 GiB H100 NVL: both RT-VLM and RT-CV came up healthy with ~31 GiB still free after a real inference request. Super BF16 does **not** fit this shared layout — see `rt-vlm.md`. This is not the profile default; Nano FP8 remains the default per `rt-vlm.md`'s cross-profile convention.
+
 `VLM_MODE` derives to `local_shared` rather than `local` because `VLM_DEVICE_ID=0` is listed in `FIXED_SHARED_DEVICE_IDS`. That is what selects the shared-GPU memory fraction, so do not hand-set `VLM_MODE=local` here — it would let RT-VLM claim the fraction meant for a dedicated GPU and starve RT-CV.
 
 The resolved compose must include profile `rtvi-vlm` and container `vss-rtvi-vlm`. Use `RTVI_VLLM_GPU_MEMORY_UTILIZATION`, not `NIM_KVCACHE_PERCENT`, to size RT-VLM.
@@ -232,7 +234,7 @@ That's it. No compose-file tweak required for the default Cosmos-Embed1 deployme
 
 > **Verifying under load.** Watch `docker logs vss-rtvi-embed` and `nvidia-smi -l 5` on GPU 1 while pushing `NUM_STREAMS=16` of test video. If RT-Embed's resident memory exceeds ~12 GB, raise the budget (e.g. 12 → 15 GB → recompute LLM `NIM_KVCACHE_PERCENT`). If the LLM OOMs at startup, it usually means RT-Embed grabbed more than 10 GB before the LLM allocated; constrain RT-Embed by lowering `NUM_STREAMS` or `RTVI_EMBED_NUM_VLM_PROCS` (10 → 4).
 
-RT-VLM shares GPU 0 with RT-CV in the default search layout, so its budget and the RT-CV stream count now compete for the same device. Size RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION` (0.4 on H100 / RTX PRO 6000 in `local_shared`) and leave the remainder for RT-CV; continue to size the LLM + RT-Embed pair on GPU 1 with the table above. If RT-CV fails to build engines or drops streams, lower the RT-VLM fraction before touching `NUM_STREAMS`.
+RT-VLM shares GPU 0 with RT-CV in the default search layout, so its budget and the RT-CV stream count now compete for the same device. Size RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION` (0.4 on H100 / RTX PRO 6000 in `local_shared` for Nano FP8; 0.55 for the CR3 Super FP8 variant above) and leave the remainder for RT-CV; continue to size the LLM + RT-Embed pair on GPU 1 with the table above. If RT-CV fails to build engines or drops streams, lower the RT-VLM fraction before touching `NUM_STREAMS` — a too-tight fraction looks like this: the TensorRT engine build itself appears to succeed, but execution-context creation then fails with `Error Code 2: OutOfMemory`.
 
 ## Hard rules
 
