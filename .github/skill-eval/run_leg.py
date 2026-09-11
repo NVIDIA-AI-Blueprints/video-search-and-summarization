@@ -1824,6 +1824,12 @@ def run_invocations(
         return rc
 
     for invocation in invocations:
+        if abort_event is not None and abort_event.is_set():
+            print(
+                "[run-leg] remote worker lease lost; refusing further Harbor dispatch",
+                file=sys.stderr,
+            )
+            return finish(125)
         if (
             invocation.step_index is not None
             and invocation.chain_key in skipped_after
@@ -1938,7 +1944,7 @@ def run_invocations(
         # box while descendants from the timed-out process are still settling.
         # For chained tasks the block above writes every applicable skip marker
         # before this return.
-        if rc == 124 or rc >= 128:
+        if rc in (124, 125) or rc >= 128:
             return finish(rc)
 
     return finish(overall_rc)

@@ -794,6 +794,80 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 124)
         run.assert_called_once()
 
+    def test_lease_loss_stops_all_subsequent_invocations(self):
+        invocations = [
+            run_leg.HarborInvocation(
+                harbor_root=Path(f"/tmp/datasets/spec-{index}"),
+                include_task_name=f"task-{index}",
+                chain_key=f"spec-{index}",
+            )
+            for index in (1, 2)
+        ]
+        lost_event = run_leg.threading.Event()
+
+        def lose_lease(_cmd, _env, _timeout, **_kwargs):
+            lost_event.set()
+            return 125
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, self.ENV, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ),
+                mock.patch.object(
+                    run_leg, "run_command", side_effect=lose_lease
+                ) as run,
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "spec",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    abort_event=lost_event,
+                )
+
+        self.assertEqual(rc, 125)
+        run.assert_called_once()
+
+    def test_known_lease_loss_prevents_first_invocation_dispatch(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/spec"),
+            include_task_name="task",
+            chain_key="spec",
+        )
+        lost_event = run_leg.threading.Event()
+        lost_event.set()
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, self.ENV, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(run_leg, "build_harbor_command") as command,
+                mock.patch.object(run_leg, "run_command") as run,
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "spec",
+                    "RTXPRO6000BW",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    abort_event=lost_event,
+                )
+
+        self.assertEqual(rc, 125)
+        command.assert_not_called()
+        run.assert_not_called()
+
     def test_build_vision_ai_stays_on_the_coding_agent_path(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/build"),
