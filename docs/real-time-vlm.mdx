@@ -272,15 +272,25 @@ container used by this release is tagged `3.3.0-26.08.2`.
    cd services/rtvi/rt-vlm/docker
    ```
 
-2. Create a `.env` file from the tracked sample, then replace the NGC API key:
+2. Create a `.env` file for the pinned release, then replace the NGC API key:
 
    ```bash
-   cp .env.example .env
+   cat > .env <<'EOF'
+   BACKEND_PORT=8000
+   RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
+   VLM_MODEL_TO_USE=cosmos-reason3
+   MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+   NGC_API_KEY=<replace-with-your-ngc-api-key>
+   NVIDIA_VISIBLE_DEVICES=0
+   MESSAGE_BUS=kafka
+   MESSAGE_BUS_TOPIC=mdx-vlm-captions
+   KAFKA_PORT=9092
+   KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+   KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
+   ERROR_BUS=kafka
+   ERROR_MESSAGE_TOPIC=vision-llm-errors
+   EOF
    ```
-
-   The sample defaults to the moving GitHub Container Registry development
-   image. For this pinned release, replace its `RTVI_IMAGE` value with
-   `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`.
 
 3. Start the service:
 
@@ -675,10 +685,10 @@ These endpoints accept two payload shapes:
   `event` carries the camera fields. Use this when forwarding VIOS
   camera-status events.
 
-For existing VIOS camera flows, the hidden aliases ``POST
-/api/v1/camera/add` and `PUT /api/v1/camera/streaming`` use the same add
-handler. `POST` and `DELETE /api/v1/camera/remove` use the same remove
-handler. Prefer the documented `/v1/stream/*` endpoints for new
+For existing VIOS camera flows, the hidden aliases
+`POST /api/v1/camera/add` and `PUT /api/v1/camera/streaming` use the same add
+handler. `POST /api/v1/camera/remove` and `DELETE /api/v1/camera/remove` use
+the same remove handler. Prefer the documented `/v1/stream/*` endpoints for new
 integrations; the compatibility API is evolving and its request and response
 schema can change between releases.
 
