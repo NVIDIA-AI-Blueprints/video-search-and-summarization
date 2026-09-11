@@ -19,6 +19,8 @@ image:
   repository: ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization
   tag: "develop-latest"
   pullPolicy: IfNotPresent
+# Each replica owns an independent 256-ContextManager pool. Use at least one
+# summarization replica per two VLM replicas instead of raising that cap.
 replicas: 1
 # Backend (API), MCP ports — match Compose
 service:
@@ -130,6 +132,8 @@ env:
     value: ""
   - name: VSS_LOG_LEVEL
     value: INFO
+  - name: VSS_EXTRA_ARGS
+    value: ""
 
 # extraEnv: appended after the computed env block. Each value is rendered with `tpl`, so expressions like
 # `http://{{ .Release.Name }}-vss-rtvi-vlm:8000` are supported. Use this for LVS -> RTVI-VLM wiring

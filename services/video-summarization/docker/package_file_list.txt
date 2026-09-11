@@ -1,5 +1,6 @@
 __init__.py
 chunk_info.py
+elasticsearch_shard_retry.py
 kafka_producer.py
 lvs_errors.py
 protos/__init__.py

@@ -273,6 +273,7 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vssIngress.kibanaPort`** | **`5601`** | Kibana **Service** port when Kibana is enabled. |
 | **`vssIngress.phoenixPort`** | **`6006`** | Phoenix **Service** port when Phoenix is enabled. |
 | **`vss-summarization.enabled`** | **`true`** | Set **`false`** to disable the **LVS** summarization service. |
+| **`vss-summarization.replicas`** | **`1`** | Use one summarization replica per two **RTVI-VLM** replicas. Set **`2`** for 3X/4X VLM scale tests instead of increasing the per-process ContextManager limit. |
 | **`vss-summarization.elasticsearchHost`** | **`""`** | Elasticsearch hostname for **vss-summarization** **`ES_HOST`**. When empty, defaults to **`<release>-elasticsearch`**. |
 | **`vss-summarization.elasticsearchPort`** | **`9200`** | Elasticsearch HTTP port (**`ES_PORT`**). |
 | **`vss-summarization.llmService`** | **`nemotron-35-lightning-30b-a3b`** | NIM subchart **name segment** used to build **`LVS_LLM_BASE_URL`** as **`http://<release>-<value>:8000/v1`** when **`global.llmBaseUrl`** and **`vss-summarization.llmBaseUrl`** are empty. Keep it aligned with the enabled LLM NIM. |
@@ -282,9 +283,12 @@ Use the table below for additional keys. Order follows **`values.yaml`**. **`ngc
 | **`vss-summarization.llmName`** | **`""`** | Optional **LVS-only** override of **`global.llmName`** (**`LVS_LLM_MODEL_NAME`**). |
 | **`vss-summarization.vlmName`** | **`""`** | Optional **LVS-only** override of **`global.vlmName`** (**`VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME`**). |
 | **`infra.elasticsearch.enabled`** | **`true`** | Set **`false`** to disable the in-cluster **Elasticsearch** deployment. |
+| **`infra.elasticsearch.replicas`** | **4** | Elasticsearch data nodes. The validated sizing rule is one node per 10X VLM scale; reduce this only for developer validation. Multi-node discovery is configured automatically whenever this value is greater than one. |
+| **`infra.elasticsearch.env.ES_JAVA_OPTS`** | **`-Xms4g -Xmx4g`** | Heap per Elasticsearch node. Keep the pod memory request and limit above the heap size. |
+| **`infra.elasticsearch.resources`** | **2 CPU / 6Gi requested; 8Gi memory limit** | Per-node scheduling envelope for the 4Gi heap. CPU is intentionally not limited so indexing bursts can use available capacity. |
 | **`infra.elasticsearch.persistence.data.size`** | **10Gi** | PVC size for Elasticsearch **data** volume. |
 | **`infra.elasticsearch.persistence.logs.size`** | **5Gi** | PVC size for Elasticsearch **logs** volume (LVS chart exposes both **data** and **logs** sizes). |
-| **`infra.elasticsearch.persistence.storageClass`** | **`""`** | **StorageClass** for Elasticsearch PVCs; leave empty to inherit **`global.storageClass`**, or set explicitly. |
+| **`infra.elasticsearch.persistence.storageClass`** | **`""`** | **StorageClass** for Elasticsearch PVCs; leave empty to inherit **`global.storageClass`**, or set explicitly. Production scale requires fast block storage capable of at least 5K IOPS and 30 Mbps writes. |
 | **`infra.kibana.enabled`** | **`true`** | Set **`false`** to disable the in-cluster **Kibana** deployment. |
 | **`infra.kibana.elasticsearchHosts`** | **`""`** | Elasticsearch URL list **Kibana** connects to. When empty, defaults to **`http://<release>-elasticsearch:9200`**. |
 | **`infra.kibana.kibanaPublicUrl`** | **`""`** | Browser-facing **Kibana** base URL. When empty, templates use **`global.kibanaPublicUrl`** if set, else **`http://<release>-kibana:5601`**. |

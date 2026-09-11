@@ -1,0 +1,30 @@
+diff --git a/src/vss_ctx_rag/tools/storage/elasticsearch_db.py b/src/vss_ctx_rag/tools/storage/elasticsearch_db.py
+index e6a0895..c6f395e 100644
+--- a/src/vss_ctx_rag/tools/storage/elasticsearch_db.py
++++ b/src/vss_ctx_rag/tools/storage/elasticsearch_db.py
+@@ -23,0 +24 @@ from langchain_elasticsearch.vectorstores import ElasticsearchStore
++from elasticsearch_shard_retry import retry_shard_operation, wait_for_primary_shard
+@@ -522,4 +523,14 @@ class ElasticsearchDBTool(VectorStorageTool):
+-            response = es_client.search(
+-                index=self.index_name,
+-                body=query,
+-                size=10000,
++
++            def search_when_ready():
++                wait_for_primary_shard(es_client, self.index_name)
++                return es_client.search(
++                    index=self.index_name,
++                    body=query,
++                    size=10000,
++                )
++
++            response = retry_shard_operation(
++                search_when_ready,
++                operation_name="retrieve_docs",
++                index_name=self.index_name,
++                logger=logger,
+@@ -546,2 +557,2 @@ class ElasticsearchDBTool(VectorStorageTool):
+-            logger.warning(f"Error retrieving docs: {e}")
+-            return []
++            logger.error(f"Error retrieving docs: {e}")
++            raise
