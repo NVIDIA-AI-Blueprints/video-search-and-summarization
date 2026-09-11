@@ -18,10 +18,17 @@ build. Two exist, they are **mutually exclusive**, and **at most one** is
 deployed. `vss-agent` is removed unless the request names it, so a build carries
 the NemoClaw sandbox, the in-stack agent, or no harness at all — never two.
 
-| Harness | Where it runs | Reached by | Selected by |
+**Q3 is binary — these are its only two outcomes:**
+
+| Q3 answer | Outcome | Where it runs | Reached by |
 |---|---|---|---|
-| `nemoclaw` *(default)* | a sandbox on the host, outside the Compose project | its chat UI, with the VSS skills installed into it | this file |
-| `vss-agent` | inside the Compose project | the agent REST API (`/generate`), Web UI | the Agent owner ([`services/agent.md`](services/agent.md)), like any other capability |
+| **yes** *(default)* | `nemoclaw` | a sandbox on the host, outside the Compose project | its chat UI, with the VSS skills installed into it |
+| **no** | no harness | — | the `vss` CLI from the host |
+
+**Separate explicit-name path — not a Q3 option:** `vss-agent` runs inside the
+Compose project and is reached through the agent REST API (`/generate`) and Web
+UI. Select it through the Agent owner ([`services/agent.md`](services/agent.md))
+only when the request names it; skip Q3 entirely.
 
 `vss-agent` is in-stack: it is a container, it is reached through the build's own
 origin, and forward closure retains it whenever agentic orchestration is
