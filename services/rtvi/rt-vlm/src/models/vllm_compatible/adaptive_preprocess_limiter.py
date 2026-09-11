@@ -69,6 +69,7 @@ class PreprocessAdmission:
     workload_key: str
     payload_mb: int
     estimated_mb: int
+    encoder_tokens: int
     free_memory_before_mb: int | None
     admitted_at: float
     enforced: bool
@@ -83,6 +84,8 @@ class AdaptivePreprocessSnapshot:
     queued: int
     effective_limit: int
     pending_reserved_mb: int
+    pending_encoder_tokens: int
+    encoder_cache_capacity_tokens: int | None
     admissions: int
     policy_denials: int
     shadow_denials: int
@@ -100,11 +103,11 @@ class AdaptivePreprocessSnapshot:
 
 
 class AdaptivePreprocessLimiter:
-    """Admit preprocessing work without overcommitting one free-memory snapshot.
+    """Admit multimodal work without overcommitting memory or encoder tokens.
 
     The vLLM executor remains fixed at ``config.max_workers``. This controller
-    provides the runtime-effective limit and reserves memory atomically before
-    an admitted coroutine starts allocating CUDA tensors.
+    provides the runtime-effective limit, reserves frontend memory atomically,
+    and retains encoder-cache tokens until the visual encoder consumes them.
     """
 
     def __init__(
@@ -112,19 +115,34 @@ class AdaptivePreprocessLimiter:
         config: AdaptivePreprocessConfig,
         free_memory_mb: Callable[[], int],
         gpu_utilization_percent: Callable[[], float] | None = None,
+        encoder_cache_capacity_tokens: int | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         self.config = config
         self._free_memory_mb = free_memory_mb
         self._gpu_utilization_percent = gpu_utilization_percent
+        self._encoder_cache_capacity_tokens = (
+            max(1, int(encoder_cache_capacity_tokens))
+            if encoder_cache_capacity_tokens is not None
+            else None
+        )
         self._clock = clock
         self._condition = asyncio.Condition()
         self._state_lock = threading.Lock()
-        self._effective_limit = config.min_workers
+        # A model-reported token budget is a stronger initial bound than an
+        # uncalibrated worker count. Start at the executor ceiling and let the
+        # token and memory reservations provide portable backpressure.
+        self._effective_limit = (
+            config.max_workers
+            if self._encoder_cache_capacity_tokens is not None
+            else config.min_workers
+        )
         self._active = 0
         self._queued = 0
         self._pending_reserved_mb = 0
+        self._pending_encoder_tokens = 0
         self._admissions: dict[str, PreprocessAdmission] = {}
+        self._preprocess_released_request_ids: set[str] = set()
         self._minimum_free_mb_by_request: dict[str, int] = {}
         self._overlapped_request_ids: set[str] = set()
         self._estimated_mb_by_workload: dict[str, int] = {}
@@ -179,6 +197,12 @@ class AdaptivePreprocessLimiter:
                     "pending_reserved_mb",
                     "Memory reserved for admitted multimodal preprocessing requests",
                     "MiBy",
+                ),
+                (
+                    "rtvi_vlm_preprocess_reserved_encoder_tokens",
+                    "pending_encoder_tokens",
+                    "Encoder-cache tokens reserved by admitted multimodal requests",
+                    "{token}",
                 ),
                 (
                     "rtvi_vlm_preprocess_admission_timeouts",
@@ -252,12 +276,24 @@ class AdaptivePreprocessLimiter:
         self,
         workload_key: str,
         payload_mb: int,
+        encoder_tokens: int = 0,
         *,
         require_calibration: bool = True,
     ) -> tuple[bool, int, int | None]:
         estimate_mb = self._request_estimate_locked(workload_key, payload_mb)
         free_mb = self._sample_free_memory_locked()
         worker_available = self._active < self._effective_limit
+        if self._encoder_cache_capacity_tokens is None or encoder_tokens == 0:
+            encoder_cache_available = True
+        elif encoder_tokens > self._encoder_cache_capacity_tokens:
+            # Let vLLM either chunk or reject an individually oversized item,
+            # but never deadlock it behind a budget it cannot satisfy.
+            encoder_cache_available = self._active == 0 and self._pending_encoder_tokens == 0
+        else:
+            encoder_cache_available = (
+                self._pending_encoder_tokens + encoder_tokens
+                <= self._encoder_cache_capacity_tokens
+            )
         # Calibrate a previously unseen workload without overlap. This avoids
         # carrying assumptions from one model processor or media shape to another.
         calibration_available = (
@@ -270,7 +306,10 @@ class AdaptivePreprocessLimiter:
             and free_mb - self._pending_reserved_mb >= self.config.gpu_headroom_mb + estimate_mb
         )
         return (
-            worker_available and calibration_available and memory_available,
+            worker_available
+            and calibration_available
+            and memory_available
+            and encoder_cache_available,
             estimate_mb,
             free_mb,
         )
@@ -351,11 +390,14 @@ class AdaptivePreprocessLimiter:
         request_id: str,
         workload_key: str,
         payload_mb: int,
+        encoder_tokens: int = 0,
     ) -> PreprocessAdmission:
         if not workload_key:
             raise ValueError("workload_key must not be empty")
         if payload_mb < 1:
             raise ValueError("payload_mb must be greater than or equal to 1")
+        if encoder_tokens < 0:
+            raise ValueError("encoder_tokens must be greater than or equal to 0")
         loop = asyncio.get_running_loop()
         started_at = self._clock()
         deadline = loop.time() + self.config.admission_timeout_seconds
@@ -370,6 +412,7 @@ class AdaptivePreprocessLimiter:
                         would_admit, estimate_mb, free_mb = self._policy_decision_locked(
                             workload_key,
                             payload_mb,
+                            encoder_tokens,
                         )
                         if self.config.shadow_mode or would_admit:
                             if queued:
@@ -377,7 +420,8 @@ class AdaptivePreprocessLimiter:
                                 queued = False
                             if self.config.shadow_mode and not would_admit:
                                 self._shadow_denials += 1
-                            if self._active:
+                            had_overlap = bool(self._active or self._pending_encoder_tokens)
+                            if had_overlap:
                                 self._overlapped_request_ids.update(self._admissions)
                                 self._overlapped_request_ids.add(request_id)
                             self._active += 1
@@ -386,17 +430,19 @@ class AdaptivePreprocessLimiter:
                                 self._active,
                             )
                             self._pending_reserved_mb += estimate_mb
+                            self._pending_encoder_tokens += encoder_tokens
                             self._admission_count += 1
                             admission = PreprocessAdmission(
                                 request_id=request_id,
                                 workload_key=workload_key,
                                 payload_mb=payload_mb,
                                 estimated_mb=estimate_mb,
+                                encoder_tokens=encoder_tokens,
                                 free_memory_before_mb=free_mb,
                                 admitted_at=started_at,
                                 enforced=not self.config.shadow_mode,
                                 policy_would_admit=would_admit,
-                                exclusive=self._active == 1,
+                                exclusive=not had_overlap,
                                 wait_seconds=self._clock() - started_at,
                             )
                             self._admissions[request_id] = admission
@@ -447,6 +493,108 @@ class AdaptivePreprocessLimiter:
                         self._queued -= 1
                     self._condition.notify_all()
 
+    def _release_preprocess_locked(
+        self,
+        admission: PreprocessAdmission,
+        *,
+        observed_allocation_mb: int | None,
+        success: bool,
+        memory_pressure: bool,
+    ) -> None:
+        current = self._admissions.get(admission.request_id)
+        if current is None or admission.request_id in self._preprocess_released_request_ids:
+            return
+        self._preprocess_released_request_ids.add(admission.request_id)
+        minimum_free_mb = self._minimum_free_mb_by_request.pop(
+            admission.request_id,
+            None,
+        )
+        had_overlap = admission.request_id in self._overlapped_request_ids
+        self._overlapped_request_ids.discard(admission.request_id)
+        self._active -= 1
+        self._pending_reserved_mb = max(
+            0,
+            self._pending_reserved_mb - current.estimated_mb,
+        )
+
+        if (
+            not had_overlap
+            and observed_allocation_mb is None
+            and current.free_memory_before_mb is not None
+            and minimum_free_mb is not None
+        ):
+            observed_allocation_mb = max(
+                0,
+                current.free_memory_before_mb - minimum_free_mb,
+            )
+
+        if (
+            success
+            and not memory_pressure
+            and not had_overlap
+            and observed_allocation_mb is not None
+        ):
+            observed_mb = max(
+                self.config.initial_estimated_request_mb,
+                current.payload_mb,
+                observed_allocation_mb,
+            )
+            previous = self._estimated_mb_by_workload.get(
+                current.workload_key,
+                max(self.config.initial_estimated_request_mb, current.payload_mb),
+            )
+            if observed_mb >= previous:
+                updated = observed_mb
+            else:
+                alpha = self.config.estimate_ewma_alpha
+                updated = math.ceil((1 - alpha) * previous + alpha * observed_mb)
+            self._estimated_mb_by_workload[current.workload_key] = updated
+            sample_count = self._calibration_samples_by_workload.get(current.workload_key, 0) + 1
+            self._calibration_samples_by_workload[current.workload_key] = sample_count
+            if sample_count >= self.config.calibration_samples_required:
+                self._calibrated_workloads.add(current.workload_key)
+
+        self._update_limit_after_release_locked(
+            current,
+            success=success,
+            memory_pressure=memory_pressure,
+        )
+
+    def _release_encoder_locked(self, admission: PreprocessAdmission) -> None:
+        current = self._admissions.pop(admission.request_id, None)
+        if current is None:
+            return
+        self._preprocess_released_request_ids.discard(admission.request_id)
+        self._overlapped_request_ids.discard(admission.request_id)
+        self._pending_encoder_tokens = max(
+            0,
+            self._pending_encoder_tokens - current.encoder_tokens,
+        )
+
+    async def release_preprocess(
+        self,
+        admission: PreprocessAdmission,
+        *,
+        observed_allocation_mb: int | None = None,
+        success: bool = True,
+        memory_pressure: bool = False,
+    ) -> None:
+        async with self._condition:
+            with self._state_lock:
+                self._release_preprocess_locked(
+                    admission,
+                    observed_allocation_mb=observed_allocation_mb,
+                    success=success,
+                    memory_pressure=memory_pressure,
+                )
+            self._condition.notify_all()
+
+    async def release_encoder(self, admission: PreprocessAdmission) -> None:
+        async with self._condition:
+            with self._state_lock:
+                self._release_encoder_locked(admission)
+            self._condition.notify_all()
+
     async def release(
         self,
         admission: PreprocessAdmission,
@@ -457,65 +605,13 @@ class AdaptivePreprocessLimiter:
     ) -> None:
         async with self._condition:
             with self._state_lock:
-                current = self._admissions.pop(admission.request_id, None)
-                if current is None:
-                    return
-                minimum_free_mb = self._minimum_free_mb_by_request.pop(
-                    admission.request_id,
-                    None,
-                )
-                had_overlap = admission.request_id in self._overlapped_request_ids
-                self._overlapped_request_ids.discard(admission.request_id)
-                self._active -= 1
-                self._pending_reserved_mb = max(
-                    0,
-                    self._pending_reserved_mb - current.estimated_mb,
-                )
-
-                if (
-                    not had_overlap
-                    and observed_allocation_mb is None
-                    and current.free_memory_before_mb is not None
-                ):
-                    if minimum_free_mb is not None:
-                        observed_allocation_mb = max(
-                            0,
-                            current.free_memory_before_mb - minimum_free_mb,
-                        )
-
-                if (
-                    success
-                    and not memory_pressure
-                    and not had_overlap
-                    and observed_allocation_mb is not None
-                ):
-                    observed_mb = max(
-                        self.config.initial_estimated_request_mb,
-                        current.payload_mb,
-                        observed_allocation_mb,
-                    )
-                    previous = self._estimated_mb_by_workload.get(
-                        current.workload_key,
-                        max(self.config.initial_estimated_request_mb, current.payload_mb),
-                    )
-                    if observed_mb >= previous:
-                        updated = observed_mb
-                    else:
-                        alpha = self.config.estimate_ewma_alpha
-                        updated = math.ceil((1 - alpha) * previous + alpha * observed_mb)
-                    self._estimated_mb_by_workload[current.workload_key] = updated
-                    sample_count = (
-                        self._calibration_samples_by_workload.get(current.workload_key, 0) + 1
-                    )
-                    self._calibration_samples_by_workload[current.workload_key] = sample_count
-                    if sample_count >= self.config.calibration_samples_required:
-                        self._calibrated_workloads.add(current.workload_key)
-
-                self._update_limit_after_release_locked(
-                    current,
+                self._release_preprocess_locked(
+                    admission,
+                    observed_allocation_mb=observed_allocation_mb,
                     success=success,
                     memory_pressure=memory_pressure,
                 )
+                self._release_encoder_locked(admission)
             self._condition.notify_all()
 
     def note_backpressure(self) -> None:
@@ -545,6 +641,7 @@ class AdaptivePreprocessLimiter:
             would_admit, _, _ = self._policy_decision_locked(
                 workload_key,
                 payload_mb,
+                0,
                 require_calibration=False,
             )
             return would_admit
@@ -562,6 +659,8 @@ class AdaptivePreprocessLimiter:
                 queued=self._queued,
                 effective_limit=self._effective_limit,
                 pending_reserved_mb=self._pending_reserved_mb,
+                pending_encoder_tokens=self._pending_encoder_tokens,
+                encoder_cache_capacity_tokens=self._encoder_cache_capacity_tokens,
                 admissions=self._admission_count,
                 policy_denials=self._policy_denials,
                 shadow_denials=self._shadow_denials,

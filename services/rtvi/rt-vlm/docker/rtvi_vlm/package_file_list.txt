@@ -55,6 +55,7 @@ utils/media_file_info.py
 utils/otel_helper.py
 utils/request_profiler.py
 vlm_pipeline/__init__.py
+vlm_pipeline/cuda_frame_ring.py
 vlm_pipeline/errors.py
 vlm_pipeline/ipc_frame_source.py
 vlm_pipeline/model_path_policy.py

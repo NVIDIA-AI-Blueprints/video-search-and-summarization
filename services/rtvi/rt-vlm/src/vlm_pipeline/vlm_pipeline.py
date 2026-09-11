@@ -42,6 +42,7 @@ from models.base_vlm_model import VlmGenerationConfig, VlmModelOutput
 from models.dynamic_model_loader import DynamicModelLoader, load_model
 from utils.asset_manager import Asset
 
+from .cuda_frame_ring import select_frame_indices
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
 from .ipc_frame_source import DEFAULT_IPC_SOCKET_DIR, select_ipc_stream_identity
 from .model_path_policy import validate_model_config, validate_model_path_source
@@ -71,6 +72,9 @@ FAST_IMAGE_ASSET_CHUNK_DECODE_ENV = "RTVI_FAST_IMAGE_ASSET_CHUNK_DECODE"
 STRICT_FIXED_FRAME_CHUNK_DECODE_ENV = "RTVI_STRICT_FIXED_FRAME_CHUNK_DECODE"
 VLM_QUEUE_MAXSIZE_ENV = "RTVI_VLM_QUEUE_MAXSIZE"
 IMAGE_ASSET_EXTENSIONS = frozenset((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+PERSISTENT_CUDA_FRAME_RING_ENV = "RTVI_PERSISTENT_CUDA_FRAME_RING"
+PERSISTENT_CUDA_FRAME_RING_MB_ENV = "RTVI_PERSISTENT_CUDA_FRAME_RING_MB"
+DEFAULT_PERSISTENT_CUDA_FRAME_RING_MB = 512
 
 
 def _decode_max_attempts() -> int:
@@ -128,6 +132,89 @@ def _fast_image_asset_chunk_decode_enabled() -> bool:
         "yes",
         "on",
     )
+
+
+def _persistent_cuda_frame_ring_enabled() -> bool:
+    return os.environ.get(PERSISTENT_CUDA_FRAME_RING_ENV, "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _persistent_cuda_frame_ring_bytes() -> int:
+    raw_value = os.environ.get(
+        PERSISTENT_CUDA_FRAME_RING_MB_ENV,
+        str(DEFAULT_PERSISTENT_CUDA_FRAME_RING_MB),
+    )
+    try:
+        megabytes = max(1, int(raw_value))
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r; using default %d MiB",
+            PERSISTENT_CUDA_FRAME_RING_MB_ENV,
+            raw_value,
+            DEFAULT_PERSISTENT_CUDA_FRAME_RING_MB,
+        )
+        megabytes = DEFAULT_PERSISTENT_CUDA_FRAME_RING_MB
+    return megabytes * 1024 * 1024
+
+
+def _file_ring_identity(chunk: ChunkInfo, width: int, height: int, video_codec: str):
+    """Return a content-versioned ring identity, or None for unsupported inputs."""
+    if (
+        not chunk.file
+        or ";" in chunk.file
+        or "://" in chunk.file
+        or os.path.splitext(chunk.file)[1].lower() in IMAGE_ASSET_EXTENSIONS
+    ):
+        return None
+    try:
+        stat = os.stat(chunk.file)
+    except OSError:
+        return None
+    source_id = (os.path.realpath(chunk.file), int(width), int(height), video_codec)
+    epoch = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+    return source_id, epoch
+
+
+def _selector_ring_query(frame_selector, chunk: ChunkInfo) -> dict:
+    """Freeze a selector's request before a dense decode mutates another selector."""
+    frame_selector.set_chunk(chunk)
+    return {
+        "start_ns": int(frame_selector._selection_start_pts),
+        "end_ns": int(frame_selector._selection_end_pts),
+        "target_pts_ns": list(frame_selector._selected_pts_array),
+        "target_indices": (
+            list(frame_selector._selected_frame_indices_array)
+            if frame_selector.selects_by_frame_index
+            else None
+        ),
+        "select_all": frame_selector.selects_all_frames,
+    }
+
+
+def _ring_selection_key(query: dict) -> tuple:
+    return (
+        query["start_ns"],
+        query["end_ns"],
+        tuple(query["target_pts_ns"]),
+        tuple(query["target_indices"] or ()),
+        query["select_all"],
+    )
+
+
+def _select_dense_frames(frames, frame_times, query):
+    """Apply the existing first-frame-at-or-after sampling contract to dense frames."""
+    pts_ns = [int(round(frame_time * 1_000_000_000)) for frame_time in frame_times]
+    indices = select_frame_indices(pts_ns, **query)
+
+    if isinstance(frames, torch.Tensor):
+        selected_frames = frames[indices]
+    else:
+        selected_frames = [frames[index] for index in indices]
+    return selected_frames, [pts_ns[index] / 1_000_000_000.0 for index in indices]
 
 
 def _split_local_image_asset_paths(chunk_file: str) -> Optional[list[str]]:
@@ -378,6 +465,7 @@ class DecoderProcess(ProcessBase):
         )
 
     def _initialize(self):
+        from .cuda_frame_ring import CudaFrameRing
         from .video_file_frame_getter import DefaultFrameSelector, VideoFileFrameGetter
 
         self._live_stream_handle_info: dict[str, dict] = {}
@@ -396,6 +484,7 @@ class DecoderProcess(ProcessBase):
         self._width = 0
         self._height = 0
         self._data_type_int8 = False
+        self._cuda_frame_ring = CudaFrameRing(_persistent_cuda_frame_ring_bytes())
 
         # Populate model-specific frame pre-processing parameters
         # Use model-specific decoder configuration for all other models
@@ -453,6 +542,7 @@ class DecoderProcess(ProcessBase):
                 enable_jpeg_output=self._enable_jpeg_tensors,
                 data_type_int8=self._data_type_int8,
                 audio_support=self._enable_audio,
+                cuda_frame_ring=self._cuda_frame_ring,
             )
             for _ in range(self._num_decoders_per_gpu)
         ]
@@ -613,6 +703,117 @@ class DecoderProcess(ProcessBase):
             ),
         )
 
+        ring_key = None
+        ring_query = None
+        ring_selection_key = None
+        ring_fill_owner = False
+        ring_enabled = (
+            _persistent_cuda_frame_ring_enabled()
+            and not vlm_query.enable_audio
+            and not self._enable_jpeg_tensors
+            and hasattr(self, "_cuda_frame_ring")
+        )
+        if ring_enabled:
+            ring_key = _file_ring_identity(
+                chunk,
+                vlm_query.vlm_input_width or self._width,
+                vlm_query.vlm_input_height or self._height,
+                video_codec,
+            )
+        if ring_key is not None:
+            ring_query = _selector_ring_query(frame_selector, chunk)
+            ring_selection_key = _ring_selection_key(ring_query)
+            packed = self._cuda_frame_ring.acquire_selection(
+                *ring_key,
+                ring_selection_key,
+            )
+            cached = (
+                None
+                if packed is not None
+                else self._cuda_frame_ring.acquire(
+                    *ring_key,
+                    **ring_query,
+                )
+            )
+            if packed is None and cached is None:
+                ring_fill_owner = self._cuda_frame_ring.claim_fill(*ring_key)
+                if not ring_fill_owner:
+                    if self._cuda_frame_ring.wait_for_fill(*ring_key, timeout=120.0):
+                        packed = self._cuda_frame_ring.acquire_selection(
+                            *ring_key,
+                            ring_selection_key,
+                        )
+                        if packed is None:
+                            cached = self._cuda_frame_ring.acquire(*ring_key, **ring_query)
+                    else:
+                        ring_fill_owner = self._cuda_frame_ring.claim_fill(*ring_key)
+            if (packed is not None and len(packed[0]) >= min_required_frames) or (
+                cached is not None and len(cached[0]) >= min_required_frames
+            ):
+                if packed is not None:
+                    frames, cached_pts_ns = packed
+                    # Keep the ring-owned allocation private.  The downstream
+                    # tensor IPC transport may transfer or otherwise retain an
+                    # input allocation beyond this request; exporting the same
+                    # allocation concurrently can mix CPU/CUDA batches in the
+                    # engine.  A single contiguous clone is substantially
+                    # cheaper than rebuilding the batch from per-frame views.
+                    if isinstance(frames, torch.Tensor):
+                        frames = frames.clone()
+                else:
+                    frame_refs, cached_pts_ns = cached
+                    frames = frame_refs
+                try:
+                    if packed is None and frames and isinstance(frames[0], torch.Tensor):
+                        frames = torch.stack(frames)
+                        self._cuda_frame_ring.publish_selection(
+                            *ring_key,
+                            ring_selection_key,
+                            frames.clone(),
+                            cached_pts_ns,
+                        )
+                except Exception:
+                    with self._fgetter_handoff_lock:
+                        self._fgetters.append(fgetter)
+                    raise
+                with self._fgetter_handoff_lock:
+                    self._fgetters.append(fgetter)
+                decode_end_time = time.time()
+                nvtx.end_range(nvtx_decode_start)
+                logger.log(
+                    LOG_STATUS_LEVEL,
+                    "Chunk (%s) acquired %d frames from persistent CUDA ring",
+                    chunk,
+                    len(frames),
+                )
+                return {
+                    "chunk": chunk,
+                    "frames": frames,
+                    "error": None,
+                    "error_status_code": 500,
+                    "frame_times": [
+                        float("%.2f" % (pts / 1_000_000_000.0)) for pts in cached_pts_ns
+                    ],
+                    "audio_frames": [],
+                    "audio_transcript": [],
+                    "decode_start_time": decode_start_time,
+                    "decode_end_time": decode_end_time,
+                    "decode_retry_count": 0,
+                    "is_live_stream": False,
+                    **kwargs,
+                }
+
+            if ring_fill_owner:
+                # Populate a dense window once. Subsequent identical or overlapping
+                # requests sample retained PTS references without seek/reset work.
+                frame_selector_for_decode = DefaultFrameSelector(DefaultFrameSelector.ALL_FRAMES)
+            else:
+                # A timed-out waiter preserves availability by using the existing
+                # sparse decode path without publishing over the active owner.
+                frame_selector_for_decode = frame_selector
+        else:
+            frame_selector_for_decode = frame_selector
+
         enable_audio = vlm_query.enable_audio
         vlm_input_width = vlm_query.vlm_input_width
         vlm_input_height = vlm_query.vlm_input_height
@@ -674,7 +875,7 @@ class DecoderProcess(ProcessBase):
             try:
                 frames, frame_times, audio_frames, error = fgetter.get_frames(
                     chunk,
-                    frame_selector,
+                    frame_selector_for_decode,
                     enable_audio,
                     request_id=kwargs["request_id"],
                     frame_width=vlm_input_width,
@@ -689,6 +890,10 @@ class DecoderProcess(ProcessBase):
                 frame_times = []
                 audio_frames = []
                 break
+            except Exception:
+                if ring_fill_owner and ring_key is not None:
+                    self._cuda_frame_ring.abort_fill(*ring_key)
+                raise
             decoded_frame_count = len(frames)
             if not error and decoded_frame_count >= min_required_frames:
                 break
@@ -724,6 +929,53 @@ class DecoderProcess(ProcessBase):
                     chunk,
                     ex,
                 )
+        if ring_fill_owner and ring_key is not None:
+            if not error and len(frames):
+                dense_frames = (
+                    list(frames.unbind(0)) if isinstance(frames, torch.Tensor) else list(frames)
+                )
+                dense_pts_ns = [
+                    int(round(frame_time * 1_000_000_000)) for frame_time in frame_times
+                ]
+                try:
+                    stored = self._cuda_frame_ring.publish(
+                        *ring_key,
+                        coverage_start_ns=ring_query["start_ns"],
+                        coverage_end_ns=ring_query["end_ns"],
+                        pts_ns=dense_pts_ns,
+                        frames=dense_frames,
+                        complete_fill=False,
+                    )
+                except ValueError as ex:
+                    logger.warning("CUDA frame ring rejected chunk %s: %s", chunk, ex)
+                    self._cuda_frame_ring.abort_fill(*ring_key)
+                    stored = False
+                selected = (
+                    self._cuda_frame_ring.acquire(*ring_key, **ring_query) if stored else None
+                )
+                if selected is not None:
+                    selected_frames, selected_pts_ns = selected
+                    frames = (
+                        torch.stack(selected_frames)
+                        if selected_frames and isinstance(selected_frames[0], torch.Tensor)
+                        else selected_frames
+                    )
+                    frame_times = [pts / 1_000_000_000.0 for pts in selected_pts_ns]
+                else:
+                    selected = _select_dense_frames(frames, frame_times, ring_query)
+                    frames, frame_times = selected
+                if selected is not None and isinstance(frames, torch.Tensor):
+                    self._cuda_frame_ring.publish_selection(
+                        *ring_key,
+                        ring_selection_key,
+                        frames.clone(),
+                        [int(round(frame_time * 1_000_000_000)) for frame_time in frame_times],
+                    )
+                else:
+                    self._cuda_frame_ring.abort_fill(*ring_key)
+            else:
+                self._cuda_frame_ring.abort_fill(*ring_key)
+
         frame_times = [float("%.2f" % frame_ele) for frame_ele in frame_times]
 
         nvtx.end_range(nvtx_decode_start)
@@ -926,6 +1178,7 @@ class DecoderProcess(ProcessBase):
             enable_jpeg_output=self._enable_jpeg_tensors,
             data_type_int8=self._data_type_int8,
             audio_support=self._enable_audio,
+            cuda_frame_ring=self._cuda_frame_ring,
         )
 
         with self._live_stream_handle_info_lock:
@@ -1078,7 +1331,7 @@ class DecoderProcess(ProcessBase):
         fgetter.stream(
             live_stream_url=asset.path,
             chunk_duration=vlm_query.chunk_duration,
-            chunk_overlap_duration=0,
+            chunk_overlap_duration=vlm_query.chunk_overlap_duration,
             username=asset.username,
             password=asset.password,
             live_stream_id=asset.asset_id,

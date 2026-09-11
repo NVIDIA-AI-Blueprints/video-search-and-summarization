@@ -15,7 +15,9 @@
 
 import concurrent.futures
 import queue
+import time
 from threading import Lock
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -53,6 +55,95 @@ class _NoBatchProcess(ProcessBase):
 class _BatchProcess(_NoBatchProcess):
     def _supports_batching(self):
         return True
+
+
+def test_cuda_transport_backpressure_waits_without_host_spill():
+    class _DrainingQueue:
+        def __init__(self):
+            self.sizes = iter((1, 1, 0))
+            self.items = []
+
+        def qsize(self):
+            return next(self.sizes)
+
+        def put(self, item):
+            self.items.append(item)
+
+    output_queue = _DrainingQueue()
+    stop = SimpleNamespace(wait_calls=0)
+
+    def wait(timeout):
+        stop.wait_calls += 1
+        return False
+
+    stop.wait = wait
+    admitted = process_base_module._wait_for_cuda_transport_slot(
+        output_queue,
+        slots=1,
+        stop_event=stop,
+        poll_seconds=0.001,
+    )
+
+    assert admitted is True
+    assert stop.wait_calls == 2
+
+
+def test_cuda_transport_admission_is_atomic_across_callbacks(monkeypatch):
+    class _RacyQueue:
+        def __init__(self):
+            self.items = []
+            self.lock = Lock()
+
+        def qsize(self):
+            with self.lock:
+                size = len(self.items)
+            # Without the admission lock, both callbacks observe the same
+            # pre-enqueue size during this window.
+            time.sleep(0.05)
+            return size
+
+        def put(self, item):
+            with self.lock:
+                self.items.append(item)
+
+    proc = _NoBatchProcess()
+    proc._output_queue = _RacyQueue()
+    proc._final_output_queue = _RecordingQueue()
+    proc._num_decoders_per_gpu = 1
+    proc._cuda_transport_admission_lock = Lock()
+    monkeypatch.setattr(process_base_module, "_USE_CUDA_MM_TENSOR_IPC", True)
+    monkeypatch.setattr(process_base_module, "_move_cuda_frames_to_cpu", lambda value: value)
+    monkeypatch.setattr(
+        process_base_module,
+        "_contains_cuda_tensor",
+        lambda value: value == "cuda-frames",
+    )
+    monkeypatch.setattr(
+        process_base_module,
+        "_spill_cuda_frames_to_cpu",
+        lambda _value: "cpu-frames",
+    )
+    monkeypatch.setattr(process_base_module, "_safe_cuda_empty_cache", lambda **_kwargs: None)
+
+    def publish(chunk_id):
+        proc._handle_result(
+            {
+                "chunk": object(),
+                "chunk_id": chunk_id,
+                "frames": "cuda-frames",
+                "error": None,
+            },
+            chunk=object(),
+            chunk_id=chunk_id,
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        list(executor.map(publish, (1, 2)))
+
+    assert sorted(item["frames"] for item in proc._output_queue.items) == [
+        "cpu-frames",
+        "cuda-frames",
+    ]
 
 
 def test_live_output_handoff_drops_chunk_when_host_backlog_is_full(monkeypatch):
