@@ -302,6 +302,8 @@ LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_VLM_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -311,6 +313,8 @@ HARDWARE_PROFILE=GB300
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_VLM_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -499,7 +503,7 @@ HARDWARE_PROFILE=DGX-SPARK
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
 VSS_RT_VLM_TAG=develop-latest-sbsa
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
