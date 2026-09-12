@@ -243,6 +243,68 @@ spec:
             - name: http
               containerPort: {{ .Values.httpPort }}
               protocol: TCP
+          {{- /*
+            Only a real embedding proves readiness when the text embedder is
+            enabled. The REST server answers long before the text-embedder
+            TensorRT engine is built, and until it is /api/v1/generate_text_embeddings
+            returns 200 with an empty `data` list -- which the agent's
+            RTVICVEmbedClient reports as a failed search, not as "not ready yet".
+            /api/v1/live and /api/v1/ready both come up earlier and cannot
+            distinguish that state.
+
+            The embedding probe is gated on DS_VISION_ENCODER because that env
+            is true only in the search profile; other perception profiles
+            (perception-2d, perception-3d, perception-alerts) do not build the
+            text embedder and would be marked permanently unhealthy by it.
+
+            python3, not curl: the rt-cv image never installs curl (it pulls in
+            netcat-openbsd for probes) while python3 is present and used at
+            build time. Matches the docker-compose healthcheck.
+          */}}
+          {{- $visionEncoder := eq (.Values.env.DS_VISION_ENCODER | default "false" | toString) "true" }}
+          {{- if $visionEncoder }}
+          startupProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - >-
+                  import json, sys, urllib.request;
+                  body = json.dumps({'text_input': 'healthcheck', 'model': ''}).encode();
+                  req = urllib.request.Request(
+                  'http://localhost:{{ .Values.httpPort }}/api/v1/generate_text_embeddings',
+                  data=body, headers={'Content-Type': 'application/json'});
+                  data = json.load(urllib.request.urlopen(req, timeout=10)).get('data');
+                  sys.exit(0 if isinstance(data, list) and len(data) > 0 else 1)
+            # Covers the phase-0 model download plus the ONNX -> TensorRT engine
+            # build; matches the compose start_period budget of 1200s
+            # (40 periods * 30s = 1200s).
+            periodSeconds: 30
+            failureThreshold: 40
+            timeoutSeconds: 15
+          readinessProbe:
+            exec:
+              command:
+                - python3
+                - -c
+                - >-
+                  import json, sys, urllib.request;
+                  body = json.dumps({'text_input': 'healthcheck', 'model': ''}).encode();
+                  req = urllib.request.Request(
+                  'http://localhost:{{ .Values.httpPort }}/api/v1/generate_text_embeddings',
+                  data=body, headers={'Content-Type': 'application/json'});
+                  data = json.load(urllib.request.urlopen(req, timeout=10)).get('data');
+                  sys.exit(0 if isinstance(data, list) and len(data) > 0 else 1)
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 15
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.httpPort }}
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 5
+          {{- else }}
           startupProbe:
             tcpSocket:
               port: {{ .Values.httpPort }}
@@ -262,6 +324,7 @@ spec:
             periodSeconds: 30
             failureThreshold: 5
             timeoutSeconds: 5
+          {{- end }}
           {{- end }}
           env:
             - name: DS_MODEL_FAMILY

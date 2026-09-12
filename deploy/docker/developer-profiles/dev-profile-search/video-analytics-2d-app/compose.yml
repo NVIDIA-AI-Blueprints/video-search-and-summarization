@@ -58,6 +58,40 @@ services:
       VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
       NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
       DS_MODEL_DOWNLOAD: auto
+    # Only a real embedding proves readiness. The REST server answers long
+    # before the text-embedder TensorRT engine is built, and until it is this
+    # endpoint returns 200 with an empty `data` list -- which the agent's
+    # RTVICVEmbedClient reports as a failed search, not as "not ready yet".
+    # `/api/v1/live` and `/api/v1/ready` both come up earlier and cannot
+    # distinguish that state.
+    #
+    # This lives here rather than in services/rtvi/rtvi-cv/compose.yaml because
+    # DS_VISION_ENCODER is true only in this profile; the shared definition
+    # defaults it to false, so a text-embedding probe there would mark
+    # perception-2d, perception-3d and perception-alerts permanently unhealthy.
+    #
+    # python3, not curl: the rt-cv image never installs curl (it pulls in
+    # netcat-openbsd for probes) while python3 is present and used at build
+    # time. Matches the agent service's urllib.request healthcheck.
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - -c
+      - >-
+        import json, sys, urllib.request;
+        body = json.dumps({'text_input': 'healthcheck', 'model': ''}).encode();
+        req = urllib.request.Request(
+        'http://localhost:${RTVI_CV_PORT:-9000}/api/v1/generate_text_embeddings',
+        data=body, headers={'Content-Type': 'application/json'});
+        data = json.load(urllib.request.urlopen(req, timeout=10)).get('data');
+        sys.exit(0 if isinstance(data, list) and len(data) > 0 else 1)
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      # Covers the phase-0 model download plus the ONNX -> TensorRT engine
+      # build, the same budget rtvi-embed and rtvi-vlm allow.
+      start_period: 1200s
     depends_on:
       sensor-ms:
         condition: service_started

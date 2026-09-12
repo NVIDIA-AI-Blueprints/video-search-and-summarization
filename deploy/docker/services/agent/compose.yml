@@ -198,6 +198,13 @@ services:
       rtvi-vlm:
         condition: service_healthy
         required: false
+      # Search embeds every query through RTVI-CV, so starting the agent before
+      # the text-embedder engine is built means the first searches fail rather
+      # than wait. Only the search profile declares a healthcheck for it;
+      # required: false keeps every other profile unaffected.
+      perception-2d-fusion:
+        condition: service_healthy
+        required: false
       rtvi-embed:
         condition: service_healthy
         required: false
