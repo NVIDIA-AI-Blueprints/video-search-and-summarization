@@ -376,37 +376,25 @@ def _resolve_video_sources_for_search(
     name_to_uuid: dict[str, str],
     source_type: str | None,
 ) -> list[str]:
-    """Resolve source names to the IDs expected by each ES source index."""
+    """Resolve source names to the VST sensor UUID stored in ES ``sensor.id``.
+
+    Every ES source index — RTSP included — stores the VST-assigned sensor UUID
+    under ``sensor.id`` and the human-readable stream name under
+    ``sensor.description``. Since the filter builder only ever matches
+    ``sensor.id`` (plus the url/path keyword fields), a name must become a UUID
+    for any ``source_type``; the previous ``rtsp`` branch kept names as-is (and
+    even mapped a caller-supplied UUID back to its name), so every filtered RTSP
+    search matched nothing.
+    """
     if not video_sources or not name_to_uuid:
         return video_sources
-
-    if source_type == "rtsp":
-        uuid_to_name = {stream_id: name for name, stream_id in name_to_uuid.items()}
-        resolved_sources = []
-        for video_source in video_sources:
-            stream_id = name_to_uuid.get(video_source)
-            if stream_id:
-                resolved_sources.append(video_source)
-                logger.debug(
-                    "Keeping RTSP video source '%s' as sensor name; VST stream UUID is '%s'",
-                    video_source,
-                    stream_id,
-                )
-            elif video_source in uuid_to_name:
-                sensor_name = uuid_to_name[video_source]
-                resolved_sources.append(sensor_name)
-                logger.debug("Resolved RTSP stream UUID '%s' to sensor name '%s'", video_source, sensor_name)
-            else:
-                resolved_sources.append(video_source)
-                logger.debug("RTSP video source '%s' not resolved in VST map; keeping original name", video_source)
-        return resolved_sources
 
     resolved_sources = []
     for video_source in video_sources:
         stream_id = name_to_uuid.get(video_source)
         if stream_id:
             resolved_sources.append(stream_id)
-            logger.debug("Resolved video source '%s' to UUID '%s'", video_source, stream_id)
+            logger.debug("Resolved %s video source '%s' to sensor UUID '%s'", source_type, video_source, stream_id)
         else:
             resolved_sources.append(video_source)
             logger.debug("Video source '%s' not resolved; will use wildcard filter", video_source)
@@ -919,8 +907,8 @@ async def execute_core_search(
                 search_input.query = decomposed.query
             if decomposed.video_sources:
                 search_input.video_sources = decomposed.video_sources
-            # Resolve video sources to the identifier expected by the selected source index.
-            # Video files filter by UUID; RTSP indices filter by camera/sensor name.
+            # Resolve video sources to the identifier expected by the selected source index:
+            # every index filters on the VST sensor UUID stored in ``sensor.id``.
             if search_input.video_sources and name_to_uuid:
                 search_input.video_sources = _resolve_video_sources_for_search(
                     video_sources=search_input.video_sources,

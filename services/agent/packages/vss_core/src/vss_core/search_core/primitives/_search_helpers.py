@@ -240,30 +240,23 @@ def _resolve_video_sources_for_search(
     name_to_uuid: dict[str, str],
     source_type: str | None,
 ) -> list[str]:
-    """Resolve source names to the IDs expected by each ES source index."""
+    """Resolve source names to the VST sensor UUID stored in ES ``sensor.id``.
+
+    Every ES source index — RTSP included — stores the VST-assigned sensor UUID
+    under ``sensor.id``, so a name must become a UUID for any ``source_type``;
+    the parameter is kept only for logging and caller compatibility.
+    """
+    resolved_sources: list[str] = []
     if not video_sources or not name_to_uuid:
         return video_sources
 
-    if source_type == "rtsp":
-        uuid_to_name = {stream_id: name for name, stream_id in name_to_uuid.items()}
-        resolved_sources: list[str] = []
-        for video_source in video_sources:
-            stream_id = name_to_uuid.get(video_source)
-            if stream_id:
-                resolved_sources.append(video_source)
-            elif video_source in uuid_to_name:
-                resolved_sources.append(uuid_to_name[video_source])
-            else:
-                resolved_sources.append(video_source)
-        return resolved_sources
-
-    resolved_sources = []
     for video_source in video_sources:
         stream_id = name_to_uuid.get(video_source)
         if stream_id:
             resolved_sources.append(stream_id)
         else:
             resolved_sources.append(video_source)
+    logger.debug("Resolved %s video_sources to sensor ids: %s", source_type, resolved_sources)
     return resolved_sources
 
 
