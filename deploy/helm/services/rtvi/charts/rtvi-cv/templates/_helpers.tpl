@@ -139,6 +139,39 @@ camInfo and the pub/sub topology from calibration:
 {{- end -}}
 {{- end }}
 
+{{/* Address the tracker uses to reach the ReID service. Derived rather than
+     hardcoded so it tracks the vss-reid-embed Service under
+     global.useReleaseNamePrefix; an explicit serviceAddress still wins. */}}
+{{- define "vss-rtvi-cv.reidServiceAddress" -}}
+{{- $reid := (.Values.standaloneWarehouse.mv3dt | default dict).reid | default dict -}}
+{{- if $reid.serviceAddress -}}
+{{- $reid.serviceAddress -}}
+{{- else -}}
+{{- $global := .Values.global | default dict -}}
+{{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}
+{{- if $usePrefix -}}
+{{- printf "%s-vss-reid-embed" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- print "vss-reid-embed" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/* ConfigMap the reid-embed chart writes with the current staging generation.
+     Named from the in-release vss-reid-embed object, not from serviceAddress:
+     that field is the tracker HTTP target and stays unprefixed when the
+     subchart default "vss-reid-embed" is left in place. Optional at mount
+     time so out-of-band staging (no Job) still works. */}}
+{{- define "vss-rtvi-cv.reidGenerationConfigMapName" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $usePrefix := default false (coalesce .Values.useReleaseNamePrefix (index $global "useReleaseNamePrefix")) -}}
+{{- if $usePrefix -}}
+{{- printf "%s-vss-reid-embed-generation" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- print "vss-reid-embed-generation" -}}
+{{- end -}}
+{{- end }}
+
 {{- define "vss-rtvi-cv.mv3dtRedisHost" -}}
 {{- $mv3dt := .Values.standaloneWarehouse.mv3dt | default dict -}}
 {{- if $mv3dt.redisHost -}}

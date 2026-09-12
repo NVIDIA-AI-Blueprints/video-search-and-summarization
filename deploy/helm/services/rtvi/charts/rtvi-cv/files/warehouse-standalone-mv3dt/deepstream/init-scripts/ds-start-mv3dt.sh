@@ -175,6 +175,12 @@ ensure_models_from_manifest
 MQTT_HOST=${MQTT_HOST:-mosquitto}
 MQTT_PORT=${MQTT_PORT:-1883}
 MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}"
+
+# Appearance-based ReID. The tracker only reads the ReID/ReIDService blocks
+# when the app is started with --tracker-reid, so this has to agree with
+# standaloneWarehouse.mv3dt.reid.enabled, which is what appends those blocks
+# to the tracker config. Same contract as DS_TRACKER_REID in ds-start.sh.
+DS_TRACKER_REID="${DS_TRACKER_REID:-false}"
 cd /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app
 APP_DIR="$(pwd)"
 CONFIG_DIR="${APP_DIR}/configs"
@@ -275,7 +281,13 @@ cat "${CONFIG_DIR}/ds-pgie-config.yml"
 echo -e "\nTracker config:"
 cat "${TRACKER_EFFECTIVE}"
 
-echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)..."
+PERCEPTION_FLAGS=""
+if [ "${DS_TRACKER_REID}" = "true" ]; then
+  PERCEPTION_FLAGS="${PERCEPTION_FLAGS} --tracker-reid"
+fi
+
+echo -e "\nRunning metropolis_perception_app with ${STREAM_TYPE} (RT-DETR + MV3DT)${PERCEPTION_FLAGS:+, flags:${PERCEPTION_FLAGS}}..."
 echo -e "\nMain config:"
 cat "${MAIN_CONFIG}"
-exec_as_runtime_user ./metropolis_perception_app -c "${MAIN_CONFIG}" -m 1 -t 0 -l 5 --message-rate 1
+# shellcheck disable=SC2086 # PERCEPTION_FLAGS is a deliberate word-split list
+exec_as_runtime_user ./metropolis_perception_app -c "${MAIN_CONFIG}" -m 1 -t 0 -l 5 --message-rate 1 ${PERCEPTION_FLAGS}

@@ -1,0 +1,129 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# One-shot staging of the ReID assets, mirroring Compose's
+# vss-reid-embed-init-mv3dt: the SigLIP2 secondary embedding model from NGC and
+# the CLIP-ReID tracker ONNX. Both land on the RT-CV models claim under
+# <mountPath>/<subDir> so the DeepStream tracker and this chart's service read
+# the same files.
+
+{{- if and .Values.enabled .Values.init.enabled }}
+{{- $reidDir := include "vss-reid-embed.reidDir" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vss-reid-embed.initJobName" . }}
+  labels:
+    {{- include "vss-reid-embed.labels" . | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.init.backoffLimit }}
+  {{- with .Values.init.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "vss-reid-embed.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $ips := .Values.imagePullSecrets | default (index (.Values.global | default dict) "imagePullSecrets") }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName | quote }}
+      {{- end }}
+      initContainers:
+        # workingDir cannot create its own path, and the script writes relative
+        # to $(pwd), so the target has to exist before the main container runs.
+        - name: ensure-reid-dir
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              marker={{ include "vss-reid-embed.readyMarker" . | quote }}
+              mkdir -p {{ $reidDir | quote }}
+              # Drop a leftover ready marker before this Job touches models so
+              # waiters cannot treat the previous generation as current.
+              rm -f "${marker}"
+              chmod 0777 {{ $reidDir | quote }}
+              echo "[INFO] ReID staging directory ready; previous marker cleared."
+          volumeMounts:
+            - name: models
+              mountPath: {{ .Values.models.mountPath }}
+      containers:
+        - name: stage-reid-models
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: {{ $reidDir | quote }}
+          env:
+            - name: NGC_CLI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vss-reid-embed.ngcSecretName" . }}
+                  key: {{ include "vss-reid-embed.ngcSecretKey" . }}
+            # The perception container drops to this UID/GID, so staged files
+            # are handed over rather than left owned by root.
+            - name: STORAGE_UID
+              value: {{ .Values.models.storageUid | quote }}
+            - name: STORAGE_GID
+              value: {{ .Values.models.storageGid | quote }}
+          command:
+            - bash
+            - -c
+            - |
+              set -euo pipefail
+              marker={{ include "vss-reid-embed.readyMarker" . | quote }}
+              revision={{ include "vss-reid-embed.initJobRevision" . | quote }}
+              # Init already removed this; repeat so an OnFailure retry of this
+              # container cannot restage under a marker it wrote last time.
+              rm -f "${marker}"
+              bash /opt/scripts/download-embedding-models.sh --secondary --clipreid
+              printf '%s\n' "${revision}" > "${marker}"
+              echo "[INFO] ReID model staging complete."
+          {{- with .Values.init.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: models
+              mountPath: {{ .Values.models.mountPath }}
+            - name: scripts
+              mountPath: /opt/scripts
+              readOnly: true
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "vss-reid-embed.modelsClaim" . }}
+        - name: scripts
+          configMap:
+            name: {{ include "vss-reid-embed.scriptsConfigMapName" . }}
+            defaultMode: 493
+{{- end }}
