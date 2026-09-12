@@ -250,7 +250,11 @@ llms:
     _type: ${LLM_MODEL_TYPE:-nim}
     model_name: ${LLM_NAME}
     base_url: ${LLM_BASE_URL}/v1
-    max_tokens: 256
+    # 256 was the only sub-1024 budget in any profile. rtvi_prompt_gen binds
+    # thinking off, so the budget is no longer spent on reasoning, but the merge
+    # path concatenates two prompts and a truncated answer is indistinguishable
+    # from a refusal to the caller.
+    max_tokens: 1024
     temperature: 0.0
 
 workflow:
