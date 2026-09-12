@@ -67,7 +67,7 @@ operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
 requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
 skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
 
-**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-deploy-profile`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`). Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
+**Profiles vs. standalone microservices.** A *profile* is a pre-assembled stack of microservices wired together for one workflow. Use **`vss-build-vision-ai`** to bring up a whole workflow (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) — it routes to the right profile, or composes a delta overlay on one. **`vss-deploy-profile`** remains for the legacy profile-only path. Use the individual **`vss-deploy-*` / `vss-setup-*`** skills only when you need one microservice on its own.
 
 | Profile | Workflow it deploys |
 |---|---|
@@ -85,7 +85,8 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 
 | I want to… | Use this skill |
 |---|---|
-| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-deploy-profile`](deployment/vss-deploy-profile/SKILL.md) |
+| Add vision capabilities to an app or agent, or build a stack from a description | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md) |
+| Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md); [`vss-deploy-profile`](deployment/vss-deploy-profile/SKILL.md) remains for the legacy profile-only path |
 | Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](deployment/vss-deploy-warehouse-helm/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](operations/vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](operations/vss-summarize-video/SKILL.md) |
@@ -103,61 +104,74 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
 | Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`benchmark-vlm-qa`](benchmarking/benchmark-vlm-qa/SKILL.md) |
+| Benchmark LVS summarization latency and burst throughput | [`benchmark-video-summarization`](benchmarking/benchmark-video-summarization/SKILL.md) |
 
-**Skills chain.** Skills auto-invoke each other when a prerequisite is missing — e.g. `vss-deploy-detection-tracking-3d` calls `vss-generate-video-calibration` when calibration data is absent. When a request spans layers (deploy a profile *and* add a camera *and* run a search), the agent composes several skills in sequence; the catalog below is grouped by layer so you can see what's adjacent.
+**Skills chain.** Skills auto-invoke each other when a prerequisite is missing — e.g. `vss-deploy-detection-tracking-3d` calls `vss-generate-video-calibration` when calibration data is absent. When a request spans layers (deploy a profile *and* add a camera *and* run a search), the agent composes several skills in sequence — or `vss-build-vision-ai` composes the deploy half for you. The catalog below is grouped by directory, with each skill's pipeline layer in its own column.
 
 **Easy to confuse:**
 
 - `vss-ask-video` (one-off VLM question on a clip) vs. `vss-search-archive` (retrieval across an archive) vs. `vss-query-analytics` (read already-computed metrics/incidents — no live inference).
 - `vss-generate-video-report` (formatted report from per-clip VLM or an incident range) vs. `vss-generate-video-report-rag` (the frag/RAG pipeline with HITL parameter collection).
-- `vss-deploy-profile` (a whole workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
+- `vss-build-vision-ai` (compose and deploy a whole workflow stack) vs. `vss-deploy-profile` (the legacy profile-only path to the same stacks) vs. the other `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
 
 ---
 
-## Catalog (by layer)
+## Catalog
 
-### Deployment & infrastructure
+Grouped the way the directory is: `vss-build-vision-ai` at the top, then
+`deployment/`, `operations/`, `tools/`, `benchmarking/`. The **Layer** column
+carries the pipeline position from [Orientation](#orientation-how-vss-fits-together)
+so the conceptual map survives the regrouping — a skill's directory says *when*
+you reach for it, its layer says *where it sits in the video path*.
+
+A skill's invocable name is its directory's leaf name. The category is
+repository organisation only and never appears in the installed path or in the
+`/slash-command`.
+
+### Start here
+
 | Skill | Description |
 |---|---|
-| [vss-deploy-profile](deployment/vss-deploy-profile/SKILL.md) | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. Start here for a full workflow. |
-| [vss-deploy-warehouse-helm](deployment/vss-deploy-warehouse-helm/SKILL.md) | Deploy/upgrade the warehouse blueprint (2D/3D/MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
-| [vss-generate-video-calibration](tools/vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
+| [vss-build-vision-ai](vss-build-vision-ai/SKILL.md) | **The entry point.** Add agent-ready vision to an app or agent: pick capabilities by guided intake ("build a vision agent") or name them directly ("add agentic search to my base deployment"), then route, compose, configure and deploy a stock developer profile, the warehouse industry profile, or a lean delta overlay on top of one. Hands off to the `operations/` skills once the stack is up, and to a single `deployment/` skill when only one microservice is wanted. |
 
-### Layer 1 — Real-time video intelligence
-| Skill | Description |
-|---|---|
-| [vss-deploy-detection-tracking-2d](deployment/vss-deploy-detection-tracking-2d/SKILL.md) | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
-| [vss-deploy-detection-tracking-3d](deployment/vss-deploy-detection-tracking-3d/SKILL.md) | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
-| [vss-deploy-dense-captioning](deployment/vss-deploy-dense-captioning/SKILL.md) | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
-| [vss-deploy-video-embedding](deployment/vss-deploy-video-embedding/SKILL.md) | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
+### `deployment/` — stand a stack up, or one service on its own
 
-### Layer 2 — Downstream analytics
-| Skill | Description |
-|---|---|
-| [vss-manage-alerts](operations/vss-manage-alerts/SKILL.md) | Add, manage, and monitor alerts on streamed video — CV verification mode or VLM real-time mode, Alert-Bridge subscriptions, Slack notifications, camera onboarding. |
-| [vss-setup-behavior-analytics](deployment/vss-setup-behavior-analytics/SKILL.md) | Deploy the `vss-behavior-analytics` service standalone — pick the entrypoint (Analytics 2D / 3D / mv3dt, search_and_alerts), point it at a profile-shipped or custom config and optional calibration, and (with a Kafka / Redis Streams / MQTT broker reachable) push dynamic-config and dynamic-calibration updates over the `mdx-notification` topic — all without bringing up the full warehouse stack. |
-| [vss-setup-video-analytics-api](deployment/vss-setup-video-analytics-api/SKILL.md) | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
+| Skill | Layer | Description |
+|---|---|---|
+| [vss-deploy-profile](deployment/vss-deploy-profile/SKILL.md) | whole stack | Select, configure, deploy, verify, debug, or tear down any VSS **profile** (`base`, `search`, `lvs`, `alerts`, `warehouse`, `edge`) with a Docker Compose-centric workflow. **Legacy profile-only path** — reach for `vss-build-vision-ai` for new profile, warehouse, and custom deployment workflows. |
+| [vss-deploy-warehouse-helm](deployment/vss-deploy-warehouse-helm/SKILL.md) | whole stack | Deploy/upgrade the warehouse blueprint (2D/3D/MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
+| [vss-deploy-detection-tracking-2d](deployment/vss-deploy-detection-tracking-2d/SKILL.md) | 1 | Deploy/operate the RTVI-CV perception microservice for 2D detection & tracking (`warehouse-2d/3d`, `smartcity-rtdetr/gdino`) and call its REST API. |
+| [vss-deploy-detection-tracking-3d](deployment/vss-deploy-detection-tracking-3d/SKILL.md) | 1 | Deploy/operate the standalone RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) for calibrated MP4/file inputs or live RTSP streams, with BEV Fusion and saved/live outputs. Auto-chains to calibration when missing; explicit warehouse profile MV3DT requests route to `vss-deploy-profile`. |
+| [vss-deploy-dense-captioning](deployment/vss-deploy-dense-captioning/SKILL.md) | 1 | Deploy and call the RT-VLM dense-captioning microservice (captions, alerts, stream management, OpenAI-compatible completions) on files and live RTSP. |
+| [vss-deploy-video-embedding](deployment/vss-deploy-video-embedding/SKILL.md) | 1 | Deploy and operate the RT-Embed video-embedding microservice — `/v1` REST API for file/text/video embeddings and live RTSP, plus Redis/Kafka/OTel integration. |
+| [vss-setup-behavior-analytics](deployment/vss-setup-behavior-analytics/SKILL.md) | 2 | Deploy the `vss-behavior-analytics` service standalone — pick the entrypoint (Analytics 2D / 3D / mv3dt, search_and_alerts), point it at a profile-shipped or custom config and optional calibration, and push dynamic-config and dynamic-calibration updates over the `mdx-notification` topic — all without bringing up the full warehouse stack. |
+| [vss-setup-video-analytics-api](deployment/vss-setup-video-analytics-api/SKILL.md) | 2 | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
 
-### Layer 3 — Agent & offline processing
-| Skill | Description |
-|---|---|
-| [vss-search-archive](operations/vss-search-archive/SKILL.md) | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; also ingests files/RTSP for search. |
-| [vss-summarize-video](operations/vss-summarize-video/SKILL.md) | Summarize a recorded video via chunking, dense captioning, and aggregation using the Long Video Summarization (LVS) microservice (HITL-gated, VLM fallback). |
-| [vss-ask-video](operations/vss-ask-video/SKILL.md) | Answer a fresh text question about a recorded clip by calling the VLM/RT-VLM `chat/completions` endpoint directly — on a VIOS clip URL or a video the user supplies; never the agent's `/generate`. |
-| [vss-generate-video-report](operations/vss-generate-video-report/SKILL.md) | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
-| [vss-generate-video-report-rag](operations/vss-generate-video-report-rag/SKILL.md) | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
-| [vss-query-analytics](operations/vss-query-analytics/SKILL.md) | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
+### `operations/` — drive a stack that is already running
 
-### Benchmarking
-| Skill | Description |
-|---|---|
-| [benchmark-vlm-qa](benchmarking/benchmark-vlm-qa/SKILL.md) | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
-| [benchmark-video-summarization](benchmarking/benchmark-video-summarization/SKILL.md) | LVS latency and burst-throughput on a deployed summarization instance. |
+| Skill | Layer | Description |
+|---|---|---|
+| [vss-search-archive](operations/vss-search-archive/SKILL.md) | 3 | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; also ingests files/RTSP for search. |
+| [vss-summarize-video](operations/vss-summarize-video/SKILL.md) | 3 | Summarize a recorded video via chunking, dense captioning, and aggregation using the Long Video Summarization (LVS) microservice (HITL-gated, VLM fallback). |
+| [vss-ask-video](operations/vss-ask-video/SKILL.md) | 3 | Answer a fresh text question about a recorded clip by calling the VLM/RT-VLM `chat/completions` endpoint directly — on a VIOS clip URL or a video the user supplies; never the agent's `/generate`. |
+| [vss-generate-video-report](operations/vss-generate-video-report/SKILL.md) | 3 | Produce a formatted markdown report by querying the VSS agent's `/generate` endpoint — per-clip VLM (Mode A) or incident-range (Mode B). |
+| [vss-generate-video-report-rag](operations/vss-generate-video-report-rag/SKILL.md) | 3 | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
+| [vss-query-analytics](operations/vss-query-analytics/SKILL.md) | 3 | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
+| [vss-manage-alerts](operations/vss-manage-alerts/SKILL.md) | 2 | Add, manage, and monitor alerts on streamed video — CV verification mode or VLM real-time mode, Alert-Bridge subscriptions, Slack notifications, camera onboarding. |
+| [vss-manage-video-io-storage](operations/vss-manage-video-io-storage/SKILL.md) | middleware | Video/stream management, recording timelines, clip extraction, snapshots, and add/delete sensors via the Video IO & Storage (VIOS) microservices. |
 
-### Middleware
-| Skill | Description |
-|---|---|
-| [vss-manage-video-io-storage](operations/vss-manage-video-io-storage/SKILL.md) | Video/stream management, recording timelines, clip extraction, snapshots, and add/delete sensors via the Video IO & Storage (VIOS) microservices. |
+### `tools/` — standalone utilities
+
+| Skill | Layer | Description |
+|---|---|---|
+| [vss-generate-video-calibration](tools/vss-generate-video-calibration/SKILL.md) | middleware | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. Usually reached automatically as a prerequisite of 3D tracking. |
+
+### `benchmarking/` — measure a deployment
+
+| Skill | Layer | Description |
+|---|---|---|
+| [benchmark-vlm-qa](benchmarking/benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
+| [benchmark-video-summarization](benchmarking/benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
 
 Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 
@@ -180,37 +194,94 @@ The VSS 3.2 GA skill names replaced the pre-GA slash-command names:
 | `/vios` | `/vss-manage-video-io-storage` |
 | `/vss-frag` | `/vss-generate-video-report-rag` |
 
-## Install (recommended: ask your coding agent)
+## Install
 
-Open this repository in your coding agent (Claude Code, Codex, Cursor, or any other agentskills.io-compatible host) and paste the following prompt:
+Skills install **flat, by leaf name** — the category is repository organisation and
+never appears in the installed path or in the `/slash-command`:
 
-> Read `skills/README.md` and every `SKILL.md` file under `skills/`. For each skill in the catalog, install it for this host so I can invoke it from a shell or chat session. Use the host's standard skills directory:
->
-> - Claude Code: `~/.claude/skills/<name>/`
-> - Codex: `~/.codex/skills/<name>/`
-> - Hosts that follow the agentskills.io universal path: `~/.agents/skills/<name>/`
->
-> Symlink each skill folder rather than copying it so a `git pull` here keeps every install up to date. Skip skills that are already installed and pointing at this checkout. When you're done, list the skills you registered and which directory you used.
+| Host | Skills directory |
+|---|---|
+| Claude Code | `~/.claude/skills/<name>/` |
+| Codex | `~/.codex/skills/<name>/` |
+| Hosts following the [agentskills.io](https://agentskills.io/specification) universal path | `~/.agents/skills/<name>/` |
 
-The agent will read the frontmatter of each `SKILL.md`, create the symlinks, and confirm what's installed. The skills become invokable in the next agent session.
+Symlink rather than copy, so a `git pull` here keeps every install current.
+
+### Recommended — the entry point plus the operations skills
+
+`vss-build-vision-ai` is the way in: it takes an intent ("build a vision agent",
+"add agentic search to my base deployment") and composes, configures and deploys
+a stack. But it deliberately stops at the deploy boundary — its `SKILL.md` routes
+*"search, summarize, VIOS, alerts, reports, and video Q&A"* to the matching
+`operations/` skill, and a single-microservice request to the matching
+`deployment/` skill. Install it alone and the agent can build you a stack it then
+cannot drive.
+
+So install the entry point **and** `operations/`. Open this repository in your
+coding agent and paste:
+
+> Install these VSS skills for this host: `skills/vss-build-vision-ai/` and every
+> skill under `skills/operations/`. Use the host's standard skills directory
+> (Claude Code `~/.claude/skills/<name>/`, Codex `~/.codex/skills/<name>/`,
+> otherwise `~/.agents/skills/<name>/`), naming each install after the skill's own
+> directory name — not its category. Symlink rather than copy so a `git pull` keeps
+> them current, and skip any already pointing at this checkout. List what you
+> registered and where.
+
+That covers the full journey: build and deploy a stack, then search it, summarize
+it, ask questions of it, manage its alerts, and read its analytics.
+
+### Add the rest when you need it
+
+| Also install | When |
+|---|---|
+| `skills/deployment/` | You want one microservice on its own — RT-VLM, RT-CV, RT-Embed, behavior analytics, the analytics API — or Helm/Kubernetes rather than Compose. |
+| `skills/tools/` | You are calibrating multi-camera datasets directly. (3D tracking pulls this in automatically when calibration is missing, so you only need it standalone.) |
+| `skills/benchmarking/` | You are measuring VLM Q&A accuracy/latency or LVS throughput. |
+
+> Also install every skill under `skills/deployment/` the same way.
+
+### Everything
+
+> Read `skills/README.md` and every `SKILL.md` file under `skills/`. For each skill
+> in the catalog, install it for this host so I can invoke it from a shell or chat
+> session, using the host's standard skills directory and naming each install after
+> the skill's own directory name rather than its category. Symlink each skill folder
+> rather than copying it. Skip skills already installed and pointing at this
+> checkout. When you're done, list the skills you registered and which directory you
+> used.
 
 ### Single-skill install
 
-To install skills individually, paste the following prompt:
+Most skills sit inside a category; `vss-build-vision-ai` is at the top of `skills/`.
+Give the agent the path as it appears in the catalog above:
 
-> Install only `skills/<category>/<name>/` for this host the same way.
+> Install only `skills/<path-from-the-catalog>/` for this host the same way — for
+> example `skills/operations/vss-search-archive/` or `skills/vss-build-vision-ai/`.
+> Register it under the skill's own directory name, without any category prefix.
 
 ### Update
 
-After `git pull`, the symlinks already point at the updated content — nothing to do unless skills were added or renamed. To pick up new skills use the following prompt:
+After `git pull` the symlinks already resolve to the updated content, so a content
+change needs nothing. Two cases do need action, because an install is a symlink to a
+repository path rather than to a name:
 
-> Re-read `skills/README.md` and add any new skills missing from this host's skills directory.
+- a **new** skill has no symlink yet
+- a skill that **moved between categories** (or was renamed) leaves its old symlink
+  dangling — the leaf name still appears installed, but its target no longer exists
+
+Both are covered by:
+
+> Re-check this host's skills directory against `skills/README.md`. Add a symlink for
+> any catalog skill that is missing. Then check every VSS skill symlink already there:
+> if its target no longer exists, or points somewhere other than that skill's current
+> path in this checkout, repoint it. Remove symlinks for skills that are no longer in
+> the catalog. Report what you added, repointed, and removed.
 
 ### Uninstall
 
-To uninstall skills, paste the following prompt:
-
-> Remove every VSS skill symlink you previously created under this host's skills directory.
+> Remove every VSS skill symlink you previously created under this host's skills
+> directory.
 
 ## Source of truth
 
