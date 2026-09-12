@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+from datetime import datetime
 import json as _json_mod
 import os
 import secrets
@@ -71,6 +72,7 @@ _JOB_DOMAIN = "vlm"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _DEFAULT_FIXED_FRAME_BUDGET = 8
+_MAX_SAMPLED_FRAMES = 60
 
 
 def _ulid() -> str:
@@ -266,6 +268,29 @@ def _resolve_vios_clip(
     return asyncio.run(_fetch())
 
 
+def _clip_duration_seconds(start: str | None, end: str | None) -> float | None:
+    if not start or not end:
+        return None
+    try:
+        begin = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        finish = datetime.fromisoformat(end.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max((finish - begin).total_seconds(), 0.0)
+
+
+def _rt_vlm_sampling(
+    fps: float | None,
+    num_frames: int | None,
+    duration_seconds: float | None,
+) -> tuple[float | int, bool]:
+    if fps is not None:
+        from vss_core.vlm import bound_rt_vlm_fps_sampling
+
+        return bound_rt_vlm_fps_sampling(fps, duration_seconds, max_frames=_MAX_SAMPLED_FRAMES)
+    return num_frames or _DEFAULT_FIXED_FRAME_BUDGET, False
+
+
 def _build_vlm_request(
     *,
     prompt: str,
@@ -275,8 +300,10 @@ def _build_vlm_request(
     temperature: float | None,
     num_frames: int | None,
     fps: float | None,
+    duration_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Build an OpenAI-compatible /v1/chat/completions payload for a URL source."""
+    budget, use_fps = _rt_vlm_sampling(fps, num_frames, duration_seconds)
     request: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -288,10 +315,8 @@ def _build_vlm_request(
                 ],
             }
         ],
-        "num_frames_per_second_or_fixed_frames_chunk": (
-            fps if fps is not None else (num_frames or _DEFAULT_FIXED_FRAME_BUDGET)
-        ),
-        "use_fps_for_chunking": fps is not None,
+        "num_frames_per_second_or_fixed_frames_chunk": budget,
+        "use_fps_for_chunking": use_fps,
     }
     if max_tokens is not None:
         request["max_tokens"] = max_tokens
@@ -309,6 +334,7 @@ def _iter_base64_json(
     temperature: float | None,
     num_frames: int | None,
     fps: float | None,
+    duration_seconds: float | None = None,
 ) -> Any:
     """Yield the VLM request body as a JSON byte stream, reading the file in 192 KB chunks.
 
@@ -317,6 +343,7 @@ def _iter_base64_json(
     memory simultaneously with the joined string, the data-URI f-string, and the
     json.dumps output -- typically 4-5x the encoded file size.
     """
+    budget, use_fps = _rt_vlm_sampling(fps, num_frames, duration_seconds)
     sentinel = f"__b64_{secrets.token_hex(8)}__"
     payload: dict[str, Any] = {
         "model": model,
@@ -329,10 +356,8 @@ def _iter_base64_json(
                 ],
             }
         ],
-        "num_frames_per_second_or_fixed_frames_chunk": (
-            fps if fps is not None else (num_frames or _DEFAULT_FIXED_FRAME_BUDGET)
-        ),
-        "use_fps_for_chunking": fps is not None,
+        "num_frames_per_second_or_fixed_frames_chunk": budget,
+        "use_fps_for_chunking": use_fps,
     }
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
@@ -583,6 +608,7 @@ class VlmGroup(CommandGroup):
                     open(file_to_read, "rb").close()
                 except OSError as exc:
                     raise InvalidInput(f"cannot read local file {file_to_read!r}: {exc}") from exc
+                clip_duration = _clip_duration_seconds(resolved_start, resolved_end)
                 response = httpx.post(
                     vlm_url,
                     content=_iter_base64_json(
@@ -593,6 +619,7 @@ class VlmGroup(CommandGroup):
                         temperature=inputs.temperature,
                         num_frames=inputs.num_frames,
                         fps=inputs.fps,
+                        duration_seconds=clip_duration,
                     ),
                     headers={"Content-Type": "application/json"},
                     timeout=float(inputs.timeout),
@@ -608,6 +635,7 @@ class VlmGroup(CommandGroup):
                         temperature=inputs.temperature,
                         num_frames=inputs.num_frames,
                         fps=inputs.fps,
+                        duration_seconds=_clip_duration_seconds(resolved_start, resolved_end),
                     ),
                     timeout=float(inputs.timeout),
                 )
