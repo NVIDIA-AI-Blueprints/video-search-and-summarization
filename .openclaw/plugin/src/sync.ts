@@ -13,8 +13,9 @@
 //                           available (the CLI joins what the deployment exposes
 //                           with what each group needs)
 //   alerts               -> active when Alert Bridge answers at
-//                           <base_url>/alert-bridge (the ingress route, which
-//                           strips the prefix) or <host>:9080
+//                           <base_url>/alert-bridge/health (the ingress route
+//                           strips the prefix; the service has no root route,
+//                           only /health, /ready, /metrics) or <host>:9080/health
 //   always               -> active on every deployment (VIOS ships with all of them)
 // Several may be listed, space-separated; all must hold.
 // No recorded deployment (vss configure never ran) -> everything active, so the
@@ -92,10 +93,10 @@ function httpAnswers(url: string): boolean {
 
 function alertsAvailable(baseUrl: string): boolean {
   if (!baseUrl) return false;
-  if (httpAnswers(`${baseUrl.replace(/\/$/, "")}/alert-bridge/`)) return true;
+  if (httpAnswers(`${baseUrl.replace(/\/$/, "")}/alert-bridge/health`)) return true;
   try {
     const u = new URL(baseUrl);
-    return httpAnswers(`${u.protocol}//${u.hostname}:9080/`);
+    return httpAnswers(`${u.protocol}//${u.hostname}:9080/health`);
   } catch {
     return false;
   }
