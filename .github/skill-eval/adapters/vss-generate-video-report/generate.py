@@ -82,8 +82,8 @@ CLI_CLAUSE = (
     " When a step needs a clip from a VIOS sensor, obtain it with the host checkout's "
     "project-local CLI rather than a REST call: set "
     "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
-    "`${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, then run "
-    "`uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss "
+    "`${VSS_REPO_ROOT}/libs/vss/pyproject.toml` to exist, then run "
+    "`uv run --project \"${VSS_REPO_ROOT}/libs/vss\" vss "
     "vios clip --sensor <name>` and use its `media_url`. A picture/frame endpoint returns a "
     "JPEG, which is not a clip."
 )

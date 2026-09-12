@@ -135,7 +135,7 @@ HIT_START=2025-01-01T00:00:00Z
 HIT_END=2025-01-01T00:00:10Z
 """
         + blocks[0].replace(
-            'VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" \\\n  --no-dev --extra cli vss)',
+            'VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss" vss)',
             "VSS=(vss_stub)",
         )
         + """
@@ -225,7 +225,7 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert spec["expects"][0]["scenario"] == "deploy-search-profile"
     assert spec["expects"][1]["scenario"] == "ingest-search-fixtures"
     assert "vss-ask-video" in spec["skills"]
-    assert "--extra cli vss search run" in serialized
+    assert "libs/vss" in serialized and "vss search run --help" in serialized
     assert "verification.result" in serialized
     assert "confirmed" in serialized
     assert "rejected" in serialized
@@ -312,7 +312,7 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "RuntimeSnapshot" not in lifecycle
     assert 'configure --base-url "${VSS_ORIGIN}"' in lifecycle
     assert "configure show" in lifecycle
-    assert "--extra cli" in lifecycle
+    assert "libs/vss" in lifecycle
     assert "dev-profile-sample-data:3.2.0" in lifecycle
     assert "mktemp -d" in lifecycle
     assert "Never send a mutating request directly" in lifecycle

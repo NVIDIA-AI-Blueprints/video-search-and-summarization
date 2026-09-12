@@ -918,11 +918,11 @@ certifi,2026.7.22,MPL-2.0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,n
 certifi,2026.7.22,MPL-2.0,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,Medium
 certifi,2026.7.22,MPL-2.0,services/configurators/vss-configurator,python,lockfile,services/configurators/vss-configurator/uv.lock,runtime,no,no,no,declared-manifest,Medium
 certifi,2026.7.22,MPL-2.0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Medium
+cffi,2.0.0,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 cffi,2.0.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 cffi,2.0.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 cffi,2.0.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 cffi,2.0.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
-cffi,2.1.1,MIT-0,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 cffi,2.1.1,MIT-0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 chai,4.5.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 chalk,4.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
@@ -1937,8 +1937,8 @@ konva,9.3.22,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lo
 kubernetes,31.0.0,Apache-2.0,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 kubernetes,36.0.3,Apache Software License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 kuler,2.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/src/web-api-core/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
+langchain,1.3.14,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain,1.3.14,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
-langchain,1.4.0,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain-aws,1.1.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain-chroma,1.1.0,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain-classic,1.0.8,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -1947,8 +1947,8 @@ langchain-community,0.4.1,MIT,services/agent,python,lockfile,services/agent/uv.l
 langchain-community,0.4.2,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain-core,0.3.81,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 langchain-core,0.3.81,MIT,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
+langchain-core,1.4.9,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain-core,1.4.9,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
-langchain-core,1.6.2,MIT,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain-exa,1.1.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain-huggingface,1.2.2,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 langchain-litellm,0.7.0,MIT,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3422,10 +3422,10 @@ to-regex-range,5.0.1,MIT,services/ui,node,lockfile,services/ui/package-lock.json
 to-regex-range,5.0.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 toidentifier,1.0.1,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 token-types,6.1.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+tokenizers,0.22.2,Apache Software License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 tokenizers,0.22.2,Apache Software License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
 tokenizers,0.22.2,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 tokenizers,0.23.0rc0,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-tokenizers,0.23.2,Apache Software License,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,None
 tomli,2.3.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 tomli,UNKNOWN,MIT,.github,python,usage,.github/skill-eval/envs/brev_env.py,runtime,no,no,no,imported-only,None
 toolz,1.1.0,BSD-3-Clause,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
@@ -3465,7 +3465,7 @@ transformers,4.52.4,Apache Software License,services/rtvi/rt-embed,python,contai
 transformers,4.57.5,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 transformers,4.57.6,Apache 2.0 License,services/rtvi/rt-cv,python,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-pip,None
 transformers,5.14.1,Apache 2.0 License,services/agent,python,lockfile,services/agent/uv.lock,runtime,no,no,no,declared-manifest,None
-transformers,5.16.1,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
+transformers,5.15.1,UNKNOWN,libs/vss,python,lockfile,libs/vss/uv.lock,runtime,no,no,no,declared-manifest,Unknown
 transformers,5.5.0,UNKNOWN,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,Unknown
 transformers,UNKNOWN,UNKNOWN,services/rtvi/rt-cv,python,usage,services/rtvi/rt-cv/TritonGdino/triton_model_repo/gdino_preprocess/1/model.py,runtime,no,no,no,imported-only,Unknown
 tree-kill,1.2.2,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None

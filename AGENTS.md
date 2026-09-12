@@ -17,15 +17,14 @@ Human contributor guidance — licensing, DCO, file headers — is in
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 vss --version
 ```
 
 A function rather than an alias — aliases are not expanded in non-interactive
-shells. **`--extra cli` is required**: without it the CLI is not installed and
-there is no `vss` to run. **`--no-dev` matters too**: it is what keeps the
-environment to the CLI's runtime — 256 MB with no `nvidia-nat` — where the
-default group pulls the agent stack and 630 MB you have no use for.
+shells. No extras and no `--no-dev`: `libs/vss` is the library's own workspace
+and the agent stack is not in it, so the environment is NAT-free by
+construction rather than by remembering a flag.
 
 Use that checkout's `vss` — not one from `PATH`, and not through `docker exec`
 or `kubectl exec`.
