@@ -180,6 +180,11 @@ task. RT-VLM samples at that rate across the requested window:
   precise spatial relationships. Prefer a shorter grounded window before
   increasing density.
 
+RT-VLM keeps the requested FPS only while `fps × clip_seconds` is at most 60 frames
+(the same cap as video-understanding). Longer windows are sampled as 60 evenly
+spaced frames so the vision token budget is not spent on many tiny images.
+Prefer a shorter window before raising FPS.
+
 Do not use fixed `--num-frames` unless the user explicitly requests a fixed
 frame budget or a reproducibility workflow requires it. Never combine
 `--num-frames` and `--fps`.

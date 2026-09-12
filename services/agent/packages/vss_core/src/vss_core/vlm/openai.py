@@ -212,8 +212,16 @@ class OpenAIVLMAnalyzer:
             # RT-VLM does its own preprocessing and ignores media_io_kwargs, but
             # it defaults the budget to 0 (opening frame only) when absent, so a
             # window-scoped question would be answered from a single frame.
-            payload["num_frames_per_second_or_fixed_frames_chunk"] = self._rt_vlm_frame_budget
-            payload["use_fps_for_chunking"] = self._rt_vlm_use_fps_for_chunking
+            budget: float | int = self._rt_vlm_frame_budget
+            use_fps = self._rt_vlm_use_fps_for_chunking
+            if use_fps:
+                budget, use_fps = bound_rt_vlm_fps_sampling(
+                    float(budget),
+                    duration_seconds,
+                    max_frames=self._max_frames,
+                )
+            payload["num_frames_per_second_or_fixed_frames_chunk"] = budget
+            payload["use_fps_for_chunking"] = use_fps
         if not self._disable_audio and "omni" in model:
             payload["mm_processor_kwargs"] = {"use_audio_in_video": True}
 
@@ -287,6 +295,32 @@ def _duration_seconds(start_timestamp: str, end_timestamp: str, time_format: Lit
 
 def _dynamic_num_frames(duration_seconds: float, max_frames: int, max_fps: int) -> int:
     return max(min(int(duration_seconds) * max_fps, max_frames), 1)
+
+
+def bound_rt_vlm_fps_sampling(
+    fps: float,
+    duration_seconds: float | None,
+    *,
+    max_frames: int = 60,
+) -> tuple[float | int, bool]:
+    """Keep requested FPS on short windows; cap total frames on long ones.
+
+    RT-VLM samples ``int(fps * duration)`` frames when ``use_fps_for_chunking``
+    is set. That can exhaust the vision token budget and shrink each frame.
+    When duration is known and the implied count exceeds ``max_frames`` (the
+    same 60-frame default as video-understanding), return a fixed frame count
+    instead. Unknown duration keeps true FPS; RT-VLM still hard-caps at 256.
+    """
+    if fps <= 0:
+        raise ValueError("fps must be > 0")
+    if max_frames < 1:
+        raise ValueError("max_frames must be >= 1")
+    if duration_seconds is None or duration_seconds <= 0:
+        return fps, True
+    requested = max(1, int(fps * duration_seconds))
+    if requested <= max_frames:
+        return fps, True
+    return max_frames, False
 
 
 def _parse_iso(value: str) -> datetime:

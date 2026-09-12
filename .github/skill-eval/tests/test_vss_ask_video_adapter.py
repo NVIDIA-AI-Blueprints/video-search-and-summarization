@@ -118,6 +118,7 @@ def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() ->
             assert "--record-type" in block
     assert "vss() {" not in skill
     assert "## Choose visual sampling density" in skill
+    assert "at most 60 frames" in skill
     assert "Skim (`0.5`)" in skill
     assert "Locate (`1`)" in skill
     assert "Inspect (`2`)" in skill

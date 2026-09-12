@@ -13,6 +13,7 @@ import pytest
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
 from vss_core.vlm.openai import OpenAIVLMAnalyzer
+from vss_core.vlm.openai import bound_rt_vlm_fps_sampling
 
 
 class _VST:
@@ -149,6 +150,41 @@ async def test_rt_vlm_fps_sampling_is_sent() -> None:
             sensor_id="sensor-1",
             start_timestamp="0.0",
             end_timestamp="5.0",
+            prompt="What happened?",
+            time_format="offset",
+        )
+    finally:
+        await analyzer.aclose()
+
+
+def test_bound_rt_vlm_fps_sampling_keeps_rate_until_frame_cap() -> None:
+    assert bound_rt_vlm_fps_sampling(2.0, 30.0) == (2.0, True)
+    assert bound_rt_vlm_fps_sampling(0.5, None) == (0.5, True)
+    assert bound_rt_vlm_fps_sampling(2.0, 120.0) == (60, False)
+    assert bound_rt_vlm_fps_sampling(1.0, 90.0, max_frames=32) == (32, False)
+
+
+@pytest.mark.asyncio
+async def test_rt_vlm_fps_sampling_is_capped_on_long_windows() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["num_frames_per_second_or_fixed_frames_chunk"] == 60
+        assert payload["use_fps_for_chunking"] is False
+        return httpx.Response(200, json={"choices": [{"message": {"content": "No"}}]}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(
+        base_url="https://rt-vlm.example/v1",
+        model="model",
+        vst=_VST(),  # type: ignore[arg-type]
+        rt_vlm_frame_budget=2.0,
+        rt_vlm_use_fps_for_chunking=True,
+    )
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        await analyzer.analyze(
+            sensor_id="sensor-1",
+            start_timestamp="0.0",
+            end_timestamp="120.0",
             prompt="What happened?",
             time_format="offset",
         )

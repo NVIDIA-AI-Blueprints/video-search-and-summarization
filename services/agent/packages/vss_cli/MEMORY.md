@@ -120,7 +120,9 @@ refine a useful scope but do not establish one by themselves.
 One workflow retrieves at most 10 records, requests at most 3 VLM follow-ups,
 and has a 180-second overall timeout. Follow-up windows have no
 introspection-specific duration limit; VIOS and RT-VLM apply their normal media
-limits. Pass `--fps` to control temporal sampling density. The introspection
+limits. Pass `--fps` to control temporal sampling density. When the follow-up
+window duration is known, `fps × seconds` is capped at 60 frames so a long
+inspect window cannot flood the vision token budget. The introspection
 request/result is never stored and never creates a Markdown note.
 The configured OpenAI-compatible text LLM performs both memory-sufficiency
 judgment and final answer synthesis. RT-VLM is not used as a judge or

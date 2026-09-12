@@ -248,7 +248,7 @@ vss vlm run --sensor warehouse --prompt "What happened?" --start-time T --end-ti
 | `--model` | deployment `rt_vlm` model | Override the recorded model name |
 | `--timeout` | 30s (`vlm run`); 180s (introspection follow-ups) | HTTP / workflow budget |
 | `--num-frames` | 8 when neither sampling flag is set | Fixed frame count across the clip |
-| `--fps` | unset | Frames per second; mutually exclusive with `--num-frames` |
+| `--fps` | unset | Frames per second; mutually exclusive with `--num-frames`. When clip duration is known, `fps × seconds` is capped at 60 frames (converted to a fixed sample if it would exceed). |
 | `--max-tokens` / `--temperature` | unset | Optional generation knobs |
 | `--intent` | `qa` (`vlm run`); `introspection` (follow-ups) | Stored on the memory record |
 | `--no-persist` | off | Skip writing this VLM job |
