@@ -441,7 +441,7 @@ own the deployment lifecycle too.
 
 The OpenClaw sandbox image ships only the **operation** skills — the ones whose
 `SKILL.md` declares `vss-requires` — and activates those the recorded deployment
-can serve (`vss-openclaw-sync` inside the sandbox re-selects after
+can serve (`vss-openclaw-sync` — or `vss-hermes-sync` on Hermes — inside the sandbox re-selects after
 `vss configure`). It does **not** receive this skill: the sandbox operates the
 build it was given and is not expected to compose further builds or manage the
 `_builds/` tree this run produced. A Hermes sandbox (`.hermes/`) ships the same operation skills and

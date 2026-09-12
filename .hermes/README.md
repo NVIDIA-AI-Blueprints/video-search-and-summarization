@@ -12,7 +12,7 @@ that harness loads skills.
 
 | Path | What it is |
 |---|---|
-| `Dockerfile` | The sandbox image: NemoClaw's managed Hermes runtime (digest-pinned) + the `vss` CLI + the VSS operation skills + the workspace docs |
+| `Dockerfile` | The sandbox image: NemoClaw's managed Hermes runtime (digest-pinned) + the `vss` CLI + the VSS operation skills (activated per deployment, see below) + the workspace docs |
 
 Hermes has no plugin or tool layer to add: it drives the deployment through the
 `vss` CLI on `PATH`, loads skills from its canonical writable root
@@ -76,3 +76,18 @@ Identical to the OpenClaw image: `/task /output /logs /tests /solution` as real
 world-writable directories, NemoClaw's per-shell `ulimit -u` hooks removed,
 `CMD sleep infinity` so an exec-driven sandbox stays up, final `USER sandbox`
 and `WORKDIR /sandbox`. `LABEL harness.agent=hermes`.
+
+## Skill discovery
+
+Same machinery as the OpenClaw plugin, same file: the image carries
+`.openclaw/plugin/src/sync.ts` verbatim (staged from the pinned `VSS_REF`
+checkout) at `/opt/vss-skills/sync.ts`, with the shipped skill set read-only
+under `/opt/vss-skills/skills/`. Hermes scans `/sandbox/.hermes/skills`
+natively, so that directory is the active set — sync reaches it through the
+`skills-active` symlink it expects. Node 24 in the Hermes runtime executes the
+`.ts` directly.
+
+At build, `--all` activates every shipped skill. After `vss configure` records
+a deployment, run `vss-hermes-sync` in the sandbox to re-select: each skill's
+`vss-requires` frontmatter is matched against `vss configure check` (plus the
+alert-bridge probe), exactly like `vss-openclaw-sync`.

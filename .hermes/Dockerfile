@@ -50,6 +50,10 @@ RUN mkdir -p /opt/vss-assets/skills \
        done \
     && test "$(ls /opt/vss-assets/skills | wc -l)" -gt 0 \
     && ls /opt/vss-assets/skills
+# The skill-selection tool, shared verbatim with the OpenClaw harness. Path is
+# inside the pinned VSS_REF checkout (predates the .openclaw rename); move it
+# with VSS_REF. Node 24 in the Hermes runtime executes the .ts directly.
+RUN cp /opt/vss-src/agent-harness/openclaw/plugin/src/sync.ts /opt/vss-assets/sync.ts
 # Workspace docs: the shared set plus the _nemoclaw overlay, overlay winning,
 # flattened the way deploy_nemoclaw.ipynb uploads them for Hermes (into /sandbox).
 RUN mkdir -p /opt/vss-assets/workspace \
@@ -96,9 +100,24 @@ RUN set -eux; \
     && chmod -R a+rX /usr/local/src/vss \
     && vss --version \
     && su -s /bin/sh sandbox -c "vss --version" \
-    && cp -R /opt/vss-assets/skills/. /sandbox/.hermes/skills/ \
-    && cp /opt/vss-assets/workspace/*.md /sandbox/ \
+    # Skill discovery, same machinery as the OpenClaw plugin: the shipped set
+    # stays read-only under /opt/vss-skills/skills, and sync.ts fills the
+    # active set from what `vss configure` records. Hermes scans
+    # /sandbox/.hermes/skills natively, so that IS the active dir — reached
+    # through the skills-active symlink sync.ts expects. --all at build
+    # activates everything; `vss-hermes-sync` re-selects after `vss configure`.
+    && mkdir -p /opt/vss-skills \
+    && cp -R /opt/vss-assets/skills /opt/vss-skills/skills \
+    && cp /opt/vss-assets/sync.ts /opt/vss-skills/sync.ts \
+    && mkdir -p /sandbox/.hermes/skills \
+    && ln -s /sandbox/.hermes/skills /opt/vss-skills/skills-active \
+    && chmod -R a+rX /opt/vss-skills \
+    && printf '#!/bin/sh\nexec node /opt/vss-skills/sync.ts --plugin-dir /opt/vss-skills "$@"\n' > /usr/local/bin/vss-hermes-sync \
+    && chmod 0755 /usr/local/bin/vss-hermes-sync \
+    && node /opt/vss-skills/sync.ts --plugin-dir /opt/vss-skills --all \
     && chown -R sandbox:sandbox /sandbox/.hermes/skills \
+    && su -s /bin/sh sandbox -c "vss-hermes-sync --all" \
+    && cp /opt/vss-assets/workspace/*.md /sandbox/ \
     && for f in /opt/vss-assets/workspace/*.md; do chown sandbox:sandbox "/sandbox/$(basename "$f")"; done \
     && rm -rf /opt/vss-assets \
     && test -f /sandbox/.hermes/skills/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
