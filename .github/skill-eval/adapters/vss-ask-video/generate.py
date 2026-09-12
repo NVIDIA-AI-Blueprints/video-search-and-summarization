@@ -36,7 +36,7 @@ Usage from the repository root:
     python3 .github/skill-eval/adapters/vss-ask-video/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-ask-video \\
         --skill-dir skills/operations/vss-ask-video \\
-        --deploy-skill-dir skills/deployment/vss-deploy-profile \\
+        --deploy-skill-dir skills/vss-build-vision-ai \\
         --video-io-skill-dir skills/operations/vss-manage-video-io-storage \\
         --spec skills/operations/vss-ask-video/evals/base_profile_video_understanding.json
 """
@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -64,13 +65,13 @@ PLATFORMS: dict[str, dict] = {
 DEFAULT_PLATFORM = "L40S"
 
 # Prepended to every instruction.md so the skill's own HITL bypass clause
-# fires.  Skills default to "ask the user" before /vss-deploy-profile; in CI there is no
+# fires.  Skills default to "ask the user" before /vss-build-vision-ai; in CI there is no
 # user, so without this preamble the agent stalls or falls through to a
 # localhost default.
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires."
 )
 
@@ -277,13 +278,23 @@ def generate_task(
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
 
-        # skills/ — vss-ask-video + deploy + VIOS (the spec env mentions
-        # pre-uploading a sample warehouse video via VIOS before running checks).
+        # skills/ — vss-ask-video + VIOS (the spec env mentions pre-uploading a
+        # sample warehouse video via VIOS before running checks). The deploy
+        # skill is mounted only when the spec actually needs it — declared in
+        # `skills`, or asked for by a step that deploys. Keying on `skills`
+        # alone is not enough: these specs gained a "Deploy the VSS base
+        # profile" first step without their `skills` array being updated.
         copies = [
-            (skill_dir,        "vss-ask-video"),
-            (deploy_skill_dir, "vss-deploy-profile"),
-            (video_io_skill_dir,   "vss-manage-video-io-storage"),
+            (skill_dir,          "vss-ask-video"),
+            (video_io_skill_dir, "vss-manage-video-io-storage"),
         ]
+        needs_deploy_skill = "vss-build-vision-ai" in (spec.get("skills") or []) or any(
+            "vss-build-vision-ai" in (e.get("query") or "")
+            or re.search(r"\bdeploy the vss\b", e.get("query") or "", re.I)
+            for e in (spec.get("expects") or [])
+        )
+        if needs_deploy_skill:
+            copies.insert(1, (deploy_skill_dir, "vss-build-vision-ai"))
         for src, name in copies:
             if src and src.exists():
                 dst = step_dir / "skills" / name
@@ -311,7 +322,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--deploy-skill-dir", default=None,
-        help="Path to skills/deployment/vss-deploy-profile (optional — included for agent diagnosis)",
+        help="Path to skills/vss-build-vision-ai (optional — included for agent diagnosis)",
     )
     parser.add_argument(
         "--video-io-skill-dir", dest="video_io_skill_dir", default=None,

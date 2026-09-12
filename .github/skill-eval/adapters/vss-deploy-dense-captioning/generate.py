@@ -57,7 +57,7 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires."
 )
 
@@ -88,9 +88,9 @@ def _substitute_spec(spec: dict, platform: str, mode: str) -> dict:
 
 def _is_profile_spec(spec: dict) -> bool:
     """A spec is profile-bound (uses the full VSS deploy path) iff its
-    `skills[]` includes `vss-deploy-profile`. Standalone specs only
+    `skills[]` includes `vss-build-vision-ai`. Standalone specs only
     bring up the RT-VLM compose service via this skill itself."""
-    return "vss-deploy-profile" in (spec.get("skills") or [])
+    return "vss-build-vision-ai" in (spec.get("skills") or [])
 
 
 def _platform_modes_from_spec(
@@ -134,7 +134,7 @@ def _instruction_intro(spec: dict) -> str:
     return (
         "Use `/vss-deploy-dense-captioning` only. Deploy RT-VLM as a standalone compose service from "
         "`deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`; do not use "
-        "`/vss-deploy-profile`, `scripts/dev-profile.sh`, or a full VSS profile. The Docker "
+        "`/vss-build-vision-ai`, `scripts/dev-profile.sh`, or a full VSS profile. The Docker "
         f"Compose profile that activates the service is `{COMPOSE_PROFILE}`."
     )
 
@@ -270,7 +270,7 @@ def generate_task(
 
         skills_to_copy = [(skill_dir, "vss-deploy-dense-captioning")]
         if profile_spec and deploy_skill_dir:
-            skills_to_copy.append((deploy_skill_dir, "vss-deploy-profile"))
+            skills_to_copy.append((deploy_skill_dir, "vss-build-vision-ai"))
         for src, name in skills_to_copy:
             if src and src.exists():
                 dst = step_dir / "skills" / name

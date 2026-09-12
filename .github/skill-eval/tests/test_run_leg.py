@@ -211,9 +211,9 @@ class PhaseBudgets(unittest.TestCase):
             10.0,
         )
         self.assertEqual(run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC, 360)
-        self.assertEqual(run_leg.HARBOR_AGENT_BUDGET_SEC, 3600)
+        self.assertEqual(run_leg.HARBOR_AGENT_BUDGET_SEC, 5400)
         self.assertEqual(run_leg.HARBOR_VERIFIER_BUDGET_SEC, 1800)
-        self.assertEqual(run_leg.HARBOR_PHASE_BUDGET_SEC, 7560)
+        self.assertEqual(run_leg.HARBOR_PHASE_BUDGET_SEC, 9360)
         self.assertEqual(run_leg.HARBOR_TRANSFER_OPERATION_BUDGET_SEC, 630)
         self.assertEqual(run_leg.HARBOR_RECOVERY_TRANSFER_OPERATION_COUNT, 4)
         self.assertEqual(run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC, 2520)
@@ -222,13 +222,13 @@ class PhaseBudgets(unittest.TestCase):
             run_leg.HARBOR_PHASE_BUDGET_SEC
             + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
         )
-        self.assertEqual(run_leg.MIN_HARBOR_BACKSTOP_SEC, 10080)
-        self.assertEqual(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC, 12000)
+        self.assertEqual(run_leg.MIN_HARBOR_BACKSTOP_SEC, 11880)
+        self.assertEqual(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC, 13800)
         self.assertEqual(run_leg.HARBOR_SIGINT_GRACE_SEC, 1380)
         self.assertEqual(run_leg.HARBOR_SHUTDOWN_GRACE_SEC, 1420)
         self.assertEqual(
             run_leg.invocation_reserve_sec(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC),
-            13480,
+            15280,
         )
         self.assertGreater(
             run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,

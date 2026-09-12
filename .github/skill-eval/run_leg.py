@@ -78,7 +78,13 @@ REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
 HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
 NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
-HARBOR_AGENT_TIMEOUT_MULTIPLIER = 6.0
+# Deploy steps pull container images and model weights before the scenario's
+# own work starts, so a one-hour scenario budget left them finishing at
+# 1h02-1h04 with single-digit turn counts - waiting on pulls, not reasoning.
+# Which spec tipped over varied with the box's image cache, making the failing
+# set reshuffle between runs. 90 minutes matches what cold provisioning already
+# gets below and keeps the phase total under DEFAULT_HARBOR_TIMEOUT_SEC.
+HARBOR_AGENT_TIMEOUT_MULTIPLIER = 9.0
 # Cold base-profile deployments can legitimately outlive the normal one-hour
 # scenario budget while pulling model weights. Keep provisioning bounded at
 # 90 minutes; together with Harbor's other phase and recovery ceilings this
@@ -121,9 +127,11 @@ MIN_HARBOR_BACKSTOP_SEC = (
     HARBOR_PHASE_BUDGET_SEC + HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC
 )
 # Stay strictly above the minimum rather than making the validation boundary
-# itself the default.  The round 200-minute backstop leaves another 32 minutes
-# for scheduling jitter and bounded teardown that does not transfer files.
-DEFAULT_HARBOR_TIMEOUT_SEC = 12_000
+# itself the default.  The round 230-minute backstop leaves another 32 minutes
+# for scheduling jitter and bounded teardown that does not transfer files -
+# the same headroom the 200-minute backstop gave before the agent phase grew
+# to 90 minutes.
+DEFAULT_HARBOR_TIMEOUT_SEC = 13_800
 
 # A single remote agent command must not be killed by Brev before Harbor's own
 # agent deadline can fire and drive normal artifact/environment cleanup.
