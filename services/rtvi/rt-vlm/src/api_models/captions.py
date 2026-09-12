@@ -100,6 +100,7 @@ OptionalCaptionMetricInt32 = (
 class ResponseType(str, Enum):
     """Query Response Type."""
 
+    CHOICE = "choice"
     JSON_SCHEMA = "json_schema"
     JSON_OBJECT = "json_object"
     TEXT = "text"
@@ -118,16 +119,31 @@ class ResponseFormat(CommonBaseModel):
     """Query Response Format Object."""
 
     type: ResponseType = Field(
-        description="Response format type", examples=[ResponseType.JSON_OBJECT, ResponseType.TEXT]
+        description="Response format type",
+        examples=[ResponseType.CHOICE, ResponseType.JSON_OBJECT, ResponseType.TEXT],
     )
     json_schema: Optional[JsonSchemaDefinition] = None
+    choices: Optional[List[Annotated[str, Field(min_length=1, max_length=2048)]]] = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+    )
 
     @model_validator(mode="after")
-    def validate_json_schema(self):
+    def validate_constraint(self):
         if self.type == ResponseType.JSON_SCHEMA and self.json_schema is None:
             raise ValueError("json_schema is required when response format type is json_schema")
         if self.type != ResponseType.JSON_SCHEMA and self.json_schema is not None:
             raise ValueError("json_schema is only valid when response format type is json_schema")
+        if self.type == ResponseType.CHOICE:
+            if self.choices is None:
+                raise ValueError("choices is required when response format type is choice")
+            if any(not choice.strip() for choice in self.choices):
+                raise ValueError("choices must not contain blank values")
+            if len(set(self.choices)) != len(self.choices):
+                raise ValueError("choices must be unique")
+        elif self.choices is not None:
+            raise ValueError("choices is only valid when response format type is choice")
         return self
 
 
