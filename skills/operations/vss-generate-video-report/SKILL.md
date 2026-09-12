@@ -13,23 +13,23 @@ metadata:
 
 Generate a video analysis report by routing to one of three backends — **never via** `POST /generate` on the VSS agent.
 
-| Mode | Backend |
-|---|---|
-| **A. Video clip** | `A1` `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** OR `A2` local video file on disk or base64 video + explicit VLM endpoint |
-| **B. Incident range** | `/vss-query-analytics` → incident list → narrative report |
-| **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `${VA_MCP_URL}`) → SOP compliance report |
+| Mode | Backend | Steps |
+|---|---|---|
+| **A. Video clip** | `A1` `/vss-manage-video-io-storage` → clip URL → **VLM chat/completions** OR `A2` local video file on disk or base64 video + explicit VLM endpoint | [`references/report-types/video-analysis.md`](references/report-types/video-analysis.md) |
+| **B. Incident range** | `/vss-query-analytics` → incident list → narrative report | [`references/report-types/incident-range.md`](references/report-types/incident-range.md) |
+| **C. SOP compliance** | VA-MCP `get_sop_report` (direct MCP call on `${VA_MCP_URL}`) → SOP compliance report | [`references/report-types/sop-compliance.md`](references/report-types/sop-compliance.md) |
 
-If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only if the user mentions both a sensor and a time range. See **Examples** below for the request phrasings that route to each mode.
+If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and no incident wording), default to **Mode A**. Ask only when the request names a sensor and a time range **and** carries neither incident / alert wording (→ Mode B) nor SOP / compliance wording (→ Mode C). Never run any mode's probe or gate until the mode is settled. See **Examples** below for the request phrasings that route to each mode.
 
 ---
 
 ## Instructions
 
-0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths.
-1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts, Mode C when the request asks for an SOP / compliance report (match against *Examples*).
+0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths. If no base directory was announced (this file was opened directly), `SKILL_DIR` is the directory containing this `SKILL.md`. Each fenced block is its own shell and nothing survives it, so the skill hands state over explicitly: the blocks that resolve shared values end by printing shell-quoted `NAME=value` lines (*Endpoint resolution* → `DEPLOYMENT_KIND`, `VSS_PUBLIC_URL`, `HOST_IP`, `VST_API_BASE`, `VA_MCP_URL`, `VLM_ENDPOINT`; Mode A Step 1 → `VIDEO_URL`; Mode A Step 2 → `VLM_BACKEND`, `VLM_ENDPOINT`, `VLM_MODEL`; the clip-URL rewrite blocks (Kubernetes / Docker) take `RAW_URL` in and print `BROWSER_CLIP_URL`). Paste those lines as printed, plus `SKILL_DIR=<that path>` and any gate result (`HITL_RESOLVED` / `HITL_PROMPT_FILE`, *HITL prompt mode*), at the top of the next block you run, with any caller-supplied value (e.g. `VLM_ENDPOINT` / `VLM_MODEL`) pasted **after** them so it wins; consuming blocks refuse to run (`${VAR:?}`) when a required value is missing.
+1. **Pick the mode** — Mode A for a single recorded clip/sensor video (path `A1` VST clip URL or `A2` local file / base64 — the *Mode-by-mode checklist* rows), Mode B when the request is about incidents / alerts (usually with a time range), Mode C when the request asks for an SOP / compliance report (match against *Examples*).
 2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-ai` for the SOP tools).
-3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B and Mode C have no prompt-approval step.)
-4. **Run that mode's numbered steps** — *Mode A*, *Mode B*, or *Mode C* below.
+3. **Apply HITL mode** under *HITL prompt mode (runtime-first, harness fallback)* before Mode A Step 3 (`references/report-types/video-analysis.md`). (Mode B and Mode C have no prompt-approval step.)
+4. **Run that mode's numbered steps** from its report-type file — the *Steps* column of the mode table above; open only the one you routed to, via `$SKILL_DIR/references/report-types/<file>`. This file holds routing, gates and the shared setup (endpoint resolution, VLM selection, HITL, clip-URL rewrite); the numbered steps live only in the report-type files.
 5. **Rewrite every user-facing clip URL** before embedding it in the report: prefer
    `VSS_PUBLIC_URL` origin rewrite on Kubernetes; fall back to
    `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` on Docker Compose (*Browser-playable clip URL*).
@@ -44,7 +44,9 @@ Output contract for evaluators:
 - Mode B MUST use heading level `#` for the top title. Do not use `## Incident Report`, `## Incident Range Report`, or any alternate wording.
 - Mode B empty-range output MUST be exactly one plain-text line (no markdown heading/table/list/extra lines) in this format:
   `No incidents found for scope <scope> in range <start_time> to <end_time>.`
+- Mode B zero results: do not invent or seed incidents, and do not fall back to Mode A or call the VLM.
 - Mode C top title MUST be exactly `# SOP Compliance Report`, with the template's Basic Information / Compliance Summary / SOP Violations sections.
+- Mode C empty-range output MUST be exactly one plain-text line, no heading, table, or template: `No SOP messages found for sensor <sensor_id> in range <start_time> to <end_time>.` `get_sop_report` signals an empty range as the tool result `{"error": "No VisionLLM messages found for the given filters."}` — that result, and only that, renders this line (see `references/report-types/sop-compliance.md` Step 3). A failed `tools/call`, an empty body or one with no JSON-RPC response for the request (neither SSE `data:` events nor plain JSON), a JSON-RPC `error` envelope, `result.isError: true`, or any other error text is a failure: surface it per *Error Handling* and never render this line for it.
 
 ---
 
@@ -85,6 +87,10 @@ Helm), resolve public endpoints once. Follow
 [`../vss-build-vision-ai/references/deployment_resolution.md`](../../vss-build-vision-ai/references/deployment_resolution.md):
 
 ```bash
+# VSS_ENDPOINT is the legacy alias for VSS_PUBLIC_URL (deployment_resolution.md); honour it here so
+# every mode resolves the same way (the Mode C blocks apply the same alias).
+[ -n "${VSS_PUBLIC_URL:-}" ] || VSS_PUBLIC_URL="${VSS_ENDPOINT:-}"
+VLM_ENDPOINT="${VLM_ENDPOINT%/}"   # a caller-supplied endpoint keeps working with a trailing slash
 if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   DEPLOYMENT_KIND="kubernetes"
   VSS_PUBLIC_URL="${VSS_PUBLIC_URL%/}"
@@ -92,26 +98,34 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   # RT-VLM is at /rtvi-vlm on every profile; nothing is mounted at the origin /v1.
   : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/rtvi-vlm/v1}"
-  # Alerts / Mode B — force public VA-MCP; ignore leftover Docker :9901.
+  # Alerts / Mode B and Mode C — force public VA-MCP; ignore leftover Docker :9901.
   VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 else
   DEPLOYMENT_KIND="docker"
+  HOST_IP="${HOST_IP:-localhost}"   # effective host — later blocks read HOST_IP directly, so hand it over resolved
   VSS_VIOS_URL="http://${HOST_IP}:30888/vst"
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   VA_MCP_URL="http://${HOST_IP}:9901"
 fi
+# Hand-off — shell state does not survive this block: paste these lines, as printed, at the top of
+# every later block (probes, Mode A Step 2), BEFORE any caller-supplied VLM_ENDPOINT / VLM_MODEL line
+# (later lines win). VLM_ENDPOINT is printed only when known (Kubernetes route or caller-supplied);
+# on Docker, Mode A Step 2 discovers it.
+printf 'DEPLOYMENT_KIND=%q\nVSS_PUBLIC_URL=%q\nHOST_IP=%q\nVST_API_BASE=%q\nVA_MCP_URL=%q\n' \
+  "$DEPLOYMENT_KIND" "${VSS_PUBLIC_URL:-}" "${HOST_IP:-}" "$VST_API_BASE" "$VA_MCP_URL"
+[ -z "${VLM_ENDPOINT:-}" ] || printf 'VLM_ENDPOINT=%q\n' "$VLM_ENDPOINT"
 ```
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
 host-side container discovery for VIOS, the VLM, or VA-MCP. Mode A uses
-`${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B uses `${VA_MCP_URL}`.
+`${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B and Mode C use `${VA_MCP_URL}`.
 
 ### Mode-by-mode checklist (required)
 
 | Mode / Path | User must provide | Services that must be reachable | Storage/location requirement | Not required |
 |---|---|---|---|---|
 | **Mode A / A1 (VIOS clip URL)** | sensor and/or clip time range | VIOS + VLM endpoint | Clip is fetched from VIOS timeline/URL APIs | VA-MCP analytics |
-| **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_BASE64`, plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
+| **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_B64_FILE` (base64 written to a file, never pasted into a shell block), plus explicit VLM endpoint/model | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
 | **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path |
 | **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `${VA_MCP_URL}` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
 
@@ -119,24 +133,48 @@ Hard gate behavior:
 - If required services for the chosen row are not reachable, stop and report the missing dependency.
 - Do not silently switch modes because a dependency is missing.
 - Offer `/vss-deploy-profile` only after user confirmation.
+- Mode A: a clip **120 seconds or longer** never takes the direct VLM path — stop and prompt the user to deploy / use LVS (`/vss-deploy-profile` + `/vss-summarize-video`, confirm first) — unless LVS is already ready per the Mode A file's LVS check, in which case use it directly — then continue with the report template; details in `references/report-types/video-analysis.md` § Long-video rule.
 
 Probe examples:
 
 ```bash
-# Mode A path A1 — VIOS reachable
-curl -sf --max-time 5 "${VST_API_BASE}/sensor/version" >/dev/null
-
-# Mode A — VLM reachable (Kubernetes public /v1, or caller-supplied / Docker host port)
-curl -sf --max-time 5 "${VLM_ENDPOINT:-http://${HOST_IP}:30082/v1}/models" >/dev/null
-
-# Mode B — VA-MCP reachable via /health (K8s: ${VA_MCP_URL}/health; Docker: :9901/health)
-curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
-
-# Mode C — reachability is NOT sufficient; also REQUIRE the SOP tools on VA-MCP:
-# tools/list on ${VA_MCP_URL}/mcp (two-step JSON-RPC, see Mode C Step 1) must include
-# video_analytics__get_sop_report. If absent, the deployment lacks the SOP patch —
-# hand off to /vss-build-vision-ai and do NOT proceed with Mode C.
+# Fresh shell: paste the Endpoint resolution hand-off lines above these probes and set the mode you
+# picked in Instructions step 1 (A1 | A2 | B | C). No Docker fallbacks here — a missing value must
+# fail loudly, not silently probe the wrong deployment. Only the probes for that mode run and decide
+# the exit code (non-zero = a required service is missing: stop and report it).
+: "${REPORT_MODE:?set REPORT_MODE=A1|A2|B|C at the top of this block (Instructions step 1; A1 = VST clip URL, A2 = local file / base64 — the Mode-by-mode checklist rows)}"
+case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this block}" in
+  kubernetes|docker) ;;
+  *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
+esac
+VLM_ENDPOINT="${VLM_ENDPOINT%/}"   # tolerate a trailing slash on a caller-supplied endpoint
+FAIL=0
+case "${REPORT_MODE}" in
+  A1|A2)
+    if [ "${REPORT_MODE}" = "A1" ]; then   # A2 (local file / base64) needs no VIOS
+      curl -sf --max-time 5 "${VST_API_BASE:?}/sensor/version" >/dev/null \
+        && echo "VIOS ok: ${VST_API_BASE}" || { echo "VIOS unreachable: ${VST_API_BASE}" >&2; FAIL=1; }
+    fi
+    # VLM. Kubernetes: the public route from Endpoint resolution (a missing line is a paste error).
+    # Docker: VLM_ENDPOINT is unknown until Mode A Step 2 discovers it — that block IS the VLM probe.
+    if [ -n "${VLM_ENDPOINT:-}" ]; then
+      curl -sf --max-time 5 "${VLM_ENDPOINT}/models" >/dev/null \
+        && echo "VLM ok: ${VLM_ENDPOINT}" || { echo "VLM unreachable: ${VLM_ENDPOINT}" >&2; FAIL=1; }
+    elif [ "${DEPLOYMENT_KIND}" = "docker" ]; then
+      echo "VLM probe deferred: run Mode A Step 2 (discovery) next — Docker has no VLM_ENDPOINT yet" >&2
+    else
+      echo "ERROR: VLM_ENDPOINT line missing — re-paste the Endpoint resolution output" >&2; FAIL=1
+    fi ;;
+  B|C)
+    curl -sf --max-time 5 "${VA_MCP_URL:?}/health" >/dev/null \
+      && echo "VA-MCP ok: ${VA_MCP_URL}" || { echo "VA-MCP unreachable: ${VA_MCP_URL}" >&2; FAIL=1; }
+    [ "${REPORT_MODE}" = "C" ] && echo "Mode C: reachability is not sufficient — now run the tools/list gate (bullet below)" ;;
+  *) echo "ERROR: REPORT_MODE must be A1, A2, B or C, got '${REPORT_MODE}'" >&2; exit 1 ;;
+esac
+[ "${FAIL}" = 0 ] || exit 1
 ```
+
+- **Mode C gate** — reachability is not sufficient: `tools/list` on `${VA_MCP_URL}/mcp` must include `video_analytics__get_sop_report`. The runnable probe is the initialize → `tools/list` block in `references/report-types/sop-compliance.md` Step 1 (paste the *Endpoint resolution* hand-off at its top so it reuses the validated `VA_MCP_URL`; without it the block re-derives VA-MCP from exported `VSS_PUBLIC_URL` / `HOST_IP`): open that file now and run just that block as this gate; when you reach *Instructions* step 4, continue in that file without repeating it. It exits non-zero for two different reasons — read stderr: `VA-MCP problem` = the `tools/list` call itself failed (report it per *Error Handling*, do **not** hand off); `SOP tools absent` = the deployment lacks the SOP patch — hand off to `/vss-build-vision-ai` and do **not** proceed with Mode C.
 
 If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-ai` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
 
@@ -162,10 +200,15 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   curl -sf --max-time 5 "${VSS_PUBLIC_URL%/}/rtvi-vlm/v1/models" | jq -r '.data[].id'
 fi
 
-# Docker only — probe common local endpoints without inspecting any container.
-if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  curl -sf --max-time 5 "http://${HOST_IP}:30082/v1/models" | jq -r '.data[].id'   # local NIM / base default
-  curl -sf --max-time 5 "http://${HOST_IP}:8018/v1/models" | jq -r '.data[].id'    # RT-VLM / alerts default
+# Docker only — probe common local endpoints without inspecting any container
+# (DEPLOYMENT_KIND comes from the Endpoint resolution hand-off; no silent Docker default).
+case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this block}" in
+  kubernetes|docker) ;;
+  *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
+esac
+if [ "${DEPLOYMENT_KIND}" = "docker" ]; then
+  curl -sf --max-time 5 "http://${HOST_IP:-localhost}:30082/v1/models" | jq -r '.data[].id'   # local NIM / base default
+  curl -sf --max-time 5 "http://${HOST_IP:-localhost}:8018/v1/models" | jq -r '.data[].id'    # RT-VLM / alerts default
 fi
 ```
 
@@ -182,7 +225,7 @@ Resolve HITL mode for **Mode A only** in this order:
 Behavior:
 
 - resolved `false`: do not ask clarification; run Mode A with the current default prompt.
-- resolved `true`: before Mode A Step 3, show the current prompt and ask the user to choose one of:
+- resolved `true`: before Mode A Step 3 (`references/report-types/video-analysis.md`), show the current prompt — the contents of `$SKILL_DIR/references/default-vlm-prompt.md`, loaded with the same non-empty guard Mode A Step 3 uses — and ask the user to choose one of:
   - `APPROVE` — use the current prompt as-is.
   - `EDIT: <instructions>` — apply edits to the current prompt and show the revised prompt.
   - `NEW: <full prompt>` — replace with a brand-new prompt.
@@ -192,8 +235,9 @@ Guardrails (required):
 - Do **not** wait for an empty-string confirmation.
 - Keep showing the same three choices (`APPROVE | EDIT: ... | NEW: ...`) after **every** `EDIT` or `NEW` response.
 - Do not run report generation until the user explicitly responds with `APPROVE`.
+- Carry the resolved mode into Mode A Step 3: at the top of the Step 3 shell block (one block serves A1 and A2; each fenced block is its own shell) set `HITL_RESOLVED=true` or `HITL_RESOLVED=false`, and when true write the approved / edited / new text to a file with the Write tool (e.g. `/tmp/vss-hitl-prompt.txt`) and set `HITL_PROMPT_FILE=<that path>` — never paste prompt text into a shell assignment or heredoc, where an apostrophe, metacharacter or delimiter collision would be interpreted; the block reads the file with `cat`. It refuses to run when `HITL_RESOLVED` is unset or is `true` without a non-empty `HITL_PROMPT_FILE`. Step 3 uses the text as the prompt body verbatim; the only addition it may make is the reasoning-format suffix, and only when the user explicitly asked for reasoning.
 - If the response is ambiguous, re-prompt with explicit `APPROVE | EDIT: ... | NEW: ...` options and continue the loop.
-- If Step 3 resolves HITL via rule (3) (neither runtime nor fallback is set), include this note on the first report generation response in the session:
+- If HITL resolved via rule (3) (neither runtime nor fallback is set), include this note on the first report generation response in the session:
   `HITL mode not set; defaulting to off. Set HITL_ENABLED=true to enable HITL.`
 
 ---
@@ -215,8 +259,15 @@ responses return a bare `/storage/temp_files/...` path (and can carry a doubled
 VIOS. Reduce to a path, then restore `/vst` — the same compat mapping Docker HAProxy
 applies:
 
+Rewrite and verify in ONE block (fresh shell: paste the Endpoint resolution hand-off and set
+`RAW_URL` at its top). The result must begin with `${VSS_PUBLIC_URL}/vst/`. Probe with GET, not
+HEAD: VST lazy-renders clips and returns 404 to HEAD until a GET materializes the file. If the
+URL fails either check the block prints an empty `BROWSER_CLIP_URL`; omit the link from the
+report and call out why; do not block local VLM analysis:
+
 ```bash
 : "${VSS_PUBLIC_URL:?Set VSS_PUBLIC_URL before rewriting clip URLs on Kubernetes}"
+: "${RAW_URL:?set RAW_URL to the clip URL from Mode A Step 1 / the Mode B incident at the top of this block}"
 CLIP_PATH=$(printf '%s' "${RAW_URL}" | sed -E 's|^(https?://)+||; s|^[^/]*||')
 case "${CLIP_PATH}" in
   /vst/*) BROWSER_CLIP_URL="${VSS_PUBLIC_URL%/}${CLIP_PATH}" ;; # already public VIOS
@@ -226,27 +277,21 @@ case "${CLIP_PATH}" in
     BROWSER_CLIP_URL=""
     ;;
 esac
-```
-
-Verify the result before putting it in the report — it must begin with
-`${VSS_PUBLIC_URL}/vst/`. Probe with GET, not HEAD: VST lazy-renders clips and
-returns 404 to HEAD until a GET materializes the file. If the URL fails either
-check, omit it from the report and call out why; do not block local VLM analysis:
-
-```bash
 case "${BROWSER_CLIP_URL}" in
   "${VSS_PUBLIC_URL%/}"/vst/*)
     # A GET materializes lazy VIOS clips. Fail fast when Ingress is unreachable,
     # but allow bounded time for the first render and fetch only the first byte.
     curl -fsS --connect-timeout 5 --max-time 125 --range 0-0 -o /dev/null \
-      "${BROWSER_CLIP_URL}" || BROWSER_CLIP_URL=""
+      "${BROWSER_CLIP_URL}" || { echo "Clip link did not materialize: ${BROWSER_CLIP_URL}" >&2; BROWSER_CLIP_URL=""; }
     ;;
-  "") ;;  # unsupported source URL shape; already reported above
+  "") ;;  # unsupported source URL shape; reported above
   *)
     echo "Refusing to render a clip link outside the public VIOS route" >&2
     BROWSER_CLIP_URL=""
     ;;
 esac
+# Hand-off for the report step (empty = omit the link and say why).
+printf 'BROWSER_CLIP_URL=%q\n' "${BROWSER_CLIP_URL}"
 ```
 
 **Docker Compose** — the deploy layer exports the browser-facing host:port as
@@ -256,444 +301,38 @@ in every profile `.env` — Brev or bare-metal — so the report-link rewrite is
 ```bash
 : "${VSS_PUBLIC_HOST:?Set VSS_PUBLIC_HOST before rewriting clip URLs}"
 : "${VSS_PUBLIC_PORT:?Set VSS_PUBLIC_PORT before rewriting clip URLs}"
+: "${RAW_URL:?set RAW_URL to the clip URL from Mode A Step 1 / the Mode B incident at the top of this block}"
 VSS_PUBLIC_HTTP_PROTOCOL="${VSS_PUBLIC_HTTP_PROTOCOL:-http}"
-BROWSER_CLIP_URL=$(echo "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
+BROWSER_CLIP_URL=$(printf '%s' "$RAW_URL" | sed -E "s|^https?://[^/]+|${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}|")
+# Hand-off for the report step.
+printf 'BROWSER_CLIP_URL=%q\n' "${BROWSER_CLIP_URL}"
 ```
 
 If the required public origin values are missing, omit the report-facing clip
 link and call out that a browser-playable URL could not be produced; do not
 block the local VLM analysis path. Apply the rewrite to **every clip URL
-surfaced in the rendered report** (Mode A Step 4 Clip URL row; Mode B
-per-incident clip sub-bullet). Leave the VLM `video_url` content block in Mode A
-Step 3 on the original internal URL when the VLM is local / in-cluster. When the
+surfaced in the rendered report** (Mode A Step 4 Clip URL row — `references/report-types/video-analysis.md`; Mode B
+per-incident clip sub-bullet — `references/report-types/incident-range.md`). Leave the VLM `video_url` content block in Mode A
+Step 3 (`references/report-types/video-analysis.md`) on the original internal URL when the VLM is local / in-cluster. When the
 VLM is reached through `${VSS_PUBLIC_URL}/rtvi-vlm/v1` and cannot fetch private VIOS
 hosts, download the clip and send inline bytes (same remote-VLM rule as
 `/vss-ask-video`).
 
 ---
 
-## Mode A — Report on a recorded video clip
+## Report types
 
-**If the VSS `lvs` profile is deployed** — probe LVS readiness, then hand off:
+Each report type's numbered steps live in its own file under `references/report-types/` — the *Steps* column of the mode table at the top of this file. Read only the file for the mode chosen in *Instructions* step 1, via `$SKILL_DIR/references/report-types/<file>`. Every file follows the same skeleton: a short header (trigger phrases → prerequisite gate → inputs → template → output contract → failure modes, each a pointer to this file or to the step that owns it) followed by the numbered steps; the fill step of each file names its template under `references/report-templates/`.
 
-```bash
-# Kubernetes public Exact path when VSS_PUBLIC_URL is set; Docker host port otherwise.
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  _lvs_ready="${VSS_PUBLIC_URL%/}/lvs/v1/ready"
-else
-  _lvs_ready="http://${HOST_IP}:38111/v1/ready"
-fi
-curl -sf --max-time 5 "${_lvs_ready}" >/dev/null
-```
+Templates (read when filling the report): [`references/report-templates/video-analysis-report.md`](references/report-templates/video-analysis-report.md) · [`references/report-templates/incident-range-report.md`](references/report-templates/incident-range-report.md) · [`references/report-templates/sop-compliance-report.md`](references/report-templates/sop-compliance-report.md).
 
-When that returns HTTP 200, run `/vss-summarize-video` to produce the summary,
-then paste its output into the report template in Step 4 and skip Steps 1–3
-(the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
+Adding a report type — touch points, in order:
 
-### Step 1 — Resolve Mode A input (A1 clip URL or A2 local-file/base64)
+1. `references/report-types/<type>.md` (skeleton above) and `references/report-templates/<type>-report.md`.
+2. In this file: frontmatter `description`; the mode table row (Backend + Steps); *Instructions* steps 1–3 (mode pick, deploy hand-off target, HITL applicability); *Examples*; *Runtime prerequisites* (intro sentence, *Mode-by-mode checklist* row, probe / gate line, hand-off sentence, and the mode sentence in *Endpoint resolution* if it shares `${VA_MCP_URL}` or needs a new endpoint); the *HITL prompt mode* scope sentence if the type has a prompt-approval step; *Output contract for evaluators*; the per-mode clip-URL sentence if the report embeds clips; the *Templates* link line in this section; optionally *Error Handling* and *Cross-Reference* lines.
+3. When the mode list changes, the `skills/README.md` rows that enumerate this skill's modes.
 
-Choose one path:
-
-#### A1 — VST clip URL path
-
-Hand off to `/vss-manage-video-io-storage` to:
-
-1. List sensors and confirm the named `<sensor-id>` exists (upload first if not).
-2. Fetch `/storage/<streamId>/timelines` for the recorded range when the user did not supply `startTime` / `endTime`.
-3. Request a clip URL:
-
-   ```bash
-   # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
-   # Omit the window to take the whole recorded segment; the response echoes what it resolved.
-   # CLI bootstrap and exit codes: AGENTS.md at the repo root
-   VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-   VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-   VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
-   "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"   # once per deployment
-
-   # Captured, not piped: `vss ... | jq` hides the CLI's exit code behind jq's,
-   # so a failed command with empty stdout reads as an empty answer.
-   CLIP=$("${VSS[@]}" vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>]) || {
-     echo "vss vios clip failed for <sensor-name>" >&2; exit 1; }
-   VIDEO_URL=$(printf '%s' "${CLIP}" | jq -r .media_url)
-   ```
-
-The block sets `VIDEO_URL` (used by the VLM in Step 3). Also set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
-
-Remote VLM reachability guard (required):
-- If the selected `VLM_ENDPOINT` is remote/non-local, do not assume it can fetch `VIDEO_URL` when `VIDEO_URL` points to localhost/private VST addresses (for example `127.0.0.1`, `localhost`, `HOST_IP`, `172.16-31.x`, `192.168.x`, `10.x`, or in-cluster/internal DNS).
-- Before Step 3, explicitly warn and stop when this mismatch exists: remote VLM + internal-only `VIDEO_URL`.
-- In that case, ask the user to choose one of:
-  1. Use a local/in-cluster VLM endpoint that can reach VST internal URLs.
-  2. Switch to Mode A A2 and send local-file/base64 bytes to the remote VLM.
-  3. Expose a browser/publicly reachable clip URL and confirm the remote VLM can fetch it.
-
-#### A2 — Local file on disk or base64 video path (no VST dependency)
-
-If the user provides either:
-- a local video file path on disk (where OpenClaw/agent is running), or
-- a base64 video payload,
-and a VLM endpoint, use that directly in Step 3.
-
-Local file requirement (strict):
-- `VIDEO_FILE` must point to a path that is directly readable from the runtime executing this skill (OpenClaw/agent host or container).
-- The path cannot be browser-only client storage.
-- If the file is only on a user's laptop/browser session and not on the runtime filesystem, ask the user to place it on the runtime disk (or provide base64 instead).
-
-Bind:
-- `VIDEO_FILE` = user-provided local path (if using file path input)
-- `VIDEO_BASE64` = base64 bytes (if using base64 input; no data-uri prefix)
-- `VIDEO_MIME` = `video/mp4` unless user provided another valid mime type
-- `VIDEO_DATA_URL` = `"data:${VIDEO_MIME};base64,${VIDEO_BASE64}"` (used by Step 3 when sending inline bytes)
-
-If `VIDEO_FILE` is provided, read/encode it at runtime to produce `VIDEO_BASE64`; do not paste raw base64 into chat output.
-
-For this path, set report `Clip URL` row to `N/A (local/base64 input)` unless a public playback URL is also available.
-
-#### Long-video rule (required)
-
-If user input video/clip duration is **120 seconds (2 mins) or longer**, stop Mode A direct path and prompt:
-- deploy and use **LVS** via `/vss-deploy-profile` + `/vss-summarize-video`,
-- then continue report templating with LVS output.
-
-Do not continue direct VLM Mode A on videos that are 120 seconds or longer.
-
-### Step 2 — Resolve VLM endpoint and model
-
-The deploy may serve the VLM through either of two stacks. Both expose an OpenAI-compatible `chat/completions` API — pick whichever is live:
-
-| Backend | Discovery input | Typical host endpoint | Picked when |
-|---|---|---|---|
-| **Public Ingress RT-VLM** | `VSS_PUBLIC_URL` / `VLM_ENDPOINT` | `${VSS_PUBLIC_URL}/rtvi-vlm/v1` | Kubernetes / Helm, any profile, when `VSS_PUBLIC_URL` is set (preferred) |
-| **NIM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:30082/v1` | Docker: port 30082 responds with at least one model |
-| **RT-VLM Cosmos** | Explicit `VLM_ENDPOINT`, or successful `/models` probe | `http://${HOST_IP}:8018/v1` | Docker: port 8018 responds with at least one model |
-
-If the user already supplied a `VLM_ENDPOINT` + model id, use those directly.
-
-When `VSS_PUBLIC_URL` is set and `VLM_ENDPOINT` is still empty, use the public
-Ingress RT-VLM route (do **not** probe `/vlm/v1`):
-
-```bash
-if [ -z "${VLM_ENDPOINT:-}" ] && [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  VLM_ENDPOINT="${VSS_PUBLIC_URL%/}/rtvi-vlm/v1"
-  VLM_BACKEND="rtvlm"
-fi
-```
-
-Otherwise, on **Docker only**, probe the standard host endpoints directly,
-following the same endpoint-selection contract as `/vss-ask-video`.
-
-```bash
-if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  for _candidate in \
-    "nim_cosmos|http://${HOST_IP}:30082/v1" \
-    "rtvlm|http://${HOST_IP}:8018/v1"; do
-    _backend="${_candidate%%|*}"
-    _endpoint="${_candidate#*|}"
-    if _models="$(curl -sf --max-time 5 "${_endpoint}/models")" &&
-       _model="$(printf '%s' "${_models}" | jq -er '.data[0].id')"; then
-      VLM_BACKEND="${_backend}"
-      VLM_ENDPOINT="${_endpoint}"
-      VLM_MODEL="${VLM_MODEL:-$_model}"
-      break
-    fi
-  done
-fi
-
-[ -n "${VLM_ENDPOINT:-}" ] || {
-  echo "ERROR: no VLM found on ${HOST_IP}:30082 or ${HOST_IP}:8018; provide VLM_ENDPOINT and VLM_MODEL" >&2
-  exit 1
-}
-```
-
-Probe `/v1/models` before sending a chat request to confirm the chosen endpoint is alive and the model is loaded:
-
-```bash
-_models="$(curl -sf --max-time 5 "${VLM_ENDPOINT}/models")" || {
-  echo "ERROR: VLM endpoint is not reachable: ${VLM_ENDPOINT}" >&2
-  exit 1
-}
-printf '%s' "${_models}" | jq -er '.data[].id'
-[ -n "${VLM_MODEL:-}" ] ||
-  VLM_MODEL="$(printf '%s' "${_models}" | jq -er '.data[0].id')"
-```
-
-If `VLM_MODEL` is empty, adopt the first id the endpoint advertises. If the probe fails or the listed ids don't include `${VLM_MODEL}`, either:
-- try a discovered fallback endpoint, or
-- ask the user to choose one of the *VLM selection when unclear* options.
-
-Never silently pick an unknown model.
-
-### Step 3 — Call the VLM directly
-
-Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content block — the same payload shape **and multimodal settings** `video_understanding` builds in `src/vss_agents/tools/video_understanding.py` (`_build_vlm_messages` + the Cosmos `base_vlm.bind(...)` call).
-
-Use explicit `VIDEO_UNDERSTANDING_*` overrides when supplied; otherwise use
-the base-profile defaults (`max_fps=2`, `max_frames=30`, `min_pixels=3136`,
-`max_pixels=8388608`).
-
-```bash
-# Default prompt — load from the skill tree (do NOT use a cwd-relative path).
-# Set SKILL_DIR to the "Base directory for this skill" announced when this skill loads.
-: "${SKILL_DIR:?Set SKILL_DIR to the loaded skill's base directory (from the skill loader)}"
-PROMPT_FILE="$SKILL_DIR/references/default-vlm-prompt.md"
-[ -s "$PROMPT_FILE" ] || {
-  echo "ERROR: missing or empty VLM prompt file: $PROMPT_FILE" >&2
-  exit 1
-}
-DEFAULT_PROMPT="$(cat "$PROMPT_FILE")"
-[ -n "$DEFAULT_PROMPT" ] || {
-  echo "ERROR: DEFAULT_PROMPT is empty after reading $PROMPT_FILE" >&2
-  exit 1
-}
-
-# FINAL_PROMPT must come from the resolved HITL mode gate above.
-# Resolution order:
-#   1) video_report_gen.hitl_enabled
-#   2) HITL_ENABLED (fallback only when runtime config is unavailable)
-#   3) default false when neither source is set
-# - resolved false: FINAL_PROMPT="$DEFAULT_PROMPT"
-# - resolved true : FINAL_PROMPT comes from the latest EDIT/NEW value after explicit APPROVE.
-FINAL_PROMPT="${FINAL_PROMPT:-$DEFAULT_PROMPT}"
-[ -n "$FINAL_PROMPT" ] || { echo "ERROR: FINAL_PROMPT is empty; refusing to call VLM with a blank prompt" >&2; exit 1; }
-PROMPT="$FINAL_PROMPT"
-
-# Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`).
-# video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning.
-# Append the Cosmos Reason 2 reasoning suffix ONLY when the user explicitly asks for reasoning
-# (drop it for non-cosmos-reason2 VLMs). With reasoning off, the response has no <think> block.
-if [ "${REASONING:-false}" = "true" ]; then
-PROMPT="${PROMPT}
-
-Answer the question using the following format:
-
-<think>
-Your reasoning.
-</think>
-
-Write your final answer immediately after the </think> tag."
-fi
-
-# If Step 3 is run standalone, derive a missing backend from endpoint/model.
-[ -z "${VLM_BACKEND:-}" ] && {
-  if [[ "${VLM_ENDPOINT:-}" == *":8018/"* ]]; then
-    VLM_BACKEND="rtvlm"
-  elif [[ "${VLM_MODEL:-}" == nvidia/cosmos* ]]; then
-    VLM_BACKEND="nim_cosmos"
-  else
-    VLM_BACKEND="rtvlm"
-  fi
-}
-
-# Multimodal settings — explicit overrides or base-profile defaults.
-CFG_JSON='{"max_fps":2,"max_frames":30,"min_pixels":3136,"max_pixels":8388608}'
-
-printf '%s' "${CFG_JSON}" | jq -e . >/dev/null || { echo "Invalid video_understanding config JSON"; exit 1; }
-MAX_FPS="$(printf '%s' "${CFG_JSON}" | jq -r '.max_fps')"
-MAX_FRAMES="$(printf '%s' "${CFG_JSON}" | jq -r '.max_frames')"
-MIN_PIXELS="$(printf '%s' "${CFG_JSON}" | jq -r '.min_pixels')"
-MAX_PIXELS="$(printf '%s' "${CFG_JSON}" | jq -r '.max_pixels')"
-MAX_FPS="${VIDEO_UNDERSTANDING_MAX_FPS:-$MAX_FPS}"
-MAX_FRAMES="${VIDEO_UNDERSTANDING_MAX_FRAMES:-$MAX_FRAMES}"
-MIN_PIXELS="${VIDEO_UNDERSTANDING_MIN_PIXELS:-$MIN_PIXELS}"
-MAX_PIXELS="${VIDEO_UNDERSTANDING_MAX_PIXELS:-$MAX_PIXELS}"
-
-# num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
-# clip_seconds (Step 1 endTime-startTime) may be fractional; truncate to integer seconds — bash $((...))
-# is integer-only and errors on "15.0"/"1.5". Default 15s -> caps at MAX_FRAMES.
-CLIP_SECONDS=$(awk -v s="${CLIP_SECONDS:-15}" 'BEGIN{printf "%d", s}')
-NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
-[ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
-[ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
-
-# Only apply Cosmos mm/media kwargs on the NIM Cosmos path.
-# RT-VLM mode uses its own server-side preprocessing and should not receive these kwargs.
-MM_KWARGS=""
-if [ "${VLM_BACKEND}" = "nim_cosmos" ]; then
-  case "$VLM_MODEL" in
-    *cosmos-reason2*) MM_KWARGS=", \"mm_processor_kwargs\": {\"size\": {\"shortest_edge\": ${MIN_PIXELS}, \"longest_edge\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
-    *cosmos*)         MM_KWARGS=", \"mm_processor_kwargs\": {\"videos_kwargs\": {\"min_pixels\": ${MIN_PIXELS}, \"max_pixels\": ${MAX_PIXELS}}}, \"media_io_kwargs\": {\"video\": {\"num_frames\": ${NUM_FRAMES}}}" ;;
-    *)                      MM_KWARGS="" ;;
-  esac
-fi
-
-curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d @- <<EOF | jq -r '.choices[0].message.content'
-{
-  "model": $(printf '%s' "${VLM_MODEL}" | jq -Rs .),
-  "messages": [
-    {
-      "role": "user",
-      "content": [
-        {"type": "text", "text": $(printf '%s' "${PROMPT}" | jq -Rs .)},
-        {"type": "video_url", "video_url": {"url": $(printf '%s' "${VIDEO_URL}" | jq -Rs .)}}
-      ]
-    }
-  ],
-  "max_tokens": 1024,
-  "temperature": 0.0${MM_KWARGS}
-}
-EOF
-```
-
-For Mode A path A2 when using inline bytes, run the same Step 3 preamble above (prompt resolution, `CFG_JSON`, `MM_KWARGS`), then send `VIDEO_DATA_URL` instead of `VIDEO_URL`:
-
-```bash
-curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d @- <<EOF | jq -r '.choices[0].message.content'
-{
-  "model": $(printf '%s' "${VLM_MODEL}" | jq -Rs .),
-  "messages": [
-    {
-      "role": "user",
-      "content": [
-        {"type": "text", "text": $(printf '%s' "${PROMPT}" | jq -Rs .)},
-        {"type": "video_url", "video_url": {"url": $(printf '%s' "${VIDEO_DATA_URL}" | jq -Rs .)}}
-      ]
-    }
-  ],
-  "max_tokens": 1024,
-  "temperature": 0.0${MM_KWARGS}
-}
-EOF
-```
-
-> The kwargs block is backend-aware: on `nim_cosmos`, Reason2 variants (`nvidia/cosmos-reason2*`) use `mm_processor_kwargs.size{shortest_edge,longest_edge}` and other NIM Cosmos variants (`nvidia/cosmos*`) use `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; both also send `media_io_kwargs.video.num_frames`. On `rtvlm`, no Cosmos kwargs are sent.
-
-If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), keep only the text after `</think>` as the report body.
-
-### Step 4 — Fill the Video Analysis Report template
-
-Load the matching template from [`references/report-templates/video-analysis-report.md`](references/report-templates/video-analysis-report.md). Treat the template as read-only — copy its structure **verbatim**, keeping its exact headings and `## Basic Information` pipe-table, and fill every placeholder. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens (e.g. `<BROWSER_CLIP_URL>`, `<sensor_id>`, `<YYYY-MM-DD>`), or internal-only URLs in user output. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never use the raw `HOST_IP:30888` URL.
-
----
-
-## Mode B — Report on incidents in a time range
-
-### Step 1 — Resolve the time range and (optionally) sensor
-
-- `start_time` / `end_time` must be ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SS.sssZ`). Resolve relative phrases ("last hour", "today") against the current host clock.
-- If the user names a sensor, capture it as `source` + `source_type=sensor`. Otherwise leave both unset for an all-sensors query.
-
-### Step 2 — Fetch incidents via `/vss-query-analytics`
-
-Hand off to `/vss-query-analytics` (initialize → `tools/call`) with:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "video_analytics__get_incidents",
-    "arguments": {
-      "source": "<sensor-id-or-omit>",
-      "source_type": "sensor",
-      "start_time": "<ISO>",
-      "end_time": "<ISO>",
-      "max_count": 100,
-      "includes": ["objectIds", "info"]
-    }
-  },
-  "id": 1
-}
-```
-
-Read-only boundary (mandatory):
-- Mode B is strictly read-only analytics retrieval. Never write, seed, backfill, or mutate Elasticsearch/VA data.
-- Forbidden examples: indexing synthetic incidents, replaying fixture payloads into ES, calling write/update/delete APIs to "make data available" for the report.
-- If no incidents exist for the requested range/scope, handle as empty results (see below); do not fabricate data.
-
-For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (commonly `info.clip_url`, `clip_url`, or whichever clip-pointer field the response carries). **Apply the browser-playable rewrite (see *Clip URLs: VLM input vs browser report link* above — `VSS_PUBLIC_URL` on Kubernetes, or `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` on Docker) to every clip URL before pasting it into the report** — the raw value is often a private `HOST_IP:30888` URL the user's browser cannot reach.
-
-### Step 3 — Fill the Incident Range Report template
-
-Load the matching template from [`references/report-templates/incident-range-report.md`](references/report-templates/incident-range-report.md). Treat the template as read-only — copy its structure, then group by sensor (or by category if no sensor scope), tally verdicts, and list each incident with timestamp / category / verdict / reasoning. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens, or internal-only URLs in user output. Every incident clip value must be a rewritten browser-playable URL; omit the clip line when the incident carries no clip URL.
-
-For non-empty results, rendered output MUST start exactly with:
-- `# Incident Range Report`
-- `## Basic Information`
-- a pipe table containing rows: `Report Identifier`, `Range`, `Scope`, `Total Incidents`, `Confirmed / Rejected / Unverified`
-
-If `get_incidents` returns zero results, STOP and return exactly this one-line sentence shape (single line only):
-`No incidents found for scope <scope> in range <start_time> to <end_time>.`
-
-When zero results:
-- Do not render `# Incident Range Report`.
-- Do not render `## Basic Information`.
-- Do not render any markdown table, bullets, or summary section.
-- Do not invent incidents, do not seed test data, and do not fall back to Mode A.
-
----
-
-## Mode C — SOP compliance report
-
-Use for "generate an SOP compliance report" over a sensor + time range. Data comes from the SOP tools on VA-MCP (added by the SOP profile); this skill aggregates and renders the template itself.
-
-### Step 1 — Resolve the sensor + time range
-
-- Capture the named sensor as `sensor_id`. `start_time` / `end_time` are ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SS.sssZ`); resolve relative phrases ("last hour", "today") against the host clock.
-- Confirm the SOP tools are present (once). The four `get_sop_*` tools are added by the SOP patch and are **not** in the base `/vss-query-analytics` tool set, so call the VA-MCP endpoint directly (two-step MCP JSON-RPC: `initialize` → `tools/list`):
-
-```bash
-# Each fenced block is its own shell — re-derive VA-MCP here (do not rely on
-# Endpoint resolution above). Force public path when VSS_PUBLIC_URL is set.
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
-  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-fi
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
-else
-  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
-fi
-MCP="${VA_MCP_URL%/}/mcp"
-CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
-SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
-  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
-  | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
-[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
-curl -s --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
-  | grep '^data:' | sed 's/^data: //' | jq -r '.result.tools[].name' | grep -qx video_analytics__get_sop_report \
-  || { echo "SOP tools absent — deployment lacks the SOP patch; hand off to /vss-build-vision-ai to compose the SOP profile" >&2; exit 1; }
-```
-
-(No bash arrays — POSIX-`sh` safe; the session id is guarded, and the tool check exits non-zero when `get_sop_report` is missing.)
-
-### Step 2 — Fetch the aggregated SOP report from VA-MCP
-
-Call `video_analytics__get_sop_report` on the same endpoint. Each fenced block runs as its own shell, so `$MCP` / `$SID` / `$CT` / `$AC` from Step 1 do NOT carry over — re-establish them and re-`initialize` for a fresh session id here:
-
-```bash
-if [ -z "${VSS_PUBLIC_URL:-}" ] && [ -n "${VSS_ENDPOINT:-}" ]; then
-  VSS_PUBLIC_URL="${VSS_ENDPOINT}"
-fi
-if [ -n "${VSS_PUBLIC_URL:-}" ]; then
-  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
-else
-  VA_MCP_URL="http://${HOST_IP:-localhost}:9901"
-fi
-MCP="${VA_MCP_URL%/}/mcp"
-CT='Content-Type: application/json'; AC='Accept: application/json, text/event-stream'
-SID=$(curl -si --max-time 10 -X POST "$MCP" -H "$CT" -H "$AC" \
-  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cli","version":"1.0"}},"id":0}' \
-  | awk 'tolower($1)=="mcp-session-id:"{print $2}' | tr -d '\r')
-[ -n "$SID" ] || { echo "VA-MCP initialize failed (no session id) — is VA-MCP up at ${VA_MCP_URL}?" >&2; exit 1; }
-curl -s --max-time 30 -X POST "$MCP" -H "$CT" -H "$AC" -H "mcp-session-id: $SID" \
-  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"video_analytics__get_sop_report","arguments":{"sensor_id":"<sensor>","start_time":"<ISO>","end_time":"<ISO>"}},"id":2}' \
-  | grep '^data:' | sed 's/^data: //' | jq -r '.result.content[0].text'
-```
-
-Returns `report_summary` (total messages, current / completed cycle, compliance status), `sop_violations` (missing / mis-ordered steps per cycle with timestamps), `actions_observed` (`total_action_entries`, `unique_actions`, `latest_action` — `total_action_entries` counts the action entries actually recorded, NOT the message count: a chunk whose VLM response is null/empty yields no action entry, so it can be far below total messages), and a `formatted_report` markdown string.
-
-Read-only boundary (mandatory): Mode C is strictly read-only. Never write, seed, backfill, or mutate Elasticsearch/VA data. **Reproduce the tool's numbers and action names verbatim** — DS-SOP actions are numbered classifications (e.g. "(1) first fan", "(10) not belong"); never paraphrase, rename, or invent them.
-
-### Step 3 — Fill the SOP Compliance Report template
-
-Copy [`references/report-templates/sop-compliance-report.md`](references/report-templates/sop-compliance-report.md), fill every placeholder from the Step 2 result (message count, compliance status, cycle counts, the missing / mis-ordered step tables, actions observed — set `{total_actions}` to `actions_observed.total_action_entries`, the field upstream `get_sop_report` itself maps to Total Actions Recorded; it is NOT `report_summary.total_messages_analyzed`: chunks with a null/empty VLM response record no action entry, so never substitute the message count for it, and treat a missing `total_action_entries` key as a schema mismatch to report, not a reason to fall back), and return the rendered markdown. For placeholders `get_sop_report` does not carry: generate `{report_id}` + `{report_date}`, set `{agent_version}` to `vss-generate-video-report (Mode C)`, and set `{video_analysis_details}` / `{snapshot_image}` to `N/A` (Mode C runs no report-time VLM and fetches no media). Fill `{notes}` with the data provenance and snapshot caveats (source/scope, the bounded `end_time` used, the doc count vs the 1000-doc `get_sop_report` cap, and that a live stream never reaches EOS so `final_*` counts stay 0 and every violation is per-chunk); fill `{recommendations}` with the compliance interpretation (recurring missing / mis-ordered steps and whether they reflect the source clip rather than an operator fault). Keep the source asset unchanged; never leave a placeholder, and never include template instructions in a filled cell.
-
-If `get_sop_report` returns an error or zero messages for the range/scope, STOP and return a one-line empty-range statement naming the sensor + range. Do not render the full template, invent data, or fall back to another mode.
+Mode letters are stable aliases (other skills reference them); files are named by report type.
 
 ---
 
@@ -703,15 +342,15 @@ If `get_sop_report` returns an error or zero messages for the range/scope, STOP 
 - If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
 - If a clip URL cannot be rewritten to the public host/port, omit it from the rendered report and call out that the browser-playable URL could not be produced.
 - For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.
-- For Mode C, if `get_sop_report` returns `{"error": ...}` or no messages, treat it as an empty range (Mode C Step 3), not a crash; surface any tool / ES error with the failing call and next recovery step.
+- For Mode C, the tool result `{"error": "No VisionLLM messages found for the given filters."}` means zero messages for the range/scope: render only the Mode C empty-range line from the *Output contract* (`references/report-types/sop-compliance.md` Step 3). Inspect the raw `tools/call` response before extracting `.result.content[0].text`: a non-200 status, an empty body or one with no JSON-RPC response for the request (neither SSE `data:` events nor plain JSON), a JSON-RPC `error` envelope, `result.isError: true`, or any other error text is a failure — do NOT render that line; report the failing call, the raw response, and the next recovery step.
 
 ---
 
 ## Cross-Reference
 
-- **`/vss-manage-video-io-storage`** — sensor list, timelines, and clip URL for Mode A Step 1.
-- **`/vss-query-analytics`** — incident retrieval for Mode B Step 2. (Mode C does **not** use it — it calls VA-MCP's `get_sop_report` directly; see Mode C Step 2.)
+- **`/vss-manage-video-io-storage`** — sensor list, timelines, and clip URL for Mode A Step 1 (`references/report-types/video-analysis.md`).
+- **`/vss-query-analytics`** — incident retrieval for Mode B Step 2 (`references/report-types/incident-range.md`). (Mode C does **not** use it — it calls VA-MCP's `get_sop_report` directly; see `references/report-types/sop-compliance.md` Step 2.)
 - **`/vss-build-vision-ai`** — composes the SOP profile that deploys the VA-MCP SOP tools (`get_sop_*`) Mode C queries (contracts in `skills/vss-build-vision-ai/references/services/sop/`).
 - **`/vss-ask-video`** — ad-hoc VLM Q&A on a single clip (not a structured report).
-- **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Step 4) is still filled here.
-- **`references/default-vlm-prompt.md`** — default Mode A VLM prompt (edit this file to change the prompt). Step 3 loads it via `$SKILL_DIR/references/default-vlm-prompt.md` and fails if missing or empty.
+- **`/vss-summarize-video`** — used by Mode A to produce the summary body when the `lvs` profile is deployed; the report template (Mode A Step 4, `references/report-types/video-analysis.md`) is still filled by this skill.
+- **`references/default-vlm-prompt.md`** — default Mode A VLM prompt (edit this file to change the prompt). Mode A Step 3 (`references/report-types/video-analysis.md`) loads it via `$SKILL_DIR/references/default-vlm-prompt.md` and fails if missing or empty.

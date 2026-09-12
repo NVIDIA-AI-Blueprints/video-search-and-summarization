@@ -70,7 +70,7 @@ Use this service when the workflow requires **SOP compliance monitoring of a pro
 ## Scope notes
 
 - **Source:** built from `microservices/sop-inference-bp/` in `NVIDIA/sop-monitoring-blueprints` (branch `main`), which ships the `:8554` annotated RTSP output the DS-SOP→VIOS flow uses. See `build-ds-sop.md`.
-- **Report generation — available as a separate capability.** SOP compliance reports are composable via the **`sop-report-generation`** capability (`SOP Report Tools`, see `../sop.md` § Patch specifics) — it adds the SOP `get_sop_*` tools to `vss-va-mcp`, and the `vss-generate-video-report` skill (Mode C) renders the report from them (no report agent, no web UI, no report LLM). This DS-SOP entry delivers SOP **detection → Kafka → ELK/Kibana + annotated stream → VIOS/VST**; compose `sop-detection` + `sop-report-generation` together for the full blueprint (detection **and** on-demand compliance reports).
+- **Report generation — available as a separate capability.** SOP compliance reports are composable via the **`sop-report-generation`** capability (`SOP Report Tools`, see `../sop.md` § Patch specifics) — it adds the SOP `get_sop_*` tools to `vss-va-mcp`, and the `vss-generate-video-report` skill (Mode C — `references/report-types/sop-compliance.md` inside that skill's directory) renders the report from them (no report agent, no web UI, no report LLM). This DS-SOP entry delivers SOP **detection → Kafka → ELK/Kibana + annotated stream → VIOS/VST**; compose `sop-detection` + `sop-report-generation` together for the full blueprint (detection **and** on-demand compliance reports).
 
 ## Example Compose Snippet
 
