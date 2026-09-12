@@ -67,6 +67,10 @@ dev = [
 ]
 
 [tool.ruff]
+# A virtual workspace root has no [project] table, so ruff cannot infer
+# requires-python and would fall back to a default target where tomllib
+# is not stdlib -- which reorders imports differently from services/agent.
+target-version = "py313"
 line-length = 120
 
 [tool.ruff.lint]
