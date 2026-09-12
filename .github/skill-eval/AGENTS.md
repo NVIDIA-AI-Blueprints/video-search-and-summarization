@@ -316,8 +316,9 @@ The canonical harbor command is in § Harbor invocation.
       requirements from the dataset's `task.toml` `[metadata]`
       (`gpu_type`, `gpu_count`), snapshots `brev ls --json`, filters to
       RUNNING `vss-eval-*` boxes whose GPU matches, and walks the
-      candidates best-first with **non-blocking** `flock` attempts —
-      claiming the first box it can actually lock. Selection and
+      candidates best-first with a **non-blocking** coordinator-local `flock`
+      followed by an atomic lease on the candidate worker itself. A worker is
+      selected only after both reservations succeed. Selection and
       reservation are one atomic step inside the wrapper, so two
       concurrent legs fan out to different boxes instead of both
       "choosing" the same lock-free-looking one and serialising
@@ -346,11 +347,11 @@ The canonical harbor command is in § Harbor invocation.
       keeping the lock guard. Use this only for manual debugging runs.
 
    b. **Run the structural leg wrapper**. Do not acquire or release
-      `flock` manually in a separate Bash call, and do not pass
-      `--instance` in CI. `run_leg.py` opens `/tmp/brev/<chosen>.lock`,
-      holds that file descriptor for the entire Harbor run (including
-      all step-1..N invocations), and releases it only when the wrapper
-      exits or dies:
+      either lock manually in a separate Bash call, and do not pass
+      `--instance` in CI. `run_leg.py` holds the local lock and heartbeats the
+      exact-owner worker lease for the entire Harbor run, including all
+      step-1..N invocations. Loss of the worker lease aborts Harbor so another
+      coordinator cannot overlap the trial:
       ```bash
       "$SKILL_EVAL_PYTHON" .github/skill-eval/run_leg.py \
         --dataset-root "$DS" \
@@ -870,7 +871,8 @@ rendered markdown.
 - **Claude-agent-sdk / API rate limit.** Back off 60s, retry up to
   3x. If still failing, emit `BLOCKED: anthropic rate limit` and
   exit.
-- **Lock contention** (another CI run holds the Brev lock). `run_leg.py`
+- **Lock contention** (another CI run holds either the local or worker-side
+  lease). `run_leg.py`
   waits up to ~5.8 h (`--lock-timeout-sec 21000`, under the per-leg job
   timeout). If it times out, emit `BLOCKED: lock timeout on <instance>`.
 
