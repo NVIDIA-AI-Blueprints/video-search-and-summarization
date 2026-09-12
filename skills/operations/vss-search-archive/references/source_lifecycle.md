@@ -31,7 +31,7 @@ the backends' own service, model, and index inventory:
 : "${VSS_REPO_ROOT:?set the validated checkout}"
 VSS_ORIGIN="${VSS_ORIGIN%/}"
 
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
 "${VSS[@]}" search run --help >/dev/null || exit 1
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
 CONFIG_JSON=$("${VSS[@]}" configure show) || exit 1

@@ -23,8 +23,8 @@ RUN echo "Building for platform: ${TARGETPLATFORM:-unknown}, arch: ${TARGETARCH:
     rm -rf /var/lib/apt/lists/*
 
 # Create app directory
-RUN mkdir -p /vss-agent && \
-    chown ${USER_ID}:${GROUP_ID} /vss-agent
+RUN mkdir -p /src/services/agent && \
+    chown ${USER_ID}:${GROUP_ID} /src/services/agent
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -33,23 +33,32 @@ ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VSS_AGENT=0.1.1
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.1.0
 ENV GIT_LFS_SKIP_SMUDGE=1
 
-WORKDIR /vss-agent
+WORKDIR /src/services/agent
 
 # Copy project files
 # Own as root:root and copy read-only (0444 files, 0555 dirs) so the non-root
 # runtime user can read/execute but not own or modify the copied resources.
-COPY --chown=root:root --chmod=0444 agent/pyproject.toml /vss-agent
-COPY --chown=root:root --chmod=0444 agent/LICENSE-3rd-party.txt /vss-agent
-COPY --chown=root:root --chmod=0444 agent/uv.lock /vss-agent
+COPY --chown=root:root --chmod=0444 services/agent/pyproject.toml /src/services/agent
+COPY --chown=root:root --chmod=0444 services/agent/LICENSE-3rd-party.txt /src/services/agent
+COPY --chown=root:root --chmod=0444 services/agent/uv.lock /src/services/agent
 # uv workspace: the meta pyproject (copied above) + each member's pyproject/src.
 # Tests are intentionally omitted from the image.
-COPY --chown=root:root --chmod=0444 agent/packages/vss_core/pyproject.toml /vss-agent/packages/vss_core/pyproject.toml
-COPY --chown=root:root --chmod=0555 agent/packages/vss_core/src /vss-agent/packages/vss_core/src
-COPY --chown=root:root --chmod=0444 agent/packages/vss_agents/pyproject.toml /vss-agent/packages/vss_agents/pyproject.toml
-COPY --chown=root:root --chmod=0555 agent/packages/vss_agents/src /vss-agent/packages/vss_agents/src
-COPY --chown=root:root --chmod=0444 agent/packages/vss_cli/pyproject.toml /vss-agent/packages/vss_cli/pyproject.toml
-COPY --chown=root:root --chmod=0555 agent/packages/vss_cli/src /vss-agent/packages/vss_cli/src
-COPY --chown=root:root --chmod=0444 agent/docker/cleanup_vulnerabilities.py /vss-agent/cleanup_vulnerabilities.py
+COPY --chown=root:root --chmod=0444 services/agent/packages/vss_agents/pyproject.toml /src/services/agent/packages/vss_agents/pyproject.toml
+COPY --chown=root:root --chmod=0555 services/agent/packages/vss_agents/src /src/services/agent/packages/vss_agents/src
+# The library lives outside services/, and uv.lock names it ../../libs/vss/*
+# relative to the agent. The builder therefore mirrors the repo layout under
+# /src: uv refuses to normalise a relative path that climbs above the base
+# directory, so a flat /vss-agent with the library at /libs fails outright.
+# `--no-editable` bakes the library into .venv, so only .venv reaches the
+# runtime stage and this staging layout never ships.
+# `--no-editable` below bakes it into .venv, so only .venv reaches the runtime
+# stage and this staging path never ships.
+COPY --chown=root:root --chmod=0444 libs/vss/pyproject.toml /src/libs/vss/pyproject.toml
+COPY --chown=root:root --chmod=0444 libs/vss/core/pyproject.toml /src/libs/vss/core/pyproject.toml
+COPY --chown=root:root --chmod=0555 libs/vss/core/src /src/libs/vss/core/src
+COPY --chown=root:root --chmod=0444 libs/vss/cli/pyproject.toml /src/libs/vss/cli/pyproject.toml
+COPY --chown=root:root --chmod=0555 libs/vss/cli/src /src/libs/vss/cli/src
+COPY --chown=root:root --chmod=0444 services/agent/docker/cleanup_vulnerabilities.py /src/services/agent/cleanup_vulnerabilities.py
 
 # Create virtual environment and install dependencies
 # Use architecture-specific cache to avoid ARM64/AMD64 conflicts
@@ -58,24 +67,32 @@ RUN --mount=type=cache,id=uv_cache_${TARGETARCH},target=/root/.cache/uv,sharing=
     . .venv/bin/activate && \
     uv sync --frozen --no-dev --no-editable --extra agent --link-mode copy
 
+# The venv is built at /src/services/agent -- so uv can resolve the library at
+# ../../libs/vss -- but the runtime stage ships it at /vss-agent. Console
+# scripts bake an absolute interpreter path at install time, so rewrite them to
+# where they will actually live. `uv venv --relocatable` is not an option here:
+# it emits a #!/bin/sh wrapper and the distroless runtime has no shell.
+RUN grep -rlI '^#!/src/services/agent/\.venv/bin/' /src/services/agent/.venv/bin \
+    | xargs -r sed -i '1s|^#!/src/services/agent/\.venv/bin/|#!/vss-agent/.venv/bin/|'
+
 RUN uv pip uninstall setuptools
-RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/setuptools
-RUN find /vss-agent/.venv -name "*.exe" -delete
+RUN rm -rf /src/services/agent/.venv/lib/python3.13/site-packages/setuptools
+RUN find /src/services/agent/.venv -name "*.exe" -delete
 
 # Cleanup to reduce image size
-RUN find /vss-agent/.venv -type d -name "__pycache__" -exec rm -rf {} + && \
-    find /vss-agent/.venv -type d -name "tests" -exec rm -rf {} + && \
-    find /vss-agent/.venv -type f -name "*.pyc" -delete && \
-    find /vss-agent/.venv -type f -name "*.pyo" -delete && \
-    find /vss-agent/.venv -type f -name "*.a" -delete
+RUN find /src/services/agent/.venv -type d -name "__pycache__" -exec rm -rf {} + && \
+    find /src/services/agent/.venv -type d -name "tests" -exec rm -rf {} + && \
+    find /src/services/agent/.venv -type f -name "*.pyc" -delete && \
+    find /src/services/agent/.venv -type f -name "*.pyo" -delete && \
+    find /src/services/agent/.venv -type f -name "*.a" -delete
 
 # Remove PyTorch test binaries and unused components (~47 MB)
-RUN find /vss-agent/.venv -type f -path "*/torch/bin/test_*" -delete && \
-    find /vss-agent/.venv -type d -path "*/torch/test" -exec rm -rf {} + 2>/dev/null || true && \
-    rm -f /vss-agent/.venv/lib/python3.13/site-packages/torch/bin/protoc* || true
+RUN find /src/services/agent/.venv -type f -path "*/torch/bin/test_*" -delete && \
+    find /src/services/agent/.venv -type d -path "*/torch/test" -exec rm -rf {} + 2>/dev/null || true && \
+    rm -f /src/services/agent/.venv/lib/python3.13/site-packages/torch/bin/protoc* || true
 
 # Remove imageio_ffmpeg binary if present (~76 MB) - not needed since we use opencv
-RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/imageio_ffmpeg 2>/dev/null || true
+RUN rm -rf /src/services/agent/.venv/lib/python3.13/site-packages/imageio_ffmpeg 2>/dev/null || true
 
 # OSRB: opencv-python-headless bundles FFmpeg libraries that contain patent-encumbered
 # codecs (H.264/H.265 in libavcodec, etc.). NVIDIA must not redistribute those, so the
@@ -85,10 +102,10 @@ RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/imageio_ffmpeg 2>/dev/n
 # vss_agents.utils.optional_cv2); operators opt in at container startup with
 # INSTALL_PROPRIETARY_CODECS=true, which installs opencv-python-headless from PyPI on
 # their own machine (see docker/install_proprietary_codecs.py).
-RUN rm -rf /vss-agent/.venv/lib/python3.13/site-packages/cv2 \
-           /vss-agent/.venv/lib/python3.13/site-packages/opencv_python_headless.libs \
-           /vss-agent/.venv/lib/python3.13/site-packages/opencv_python_headless-*.dist-info \
-    && find /vss-agent/.venv \( \
+RUN rm -rf /src/services/agent/.venv/lib/python3.13/site-packages/cv2 \
+           /src/services/agent/.venv/lib/python3.13/site-packages/opencv_python_headless.libs \
+           /src/services/agent/.venv/lib/python3.13/site-packages/opencv_python_headless-*.dist-info \
+    && find /src/services/agent/.venv \( \
            -name 'libav*.so*' -o -name 'libswscale*.so*' -o -name 'libswresample*.so*' \
            -o -name 'libpostproc*.so*' -o -name 'libx264*.so*' -o -name 'libx265*.so*' \
            -o -name 'libde265*.so*' -o -name 'libopenh264*.so*' -o -name 'libkvazaar*.so*' \
@@ -107,7 +124,7 @@ ENV VSS_RUNTIME_UID=${USER_ID}
 ENV VSS_RUNTIME_GID=${GROUP_ID}
 
 # Copy cleanup script (as root to ensure proper permissions)
-COPY --from=builder /vss-agent/cleanup_vulnerabilities.py /tmp/cleanup_vulnerabilities.py
+COPY --from=builder /src/services/agent/cleanup_vulnerabilities.py /tmp/cleanup_vulnerabilities.py
 
 # Ensure we're running as root (UID 0) for cleanup operations
 # Distroless images don't have /etc/passwd, so use numeric UID
@@ -125,8 +142,8 @@ RUN ["/usr/local/bin/python3", "-c", "import os; os.remove('/tmp/cleanup_vulnera
 RUN ["/usr/local/bin/python3", "-c", "import os; os.path.exists('/usr/bin/openssl') and os.remove('/usr/bin/openssl')"]
 
 # Copy application without any dev needs
-COPY --from=builder --chown=root:root --chmod=0555 /vss-agent/.venv /vss-agent/.venv
-COPY --from=builder --chown=root:root --chmod=0444 /vss-agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
+COPY --from=builder --chown=root:root --chmod=0555 /src/services/agent/.venv /vss-agent/.venv
+COPY --from=builder --chown=root:root --chmod=0444 /src/services/agent/LICENSE-3rd-party.txt /vss-agent/LICENSE-3rd-party.txt
 
 # The NVIDIA Software License Agreement is not vendored in this source tree.
 # BuildKit performs this download itself, so no HTTP client is needed in any
@@ -138,8 +155,8 @@ ADD --chown=root:root --chmod=0444 \
     /vss-agent/NVIDIA-Software-License-Agreement.pdf
 
 # Entrypoint wrapper + opt-in proprietary-codec installer (read-only app resources).
-COPY --chown=root:root --chmod=0555 agent/docker/entrypoint.py /vss-agent/entrypoint.py
-COPY --chown=root:root --chmod=0555 agent/docker/install_proprietary_codecs.py /vss-agent/install_proprietary_codecs.py
+COPY --chown=root:root --chmod=0555 services/agent/docker/entrypoint.py /vss-agent/entrypoint.py
+COPY --chown=root:root --chmod=0555 services/agent/docker/install_proprietary_codecs.py /vss-agent/install_proprietary_codecs.py
 
 # NAT writes transient workflow state here at startup. Keep app resources
 # immutable, but provide a narrowly scoped writable scratch directory.

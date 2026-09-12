@@ -73,7 +73,7 @@ class SelectProjectsTest(unittest.TestCase):
         self.assertIn("0 of", reason)
 
     def test_agent_change_scans_only_agent(self):
-        selected, _ = dsp.select_projects(["services/agent/packages/vss_cli/src/x.py"])
+        selected, _ = dsp.select_projects(["libs/vss/cli/src/x.py"])
         self.assertEqual([project["name"] for project in selected], ["agent"])
 
     def test_sibling_directory_does_not_match(self):

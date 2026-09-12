@@ -29,9 +29,11 @@ bypass-selection = true
 members = ["packages/*"]
 
 [tool.uv.sources]
-nvidia-vss-core = { workspace = true }
 nvidia-vss-agents = { workspace = true }
-nvidia-vss-cli = { workspace = true }
+# The library lives in libs/vss and is consumed from there, so the dependency
+# runs one way: the agent uses the library, never the reverse.
+nvidia-vss-core = { path = "../../libs/vss/core", editable = true }
+nvidia-vss-cli = { path = "../../libs/vss/cli", editable = true }
 # nvidia index currently only has langchain-nvidia-ai-endpoints up to 1.0.3; source = pypi so uv gets versions >1.0.3 from PyPI
 langchain-nvidia-ai-endpoints = { index = "pypi" }
 torch = [
@@ -193,8 +195,6 @@ ignore = ["E501", "W505", "SIM108", "B024"]
 "__init__.py" = ["F401"]
 # Tests at any depth (packages/<dist>/tests/**); mock args + nested `with`.
 "**/tests/**" = ["ARG001", "ARG002", "SIM117", "B017"]
-# Memory helpers keep runtime imports lazy (TC001/TC003) to stay NAT-free.
-"packages/vss_core/src/vss_core/memory/**" = ["TC001", "TC003"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -220,7 +220,7 @@ force-single-line = true
 default-section = "third-party"
 
 [tool.coverage.run]
-source = ["packages/vss_core/src", "packages/vss_cli/src", "packages/vss_agents/src"]
+source = ["packages/vss_agents/src"]
 omit = [
     "*/tests/*",
     "*/test_*.py",
@@ -263,11 +263,7 @@ exclude_lines = [
 ignore_errors = true
 
 [tool.pytest.ini_options]
-testpaths = [
-    "packages/vss_core/tests/unit_test",
-    "packages/vss_cli/tests/unit_test",
-    "packages/vss_agents/tests/unit_test",
-]
+testpaths = ["packages/vss_agents/tests/unit_test"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -297,7 +293,7 @@ pretty = true
 explicit_package_bases = true
 namespace_packages = true
 ignore_missing_imports = true
-mypy_path = "packages/vss_core/src:packages/vss_cli/src:packages/vss_agents/src:packages/vss_agents/stubs"
+mypy_path = "packages/vss_agents/src:packages/vss_agents/stubs:../../libs/vss/core/src:../../libs/vss/cli/src"
 
 [[tool.mypy.overrides]]
 module = "docker.*"

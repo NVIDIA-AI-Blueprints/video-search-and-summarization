@@ -6,7 +6,7 @@
 The vss-search-archive skill exercises the host-side NAT-free ``vss`` base
 distribution for fused semantic + attribute search across pre-ingested video
 sources. Search commands run from the repository checkout as ``uv run --project
-"${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss search run <embed|attribute|fusion|object>
+"${VSS_REPO_ROOT}/libs/vss" vss search run <embed|attribute|fusion|object>
 ...``; endpoints come from the deployment recorded by ``vss configure``, so they never run
 through a container/pod shell or a manually selected search endpoint.
 It runs against a **full-remote-model VSS search profile** (deploy mode
@@ -117,7 +117,7 @@ OPERATION_PREAMBLE = (
     "and evaluation fixtures were prepared by the preceding deployment and ingestion steps. Do not redeploy "
     "the profile and do not ingest or re-ingest any source during this step. Set "
     "`VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, require "
-    "`${VSS_REPO_ROOT}/services/agent/pyproject.toml` to exist, and work from that checkout. "
+    "`${VSS_REPO_ROOT}/libs/vss/pyproject.toml` to exist, and work from that checkout. "
     "List registered sources through the prepared deployment's discovered VST/VIOS "
     "connectivity: read the origin from `vss configure show` and "
     "GET its `/vst/api/v1/sensor/list`; do not assume a fixed port. If "
@@ -131,7 +131,7 @@ OPERATION_PREAMBLE = (
     "retrieval path, and pass it as the sub-action of `run` -- `run embed` for a text query, "
     "`run attribute` for attributes only, `run fusion` for both, `run object` for tracked ids -- "
     "then run the host checkout's project-local `cd \"${VSS_REPO_ROOT}\" && uv run --project "
-    "\"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss search run <path>` with no endpoint, index "
+    "\"${VSS_REPO_ROOT}/libs/vss\" vss search run <path>` with no endpoint, index "
     "or model flags (they come from `vss configure`). Preserve both the resolved source name and sensor ID: "
     "pass the sensor ID as `--video-source` for `embed` and `fusion`, the name for `attribute` and `object`, "
     "and pass `--source-type video_file` for these uploaded fixtures. Also pass `--raw` and any result "
@@ -279,7 +279,7 @@ def generate_solve_script(platform: str) -> str:
         "    exit 1\n"
         "}\n"
         'VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"\n'
-        'test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {\n'
+        'test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {\n'
         '    echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly"\n'
         "    exit 1\n"
         "}\n"
@@ -289,7 +289,7 @@ def generate_solve_script(platform: str) -> str:
         '    echo "Search profile requires .env and runtime generated.env"\n'
         "    exit 1\n"
         "}\n"
-        'uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli '
+        'uv run --project "${VSS_REPO_ROOT}/libs/vss" '
         "vss search run --help >/dev/null\n"
         "echo 'VSS agent and the project-local host CLI are ready.'\n"
     )

@@ -276,7 +276,8 @@ functions:
 
 @pytest.fixture
 def agent_root() -> Path:
-    return Path(__file__).resolve().parents[6]
+    # libs/vss/core/tests/unit_test/lib/search_core -> repo root is 7 up.
+    return Path(__file__).resolve().parents[7]
 
 
 def test_search_archive_cli_e2e_returns_search_output_json(

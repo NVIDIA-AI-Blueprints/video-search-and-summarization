@@ -8,12 +8,12 @@ Run the `vss` console executable from the `vss` project in the checkout
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
+test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
   echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
   exit 1
 }
 cd "${VSS_REPO_ROOT}" &&
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
+uv run --project "${VSS_REPO_ROOT}/libs/vss" \
   vss search run <path> [options]
 ```
 
@@ -21,12 +21,13 @@ The executable is provided by that project and need not exist globally. Do not
 use `which vss`; verify the supported entry point directly:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
+uv run --project "${VSS_REPO_ROOT}/libs/vss" \
   vss search run --help
 ```
 
-Keep `--extra cli` on every project-local invocation; the base meta package
-does not install the `nvidia-vss-cli` distribution that declares `vss`.
+`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
+needed: the agent stack is not in it and the environment is NAT-free by
+construction.
 
 If preflight fails, report its error and stop. Do not manually call
 Elasticsearch, embedding, or search endpoints.
