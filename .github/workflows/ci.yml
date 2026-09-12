@@ -603,7 +603,7 @@ jobs:
         if: always()
         with:
           name: vss-cli-coverage-report
-          path: services/agent/coverage-lib.xml
+          path: libs/vss/coverage-lib.xml
 
   # ---------------------------------------------------------------------------
   # Job 5a: Behavior analytics unit tests
