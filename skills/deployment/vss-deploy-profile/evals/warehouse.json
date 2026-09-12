@@ -31,5 +31,15 @@
         "`docker ps --format '{{.Names}}' | grep -qxE 'nemotron-3\\.5-lightning-30b-a3b|nvidia-nemotron-nano-9b-v2-fp8'` returns exit 1 (no local LLM container — remote mode must not start one; only 2 GPUs on this platform)"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 2,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": true,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW"
+    ]
+  }
 }

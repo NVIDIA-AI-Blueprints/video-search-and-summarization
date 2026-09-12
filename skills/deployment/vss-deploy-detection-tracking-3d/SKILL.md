@@ -12,6 +12,10 @@ description: >
   2D tracking routes to the 2D tracking or DeepStream skills. Not for full
   warehouse blueprint deployment, single-camera 2D tracking, camera calibration
   itself, or VSS summarization, Q&A, and RAG workflows.
+  The standalone Compose file is
+  services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml; its core services are
+  perception, BEV Fusion, bundled Mosquitto, bundled Kafka, and
+  kafka-topic-init.
 license: Apache-2.0
 metadata:
   author: NVIDIA
@@ -26,6 +30,9 @@ metadata:
 
 Deploy the standalone RT-CV-3D MV3DT stack from `services/rtvi/rt-cv-3d/rt-cv-mv3dt`.
 This is the default path for MV3DT / RTVI-CV-3D / multi-camera tracking requests.
+For concise routing or architecture answers, summarize the standalone Compose
+path and core service roles under **What This Deploys** without adding runtime
+image versions or deployment steps the user did not request.
 
 Do not derive MV3DT services from the warehouse blueprint for this skill. Use
 `vss-deploy-profile` only when the user explicitly asks for warehouse MV3DT,

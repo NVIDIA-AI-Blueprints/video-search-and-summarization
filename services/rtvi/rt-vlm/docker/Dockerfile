@@ -46,6 +46,8 @@ LABEL com.nvidia.rtvi.base="vlm"
 
 ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video \
     HF_HOME=/tmp/huggingface \
+    HF_HUB_DISABLE_XET=1 \
+    HF_HUB_ENABLE_HF_TRANSFER=0 \
     TORCH_CUDA_ARCH_LIST="7.5 8.0 8.6 8.7 9.0 10.0 11.0 12.0+PTX" \
     CUDA_CACHE_DISABLE=0 \
     TRITON_CUDACRT_PATH=/usr/local/cuda/include \

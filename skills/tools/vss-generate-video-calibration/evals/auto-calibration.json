@@ -4,7 +4,7 @@
   ],
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "A40": {
         "gpu_count": 1
       }
     }
@@ -61,5 +61,15 @@
         "The plan preserves the ordered RTSP stream list, polls automatic ingest until INGESTED, uploads/verifies alignment and layout assets, explicitly stages confirmed linear media or completes UI rectification before verification, verifies project_state == READY, starts or resumes VGGT then runs AMC, post-processes after each completed calibration, compares results, and preserves AMC error output on failure."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 46,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A40"
+    ]
+  }
 }

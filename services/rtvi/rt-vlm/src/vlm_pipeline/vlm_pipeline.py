@@ -45,7 +45,7 @@ from utils.asset_manager import Asset
 from .errors import CUDA_OOM_STATUS_CODE, format_cuda_oom_error, is_cuda_oom_error
 from .ipc_frame_source import DEFAULT_IPC_SOCKET_DIR, select_ipc_stream_identity
 from .model_path_policy import validate_model_config, validate_model_path_source
-from .ngc_model_downloader import download_model, download_model_git
+from .ngc_model_downloader import download_model, download_model_git, download_model_hf
 from .process_base import (
     ProcessBase,
     _contains_cuda_tensor,
@@ -1865,6 +1865,8 @@ class VlmPipeline:
             if model_path_[1]:
                 raise model_path_[1] from None
             args.model_path = model_path_[0]
+        if args.model_path and args.model_path.startswith("hf:"):
+            args.model_path = download_model_hf(args.model_path[3:], NGC_MODEL_CACHE)
         if args.model_path and args.model_path.startswith("git:"):
             args.model_path = download_model_git(args.model_path[4:], NGC_MODEL_CACHE)
         if args.model_path:

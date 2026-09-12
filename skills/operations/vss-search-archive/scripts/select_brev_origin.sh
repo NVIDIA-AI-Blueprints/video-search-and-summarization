@@ -12,7 +12,26 @@ if [[ "$#" -ne 2 ]]; then
 fi
 
 PUBLIC_ORIGIN=${1%/}
+
+# generated.env callers can hand us a host value that already carries a
+# scheme. Canonicalize that input once, before selection, so the fallback can
+# never become http://http://... . Do not rewrite localhost to 127.0.0.1 (or
+# vice versa): after selection the exact origin is deployment state and must be
+# preserved verbatim through `vss configure` and `vss configure show`.
 HOST_ORIGIN=${2%/}
+while [[ "${HOST_ORIGIN}" == http://http://* ]]; do
+  HOST_ORIGIN=${HOST_ORIGIN#http://}
+done
+while [[ "${HOST_ORIGIN}" == https://https://* ]]; do
+  HOST_ORIGIN=${HOST_ORIGIN#https://}
+done
+case "${HOST_ORIGIN}" in
+  http://*|https://*) ;;
+  *)
+    echo "host origin must be an absolute http(s) origin: ${HOST_ORIGIN}" >&2
+    exit 2
+    ;;
+esac
 PROBE_BODY=$(mktemp /tmp/vss-public-vst.XXXXXX) || exit 1
 trap 'rm -f -- "${PROBE_BODY}"' EXIT
 

@@ -25,7 +25,7 @@ image:
   pullPolicy: IfNotPresent
 
 # Model source and implementation paths
-modelPath: "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p"
+modelPath: "hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3"
 modelImplementationPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1"
 modelRepositoryScriptPath: "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py"
 remoteEmbedEndpoint: ""

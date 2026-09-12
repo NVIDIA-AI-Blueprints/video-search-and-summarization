@@ -4,20 +4,30 @@
   ],
   "resources": {
     "platforms": {
-      "ANY": {
-        "gpu_count": 0
+      "A16": {
+        "gpu_count": 1
       }
     }
   },
   "expects": [
     {
-      "query": "Using the `/vss-setup-behavior-analytics` skill, end-to-end and autonomously, deploy the `vss-behavior-analytics` service on this host and configure it to **raise an alert when a person comes within 1.8 meters of a forklift**.\n\n**Environment & prerequisites:** A bare Brev host with Docker + `NGC_CLI_API_KEY` for image pull. `vss-behavior-analytics` is **CPU-only** (`gpu_count: 0`; `ANY` pool). A live broker / perception input is NOT required — this verifies the **deploy-time configuration**, so a restart-looping container is acceptable. Note that the proximity DISTANCE is a per-sensor detection setting while the ALERT itself is a proximity-violation incident; configure both so a person-near-forklift event actually becomes an alert.",
+      "query": "Using the `/vss-setup-behavior-analytics` skill, end-to-end and autonomously, deploy the `vss-behavior-analytics` service on this host and configure it to **raise an alert when a person comes within 1.8 meters of a forklift**.\n\n**Environment & prerequisites:** A bare Brev host with Docker + `NGC_CLI_API_KEY` for image pull. `vss-behavior-analytics` is **CPU-only** (`gpu_count: 0`; `ANY` pool). A live broker / perception input is NOT required \u2014 this verifies the **deploy-time configuration**, so a restart-looping container is acceptable. Note that the proximity DISTANCE is a per-sensor detection setting while the ALERT itself is a proximity-violation incident; configure both so a person-near-forklift event actually becomes an alert.",
       "checks": [
         "`docker ps -a --format '{{.Names}}' | grep -q vss-behavior-analytics` returns exit 0 (a behavior-analytics container was created)",
         "The config the container mounts (resolve via `docker inspect <container> --format '{{json .Mounts}}'` then read the host source, or read `/resources/*config.json` in the container) enables per-sensor proximity DETECTION at 1.8 m: `proximityDetectionEnable` is \"true\", `proximityDetectionThreshold` is \"1.8\", with the forklift class in `proximityDetectionCenterClasses` and the person class in `proximityDetectionSurroundingClasses` (a correct center/surrounding split for 'person near forklift'; class strings must match the labels perception emits).",
         "The deployment turns detection into an ALERT, not just detection: proximity-violation incidents are enabled (`proximityViolationIncidentEnable` is \"true\") and the running app entrypoint generates incidents (e.g. `main_public_safety_app.py`, `main_analytics_2d_app.py` / `main_analytics_3d_app.py`, `main_search_and_alerts_app.py`, or `main_composite_app.py` with `numWorkersForFrameEnhancement` non-zero).",
-        "The 1.8 value is the DISTANCE knob (`proximityDetectionThreshold`, meters, per-sensor) — NOT the incident persistence-duration knob (`proximityViolationIncidentThreshold`, seconds). They must not be confused."
+        "The 1.8 value is the DISTANCE knob (`proximityDetectionThreshold`, meters, per-sensor) \u2014 NOT the incident persistence-duration knob (`proximityViolationIncidentThreshold`, seconds). They must not be confused."
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 16,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "A16"
+    ]
+  }
 }

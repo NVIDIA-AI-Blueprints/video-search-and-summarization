@@ -111,7 +111,7 @@ def test_server():
             "--model-implementation-path",
             "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1",
             "--model-path",
-            "git:https://huggingface.co/nvidia/Cosmos-Embed1-448p",
+            "hf:nvidia/Cosmos-Embed1-448p@f60ec73636eb7c9cc25267367713b7b1b0cffaf3",
             "--model-repository-script-path",
             "/opt/nvidia/rtvi/rtvi/models/custom/samples/cosmos-embed1/create_triton_model_repo.py",
         ]

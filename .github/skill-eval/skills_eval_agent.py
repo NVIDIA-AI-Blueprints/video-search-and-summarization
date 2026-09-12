@@ -5,7 +5,8 @@
 
 Spawns one `claude-agent-sdk` agent with `.github/skill-eval/AGENTS.md`
 as its system prompt and lets it drive an eval end-to-end:
-adapter/dataset → Brev box selection → run_leg.py → results comment. Two modes:
+adapter/dataset → (OpenShell GHA: in-guest Harbor via SKILL_EVAL_LOCAL_GPU_INSTANCE;
+otherwise Brev box selection) → run_leg.py → results comment. Two modes:
 
   - Single-spec (push): the `plan` job in skills-eval.yml resolves the PR
     diff into a matrix of one leg per (spec, platform); each leg invokes
@@ -43,13 +44,15 @@ Env (set by the workflow step):
     BREV_ENV_ID           Set by Brev on the coordinator host; part of secure-link URLs
 
 Exit codes:
-    0 - all reported specs passed, or the agent reported a valid blocker
+    0 - all reported specs passed
     1 - setup error (missing env, AGENTS.md not found, sdk install failed)
     2 - agent crashed
     3 - agent hit max_turns without finishing
     4 - missing or malformed terminal protocol marker
     5 - agent completed but one or more reported specs failed
     6 - the agent's reserved work window expired before a verdict
+    7 - agent reported BLOCKED: (infra/capacity/adapter); the GHA job must fail
+    8 - direct OpenShell agent made no allowlisted progress before its watchdog
 """
 from __future__ import annotations
 
@@ -59,10 +62,28 @@ import glob
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import time
 import traceback
+
+# importlib-based contract tests load this file without adding its directory to
+# sys.path; production script execution does. Keep the local harness module
+# import identical in both paths.
+_SKILL_EVAL_DIR = Path(__file__).resolve().parent
+if str(_SKILL_EVAL_DIR) not in sys.path:
+    sys.path.insert(0, str(_SKILL_EVAL_DIR))
+
+from direct_agent_progress import (  # noqa: E402
+    DEFAULT_COLD_START_GRACE_SEC,
+    DEFAULT_HARD_CEILING_SEC,
+    DEFAULT_IDLE_TIMEOUT_SEC,
+    DirectAgentProgress,
+    DirectAgentWatchdogExpired,
+    ProgressTracker,
+    run_with_progress_watchdog,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -109,10 +130,18 @@ SKILL_EVAL_HARBOR_DEADLINE_ENV = "SKILL_EVAL_HARBOR_DEADLINE_MONOTONIC"
 _PROTOCOL_FAILURE_EXIT_CODE = 4
 _EVAL_FAILURE_EXIT_CODE = 5
 _WORK_DEADLINE_EXIT_CODE = 6
+_BLOCKED_EXIT_CODE = 7
+_DIRECT_WATCHDOG_EXIT_CODE = 8
 _DONE_RESULT_RE = re.compile(
     r"^DONE:\s*(?P<passed>\d+)\s*/\s*(?P<total>\d+)\s+"
     r"spec(?:s)?\s+passed\b"
 )
+# Claude often wraps the mandatory DONE:/BLOCKED: line in markdown.
+# Run 32225077286 put it in a fenced block (closing ``` was the last
+# line). Run 32229635259 put the whole marker in inline backticks
+# (`DONE: ...`). Neither form starts with DONE:/BLOCKED: until unwrapped.
+_MARKDOWN_FENCE_RE = re.compile(r"^```[\w+-]*\s*$")
+_INLINE_CODE_RE = re.compile(r"^`+(?P<body>.*)`+$")
 
 # ---------------------------------------------------------------------------
 # Pre-flight
@@ -202,7 +231,50 @@ class WorkDeadlineExceeded(RuntimeError):
     pass
 
 
-async def _run_agent_with_work_deadline() -> int:
+def _local_gpu_runner() -> bool:
+    """True when this process is an OpenShell GHA GPU guest, not a coordinator."""
+    return bool(os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip())
+
+
+def _direct_progress_monitor() -> DirectAgentProgress | None:
+    """Build the direct-OpenShell-only monitor; preserve the Brev path."""
+    if not _local_gpu_runner():
+        return None
+    try:
+        cold_grace = float(os.environ.get(
+            "DIRECT_AGENT_COLD_START_GRACE_SEC",
+            str(DEFAULT_COLD_START_GRACE_SEC),
+        ))
+        idle_timeout = float(os.environ.get(
+            "DIRECT_AGENT_IDLE_TIMEOUT_SEC",
+            str(DEFAULT_IDLE_TIMEOUT_SEC),
+        ))
+    except ValueError as exc:
+        raise RuntimeError(
+            "direct agent watchdog durations must be numeric"
+        ) from exc
+    eval_slug = os.environ.get("EVAL_SLUG", "")
+    eval_spec_stem = os.environ.get("EVAL_SPEC_STEM", "") or "spec"
+    results_root, _, _ = leg_paths(eval_slug, eval_spec_stem)
+    spec_path = Path(os.environ.get("EVAL_SPEC_PATH", ""))
+    if not spec_path.is_absolute():
+        spec_path = REPO_ROOT / spec_path
+    tracker = ProgressTracker(
+        hard_ceiling_sec=DEFAULT_HARD_CEILING_SEC,
+        cold_start_grace_sec=cold_grace,
+        idle_timeout_sec=idle_timeout,
+    )
+    return DirectAgentProgress(
+        results_root=results_root,
+        spec_path=spec_path,
+        repo_root=REPO_ROOT,
+        tracker=tracker,
+    )
+
+
+async def _run_agent_with_work_deadline(
+    progress: DirectAgentProgress | None = None,
+) -> int:
     """Cancel the SDK session before it can consume reporting headroom."""
     deadline = float(os.environ[SKILL_EVAL_WORK_DEADLINE_ENV])
     remaining = deadline - time.monotonic()
@@ -210,6 +282,12 @@ async def _run_agent_with_work_deadline() -> int:
         raise WorkDeadlineExceeded("skill-eval work window already expired")
     try:
         async with asyncio.timeout(remaining):
+            if progress is not None:
+                return await run_with_progress_watchdog(
+                    run_agent(progress), progress
+                )
+            # Preserve the old coordinator/Brev call shape for tests and
+            # embedders that replace run_agent with a zero-argument coroutine.
             return await run_agent()
     except TimeoutError as exc:
         if time.monotonic() >= deadline:
@@ -356,6 +434,18 @@ async def _block_bash_background(input_data, tool_use_id, context):
                 ),
             }
         }
+    if _local_gpu_runner() and re.search(r"(^|[;&|]\s*)brev\b", cmd):
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "This job is already on the OpenShell GPU guest. Do not "
+                    "call brev or hop to a coordinator; run Harbor in-guest "
+                    "via run_leg.py (SKILL_EVAL_LOCAL_GPU_INSTANCE)."
+                ),
+            }
+        }
     return {}
 
 
@@ -469,6 +559,25 @@ End with `DONE: 1/1 specs passed` when it passed, `DONE: 0/1 specs passed;
             "append the result table to `$GITHUB_STEP_SUMMARY` (no PR to comment on)"
             if manual else "post ONE PR comment for this spec"
         )
+        local_gpu = os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
+        if local_gpu:
+            harbor_step = (
+                f"this job is already on OpenShell GHA runner `{local_gpu}` "
+                f"(SKILL_EVAL_LOCAL_GPU_INSTANCE). Do NOT call `brev`, do NOT "
+                f"SSH to a coordinator, and do NOT select a `vss-eval-*` pool "
+                f"box. Generate the dataset, then run "
+                f"`.github/skill-eval/run_leg.py` in the foreground; the "
+                f"wrapper pins this guest and Harbor uses local Docker/GPU"
+            )
+        else:
+            platform_label = eval_platform or "the spec's platform"
+            harbor_step = (
+                f"select a `vss-eval-*` member matching "
+                f"`{platform_label}` → run "
+                f"`.github/skill-eval/run_leg.py` for this platform "
+                f"(§ Harbor invocation; never background it; the wrapper "
+                f"holds the per-box lock while Harbor runs)"
+            )
         user_prompt = f"""
 {target}: evaluate exactly ONE spec on ONE platform —
 `{eval_spec_path}` (skill `{eval_skill}`, platform `{eval_platform or "see spec"}`).
@@ -488,10 +597,7 @@ Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job
 already selected this (spec, platform). Run steps 2–7 for it only:
 ensure/refresh its adapter under `.github/skill-eval/adapters/{eval_skill}/`
 (missing/stale → handle per § 3c, then exit BLOCKED — never run a
-locally-patched adapter in this leg) → generate the dataset → select a
-`vss-eval-*` member matching `{eval_platform or "the spec's platform"}` →
-run `.github/skill-eval/run_leg.py` for this platform (§ Harbor invocation;
-never background it; the wrapper holds the per-box lock while Harbor runs)
+locally-patched adapter in this leg) → generate the dataset → {harbor_step}
 {render_block}
 → {post_step}, posting `{report_path}` verbatim
   (`gh pr comment --body-file`).
@@ -547,21 +653,50 @@ def missing_renderer_outputs(marker: str, results_root: Path,
     return [p for p in (summary_path, report_path) if not p.is_file()]
 
 
+def _unwrap_protocol_line(line: str) -> str | None:
+    """Return a protocol-line candidate, or None to skip blank/fence lines.
+
+    Surrounding inline-code ticks are stripped so a last line of
+    `` `DONE: 1/1 specs passed; ...` `` is still a valid marker. Leading
+    space on a bare marker still fails closed.
+    """
+    if not line.strip():
+        return None
+    if _MARKDOWN_FENCE_RE.fullmatch(line.strip()):
+        return None
+    candidate = line.rstrip()
+    match = _INLINE_CODE_RE.fullmatch(candidate.strip())
+    if match is not None:
+        return match.group("body").rstrip()
+    return candidate
+
+
 def _last_nonempty_line(text_blocks: list[str]) -> str | None:
-    """Return the final printed assistant line without accepting leading space."""
+    """Return the final printed assistant line without accepting leading space.
+
+    Trailing markdown fences are ignored, and a last line that is only
+    an inline-code span is unwrapped, so a well-formed ``DONE:`` /
+    ``BLOCKED:`` marker wrapped in markdown still counts. Other trailing
+    prose still fails closed.
+    """
     for block in reversed(text_blocks):
         for line in reversed(block.splitlines()):
-            if line.strip():
-                return line.rstrip()
+            candidate = _unwrap_protocol_line(line)
+            if candidate is None:
+                continue
+            return candidate
     return None
 
 
 def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
     """Validate the final protocol marker and return its exit code and reason.
 
-    AGENTS.md defines ``BLOCKED:`` as a valid outcome for conditions such as
-    unavailable capacity or an adapter update that needs a rerun, so it remains
-    exit 0. A completed eval is successful only when its final ``DONE:`` marker
+    AGENTS.md still requires a ``BLOCKED:`` marker for capacity or adapter
+    conditions that cannot finish the trial. That marker is a protocol
+    success for the agent, but GitHub must not treat it as a green job:
+    ``/ok to test`` re-runs have to see red until the fleet can actually
+    run the spec. Exit 7.
+    A completed eval is successful only when its final ``DONE:`` marker
     reports a positive, complete ``N/N specs passed`` result. Syntactically valid
     partial results fail with exit 5; malformed or misplaced markers fail closed
     with the existing protocol-error exit 4.
@@ -580,7 +715,7 @@ def _evaluate_terminal_marker(final_text: list[str]) -> tuple[int, str]:
                 _PROTOCOL_FAILURE_EXIT_CODE,
                 "malformed BLOCKED marker; a non-empty reason is required",
             )
-        return 0, f"reported blocker: {blocker_reason}"
+        return _BLOCKED_EXIT_CODE, f"reported blocker: {blocker_reason}"
 
     if not marker.startswith("DONE:"):
         return (
@@ -629,7 +764,7 @@ def _result_message_state(message: object) -> tuple[bool, bool]:
     return hit_max_turns, bool(getattr(message, "is_error", False))
 
 
-async def run_agent() -> int:
+async def run_agent(progress: DirectAgentProgress | None = None) -> int:
     from claude_agent_sdk import AssistantMessage  # type: ignore
     from claude_agent_sdk import ClaudeAgentOptions  # type: ignore
     from claude_agent_sdk import ClaudeSDKClient  # type: ignore
@@ -683,6 +818,20 @@ async def run_agent() -> int:
     print(f"[agent] starting · pr={pr_number} base={pr_base} head={pr_head[:8]} "
           f"model={model} max_turns={MAX_TURNS}", flush=True)
 
+    hooks = {
+        "PreToolUse": [
+            HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
+        ],
+    }
+    if progress is not None:
+        hooks["PreToolUse"] = [
+            HookMatcher(matcher=None, hooks=[progress.pre_tool]),
+            HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
+        ]
+        hooks["PostToolUse"] = [
+            HookMatcher(matcher=None, hooks=[progress.post_tool]),
+        ]
+
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         allowed_tools=["Bash", "Read", "Edit", "Write", "Glob", "Grep"],
@@ -699,11 +848,7 @@ async def run_agent() -> int:
         ],
         # Closes the `Bash(run_in_background=True)` / shell-`&` loophole that
         # `disallowed_tools` alone can't catch — see _block_bash_background.
-        hooks={
-            "PreToolUse": [
-                HookMatcher(matcher="Bash", hooks=[_block_bash_background]),
-            ],
-        },
+        hooks=hooks,
         model=model,
         max_turns=MAX_TURNS,
         permission_mode="bypassPermissions",
@@ -726,18 +871,11 @@ async def run_agent() -> int:
                         print(block.text, flush=True)
                         final_text.append(block.text)
                     elif isinstance(block, ToolUseBlock):
-                        # Single-line tool-call breadcrumb in the log.
+                        # Category-only breadcrumb. Raw command arguments,
+                        # paths, patterns, and file contents are deliberately
+                        # excluded from logs and the progress artifact.
                         name = getattr(block, "name", "?")
-                        inp = getattr(block, "input", {}) or {}
-                        hint = ""
-                        if name == "Bash":
-                            cmd = str(inp.get("command", ""))[:140]
-                            hint = cmd.replace("\n", " ")
-                        elif name in ("Read", "Edit", "Write"):
-                            hint = str(inp.get("file_path", ""))[-140:]
-                        elif name in ("Glob", "Grep"):
-                            hint = str(inp.get("pattern", ""))[:140]
-                        print(f"  [tool] {name} :: {hint}", flush=True)
+                        print(f"  [tool] {name}", flush=True)
             elif isinstance(msg, ResultMessage):
                 saw_result_message = True
                 total_cost = getattr(msg, "total_cost_usd", 0.0) or 0.0
@@ -805,7 +943,17 @@ async def run_agent() -> int:
 # touched-boxes ledger to chase the cases where end-of-run cleanup
 # might be skipped.
 
+def _interrupt_for_shutdown(signum, frame):  # noqa: ARG001
+    raise KeyboardInterrupt(f"received signal {signum}")
+
+
+def _install_shutdown_handlers() -> None:
+    for shutdown_signal in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(shutdown_signal, _interrupt_for_shutdown)
+
+
 def main() -> int:
+    _install_shutdown_handlers()
     try:
         _require_supported_python()
     except RuntimeError as exc:
@@ -818,9 +966,17 @@ def main() -> int:
     _disable_server_thinking()
     _set_bash_timeouts()
     _set_work_deadline()
+    try:
+        progress = _direct_progress_monitor()
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"FATAL: direct progress monitor setup failed: {exc}", file=sys.stderr)
+        return 1
     _ensure_sdk()
     try:
-        rc = asyncio.run(_run_agent_with_work_deadline())
+        rc = asyncio.run(_run_agent_with_work_deadline(progress))
+    except DirectAgentWatchdogExpired as exc:
+        print(f"[agent] direct progress watchdog expired: {exc}", file=sys.stderr)
+        rc = _DIRECT_WATCHDOG_EXIT_CODE
     except WorkDeadlineExceeded as exc:
         print(f"[agent] {exc}", file=sys.stderr)
         rc = _WORK_DEADLINE_EXIT_CODE

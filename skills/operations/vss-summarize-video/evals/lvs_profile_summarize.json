@@ -42,5 +42,15 @@
         "The agent never calls a VLM or RT-VLM inference endpoint directly, including POST /v1/chat/completions or /v1/generate_captions, and never performs extracted-frame inference"
       ]
     }
-  ]
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": true,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "RTXPRO6000BW"
+    ]
+  }
 }

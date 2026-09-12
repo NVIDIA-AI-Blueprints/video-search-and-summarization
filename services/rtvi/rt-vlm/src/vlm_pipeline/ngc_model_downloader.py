@@ -16,13 +16,176 @@
 """NGC Model Download helper."""
 
 import os
+import re
 import shutil
 import subprocess
+from importlib.metadata import PackageNotFoundError, version
 from tempfile import TemporaryDirectory
+from urllib.parse import urlsplit
 
 import requests.exceptions
 
 from common.logger import logger
+
+SUPPORTED_HF_HUB_VERSION = "0.36.2"
+HF_MODEL_SPEC = re.compile(
+    r"^(?P<repo>[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"@(?P<revision>[0-9a-f]{40,64})$"
+)
+HF_REVISION_MARKER = ".hf-revision"
+HF_AUTH_ENV_VARS = (
+    "HF_TOKEN",
+    "HUGGING_FACE_HUB_TOKEN",
+    "HUGGINGFACE_TOKEN",
+    "HF_TOKEN_PATH",
+)
+
+
+def _hf_token_from_environment() -> str | None:
+    for name in HF_AUTH_ENV_VARS[:3]:
+        if token := os.environ.get(name):
+            return token
+    return None
+
+
+def _validate_hf_endpoint(endpoint: str | None) -> str | None:
+    """Validate an optional Hub-compatible endpoint without selecting a fallback."""
+    if not endpoint:
+        return None
+    parsed = urlsplit(endpoint)
+    if parsed.scheme == "http":
+        raise ValueError("HF_ENDPOINT must use HTTPS")
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(
+            "HF_ENDPOINT must be an HTTPS origin without credentials or query data"
+        )
+    return endpoint.rstrip("/")
+
+
+def _require_supported_hf_client() -> None:
+    try:
+        installed = version("huggingface_hub")
+    except PackageNotFoundError:
+        raise RuntimeError(
+            f"huggingface_hub=={SUPPORTED_HF_HUB_VERSION} is required for hf: model paths"
+        ) from None
+    if installed != SUPPORTED_HF_HUB_VERSION:
+        raise RuntimeError(
+            "Unsupported Hugging Face Hub client: "
+            f"expected {SUPPORTED_HF_HUB_VERSION}, found {installed}"
+        )
+
+
+def download_model_hf(model_spec: str, download_path_prefix: str) -> str:
+    """Download a revision-pinned Hugging Face model snapshot.
+
+    ``model_spec`` must be ``owner/repository@<immutable commit>``. The Hub
+    client's cache is temporary; the materialized local directory retains the
+    historical service model layout and is reused only when its revision marker
+    matches.
+    """
+    match = HF_MODEL_SPEC.fullmatch(model_spec)
+    if not match:
+        raise ValueError(
+            "Hugging Face model paths must use "
+            "hf:owner/repository@<40-64 lowercase hex immutable commit>"
+        )
+    repo_id = match.group("repo")
+    revision = match.group("revision")
+    endpoint = _validate_hf_endpoint(os.environ.get("HF_ENDPOINT"))
+    if endpoint:
+        os.environ["HF_ENDPOINT"] = endpoint
+    else:
+        # An empty Compose expansion overrides huggingface_hub's official
+        # default during import even when endpoint=None is passed below.
+        os.environ.pop("HF_ENDPOINT", None)
+    model_name = repo_id.rsplit("/", 1)[-1]
+    model_dir = os.path.join(download_path_prefix, model_name)
+    revision_marker = os.path.join(model_dir, HF_REVISION_MARKER)
+
+    if os.path.isdir(model_dir):
+        try:
+            with open(revision_marker, encoding="utf-8") as marker:
+                cached_revision = marker.read().strip()
+        except OSError:
+            raise RuntimeError(
+                f"Existing model directory {model_dir} has no verifiable immutable revision; "
+                "remove it before using an hf: model path"
+            ) from None
+        if cached_revision != revision:
+            raise RuntimeError(
+                f"Existing model directory {model_dir} is revision {cached_revision}, "
+                f"not requested revision {revision}"
+            )
+        logger.info(f"Using model cached at {model_dir}")
+        return model_dir
+
+    _require_supported_hf_client()
+    # These must be set before importing huggingface_hub. Xet/CAS would bypass
+    # an HF_ENDPOINT resolve cache.
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+    from huggingface_hub import constants, snapshot_download  # noqa: PLC0415
+
+    if not constants.HF_HUB_DISABLE_XET:
+        raise RuntimeError(
+            "huggingface_hub was initialized before HF_HUB_DISABLE_XET=1; "
+            "set it in the container environment before process startup"
+        )
+
+    logger.info(f"Downloading Hugging Face model {repo_id}@{revision} ...")
+    os.makedirs(download_path_prefix, exist_ok=True)
+    with (
+        TemporaryDirectory(
+            prefix=".hf-model-", dir=download_path_prefix
+        ) as staging_dir,
+        TemporaryDirectory(prefix="rtvi-hf-home-") as hf_home,
+    ):
+        try:
+            snapshot_download(
+                repo_id=repo_id,
+                revision=revision,
+                endpoint=endpoint,
+                token=(
+                    False
+                    if endpoint and endpoint.startswith("http://")
+                    else _hf_token_from_environment()
+                ),
+                cache_dir=hf_home,
+                local_dir=staging_dir,
+            )
+            # local_dir writes client bookkeeping under .cache/huggingface.
+            # It is not model content and the previous Git path did not expose
+            # it in the materialized model directory.
+            hub_metadata = os.path.join(staging_dir, ".cache", "huggingface")
+            if os.path.exists(hub_metadata):
+                shutil.rmtree(hub_metadata)
+            try:
+                os.rmdir(os.path.join(staging_dir, ".cache"))
+            except OSError:
+                pass
+            with open(
+                os.path.join(staging_dir, HF_REVISION_MARKER), "w", encoding="utf-8"
+            ) as marker:
+                marker.write(f"{revision}\n")
+            # TemporaryDirectory is 0700, while the historical Git clone
+            # materialized a traversable model root under the process umask.
+            os.chmod(staging_dir, 0o755)
+            os.rename(staging_dir, model_dir)
+        except Exception as ex:
+            raise RuntimeError(
+                f"Failed to download Hugging Face model {repo_id}@{revision}: {ex}"
+            ) from ex
+    logger.info(f"Downloaded model to {model_dir}")
+    return model_dir
 
 
 def download_model(ngc_model: str, download_path_prefix: str, model_type: str = ""):
@@ -85,7 +248,9 @@ def download_model(ngc_model: str, download_path_prefix: str, model_type: str = 
                     " Check if NGC_API_KEY and model path is correct."
                 )
             if "could not be found" in ex.args[0]:
-                raise Exception("Could not find the model. Check if model path is correct.")
+                raise Exception(
+                    "Could not find the model. Check if model path is correct."
+                )
             raise ex from None
         os.makedirs(download_path_prefix, exist_ok=True)
         shutil.move(os.path.join(td, f"{model_name}_v{version}"), model_dir)
@@ -104,6 +269,12 @@ def download_model_git(git_url: str, download_path_prefix: str):
         Path to the directory where the model is downloaded.
     """
 
+    if git_url.startswith(("https://huggingface.co/", "https://hf.co/")):
+        raise ValueError(
+            "Hugging Face Git URLs bypass HF_ENDPOINT; use "
+            "hf:owner/repository@<immutable commit>"
+        )
+
     model_name = git_url.rstrip(".git").split("/")[-1]
 
     # Check if the model is already downloaded
@@ -120,27 +291,20 @@ def download_model_git(git_url: str, download_path_prefix: str):
     # user requested path.
     with TemporaryDirectory() as td:
         try:
-            if git_url.startswith("https://huggingface.co/") or git_url.startswith(
-                "https://hf.co/"
-            ):
-                run_cmd = [
-                    "hf",
-                    "download",
-                    git_url.replace("https://huggingface.co/", "").replace("https://hf.co/", ""),
-                    "--local-dir",
-                    td,
-                ]
-            else:
-                run_cmd = ["git", "clone", git_url, td]
+            run_cmd = ["git", "clone", git_url, td]
             subprocess.run(
                 run_cmd,
                 check=True,
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            subprocess.run(["rm", "-rf", td + "/.git"], check=True, stdin=subprocess.DEVNULL)
+            subprocess.run(
+                ["rm", "-rf", td + "/.git"], check=True, stdin=subprocess.DEVNULL
+            )
         except Exception:
-            raise Exception(f"Failed to download model {model_name} from {git_url}") from None
+            raise Exception(
+                f"Failed to download model {model_name} from {git_url}"
+            ) from None
         os.makedirs(download_path_prefix, exist_ok=True)
         shutil.move(str(td), str(model_dir))
     logger.info(f"Downloaded model to {model_dir}")
