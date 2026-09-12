@@ -153,13 +153,19 @@ class TestPromptGenReasoning:
         assert llm.bind_calls == [{"chat_template_kwargs": {"enable_thinking": True}}]
 
     @pytest.mark.asyncio
-    async def test_empty_content_raises_instead_of_returning_nothing(self, config, mock_builder):
-        """finish_reason=length leaves content empty; returning "" loops the agent."""
+    async def test_empty_content_falls_back_to_a_prompt_carrying_the_user_intent(self, config, mock_builder):
+        """finish_reason=length leaves content empty.
+
+        Raising would not help: the top agent turns a tool exception into an error
+        ToolMessage, plan_update preserves the pending step, and the tool is called
+        again until max_iterations. Degrade to a usable prompt instead.
+        """
         llm = ChatNVIDIA(AIMessage(content=""))
         inner_fn = await self._inner(config, mock_builder, llm)
 
-        with pytest.raises(ValueError, match="produced no content"):
-            await inner_fn(PromptGenInput(user_query="boxes dropped", user_intent="monitoring"))
+        result = await inner_fn(PromptGenInput(user_query="boxes dropped", user_intent="monitoring"))
+
+        assert result == "Detect for boxes dropped. Answer in Yes or No."
 
     @pytest.mark.asyncio
     async def test_reasoning_is_stripped_from_the_generated_prompt(self, config, mock_builder):
@@ -176,10 +182,33 @@ class TestPromptGenReasoning:
         assert "The user wants boxes." not in result
 
     @pytest.mark.asyncio
-    async def test_reasoning_only_reply_raises(self, config, mock_builder):
+    async def test_reasoning_only_reply_falls_back(self, config, mock_builder):
         """Thinking consumed the budget: reasoning present, no answer after it."""
         llm = ChatNVIDIA(AIMessage(content="<think>Let me consider what to monitor</think>"))
         inner_fn = await self._inner(config, mock_builder, llm)
 
-        with pytest.raises(ValueError, match="produced no content"):
-            await inner_fn(PromptGenInput(user_query="boxes dropped", user_intent="monitoring"))
+        result = await inner_fn(PromptGenInput(user_query="boxes dropped", user_intent="monitoring"))
+
+        assert result == "Detect for boxes dropped. Answer in Yes or No."
+        assert "<think>" not in result
+
+    @pytest.mark.asyncio
+    async def test_empty_merge_falls_back_to_the_unmerged_prompt(self, config, mock_builder):
+        """A failed merge must not discard the prompt the first call produced."""
+        responses = [
+            AIMessage(content="Is there a box on the floor? Answer YES or NO."),
+            AIMessage(content="<think>merging</think>"),
+        ]
+        llm = ChatNVIDIA(responses[0])
+
+        async def _ainvoke(input, config=None, **kwargs):
+            return responses.pop(0)
+
+        llm.ainvoke = _ainvoke
+        inner_fn = await self._inner(config, mock_builder, llm)
+
+        result = await inner_fn(
+            PromptGenInput(user_query="boxes dropped", user_intent="monitoring", previous_prompt="Old prompt")
+        )
+
+        assert result == "Is there a box on the floor? Answer YES or NO."
