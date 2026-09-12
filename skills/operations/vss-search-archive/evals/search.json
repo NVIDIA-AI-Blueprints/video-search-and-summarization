@@ -8,7 +8,7 @@
   "deploy_mode": "remote-all",
   "resources": {
     "platforms": {
-      "RTXPRO6000BW": {
+      "A40": {
         "gpu_count": 2
       }
     }

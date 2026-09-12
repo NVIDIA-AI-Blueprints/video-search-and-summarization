@@ -695,6 +695,36 @@ class OpenshellGpuFleet(unittest.TestCase):
             list(plan_matrix.SKIP_RUNNER),
         )
 
+    def test_poc_mode_routes_only_to_registered_a40_2g_labels(self):
+        os.environ["OPENSHELL_POC_A40_2G_ONLY"] = "1"
+        try:
+            cohorts = plan_matrix.openshell_cohorts()
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    gpu_count=2,
+                    min_vram=46,
+                    multi_gpu=True,
+                    profiles=("A40",),
+                )
+            )
+        finally:
+            os.environ.pop("OPENSHELL_POC_A40_2G_ONLY", None)
+
+        self.assertEqual(len(cohorts), 1)
+        self.assertIsNone(error)
+        self.assertEqual(cohort.name, "a40-2g-poc")
+        self.assertEqual(
+            cohort.labels,
+            (
+                "poc-openshell",
+                "openshell",
+                "a40",
+                "gpu-a40",
+                "poc-openshell-a40-active",
+                "gpus-2",
+            ),
+        )
+
     def test_capacity_accounting_matches_replacement_topology(self):
         self.assertEqual(
             {cohort.name: cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS},

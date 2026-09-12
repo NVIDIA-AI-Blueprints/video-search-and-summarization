@@ -96,6 +96,9 @@ env:
   # fleet legs. Those guests need NOPASSWD sudo for gha-runner (Harbor
   # /logs reset) and uvx.
   OPENSHELL_GPU_FLEET: "1"
+  # This feature branch is a canary for the single registered 2×A40 PoC
+  # runner. Keep production active labels out of the experiment.
+  OPENSHELL_POC_A40_2G_ONLY: "1"
 
 jobs:
   # ---------------------------------------------------------------------

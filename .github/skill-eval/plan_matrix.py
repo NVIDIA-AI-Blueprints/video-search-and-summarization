@@ -198,6 +198,14 @@ OPENSHELL_A40_LABELS: tuple[str, ...] = (
     "video-codec",
     "openshell-a40-active",
 )
+POC_A40_2G_LABELS: tuple[str, ...] = (
+    "poc-openshell",
+    "openshell",
+    "a40",
+    "gpu-a40",
+    "poc-openshell-a40-active",
+    "gpus-2",
+)
 OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     "openshell",
@@ -266,6 +274,23 @@ OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
         blackwell=True,
     ),
 )
+
+
+def openshell_cohorts() -> tuple[OpenShellCohort, ...]:
+    """Return production cohorts, or the explicitly selected A40 PoC."""
+    if os.environ.get("OPENSHELL_POC_A40_2G_ONLY"):
+        return (
+            OpenShellCohort(
+                "a40-2g-poc",
+                "A40",
+                "A40",
+                2,
+                46,
+                1,
+                POC_A40_2G_LABELS,
+            ),
+        )
+    return OPENSHELL_COHORTS
 
 # run_leg.pool_candidates reads `int(metadata.get("gpu_count", 1) or 0)`:
 # an ABSENT declaration means one GPU, while an explicit 0/null means
@@ -519,7 +544,7 @@ def openshell_requirements(spec_path: str) -> tuple[dict | None, str | None]:
         isinstance(value, str) and value for value in profiles
     ):
         return None, "openshell.supported_hardware_profiles must be non-empty strings"
-    known = {cohort.hardware_profile for cohort in OPENSHELL_COHORTS}
+    known = {cohort.hardware_profile for cohort in openshell_cohorts()}
     unknown = sorted(set(profiles) - known)
     if unknown:
         return None, "unsupported hardware profile metadata: " + ", ".join(unknown)
@@ -555,7 +580,7 @@ def select_openshell_cohort(
     """Pick one demand-appropriate cohort, or explain why none is safe."""
     supported = set(requirements["supported_hardware_profiles"])
     profile_missing: list[str] = []
-    for cohort in OPENSHELL_COHORTS:
+    for cohort in openshell_cohorts():
         if cohort.hardware_profile not in supported:
             continue
         demand = requirements["gpu_count"]
