@@ -65,8 +65,8 @@ Advanced values are set in Section 1.3 or derived from the environment.
 | `AGENT_DASHBOARD_PORT` | `18789` | Agent dashboard forward port used by the UI link and webhook checks. Override via `NEMOCLAW_DASHBOARD_PORT`. |
 | `AGENT_PLUGIN_VARIANT` | `nemoclaw` | Workspace variant overlay. The `nemoclaw` overlay uploads the `_nemoclaw` workspace docs into the sandbox workspace. Read into `WORKSPACE_VARIANT`. |
 | `NEMOCLAW_SANDBOX_NAME` | `demo` | Sandbox name to create or reuse. Use the same value in `deploy_vss_orchestrator.ipynb`. |
-| `VSS_ORCHESTRATOR_MCP_HOST` | `0.0.0.0` | Host used to build the MCP URL that Section 3.5 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
-| `VSS_ORCHESTRATOR_MCP_PORT` | `9988` | Port used to build the MCP URL that Section 3.5 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
+| `VSS_ORCHESTRATOR_MCP_HOST` | `0.0.0.0` | Host used to build the MCP URL that Section 3.3 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
+| `VSS_ORCHESTRATOR_MCP_PORT` | `9988` | Port used to build the MCP URL that Section 3.3 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
 | `VSS_REPO_DIR` | `~/video-search-and-summarization` | VSS checkout used by the notebook. |
 | `NEMOCLAW_REPO_DIR` | `~/NemoClaw` | Fallback NemoClaw source checkout used only when the `nemoclaw` CLI is not already available. The curl installer normally clones the installed source under `~/.nemoclaw/source`. |
 | `BREV_ENVIRONMENT_CONTEXT_PATH` | `/etc/brev/environment-context.json` | Brev context JSON with secure-link FQDNs and environment id. Override via that env var only if the context file lives elsewhere. |
@@ -153,7 +153,7 @@ Pins the tested Docker stack before Section 3 creates the sandbox:
 
 Run this before Section 3 creates the sandbox. A Docker downgrade restarts `dockerd` and would disrupt live sandbox containers if it ran later in the notebook. When the installed Docker Engine already falls in the tested range (`28.3.3` through `29.5.0`), the downgrade is skipped and the packages are held at their current versions with `apt-mark hold` so later package operations do not drift the instance.
 
-### Verify sandbox, policy, skills, and webhooks (deploy_nemoclaw.ipynb Section 3.8)
+### Verify sandbox, policy, skills, and webhooks (deploy_nemoclaw.ipynb Section 3.6)
 
 Runs additional checks against the live sandbox after Section 3:
 

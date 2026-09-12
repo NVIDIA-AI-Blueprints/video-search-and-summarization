@@ -7,6 +7,11 @@ metadata:
   version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "search"
 ---
 
 ## Purpose
@@ -93,8 +98,9 @@ independent of the index inventory.
 ## Mandatory search workflow
 
 1. Confirm the selected deployment is the `search` profile. If required routes
-   are unavailable, ask whether to reconnect or deploy it with
-   `vss-deploy-profile -p search`; do not target another profile.
+   are unavailable, ask whether to reconnect to another origin; if the `search`
+   profile is not deployed, report that and stop — deploying is outside this
+   skill. Do not target another profile.
 
 2. When the user names a file, camera, or sensor, list registered sources with
    `"${VSS[@]}" vios list` before invoking the search CLI — it reads the origin

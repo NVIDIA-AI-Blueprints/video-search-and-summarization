@@ -7,6 +7,11 @@ metadata:
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "vlm"
 ---
 
 # Report
@@ -27,7 +32,7 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 
 0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths.
 1. **Pick the mode** — Mode A for a single recorded clip/sensor video, Mode B when the request names a time range or incidents/alerts, Mode C when the request asks for an SOP / compliance report (match against *Examples*).
-2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B → `/vss-deploy-profile`; Mode C → `/vss-build-vision-ai` for the SOP tools).
+2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; when required services are missing, stop and report which profile provides them (Mode A / B: `base` or `alerts`; Mode C: the SOP tools, via `/vss-build-vision-ai`) — deploying is outside this skill.
 3. **Apply HITL mode** under *HITL prompt mode (legacy runtime flag)* before Mode A Step 3. (Mode B and Mode C have no prompt-approval step.)
 4. **Run that mode's numbered steps** — *Mode A*, *Mode B*, or *Mode C* below.
 5. **Rewrite every user-facing clip URL** before embedding it in the report: prefer
@@ -66,7 +71,7 @@ Do **not** use this skill when the request is one of the following:
 - Ad-hoc visual Q&A on a clip that do not ask explicitly for a report ("what color is the truck?", "what happens at 00:12?") → use `/vss-ask-video`.
 - Archive/semantic similarity retrieval ("find forklifts", "search all videos for tailgating") → use `/vss-search-archive`.
 - Read-only incident/metrics lookup without report rendering needs → use `/vss-query-analytics`.
-- Deploy/teardown/profile changes ("deploy alerts", "switch profile", "bring up base") → use `/vss-deploy-profile`.
+- Deploy/teardown/profile changes ("deploy alerts", "switch profile", "bring up base") → out of scope for this skill; report and stop.
 - Real-time alert/rule management requests → use `/vss-manage-alerts`.
 
 Never route reports through VSS-agent `POST /generate`.
@@ -118,7 +123,7 @@ host-side container discovery for VIOS, the VLM, or VA-MCP. Mode A uses
 Hard gate behavior:
 - If required services for the chosen row are not reachable, stop and report the missing dependency.
 - Do not silently switch modes because a dependency is missing.
-- Offer `/vss-deploy-profile` only after user confirmation.
+- Do not deploy or offer to deploy; report the missing dependency and the profile that provides it.
 
 Probe examples:
 
@@ -138,7 +143,7 @@ curl -sf --max-time 5 "${VA_MCP_URL:-http://${HOST_IP}:9901}/health" >/dev/null
 # hand off to /vss-build-vision-ai and do NOT proceed with Mode C.
 ```
 
-If required local services are missing and the user wants local deployment, hand off to `/vss-deploy-profile` (typically `-p base` for Mode A path A1, `-p alerts` for Mode B), or to `/vss-build-vision-ai` to compose the SOP profile for the SOP tools (Mode C). **Always** confirm deploy with the user first.
+If required local services are missing, report which profile provides them (`base` for Mode A path A1, `alerts` for Mode B; the SOP profile via `/vss-build-vision-ai` for Mode C) and stop. Deploying is the operator's step, outside this skill.
 
 ---
 
@@ -152,7 +157,7 @@ If VLM/deployment choice is unclear and no default selection has been made, ask 
    profile). Do **not** use `/vlm/v1` or the bare origin `/v1`.
 3. **Suggest options based on auto-discover** — on Docker, probe the standard
    local VLM ports. For shared VLM-selection guidance, follow `/vss-ask-video`.
-4. **Deploy a local VLM** — hand off to `/vss-deploy-profile` (with user confirmation) and then continue.
+4. **No VLM reachable** — report that a local VLM (or a remote endpoint) is required and stop; deploying one is outside this skill.
 
 Auto-discover hints:
 
@@ -353,7 +358,7 @@ For this path, set report `Clip URL` row to `N/A (local/base64 input)` unless a 
 #### Long-video rule (required)
 
 If user input video/clip duration is **120 seconds (2 mins) or longer**, stop Mode A direct path and prompt:
-- deploy and use **LVS** via `/vss-deploy-profile` + `/vss-summarize-video`,
+- use **LVS** via `/vss-summarize-video` (the `lvs` profile must already be deployed),
 - then continue report templating with LVS output.
 
 Do not continue direct VLM Mode A on videos that are 120 seconds or longer.

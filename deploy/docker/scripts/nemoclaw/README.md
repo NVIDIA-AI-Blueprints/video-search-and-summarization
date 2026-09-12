@@ -11,12 +11,13 @@ document is the equivalent command reference for running it by hand.
 
 - A recent NemoClaw release pinned via `NEMOCLAW_INSTALL_REF` (this repo pins
   `v0.0.80+`) that ships the sandbox-first grammar:
-  `nemoclaw <sandbox> {policy-add, skill install, mcp, config set, upload, gateway-token}`.
+  `nemoclaw onboard --from` and `nemoclaw <sandbox> {policy-add, mcp, config set, upload, gateway-token}`.
 - `docker`, `node`/`npm`, `nemoclaw`, and `openshell` on `PATH`.
 - Provider credentials in the environment (`NVIDIA_API_KEY`, or
   `NEMOCLAW_ENDPOINT_URL` + `COMPATIBLE_API_KEY` for a custom OpenAI-compatible
   endpoint).
-- This repo checked out so the policy, skills, and workspace docs are available.
+- This repo checked out so the policy, the OpenClaw harness image definition
+  (`.openclaw/`), skills, and workspace docs are available.
 
 ## Canonical flow
 
@@ -34,41 +35,42 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 # edited afterwards) — set it to the dashboard origin before onboarding.
 # <brev-link-domain>: apps.run.brev.nvidia.com on Skybridge instances,
 # brevlab.com on legacy ones (see orchestrator_mcp_helper.detect_brev_link_domain).
+# The sandbox image is built from the repo's own harness Dockerfile (NemoClaw's
+# custom-image workflow, `--from`; the Dockerfile's directory is the build
+# context). .openclaw extends NemoClaw's managed OpenClaw runtime
+# with the VSS OpenClaw plugin (the `vss` CLI as a tool, the operation skills,
+# the workspace docs); .hermes extends the managed Hermes runtime
+# with the same skills, docs and CLI. Nothing is installed into the sandbox
+# afterwards except the policy and, for Kubernetes, a rendered ENV.md.
 CHAT_UI_URL="https://18789-${BREV_ENV_ID}.<brev-link-domain>" \
-  nemoclaw onboard --non-interactive --agent "$RUNTIME"
+  nemoclaw onboard --non-interactive --agent "$RUNTIME" --name "$SB" \
+    --from "$REPO/.$RUNTIME/Dockerfile"
 
 # 3. Apply the VSS sandbox policy (merges into the base OpenShell policy)
 nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --yes
 
-# 4. Install VSS skills (one validated SKILL.md directory at a time)
-for skill in "$REPO"/skills/*/ ; do
-  [ -f "$skill/SKILL.md" ] && nemoclaw "$SB" skill install "$skill"
-done
-
-# 5. Push workspace bootstrap docs (base, then the _nemoclaw overlay)
+# 4. Deployment origin (Kubernetes only): render VSS_PUBLIC_URL into ENV.md and
+#    upload it over the image's copy. Compose deployments leave it as shipped.
 # NOTE: the destination is a DIRECTORY (OpenShell mkdir + tar-extracts into it)
-for md in "$REPO"/.openclaw/workspace/*.md ; do
-  nemoclaw "$SB" upload "$md" /sandbox/.openclaw/workspace/
-done
-for md in "$REPO"/.openclaw/workspace/_nemoclaw/*.md ; do
-  nemoclaw "$SB" upload "$md" /sandbox/.openclaw/workspace/
-done
+# sed "s|^export VSS_PUBLIC_URL=.*|export VSS_PUBLIC_URL=\"$VSS_PUBLIC_URL\"|" \
+#   "$REPO/.openclaw/workspace/_nemoclaw/ENV.md" > /tmp/ENV.md
+# nemoclaw "$SB" upload /tmp/ENV.md /sandbox/.openclaw/workspace/   # hermes: /sandbox/
 
-# 6. Orchestrator MCP registration — only for HTTPS.
+# 5. Orchestrator MCP registration — only for HTTPS.
 #    Default path: leave this out. deploy_vss_orchestrator.ipynb starts the
 #    host-side HTTP MCP at http://host.openshell.internal:9988/mcp; the agent
 #    reaches it without a sandbox `mcp add`.
 #    HTTPS only: set ORCHESTRATOR_ENABLE_HTTPS=true in both notebooks, then:
 # nemoclaw "$SB" mcp add vss_orchestrator --url https://host.openshell.internal:9988/mcp
 
-# 7. Sandbox config: only the optional webhooks need config set.
+# 6. Sandbox config: only the optional webhooks need config set.
 #    gateway.* (incl. controlUi.allowedOrigins) is rejected — it comes from
 #    CHAT_UI_URL at onboard; agents.defaults.workspace already defaults to
 #    ~/.openclaw/workspace (= /sandbox/.openclaw/workspace in the sandbox).
 nemoclaw "$SB" config set --key hooks.enabled \
   --value true --config-accept-new-path --restart
 
-# 8. Forward the dashboard + read the UI token
+# 7. Forward the dashboard + read the UI token
 openshell forward start --background 18789 "$SB"
 nemoclaw "$SB" gateway-token
 ```

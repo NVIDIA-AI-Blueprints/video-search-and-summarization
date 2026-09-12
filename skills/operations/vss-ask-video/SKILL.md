@@ -6,6 +6,11 @@ metadata:
   version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "vlm"
 ---
 
 # Ask a VSS video question
@@ -239,7 +244,7 @@ file or the VSS sensor. If a VSS deployment is configured, use Path A
 - Long-form summarization -> `/vss-summarize-video`.
 - Structured reports -> `/vss-generate-video-report`.
 - Existing analytics incidents or metrics -> `/vss-query-analytics`.
-- Deployment/profile changes -> `/vss-deploy-profile`.
+- Deployment/profile changes -> out of scope; report what the deployment needs and stop.
 
 ## Cross-Reference
 
