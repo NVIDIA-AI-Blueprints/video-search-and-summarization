@@ -33,5 +33,28 @@
       "Runs the platform preflight before VIOS probing/capture and stops instead of continuing automatically if the host is not supported.",
       "Uses /v1/rtsp/capture, polls automatic ingest until INGESTED, stages or rectifies media, starts or resumes VGGT before AMC, post-processes each completed method, and compares both results."
     ]
+  },
+  {
+    "id": "amc-tune-videos",
+    "question": "Tune the AMC configuration for this custom video dataset; I do not know which detector or settings to use.",
+    "expected_skill": "vss-generate-video-calibration",
+    "ground_truth": "Routes through the tuning reference and uses the video reference only for source preparation. It compares both detector baselines, performs an evidence-driven follow-up when safe, and preserves VGGT and AMC results separately.",
+    "expected_behavior": [
+      "Does not ask the user to choose a detector and budgets no more than five accepted AMC attempts.",
+      "Uses one stable readable dataset slug for new attempt projects and keeps ordinary calibration naming unchanged.",
+      "For every eligible attempt project, runs VGGT, post-processes and preserves it, then runs AMC, post-processes and preserves it separately.",
+      "Selects from complete evidence, preserves the incumbent after a failed or degraded attempt, and labels a no-GT recommendation heuristic."
+    ]
+  },
+  {
+    "id": "amc-tune-existing-project",
+    "question": "The normal AMC calibration finished. Continue tuning its configuration.",
+    "expected_skill": "vss-generate-video-calibration",
+    "ground_truth": "Reuses the valid normal project as attempt 1 without renaming it, preserves its existing results, and follows the tuning workflow for later attempts.",
+    "expected_behavior": [
+      "Keeps the existing server project name and ID and maps them to a canonical attempt label only in tuning output and reporting.",
+      "Preserves existing AMC and VGGT artifacts before another workload can reset shared post-processing results.",
+      "Counts the completed normal AMC run as attempt 1 instead of repeating it only to begin tuning."
+    ]
   }
 ]
