@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 import pytest
 
+from vss_core.search_core.clients import rtvi_cv_embed
 from vss_core.search_core.clients.rtvi_cv_embed import RTVICVEmbedClient
 from vss_core.search_core.errors import BackendUnreachableError
 
@@ -90,6 +91,114 @@ async def test_invalid_embedding_values_map_to_backend_unreachable(
     client = RTVICVEmbedClient("http://rtvi")
     with pytest.raises(BackendUnreachableError, match="embedding response"):
         await client.get_text_embedding("query")
+
+
+def _install_sequenced_httpx(
+    monkeypatch: pytest.MonkeyPatch,
+    payloads: list[Any],
+) -> list[str]:
+    """Serve *payloads* in order, recording one entry per POST."""
+    calls: list[str] = []
+
+    class _SequencedClient:
+        async def post(self, url: str, **_kwargs: Any) -> _FakeResponse:
+            calls.append(url)
+            return _FakeResponse(payloads[min(len(calls) - 1, len(payloads) - 1)])
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *_a, **_k: _SequencedClient())
+    return calls
+
+
+@pytest.fixture
+def no_real_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record backoff delays instead of waiting them out."""
+    slept: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr(rtvi_cv_embed.asyncio, "sleep", fake_sleep)
+    return slept
+
+
+@pytest.mark.asyncio
+async def test_empty_data_is_retried_and_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+    no_real_sleep: list[float],
+) -> None:
+    """RTVI CV answers 200 with no data until its engine loads."""
+    calls = _install_sequenced_httpx(
+        monkeypatch,
+        [{"data": []}, {"data": [{"embedding": [1.0, 2.0]}]}],
+    )
+    client = RTVICVEmbedClient("http://rtvi")
+
+    assert await client.get_text_embedding("query") == [1.0, 2.0]
+    assert len(calls) == 2
+    assert no_real_sleep == [2.0]
+
+
+@pytest.mark.asyncio
+async def test_persistent_empty_data_fails_after_its_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    no_real_sleep: list[float],
+) -> None:
+    calls = _install_sequenced_httpx(monkeypatch, [{"data": []}])
+    client = RTVICVEmbedClient("http://rtvi")
+
+    with pytest.raises(BackendUnreachableError) as excinfo:
+        await client.get_text_embedding("query")
+
+    assert len(calls) == rtvi_cv_embed._EMPTY_DATA_RETRIES
+    assert len(no_real_sleep) == rtvi_cv_embed._EMPTY_DATA_RETRIES - 1
+    assert excinfo.value.backend == "rtvi_cv"
+    message = str(excinfo.value)
+    assert "missing or empty 'data' field" in message
+    assert "unchanged over 3 attempts" in message
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_payload_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+    no_real_sleep: list[float],
+) -> None:
+    """Only the warm-up case is transient; a bad shape is a real fault."""
+    calls = _install_sequenced_httpx(monkeypatch, [{"data": [{"no_embedding_key": 1}]}])
+    client = RTVICVEmbedClient("http://rtvi")
+
+    with pytest.raises(BackendUnreachableError, match="Unexpected embedding data format"):
+        await client.get_text_embedding("query")
+
+    assert len(calls) == 1
+    assert no_real_sleep == []
+
+
+@pytest.mark.asyncio
+async def test_a_transport_error_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch,
+    no_real_sleep: list[float],
+) -> None:
+    attempts: list[int] = []
+
+    class _FailingClient:
+        async def post(self, *_args: Any, **_kwargs: Any) -> _FakeResponse:
+            attempts.append(1)
+            raise httpx.ConnectError("connection refused")
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *_a, **_k: _FailingClient())
+    client = RTVICVEmbedClient("http://rtvi")
+
+    with pytest.raises(BackendUnreachableError, match="connection refused"):
+        await client.get_text_embedding("query")
+
+    assert len(attempts) == 1
+    assert no_real_sleep == []
 
 
 @pytest.mark.asyncio
