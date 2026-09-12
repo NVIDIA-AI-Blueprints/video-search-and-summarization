@@ -33,14 +33,17 @@ from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
 from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.search_agent import SearchAgentInput
+from vss_agents.agents.top_agent import DUPLICATE_TOOL_CALL_SKIP_MESSAGE
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
 from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
+from vss_agents.agents.top_agent import MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
 from vss_agents.agents.top_agent import NO_INPUT_ERROR_MESSAGE
 from vss_agents.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
 from vss_agents.agents.top_agent import TopAgent
 from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import _augment_context_clip_offsets
+from vss_agents.agents.top_agent import identical_tool_call_key
 from vss_agents.agents.top_agent import strip_frontend_tags
 from vss_agents.agents.top_agent import trace_step_title
 from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
@@ -61,6 +64,11 @@ class TestTopAgentConstants:
 
     def test_empty_scratchpad_error(self):
         assert "agent_scratchpad" in EMPTY_SCRATCHPAD_ERROR
+
+    def test_identical_tool_call_retry_cap(self):
+        assert MAX_IDENTICAL_TOOL_CALL_ATTEMPTS == 3
+        assert "{name}" in DUPLICATE_TOOL_CALL_SKIP_MESSAGE
+        assert "{attempts}" in DUPLICATE_TOOL_CALL_SKIP_MESSAGE
 
 
 class TestTraceStepTitle:
@@ -1243,6 +1251,147 @@ class TestRequestOptionsContext:
         result = await agent.tool_or_subagent_node(state)
 
         assert result.final_answer == "No incidents found with the specified criteria."
+
+
+IDENTICAL_TOOL_CALL_ARGS = {
+    "sensor_id": "warehouse_safety_001",
+    "start_timestamp": "None",
+    "end_timestamp": "None",
+    "prompt": "what happened",
+}
+
+
+class TestIdenticalToolCallCap:
+    """Cap exact duplicate tool calls (same name + args) at 2 retries."""
+
+    def test_fingerprint_ignores_key_order_and_null_sentinels(self):
+        left = identical_tool_call_key("video_understanding_iso", IDENTICAL_TOOL_CALL_ARGS)
+        right = identical_tool_call_key(
+            "video_understanding_iso",
+            {"prompt": "what happened", "sensor_id": "warehouse_safety_001"},
+        )
+        assert left == right
+
+    def test_fingerprint_differs_when_args_or_name_differ(self):
+        base = identical_tool_call_key("video_understanding_iso", {"sensor_id": "cam_a"})
+        assert identical_tool_call_key("video_understanding_iso", {"sensor_id": "cam_b"}) != base
+        assert identical_tool_call_key("video_understanding", {"sensor_id": "cam_a"}) != base
+
+    @staticmethod
+    def _counting_tool():
+        class CountingTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                yield "video understanding ok"
+
+        return CountingTool()
+
+    def _agent_with_tool(self, tool, name="video_understanding_iso"):
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {name: tool}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        return agent
+
+    def _scratchpad_call(self, call_id: str, args: dict | None = None, name="video_understanding_iso"):
+        return [
+            AIMessage(
+                content="calling video understanding",
+                tool_calls=[{"name": name, "args": args or IDENTICAL_TOOL_CALL_ARGS, "id": call_id}],
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_tool_node_allows_original_plus_two_retries(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._counting_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        for index in range(MAX_IDENTICAL_TOOL_CALL_ATTEMPTS):
+            state.agent_scratchpad = self._scratchpad_call(f"call_{index}")
+            await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        assert not str(state.agent_scratchpad[-1].content).startswith("Identical tool call skipped")
+
+    @pytest.mark.asyncio
+    async def test_tool_node_skips_identical_call_after_two_retries(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._counting_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        for index in range(MAX_IDENTICAL_TOOL_CALL_ATTEMPTS + 1):
+            state.agent_scratchpad = self._scratchpad_call(f"call_{index}")
+            await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        skip_message = state.agent_scratchpad[-1]
+        assert isinstance(skip_message, ToolMessage)
+        expected = DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
+            name="video_understanding_iso",
+            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+        )
+        assert skip_message.content == expected
+
+    @pytest.mark.asyncio
+    async def test_tool_node_does_not_cap_same_tool_with_different_args(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._counting_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        for index in range(MAX_IDENTICAL_TOOL_CALL_ATTEMPTS):
+            state.agent_scratchpad = self._scratchpad_call(
+                f"dup_{index}",
+                args={"sensor_id": "warehouse_safety_001", "prompt": "what happened"},
+            )
+            await agent.tool_or_subagent_node(state)
+
+        state.agent_scratchpad = self._scratchpad_call(
+            "other",
+            args={"sensor_id": "warehouse_safety_002", "prompt": "what happened"},
+        )
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS + 1
+
+    @pytest.mark.asyncio
+    async def test_tool_node_caps_parallel_identical_calls_in_one_turn(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._counting_tool()
+        agent = self._agent_with_tool(tool)
+        extra_calls = MAX_IDENTICAL_TOOL_CALL_ATTEMPTS + 2
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding_iso",
+                            "args": IDENTICAL_TOOL_CALL_ARGS,
+                            "id": f"call_{index}",
+                        }
+                        for index in range(extra_calls)
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        skip_count = sum(
+            1
+            for msg in state.agent_scratchpad
+            if isinstance(msg, ToolMessage) and str(msg.content).startswith("Identical tool call skipped")
+        )
+        assert skip_count == extra_calls - MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
 
 
 class TestTopAgentRequestUseCritic:
