@@ -709,6 +709,46 @@ If you would like to modify the workflow to work with other videos or usecases, 
 
   * Drop a Python module exposing a parser class with a `parse(self, raw_response: str) -> dict` method, then set `vlm.response_parser` in `config.yml` to its dotted path. Use this to replace the built-in YES/NO verification parsing with classification, analytics, or enrichment outputs. See [Pluggable Response Parser](/vss/system-components/analytics-microservices/alerts-microservice#pluggable-response-parser) for the full contract, examples, and error handling.
 
+#### Scale Alert processing across CPU cores
+
+A single Alerts Microservice process uses about one CPU core. Running the pipeline in several processes adds CPU capacity, and it helps when that process is consistently near one core while Kafka consumer lag keeps growing. A process below one core is limited by offered traffic, by the configured VLM concurrency, or by a downstream service, and gains nothing from additional processes.
+
+Edit the profile's Alerts Microservice configuration and redeploy:
+
+```text
+deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml
+```
+
+This setting is not available through `user-overrides.env`. A conservative four-process configuration that keeps the profile's instance-wide VLM and VIOS load unchanged:
+
+```yaml
+alert_agent:
+  pipeline_mode: event_loop
+  processes: 4
+  startup_timeout_seconds: 60
+  async_dispatch_max_in_flight: 4
+  async_io:
+    max_vlm_concurrent: 1
+    max_vst_concurrent: 2
+
+persistence:
+  enabled: true
+```
+
+Every per-process limit is multiplied by the process count, which is why the three limits above are divided by four from the one-process profile values of 16, 4, and 8. `max_vlm_concurrent` caps what each process offers the VLM backend and does not raise the backend's throughput. When the VLM is the limiting service, capacity comes from the VLM side, for example more replicas behind the same endpoint.
+
+Before raising the process count, confirm the following:
+
+- `pipeline_mode` is `event_loop` and `persistence.enabled` is `true`. Both are the profile defaults.
+- Every Alert input topic has at least as many partitions as the process count, counted per topic. The profile creates eight partitions per topic, so one instance can run four processes as shipped. When several Alerts Microservice instances share the consumer group, for example as replicas on Kubernetes, the bound applies to `instances × processes`.
+- At least as many active streams as processes. Every message of one stream carries the same `sensorId` and lands on one partition, so work is spread across processes at stream granularity. Fewer streams than processes leaves processes without work, and more streams spread the load more evenly.
+- The host has about one CPU core per process, plus capacity for the parent and API processes. Each process also holds its own Kafka consumers, HTTP connection pools to the VLM and VIOS backends, Elasticsearch clients, and memory, so connection, file-descriptor, and memory use grow with the process count.
+- The VLM and VIOS backends can serve `processes × max_vlm_concurrent` and `processes × max_vst_concurrent` requests concurrently.
+
+Startup refuses a combination the deployment cannot honor and names the reason. `/health` returns HTTP 503 until every process holds a Kafka assignment. Allow for `startup_timeout_seconds` before the instance reports ready.
+
+For pipeline modes, sizing, monitoring, and rollback, see [Scaling and Performance Tuning](/vss/system-components/analytics-microservices/alerts-microservice#scaling-and-performance-tuning) in the Alerts Microservice guide.
+
 ### Step 2: Add a video stream
 
 Add an RTSP stream by clicking the **+ Add RTSP** button on the **Video Management** tab in the agent UI. If you do not have an RTSP stream, you can use [NVStreamer](/vss/system-components/middleware/video-io-storage-vios/nvstreamer) at `http://<HOST_IP>:31000` to upload a video file and create an RTSP stream.
