@@ -297,6 +297,31 @@ RUN --mount=from=media-runtime,source=/tmp99,target=/tmp/ds-gst,readonly \
     && install -Dm755 /tmp/ds-gst/libgstvideoparsersbad.so /usr/lib/${multiarch}/gstreamer-1.0/libgstvideoparsersbad.so \
     && install -Dm755 /tmp/libgsttimestampfilter.so /usr/lib/${multiarch}/gstreamer-1.0/libgsttimestampfilter.so
 
+# Intelligent Frame Selection (IFS): nvdsframeselector.
+#
+# Vendored rather than taken from the DeepStream 9.1 image because the build
+# shipped there predates the properties the frame-selection pipeline drives
+# (static-frame-count, of-tighten, min-changed-pixels, chunk-duration,
+# chunk-origin). Pinning the binary here also keeps every image byte-identical
+# to the one the accuracy results were measured against.
+#
+# x86_64 only for now -- there is no aarch64 build of this plugin yet, so on
+# arm64 the element is absent and CHOOSE_FSELECT falls back to the default
+# frame selection. The readelf assertion makes a wrong-architecture artifact a
+# build failure rather than a runtime plugin-load failure.
+COPY artifacts/IFS/x86/libnvdsgst_frameselector.so /tmp/ifs-libs/x86/libnvdsgst_frameselector.so
+RUN set -eu; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        library=/tmp/ifs-libs/x86/libnvdsgst_frameselector.so; \
+        readelf -h "$library" | grep -Fq 'Class:                             ELF64'; \
+        readelf -h "$library" | grep -Fq 'Machine:                           Advanced Micro Devices X86-64'; \
+        install -Dm755 "$library" \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libnvdsgst_frameselector.so; \
+    else \
+        echo "IFS: no aarch64 nvdsframeselector build; frame selection unavailable on $TARGETARCH"; \
+    fi; \
+    rm -rf /tmp/ifs-libs
+
 # Native extensions are built outside the runtime image.
 COPY LICENSE.3rdparty /opt/nvidia/rtvi/
 RUN --mount=from=native-builder,source=/opt/native-artifacts/nvdec_get_count,target=/tmp/nvdec_get_count,readonly \
