@@ -870,8 +870,8 @@ class TestRequestOptionsContext:
         assert result.plan == ordinary_plan
 
     @pytest.mark.asyncio
-    async def test_plan_node_adds_report_agent_to_an_analysis_only_report_plan(self, monkeypatch):
-        """Without `report_agent` the run answers with prose and writes no PDF/Markdown artifacts."""
+    async def test_plan_node_keeps_an_analysis_only_report_plan(self, monkeypatch):
+        """The planner's plan is the plan. No `report_agent` step is appended to it."""
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         agent = self._agent_with_search_tool()
@@ -897,43 +897,47 @@ class TestRequestOptionsContext:
 
         result = await agent._plan_node(state)
 
-        assert result.plan.startswith(analysis_only_plan)
-        assert result.plan.index("lvs_video_understanding") < result.plan.index("report_agent")
-        assert "3. Call `report_agent`" in result.plan
+        assert result.plan == analysis_only_plan
+        assert "3. Call `report_agent`" not in result.plan
 
     @pytest.mark.asyncio
-    async def test_plan_node_replaces_a_prose_report_plan_with_a_report_step(self, monkeypatch):
-        """Prose without numbered steps is not a plan; appending under it leaves the prose in charge."""
+    async def test_plan_node_does_not_inject_report_agent_into_an_incident_plan(self, monkeypatch):
+        """The alerts profile forbids `report_agent` for incidents.
+
+        The word "report" appears in every incident-report request, so a post-hoc
+        rewrite keyed on it cannot tell an uploaded-video report from an incident
+        one and used to override the profile's own instruction.
+        """
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
 
         agent = self._agent_with_search_tool()
-        report_tool = MagicMock()
-        report_tool.name = "report_agent"
-        report_tool.description = "Run report_agent."
-        agent.tools_dict["report_agent"] = report_tool
+        for tool_name in ("rtvi_vlm_alert", "video_understanding_iso", "report_agent"):
+            tool = MagicMock()
+            tool.name = tool_name
+            tool.description = f"Run {tool_name}."
+            agent.tools_dict[tool_name] = tool
+        incident_plan = (
+            '1. Call `rtvi_vlm_alert` with action="get_incidents" and max_count=1. '
+            "2. Call `video_understanding_iso` with the incident time range +/-30s. "
+            "3. Present the incident metadata with the analysis."
+        )
         agent.llm = MagicMock()
         agent.llm.model_name = "test-model"
-        agent.llm.ainvoke = AsyncMock(
-            return_value=AIMessage(
-                content=(
-                    "The user wants to generate reports for two uploaded videos. I need to first check the "
-                    "available media to confirm their types, then route to the appropriate tools."
-                )
-            )
-        )
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content=incident_plan))
         agent.callbacks = []
         agent.plan_prompt = None
         agent.plan_system_prompt = "System prompt."
         state = TopAgentState(
-            current_message=HumanMessage(content="Generate reports for video honest1 and honest2."),
+            current_message=HumanMessage(
+                content="Generate a report for the last verified alert of sensor vss-sample-warehouse-4min"
+            ),
             options=AgentRequestOptions(),
         )
 
         result = await agent._plan_node(state)
 
-        assert result.plan.startswith("1. Call `report_agent`")
-        assert "route to the appropriate tools" not in result.plan
-        assert "single list" in result.plan
+        assert result.plan == incident_plan
+        assert "report_agent" not in result.plan
 
     @pytest.mark.asyncio
     async def test_plan_node_keeps_camera_clarification_for_uploaded_video_report(self, monkeypatch):
