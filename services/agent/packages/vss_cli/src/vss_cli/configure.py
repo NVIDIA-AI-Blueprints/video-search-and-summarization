@@ -502,6 +502,7 @@ def configure_memory(
 
 
 @configure_memory.command(name="introspection")
+@click.option("--enable/--disable", "enabled", default=None, help="Enable or disable memory introspection.")
 @click.option("--judge-endpoint", help="OpenAI-compatible text-judge base URL.")
 @click.option("--judge-model", help="API-facing text-judge model (default: openclaw/default on first setup).")
 @click.option("--judge-backend-model", help="Optional OpenClaw backend model sent as x-openclaw-model.")
@@ -515,6 +516,7 @@ def configure_memory(
     help="UTF-8 file whose contents become the memory-sufficiency criteria.",
 )
 def configure_memory_introspection(
+    enabled: bool | None,
     judge_endpoint: str | None,
     judge_model: str | None,
     judge_backend_model: str | None,
@@ -536,6 +538,11 @@ def configure_memory_introspection(
     current_memory = deployment.memory or config_mod.MemoryConfig()
     current_introspection = current_memory.introspection
     current_judge = current_introspection.judge if current_introspection is not None else None
+    if current_introspection is None and enabled is False:
+        _memory_config_error(
+            "memory introspection is not configured; "
+            "run `vss configure memory introspection --enable --judge-endpoint <url>` first"
+        )
     if current_judge is None and judge_endpoint is None:
         raise click.UsageError("--judge-endpoint is required on first introspection configuration")
 
@@ -583,7 +590,16 @@ def configure_memory_introspection(
     )
     candidate = replace(
         current_memory,
-        introspection=config_mod.IntrospectionMemoryConfig(judge=candidate_judge),
+        introspection=config_mod.IntrospectionMemoryConfig(
+            judge=candidate_judge,
+            enabled=(
+                current_introspection.enabled
+                if enabled is None and current_introspection is not None
+                else True
+                if enabled is None
+                else enabled
+            ),
+        ),
     )
     try:
         candidate.validate()
@@ -620,6 +636,13 @@ def check_memory() -> None:
     if not memory_config.enabled:
         _memory_config_error("memory is disabled; run `vss configure memory --enable`")
     click.echo(_check_memory_backend(deployment, memory_config))
+    introspection = memory_config.introspection
+    if introspection is None:
+        click.echo("Introspection not configured")
+    elif introspection.enabled:
+        click.echo(f"Introspection enabled; judge target={introspection.judge.model}")
+    else:
+        click.echo(f"Introspection disabled; preserved judge target={introspection.judge.model}")
     if memory_config.embeddings.enabled:
         embedding_probe, mapping_probe = _check_embedding_backend(deployment, memory_config)
         click.echo(embedding_probe)

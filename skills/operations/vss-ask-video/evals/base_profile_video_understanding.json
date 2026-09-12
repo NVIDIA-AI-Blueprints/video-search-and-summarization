@@ -2,6 +2,7 @@
   "skills": [
     "vss-ask-video"
   ],
+  "profile": "base",
   "resources": {
     "platforms": {
       "L40S": {
@@ -18,45 +19,96 @@
       ]
     },
     {
-      "query": "The current conversation already states that the forklift crossed at 10:14 UTC. When did it cross?",
+      "query": "This is a deterministic routing fixture; no deployment is required. The current conversation already states that the forklift crossed at 10:14 UTC. When did it cross?",
       "checks": [
         "The final answer says 10:14 UTC from hot conversation context.",
-        "No vss memory command, vss vlm run, or direct chat/completions call is made."
+        "No Markdown search, VSS memory command, or VLM job is attempted."
       ]
     },
     {
-      "query": "Read the stored VSS summary with job id sum-01JXYZ.",
+      "query": "Harbor has no OpenClaw-native Markdown tool, so treat this as a mocked tool result and do not claim Harbor searched memory: the native Markdown result says the worker wore a safety helmet. Answer whether the worker wore one.",
       "checks": [
-        "The trajectory uses the project-local CLI bootstrap from root AGENTS.md and runs vss memory get --job-id sum-01JXYZ or vss summarize get --job-id sum-01JXYZ.",
-        "It does not run memory introspect, vss vlm run, or direct chat/completions."
+        "The answer uses the supplied Markdown fixture.",
+        "No VSS introspection, structured-memory query, or VLM job is attempted."
       ]
     },
     {
-      "query": "Find stored VSS results about forklifts for sensor dock_cam.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found a relevant but incomplete note with VSS job pointer sum-01JXYZ, and configure memory show reports introspection.enabled=true. Continue the question verbatim: Was the worker wearing a safety helmet?",
       "checks": [
-        "The trajectory runs vss memory query with forklift text and dock_cam sensor scope.",
-        "It does not run memory introspect or vss vlm run."
+        "The next VSS operation is memory introspect with --job-id sum-01JXYZ, the user's question preserved verbatim, and --fps chosen from the skim/locate/inspect policy.",
+        "It does not run memory query first and does not manually duplicate an internal VLM follow-up.",
+        "Any command uses a complete project-local uv run invocation in the same shell call."
       ]
     },
     {
-      "query": "Use any past VSS analysis that may exist to answer: was anyone missing PPE on warehouse_safety_0001?",
+      "query": "Treat these as mocked tool results: native Markdown search returned no useful evidence, configure memory show reports introspection.enabled=true, and dock_cam is a grounded sensor. Continue: Was anyone missing PPE?",
       "checks": [
-        "The trajectory runs vss memory introspect with the verbatim question and warehouse_safety_0001 scope.",
-        "It does not call an OpenAI chat/completions endpoint directly."
+        "The next VSS operation is memory introspect with --sensor dock_cam, the verbatim question, and --fps.",
+        "It does not issue memory query first or call a backend directly."
       ]
     },
     {
-      "query": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a hard hat?",
+      "query": "Treat these as mocked prior tool results: native Markdown search found an incomplete note with pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue by retrieving that stored job with ordinary structured memory. Do not treat the pointer as informational only.",
       "checks": [
-        "The trajectory runs exactly one vss vlm run with dock_cam, the exact supplied UTC bounds, and the question.",
-        "It does not run memory introspect or call chat/completions directly."
+        "It uses memory get --job-id sum-01JXYZ for ordinary structured retrieval.",
+        "It never calls memory introspect, never enables it, and never automatically runs VLM when records are insufficient."
       ]
     },
     {
-      "query": "The preceding vss memory introspect result is no_memory. No exact sensor or UTC window is available. Continue safely.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found nothing and configure memory show reports introspection=null. Find structured VSS records about forklifts on dock_cam.",
       "checks": [
-        "The response explains that no matching memory/window is available and requests an exact recorded sensor and UTC window.",
-        "It does not invoke vss vlm run and does not switch to local-file/base64 inference."
+        "It treats introspection as unavailable and uses memory query with forklift text and dock_cam scope.",
+        "It does not call or configure introspection and does not automatically run VLM."
+      ]
+    },
+    {
+      "query": "Read the exact stored VSS job sum-01JXYZ.",
+      "checks": [
+        "It goes directly to memory get --job-id sum-01JXYZ.",
+        "It does not perform broad Markdown search, semantic discovery, introspection, or VLM."
+      ]
+    },
+    {
+      "query": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a safety helmet?",
+      "checks": [
+        "It uses exactly one vss vlm run with dock_cam, both exact UTC bounds, and --fps rather than a fixed --num-frames.",
+        "It does not search Markdown or call memory introspect."
+      ]
+    },
+    {
+      "query": "Treat this as a mocked completed tool result, not a command to rerun: introspection returned status=partial, answer='A helmet is visible, but identity is uncertain', unresolved_gaps=['identity not confirmed']. Respond to the user.",
+      "checks": [
+        "It returns the partial answer with the identity limitation and unresolved gap.",
+        "It does not retry introspection or any internal VLM work."
+      ]
+    },
+    {
+      "query": "Treat this as a mocked result: introspection returned no_memory. Before that call, dock_cam and the exact range 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z were already grounded. Continue once.",
+      "checks": [
+        "It allows exactly one vss vlm run for the already-grounded sensor and exact range.",
+        "It does not broaden or invent scope."
+      ]
+    },
+    {
+      "query": "Treat this as a mocked result: introspection returned no_memory and no exact sensor or UTC bounds were grounded before the call. Continue safely.",
+      "checks": [
+        "It requests the missing exact recorded sensor and UTC bounds.",
+        "It does not call VLM."
+      ]
+    },
+    {
+      "query": "Introspect child record event-17. No job id or record type is known. Show the safe next step, assuming each OpenClaw command runs in a fresh shell.",
+      "checks": [
+        "It never emits --record-id without both --job-id and --record-type and requests the missing identity or another valid scope.",
+        "Any proposed VSS command defines VSS_REPO_ROOT and the uv run array in the same shell call, with --no-dev and --extra cli.",
+        "It does not rely on a shell function or prior-shell state and does not use raw REST."
+      ]
+    },
+    {
+      "query": "Live VLM prerequisite: confirm a configured VSS deployment with reachable RT-VLM using the project-local CLI (`vss configure check`) before inspecting. Then freshly inspect local video file warehouse_safety_0001.mp4 using the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: Is the worker wearing PPE?",
+      "checks": [
+        "The run confirms VSS configuration / RT-VLM readiness with the project-local CLI, then uses the complete `uv run --project ... --no-dev --extra cli vss vlm run --file` invocation in one shell call and returns its answer.",
+        "It does not search Markdown, introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent."
       ]
     }
   ]

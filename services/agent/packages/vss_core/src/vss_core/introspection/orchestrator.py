@@ -17,7 +17,6 @@ from vss_core.introspection.models import IntrospectionSettings
 from vss_core.introspection.models import MemoryEvidence
 from vss_core.introspection.models import SufficiencyDecision
 from vss_core.introspection.models import VLMEvidence
-from vss_core.introspection.models import parse_utc_instant
 from vss_core.memory.store import MemoryQuery
 
 if TYPE_CHECKING:
@@ -153,7 +152,7 @@ async def _run_workflow(
             failure_kind=state.failure_kind,
         )
 
-    valid_gaps = _validated_gaps(decision.gaps, state.records, settings, state.unresolved)
+    valid_gaps = _validated_gaps(decision.gaps, state.records, state.unresolved)
     state.pending = list(valid_gaps)
     for index, gap in enumerate(valid_gaps):
         if index >= settings.max_vlm_queries:
@@ -169,6 +168,7 @@ async def _run_workflow(
                 end_time=gap.end_time,
                 prompt=gap.question,
                 intent="introspection",
+                fps=request.fps,
                 timeout_seconds=max(0.0, deadline - asyncio.get_running_loop().time()),
             )
             state.vlm_evidence.append(evidence)
@@ -231,18 +231,10 @@ def _validated_memory_evidence(
 def _validated_gaps(
     gaps: list[GroundedGap],
     records: list[UnifiedMemoryRecord],
-    settings: IntrospectionSettings,
     unresolved: list[str],
 ) -> list[GroundedGap]:
     valid: list[GroundedGap] = []
     for gap in gaps:
-        duration = (parse_utc_instant(gap.end_time) - parse_utc_instant(gap.start_time)).total_seconds()
-        if duration > settings.max_clip_duration_seconds:
-            unresolved.append(
-                f"{_gap_label(gap)}: rejected because {duration:g}s exceeds "
-                f"the {settings.max_clip_duration_seconds}s clip limit"
-            )
-            continue
         try:
             SufficiencyDecision(
                 sufficient=False,

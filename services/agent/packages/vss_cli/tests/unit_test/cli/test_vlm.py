@@ -162,6 +162,33 @@ def test_introspection_adapter_runs_direct_job_with_normal_persistence() -> None
     assert runner.persistence_errors == []
 
 
+def test_introspection_adapter_records_fps_sampling() -> None:
+    memory = _memory()
+    runner = IntrospectionVLMJobRunner(
+        _deployment(),
+        memory=memory,
+        analyzer=_Analyzer(),
+        analyzer_model="test-vlm",
+        resolve_sensor_fn=_sensor,
+        recorded_segments_fn=_segments,
+    )
+
+    evidence = asyncio.run(
+        runner.run(
+            sensor="warehouse",
+            start_time=START,
+            end_time=END,
+            prompt="Locate the event.",
+            intent="introspection",
+            fps=0.5,
+        )
+    )
+
+    assert evidence.fps == 0.5
+    assert evidence.num_frames is None
+    assert memory.service.list_jobs()[0].input.params["fps"] == 0.5
+
+
 def test_introspection_adapter_preserves_answer_when_persistence_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -560,9 +587,11 @@ def test_production_analyzer_passes_in_cluster_clip_urls(monkeypatch: pytest.Mon
 
     from vss_cli.vlm.runner import _production_analyzer
 
-    analyzer, model = _production_analyzer(_deployment(), 30)
+    analyzer, model = _production_analyzer(_deployment(), 30, num_frames=None, fps=1.0)
 
     assert model == "test-vlm"
     assert analyzer is not None
     assert captured["analyzer"]["video_url_scope"] == "internal"
+    assert captured["analyzer"]["rt_vlm_frame_budget"] == 1.0
+    assert captured["analyzer"]["rt_vlm_use_fps_for_chunking"] is True
     assert captured["analyzer"]["media_mode"] == "video_url"
