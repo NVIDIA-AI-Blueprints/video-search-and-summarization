@@ -36,3 +36,13 @@ Default user and password are:
 - **nvidia-dcgm-exporter-dashboard**: GPU metrics such as temperature, power usage, SM clocks, and utilization.
 - **Node Exporter**: Host-level metrics for CPU, memory, disk, and network.
 - **Docker Monitoring**: Container-level metrics including running containers, total memory usage, CPU usage, and network RX.
+
+## Alerts Microservice Traces
+
+The Alerts Microservice can export OpenTelemetry traces and metrics. This is off by default and uses two additional components, an OpenTelemetry Collector and Jaeger, that are behind the `otel-collector` and `jaeger` Compose profiles. When enabled, the collector receives OTLP on port `4318`, forwards traces to Jaeger and Phoenix, and exposes the OpenTelemetry metrics in Prometheus format on port `8889` (bound to `127.0.0.1` by default).
+
+| Service | URL |
+| --- | --- |
+| Jaeger UI | `http://<HOST_IP>:16686` |
+
+Enablement steps, the span hierarchy, and the configuration reference are in [OpenTelemetry Tracing](/vss/system-components/analytics-microservices/alerts-microservice#opentelemetry-tracing) in the Alerts Microservice page.
