@@ -876,6 +876,11 @@ jobs:
   # so this lane needs no GPU and no vLLM. Because vLLM is absent, rt-vlm
   # selects the CI-safe subset of its mixed test module by the test_in_ci
   # marker; rt-embed's file is CI-safe throughout and is selected by path.
+  #
+  # rt-embed's decode-retry telemetry test also runs here. It drives the
+  # pipeline's batching and processed-chunk watcher in-process, so it needs the
+  # pure-Python imports vlm_pipeline pulls in (aiofiles, boto3, grpcio, nvtx,
+  # opentelemetry, pyyaml, requests) but still no GPU and no vLLM.
   # ---------------------------------------------------------------------------
   rtvi-vllm-compatible-test:
     name: Test (rtvi vllm-compatible)
@@ -921,11 +926,19 @@ jobs:
             torch \
             torchvision
           uv pip install --python .venv-rtvi/bin/python \
+            aiofiles \
+            boto3 \
             filelock \
+            grpcio \
             numpy \
+            nvtx \
+            opentelemetry-api \
+            opentelemetry-sdk \
             pillow \
             pydantic \
-            pytest
+            pytest \
+            pyyaml \
+            requests
 
       # --noconftest: tests/conftest.py imports prometheus_client,
       # sse_starlette, requests and sseclient for autouse fixtures that none
@@ -946,6 +959,7 @@ jobs:
         run: |
           PYTHONPATH=src "$GITHUB_WORKSPACE/.venv-rtvi/bin/pytest" \
             tests/model/vllm_compatible/test_mm_processor_cache_engine_args.py \
+            tests/rtvi_embed/test_decode_retry_telemetry.py \
             -v
 
   # ---------------------------------------------------------------------------

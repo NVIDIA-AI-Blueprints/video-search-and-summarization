@@ -2641,10 +2641,22 @@ class RTVIStreamHandler:
                 logger.error(error_message)
 
         if chunk_result.decode_retry_count:
-            self._metrics._decode_retry_counter.add(
-                chunk_result.decode_retry_count,
-                {"reason": "first_attempt_error"},
-            )
+            # This callback runs on the pipeline's processed-chunk watcher
+            # thread; an exception here would kill it and stop chunk delivery
+            # for the rest of the process lifetime. Telemetry must never do
+            # that, so record the failure and keep processing the chunk.
+            try:
+                self._metrics._decode_retry_counter.add(
+                    chunk_result.decode_retry_count,
+                    {"reason": "first_attempt_error"},
+                )
+            except Exception:
+                logger.error(
+                    "Failed to record decode retry count %r for chunk %s",
+                    chunk_result.decode_retry_count,
+                    getattr(chunk_result.chunk, "chunkIdx", "unknown"),
+                    exc_info=True,
+                )
 
         # Per-chunk decode latency and OTEL tracing
         if chunk_result.decode_end_time > chunk_result.decode_start_time:
