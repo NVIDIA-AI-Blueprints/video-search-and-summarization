@@ -145,7 +145,7 @@ its service lists here, or this table drifts from the one that is authoritative:
 | **Q2w-mode** — *"Which warehouse mode?"* | `2d` (RT-DETR) · `3d` (Sparse4D, depth-aware) · `mv3dt` (multi-view 3D tracking, BEV fusion) · `auto-calibration` (produce a calibration) |
 | **Q2w-profile** — *"Which deployment variant?"* | `bp_wh` · `bp_wh_kafka` · `bp_wh_redis` |
 | **Q2w-size** — *"Minimal or extended?"* | Extended · Minimal |
-| **Q2w-dataset** — *"Which sample dataset?"* | `nv-warehouse-4cams` · `warehouse-loading-dock-3cams-synthetic` · `warehouse-4cams-20mx20m-synthetic` |
+| **Q2w-dataset** — *"Which sample dataset?"* | `nv-warehouse-4cams` · `warehouse-loading-dock-3cams-synthetic` · `warehouse-4cams-20mx20m-synthetic` · `warehouse-loading-dock-3cams-degraded-synthetic` |
 | **Q2w-datatype** — *"Is this footage real or synthetic?"* | `real` · `synthetic` |
 
 Filter the remaining options rather than validating the answers afterwards.

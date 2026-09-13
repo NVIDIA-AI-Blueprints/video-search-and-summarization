@@ -102,10 +102,14 @@ function warehouse_sample_video_dataset() {
 }
 
 function warehouse_num_streams() {
-  # All supported warehouse fixtures now use four cameras. Keep this helper
-  # separate from dataset selection so the generated configuration remains
-  # explicit about its batch and synchronized-playback size.
-  echo "4"
+  case "${1}" in
+    warehouse-loading-dock-3cams-synthetic | warehouse-loading-dock-3cams-degraded-synthetic)
+      echo "3"
+      ;;
+    *)
+      echo "4"
+      ;;
+  esac
 }
 
 # Built-in dataset names own their media-domain contract. --dataset-type is
@@ -120,7 +124,7 @@ function warehouse_dataset_type() {
     nv-warehouse-4cams)
       _inferred="real"
       ;;
-    warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
+    warehouse-loading-dock-3cams-synthetic | warehouse-loading-dock-3cams-degraded-synthetic | warehouse-4cams-20mx20m-synthetic)
       _inferred="synthetic"
       ;;
   esac
@@ -1404,11 +1408,18 @@ function state_up() {
     local _sample_dataset _num_streams _dataset_type
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
-      _num_streams="$(get_env_value_from_files "NUM_STREAMS" "${_source_env}" "${_overrides_env}")"
-      _num_streams="${_num_streams:-$(warehouse_num_streams "${mode}" "${bp_profile}")}"
+      case "${_sample_dataset}" in
+        nv-warehouse-4cams | warehouse-loading-dock-3cams-synthetic | warehouse-loading-dock-3cams-degraded-synthetic | warehouse-4cams-20mx20m-synthetic)
+          _num_streams="$(warehouse_num_streams "${_sample_dataset}")"
+          ;;
+        *)
+          _num_streams="$(get_env_value_from_files "NUM_STREAMS" "${_source_env}" "${_overrides_env}")"
+          _num_streams="${_num_streams:-$(warehouse_num_streams "${_sample_dataset}")}"
+          ;;
+      esac
     else
       _sample_dataset="$(warehouse_sample_video_dataset "${mode}" "${bp_profile}")"
-      _num_streams="$(warehouse_num_streams "${mode}" "${bp_profile}")"
+      _num_streams="$(warehouse_num_streams "${_sample_dataset}")"
     fi
     _dataset_type="$(warehouse_dataset_type "${_sample_dataset}" "${dataset_type}")"
     set_env_var "SAMPLE_VIDEO_DATASET" "${_sample_dataset}"

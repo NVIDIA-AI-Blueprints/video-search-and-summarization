@@ -92,7 +92,7 @@ The repository includes 2D, 3D, and MV3DT calibration for `nv-warehouse-4cams`, 
 | `nv-warehouse-4cams` | 4 | Approximately 10 minutes per camera (600 seconds) | Real-world high-angle aisle footage with racks, palletized inventory, workers in safety vests, boxes, shrink-wrapped pallets, forklift activity, and pallet movement. |
 | `warehouse-loading-dock-3cams-synthetic` | 3 | 4 minutes per camera (240 seconds) | Synthetic loading dock footage with overhead views, loading bays, yellow-and-black floor safety zones, boxes on pallets, and forklift equipment. |
 | `warehouse-4cams-20mx20m-synthetic` | 4 | 5 minutes per camera (300 seconds) | Synthetic 20mx20m 3D warehouse scene with overlapping corner-mounted camera views, numbered zones, palletized boxes, forklifts, workers, safety boundaries, and barriers. Used for multi-camera tracking, spatial analytics, and cross-camera object re-identification. |
-| `warehouse-loading-dock-3cams-synthetic-degraded` | 3 | 4 minutes per camera (240 seconds) | Degraded synthetic loading dock footage with low-light and lower-quality camera visuals, representing deployments where camera feeds vary in quality. Profile calibration is not shipped in this repository. |
+| `warehouse-loading-dock-3cams-degraded-synthetic` | 3 | 4 minutes per camera (240 seconds) | Degraded synthetic loading dock footage with low-light and lower-quality camera visuals, representing deployments where camera feeds vary in quality. Profile calibration is not shipped in this repository. |
 
 <Note>
 After extracting the package, set `VSS_DATA_DIR` in `industry-profiles/warehouse-operations/overrides.env` to point to the extracted data directory.
@@ -107,14 +107,14 @@ The tracklet-based AMC method relies heavily on moving people in the input video
 </Note>
 
 ```bash
-ngc registry resource download-version "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09042026"
+ngc registry resource download-version "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09112026"
 
 # OR Manually download the tar file from NGC
-# URL https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-warehouse/resources/vss-warehouse-app-data?version=v3.3.0-09042026
+# URL https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-warehouse/resources/vss-warehouse-app-data?version=v3.3.0-09112026
 
 # Extract the package
 
-cd vss-warehouse-app-data_vv3.3.0-09042026
+cd vss-warehouse-app-data_vv3.3.0-09112026
 tar -xvf vss-warehouse-app-data.tar.gz
 
 # Set permissions
