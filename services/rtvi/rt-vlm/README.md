@@ -52,7 +52,7 @@ The Docker artifacts are shipped under [`docker/`](docker/):
 | File | Purpose |
 |------|---------|
 | [`docker/compose.yaml`](docker/compose.yaml) | Standalone Compose stack: `rtvi-server` + Kafka + Redis. Common Compose/Helm variables are listed in the [RTVI-VLM configuration reference](../../../docs/real-time-vlm.mdx#docker-compose-and-helm-variables) |
-| [`docker/.env.example`](docker/.env.example) | Copyable Compose configuration with a GHCR developer image and a pinned NVCR release alternative |
+| [`docker/.env.example`](docker/.env.example) | Copyable Compose configuration using the GHCR development image |
 | [`docker/Dockerfile`](docker/Dockerfile) | (Optional) layers your local `src/` edits onto the shipped image |
 
 #### 2. Create a `.env` file
@@ -63,8 +63,7 @@ Copy the tracked sample to `.env`, then replace the NGC API key placeholder:
 cp .env.example .env
 ```
 
-The sample defaults to the moving GHCR development image. For a pinned release,
-replace its `RTVI_IMAGE` value with the NVCR release image shown in the sample.
+The sample defaults to the moving GHCR development image.
 
 `compose.yaml` provides defaults for every other Compose variable except `BACKEND_PORT`, which must be set. See the [RTVI-VLM configuration reference](../../../docs/real-time-vlm.mdx#docker-compose-and-helm-variables) for the authoritative Compose and Helm variable list.
 
@@ -110,7 +109,6 @@ docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-
 To test the custom image with Docker Compose, set `RTVI_IMAGE` in `docker/.env`:
 
 ```bash
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
 RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom
 ```
 
@@ -133,7 +131,7 @@ docker buildx build --platform linux/arm64 \
   --load .
 ```
 
-For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default base image (`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`) is multi-arch, so a `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
+For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set `IS_SBSA`. The default runtime image (`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`) is multi-arch. Build custom images for Thor with `linux/arm64`:
 
 ```bash
 docker buildx build --platform linux/arm64 \
@@ -149,7 +147,6 @@ Use the standalone Helm chart when running only RT-VLM on Kubernetes. The chart 
 Prerequisites:
 - Kubernetes cluster with NVIDIA GPU Operator installed
 - Helm 3
-- NGC image pull secret for `nvcr.io`
 - Generic secret containing `NGC_API_KEY`
 - Optional generic secret containing `HF_TOKEN` for Hugging Face-hosted models
 
@@ -164,11 +161,6 @@ cd video-search-and-summarization/deploy/helm/services/rtvi/charts/rtvi-vlm
 
 ```bash
 kubectl create namespace vss-rtvi
-kubectl create secret docker-registry ngc-image-pull-secret \
-  --docker-server=nvcr.io \
-  --docker-username='$oauthtoken' \
-  --docker-password="$NGC_API_KEY" \
-  -n vss-rtvi
 kubectl create secret generic ngc-api \
   --from-literal=NGC_API_KEY="$NGC_API_KEY" \
   -n vss-rtvi
@@ -905,8 +897,8 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | Value | Description | Default |
 |-------|-------------|---------|
 | `enabled` | Enable the RT-VLM chart | `false` in `values.yaml`, `true` in `overrides_rtvi_vlm.yaml` |
-| `image.repository` | RT-VLM image repository | `nvcr.io/nvstaging/vss-core/vss-rt-vlm` |
-| `image.tag` | RT-VLM image tag | `3.3.0-26.08.2` |
+| `image.repository` | RT-VLM image repository | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm` |
+| `image.tag` | RT-VLM image tag | `develop-latest` |
 | `image.pullPolicy` | Kubernetes image pull policy | `IfNotPresent` |
 | `replicas` | Number of RT-VLM replicas | `1` |
 | `useSharedNim` | Use an in-cluster or remote OpenAI-compatible NIM instead of loading the model in the RT-VLM pod | `false` |
@@ -921,7 +913,7 @@ These Kubernetes chart values are defined by the standalone RT-VLM chart under `
 | `ngcApiSecret.key` | Secret key for the NGC API key | Empty, falls back to `global.ngcApiSecret.key` or `NGC_API_KEY` |
 | `hfTokenSecret.name` | Optional Kubernetes secret that contains `HF_TOKEN` | `hf-token-secret` in `overrides_rtvi_vlm.yaml` |
 | `hfTokenSecret.key` | Secret key for the Hugging Face token | `HF_TOKEN` |
-| `global.imagePullSecrets` | Image pull secrets used by the pod | Empty in `values.yaml`; standalone override uses `ngc-image-pull-secret` |
+| `global.imagePullSecrets` | Image pull secrets used by the pod when overriding the public GHCR image | Empty |
 | `global.ngcApiSecret.name` | Default NGC API key secret | Empty in `values.yaml`; standalone override uses `ngc-api` |
 | `global.ngcApiSecret.key` | Default NGC API key secret key | Empty in `values.yaml`; standalone override uses `NGC_API_KEY` |
 | `global.useReleaseNamePrefix` | Prefix service names with the Helm release name | `false` in standalone override |

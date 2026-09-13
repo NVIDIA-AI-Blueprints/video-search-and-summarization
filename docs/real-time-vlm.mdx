@@ -11,8 +11,8 @@ real-time video understanding capabilities using Vision Language Models
 (VLM). It enables users to generate captions, process live video streams,
 and manage live streams through a comprehensive set of REST endpoints.
 
-For the 3.3.0 release, use the multi-architecture RTVI-VLM 26.08.2 image:
-`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`.
+For current development builds, use the multi-architecture RTVI-VLM image:
+`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`.
 
 <Note>
 RTVI-VLM does not support cosmos-reason1 in VSS 3.3.
@@ -253,16 +253,15 @@ Edition** using two `MIG 2g.48gb` instances on one physical GPU.
 
 ### Quick Start
 
-Clone the blueprint repository and check out the release tag:
+Clone the blueprint repository:
 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.3.0
 ```
 
-Then follow the Docker Compose or Helm Chart section below. The RTVI-VLM
-container used by this release is tagged `3.3.0-26.08.2`.
+Then follow the Docker Compose or Helm Chart section below. Both default to
+`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`.
 
 ### Docker Compose Deployment
 
@@ -272,12 +271,12 @@ container used by this release is tagged `3.3.0-26.08.2`.
    cd services/rtvi/rt-vlm/docker
    ```
 
-2. Create a `.env` file for the pinned release, then replace the NGC API key:
+2. Create a `.env` file, then replace the NGC API key:
 
    ```bash
    cat > .env <<'EOF'
    BACKEND_PORT=8000
-   RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
+   RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
    VLM_MODEL_TO_USE=cosmos-reason3
    MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
    NGC_API_KEY=<replace-with-your-ngc-api-key>
@@ -327,11 +326,6 @@ is in `deploy/helm/services/rtvi/charts/rtvi-vlm` in the
 
    ```bash
    kubectl create namespace vss-rtvi
-   kubectl create secret docker-registry ngc-image-pull-secret \
-     --docker-server=nvcr.io \
-     --docker-username='$oauthtoken' \
-     --docker-password="$NGC_API_KEY" \
-     -n vss-rtvi
    kubectl create secret generic ngc-api \
      --from-literal=NGC_API_KEY="$NGC_API_KEY" \
      -n vss-rtvi
@@ -405,9 +399,9 @@ docker buildx build --platform linux/arm64 \
 ```
 
 For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set
-`IS_SBSA`. The default base image
-(`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`) is multi-arch, so a
-`linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
+`IS_SBSA`. The default runtime image
+(`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`) is multi-arch.
+Build custom images for Thor with `linux/arm64`:
 
 ```bash
 docker buildx build --platform linux/arm64 \
@@ -1511,11 +1505,10 @@ The chart injects `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`,
 
 * `enabled`: Enable the chart. Default: `false`; standalone override:
   `true`.
-* `image.repository`, `image.tag`, and `image.pullPolicy`: Image
-  settings. For 3.3.0 RTVI-VLM, use
-  `nvcr.io/nvstaging/vss-core/vss-rt-vlm`, `3.3.0-26.08.2`, and
-  `IfNotPresent`. The image tag supports the supported x86 and ARM64
-  platforms.
+* `image.repository`, `image.tag`, and `image.pullPolicy`: Image settings.
+  The defaults are `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm`,
+  `develop-latest`, and `IfNotPresent`. The image tag supports the supported
+  x86 and ARM64 platforms.
 * `replicas`: Number of replicas. Default: `1`.
 * `useSharedNim`: Use a shared OpenAI-compatible NIM instead of loading a
   model in this pod. Default: `false`.
