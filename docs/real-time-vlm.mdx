@@ -11,8 +11,8 @@ real-time video understanding capabilities using Vision Language Models
 (VLM). It enables users to generate captions, process live video streams,
 and manage live streams through a comprehensive set of REST endpoints.
 
-For the 3.3.0 release, use the multi-architecture RTVI-VLM 26.08.2 image:
-`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`.
+For current development builds, use the multi-architecture RTVI-VLM image:
+`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`.
 
 <Note>
 RTVI-VLM does not support cosmos-reason1 in VSS 3.3.
@@ -1459,7 +1459,6 @@ standalone Helm override.
 | `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; leave empty to disable it. Configured values must be finite and strictly between `0` and `1`, otherwise RTVI-VLM fails startup. Also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Empty |
 | `VIA_EVS_SESSION` | Enable the optional EVS++ video-session path when set to `true` or `1` | Empty (disabled) |
 | `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ session mode is enabled |
-<<<<<<< HEAD
 | `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced; `1` generates on every clip | `1` |
 | `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `256` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
