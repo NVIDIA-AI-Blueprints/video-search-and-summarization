@@ -14,6 +14,7 @@
 # limitations under the License.
 """Unit tests for top_agent module."""
 
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -44,6 +45,7 @@ from vss_agents.agents.top_agent import TopAgent
 from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import _augment_context_clip_offsets
+from vss_agents.agents.top_agent import _store_identical_tool_call_outcome
 from vss_agents.agents.top_agent import identical_tool_call_key
 from vss_agents.agents.top_agent import strip_frontend_tags
 from vss_agents.agents.top_agent import trace_step_title
@@ -1482,6 +1484,74 @@ class TestIdenticalToolCallCap:
             if isinstance(msg, ToolMessage) and str(msg.content).startswith("Identical tool call skipped")
         )
         assert skip_count == extra_calls - MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+
+    def test_store_keeps_success_when_a_later_failure_arrives(self):
+        state = TopAgentState(options=AgentRequestOptions())
+        args = IDENTICAL_TOOL_CALL_ARGS
+        _store_identical_tool_call_outcome(state, "video_understanding_iso", args, "error", "Tool call failed: first")
+        _store_identical_tool_call_outcome(state, "video_understanding_iso", args, "success", "ok")
+        _store_identical_tool_call_outcome(state, "video_understanding_iso", args, "error", "Tool call failed: late")
+        outcome = state.identical_tool_call_last_outcome[identical_tool_call_key("video_understanding_iso", args)]
+        assert outcome["status"] == "success"
+        assert outcome["content"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_mixed_parallel_outcomes_keep_success_for_later_skip(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+
+        class MixedTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                if type(self).call_count == 1:
+                    await asyncio.sleep(0.05)
+                    raise RuntimeError("late failure")
+                yield "video understanding ok"
+
+        tool = MixedTool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding_iso",
+                            "args": IDENTICAL_TOOL_CALL_ARGS,
+                            "id": "fail_last",
+                        },
+                        {
+                            "name": "video_understanding_iso",
+                            "args": IDENTICAL_TOOL_CALL_ARGS,
+                            "id": "succeed_first",
+                        },
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        outcome = state.identical_tool_call_last_outcome[
+            identical_tool_call_key("video_understanding_iso", IDENTICAL_TOOL_CALL_ARGS)
+        ]
+        assert outcome["status"] == "success"
+        assert not state.tool_failure
+
+        state.agent_scratchpad = self._scratchpad_call("third")
+        await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call("skip")
+        await agent.tool_or_subagent_node(state)
+
+        skip_message = state.agent_scratchpad[-1]
+        assert skip_message.content == DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
+            name="video_understanding_iso",
+            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+        )
+        assert getattr(skip_message, "status", None) == "success"
 
 
 class TestTopAgentRequestUseCritic:

@@ -366,7 +366,12 @@ def _store_identical_tool_call_outcome(
     status: str,
     content: Any,
 ) -> None:
-    state.identical_tool_call_last_outcome[identical_tool_call_key(name, args)] = {
+    """Keep any executed success. A later failure must not hide it."""
+    key = identical_tool_call_key(name, args)
+    previous = state.identical_tool_call_last_outcome.get(key, {})
+    if previous.get("status") == "success" and status != "success":
+        return
+    state.identical_tool_call_last_outcome[key] = {
         "status": status,
         "content": str(content),
     }
