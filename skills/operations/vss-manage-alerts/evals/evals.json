@@ -51,7 +51,7 @@
     "ground_truth": "The agent routes this as Workflow C, a historical incident query. It queries the Alert Bridge incidents endpoint (GET /api/v1/realtime/incidents) directly rather than listing active subscription rules, and never uses the VSS Agent /generate endpoint.",
     "expected_behavior": [
       "Loads vss-manage-alerts and recognizes 'triggered today' as a past-incident query.",
-      "Queries Alert Bridge directly with GET http://localhost:9080/api/v1/realtime/incidents (resolving Camera_02 to its sensorId via VIOS when scoping) — it does not use the VSS Agent POST /generate.",
+      "Queries Alert Bridge directly with GET http://localhost:9080/api/v1/realtime/incidents (resolving Camera_02 to its stored sensor name via VIOS when scoping — the incidents endpoint filters on the name, not the VIOS UUID) — it does not use the VSS Agent POST /generate.",
       "Scopes the query to Camera_02 and today's time window when forming the request.",
       "Summarizes returned incidents with readable details such as timestamp, sensor, category, verdict, or description.",
       "Does not call Alert Bridge GET /api/v1/realtime because that endpoint lists active rules, not historical alerts.",
@@ -139,6 +139,22 @@
       "For always-on incident results, queries via Workflow C (GET /api/v1/realtime/incidents), noting always-on rules live in an in-memory sidecar and may not appear in the Workflow D rules list.",
       "Does not create or edit always-on rule configuration and does not enable the feature on the user's behalf.",
       "Does not route this request to the VSS Agent POST /generate."
+    ]
+  },
+  {
+    "id": "alerts-consolidated-event-count",
+    "question": "How many intrusion events were there on warehouse_sample between 10:00 and 10:30 UTC today?",
+    "expected_skill": "vss-manage-alerts",
+    "ground_truth": "The agent routes this as Workflow C in its consolidated view: a 'how many events' ask bounded to a stated period. It resolves warehouse_sample's stored name (VIOS), reads the stored category strings for that sensor and window off a raw incidents page and matches 'intrusion' against them (exactly one match → use it verbatim; a non-empty page with no match → repeat the lookup under the VIOS UUID identity, and only if still nothing (or several matches) → ask, no consolidated call; an EMPTY page → 0 events for the window, reported after the consolidated call and the UUID identity check, unless that check finds chunks of other categories only — then ask), then calls GET /api/v1/realtime/incidents with sensor_id set to the identity the category matched under (warehouse_sample, or its VIOS UUID when it matched only there), category=<stored category>, start_time/end_time for the stated window and consolidate=true, and reports the response's `total` as events (consecutive confirmed chunks folded by sensorId + category), never as a chunk count.",
+    "expected_behavior": [
+      "Loads vss-manage-alerts and treats a period-bounded 'how many events' question as Workflow C's consolidated view, not a raw chunk count and not a rules listing.",
+      "Resolves warehouse_sample through VIOS (the skill's `vss vios list` CLI or GET http://${HOST_IP}:30888/vst/api/v1/sensor/list) and passes the stored sensor NAME as sensor_id for the primary query (the VIOS UUID only after the name identity yielded nothing usable: a name-scoped zero — the step-3 alternate-identity check — or a non-empty name-scoped page with no category matching the ask — the lookup's UUID retry).",
+      "Reads the stored `category` strings from a raw windowed incidents page (GET /api/v1/realtime/incidents with the window, no consolidate) and matches 'intrusion' against them instead of guessing the string from the phrasing; when the page is non-empty but nothing matches, repeats the lookup under the sensor's VIOS UUID identity before giving up (a rule created without sensor_name stores its chunks under the UUID); when still nothing or several match under either identity, asks the user and issues no consolidated call; when the page is empty (no chunks in the window), reports 0 events after the consolidated call and the UUID identity check — an empty name-scoped page is never by itself a reason to ask (it asks only if the UUID page holds chunks but none of the named category).",
+      "When exactly one stored category matches, calls GET http://${HOST_IP}:9080/api/v1/realtime/incidents with consolidate=true, that category, sensor_id set to the identity the category matched under (the stored name warehouse_sample, or the VIOS UUID when it matched only there), and both start_time and end_time as ISO-8601 UTC values for the stated 10:00-10:30 window; never invents or widens the window.",
+      "Reports the response's `total` as the number of intrusion events in that window, says which sensor and window it covers, and does not quote a raw page `count` or a chunk count as the event count.",
+      "If the response carries `truncated: true`, reports the total as a lower bound and says the window is too dense.",
+      "Treats an HTTP 400 `validation_failed` as a missing time window (fix the request), not as Alert Bridge being unreachable, and never falls back to the unfiltered incidents list for it.",
+      "Does not route this request to POST /generate and does not call the bare GET /api/v1/realtime (rules inventory)."
     ]
   }
 ]
