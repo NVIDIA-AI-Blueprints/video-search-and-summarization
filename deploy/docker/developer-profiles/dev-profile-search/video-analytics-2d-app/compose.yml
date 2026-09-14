@@ -58,6 +58,25 @@ services:
       VISION_ENCODER_VERSION: ${VISION_ENCODER_VERSION:-v1.1}
       NGC_CLI_API_KEY: ${NGC_CLI_API_KEY}
       DS_MODEL_DOWNLOAD: auto
+    # Only search enables the text embedder; its health requires a non-empty
+    # embedding because the generic readiness endpoint becomes ready earlier.
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - -c
+      - >-
+        import json, sys, urllib.request;
+        body = json.dumps({'text_input': 'healthcheck', 'model': ''}).encode();
+        req = urllib.request.Request(
+        'http://localhost:${RTVI_CV_PORT:-9000}/api/v1/generate_text_embeddings',
+        data=body, headers={'Content-Type': 'application/json'});
+        data = json.load(urllib.request.urlopen(req, timeout=10)).get('data');
+        sys.exit(0 if isinstance(data, list) and len(data) > 0 else 1)
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 1200s
     depends_on:
       sensor-ms:
         condition: service_started
