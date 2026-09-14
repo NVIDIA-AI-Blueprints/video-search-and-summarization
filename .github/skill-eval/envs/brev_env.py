@@ -70,6 +70,17 @@ def _is_local_gpu_instance(instance: str | None) -> bool:
     return bool(local and instance and local.lower() == instance.lower())
 
 
+def _openshell_skill_count_only() -> bool:
+    """True on an OpenShell guest running `vss-deploy-test-openshell`.
+
+    Placement is GitHub labels (`openshell`, `gpus-N`) plus live GPU
+    *count*. SKU / VRAM / `gpu_type` are not part of the gate.
+    """
+    return bool(_local_gpu_instance()) and (
+        os.environ.get("EVAL_SKILL", "").strip() == "vss-deploy-test-openshell"
+    )
+
+
 # Corp remote LLM/VLM endpoints are optional on coordinator Brev boxes.
 # OpenShell guests cannot reach 10.86.6.50, and forwarding these keys
 # makes /vss-deploy-profile write LLM_MODE=remote / VLM_MODE=remote so
@@ -336,10 +347,19 @@ class BrevEnvironment(BaseEnvironment):
                     f"(is it deleted? wrong org?)"
                 )
             if _is_local_gpu_instance(self._instance_name):
+                if _openshell_skill_count_only():
+                    requirements["gpu_type"] = None
+                    requirements["min_vram_gb_per_gpu"] = 0
+                    logger.info(
+                        "OpenShell vss-deploy-test-openshell: GPU gate is "
+                        "gpu_count>=%s only (no SKU / VRAM check)",
+                        requirements["gpu_count"],
+                    )
                 await _check_local_gpu_requirements(
                     self._instance_name, requirements
                 )
-            await _check_instance_matches(instance, requirements)
+            if not _openshell_skill_count_only():
+                await _check_instance_matches(instance, requirements)
         else:
             raise RuntimeError(
                 "No BREV_INSTANCE set and no `brev_instance` in task.toml "
@@ -2428,6 +2448,7 @@ async def _check_local_gpu_requirements(instance_name: str, req: dict) -> None:
     required_count = int(req.get("gpu_count", 1) or 0)
     if required_count == 0:
         return
+    count_only = _openshell_skill_count_only()
 
     identity = await _run_local_exec("nvidia-smi -L", timeout=30)
     if identity.return_code != 0 or not (identity.stdout or "").strip():
@@ -2463,7 +2484,7 @@ async def _check_local_gpu_requirements(instance_name: str, req: dict) -> None:
             continue
         gpus.append((name.strip(), memory_mib))
 
-    required_type = (req.get("gpu_type") or "").upper()
+    required_type = "" if count_only else (req.get("gpu_type") or "").upper()
 
     def matches_type(name: str) -> bool:
         if not required_type:
@@ -2475,13 +2496,18 @@ async def _check_local_gpu_requirements(instance_name: str, req: dict) -> None:
     matching = [gpu for gpu in gpus if matches_type(gpu[0])]
     if len(matching) < required_count:
         names = ", ".join(name for name, _ in gpus) or "none"
+        if count_only:
+            raise RuntimeError(
+                f"Local GPU runner '{instance_name}' has {len(matching)} "
+                f"GPU(s), task requires {required_count}; detected: {names}"
+            )
         raise RuntimeError(
             f"Local GPU runner '{instance_name}' has {len(matching)} matching "
             f"GPU(s), task requires {required_count} of {required_type or 'any'}; "
             f"detected: {names}"
         )
 
-    min_vram_gb = int(req.get("min_vram_gb_per_gpu", 0) or 0)
+    min_vram_gb = 0 if count_only else int(req.get("min_vram_gb_per_gpu", 0) or 0)
     if min_vram_gb:
         too_small = [
             f"{name} ({memory_mib} MiB)"
@@ -2495,10 +2521,10 @@ async def _check_local_gpu_requirements(instance_name: str, req: dict) -> None:
             )
 
     logger.info(
-        "Local GPU runner '%s' satisfies gpu_type=%r, gpu_count>=%d",
+        "Local GPU runner '%s' satisfies gpu_count>=%d%s",
         instance_name,
-        required_type,
         required_count,
+        "" if count_only else f", gpu_type={required_type!r}",
     )
 
 

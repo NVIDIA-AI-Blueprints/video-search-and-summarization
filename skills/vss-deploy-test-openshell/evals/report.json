@@ -6,6 +6,9 @@
   "profile": "base",
   "resources": {
     "platforms": {
+      "H200": {
+        "gpu_count": 1
+      },
       "RTXPRO6000BW": {
         "gpu_count": 1
       }
@@ -31,6 +34,7 @@
     "multi_gpu_capable": false,
     "requires_blackwell": false,
     "supported_hardware_profiles": [
+      "H200",
       "RTXPRO6000BW"
     ]
   }
