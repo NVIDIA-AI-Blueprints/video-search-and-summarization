@@ -95,9 +95,6 @@ type, critic toggle). `Home.tsx` resolves both surfaces through `surfaceEnv`.
   supported transports are HTTP + SSE, the deployment ships
   `NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false`, and the WebSocket path exists to
   talk to NAT core — the thing being removed.
-- **Human-in-the-loop interaction responses.** Current adapter connectors
-  advertise `interaction_responses: false`, so an interaction event is shown
-  as unsupported instead of presenting a form that cannot submit a response.
 - **Folders and prompt templates.** Present in the toolkit's Chatbar, never
   surfaced in VSS. Import still accepts and preserves both keys so a toolkit
   export round-trips.
@@ -132,11 +129,14 @@ agent API event.
 | `reasoning.delta` | reasoning step |
 | `tool.*` | keyed tool-step updates |
 | `artifact.created` | validated artifact delivered to `onAnswer`, not rendered as prose |
-| `interaction.required` | unsupported-interaction error (no response UI) |
+| `interaction.required` | structured question modal; response posts to that run's `respond_url` |
+| `interaction.resolved` | dismisses the matching pending question |
 | `run.failed`, `run.cancelled` | terminal error |
 
 Absolute `*_url` values in artifact payloads are rewritten through
-`mediaProxyUrl`. Aborting a turn also posts to the run's `cancel_url`.
+`mediaProxyUrl`. While a structured question is pending, the ordinary composer
+remains locked and the modal answers the existing run rather than creating a
+new turn. Aborting a turn also posts to the run's `cancel_url`.
 
 When `transport` is omitted or set to `chat-sse`, the compatibility parser
 accepts the original line protocol:

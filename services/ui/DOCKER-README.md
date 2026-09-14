@@ -34,8 +34,11 @@ export VSS_AGENT_BACKEND_TOKEN='<harness-token>'
 For direct Compose, copy the selected profile's `overrides.env` to the ignored
 `user-overrides.env` and set the same values there. OpenClaw uses
 `VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws`, a `ws://` or `wss://` URL, and path
-`/`. Never commit a real harness token. The Compose service maps these
-host-side settings to the server-only `AGENT_*` variables shown below.
+`/`. To enable structured mid-run questions, also set
+`VSS_AGENT_INTERACTIONS_ENABLED=true`; this requires OpenClaw 2026.8.1 or newer
+with the `operator.questions` scope. Never commit a real harness token. The
+Compose service maps these host-side settings to the server-only `AGENT_*`
+variables shown below.
 
 .env sample to use for docker run when running the Metropolis BP VSS UI app:
 
@@ -50,6 +53,7 @@ NEXT_PUBLIC_APP_SUBTITLE=Warehouse
 # The backend token is server-only: never expose it through NEXT_PUBLIC_*.
 # When omitted, the UI uses the legacy chat-SSE backend settings below.
 AGENT_ADAPTER_ENABLED=true
+AGENT_INTERACTIONS_ENABLED=true
 AGENT_BACKEND_PROTOCOL=openclaw-ws
 AGENT_BACKEND_URL=ws://host.docker.internal:18789
 AGENT_BACKEND_PATH=/

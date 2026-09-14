@@ -15,6 +15,8 @@ export class RunNotFoundError extends Error {}
 export class EventsExpiredError extends Error {}
 export class IdempotencyConflictError extends Error {}
 export class StoreCapacityError extends Error {}
+export class InteractionNotPendingError extends Error {}
+export class InteractionResponseInProgressError extends Error {}
 export class ThreadBusyError extends Error {
   constructor(readonly runId: string) {
     super(`thread already has active run ${runId}`);
@@ -48,6 +50,7 @@ export class RunRecord {
   private nextSequence = 1;
   private updatedAt = Date.now();
   private readonly listeners = new Set<() => void>();
+  private readonly interactions = new Map<string, "pending" | "responding">();
 
   constructor(
     readonly runId: string,
@@ -85,6 +88,16 @@ export class RunRecord {
 
   append(type: string, data: JsonObject = {}): RunEvent {
     if (this.terminal) throw new Error("cannot append to a terminal run");
+    const interactionId =
+      typeof data.interaction_id === "string" && data.interaction_id
+        ? data.interaction_id
+        : undefined;
+    if (
+      (type === "interaction.required" || type === "interaction.resolved") &&
+      !interactionId
+    ) {
+      throw new Error(`${type} must include interaction_id`);
+    }
     const previousRetainedChars = this.retainedChars;
     const encoded = JSON.stringify(data);
     if (encoded.length > this.maxEventChars) {
@@ -105,6 +118,11 @@ export class RunRecord {
     this.events.push(event);
     this.eventCharSizes.push(eventChars);
     this.retainedEventChars += eventChars;
+    if (type === "interaction.required") {
+      this.interactions.set(interactionId!, "pending");
+    } else if (type === "interaction.resolved") {
+      this.interactions.delete(interactionId!);
+    }
     while (
       this.events.length > this.maxEvents ||
       this.retainedEventChars > this.maxEventChars
@@ -116,6 +134,7 @@ export class RunRecord {
     else if (type === "run.completed") this.status = "completed";
     else if (type === "run.failed") this.status = "failed";
     else if (type === "run.cancelled") this.status = "cancelled";
+    if (this.terminal) this.interactions.clear();
     this.updatedAt = Date.now();
     this.onRetainedCharsChanged(
       this,
@@ -123,6 +142,27 @@ export class RunRecord {
     );
     for (const listener of this.listeners) listener();
     return event;
+  }
+
+  hasPendingInteraction(interactionId: string): boolean {
+    return this.interactions.has(interactionId);
+  }
+
+  claimInteraction(interactionId: string): void {
+    const status = this.interactions.get(interactionId);
+    if (!status) {
+      throw new InteractionNotPendingError(interactionId);
+    }
+    if (status === "responding") {
+      throw new InteractionResponseInProgressError(interactionId);
+    }
+    this.interactions.set(interactionId, "responding");
+  }
+
+  releaseInteraction(interactionId: string): void {
+    if (this.interactions.get(interactionId) === "responding") {
+      this.interactions.set(interactionId, "pending");
+    }
   }
 
   eventsAfter(sequence: number): RunEvent[] {
@@ -157,6 +197,7 @@ export class RunRecord {
       thread_id: this.request.threadId,
       status: this.status,
       last_event_id: String(this.lastEventSequence),
+      pending_interaction_ids: [...this.interactions.keys()],
     };
   }
 }

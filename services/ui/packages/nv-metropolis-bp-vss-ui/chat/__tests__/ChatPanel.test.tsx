@@ -40,6 +40,38 @@ function sseResponse(chunks: string[]): Response {
   } as unknown as Response;
 }
 
+/** Stream initial frames now, then pause until the test releases later frames. */
+function gatedSseResponse(initial: string[], continuation: Promise<string[]>): Response {
+  const encoder = new TextEncoder();
+  let initialIndex = 0;
+  let continuationChunks: string[] | null = null;
+  let continuationIndex = 0;
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      getReader: () => ({
+        read: async () => {
+          if (initialIndex < initial.length) {
+            return {
+              done: false,
+              value: encoder.encode(initial[initialIndex++]),
+            };
+          }
+          continuationChunks ??= await continuation;
+          return continuationIndex < continuationChunks.length
+            ? {
+                done: false,
+                value: encoder.encode(continuationChunks[continuationIndex++]),
+              }
+            : { done: true, value: undefined };
+        },
+        releaseLock: () => {},
+      }),
+    },
+  } as unknown as Response;
+}
+
 function agentApiFrame(type: string, data: Record<string, unknown>, id: number): string {
   return `id: ${id}\nevent: ${type}\ndata: ${JSON.stringify({
     protocol_version: '1.0',
@@ -64,13 +96,15 @@ describe('ChatPanel', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('streams an answer and renders it as markdown', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      sseResponse([
-        'data: {"choices":[{"delta":{"content":"**bold** "}}]}\n\n',
-        'data: {"choices":[{"delta":{"content":"answer"}}]}\n\n',
-        'data: [DONE]\n\n',
-      ]),
-    ) as any;
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          'data: {"choices":[{"delta":{"content":"**bold** "}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"answer"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ) as any;
 
     render(<ChatPanel endpoint={endpoint} features={noHeader} />);
     await act(async () => typeAndSend('what happened?'));
@@ -185,9 +219,7 @@ describe('ChatPanel', () => {
     global.fetch = fetchMock as any;
     const onControlsReady = jest.fn();
 
-    render(
-      <ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />,
-    );
+    render(<ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />);
     await act(async () => typeAndSend('start captioning'));
     await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
 
@@ -200,7 +232,9 @@ describe('ChatPanel', () => {
 
     await act(async () => controls().onSelectConversation(originatingId));
     await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
-    fireEvent.change(screen.getByTestId('hitl-modal-textarea'), { target: { value: 'aisle 4' } });
+    fireEvent.change(screen.getByTestId('hitl-modal-textarea'), {
+      target: { value: 'aisle 4' },
+    });
     await act(async () => {
       fireEvent.click(screen.getByTestId('hitl-modal-submit'));
     });
@@ -234,9 +268,7 @@ describe('ChatPanel', () => {
     global.fetch = fetchMock as any;
     const onControlsReady = jest.fn();
 
-    render(
-      <ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />,
-    );
+    render(<ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />);
     await act(async () => typeAndSend('start captioning'));
     await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
 
@@ -258,19 +290,21 @@ describe('ChatPanel', () => {
       prompt: { text: `Question ${n}`, input_type: 'text', required: true },
       response_url: `/executions/execution-seq/interactions/interaction-${n}/response`,
     }));
-    const fetchMock = jest.fn().mockImplementation((url: unknown) =>
-      String(url).includes('interaction=')
-        ? Promise.resolve({ ok: true, status: 204 })
-        : Promise.resolve(
-            sseResponse([
-              ...prompts.map(
-                (request) => `event: interaction_required\ndata: ${JSON.stringify(request)}\n\n`,
-              ),
-              'data: {"choices":[{"delta":{"content":"all set"}}]}\n\n',
-              'data: [DONE]\n\n',
-            ]),
-          ),
-    );
+    const fetchMock = jest
+      .fn()
+      .mockImplementation((url: unknown) =>
+        String(url).includes('interaction=')
+          ? Promise.resolve({ ok: true, status: 204 })
+          : Promise.resolve(
+              sseResponse([
+                ...prompts.map(
+                  (request) => `event: interaction_required\ndata: ${JSON.stringify(request)}\n\n`,
+                ),
+                'data: {"choices":[{"delta":{"content":"all set"}}]}\n\n',
+                'data: [DONE]\n\n',
+              ]),
+            ),
+      );
     global.fetch = fetchMock as any;
 
     render(<ChatPanel endpoint={endpoint} features={noHeader} />);
@@ -293,8 +327,9 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(screen.getByText('all set')).toBeInTheDocument());
     const answers = fetchMock.mock.calls.filter(([url]) => String(url).includes('interaction='));
     expect(answers.map(([url]) => String(url))).toEqual(
-      prompts.map((request) =>
-        `/api/vss-chat?surface=main&interaction=${encodeURIComponent(request.response_url)}`,
+      prompts.map(
+        (request) =>
+          `/api/vss-chat?surface=main&interaction=${encodeURIComponent(request.response_url)}`,
       ),
     );
     expect(answers.map(([, init]) => JSON.parse(init.body).response.text)).toEqual(
@@ -318,19 +353,16 @@ describe('ChatPanel', () => {
   });
 
   it('reports the answer to the embedder with the conversation id', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      sseResponse(['data: {"choices":[{"delta":{"content":"done"}}]}\n\n', 'data: [DONE]\n\n']),
-    ) as any;
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        sseResponse(['data: {"choices":[{"delta":{"content":"done"}}]}\n\n', 'data: [DONE]\n\n']),
+      ) as any;
     const onAnswer = jest.fn();
     const onSubmit = jest.fn();
 
     render(
-      <ChatPanel
-        endpoint={endpoint}
-        features={noHeader}
-        onAnswer={onAnswer}
-        onSubmit={onSubmit}
-      />,
+      <ChatPanel endpoint={endpoint} features={noHeader} onAnswer={onAnswer} onSubmit={onSubmit} />,
     );
     await act(async () => typeAndSend('go'));
 
@@ -343,9 +375,11 @@ describe('ChatPanel', () => {
   });
 
   it('signals completion before delivering the answer', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      sseResponse(['data: {"choices":[{"delta":{"content":"done"}}]}\n\n', 'data: [DONE]\n\n']),
-    ) as any;
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        sseResponse(['data: {"choices":[{"delta":{"content":"done"}}]}\n\n', 'data: [DONE]\n\n']),
+      ) as any;
     const callbackOrder: string[] = [];
 
     render(
@@ -424,6 +458,212 @@ describe('ChatPanel', () => {
     expect(onAnswer.mock.calls[0][0]).toContain('vss.search.results');
   });
 
+  it('answers an OpenClaw structured question without starting another run', async () => {
+    const now = Date.now();
+    let releaseEvents!: () => void;
+    const continuation = new Promise<string[]>((resolve) => {
+      releaseEvents = () =>
+        resolve([
+          agentApiFrame(
+            'interaction.resolved',
+            { interaction_id: 'question-1', status: 'answered' },
+            3,
+          ),
+          agentApiFrame('message.delta', { delta: 'deployment started' }, 4),
+          agentApiFrame('run.completed', {}, 5),
+        ]);
+    });
+    const eventsResponse = gatedSseResponse(
+      [
+        agentApiFrame('run.started', {}, 1),
+        agentApiFrame(
+          'interaction.required',
+          {
+            interaction_id: 'question-1',
+            kind: 'questions',
+            created_at_ms: now,
+            expires_at_ms: now + 60_000,
+            questions: [
+              {
+                question_id: 'profile',
+                header: 'Profile',
+                prompt: 'Which deployment profile?',
+                options: [
+                  { label: 'buarch', description: 'Warehouse architecture' },
+                  { label: 'smartcities' },
+                ],
+                multi_select: false,
+                allow_other: false,
+                secret: false,
+              },
+              {
+                question_id: 'features',
+                header: 'Features',
+                prompt: 'Which features should be enabled?',
+                options: [{ label: 'search' }, { label: 'alerts' }],
+                multi_select: true,
+                allow_other: false,
+                secret: false,
+              },
+              {
+                question_id: 'notes',
+                header: 'Notes',
+                prompt: 'Add deployment notes',
+                options: [],
+                multi_select: false,
+                allow_other: false,
+                secret: false,
+              },
+            ],
+          },
+          2,
+        ),
+      ],
+      continuation,
+    );
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/agent/runs') {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+            respond_url: '/api/agent/runs/run_1/respond',
+          }),
+        } as Response;
+      }
+      if (input === '/api/agent/runs/run_1/events') return eventsResponse;
+      if (input === '/api/agent/runs/run_1/respond') {
+        releaseEvents();
+        return { ok: true, status: 202 } as Response;
+      }
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    global.fetch = fetchMock as any;
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          surface: 'vss-ui-main',
+          conversationId: 'thread_1',
+        }}
+        features={noHeader}
+      />,
+    );
+    await act(async () => typeAndSend('deploy VSS'));
+
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+    expect(screen.getByTestId('chat-textarea')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('hitl-option-profile-0'));
+    fireEvent.click(screen.getByTestId('hitl-option-features-0'));
+    fireEvent.click(screen.getByTestId('hitl-option-features-1'));
+    fireEvent.change(screen.getByTestId('hitl-answer-notes'), {
+      target: { value: ' edge deployment ' },
+    });
+    expect(screen.getByTestId('hitl-modal-submit')).toBeEnabled();
+    await act(async () => fireEvent.click(screen.getByTestId('hitl-modal-submit')));
+
+    await waitFor(() => expect(screen.getByText('deployment started')).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/agent/runs/run_1/respond');
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({
+      interaction_id: 'question-1',
+      response: {
+        type: 'questions',
+        answers: {
+          profile: ['buarch'],
+          features: ['search', 'alerts'],
+          notes: ['edge deployment'],
+        },
+      },
+    });
+  });
+
+  it('dismisses a structured question resolved by another client', async () => {
+    const now = Date.now();
+    let releaseEvents!: () => void;
+    const continuation = new Promise<string[]>((resolve) => {
+      releaseEvents = () =>
+        resolve([
+          agentApiFrame(
+            'interaction.resolved',
+            { interaction_id: 'question-external', status: 'answered' },
+            3,
+          ),
+          agentApiFrame('message.delta', { delta: 'continued elsewhere' }, 4),
+          agentApiFrame('run.completed', {}, 5),
+        ]);
+    });
+    const eventsResponse = gatedSseResponse(
+      [
+        agentApiFrame('run.started', {}, 1),
+        agentApiFrame(
+          'interaction.required',
+          {
+            interaction_id: 'question-external',
+            kind: 'questions',
+            created_at_ms: now,
+            expires_at_ms: now + 60_000,
+            questions: [
+              {
+                question_id: 'profile',
+                header: 'Profile',
+                prompt: 'Which deployment profile?',
+                options: [{ label: 'buarch' }],
+                multi_select: false,
+                allow_other: false,
+                secret: false,
+              },
+            ],
+          },
+          2,
+        ),
+      ],
+      continuation,
+    );
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/agent/runs') {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+            respond_url: '/api/agent/runs/run_1/respond',
+          }),
+        } as Response;
+      }
+      if (input === '/api/agent/runs/run_1/events') return eventsResponse;
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    global.fetch = fetchMock as any;
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          surface: 'vss-ui-main',
+          conversationId: 'thread_1',
+        }}
+        features={noHeader}
+      />,
+    );
+    await act(async () => typeAndSend('deploy VSS'));
+
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+    await act(async () => releaseEvents());
+
+    await waitFor(() => expect(screen.queryByTestId('hitl-modal')).not.toBeInTheDocument());
+    expect(screen.getByText('continued elsewhere')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('folds a context chip into the request and clears it after sending', async () => {
     const fetchMock = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
     global.fetch = fetchMock as any;
@@ -493,14 +733,16 @@ describe('ChatPanel', () => {
   });
 
   it('renders intermediate steps as a nested tree', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      sseResponse([
-        'intermediate_data: {"id":"1","name":"vss-search-archive","status":"complete"}\n',
-        'intermediate_data: {"id":"2","name":"fetch-clip","parent_id":"1","status":"complete"}\n',
-        'data: {"choices":[{"delta":{"content":"found it"}}]}\n\n',
-        'data: [DONE]\n\n',
-      ]),
-    ) as any;
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          'intermediate_data: {"id":"1","name":"vss-search-archive","status":"complete"}\n',
+          'intermediate_data: {"id":"2","name":"fetch-clip","parent_id":"1","status":"complete"}\n',
+          'data: {"choices":[{"delta":{"content":"found it"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ) as any;
 
     render(<ChatPanel endpoint={endpoint} features={noHeader} />);
     await act(async () => typeAndSend('search'));
@@ -560,9 +802,7 @@ describe('ChatPanel', () => {
     // One delete button per user turn; the first belongs to 'first question'.
     fireEvent.click(screen.getAllByLabelText('Delete message')[0]);
 
-    await waitFor(() =>
-      expect(screen.queryByText('first question')).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.queryByText('first question')).not.toBeInTheDocument());
     // The other turn is untouched — deletion addressed a message, not a slot.
     expect(screen.getByText('second question')).toBeInTheDocument();
   });
@@ -571,9 +811,7 @@ describe('ChatPanel', () => {
     global.fetch = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n'])) as any;
     const onControlsReady = jest.fn();
 
-    render(
-      <ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />,
-    );
+    render(<ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />);
     await waitFor(() => expect(onControlsReady).toHaveBeenCalled());
 
     const handlers = onControlsReady.mock.calls.at(-1)![0];

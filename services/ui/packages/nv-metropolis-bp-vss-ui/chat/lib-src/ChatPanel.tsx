@@ -6,13 +6,15 @@ import { ChatHeader } from './ChatHeader';
 import { ChatInput } from './ChatInput';
 import { ChatMessageView } from './ChatMessage';
 import { createRandomId } from './id';
-import type { InteractionRequest } from './sse';
 import { useChatStream } from './useChatStream';
 import { useConversations } from './useConversations';
 import type {
+  AgentQuestionInteractionAnswer,
   ChatFeatureFlags,
   ChatPanelProps,
   ChatSidebarControlHandlers,
+  InteractionAnswer,
+  InteractionRequest,
   QueryDataContext,
 } from './types';
 
@@ -45,6 +47,10 @@ interface PendingInteraction {
   request: InteractionRequest;
   conversationId: string;
 }
+
+const isQuestionInteraction = (
+  request: InteractionRequest,
+): request is Extract<InteractionRequest, { questions: unknown }> => 'questions' in request;
 
 /** Stable per-mount id so the backend maps this panel to one agent thread. */
 function useFallbackConversationId(supplied?: string): string {
@@ -119,7 +125,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [autoScroll, setAutoScroll] = useState(true);
   const [pendingInteraction, setPendingInteraction] = useState<PendingInteraction | null>(null);
   const [interactionText, setInteractionText] = useState('');
-  const interactionResolveRef = useRef<((value: string) => void) | null>(null);
+  const [interactionAnswers, setInteractionAnswers] = useState<Record<string, string[]>>({});
+  const [interactionOtherAnswers, setInteractionOtherAnswers] = useState<Record<string, string>>(
+    {},
+  );
+  const interactionResolveRef = useRef<((value: InteractionAnswer) => void) | null>(null);
   const pendingInteractionRef = useRef<PendingInteraction | null>(null);
   pendingInteractionRef.current = pendingInteraction;
 
@@ -132,10 +142,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const conversationIdRef = useRef(conversationId);
   conversationIdRef.current = conversationId;
 
-  const config = useMemo(
-    () => ({ ...endpoint, conversationId }),
-    [endpoint, conversationId],
-  );
+  const config = useMemo(() => ({ ...endpoint, conversationId }), [endpoint, conversationId]);
 
   // The conversation goes with the answer: consumers fetch per-conversation
   // artifacts, and a process-wide 'last result' would cross conversations.
@@ -151,18 +158,29 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const requestInteraction = useCallback(
     (request: InteractionRequest) =>
-      new Promise<string>((resolve) => {
-        setPendingInteraction({ request, conversationId: conversationIdRef.current });
+      new Promise<InteractionAnswer>((resolve) => {
+        const pending = {
+          request,
+          conversationId: conversationIdRef.current,
+        };
+        pendingInteractionRef.current = pending;
+        setPendingInteraction(pending);
         setInteractionText('');
+        setInteractionAnswers({});
+        setInteractionOtherAnswers({});
         interactionResolveRef.current = resolve;
       }),
     [],
   );
 
-  const resolveInteraction = useCallback((answer: string) => {
+  const resolveInteraction = useCallback((answer: InteractionAnswer) => {
     const resolve = interactionResolveRef.current;
     interactionResolveRef.current = null;
+    pendingInteractionRef.current = null;
     setPendingInteraction(null);
+    setInteractionText('');
+    setInteractionAnswers({});
+    setInteractionOtherAnswers({});
     resolve?.(answer);
   }, []);
 
@@ -175,6 +193,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     onBusyChange,
     isConversationStale,
     onInteraction: requestInteraction,
+    onInteractionResolved: (interactionId) => {
+      if (pendingInteractionRef.current?.request.interaction_id === interactionId) {
+        resolveInteraction(null);
+      }
+    },
   });
 
   // Only the conversation that asked may answer: the prompt is hidden while
@@ -183,13 +206,92 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const interaction =
     pendingInteraction?.conversationId === conversationId ? pendingInteraction.request : null;
 
+  useEffect(() => {
+    if (!interaction || !isQuestionInteraction(interaction)) return;
+    const delay = interaction.expires_at_ms - Date.now();
+    if (delay <= 0) {
+      resolveInteraction(null);
+      return;
+    }
+    const timeout = setTimeout(() => resolveInteraction(null), delay);
+    return () => clearTimeout(timeout);
+  }, [interaction, resolveInteraction]);
+
+  const questionAnswers = useCallback(
+    (questionId: string, hasOptions: boolean): string[] => {
+      const selected = interactionAnswers[questionId] ?? [];
+      const entered = interactionOtherAnswers[questionId] ?? '';
+      const other = entered.trim() || undefined;
+      return hasOptions ? [...selected, ...(other ? [other] : [])] : other ? [other] : [];
+    },
+    [interactionAnswers, interactionOtherAnswers],
+  );
+
+  const canSubmitInteraction =
+    !!interaction &&
+    (isQuestionInteraction(interaction)
+      ? interaction.questions.every((question) => {
+          const answers = questionAnswers(question.question_id, question.options.length > 0);
+          return answers.length > 0 && (question.multi_select || answers.length === 1);
+        })
+      : !interaction.prompt.required || !!interactionText.trim());
+
   const submitInteraction = useCallback(() => {
-    if (!interaction || (interaction.prompt.required && !interactionText.trim())) return;
-    resolveInteraction(interactionText);
-  }, [interaction, interactionText, resolveInteraction]);
+    if (!interaction || !canSubmitInteraction) return;
+    if (!isQuestionInteraction(interaction)) {
+      resolveInteraction(interactionText);
+      return;
+    }
+    const response: AgentQuestionInteractionAnswer = {
+      type: 'questions',
+      answers: Object.fromEntries(
+        interaction.questions.map((question) => [
+          question.question_id,
+          questionAnswers(question.question_id, question.options.length > 0),
+        ]),
+      ),
+    };
+    resolveInteraction(response);
+  }, [canSubmitInteraction, interaction, interactionText, questionAnswers, resolveInteraction]);
+
+  const selectQuestionOption = useCallback(
+    (questionId: string, label: string, multiSelect: boolean, checked: boolean) => {
+      setInteractionAnswers((current) => {
+        if (!multiSelect) return { ...current, [questionId]: checked ? [label] : [] };
+        const selected = current[questionId] ?? [];
+        return {
+          ...current,
+          [questionId]: checked
+            ? [...selected.filter((answer) => answer !== label), label]
+            : selected.filter((answer) => answer !== label),
+        };
+      });
+      if (!multiSelect && checked) {
+        setInteractionOtherAnswers((current) => ({
+          ...current,
+          [questionId]: '',
+        }));
+      }
+    },
+    [],
+  );
+
+  const setQuestionOther = useCallback(
+    (questionId: string, value: string, multiSelect: boolean) => {
+      setInteractionOtherAnswers((current) => ({
+        ...current,
+        [questionId]: value,
+      }));
+      if (!multiSelect && value) {
+        setInteractionAnswers((current) => ({ ...current, [questionId]: [] }));
+      }
+    },
+    [],
+  );
 
   const stopTurn = useCallback(() => {
-    resolveInteraction('/cancel');
+    const pending = pendingInteractionRef.current?.request;
+    resolveInteraction(pending && !isQuestionInteraction(pending) ? '/cancel' : null);
     abort();
   }, [abort, resolveInteraction]);
 
@@ -202,9 +304,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       const pending = pendingInteractionRef.current;
       if (!pending) return;
       if (discardedId && pending.conversationId !== discardedId) return;
-      resolveInteraction('/cancel');
+      if (isQuestionInteraction(pending.request)) {
+        resolveInteraction(null);
+        abort();
+      } else {
+        resolveInteraction('/cancel');
+      }
     },
-    [resolveInteraction],
+    [abort, resolveInteraction],
   );
 
   const notify = useCallback((message: string) => {
@@ -294,8 +401,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       onNewConversation: () => {
         createConversation();
       },
-      onRenameConversation: (id: string, name: string) =>
-        controlsRef.current.rename(id, name),
+      onRenameConversation: (id: string, name: string) => controlsRef.current.rename(id, name),
       onDeleteConversation: (id: string) => {
         declineInteractionFor(id);
         controlsRef.current.remove(id);
@@ -456,33 +562,132 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           aria-labelledby="hitl-prompt"
         >
           <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
-            <p
-              id="hitl-prompt"
-              data-testid="hitl-modal-prompt"
-              className="mb-4 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100"
-            >
-              {interaction.prompt.text}
-            </p>
-            <textarea
-              data-testid="hitl-modal-textarea"
-              className="min-h-28 w-full rounded border border-gray-400 bg-white p-2 text-gray-900 dark:bg-black dark:text-gray-100"
-              placeholder={interaction.prompt.placeholder ?? undefined}
-              required={interaction.prompt.required}
-              value={interactionText}
-              onChange={(event) => setInteractionText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  submitInteraction();
-                }
-              }}
-            />
-            <div className="mt-4 flex justify-end">
+            {isQuestionInteraction(interaction) ? (
+              <div className="max-h-[70vh] space-y-5 overflow-y-auto pr-1">
+                <p
+                  id="hitl-prompt"
+                  data-testid="hitl-modal-prompt"
+                  className="text-sm font-medium text-gray-900 dark:text-gray-100"
+                >
+                  The agent needs your input to continue.
+                </p>
+                {interaction.questions.map((question, questionIndex) => {
+                  const selected = interactionAnswers[question.question_id] ?? [];
+                  const inputId = `hitl-question-${question.question_id}`;
+                  return (
+                    <fieldset
+                      key={question.question_id}
+                      data-testid={inputId}
+                      className="space-y-2 rounded border border-gray-300 p-3 dark:border-gray-700"
+                    >
+                      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        {question.header || `Question ${questionIndex + 1}`}
+                      </legend>
+                      <p className="whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100">
+                        {question.prompt}
+                      </p>
+                      {question.options.length ? (
+                        <div className="space-y-2">
+                          {question.options.map((option, optionIndex) => {
+                            const checked = selected.includes(option.label);
+                            return (
+                              <label
+                                key={option.label}
+                                className="flex cursor-pointer items-start gap-2 rounded border border-gray-200 p-2 text-sm text-gray-900 dark:border-gray-700 dark:text-gray-100"
+                              >
+                                <input
+                                  data-testid={`hitl-option-${question.question_id}-${optionIndex}`}
+                                  className="mt-0.5"
+                                  type={question.multi_select ? 'checkbox' : 'radio'}
+                                  name={`hitl-${interaction.interaction_id}-${question.question_id}`}
+                                  checked={checked}
+                                  onChange={(event) =>
+                                    selectQuestionOption(
+                                      question.question_id,
+                                      option.label,
+                                      question.multi_select,
+                                      event.target.checked,
+                                    )
+                                  }
+                                />
+                                <span>
+                                  <span className="block font-medium">{option.label}</span>
+                                  {option.description ? (
+                                    <span className="block text-xs text-gray-500 dark:text-gray-400">
+                                      {option.description}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                      {!question.options.length || question.allow_other ? (
+                        <textarea
+                          data-testid={`hitl-answer-${question.question_id}`}
+                          className="min-h-20 w-full rounded border border-gray-400 bg-white p-2 text-sm text-gray-900 dark:bg-black dark:text-gray-100"
+                          aria-label={question.options.length ? 'Other answer' : 'Answer'}
+                          placeholder={
+                            question.options.length ? 'Other answer' : 'Enter your answer'
+                          }
+                          value={interactionOtherAnswers[question.question_id] ?? ''}
+                          onChange={(event) =>
+                            setQuestionOther(
+                              question.question_id,
+                              event.target.value,
+                              question.multi_select,
+                            )
+                          }
+                        />
+                      ) : null}
+                    </fieldset>
+                  );
+                })}
+              </div>
+            ) : (
+              <>
+                <p
+                  id="hitl-prompt"
+                  data-testid="hitl-modal-prompt"
+                  className="mb-4 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100"
+                >
+                  {interaction.prompt.text}
+                </p>
+                <textarea
+                  data-testid="hitl-modal-textarea"
+                  className="min-h-28 w-full rounded border border-gray-400 bg-white p-2 text-gray-900 dark:bg-black dark:text-gray-100"
+                  placeholder={interaction.prompt.placeholder ?? undefined}
+                  required={interaction.prompt.required}
+                  value={interactionText}
+                  onChange={(event) => setInteractionText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === 'Enter' &&
+                      !event.shiftKey &&
+                      !event.nativeEvent.isComposing
+                    ) {
+                      event.preventDefault();
+                      submitInteraction();
+                    }
+                  }}
+                />
+              </>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                data-testid="hitl-modal-cancel"
+                className="rounded border border-gray-400 px-4 py-2 text-sm font-medium text-gray-800 dark:text-gray-100"
+                onClick={stopTurn}
+              >
+                Cancel run
+              </button>
               <button
                 type="button"
                 data-testid="hitl-modal-submit"
                 className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                disabled={interaction.prompt.required && !interactionText.trim()}
+                disabled={!canSubmitInteraction}
                 onClick={submitInteraction}
               >
                 Submit

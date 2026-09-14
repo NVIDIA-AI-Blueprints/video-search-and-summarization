@@ -7,6 +7,7 @@ export type BackendProtocol = "openclaw-ws" | "responses" | "legacy-chat";
 
 export interface AgentAdapterConfig {
   backendProtocol: BackendProtocol;
+  interactionsEnabled: boolean;
   backendUrl: string;
   backendPath: string;
   backendToken?: string;
@@ -197,6 +198,16 @@ export const loadAgentAdapterConfig = (
     );
   }
   const backendProtocol = rawProtocol as BackendProtocol;
+  const interactionsEnabled = boolEnv(
+    environment,
+    "AGENT_INTERACTIONS_ENABLED",
+    false
+  );
+  if (interactionsEnabled && backendProtocol !== "openclaw-ws") {
+    throw new ConfigError(
+      "AGENT_INTERACTIONS_ENABLED is only supported with openclaw-ws"
+    );
+  }
   const backendUrl = validateUrl(
     rawUrl,
     "AGENT_BACKEND_URL",
@@ -284,6 +295,7 @@ export const loadAgentAdapterConfig = (
   }
   return {
     backendProtocol,
+    interactionsEnabled,
     backendUrl,
     backendPath,
     backendToken: environment.AGENT_BACKEND_TOKEN?.trim() || undefined,

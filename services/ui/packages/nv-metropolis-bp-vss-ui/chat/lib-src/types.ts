@@ -66,6 +66,57 @@ export interface ChatMessage {
   timestamp?: number;
 }
 
+/** Legacy NAT text prompt carried by the chat-SSE compatibility transport. */
+export interface LegacyInteractionRequest {
+  event_type: 'interaction_required';
+  execution_id: string;
+  interaction_id: string;
+  prompt: {
+    text: string;
+    input_type: string;
+    placeholder?: string | null;
+    required?: boolean;
+  };
+  response_url: string;
+}
+
+export interface AgentQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface AgentQuestion {
+  question_id: string;
+  header: string;
+  prompt: string;
+  options: AgentQuestionOption[];
+  multi_select: boolean;
+  allow_other: boolean;
+  /** Reserved for future secret-store consent support; currently always false. */
+  secret: boolean;
+}
+
+/** Structured OpenClaw question normalized by the same-origin agent API. */
+export interface AgentQuestionInteractionRequest {
+  event_type: 'interaction_required';
+  execution_id: string;
+  interaction_id: string;
+  questions: AgentQuestion[];
+  response_url: string;
+  created_at_ms: number;
+  expires_at_ms: number;
+}
+
+export type InteractionRequest = LegacyInteractionRequest | AgentQuestionInteractionRequest;
+
+export interface AgentQuestionInteractionAnswer {
+  type: 'questions';
+  answers: Record<string, string[]>;
+}
+
+/** `null` dismisses a prompt that was resolved elsewhere or whose run was cancelled. */
+export type InteractionAnswer = string | AgentQuestionInteractionAnswer | null;
+
 /** A named thread of messages. Mirrors the toolkit's `Conversation`. */
 export interface Conversation {
   id: string;

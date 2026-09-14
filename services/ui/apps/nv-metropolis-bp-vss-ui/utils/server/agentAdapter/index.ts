@@ -2,18 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ConfigError, loadAgentAdapterConfig } from "./config";
+import { ConnectorError } from "./connectors/base";
 import {
   ContractError,
   createRunEvent,
   parseCreateRunRequest,
+  parseInteractionResponse,
   runEventSse,
   type RunEvent,
 } from "./contract";
 import { strictJsonParse } from "./json";
-import { AgentAdapterService } from "./service";
+import {
+  AgentAdapterService,
+  InteractionNotSupportedError,
+  RunTerminalError,
+} from "./service";
 import {
   EventsExpiredError,
   IdempotencyConflictError,
+  InteractionNotPendingError,
+  InteractionResponseInProgressError,
   RunNotFoundError,
   type RunRecord,
   StoreCapacityError,
@@ -34,6 +42,7 @@ declare global {
 
 const CONFIG_ENV_KEYS = [
   "AGENT_ADAPTER_ENABLED",
+  "AGENT_INTERACTIONS_ENABLED",
   "AGENT_BACKEND_PROTOCOL",
   "AGENT_BACKEND_URL",
   "AGENT_BACKEND_PATH",
@@ -162,6 +171,7 @@ const createRun = (
       ...record.snapshot(),
       events_url: `/api/agent/runs/${encodeURIComponent(record.runId)}/events`,
       cancel_url: `/api/agent/runs/${encodeURIComponent(record.runId)}/cancel`,
+      respond_url: `/api/agent/runs/${encodeURIComponent(record.runId)}/respond`,
     });
   } catch (error) {
     if (error instanceof ContractError || error instanceof TypeError) {
@@ -360,12 +370,77 @@ export const agentAdapterHandler = async (
     return;
   }
   if (method === "POST" && segments.length === 3 && segments[2] === "respond") {
-    errorResponse(
-      res,
-      409,
-      "interaction_not_supported",
-      "the active connector does not support interaction responses"
-    );
+    try {
+      const response = parseInteractionResponse(requestBody(req.body));
+      await service.respondToRun(runId, response);
+      securityHeaders(res);
+      res.status(202).json({
+        ...record.snapshot(),
+        interaction_id: response.interactionId,
+        accepted: true,
+      });
+    } catch (error) {
+      if (error instanceof ContractError || error instanceof TypeError) {
+        errorResponse(res, 400, "invalid_interaction_response", error.message);
+      } else if (error instanceof InteractionNotSupportedError) {
+        errorResponse(
+          res,
+          409,
+          "interaction_not_supported",
+          "the active connector does not support interaction responses"
+        );
+      } else if (error instanceof RunTerminalError) {
+        errorResponse(res, 409, "run_terminal", "the run is already terminal");
+      } else if (error instanceof InteractionNotPendingError) {
+        errorResponse(
+          res,
+          409,
+          "interaction_not_pending",
+          "the interaction is not pending for this run"
+        );
+      } else if (error instanceof InteractionResponseInProgressError) {
+        errorResponse(
+          res,
+          409,
+          "interaction_response_in_progress",
+          "an interaction response is already in progress"
+        );
+      } else if (error instanceof ConnectorError) {
+        const invalid = error.code === "invalid_interaction_response";
+        const conflict = [
+          "interaction_not_pending",
+          "interaction_expired",
+          "backend_interaction_rejected",
+        ].includes(error.code);
+        errorResponse(
+          res,
+          invalid
+            ? 400
+            : conflict
+              ? 409
+              : error.code === "backend_timeout"
+                ? 504
+                : 502,
+          error.code,
+          error.message
+        );
+      } else if (error instanceof Error) {
+        console.error("Unexpected interaction response failure");
+        errorResponse(
+          res,
+          500,
+          "adapter_internal_error",
+          "the adapter could not accept the interaction response"
+        );
+      } else {
+        errorResponse(
+          res,
+          500,
+          "adapter_internal_error",
+          "the adapter could not accept the interaction response"
+        );
+      }
+    }
     return;
   }
   errorResponse(res, 404, "not_found", "agent API route not found");

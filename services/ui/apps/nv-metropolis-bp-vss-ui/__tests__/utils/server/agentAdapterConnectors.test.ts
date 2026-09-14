@@ -10,9 +10,10 @@ import type { WebSocketLike } from "../../../utils/server/agentAdapter/connector
 import { parseCreateRunRequest } from "../../../utils/server/agentAdapter/contract";
 
 const config = (
-  overrides: Partial<AgentAdapterConfig> = {}
+  overrides: Partial<AgentAdapterConfig> = {},
 ): AgentAdapterConfig => ({
   backendProtocol: "responses",
+  interactionsEnabled: false,
   backendUrl: "http://agent.local",
   backendPath: "/v1/responses",
   backendToken: "backend-secret",
@@ -44,10 +45,10 @@ const sseResponse = (
     events
       .map(
         ([type, payload]) =>
-          `event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`
+          `event: ${type}\ndata: ${JSON.stringify({ type, ...payload })}\n\n`,
       )
       .join(""),
-    { headers: { "Content-Type": "text/event-stream" } }
+    { headers: { "Content-Type": "text/event-stream" } },
   );
 
 class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
@@ -72,7 +73,7 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
 
   private message(payload: Record<string, unknown>): void {
     this.dispatchEvent(
-      new MessageEvent("message", { data: JSON.stringify(payload) })
+      new MessageEvent("message", { data: JSON.stringify(payload) }),
     );
   }
 
@@ -98,7 +99,7 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
               events: ["chat", "session.tool"],
             },
           },
-        })
+        }),
       );
     } else if (frame.method === "chat.send") {
       this.sessionKey = String(params.sessionKey);
@@ -162,6 +163,192 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
   }
 }
 
+class FakeOpenClawInteractionSocket
+  extends EventTarget
+  implements WebSocketLike
+{
+  readyState = 0;
+  binaryType: BinaryType = "arraybuffer";
+  readonly sent: Record<string, unknown>[] = [];
+  private sessionKey = "";
+  private readonly runId = "upstream-interaction-run";
+
+  constructor(private readonly secretQuestion = false) {
+    super();
+    queueMicrotask(() => {
+      this.readyState = 1;
+      this.dispatchEvent(new Event("open"));
+      this.message({
+        type: "event",
+        event: "connect.challenge",
+        payload: { nonce: "nonce", ts: 1 },
+      });
+    });
+  }
+
+  private message(payload: Record<string, unknown>): void {
+    this.dispatchEvent(
+      new MessageEvent("message", { data: JSON.stringify(payload) }),
+    );
+  }
+
+  send(data: string): void {
+    const frame = JSON.parse(data) as Record<string, unknown>;
+    this.sent.push(frame);
+    const params = frame.params as Record<string, unknown>;
+    if (frame.method === "connect") {
+      queueMicrotask(() =>
+        this.message({
+          type: "res",
+          id: frame.id,
+          ok: true,
+          payload: {
+            type: "hello-ok",
+            protocol: 4,
+            auth: {
+              role: "operator",
+              scopes: ["operator.read", "operator.write", "operator.questions"],
+            },
+            features: {
+              methods: ["chat.send", "chat.abort", "question.resolve"],
+              events: [
+                "chat",
+                "session.tool",
+                "question.requested",
+                "question.resolved",
+              ],
+            },
+          },
+        }),
+      );
+    } else if (frame.method === "chat.send") {
+      this.sessionKey = String(params.sessionKey);
+      queueMicrotask(() => {
+        this.message({
+          type: "res",
+          id: frame.id,
+          ok: true,
+          payload: { runId: this.runId, status: "accepted" },
+        });
+        this.message({
+          type: "event",
+          event: "question.requested",
+          payload: {
+            id: "foreign-question",
+            sessionKey: "agent:main:another-session",
+            runId: "another-run",
+            createdAtMs: 1,
+            expiresAtMs: Date.now() + 60_000,
+            status: "pending",
+            questions: [
+              {
+                questionId: "foreign",
+                header: "Foreign",
+                question: "This belongs to another run",
+                options: [],
+              },
+            ],
+          },
+        });
+        this.message({
+          type: "event",
+          event: "question.requested",
+          payload: {
+            id: "question-1",
+            sessionKey: this.sessionKey,
+            runId: this.runId,
+            createdAtMs: 1,
+            expiresAtMs: Date.now() + 60_000,
+            status: "pending",
+            questions: this.secretQuestion
+              ? [
+                  {
+                    questionId: "credential",
+                    header: "Credential",
+                    question: "Enter the deployment credential",
+                    options: [],
+                    isSecret: true,
+                    secretStore: {
+                      name: "DEPLOYMENT_CREDENTIAL",
+                      kind: "secret",
+                      allowedHosts: ["example.com"],
+                      reason: "Authenticate the deployment",
+                    },
+                  },
+                ]
+              : [
+                  {
+                    questionId: "profile",
+                    header: "Profile",
+                    question: "Which deployment profile?",
+                    options: [
+                      {
+                        label: "buarch",
+                        description: "Warehouse architecture",
+                      },
+                      { label: "smartcities" },
+                    ],
+                    isOther: true,
+                  },
+                  {
+                    questionId: "notes",
+                    header: "Notes",
+                    question: "Add deployment notes",
+                    options: [],
+                  },
+                ],
+          },
+        });
+      });
+    } else if (frame.method === "question.resolve") {
+      queueMicrotask(() => {
+        this.message({
+          type: "res",
+          id: frame.id,
+          ok: true,
+          payload: {
+            status: "answered",
+            answers: params.answers,
+          },
+        });
+        this.message({
+          type: "event",
+          event: "question.resolved",
+          payload: {
+            id: "question-1",
+            status: "answered",
+            answers: params.answers,
+          },
+        });
+        this.message({
+          type: "event",
+          event: "chat",
+          payload: {
+            sessionKey: this.sessionKey,
+            runId: this.runId,
+            state: "delta",
+            deltaText: "Deploying buarch",
+          },
+        });
+        this.message({
+          type: "event",
+          event: "chat",
+          payload: {
+            sessionKey: this.sessionKey,
+            runId: this.runId,
+            state: "final",
+          },
+        });
+      });
+    }
+  }
+
+  close(): void {
+    this.readyState = 3;
+    this.dispatchEvent(new Event("close"));
+  }
+}
+
 describe("embedded adapter connectors", () => {
   const originalFetch = global.fetch;
 
@@ -202,8 +389,8 @@ describe("embedded adapter connectors", () => {
           },
         ],
         ["response.output_text.delta", { delta: "Found it" }],
-        ["response.completed", { response: { id: "resp_1" } }]
-      )
+        ["response.completed", { response: { id: "resp_1" } }],
+      ),
     ) as jest.Mock;
 
     const connector = new ResponsesConnector(config());
@@ -211,7 +398,7 @@ describe("embedded adapter connectors", () => {
     for await (const event of connector.run(
       requestWithInstructions,
       "run-1",
-      new AbortController().signal
+      new AbortController().signal,
     )) {
       events.push(event);
     }
@@ -224,10 +411,10 @@ describe("embedded adapter connectors", () => {
     ]);
     const [, options] = (global.fetch as jest.Mock).mock.calls[0];
     expect((options.headers as Headers).get("Authorization")).toBe(
-      "Bearer backend-secret"
+      "Bearer backend-secret",
     );
     expect((options.headers as Headers).get("X-Agent-Session")).toMatch(
-      /^vss-ui:/
+      /^vss-ui:/,
     );
     expect(JSON.parse(options.body as string)).toEqual(
       expect.objectContaining({
@@ -236,9 +423,9 @@ describe("embedded adapter connectors", () => {
         store: true,
         tools: [expect.objectContaining({ name: "vss_ui_publish_artifact" })],
         instructions: expect.stringContaining(
-          'VSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}'
+          'VSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}',
         ),
-      })
+      }),
     );
   });
 
@@ -252,13 +439,13 @@ describe("embedded adapter connectors", () => {
         backendSessionField: undefined,
         backendSessionHeader: undefined,
       }),
-      () => socket
+      () => socket,
     );
     const events = [];
     for await (const event of connector.run(
       requestWithInstructions,
       "run-1",
-      new AbortController().signal
+      new AbortController().signal,
     )) {
       events.push(event);
     }
@@ -276,7 +463,124 @@ describe("embedded adapter connectors", () => {
     ]);
     const send = socket.sent.find((frame) => frame.method === "chat.send");
     expect((send?.params as Record<string, unknown>).message).toBe(
-      'VSS UI instructions:\nVSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}\n\nUser:\nFind a clip'
+      'VSS UI instructions:\nVSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}\n\nUser:\nFind a clip',
     );
+  });
+
+  it("pauses and resolves an OpenClaw structured question on the same run", async () => {
+    const socket = new FakeOpenClawInteractionSocket();
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        interactionsEnabled: true,
+        backendUrl: "ws://agent.local",
+        backendPath: "/",
+        backendSessionField: undefined,
+        backendSessionHeader: undefined,
+      }),
+      () => socket,
+    );
+    const iterator = connector.run(
+      requestWithInstructions,
+      "run-1",
+      new AbortController().signal,
+    );
+
+    const requested = await iterator.next();
+    expect(requested.value).toMatchObject({
+      type: "interaction.required",
+      data: {
+        interaction_id: "question-1",
+        kind: "questions",
+        questions: [
+          {
+            question_id: "profile",
+            prompt: "Which deployment profile?",
+            allow_other: true,
+          },
+          {
+            question_id: "notes",
+            prompt: "Add deployment notes",
+          },
+        ],
+      },
+    });
+
+    const response = connector.respond("run-1", {
+      interactionId: "question-1",
+      answers: {
+        profile: [" buarch "],
+        notes: [" edge deployment "],
+      },
+    });
+    const remaining = (async () => {
+      const events = [];
+      for await (const event of iterator) events.push(event);
+      return events;
+    })();
+    await response;
+
+    expect((await remaining).map((event) => event.type)).toEqual([
+      "message.delta",
+    ]);
+    const connect = socket.sent.find((frame) => frame.method === "connect");
+    expect((connect?.params as Record<string, unknown>).scopes).toEqual([
+      "operator.read",
+      "operator.write",
+      "operator.questions",
+    ]);
+    const resolve = socket.sent.find(
+      (frame) => frame.method === "question.resolve",
+    );
+    expect(resolve?.params).toEqual({
+      id: "question-1",
+      answers: {
+        answers: {
+          profile: ["buarch"],
+          notes: ["edge deployment"],
+        },
+      },
+      resolvedBy: "vss-ui",
+    });
+  });
+
+  it("fails clearly when structured questions are enabled on an old gateway", async () => {
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        interactionsEnabled: true,
+        backendUrl: "ws://agent.local",
+        backendPath: "/",
+      }),
+      () => new FakeOpenClawSocket(),
+    );
+
+    await expect(
+      connector
+        .run(requestWithInstructions, "run-1", new AbortController().signal)
+        .next(),
+    ).rejects.toMatchObject({
+      code: "unsupported_backend_interactions",
+    });
+  });
+
+  it("fails closed for OpenClaw secret-store questions", async () => {
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        interactionsEnabled: true,
+        backendUrl: "ws://agent.local",
+        backendPath: "/",
+      }),
+      () => new FakeOpenClawInteractionSocket(true),
+    );
+
+    await expect(
+      connector
+        .run(requestWithInstructions, "run-1", new AbortController().signal)
+        .next(),
+    ).rejects.toMatchObject({
+      code: "unsupported_backend_interaction",
+    });
   });
 });

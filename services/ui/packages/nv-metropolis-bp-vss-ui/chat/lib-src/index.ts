@@ -46,6 +46,10 @@ export { fixMalformedHtml } from './markdown/streaming';
 
 export type {
   CallerInfo,
+  AgentQuestion,
+  AgentQuestionInteractionAnswer,
+  AgentQuestionInteractionRequest,
+  AgentQuestionOption,
   ChatAnswerHandler,
   ChatAttachment,
   ChatEndpointConfig,
@@ -61,5 +65,8 @@ export type {
   ParamField,
   ParamFieldConfig,
   ParamType,
+  InteractionAnswer,
+  InteractionRequest,
+  LegacyInteractionRequest,
   QueryDataContext,
 } from './types';

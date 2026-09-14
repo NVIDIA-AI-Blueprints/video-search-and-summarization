@@ -22,7 +22,9 @@
  */
 
 import { artifactEnvelope } from './agentApi';
-import type { ChatStep } from './types';
+import type { ChatStep, InteractionRequest, LegacyInteractionRequest } from './types';
+
+export type { InteractionRequest } from './types';
 
 export type SseEvent =
   | { kind: 'token'; text: string }
@@ -31,19 +33,6 @@ export type SseEvent =
   | { kind: 'interaction'; interaction: InteractionRequest }
   | { kind: 'error'; message: string }
   | { kind: 'done' };
-
-export interface InteractionRequest {
-  event_type: 'interaction_required';
-  execution_id: string;
-  interaction_id: string;
-  prompt: {
-    text: string;
-    input_type: string;
-    placeholder?: string | null;
-    required?: boolean;
-  };
-  response_url: string;
-}
 
 const CONTENT_PATHS = ['value', 'output', 'answer'] as const;
 
@@ -286,7 +275,7 @@ export class SseParser {
 
   private parseInteraction(payload: string): InteractionRequest | null {
     try {
-      const interaction = JSON.parse(payload) as Partial<InteractionRequest>;
+      const interaction = JSON.parse(payload) as Partial<LegacyInteractionRequest>;
       if (
         interaction.event_type !== 'interaction_required' ||
         typeof interaction.execution_id !== 'string' ||
@@ -297,7 +286,7 @@ export class SseParser {
       ) {
         return null;
       }
-      return interaction as InteractionRequest;
+      return interaction as LegacyInteractionRequest;
     } catch {
       return null;
     }

@@ -11,6 +11,7 @@ import { loadAgentAdapterConfig } from "../../../utils/server/agentAdapter/confi
 import {
   fullTranscript,
   parseCreateRunRequest,
+  parseInteractionResponse,
 } from "../../../utils/server/agentAdapter/contract";
 import { strictJsonParse } from "../../../utils/server/agentAdapter/json";
 import {
@@ -65,6 +66,27 @@ describe("embedded agent adapter", () => {
         input: [{ role: "tool", content: "unsafe" }],
       })
     ).toThrow("input[0].role");
+  });
+
+  it("validates structured interaction responses without rewriting answer values", () => {
+    expect(
+      parseInteractionResponse({
+        interaction_id: "question-1",
+        response: {
+          type: "questions",
+          answers: { profile: [" buarch "] },
+        },
+      })
+    ).toEqual({
+      interactionId: "question-1",
+      answers: { profile: [" buarch "] },
+    });
+    expect(() =>
+      parseInteractionResponse({
+        interaction_id: "question-1",
+        response: { type: "questions", answers: { "bad-id": ["one"] } },
+      })
+    ).toThrow("invalid question id");
   });
 
   it("extracts fragmented artifacts and never hides malformed envelopes", () => {
@@ -147,6 +169,27 @@ describe("embedded agent adapter", () => {
     expect(() => first.record.eventsAfter(0)).toThrow(EventsExpiredError);
   });
 
+  it("tracks a pending interaction as part of its existing run", () => {
+    const store = new RunStore(60_000, 2, 100, 1_000_000, 4_000_000);
+    const record = store.create(request(), "interaction-run").record;
+    record.append("run.started");
+    record.append("interaction.required", {
+      interaction_id: "question-1",
+    });
+
+    expect(record.snapshot()).toMatchObject({
+      status: "running",
+      pending_interaction_ids: ["question-1"],
+    });
+    expect(() => store.create(request())).toThrow(ThreadBusyError);
+    record.claimInteraction("question-1");
+    record.append("interaction.resolved", {
+      interaction_id: "question-1",
+      status: "answered",
+    });
+    expect(record.snapshot()).toMatchObject({ pending_interaction_ids: [] });
+  });
+
   it("evicts the oldest terminal run to enforce the retained character budget", () => {
     const store = new RunStore(60_000, 10, 100, 500, 900);
     const first = store.create(request("thread-1")).record;
@@ -198,6 +241,19 @@ describe("embedded agent adapter", () => {
     expect(() =>
       loadAgentAdapterConfig({ AGENT_ADAPTER_ENABLED: "true" })
     ).toThrow("AGENT_BACKEND_URL is required when AGENT_ADAPTER_ENABLED=true");
+    expect(() =>
+      loadAgentAdapterConfig({
+        AGENT_BACKEND_URL: "http://backend",
+        AGENT_INTERACTIONS_ENABLED: "true",
+      })
+    ).toThrow("only supported with openclaw-ws");
+    expect(
+      loadAgentAdapterConfig({
+        AGENT_BACKEND_PROTOCOL: "openclaw-ws",
+        AGENT_BACKEND_URL: "ws://backend",
+        AGENT_INTERACTIONS_ENABLED: "true",
+      })?.interactionsEnabled
+    ).toBe(true);
   });
 
   it("requires the global retention budget to cover event and thread limits", () => {

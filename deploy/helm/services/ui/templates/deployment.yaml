@@ -182,6 +182,8 @@ spec:
             {{- $adapterEnabled := (default false $adapter.enabled) }}
             - name: AGENT_ADAPTER_ENABLED
               value: {{ $adapterEnabled | quote }}
+            - name: AGENT_INTERACTIONS_ENABLED
+              value: {{ (default false $adapter.interactionsEnabled) | quote }}
             - name: AGENT_BACKEND_PROTOCOL
               value: {{ (default "responses" $adapter.backendProtocol) | quote }}
             - name: AGENT_BACKEND_URL

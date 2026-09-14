@@ -14,9 +14,13 @@ import { ResponsesConnector } from "./connectors/responses";
 import {
   PROTOCOL_VERSION,
   type CreateRunRequest,
+  type InteractionResponse,
   type JsonObject,
 } from "./contract";
 import { RunRecord, RunStore } from "./store";
+
+export class InteractionNotSupportedError extends Error {}
+export class RunTerminalError extends Error {}
 
 const buildConnector = (config: AgentAdapterConfig): Connector => {
   if (config.backendProtocol === "openclaw-ws") {
@@ -46,6 +50,9 @@ export class AgentAdapterService {
   }
 
   capabilities(): JsonObject {
+    const interactionResponses =
+      this.connector.capabilities.interactions === true &&
+      typeof this.connector.respond === "function";
     return {
       protocol_version: PROTOCOL_VERSION,
       transport: "sse",
@@ -53,7 +60,7 @@ export class AgentAdapterService {
         reconnect: true,
         cancellation: true,
         idempotent_run_creation: true,
-        interaction_responses: false,
+        interaction_responses: interactionResponses,
         artifacts: true,
       },
       artifact_protocol: {
@@ -80,6 +87,7 @@ export class AgentAdapterService {
         "tool.failed",
         "artifact.created",
         "interaction.required",
+        "interaction.resolved",
         "run.completed",
         "run.failed",
         "run.cancelled",
@@ -131,6 +139,13 @@ export class AgentAdapterService {
         for (const artifact of artifacts) {
           record.append(artifact.type, artifact.data);
         }
+        return;
+      }
+      if (
+        type === "interaction.resolved" &&
+        typeof rawData.interaction_id === "string" &&
+        !record.hasPendingInteraction(rawData.interaction_id)
+      ) {
         return;
       }
       record.append(type, rawData);
@@ -199,6 +214,39 @@ export class AgentAdapterService {
       } catch {
         console.error("Embedded agent connector cancellation failed");
       }
+    }
+    return record;
+  }
+
+  async respondToRun(
+    runId: string,
+    response: InteractionResponse
+  ): Promise<RunRecord> {
+    const record = this.store.get(runId);
+    if (record.terminal) {
+      throw new RunTerminalError(runId);
+    }
+    if (
+      this.connector.capabilities.interactions !== true ||
+      !this.connector.respond
+    ) {
+      throw new InteractionNotSupportedError(this.connector.protocol);
+    }
+    record.claimInteraction(response.interactionId);
+    try {
+      await this.connector.respond(runId, response);
+      if (
+        !record.terminal &&
+        record.hasPendingInteraction(response.interactionId)
+      ) {
+        record.append("interaction.resolved", {
+          interaction_id: response.interactionId,
+          status: "answered",
+        });
+      }
+    } catch (error) {
+      record.releaseInteraction(response.interactionId);
+      throw error;
     }
     return record;
   }

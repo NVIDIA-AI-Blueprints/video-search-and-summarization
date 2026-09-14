@@ -13,6 +13,11 @@ export const TERMINAL_EVENT_TYPES = new Set([
 const MAX_IDENTIFIER_LENGTH = 256;
 const MAX_MESSAGE_CONTENT_LENGTH = 1_000_000;
 const MAX_TRANSCRIPT_LENGTH = 5_000_000;
+const MAX_INTERACTION_ANSWER_LENGTH = 100_000;
+const MAX_INTERACTION_ANSWERS = 16;
+const MAX_INTERACTION_QUESTIONS = 3;
+const MAX_INTERACTION_RESPONSE_LENGTH = 1_000_000;
+const QUESTION_ID = /^[a-z][a-z0-9_]*$/u;
 const ALLOWED_ROLES = new Set(["system", "developer", "user", "assistant"]);
 
 export type JsonObject = Record<string, unknown>;
@@ -34,6 +39,11 @@ export interface CreateRunRequest {
 export interface ConnectorEvent {
   type: string;
   data: JsonObject;
+}
+
+export interface InteractionResponse {
+  interactionId: string;
+  answers: Record<string, string[]>;
 }
 
 export interface RunEvent {
@@ -137,6 +147,78 @@ export const parseCreateRunRequest = (value: unknown): CreateRunRequest => {
       typeof value.instructions === "string" ? value.instructions : undefined,
     metadata,
   };
+};
+
+export const parseInteractionResponse = (
+  value: unknown
+): InteractionResponse => {
+  if (!isJsonObject(value)) {
+    throw new ContractError("request body must be an object");
+  }
+  const interactionId = requiredIdentifier(
+    value.interaction_id,
+    "interaction_id"
+  );
+  if (!isJsonObject(value.response)) {
+    throw new ContractError("response must be an object");
+  }
+  if (value.response.type !== "questions") {
+    throw new ContractError("response.type must be questions");
+  }
+  if (!isJsonObject(value.response.answers)) {
+    throw new ContractError("response.answers must be an object");
+  }
+  const entries = Object.entries(value.response.answers);
+  if (!entries.length || entries.length > MAX_INTERACTION_QUESTIONS) {
+    throw new ContractError(
+      `response.answers must contain 1-${MAX_INTERACTION_QUESTIONS} questions`
+    );
+  }
+  const answers: Record<string, string[]> = {};
+  let totalLength = 0;
+  for (const [questionId, rawAnswers] of entries) {
+    if (!QUESTION_ID.test(questionId) || questionId.length > 256) {
+      throw new ContractError(
+        "response.answers contains an invalid question id"
+      );
+    }
+    if (
+      !Array.isArray(rawAnswers) ||
+      rawAnswers.length === 0 ||
+      rawAnswers.length > MAX_INTERACTION_ANSWERS
+    ) {
+      throw new ContractError(
+        `response.answers.${questionId} must contain 1-${MAX_INTERACTION_ANSWERS} answers`
+      );
+    }
+    const normalized = rawAnswers.map((rawAnswer, index) => {
+      if (typeof rawAnswer !== "string" || rawAnswer.length === 0) {
+        throw new ContractError(
+          `response.answers.${questionId}[${index}] must be a non-empty string`
+        );
+      }
+      const answer = rawAnswer;
+      if (answer.length > MAX_INTERACTION_ANSWER_LENGTH) {
+        throw new ContractError(
+          `response.answers.${questionId}[${index}] must be at most ${MAX_INTERACTION_ANSWER_LENGTH} characters`
+        );
+      }
+      totalLength += answer.length;
+      return answer;
+    });
+    if (new Set(normalized).size !== normalized.length) {
+      throw new ContractError(
+        `response.answers.${questionId} must not contain duplicates`
+      );
+    }
+    answers[questionId] = normalized;
+  }
+  if (totalLength > MAX_INTERACTION_RESPONSE_LENGTH) {
+    throw new ContractError(
+      `response answers must total at most ${MAX_INTERACTION_RESPONSE_LENGTH} characters`
+    );
+  }
+  return { interactionId, answers };
 };
 
 const messagesEqual = (left: Message[], right: Message[]): boolean =>

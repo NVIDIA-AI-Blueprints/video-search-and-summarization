@@ -84,6 +84,8 @@ alertsCvVerificationEnabled: true
 # harness URL directly.
 agentAdapter:
   enabled: false
+  # Requires OpenClaw >= 2026.8.1 and is only valid with backendProtocol=openclaw-ws.
+  interactionsEnabled: false
   backendProtocol: responses
   backendUrl: ""
   backendPath: ""

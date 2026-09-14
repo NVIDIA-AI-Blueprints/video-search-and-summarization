@@ -311,13 +311,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               isRecording ? 'Listening' : `Unlock ${workflowName} knowledge and expertise`
             }
             value={content}
-            disabled={chatBlocked}
-            readOnly={chatBlocked}
+            disabled={disabled}
+            readOnly={disabled}
             onChange={(e) => setContent(e.target.value)}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
             onKeyDown={(e) => {
-              if (chatBlocked) return;
+              if (disabled) return;
               // Never submit mid-IME composition: the Enter that commits a
               // Japanese candidate would send a half-typed message.
               if (e.key === 'Enter' && !isComposing && !isMobile() && !e.shiftKey) {

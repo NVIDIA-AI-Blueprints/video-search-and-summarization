@@ -1,7 +1,12 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ConnectorEvent, CreateRunRequest, JsonObject } from "../contract";
+import type {
+  ConnectorEvent,
+  CreateRunRequest,
+  InteractionResponse,
+  JsonObject,
+} from "../contract";
 
 export class ConnectorError extends Error {
   constructor(
@@ -22,6 +27,7 @@ export interface Connector {
     runId: string,
     signal: AbortSignal
   ): AsyncGenerator<ConnectorEvent>;
+  respond?(runId: string, response: InteractionResponse): Promise<void>;
   cancel(runId: string): void | Promise<void>;
 }
 

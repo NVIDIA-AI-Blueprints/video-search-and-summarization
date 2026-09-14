@@ -19,6 +19,10 @@ Set `AGENT_ADAPTER_ENABLED=true` and `AGENT_BACKEND_URL` to enable the adapter.
 The principal settings are:
 
 - `AGENT_ADAPTER_ENABLED`: explicit profile-level adapter switch.
+- `AGENT_INTERACTIONS_ENABLED`: enables OpenClaw structured questions. This is
+  opt-in so ordinary chat remains compatible with older gateways; enabling it
+  requires OpenClaw 2026.8.1 or newer and a token that grants
+  `operator.questions`.
 - `AGENT_BACKEND_PROTOCOL`: `openclaw-ws`, `responses`, or `legacy-chat`.
 - `AGENT_BACKEND_URL` and `AGENT_BACKEND_PATH`: private harness location.
 - `AGENT_BACKEND_TOKEN`: server-only harness credential.
@@ -44,7 +48,10 @@ harness forward binds to Docker's private bridge address and the UI connects to
 - `GET /api/agent/runs/<run_id>`
 - `GET /api/agent/runs/<run_id>/events`
 - `POST /api/agent/runs/<run_id>/cancel`
+- `POST /api/agent/runs/<run_id>/respond`
 
 Run creation accepts an optional `Idempotency-Key`. Event streams support
-`Last-Event-ID` replay while retained. Interaction responses remain
-unsupported and return a conflict response.
+`Last-Event-ID` replay while retained. A run can emit `interaction.required`
+with one to three structured questions. Post the matching `interaction_id` and
+`response: {type: "questions", answers: {<question_id>: [<answer>]}}` to its
+`respond_url`; the response resumes that same run and thread.

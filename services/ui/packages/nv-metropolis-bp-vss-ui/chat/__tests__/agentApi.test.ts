@@ -96,16 +96,52 @@ describe('agentApiEventToChatEvents', () => {
     expect((updates[0] as { envelope: string }).envelope).toContain('/api/proxy/vst/clip.mp4');
   });
 
-  it('does not advertise a response UI for unsupported interactions', () => {
+  it('normalizes structured interactions for the question UI', () => {
     expect(
       agentApiEventToChatEvents(
-        event('interaction.required', { interaction_id: 'interaction_1' }),
+        event('interaction.required', {
+          interaction_id: 'interaction_1',
+          kind: 'questions',
+          created_at_ms: 1,
+          expires_at_ms: 2,
+          questions: [
+            {
+              question_id: 'profile',
+              header: 'Profile',
+              prompt: 'Which deployment profile?',
+              options: [{ label: 'buarch', description: 'Warehouse architecture' }],
+              multi_select: false,
+              allow_other: true,
+              secret: false,
+            },
+          ],
+        }),
         createAgentApiChatState(),
+        undefined,
+        '/api/agent/runs/run_1/respond',
       ),
     ).toEqual([
       {
-        kind: 'error',
-        message: 'Interactive agent responses are not supported by this UI.',
+        kind: 'interaction',
+        interaction: {
+          event_type: 'interaction_required',
+          execution_id: 'run_1',
+          interaction_id: 'interaction_1',
+          response_url: '/api/agent/runs/run_1/respond',
+          created_at_ms: 1,
+          expires_at_ms: 2,
+          questions: [
+            {
+              question_id: 'profile',
+              header: 'Profile',
+              prompt: 'Which deployment profile?',
+              options: [{ label: 'buarch', description: 'Warehouse architecture' }],
+              multi_select: false,
+              allow_other: true,
+              secret: false,
+            },
+          ],
+        },
       },
     ]);
   });

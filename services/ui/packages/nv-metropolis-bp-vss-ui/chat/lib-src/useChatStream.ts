@@ -10,12 +10,14 @@ import {
   type AgentApiChatEvent,
   type AgentApiRun,
 } from './agentApi';
-import { SseParser, type InteractionRequest, type SseEvent } from './sse';
+import { SseParser, type SseEvent } from './sse';
 import type {
   CallerInfo,
   ChatEndpointConfig,
   ChatMessage,
   ChatStep,
+  InteractionAnswer,
+  InteractionRequest,
   QueryDataContext,
 } from './types';
 
@@ -44,7 +46,8 @@ export interface UseChatStreamOptions {
   onAnswer?: (answer: string) => CallerInfo | boolean | void;
   onAnswerComplete?: () => void;
   onBusyChange?: (busy: boolean) => void;
-  onInteraction?: (interaction: InteractionRequest) => Promise<string>;
+  onInteraction?: (interaction: InteractionRequest) => Promise<InteractionAnswer>;
+  onInteractionResolved?: (interactionId: string) => void;
   /** Called when the turn's conversation is no longer the selected one. */
   isConversationStale?: (uploadConversationId: string) => boolean;
 }
@@ -184,6 +187,49 @@ export function useChatStream(
       let agentTerminal = false;
       const artifactEnvelopes: string[] = [];
       const steps: ChatStep[] = [];
+      const activeStructuredInteractions = new Set<string>();
+      let interactionFailure: unknown;
+
+      const beginStructuredInteraction = (
+        interaction: Extract<InteractionRequest, { questions: unknown }>,
+        answerInteraction: NonNullable<UseChatStreamOptions['onInteraction']>,
+      ): void => {
+        if (activeStructuredInteractions.size) {
+          throw new Error('The agent emitted overlapping structured interactions');
+        }
+        activeStructuredInteractions.add(interaction.interaction_id);
+        void (async () => {
+          const interactionAnswer = await answerInteraction(interaction);
+          if (interactionAnswer === null) return;
+          if (typeof interactionAnswer === 'string') {
+            throw new Error('Structured agent interaction UI returned an invalid response');
+          }
+          const response = await fetch(interaction.response_url, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              ...(endpointRef.current.headers ?? {}),
+            },
+            body: JSON.stringify({
+              interaction_id: interaction.interaction_id,
+              response: interactionAnswer,
+            }),
+          });
+          if (!response.ok) {
+            throw new Error(`interaction response returned HTTP ${response.status}`);
+          }
+        })()
+          .catch((error: unknown) => {
+            // Wake a reader blocked on the SSE stream so the response failure
+            // is surfaced immediately and the still-waiting run is cancelled.
+            if (!controller.signal.aborted) {
+              interactionFailure = error;
+              controller.abort();
+            }
+          })
+          .finally(() => activeStructuredInteractions.delete(interaction.interaction_id));
+      };
 
       const consume = async (events: Array<SseEvent | AgentApiChatEvent>) => {
         for (const ev of events) {
@@ -199,23 +245,38 @@ export function useChatStream(
           } else if (ev.kind === 'artifact') {
             artifactEnvelopes.push(ev.envelope);
           } else if (ev.kind === 'interaction') {
+            const answerInteraction = optionsRef.current.onInteraction;
+            if (!answerInteraction) throw new Error('Interactive agent response UI is unavailable');
+            if ('questions' in ev.interaction) {
+              beginStructuredInteraction(ev.interaction, answerInteraction);
+              continue;
+            }
+            const interactionAnswer = await answerInteraction(ev.interaction);
+            if (interactionAnswer === null) continue;
             if (ev.interaction.prompt.input_type !== 'text') {
               throw new Error(`Unsupported interaction type: ${ev.interaction.prompt.input_type}`);
             }
-            const answerInteraction = optionsRef.current.onInteraction;
-            if (!answerInteraction) throw new Error('Interactive agent response UI is unavailable');
-            const interactionText = await answerInteraction(ev.interaction);
-            const interactionUrl = new URL(endpointRef.current.url, window.location.origin);
-            interactionUrl.searchParams.set('interaction', ev.interaction.response_url);
-            const interactionResponse = await fetch(`${interactionUrl.pathname}${interactionUrl.search}`, {
+            if (typeof interactionAnswer !== 'string') {
+              throw new Error('Text interaction UI returned an invalid response');
+            }
+            const url = new URL(endpointRef.current.url, window.location.origin);
+            url.searchParams.set('interaction', ev.interaction.response_url);
+            const interactionUrl = `${url.pathname}${url.search}`;
+            const interactionResponse = await fetch(interactionUrl, {
               method: 'POST',
               signal: controller.signal,
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ response: { type: 'text', text: interactionText } }),
+              headers: {
+                'Content-Type': 'application/json',
+                ...(endpointRef.current.headers ?? {}),
+              },
+              body: JSON.stringify({ response: { type: 'text', text: interactionAnswer } }),
             });
             if (!interactionResponse.ok) {
               throw new Error(`interaction response returned HTTP ${interactionResponse.status}`);
             }
+          } else if (ev.kind === 'interaction-resolved') {
+            activeStructuredInteractions.delete(ev.interactionId);
+            optionsRef.current.onInteractionResolved?.(ev.interactionId);
           } else if (ev.kind === 'error') {
             failed = ev.message;
           } else {
@@ -286,7 +347,7 @@ export function useChatStream(
           const mapEvents = (events: ReturnType<AgentApiSseParser['feed']>) =>
             events.flatMap((event) => {
               assertAgentApiEventScope(event, run.run_id!, threadId);
-              return agentApiEventToChatEvents(event, agentState, agentEndpoint.mediaProxyUrl);
+              return agentApiEventToChatEvents(event, agentState, agentEndpoint.mediaProxyUrl, run.respond_url);
             });
           try {
             for (;;) {
@@ -359,13 +420,18 @@ export function useChatStream(
           callerInfo: typeof callerInfo === 'string' ? callerInfo : undefined,
         }));
       } catch (err) {
-        const aborted = err instanceof DOMException && err.name === 'AbortError';
+        const reported = interactionFailure ?? err;
+        const aborted = interactionFailure === undefined && err instanceof DOMException && err.name === 'AbortError';
         patchReply((m) => ({
           ...m,
           streaming: false,
-          error: aborted ? 'cancelled' : err instanceof Error ? err.message : String(err),
+          error: aborted ? 'cancelled' : reported instanceof Error ? reported.message : String(reported),
         }));
       } finally {
+        for (const interactionId of activeStructuredInteractions) {
+          optionsRef.current.onInteractionResolved?.(interactionId);
+        }
+        activeStructuredInteractions.clear();
         if (!agentTerminal) cancelAgentRun();
         cancelUrlRef.current = null;
         abortRef.current = null;
