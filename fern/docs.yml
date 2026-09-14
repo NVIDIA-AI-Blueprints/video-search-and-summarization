@@ -438,9 +438,8 @@ navigation:
                 slug: video-analytics-api
                 path: ../docs/video-analytics-api-server.mdx
                 contents:
-                  - page: "Video Analytics API Reference"
+                  - api: "Video Analytics API Reference"
                     slug: video-analytics-api-reference
-                    path: ../docs/video-analytics-api.mdx
               - page: "Video Analytics MCP"
                 slug: video-analytics-mcp
                 path: ../docs/video-analytics-mcp.mdx

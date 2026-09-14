@@ -19,6 +19,21 @@ We recommend the following steps to resolve deployment failures -
     * Use `docker compose ps` to identify unhealthy services, then inspect a service with `docker compose logs <service>`. We recommend starting with the DeepStream and Kafka services.
     * A port being occupied is a common cause for deployment failure.
 
+### Why are my configuration changes not reflected after redeployment?
+
+The Blueprint Configurator reapplies only the settings it manages during deployment. For a managed setting, change its source value in the Warehouse `.env`, `overrides.env`, or `blueprint_config.yml` file. For an unmanaged setting, edit the target configuration file directly after cleanup.
+
+For a clean redeployment, [stop the deployment](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#teardown-the-deployment), run cleanup from `$VSS_APPS_DIR`, and only then edit the configuration and redeploy:
+
+```bash
+bash scripts/cleanup_all_datalog.sh \
+  -e industry-profiles/warehouse-operations/overrides.env
+```
+
+<Warning>
+Cleanup restores files from their oldest configurator backups before deleting the backups. Changes made before cleanup can be lost. Cleanup also deletes Warehouse runtime data and generated artifacts.
+</Warning>
+
 ### Why does vss-elasticsearch-init fail during deployment (race condition with Elasticsearch)?
 
 **Observation:** When deploying the blueprint with `docker compose up`, the `elasticsearch-init-container` service (`vss-elasticsearch-init` container) starts and tries to connect to Elasticsearch before it is fully ready. The init container uses all retry attempts (default 20) and exits with code 1, while Elasticsearch becomes healthy soon after.
@@ -164,7 +179,7 @@ For docker compose environment, current utilization of the GPU can be checked us
 
 If you are consistently observing low FPS, try reducing the number of streams assigned to each GPU.
 
-For additional tuning guidance, see [Performance Notes](https://docs.nvidia.com/vss/latest/object-detection-tracking.html#performance-notes) in the Object Detection and Tracking documentation.
+For additional tuning guidance, see [Performance Notes](/vss/system-components/vision-microservices/object-detection-and-tracking#performance-notes) in the Object Detection and Tracking documentation.
 
 ### Why does vss-rtvi-cv crash with NvBufSurfTransform error -2 when adding streams on IGX Thor Mini?
 

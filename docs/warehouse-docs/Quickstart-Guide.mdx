@@ -405,7 +405,7 @@ Set the common deployment variables in `industry-profiles/warehouse-operations/o
 
 Container image coordinates are centralized in `containers.env` and loaded by the deployment command. In your hardware tab:
 
-1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`.
+1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For DGX-SPARK, also set the SBSA image-tag suffix in `containers.env` as described in its hardware tab.
 2. Choose exactly one deployment path and copy its settings into the same file.
 
 <Tabs>
@@ -659,6 +659,16 @@ VLM_MODE=none
 | 3D | 7 | 15 FPS |
 | MV3DT | 4 | 30 FPS |
 
+In `deploy/docker/containers.env`, set the SBSA image-tag suffix:
+
+```ini
+VSS_CONTAINER_TAG_SUFFIX="-sbsa"
+```
+
+This setting applies the SBSA suffix to all supported runtime images. Reset it to `VSS_CONTAINER_TAG_SUFFIX=""` before deploying on non-SBSA hardware.
+
+In `industry-profiles/warehouse-operations/overrides.env`, set:
+
 ```ini
 # The bp_wh agent profile is not supported on DGX-SPARK.
 # Use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
@@ -812,19 +822,6 @@ docker compose -f compose.yml \
     --env-file industry-profiles/warehouse-operations/overrides.env \
     up --detach --pull always --force-recreate --build
 ```
-
-<Note>
-For DGX-SPARK, use `blueprint-deploy.sh` instead of the direct Compose command so the required platform-specific image selection is applied automatically:
-
-```bash
-./scripts/blueprint-deploy.sh up \
-    --deployment warehouse \
-    --mode 2d \
-    --bp-profile bp_wh_kafka \
-    --data-dir "/path/to/vss-warehouse-app-data" \
-    --hardware-profile DGX-SPARK
-```
-</Note>
 
 <Note>
 Initialization of some components might take a while, especially the first time, because large container images will be pulled.

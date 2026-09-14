@@ -292,7 +292,11 @@ When using a custom recorded-video dataset, `NUM_STREAMS` depends on the number 
 
 To use a custom dataset:
 
+* For a custom synthetic dataset, use a dataset name that ends in `-synthetic` (for example, `my-warehouse-synthetic`). Custom real datasets do not have a naming convention.
+
 * Set `SAMPLE_VIDEO_DATASET` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env` to the name of your dataset.
+
+* Set `DATASET_TYPE` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env` to `synthetic` for a synthetic dataset or `real` for a real dataset. This selects the corresponding Sparse4D model, engine, anchor, and labels.
 
 * Place the video files in `$VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET/`.
 

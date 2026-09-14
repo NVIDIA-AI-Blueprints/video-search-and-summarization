@@ -29,6 +29,8 @@ Additional information regarding Kafka can be found in the [Quickstart Guide](ht
 | `mdx-incidents` | Protobuf | `nv.Incident` | Used for sending incident data from the analytics pipeline. |
 | `mdx-vlm-incidents` | Protobuf | `nv.Incident` | Used for sending Vision Language Model (VLM) verified incident data. |
 | `mdx-embed` | Protobuf | `nv.VisionLLM` | Used for sending embedding data for vector similarity searches. |
+| `mdx-embed-filtered` | Protobuf | `nv.VisionLLM` | Used for sending filtered vision embeddings to Logstash for vector similarity searches. |
+| `mdx-compressed-embeddings` | Protobuf | `nv.Frame` | Used for sending frame metadata with compressed per-object embeddings. |
 | `mdx-vlm-captions` | Protobuf | `nv.VisionLLM` | Used by the RTVI-VLM microservice to publish per-chunk raw captioning events from live streams and file summarization. Consumed by Logstash, which writes the events into Elasticsearch for downstream summarization. |
 | `mdx-structured-events-summary` | Protobuf | `nv.VisionLLM` | Used by the Video Summarization microservice to publish structured event batches and aggregated narrative summaries after CA-RAG aggregation completes. Consumed by Logstash alongside `mdx-vlm-captions`. |
 

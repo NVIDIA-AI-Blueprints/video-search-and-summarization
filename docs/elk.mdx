@@ -5,7 +5,7 @@ position: 1
 ---
 The ELK stack (Elasticsearch, Logstash, Kibana) provides the data pipeline and analytics infrastructure for all the blueprints. Video analytics data flows from microservices through Kafka or Redis Streams, gets processed by Logstash, indexed into Elasticsearch, and visualized in Kibana.
 
-The Docker deployment uses Elasticsearch `9.3.3`, Logstash `9.3.3`, and Kibana `9.3.3`.
+The Docker deployment uses Elasticsearch `9.4.4`, Logstash `9.4.4`, and Kibana `9.4.4`.
 
 ## Elasticsearch
 
@@ -28,12 +28,12 @@ deploy/docker/services/infra/elk/elasticsearch/configs/elasticsearch.yml
 | `network.host` | `0.0.0.0` | Network interface to bind to for incoming connections. |
 | `http.port` | `9200` | HTTP port for REST API access. |
 | `xpack.security.enabled` | `false` | Security features are disabled by default for development. |
-| `path.data` | `/tmp/elastic/data` | Directory for storing index data. |
+| `path.data` | `/tmp/elastic/data/` | Directory for storing index data. |
 | `path.logs` | `/tmp/elastic/logs` | Directory for Elasticsearch log files. |
 
 ### Elasticsearch with GPU
 
-Elasticsearch 9.3.3 also supports [GPU-based dense vector embedding](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/gpu-vector-indexing). To enable it, do the following.
+Elasticsearch 9.4.4 also supports [GPU-based dense vector embedding](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/gpu-vector-indexing). To enable it, do the following.
 
 **Prerequisites**
 
@@ -147,6 +147,7 @@ when dense vectors are being indexed, use `nvtop` or `nvidia-smi`.
 | `mdx-incidents-*` | Daily indices for detected incident data. |
 | `mdx-vlm-incidents-*` | Daily indices for VLM-detected incidents. |
 | `mdx-embed-filtered-*` | Daily indices for filtered vision embeddings data with dense vector support. |
+| `mdx-compressed-embeddings-*` | Daily indices for frame metadata with compressed per-object embeddings. |
 | `mdx-calibration` | Stores current calibration states. |
 | `mdx-calibration-audit` | Logs each calibration update. |
 | `mdx-calibration-images` | Stores metadata of calibration images. |
@@ -228,6 +229,7 @@ The following ILM policies are created during initialization:
 | `mdx-incidents-ilm-policy` | 4 hours | `mdx-incidents-*` indices |
 | `mdx-vlm-incidents-ilm-policy` | 4 hours | `mdx-vlm-incidents-*` indices |
 | `mdx-embed-filtered-ilm-policy` | 4 hours | `mdx-embed-filtered-*` indices |
+| `mdx-compressed-embeddings-ilm-policy` | 4 hours | `mdx-compressed-embeddings-*` indices |
 
 <Note>
 * ILM is used to manage index retention and delete old indices.
@@ -257,7 +259,7 @@ Logstash is a powerful data processing pipeline that helps collect data from sou
 
 Logstash reads data from Kafka or Redis Streams and indexes it into Elasticsearch.
 
-The Docker deployment uses Logstash `9.3.3`.
+The Docker deployment uses Logstash `9.4.4`.
 
 Refer to the [Logstash introduction](https://www.elastic.co/guide/en/logstash/9.0/introduction.html) for additional information.
 
@@ -274,7 +276,6 @@ deploy/docker/services/infra/elk/logstash/configs/logstash.yml
 | `pipeline.workers` | `1` | Number of workers for pipeline processing. |
 | `pipeline.ordered` | `true` | Ensures events are processed in order. |
 | `pipeline.ecs_compatibility` | `disabled` | Disables Elastic Common Schema compatibility for legacy format. |
-| `xpack.monitoring.elasticsearch.hosts` | `["http://localhost:9200"]` | Elasticsearch hosts for monitoring data. |
 | `api.http.host` | `0.0.0.0` | HTTP API binding address. |
 
 ### Kafka vs Redis Streams
@@ -303,7 +304,7 @@ For a complete list of Kafka topics, their data formats, and class names, see [K
 
 | Option | Type | Value in Config | Description |
 | --- | --- | --- | --- |
-| `bootstrap_servers` | string | `"localhost:9092"` | Kafka broker connection string |
+| `bootstrap_servers` | string | `"kafka:29092"` | Kafka broker connection string |
 | `topics` / `topics_pattern` | array / string | Pipeline-specific | Kafka topics or topic regex consumed by each input block |
 | `type` | string | Pipeline-specific | Logstash event type used by downstream filters and index routing |
 | `group_id` | string | `"logstash"` | Kafka consumer group used by Logstash |
@@ -341,7 +342,7 @@ deploy/docker/services/infra/elk/logstash/pipelines/redis/mdx-logstash.conf
 
 | Option | Type | Value in Config | Description |
 | --- | --- | --- | --- |
-| `host` | string | `"localhost"` | Redis server hostname |
+| `host` | string | `"redis"` | Redis server hostname |
 | `port` | number | `6379` | Redis server port |
 | `stream_key` | string | Pipeline-specific | Redis stream key to read from |
 | `group` | string | `"logstash"` | Redis consumer group used by Logstash |
@@ -354,7 +355,7 @@ deploy/docker/services/infra/elk/logstash/pipelines/redis/mdx-logstash.conf
 
 Kibana is a powerful visualization and analytics platform that works seamlessly with Elasticsearch. It provides an intuitive interface for exploring the data, visualizing the data using dashboards, and managing your Elasticsearch data.
 
-The Docker deployment uses Kibana `9.3.3`.
+The Docker deployment uses Kibana `9.4.4`.
 
 Refer to the [Kibana documentation](https://www.elastic.co/docs/reference/kibana) for additional information.
 
@@ -369,8 +370,10 @@ deploy/docker/services/infra/elk/kibana/configs/kibana.yml
 | Setting | Default Value | Description |
 | --- | --- | --- |
 | `server.host` | `0.0.0.0` | Network interface for Kibana server. |
+| `server.basePath` | `/kibana` | Base path used to serve Kibana through the deployment ingress. |
+| `server.rewriteBasePath` | `true` | Removes the base path before requests are passed to Kibana. |
 | `server.shutdownTimeout` | `5s` | Graceful shutdown timeout period. |
-| `elasticsearch.hosts` | `["http://localhost:9200"]` | Elasticsearch cluster endpoints. |
+| `elasticsearch.hosts` | `["http://elasticsearch:9200"]` | Elasticsearch cluster endpoints. |
 | `monitoring.ui.container.elasticsearch.enabled` | `true` | Enables container-aware monitoring UI. |
 
 ### Kibana Dashboards
