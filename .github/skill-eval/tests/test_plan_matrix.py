@@ -240,7 +240,8 @@ class RealSpecCorpus(unittest.TestCase):
             counts,
             {
                 "brev": 54,
-                "rtxpro6000-2g": 11,
+                "h200-1g": 7,
+                "h200-2g": 4,
             },
         )
         for leg in include:
@@ -252,7 +253,22 @@ class RealSpecCorpus(unittest.TestCase):
             self.assertEqual(leg["kind"], "eval")
             self.assertEqual(leg["skill"], "vss-deploy-test-openshell")
             self.assertTrue(leg["local_gpu"])
-            self.assertEqual(leg["cohort"], "rtxpro6000-2g")
+            self.assertEqual(
+                leg["cohort"],
+                "h200-1g" if leg["gpu_count"] == 1 else "h200-2g",
+            )
+            self.assertEqual(leg["platform"], "H200")
+            tag = plan_matrix.openshell_placement_tag(leg["gpu_count"])
+            self.assertEqual(
+                leg["slug"],
+                f"{leg['skill']}__{leg['spec_stem']}__{tag}",
+            )
+            self.assertEqual(
+                leg["name"],
+                f"{leg['skill']} · {leg['spec_stem']} · {tag}",
+            )
+            self.assertNotIn("rtxpro6000-2g", leg["slug"])
+            self.assertNotIn("rtxpro6000-2g", leg["name"])
             self.assertEqual(
                 leg["runs_on"],
                 plan_matrix.openshell_job_labels(leg["gpu_count"]),
@@ -705,6 +721,8 @@ class OpenshellGpuFleet(unittest.TestCase):
         }
         self.assertFalse(sku & set(one + two))
         self.assertEqual(plan_matrix.openshell_job_labels(3), list(plan_matrix.SKIP_RUNNER))
+        self.assertEqual(plan_matrix.openshell_placement_tag(1), "gpus-1")
+        self.assertEqual(plan_matrix.openshell_placement_tag(2), "gpus-2")
         for labels in (
             plan_matrix.OPENSHELL_A16_LABELS,
             plan_matrix.OPENSHELL_A40_LABELS,
@@ -799,6 +817,31 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(cohort.name, "rtxpro6000-2g")
 
+    def test_h200_and_rtx_specs_prefer_h200_cohort(self):
+        original = plan_matrix.hardware_profile_files
+        plan_matrix.hardware_profile_files = lambda profile: [Path(profile)]
+        try:
+            one, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    min_vram=96,
+                    profiles=("H200", "RTXPRO6000BW"),
+                )
+            )
+            two, two_error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    gpu_count=2,
+                    min_vram=96,
+                    multi_gpu=True,
+                    profiles=("H200", "RTXPRO6000BW"),
+                )
+            )
+        finally:
+            plan_matrix.hardware_profile_files = original
+        self.assertIsNone(error)
+        self.assertEqual(one.name, "h200-1g")
+        self.assertIsNone(two_error)
+        self.assertEqual(two.name, "h200-2g")
+
     def test_absent_exact_profile_fails_closed(self):
         original = plan_matrix.hardware_profile_files
         plan_matrix.hardware_profile_files = lambda _profile: []
@@ -826,6 +869,11 @@ class OpenshellGpuFleet(unittest.TestCase):
             requirements, error = plan_matrix.openshell_requirements(relative)
             self.assertIsNone(error, relative)
             self.assertIsNotNone(requirements, relative)
+            self.assertEqual(
+                requirements["supported_hardware_profiles"],
+                ["H200", "RTXPRO6000BW"],
+                relative,
+            )
 
     def test_future_matrix_uses_one_leg_per_spec_across_all_cohorts(self):
         original = plan_matrix.hardware_profile_files
@@ -853,7 +901,8 @@ class OpenshellGpuFleet(unittest.TestCase):
             counts,
             {
                 "brev": 54,
-                "rtxpro6000-2g": 11,
+                "h200-1g": 7,
+                "h200-2g": 4,
             },
         )
         self.assertEqual(sum(leg["local_gpu"] for leg in legs), 11)
@@ -895,8 +944,12 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["skill"], "vss-deploy-test-openshell")
         self.assertEqual(inc[0]["spec_stem"], "base")
-        self.assertEqual(inc[0]["platform"], "RTXPRO6000BW")
-        self.assertEqual(inc[0]["cohort"], "rtxpro6000-2g")
+        self.assertEqual(inc[0]["gpu_count"], 1)
+        self.assertEqual(inc[0]["slug"], "vss-deploy-test-openshell__base__gpus-1")
+        self.assertEqual(inc[0]["name"], "vss-deploy-test-openshell · base · gpus-1")
+        self.assertNotIn("rtxpro6000-2g", inc[0]["slug"])
+        self.assertEqual(inc[0]["platform"], "H200")
+        self.assertEqual(inc[0]["cohort"], "h200-1g")
         self.assertEqual(
             inc[0]["runs_on"],
             plan_matrix.openshell_job_labels(inc[0]["gpu_count"]),

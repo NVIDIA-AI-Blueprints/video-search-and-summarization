@@ -13,7 +13,7 @@ Matrix:
     Profiles : base, lvs, warehouse, search, ask-video
     Platforms: H100, L40S, RTXPRO6000BW, H200, A40, DGX-SPARK, IGX-THOR
                (each spec declares which platforms it runs on; warehouse
-               and search are dedicated two-GPU H200 jobs; ask-video
+               and search are two-GPU H200 or RTX PRO 6000 jobs; ask-video
                deploys base then chains to vss-ask-video)
 
 Directory layout:
@@ -405,8 +405,9 @@ def generate_solve_script(profile: str, platform: str) -> str:
 
     is_warehouse = (env_profile == "warehouse")
 
-    # Hardware profiles are exact identities; the planner blocks
-    # replacement cohorts until their checked-in profile exists.
+    # Hardware profiles are exact identities used by NIM compose files.
+    # OpenShell does not gate the trial on SKU; the skill still writes
+    # HARDWARE_PROFILE from the host when it deploys.
     nim_profile = os.environ.get("HARDWARE_PROFILE") or platform
 
     if is_warehouse:
@@ -599,12 +600,10 @@ def generate_task(
         # Informational — no harness consumer.
         meta_lines.append(f'deploy_mode = "{deploy_flag_m}"')
     meta_lines += [
-        "# GPU requirements — BrevEnvironment checks these against the",
-        "# instance's actual GPU capacity before the trial runs.",
-        f'gpu_type = "{platform_spec["gpu_type"]}"',
+        "# OpenShell vss-deploy-test-openshell: GitHub labels + gpu_count.",
+        "# Do not emit gpu_type / min_vram / brev_search — any SKU that",
+        "# satisfies gpus-N is acceptable.",
         f'gpu_count = {gpu_count}',
-        f'min_vram_gb_per_gpu = {platform_spec["min_vram_per_gpu"]}',
-        f'brev_search = "{platform_spec["brev_search"]}"',
         "# Disk + driver requirements — worst-case (covers a deploy with",
         "# both LLM and VLM running as local NIMs). The /vss-deploy-test-openshell skill",
         "# decides actual placement from forwarded env (LLM_REMOTE_URL,",
