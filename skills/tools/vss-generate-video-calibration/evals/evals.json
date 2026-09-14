@@ -42,7 +42,8 @@
     "expected_behavior": [
       "Does not ask the user to choose a detector and budgets no more than five accepted AMC attempts.",
       "Uses one stable readable dataset slug for new attempt projects and keeps ordinary calibration naming unchanged.",
-      "For every eligible attempt project, runs VGGT, post-processes and preserves it, then runs AMC, post-processes and preserves it separately.",
+      "Applies the complete attempt configuration through /v1/config/<project_id>, verifies its readback, then follows the explicit stage, verify, VGGT, AMC, polling, post-processing, and artifact retrieval sequence.",
+      "For every eligible attempt project, safely sets up VGGT when missing, runs it, post-processes and preserves it, then runs AMC, post-processes and preserves it separately.",
       "Selects from complete evidence, preserves the incumbent after a failed or degraded attempt, and labels a no-GT recommendation heuristic."
     ]
   },
@@ -53,8 +54,9 @@
     "ground_truth": "Reuses the valid normal project as attempt 1 without renaming it, preserves its existing results, and follows the tuning workflow for later attempts.",
     "expected_behavior": [
       "Keeps the existing server project name and ID and maps them to a canonical attempt label only in tuning output and reporting.",
+      "Recovers the project's exact persisted configuration and detector, verifies configuration equivalence, and creates a fresh attempt 1 when either cannot be proven.",
       "Preserves existing AMC and VGGT artifacts before another workload can reset shared post-processing results.",
-      "Counts the completed normal AMC run as attempt 1 instead of repeating it only to begin tuning."
+      "When reuse checks pass, counts the completed normal AMC run as attempt 1 instead of repeating it only to begin tuning."
     ]
   }
 ]

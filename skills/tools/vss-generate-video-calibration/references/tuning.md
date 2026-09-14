@@ -33,7 +33,7 @@ Never submit a sixth AMC attempt without asking the user.
 ## Prepare and Freeze Inputs
 
 1. Run the shared platform preflight and probe the configured `/v1/ready` endpoint and UI root. Reuse a healthy stack. If the stack is unavailable, follow `references/deploy-auto-calibration-service.md` before discussing calibration inputs.
-2. For multi-camera tuning, require VGGT support in the running service. Resolve `MODEL_MISSING` through the deployment reference rather than silently switching to AMC-only tuning. VGGT is not available for single-camera input; record that and continue with AMC.
+2. For multi-camera tuning, require VGGT support in the running service. Explicit tuning counts as a request for VGGT when following the deployment reference. Resolve `MODEL_MISSING` through its safe VGGT setup flow rather than silently switching to AMC-only tuning. VGGT is not available for single-camera input; record that and continue with AMC.
 3. Discover the running schema at `/openapi.yaml`, then `/openapi.json`; use `/docs` or service logs only if neither schema endpoint works.
 4. Fetch `GET /v1/config/defaults` and retain the complete runtime `config_params` object as the attempt-1 baseline.
 5. Resolve and freeze:
@@ -54,16 +54,18 @@ Use the same videos, layout, scale, alignment, camera order, focal lengths, GT, 
 
 ## Reuse a Normal Project
 
-When tuning begins after a normal calibration, reuse that project as attempt 1 when its frozen inputs and baseline configuration are valid.
+When tuning begins after a normal calibration, reuse that project as attempt 1 only when its frozen inputs, exact effective configuration, and detector can be recovered and verified.
 
 - Do not rename or duplicate the server project.
 - Record its actual name and ID plus its canonical attempt label in the report.
+- Recover the configuration from the project's persisted calibration output, such as `project_<id>/output/config_AutoMagicCalib/`, or a per-project readback endpoint exposed by the running schema. Recover the detector from project metadata or `calibration.log`. Do not use the service-wide `GET /v1/config` alone as evidence of what an earlier project used.
+- Normalize and compare every AMC-tunable field with the current runtime defaults plus the same frozen `layout_px_per_m` and explicit dataset-required overrides. Reuse the project only when they are equivalent; apply that exact recovered configuration unchanged for the alternate-detector baseline.
 - Preserve its completed AMC artifacts before launching another workload.
 - If VGGT already completed, preserve and reuse that result.
 - If VGGT is `READY`, preserve AMC first, then run VGGT and post-processing in the same project and preserve VGGT separately.
 - Count the completed normal AMC baseline as attempt 1; do not rerun it only to enter tuning.
 
-If the normal project cannot support a valid comparison, report the reason and create a fresh attempt 1.
+If the effective configuration or detector cannot be recovered exactly, differs from the intended baseline, or the project otherwise cannot support a valid comparison, retain its result only as an external alternative and create a fresh attempt 1 from runtime defaults.
 
 ## Project Names and Output Labels
 
@@ -121,18 +123,22 @@ Do not copy a successful configuration from another dataset. Detector and parame
 
 ## Run One Fresh Attempt
 
-For each new tuning attempt:
+Use the API paths exposed by the running schema. `<MS_URL>` below includes the `/v1` prefix. For each new tuning attempt:
 
-1. Create the canonical project and reproduce the frozen inputs and media preparation.
-2. Require `rectification_state == COMPLETED` and verify the project reaches `READY`.
-3. For eligible multi-camera input, require `vggt_state == READY`, start VGGT, and poll `vggt_state` independently to a terminal state.
-4. When VGGT completes, run post-processing and require `postprocess_state == COMPLETED`.
-5. Immediately preserve the complete VGGT result under `artifacts/vggt/`.
-6. Submit AMC with the attempt detector and configuration. Increment the AMC-attempt count only after the request is accepted.
-7. Poll `amc_state` independently to a terminal state.
-8. When AMC completes, run post-processing again because AMC resets the shared `postprocess_state`.
-9. Preserve the complete AMC result under `artifacts/amc/` without overwriting VGGT.
-10. Compare the result with the incumbent before planning another attempt.
+1. Create the canonical project and upload the frozen assets using the applicable input-mode reference.
+2. For confirmed-linear media, call `POST <MS_URL>/linear_media/<project_id>`. Otherwise complete Rectification through the UI or running rectification API. Poll project/rectification state and require `rectification_state == COMPLETED`.
+3. Build the complete attempt configuration from runtime defaults, the frozen `layout_px_per_m`, explicit dataset-required overrides, and only this attempt's intentional delta. Save that exact JSON as `config.json`.
+4. Apply it with `POST <MS_URL>/config/<project_id>`. Require a successful response, immediately call `GET <MS_URL>/config`, and compare its normalized `config_params` with every submitted field. Stop without consuming an attempt if any value differs or the running schema has no reliable readback.
+5. Call `POST <MS_URL>/verify_project/<project_id>`, then `GET <MS_URL>/get_project_info/<project_id>` and require the project and result-specific states to be ready.
+6. For eligible multi-camera input, call `POST <MS_URL>/vggt/calibrate/<project_id>` and poll `GET <MS_URL>/get_project_info/<project_id>` until `vggt_state` reaches a terminal state. Fetch the VGGT calibration log while running or on failure.
+7. When VGGT completes, call `POST <MS_URL>/postprocess/<project_id>` and poll project info until `postprocess_state == COMPLETED`.
+8. Immediately preserve the complete VGGT result under `artifacts/vggt/` using the artifact mappings below.
+9. Reapply the same complete attempt configuration and repeat the `GET <MS_URL>/config` equality check immediately before AMC.
+10. Call `POST <MS_URL>/calibrate/<project_id>` with `{"detector_type":"<detector>"}`. Increment the AMC-attempt count only after this request is accepted.
+11. Poll `GET <MS_URL>/get_project_info/<project_id>` until `amc_state` reaches a terminal state. Fetch `GET <MS_URL>/amc/calibrate/<project_id>/log` while running and on failure.
+12. When AMC completes, call post-processing again because AMC resets the shared `postprocess_state`; require it to reach `COMPLETED`.
+13. Preserve the complete AMC result under `artifacts/amc/` without overwriting VGGT.
+14. Compare the result with the incumbent before planning another attempt.
 
 If VGGT fails, preserve its logs, terminal state, and failure reason. Continue to AMC only when the failure does not indicate a shared input or infrastructure problem.
 
@@ -171,6 +177,22 @@ Create the attempt directory before AMC submission and preserve available result
 ```
 
 Preserve only artifacts that exist and record missing artifacts explicitly. For a failed run, keep the calibration log, partial multi-view log, generated camera-pair overlays, exact terminal state, and failure reason.
+
+Use these result-specific mappings when the running schema exposes them, and save their response bodies with clear filenames:
+
+| Result | API or project source |
+|---|---|
+| State | `GET <MS_URL>/get_project_info/<project_id>` |
+| AMC log | `GET <MS_URL>/amc/calibrate/<project_id>/log` |
+| VGGT log | `GET <MS_URL>/vggt/calibrate/<project_id>/log` |
+| AMC evaluation | `GET <MS_URL>/result/<project_id>/evaluation_metrics` and `/evaluation_statistics` |
+| VGGT evaluation | `GET <MS_URL>/vggt_results/<project_id>/evaluation_metrics` and `/evaluation_statistics` |
+| AMC overlay | `GET <MS_URL>/result/<project_id>/overlay_image` |
+| VGGT overlay | `GET <MS_URL>/vggt_results/<project_id>/overlay_image` when available |
+| MV3DT export | `GET <MS_URL>/result/<project_id>/mv3dt_result?result_type=amc` or `result_type=vggt` |
+| Complete snapshot | Copy the available result-specific files from `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/` before another calibration or post-process can replace shared outputs. |
+
+Also preserve camera-parameter and full-export responses exposed by the running OpenAPI schema. Treat a documented endpoint returning not found as a missing artifact, not permission to invent a replacement path.
 
 AMC trajectory overlays and VGGT calibration visualizations are separate result types. VGGT is not automatically composited onto AMC trajectory overlays, so seeing only AMC trajectories does not mean VGGT failed. Evaluate each result through its own state, post-processing output, camera parameters, metrics, overlays, and exports.
 
