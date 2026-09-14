@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /** Browser-side consumer for the versioned VSS agent API contract. */
 
+import type { InteractionRequest } from './sse';
 import type { ChatStep } from './types';
 
 const MAX_FRAME_LENGTH = 5_000_000;
@@ -29,6 +30,7 @@ export type AgentApiChatEvent =
   | { kind: 'token'; text: string }
   | { kind: 'step'; step: ChatStep }
   | { kind: 'artifact'; envelope: string }
+  | { kind: 'interaction'; interaction: InteractionRequest }
   | { kind: 'error'; message: string }
   | { kind: 'done' };
 
@@ -49,6 +51,9 @@ export const assertAgentApiEventScope = (event: AgentApiEvent, runId: string, th
 };
 
 const asString = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+
+const isJsonObject = (value: unknown): value is JsonObject =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
 
 const serialize = (value: unknown): string | undefined => {
   if (typeof value === 'string') return value;
@@ -180,6 +185,7 @@ export function agentApiEventToChatEvents(
   event: AgentApiEvent,
   state: AgentApiChatState,
   mediaProxyUrl?: string,
+  baseUrl?: string,
 ): AgentApiChatEvent[] {
   const data = event.data;
   if (event.type === 'message.delta') {
@@ -245,10 +251,27 @@ export function agentApiEventToChatEvents(
     return envelope ? [{ kind: 'artifact', envelope }] : [];
   }
   if (event.type === 'interaction.required') {
+    if (!baseUrl) {
+      return [
+        {
+          kind: 'error',
+          message: 'Interactive agent responses are not supported by this UI.',
+        },
+      ];
+    }
+    const prompt = isJsonObject(data.prompt) ? data.prompt : undefined;
+    const text = (prompt && asString(prompt.text)) ?? 'The agent needs more information to continue.';
+    const interactionId = asString(data.interaction_id) ?? event.id;
     return [
       {
-        kind: 'error',
-        message: 'Interactive agent responses are not supported by this UI.',
+        kind: 'interaction',
+        interaction: {
+          event_type: 'interaction_required',
+          execution_id: event.run_id,
+          interaction_id: interactionId,
+          prompt: { text, input_type: 'text' },
+          response_url: `${baseUrl}/runs/${event.run_id}/respond`,
+        },
       },
     ];
   }

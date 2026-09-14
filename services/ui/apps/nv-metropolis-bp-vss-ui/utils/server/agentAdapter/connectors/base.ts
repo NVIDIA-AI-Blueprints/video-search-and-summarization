@@ -14,6 +14,10 @@ export class ConnectorError extends Error {
   }
 }
 
+export interface InteractionResponse {
+  text: string;
+}
+
 export interface Connector {
   readonly protocol: string;
   readonly capabilities: JsonObject;
@@ -23,6 +27,8 @@ export interface Connector {
     signal: AbortSignal
   ): AsyncGenerator<ConnectorEvent>;
   cancel(runId: string): void | Promise<void>;
+  /** Only connectors that can resume a paused run implement this. */
+  respond?(runId: string, response: InteractionResponse): void | Promise<void>;
 }
 
 export const connectorCapabilities = (

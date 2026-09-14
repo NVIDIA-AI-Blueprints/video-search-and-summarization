@@ -205,14 +205,29 @@ export function useChatStream(
             const answerInteraction = optionsRef.current.onInteraction;
             if (!answerInteraction) throw new Error('Interactive agent response UI is unavailable');
             const interactionText = await answerInteraction(ev.interaction);
-            const interactionUrl = new URL(endpointRef.current.url, window.location.origin);
-            interactionUrl.searchParams.set('interaction', ev.interaction.response_url);
-            const interactionResponse = await fetch(`${interactionUrl.pathname}${interactionUrl.search}`, {
-              method: 'POST',
-              signal: controller.signal,
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ response: { type: 'text', text: interactionText } }),
-            });
+            // The agent-api transport's response_url is already the full REST
+            // path (POST /runs/:runId/respond); the legacy chat-SSE transport
+            // instead expects the opaque token folded into a query param on
+            // the chat endpoint itself.
+            const isAgentApi = endpointRef.current.transport === 'agent-api';
+            const interactionResponse = await fetch(
+              isAgentApi
+                ? ev.interaction.response_url
+                : (() => {
+                    const interactionUrl = new URL(endpointRef.current.url, window.location.origin);
+                    interactionUrl.searchParams.set('interaction', ev.interaction.response_url);
+                    return `${interactionUrl.pathname}${interactionUrl.search}`;
+                  })(),
+              {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(isAgentApi ? endpointRef.current.headers ?? {} : {}),
+                },
+                body: JSON.stringify({ response: { type: 'text', text: interactionText } }),
+              },
+            );
             if (!interactionResponse.ok) {
               throw new Error(`interaction response returned HTTP ${interactionResponse.status}`);
             }
@@ -286,7 +301,7 @@ export function useChatStream(
           const mapEvents = (events: ReturnType<AgentApiSseParser['feed']>) =>
             events.flatMap((event) => {
               assertAgentApiEventScope(event, run.run_id!, threadId);
-              return agentApiEventToChatEvents(event, agentState, agentEndpoint.mediaProxyUrl);
+              return agentApiEventToChatEvents(event, agentState, agentEndpoint.mediaProxyUrl, baseUrl);
             });
           try {
             for (;;) {

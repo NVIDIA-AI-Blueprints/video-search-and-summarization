@@ -4,7 +4,12 @@
 import type { AgentAdapterConfig } from "../config";
 import type { ConnectorEvent, CreateRunRequest, JsonObject } from "../contract";
 import { isJsonObject } from "../json";
-import { type Connector, ConnectorError, connectorCapabilities } from "./base";
+import {
+  type Connector,
+  ConnectorError,
+  type InteractionResponse,
+  connectorCapabilities,
+} from "./base";
 import {
   JsonWebSocket,
   type WebSocketFactory,
@@ -59,6 +64,9 @@ export class OpenClawConnector implements Connector {
   readonly capabilities = connectorCapabilities(this.protocol, {
     tool_events: "native",
     cancellation: "native",
+    // Best-effort: the paused-turn signal below is inferred from OpenClaw's
+    // documented chat state machine, not confirmed against a live gateway.
+    interactions: "best_effort",
   });
   private readonly endpoint: string;
   private readonly activeRuns = new Map<string, ActiveRun>();
@@ -407,6 +415,35 @@ export class OpenClawConnector implements Connector {
           "backend_run_aborted"
         );
       }
+      // Unverified: no confirmed OpenClaw wire event for a paused, "awaiting
+      // structured input" turn. This assumes it surfaces as a `chat` event
+      // with this state value, carrying the question in the same `message`
+      // shape as a final response. Confirm against a live gateway (capture
+      // real frames during an AskUserQuestion pause) before relying on this
+      // in production; adjust the state name / payload path here if wrong.
+      if (payload.state === "awaiting_input" || payload.state === "interaction") {
+        const promptText =
+          OpenClawConnector.finalText(payload) ??
+          asString(payload.prompt) ??
+          asString(payload.text) ??
+          "The agent needs more information to continue.";
+        const interactionId = OpenClawConnector.safeIdentifier(
+          payload.interactionId ?? payload.requestId,
+          `interaction-${sequenceText(payload.seq)}`
+        );
+        return {
+          events: [
+            {
+              type: "interaction.required",
+              data: {
+                interaction_id: interactionId,
+                prompt: { text: promptText, input_type: "text" },
+              },
+            },
+          ],
+          terminal: false,
+        };
+      }
       return { events: [], terminal: false };
     }
 
@@ -575,5 +612,25 @@ export class OpenClawConnector implements Connector {
     } finally {
       active.socket.close();
     }
+  }
+
+  respond(runId: string, response: InteractionResponse): void {
+    const active = this.activeRuns.get(runId);
+    if (!active) {
+      throw new ConnectorError(
+        "the run is no longer active",
+        "run_not_active"
+      );
+    }
+    // Unverified: no confirmed OpenClaw RPC for replying to a paused turn.
+    // The gateway handshake only advertises chat.send/chat.abort (no
+    // chat.respond), so this assumes a reply continues the paused turn via
+    // another chat.send on the same sessionKey, mirroring how the turn was
+    // started. Confirm against a live gateway before relying on this.
+    this.request(active.socket, "chat.send", {
+      sessionKey: active.sessionKey,
+      message: response.text,
+      idempotencyKey: randomUUID(),
+    });
   }
 }

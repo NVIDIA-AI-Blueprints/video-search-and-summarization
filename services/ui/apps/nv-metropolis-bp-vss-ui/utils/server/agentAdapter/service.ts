@@ -53,7 +53,7 @@ export class AgentAdapterService {
         reconnect: true,
         cancellation: true,
         idempotent_run_creation: true,
-        interaction_responses: false,
+        interaction_responses: typeof this.connector.respond === "function",
         artifacts: true,
       },
       artifact_protocol: {
@@ -200,6 +200,27 @@ export class AgentAdapterService {
         console.error("Embedded agent connector cancellation failed");
       }
     }
+    return record;
+  }
+
+  async respondToRun(
+    runId: string,
+    response: { text: string }
+  ): Promise<RunRecord> {
+    const record = this.store.get(runId);
+    if (record.terminal) {
+      throw new ConnectorError(
+        "the run is no longer active",
+        "run_not_active"
+      );
+    }
+    if (!this.connector.respond) {
+      throw new ConnectorError(
+        "the active connector does not support interaction responses",
+        "interaction_not_supported"
+      );
+    }
+    await this.connector.respond(runId, response);
     return record;
   }
 }

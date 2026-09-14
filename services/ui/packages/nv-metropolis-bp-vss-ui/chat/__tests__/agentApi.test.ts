@@ -109,4 +109,48 @@ describe('agentApiEventToChatEvents', () => {
       },
     ]);
   });
+
+  it('surfaces a paused run as an interaction the caller can answer, given a base URL', () => {
+    const updates = agentApiEventToChatEvents(
+      event('interaction.required', {
+        interaction_id: 'interaction_1',
+        prompt: { text: 'Which harness should I use?' },
+      }),
+      createAgentApiChatState(),
+      undefined,
+      '/api/agent',
+    );
+
+    expect(updates).toEqual([
+      {
+        kind: 'interaction',
+        interaction: {
+          event_type: 'interaction_required',
+          execution_id: 'run_1',
+          interaction_id: 'interaction_1',
+          prompt: { text: 'Which harness should I use?', input_type: 'text' },
+          response_url: '/api/agent/runs/run_1/respond',
+        },
+      },
+    ]);
+  });
+
+  it('falls back to a generic prompt when the connector omits question text', () => {
+    const updates = agentApiEventToChatEvents(
+      event('interaction.required', {}),
+      createAgentApiChatState(),
+      undefined,
+      '/api/agent',
+    );
+
+    expect(updates).toEqual([
+      {
+        kind: 'interaction',
+        interaction: expect.objectContaining({
+          interaction_id: '1',
+          prompt: { text: 'The agent needs more information to continue.', input_type: 'text' },
+        }),
+      },
+    ]);
+  });
 });

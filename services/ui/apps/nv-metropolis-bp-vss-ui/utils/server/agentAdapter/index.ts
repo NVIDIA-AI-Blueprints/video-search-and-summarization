@@ -9,7 +9,8 @@ import {
   runEventSse,
   type RunEvent,
 } from "./contract";
-import { strictJsonParse } from "./json";
+import { ConnectorError } from "./connectors/base";
+import { isJsonObject, strictJsonParse } from "./json";
 import { AgentAdapterService } from "./service";
 import {
   EventsExpiredError,
@@ -360,12 +361,45 @@ export const agentAdapterHandler = async (
     return;
   }
   if (method === "POST" && segments.length === 3 && segments[2] === "respond") {
-    errorResponse(
-      res,
-      409,
-      "interaction_not_supported",
-      "the active connector does not support interaction responses"
-    );
+    let body: unknown;
+    try {
+      body = requestBody(req.body);
+    } catch (error) {
+      errorResponse(
+        res,
+        400,
+        "invalid_request",
+        error instanceof Error ? error.message : "request body must be valid JSON"
+      );
+      return;
+    }
+    const response = isJsonObject(body) ? body.response : undefined;
+    const text = isJsonObject(response) ? response.text : undefined;
+    const type = isJsonObject(response) ? response.type : undefined;
+    if (type !== "text" || typeof text !== "string" || !text.trim()) {
+      errorResponse(
+        res,
+        400,
+        "invalid_request",
+        "response.type must be 'text' and response.text must be a non-empty string"
+      );
+      return;
+    }
+    try {
+      await service.respondToRun(runId, { text });
+    } catch (error) {
+      if (
+        error instanceof ConnectorError &&
+        (error.code === "interaction_not_supported" ||
+          error.code === "run_not_active")
+      ) {
+        errorResponse(res, 409, error.code, error.message);
+        return;
+      }
+      throw error;
+    }
+    securityHeaders(res);
+    res.status(202).json(record.snapshot());
     return;
   }
   errorResponse(res, 404, "not_found", "agent API route not found");
