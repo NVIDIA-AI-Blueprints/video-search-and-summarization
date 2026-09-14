@@ -672,7 +672,7 @@ If you would like to modify the workflow to work with other videos or usecases, 
 
 #### Scale Alert processing across CPU cores
 
-A single Alerts Microservice process uses about one CPU core. Running the pipeline in several processes adds CPU capacity, and it helps when that process is consistently near one core while Kafka consumer lag keeps growing. A process below one core is limited by offered traffic, by the configured VLM concurrency, or by a downstream service, and gains nothing from additional processes.
+A single Alerts Microservice process uses about one CPU core. Running the pipeline in several processes adds CPU capacity, and it helps when that process is consistently near one core while Kafka consumer lag keeps growing. A process below one core is limited by offered traffic or by a downstream service, and gains nothing from additional processes.
 
 Edit the profile's Alerts Microservice configuration and redeploy:
 
@@ -702,13 +702,13 @@ Before raising the process count, confirm the following:
 
 - `pipeline_mode` is `event_loop` and `persistence.enabled` is `true`. Both are the profile defaults.
 - Every Alert input topic has at least as many partitions as the process count, counted per topic. The profile creates eight partitions per topic, so one instance can run four processes as shipped. When several Alerts Microservice instances share the consumer group, for example as replicas on Kubernetes, the bound applies to `instances × processes`.
-- At least as many active streams as processes. Every message of one stream carries the same `sensorId` and lands on one partition, so work is spread across processes at stream granularity. Fewer streams than processes leaves processes without work, and more streams spread the load more evenly.
+- At least as many active streams as processes. The Behavior Analytics pipeline keys every message of one stream by `sensorId`, so a stream lands on one partition and one process, and work is spread across processes at stream granularity. Fewer streams than processes leaves processes without work, and more streams spread the load more evenly.
 - The host has about one CPU core per process, plus capacity for the parent and API processes. Each process also holds its own Kafka consumers, HTTP connection pools to the VLM and VIOS backends, Elasticsearch clients, and memory, so connection, file-descriptor, and memory use grow with the process count.
 - The VLM and VIOS backends can serve `processes × max_vlm_concurrent` and `processes × max_vst_concurrent` requests concurrently.
 
 Startup refuses a combination the deployment cannot honor and names the reason. `/health` returns HTTP 503 until every process holds a Kafka assignment. Allow for `startup_timeout_seconds` before the instance reports ready.
 
-For pipeline modes, sizing, monitoring, and rollback, see [Scaling and Performance Tuning](/vss/system-components/analytics-microservices/alerts-microservice#scaling-and-performance-tuning) in the Alerts Microservice guide.
+For pipeline modes, startup validation, throughput monitoring, and rollback, see [Scaling and Performance Tuning](/vss/system-components/analytics-microservices/alerts-microservice#scaling-and-performance-tuning) in the Alerts Microservice guide.
 
 ### Step 2: Add a video stream
 

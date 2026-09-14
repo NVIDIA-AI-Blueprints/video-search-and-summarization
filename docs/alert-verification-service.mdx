@@ -604,67 +604,27 @@ Verified alerts include the original fields plus an extended `info` section cont
 
 ## Scaling and Performance Tuning
 
-The Alerts Microservice scales along two independent dimensions: how many pipeline processes one instance runs, each using about one CPU core, and how many requests it keeps in flight against the VLM and VIOS backends. This section describes the pipeline modes that govern in-process concurrency, the settings that control each dimension, and how to tell which one is limiting a deployment before changing anything.
+One setting scales the Alerts Microservice: `alert_agent.processes`, the number of pipeline processes one instance runs. Each process uses about one CPU core and holds its own Kafka consumers, event loop, and clients. The concurrency caps toward the VLM and VIOS backends are profile defaults sized to those backends and are described under [Profile defaults](#profile-defaults). This section covers when more processes help, how to configure them, what startup validates, and how to read the metrics that show which stage is limiting throughput.
 
 ### Pipeline Modes
 
-`alert_agent.pipeline_mode` selects how each message is dispatched inside a process. Every mode has exactly one throughput control:
+`alert_agent.pipeline_mode` selects how each message is dispatched inside a process. The shipped profile uses `event_loop`, and multi-process scaling requires it.
 
-| Mode | Dispatch | Throughput Control | Use |
-| --- | --- | --- | --- |
-| `sync` | Inline in the batch worker thread | `alert_agent.num_workers` | Reference and rollback mode |
-| `thread_bridge` | Dispatch thread pool with a blocking wait | `alert_agent.async_dispatch_workers` | Legacy asynchronous mode |
-| `event_loop` | One coroutine per message on a persistent event loop, with asynchronous VLM, VIOS, and Elasticsearch clients | `alert_agent.async_io.max_vlm_concurrent` | Shipped default. Kafka consumption is decoupled from VLM latency |
+| Mode | Dispatch | Use |
+| --- | --- | --- |
+| `sync` | Inline in the batch worker thread, sized by `alert_agent.num_workers` | Reference and rollback mode |
+| `thread_bridge` | Dispatch thread pool with a blocking wait, sized by `alert_agent.async_dispatch_workers` | Legacy asynchronous mode |
+| `event_loop` | One coroutine per message on a persistent event loop, with asynchronous VLM, VIOS, and Elasticsearch clients | Shipped default. Kafka consumption is decoupled from VLM latency |
 
-An invalid value fails startup. When the key is unset, the mode is derived from the deprecated `alert_agent.async_io.enabled` flag; set `pipeline_mode` explicitly instead.
+An invalid value fails startup. When the key is unset, the mode is derived from the deprecated `alert_agent.async_io.enabled` flag; set `pipeline_mode` explicitly instead. `alert_agent.chunk_size` is retired and ignored with a startup warning, as are the per-service switches `async_io.vst_enabled`, `async_io.elastic_enabled`, `async_io.dedup_enabled`, and `async_io.redis_enabled`.
 
-The shipped Alerts developer profile uses `event_loop`. In that mode `num_workers` is not a throughput control, and raising it adds neither VLM concurrency nor CPU capacity.
+### Scaling Across Processes
 
-Unset controls derive from one another. An explicitly set key is always honored, and a tuned deployment keeps its values:
+The pipeline runs inside one Python process, and the interpreter lock allows one thread to execute Python code at a time. A single process therefore uses about one CPU core regardless of the thread count or the host size. `alert_agent.processes` runs the consume and dispatch stack in that many independent operating system processes, each with its own Kafka consumers, event loop, clients, and interpreter lock.
 
-```text
-async_dispatch_workers        = num_workers
-async_dispatch_max_in_flight  = 2 × async_dispatch_workers
-async_io.max_vlm_concurrent   = async_dispatch_workers
-async_io.max_vst_concurrent   = async_dispatch_workers
-```
+#### When more processes help
 
-`alert_agent.chunk_size` is retired and ignored with a startup warning, as are the per-service switches `async_io.vst_enabled`, `async_io.elastic_enabled`, `async_io.dedup_enabled`, and `async_io.redis_enabled`. Remove them from tuning configuration.
-
-### Scaling Controls
-
-The following settings control concurrency and CPU use:
-
-| Setting | Default | Applies To | Meaning |
-| --- | --- | --- | --- |
-| `alert_agent.processes` | `1` | All modes | Independent pipeline processes. The only setting that lets one instance run Python work on more than one CPU core. |
-| `alert_agent.pipeline_mode` | `event_loop` in the shipped profile | — | Dispatch model, as described above. |
-| `alert_agent.async_io.max_vlm_concurrent` | `4` in the shipped profile | `event_loop` | VLM requests in flight per process. Keep at or below the VLM backend's measured ceiling. |
-| `alert_agent.async_io.max_vst_concurrent` | `8` in the shipped profile | `event_loop` | VIOS requests in flight per process. |
-| `alert_agent.async_dispatch_max_in_flight` | `16` in the shipped profile | `thread_bridge`, `event_loop` | Post-deduplication messages accepted but not finished, per process. Offsets are committed when a record is read, so this bounds memory and the number of read-but-unfinished messages lost if a process exits. `max_vlm_concurrent` alone does not bound the messages waiting for a VLM slot. It does not raise the throughput ceiling. |
-| `alert_agent.num_workers` | `10` in the shipped profile | `sync` | Batch worker threads in `sync` mode only. The shipped `event_loop` mode does not use it. Kept for the `sync` rollback path. |
-| `alert_agent.startup_timeout_seconds` | `60` | All modes | Budget for the whole of startup: topic metadata, prompt seeding, VLM warmup, and every pipeline process joining its consumer group. Minimum 30. |
-
-### Sizing VLM Concurrency
-
-In `event_loop` mode, size `max_vlm_concurrent` against the survivor rate, meaning the events that pass deduplication and reach the VLM, not against raw ingest. Read the peak of `rate(alert_bridge_events_after_dedup_total)` and use:
-
-```text
-max_vlm_concurrent           ≈ peak_survivor_rate × VLM_latency_p95 × 1.4
-async_dispatch_max_in_flight ≈ 2 to 4 × max_vlm_concurrent
-```
-
-The sustainable rate is `max_vlm_concurrent ÷ VLM_latency`. Below it, consumer lag stays flat. Above it, the in-flight bound applies backpressure to the consumer and lag grows by design.
-
-`max_vlm_concurrent` caps the load one process offers the VLM backend and is sized to what the backend serves concurrently. Above that capacity, requests queue inside the backend and per-call latency grows without adding throughput. When the VLM is the limiting service, capacity comes from the VLM side, for example more replicas behind the same endpoint, and the cap follows the new capacity; the instance-wide offered load is `processes × max_vlm_concurrent`. To find the capacity, ramp offered concurrency stepwise against the production backend, for at least 60 seconds per step, and record `alert_bridge_vlm_duration_seconds` at each step. The capacity is the last step where per-call latency stays within about 120% of the low-concurrency baseline. In production, `alert_bridge_event_loop_vlm_in_flight` never exceeds the cap, and growth in `alert_bridge_capacity_wait_seconds` shows backpressure building.
-
-### Scaling Across CPU Cores
-
-The pipeline modes above run inside one Python process, and the interpreter lock allows one thread to execute Python code at a time. A single instance therefore uses about one CPU core regardless of the thread count or the host size. `alert_agent.processes` runs the consume and dispatch stack in that many independent operating system processes, each with its own Kafka consumers, event loop, clients, and interpreter lock.
-
-#### When to use it
-
-Additional processes add CPU capacity only. They help when a single Alerts Microservice process is consistently near one CPU core and Kafka consumer lag continues to grow. A process below one core is limited by offered traffic, by `max_vlm_concurrent ÷ VLM_latency`, or by a downstream service. For that process, more processes add memory and consumer-group members without adding capacity.
+Additional processes add CPU capacity only. They help when a single process is consistently near one CPU core and the processed rate stays below the input rate, as described under [Monitoring throughput](#monitoring-throughput). A process below one core is limited by offered traffic or by a downstream service, and more processes add memory and consumer-group members without adding capacity.
 
 #### Configuration
 
@@ -676,7 +636,7 @@ deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/conf
 
 The process count is startup topology. It is not resized while the service runs, and the developer profile does not expose it through `user-overrides.env`.
 
-A conservative four-process configuration that keeps the profile's instance-wide concurrency limits where they are:
+A four-process configuration that keeps the profile's instance-wide load on the VLM and VIOS backends unchanged:
 
 ```yaml
 alert_agent:
@@ -692,7 +652,7 @@ persistence:
   enabled: true
 ```
 
-The one-process profile sets these limits to 16, 4, and 8. Dividing them by four keeps the VLM and VIOS backends at the same offered load after enabling CPU scaling.
+Every per-process cap is multiplied by the process count. The one-process profile sets these caps to 16, 4, and 8; dividing them by four keeps `processes × cap` equal to the shipped values, so the backends see the same load after enabling processes. When the VLM is the limiting service, capacity comes from the VLM side, for example more replicas behind the same endpoint.
 
 #### Rules
 
@@ -705,23 +665,11 @@ The one-process profile sets these limits to 16, 4, and 8. Dividing them by four
    ```
 
    The developer profile creates eight partitions on each topic. One instance can run four processes without changing the Kafka layout; two instances with four processes each use all eight assignments.
-4. Work is spread across processes at stream granularity. Every message of one stream carries the same `sensorId` and lands on one partition, so every process receives work only when there are at least as many active streams as processes, and the spread evens out as the stream count grows.
+4. Work is spread across processes by Kafka key. The shipped Behavior Analytics pipeline keys `mdx-incidents` by `sensorId`, so every message of one stream lands on one partition and one process, and every process receives work only when there are at least as many active streams as processes. Alerts submitted through the HTTP API are keyed by event id and spread across partitions regardless of stream.
 5. Allocate about one CPU core per pipeline process, plus capacity for the parent and API processes. Each process holds its own Kafka consumers, HTTP connection pools to the VLM and VIOS backends, Elasticsearch clients, and memory, so connection, file-descriptor, and memory use grow with the process count.
 6. Redeploy after changing the process count.
 
-Startup validates the count against the mode, the persistence setting, and the live partition count of every input topic. A combination the deployment cannot honor fails startup with a message that names the topic and its partition count. The service never runs fewer processes than configured.
-
-#### Aggregate concurrency
-
-Every per-process limit is multiplied by the process count. With `P = alert_agent.processes`:
-
-```text
-instance VLM concurrency     = P × max_vlm_concurrent
-instance VIOS concurrency    = P × max_vst_concurrent
-instance in-flight messages  = P × async_dispatch_max_in_flight
-```
-
-Raising only `processes` multiplies all three. Keep the instance VLM concurrency at or below the backend's measured ceiling, and size the in-flight bound at two to four times the effective VLM concurrency. Startup logs the resolved instance totals. Read them from the log to confirm what the backends are offered.
+Startup validates the count against the mode, the persistence setting, and the live partition count of every input topic. A combination the deployment cannot honor fails startup with a message that names the topic and its partition count. The service never runs fewer processes than configured. Startup also logs the resolved instance-wide caps, `processes × cap` for each backend.
 
 #### Startup, readiness, and shutdown
 
@@ -736,11 +684,26 @@ Set `processes: 1` and redeploy without overlapping the old and new instances. N
 
 ### Scaling Across Instances
 
-Multiple Alerts Microservice instances share `event_bridge.kafka_source.group_id`, and the broker distributes partitions across them. Consumer-group members are instances and processes together, so the partition rule above applies to the product `replicas × processes`. Instances share no state: deduplication follows the partition key (`sensorId`), and confirmed-verdict protection is stored in Elasticsearch.
+Multiple Alerts Microservice instances share `event_bridge.kafka_source.group_id`, and the broker distributes partitions across them. Consumer-group members are instances and processes together, so the partition rule above applies to the product `replicas × processes`. Instances share no state. In-process deduplication relies on every message of one sensor reaching the same member, which holds when the producer keys by `sensorId`, as the shipped Behavior Analytics pipeline does. Confirmed-verdict protection is stored in Elasticsearch and holds across members.
 
-### Monitoring
+### Monitoring throughput
 
-Monitor CPU, memory, Kafka consumer lag, and VLM latency, plus the following series when `processes` is above `1`:
+The service keeps up when the processed rate matches the input rate. Compare the two over the same window:
+
+```text
+input      rate(alert_bridge_events_after_dedup_total[5m])
+processed  rate(alert_bridge_events_total[5m])
+```
+
+When processed stays below input, `alert_bridge_kafka_lag_duration_seconds` grows, because the in-flight bound applies backpressure to the Kafka consumer and unread messages wait in the topic. The stage that is limiting shows as growing wait time:
+
+| Stage | Signal | Capacity Comes From |
+| --- | --- | --- |
+| CPU | Process CPU near one core, `alert_bridge_dispatch_wait_seconds` growing while VLM and VIOS waits stay flat | More pipeline processes |
+| VLM | `alert_bridge_capacity_wait_seconds{service="vlm"}` growing, `alert_bridge_event_loop_vlm_in_flight` pinned at the cap, `alert_bridge_vlm_duration_seconds` rising | VLM backend capacity |
+| VIOS | `alert_bridge_capacity_wait_seconds{service="vst"}` growing, `alert_bridge_vst_duration_seconds` rising | VIOS capacity |
+
+With `processes` above `1`, also watch the following series:
 
 | Metric | Interpretation |
 | --- | --- |
@@ -753,6 +716,19 @@ Monitor CPU, memory, Kafka consumer lag, and VLM latency, plus the following ser
 | `alert_bridge_records_read_after_revoke_total` | Records observed after partition ownership changed. Investigate sustained growth. |
 
 Metric names, labels, and scrape configuration are described under [Metrics](#metrics).
+
+### Profile defaults
+
+The following caps are set in the shipped profile to match the backends it deploys with. They are per process, so the instance-wide value is `processes × cap`, and they are divided by the process count when `processes` is raised, as in the example above. They are not tuned to raise throughput: a cap above what the backend serves concurrently queues requests inside the backend and raises per-call latency without adding throughput.
+
+| Setting | Shipped Value | Meaning |
+| --- | --- | --- |
+| `alert_agent.async_io.max_vlm_concurrent` | `4` | VLM requests in flight per process. Sized to what the VLM backend serves concurrently. |
+| `alert_agent.async_io.max_vst_concurrent` | `8` | VIOS requests in flight per process. |
+| `alert_agent.async_dispatch_max_in_flight` | `16` | Post-deduplication messages accepted but not finished, per process. Offsets are committed when a record is read, so this bounds memory and the number of read-but-unfinished messages lost if a process exits. |
+| `alert_agent.startup_timeout_seconds` | `60` | Budget for the whole of startup. Minimum 30. |
+
+`alert_agent.num_workers` applies to `sync` mode only and is kept for the rollback path. The shipped `event_loop` mode does not use it.
 
 ## Metrics
 
@@ -1002,7 +978,7 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `alert_agent.pipeline_mode` | `event_loop` | Dispatch model: `sync`, `thread_bridge`, or `event_loop`. See [Pipeline Modes](#pipeline-modes). |
-| `alert_agent.processes` | `1` | Independent pipeline processes. Values above `1` require `event_loop`, `persistence.enabled: true`, and enough Kafka partitions. See [Scaling Across CPU Cores](#scaling-across-cpu-cores). |
+| `alert_agent.processes` | `1` | Independent pipeline processes. Values above `1` require `event_loop`, `persistence.enabled: true`, and enough Kafka partitions. See [Scaling Across Processes](#scaling-across-processes). |
 | `alert_agent.startup_timeout_seconds` | `60` | Budget for the whole of startup. Minimum 30. |
 | `alert_agent.num_workers` | `10` | Worker threads in `sync` mode. Not a throughput control in the other modes. |
 | `alert_agent.async_dispatch_workers` | `num_workers` | Dispatch pool threads in `thread_bridge` mode. |
