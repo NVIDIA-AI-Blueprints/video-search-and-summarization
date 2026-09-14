@@ -99,6 +99,46 @@ function get_nvidia_smi_gpu_count() {
   echo "${_count}"
 }
 
+# Echoes a GPU index the host actually exposes, clamping one that is too high.
+#
+# Profiles pin services to explicit indices: alerts puts the local VLM and
+# RT-VLM on device 1 so they do not contend with the LLM on device 0. On a
+# board with a single GPU that index does not exist, and the NVIDIA container
+# runtime refuses the container before it starts:
+#
+#   nvidia-container-cli: device error: 1: unknown device: unknown
+#
+# which Compose reports only as exit_code=128. The edge boards already dodge
+# this by collapsing every placement onto device 0 further down; this covers
+# the remaining single-GPU hosts (GB300 alerts is the case that failed) without
+# hardcoding a board name, so a mistagged or newly-enrolled node degrades
+# instead of dying.
+#
+# A host with enough GPUs is never altered, so multi-GPU placement is
+# unchanged. The value is also passed through untouched when:
+#   - nvidia-smi reports no GPUs, i.e. a CPU-only host, --dry-run, or a broken
+#     driver: clamping there would paper over a real fault;
+#   - it is not a plain index. MIG UUIDs (MIG-GPU-...) are valid device_ids
+#     entries and carry no ordering to clamp against.
+function clamp_device_id_to_visible_gpus() {
+  local _label="${1}" _requested="${2}" _count _highest
+  if [[ ! "${_requested}" =~ ^[0-9]+$ ]]; then
+    echo "${_requested}"
+    return 0
+  fi
+  _count="$(get_nvidia_smi_gpu_count)"
+  if [[ "${_count}" -lt 1 ]] || [[ "${_requested}" -lt "${_count}" ]]; then
+    echo "${_requested}"
+    return 0
+  fi
+  _highest=$((_count - 1))
+  echo "[WARNING] ${_label}=${_requested} requests a GPU this host does not have;" \
+    "nvidia-smi reports ${_count} GPU(s) (indices 0-${_highest}). Using ${_highest}." >&2
+  echo "[WARNING] Pinning a service to a missing device fails as" \
+    "'nvidia-container-cli: device error: ${_requested}: unknown device' (exit 128)." >&2
+  echo "${_highest}"
+}
+
 # Returns the indices of GPUs whose product name matches the requested hardware
 # profile, one per line. This is used when a service-specific device ID cannot
 # identify the deployment GPU (for example, when both LLM and VLM are remote).
@@ -1736,10 +1776,15 @@ function state_up() {
       set_env_var "FIXED_SHARED_DEVICE_IDS" "0"
     fi
   else
+    # Clamp before writing, and keep the clamped value in the caller-visible
+    # variable: RT_VLM_DEVICE_ID is derived from vlm_device_id further down and
+    # has to name the same GPU as VLM_DEVICE_ID.
     if [[ "${llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
+      llm_device_id="$(clamp_device_id_to_visible_gpus "LLM_DEVICE_ID" "${llm_device_id}")"
       set_env_var "LLM_DEVICE_ID" "${llm_device_id}"
     fi
     if [[ "${vlm_mode}" != "remote" ]] && [[ -n "${vlm_device_id}" ]]; then
+      vlm_device_id="$(clamp_device_id_to_visible_gpus "VLM_DEVICE_ID" "${vlm_device_id}")"
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
   fi
@@ -1880,11 +1925,16 @@ function state_up() {
       if [[ "${vlm_mode}" == "local_shared" ]]; then
         local _shared_rt_dev_id
         _shared_rt_dev_id="$(get_env_value_from_files "SHARED_LLM_VLM_DEVICE_ID" "${_source_env}" "${_overrides_env}")"
-        set_env_var "RT_VLM_DEVICE_ID" "${_shared_rt_dev_id:-${vlm_device_id}}"
+        set_env_var "RT_VLM_DEVICE_ID" \
+          "$(clamp_device_id_to_visible_gpus "RT_VLM_DEVICE_ID" "${_shared_rt_dev_id:-${vlm_device_id}}")"
       elif [[ "${vlm_mode}" == "remote" ]]; then
         set_env_var "RT_VLM_DEVICE_ID" "0"
       else
-        set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
+        # Clamped again rather than trusting vlm_device_id: the edge branch above
+        # rewrites VLM_DEVICE_ID to 0 without touching the variable, so DGX-SPARK
+        # alerts would otherwise still place RT-VLM on the missing device 1.
+        set_env_var "RT_VLM_DEVICE_ID" \
+          "$(clamp_device_id_to_visible_gpus "RT_VLM_DEVICE_ID" "${vlm_device_id}")"
       fi
       # RT-VLM remains a local proxy for remote VLM endpoints on GB300, so it
       # follows the selected deployment GPU for every profile.

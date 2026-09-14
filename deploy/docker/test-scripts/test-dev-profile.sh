@@ -741,6 +741,60 @@ run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW local 
 run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8" "alerts" \
   -i 127.0.0.1 -m verification -H L40S --llm-device-id 2 --vlm-device-id 1 -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
+
+# --- Device index clamped to the GPUs the host actually has ---
+# The alerts profile pins LLM, VLM and RT-VLM to device 1 so they do not contend
+# on device 0. On a single-GPU host that index does not exist and the NVIDIA
+# runtime refuses the container before it starts:
+#   nvidia-container-cli: device error: 1: unknown device
+# which Compose reports only as exit_code=128 -- the GB300 alerts sanity failure
+# in nightly pipeline 66564139. A host with 2+ GPUs must keep device 1, since
+# clamping there would put the VLM back on top of the LLM.
+_mock_clamp_one_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_clamp_one_gpu_dir}")
+cat > "${_mock_clamp_one_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n'
+else
+  printf 'NVIDIA H100 80GB HBM3\n'
+fi
+EOF
+chmod +x "${_mock_clamp_one_gpu_dir}/nvidia-smi"
+_mock_clamp_two_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_clamp_two_gpu_dir}")
+cat > "${_mock_clamp_two_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n1\n'
+else
+  printf 'NVIDIA H100 80GB HBM3\nNVIDIA H100 80GB HBM3\n'
+fi
+EOF
+chmod +x "${_mock_clamp_two_gpu_dir}/nvidia-smi"
+# nvidia-smi reporting nothing (CPU-only host, or a broken driver) must leave the
+# profile's request untouched, so a real fault is not masked by a silent clamp.
+_mock_clamp_no_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_clamp_no_gpu_dir}")
+cat > "${_mock_clamp_no_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+chmod +x "${_mock_clamp_no_gpu_dir}/nvidia-smi"
+PATH="${_mock_clamp_one_gpu_dir}:${PATH}" run_dry_run_up_and_check_generated_env "generated.env alerts 1 visible GPU clamps device 1 to 0" "alerts" \
+  -i 127.0.0.1 -m verification -H H100 -d -- \
+  "LLM_DEVICE_ID" "0" "VLM_DEVICE_ID" "0" "RT_VLM_DEVICE_ID" "0"
+PATH="${_mock_clamp_two_gpu_dir}:${PATH}" run_dry_run_up_and_check_generated_env "generated.env alerts 2 visible GPUs keep device 1" "alerts" \
+  -i 127.0.0.1 -m verification -H H100 -d -- \
+  "LLM_DEVICE_ID" "1" "VLM_DEVICE_ID" "1" "RT_VLM_DEVICE_ID" "1"
+# An explicit --vlm-device-id is clamped too: the flag cannot conjure a device.
+# (Device 0 is in the alerts profile's RESERVED_DEVICE_IDS, so the LLM stays on 1.)
+PATH="${_mock_clamp_two_gpu_dir}:${PATH}" run_dry_run_up_and_check_generated_env "generated.env alerts clamps an out-of-range --vlm-device-id" "alerts" \
+  -i 127.0.0.1 -m verification -H H100 --vlm-device-id 7 -d -- \
+  "LLM_DEVICE_ID" "1" "VLM_DEVICE_ID" "1" "RT_VLM_DEVICE_ID" "1"
+PATH="${_mock_clamp_no_gpu_dir}:${PATH}" run_dry_run_up_and_check_generated_env "generated.env alerts no visible GPU leaves device 1 untouched" "alerts" \
+  -i 127.0.0.1 -m verification -H H100 -d -- \
+  "LLM_DEVICE_ID" "1" "VLM_DEVICE_ID" "1" "RT_VLM_DEVICE_ID" "1"
 run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
   -i 127.0.0.1 -m verification -H RTXPRO4500BW -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
