@@ -72,10 +72,19 @@ Hand off to `/vss-manage-video-io-storage` to:
    # Hand-off (shell-quoted, paste at the top of the Step 3 block and keep for Step 4): the clip URL and the
    # window the CLI resolved (the whole recorded segment when none was given).
    CLIP_START=$(printf '%s' "${CLIP}" | jq -r '.start_time // empty'); CLIP_END=$(printf '%s' "${CLIP}" | jq -r '.end_time // empty')
-   printf 'VIDEO_URL=%q\nCLIP_START=%q\nCLIP_END=%q\n' "${VIDEO_URL}" "${CLIP_START}" "${CLIP_END}"
+   [ -n "${CLIP_START}" ] && [ -n "${CLIP_END}" ] || { echo "vss vios clip returned no start_time / end_time for <sensor-name>" >&2; printf '%s\n' "${CLIP}" >&2; exit 1; }
+   # Duration in whole seconds from the resolved window (GNU date -d or BSD date -j; fractions and +00:00 dropped).
+   # It feeds the Long-video rule and Step 3's frame sampling — never leave it to a default.
+   _iso2s() { _t=$(printf '%s' "$1" | sed -E 's/(\.[0-9]+)?(Z|\+00:00)$/Z/'); date -u -d "$_t" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$_t" +%s 2>/dev/null; }
+   _s=$(_iso2s "${CLIP_START}"); _e=$(_iso2s "${CLIP_END}")
+   for _v in "${_s:-x}" "${_e:-x}"; do case "$_v" in *[!0-9]*) echo "ERROR: could not parse the resolved window ${CLIP_START} / ${CLIP_END} as ISO-8601 UTC" >&2; exit 1 ;; esac; done
+   CLIP_SECONDS=$(( _e - _s ))
+   [ "${CLIP_SECONDS}" -ge 1 ] || { echo "ERROR: resolved window is empty or reversed (${CLIP_START} -> ${CLIP_END})" >&2; exit 1; }
+   [ "${CLIP_SECONDS}" -lt 120 ] || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): the direct VLM path is not allowed — Long-video rule, use the LVS path" >&2; exit 1; }
+   printf 'VIDEO_URL=%q\nCLIP_START=%q\nCLIP_END=%q\nCLIP_SECONDS=%q\n' "${VIDEO_URL}" "${CLIP_START}" "${CLIP_END}" "${CLIP_SECONDS}"
    ```
 
-The block prints shell-quoted `VIDEO_URL=…`, `CLIP_START=…` and `CLIP_END=…` assignments (signed clip URLs carry `&` and `?`, so paste the lines as printed, never the bare URL). Each fenced block is a fresh shell: at the top of the Step 3 block paste those lines, `CLIP_SECONDS=<CLIP_END minus CLIP_START, in seconds>`, and the `VLM_BACKEND` / `VLM_ENDPOINT` / `VLM_MODEL` hand-off Step 2 printed — the Step 3 guards refuse to run without a video source and a VLM endpoint + model. Set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
+The block prints shell-quoted `VIDEO_URL=…`, `CLIP_START=…`, `CLIP_END=…` and `CLIP_SECONDS=…` assignments (signed clip URLs carry `&` and `?`, so paste the lines as printed, never the bare URL) and refuses a clip of 120 s or longer (Long-video rule). Each fenced block is a fresh shell: at the top of the Step 3 block paste those lines and the `VLM_BACKEND` / `VLM_ENDPOINT` / `VLM_MODEL` hand-off Step 2 printed — the Step 3 guards refuse to run without a video source and a VLM endpoint + model. Set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
 
 Remote VLM reachability guard (required):
 - If the selected `VLM_ENDPOINT` is remote/non-local, do not assume it can fetch `VIDEO_URL` when `VIDEO_URL` points to localhost/private VST addresses (for example `127.0.0.1`, `localhost`, `HOST_IP`, `172.16-31.x`, `192.168.x`, `10.x`, or in-cluster/internal DNS).
@@ -113,7 +122,7 @@ If user input video/clip duration is **120 seconds (2 mins) or longer**, stop Mo
 - deploy and use **LVS** via `/vss-deploy-profile` (Docker Compose; on Kubernetes report the missing `/lvs` route to the deployment owner) + `/vss-summarize-video`,
 - then continue report templating with LVS output.
 
-Do not continue direct VLM Mode A on videos that are 120 seconds or longer.
+Do not continue direct VLM Mode A on videos that are 120 seconds or longer. The rule is enforced in code: the A1 Step 1 block computes `CLIP_SECONDS` from the resolved window and refuses at 120 s or more, and the Step 3 block requires `CLIP_SECONDS` (A1 hand-off, or the A2 duration measured with `ffprobe`) and refuses again — never a default.
 
 ### Step 2 — Resolve VLM endpoint and model
 
@@ -276,10 +285,13 @@ MAX_FRAMES="${VIDEO_UNDERSTANDING_MAX_FRAMES:-$MAX_FRAMES}"
 MIN_PIXELS="${VIDEO_UNDERSTANDING_MIN_PIXELS:-$MIN_PIXELS}"
 MAX_PIXELS="${VIDEO_UNDERSTANDING_MAX_PIXELS:-$MAX_PIXELS}"
 
-# num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
-# clip_seconds (CLIP_END minus CLIP_START from the Step 1 hand-off) may be fractional; truncate to integer seconds — bash $((...))
-# is integer-only and errors on "15.0"/"1.5". Default 15s -> caps at MAX_FRAMES.
-CLIP_SECONDS=$(awk -v s="${CLIP_SECONDS:-15}" 'BEGIN{printf "%d", s}')
+# CLIP_SECONDS comes from the Step 1 hand-off (A1) or the measured duration (A2: ffprobe, or the user's stated
+# length) — a number of seconds, never an ISO timestamp and never a default. It re-checks the Long-video rule
+# and drives num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
+: "${CLIP_SECONDS:?paste CLIP_SECONDS from the Step 1 hand-off (A1) or set the measured duration in seconds (A2)}"
+case "$CLIP_SECONDS" in ''|.*|*[!0-9.]*) echo "ERROR: CLIP_SECONDS must be a number of seconds, got '${CLIP_SECONDS}'" >&2; exit 1 ;; esac
+CLIP_SECONDS=$(awk -v s="$CLIP_SECONDS" 'BEGIN{printf "%d", s}')   # fractional seconds truncated (bash arithmetic is integer-only)
+[ "$CLIP_SECONDS" -lt 120 ] || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): the direct VLM path is not allowed — Long-video rule, use the LVS path" >&2; exit 1; }
 NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 [ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
 [ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
@@ -348,7 +360,7 @@ jq -er '.choices[0].message.content | select(type=="string")
   || { echo "VLM chat/completions returned no report text (error envelope, empty body, null / list-typed content, reasoning-only, an unclosed <think> block — truncated by max_tokens? — or the literal text <think> in the answer)" >&2; cat "$VLM_BODY" >&2; exit 1; }
 ```
 
-For Mode A path A2 (inline bytes), run the same Step 3 block with `VIDEO_DATA_URL` (Step 1) set at its top instead of `VIDEO_URL`; the block sends whichever is set, so the HITL guard, prompt resolution, `CFG_JSON` and `MM_KWARGS` apply to A2 unchanged. Because the block is a fresh shell, build the data URL there too — for a local file: `[ -s "$VIDEO_FILE" ] || { echo "ERROR: VIDEO_FILE missing or empty: $VIDEO_FILE" >&2; exit 1; }; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(base64 < "$VIDEO_FILE" | tr -d '\n')"` (the `tr` strips the line wrapping GNU `base64` adds, which would otherwise corrupt the data URL); for user-supplied base64 written to `VIDEO_B64_FILE`: `[ -s "$VIDEO_B64_FILE" ] || { echo "ERROR: VIDEO_B64_FILE missing or empty: $VIDEO_B64_FILE" >&2; exit 1; }; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(tr -d '[:space:]' < "$VIDEO_B64_FILE")"`.
+For Mode A path A2 (inline bytes), run the same Step 3 block with `VIDEO_DATA_URL` (Step 1) set at its top instead of `VIDEO_URL`; the block sends whichever is set, so the HITL guard, prompt resolution, `CFG_JSON` and `MM_KWARGS` apply to A2 unchanged. Because the block is a fresh shell, build the data URL there too — for a local file: `[ -s "$VIDEO_FILE" ] || { echo "ERROR: VIDEO_FILE missing or empty: $VIDEO_FILE" >&2; exit 1; }; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(base64 < "$VIDEO_FILE" | tr -d '\n')"` (the `tr` strips the line wrapping GNU `base64` adds, which would otherwise corrupt the data URL) and set the duration the Long-video rule and frame sampling need: `CLIP_SECONDS=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$VIDEO_FILE")` (ask the user for the length in seconds when `ffprobe` is unavailable); for user-supplied base64 written to `VIDEO_B64_FILE` (set `CLIP_SECONDS` to the length the user states, or measure the decoded file with `ffprobe`): `[ -s "$VIDEO_B64_FILE" ] || { echo "ERROR: VIDEO_B64_FILE missing or empty: $VIDEO_B64_FILE" >&2; exit 1; }; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(tr -d '[:space:]' < "$VIDEO_B64_FILE")"`.
 
 > The kwargs block is backend-aware: on `nim_cosmos`, Reason2 variants (`nvidia/cosmos-reason2*`) use `mm_processor_kwargs.size{shortest_edge,longest_edge}` and other NIM Cosmos variants (`nvidia/cosmos*`) use `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; both also send `media_io_kwargs.video.num_frames`. On `rtvlm`, no Cosmos kwargs are sent.
 
