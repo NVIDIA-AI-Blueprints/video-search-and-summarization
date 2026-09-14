@@ -85,10 +85,11 @@ env:
   # OpenShell GHA guests are used only for vss-deploy-test-openshell.
   # Every other skill lands on the Brev coordinator (`self-hosted`, `vss-eval`)
   # with local_gpu=false. Harness-only diffs still get one H200 smoke leg.
-  # These OpenShell VMs are registered from the GitLab fleet repo
-  # (brev-openshell-gpu-runners); they are GitHub Actions runners, not
-  # GitLab CI runners. After each job the host-side OpenShell VM
-  # orchestrator recreates that one VM and restores its listener.
+  # Every OpenShell matrix job includes the common `openshell-runner` label
+  # plus the cohort-specific SKU labels. These OpenShell VMs are registered
+  # from the GitLab fleet repo (brev-openshell-gpu-runners); they are GitHub
+  # Actions runners, not GitLab CI runners. After each job the host-side
+  # OpenShell VM orchestrator recreates that one VM and restores its listener.
   # This workflow does not implement KVM/VFIO.
   OPENSHELL_GPU_FLEET: "1"
 

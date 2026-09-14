@@ -209,6 +209,7 @@ class RealSpecCorpus(unittest.TestCase):
         self.assertIn("openshell-a16-active", planner)
         self.assertIn("openshell-a40-active", planner)
         self.assertIn("openshell-h200-active", planner)
+        self.assertIn("openshell-runner", planner)
         self.assertIn("gpu-h200", planner)
         self.assertNotIn("gpu-rtxpro6000bw", plan_matrix.OPENSHELL_H200_LABELS)
         self.assertNotIn(
@@ -223,7 +224,7 @@ class RealSpecCorpus(unittest.TestCase):
         finally:
             os.environ.pop("OPENSHELL_GPU_FLEET", None)
 
-        self.assertEqual(len(include), 59)
+        self.assertEqual(len(include), 65)
         self.assertEqual(
             len({leg["spec_path"] for leg in include}),
             len(include),
@@ -239,8 +240,8 @@ class RealSpecCorpus(unittest.TestCase):
             counts,
             {
                 "brev": 54,
-                "h200-1g": 3,
-                "h200-2g": 2,
+                "h200-1g": 7,
+                "h200-2g": 4,
             },
         )
         for leg in include:
@@ -252,6 +253,7 @@ class RealSpecCorpus(unittest.TestCase):
             self.assertEqual(leg["kind"], "eval")
             self.assertEqual(leg["skill"], "vss-deploy-test-openshell")
             self.assertTrue(leg["local_gpu"])
+            self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, leg["runs_on"])
             if leg["cohort"] == "h200-1g":
                 self.assertIn("openshell-h200-active", leg["runs_on"])
                 self.assertIn("gpu-h200", leg["runs_on"])
@@ -618,6 +620,7 @@ class OpenshellGpuFleet(unittest.TestCase):
     def test_a16_and_a40_labels_are_cohort_specific(self):
         a16 = plan_matrix.runs_on_labels("A16", {"gpu_count": 1})
         self.assertIn("openshell-a16-active", a16)
+        self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, a16)
         self.assertIn("gpu-nvidia-a16", a16)
         self.assertIn("vram-15gb", a16)
         self.assertNotIn("vram-16gb", a16)
@@ -640,6 +643,7 @@ class OpenshellGpuFleet(unittest.TestCase):
 
         h200 = plan_matrix.runs_on_labels("H200", {"gpu_count": 1})
         self.assertIn("openshell-h200-active", h200)
+        self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, h200)
         self.assertIn("gpu-h200", h200)
         self.assertIn("gpu-nvidia-h200", h200)
         self.assertIn("gpus-1", h200)
@@ -669,6 +673,17 @@ class OpenshellGpuFleet(unittest.TestCase):
             sum(cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS),
             30,
         )
+
+    def test_every_openshell_job_carries_common_runner_label(self):
+        for labels in (
+            plan_matrix.OPENSHELL_A16_LABELS,
+            plan_matrix.OPENSHELL_A40_LABELS,
+            plan_matrix.OPENSHELL_H200_LABELS,
+            plan_matrix.OPENSHELL_RTXPRO6000_LABELS,
+        ):
+            self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, labels)
+        for cohort in plan_matrix.OPENSHELL_COHORTS:
+            self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, cohort.labels)
 
     def test_capability_and_per_gpu_vram_boundaries(self):
         original = plan_matrix.hardware_profile_files
@@ -798,8 +813,8 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 59)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 59)
+        self.assertEqual(len(legs), 65)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 65)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
@@ -808,11 +823,11 @@ class OpenshellGpuFleet(unittest.TestCase):
             counts,
             {
                 "brev": 54,
-                "h200-1g": 3,
-                "h200-2g": 2,
+                "h200-1g": 7,
+                "h200-2g": 4,
             },
         )
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 5)
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 11)
 
     def test_codec_light_spec_explicitly_allows_a16(self):
         path = (
@@ -854,6 +869,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(inc[0]["platform"], "H200")
         self.assertEqual(inc[0]["cohort"], "h200-1g")
         self.assertIn("openshell-h200-active", inc[0]["runs_on"])
+        self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, inc[0]["runs_on"])
         self.assertNotIn("gpu-rtxpro6000bw", inc[0]["runs_on"])
         self.assertEqual(inc[0]["kind"], "eval")
 

@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-test-openshell
-description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, or two-GPU warehouse agents profile on OpenShell, including post-deploy vss-ask-video and vss-search-archive. For alerts or other warehouse variants, use vss-deploy-profile. Not for standalone microservices — use the vss-deploy-* skill.
+description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, or two-GPU warehouse agents profile on OpenShell, then chain to operations skills (vss-ask-video, vss-search-archive, vss-summarize-video, vss-manage-video-io-storage, vss-query-analytics, vss-manage-alerts, vss-generate-video-report, vss-generate-video-report-rag). For other warehouse variants or standalone microservices, use vss-deploy-profile or the matching vss-deploy-* skill.
 license: Apache-2.0
 metadata:
   version: "3.2.2"
@@ -13,15 +13,23 @@ metadata:
 This skill is a subset of `vss-deploy-profile`. It deploys the **base**,
 **lvs**, and **search** compose profiles, plus the two-GPU **warehouse agents**
 variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM, local RT-CV and RTVI VLM).
-After `base` is up, visual Q&A uses `vss-ask-video`. After `search` is up,
-archive search uses `vss-search-archive`.
+After the matching profile is up, chain to the operations skill rather than
+hand-rolling HTTP:
+
+| After this deploy | Then use |
+|---|---|
+| `base` | `vss-ask-video`, `vss-manage-video-io-storage`, `vss-generate-video-report` |
+| `lvs` | `vss-summarize-video`, `vss-generate-video-report-rag` |
+| `search` | `vss-search-archive` |
+| warehouse agents | `vss-query-analytics`, `vss-manage-alerts` |
 
 Do not use this skill for:
 
-- Alerts, warehouse Kafka/Redis-only, 3D, MV3DT, auto-calibration, or
-  other full-catalog profiles — use `vss-deploy-profile`.
+- Other warehouse variants (Kafka/Redis-only, 3D, MV3DT, auto-calibration) or
+  the full alerts *profile* catalog — use `vss-deploy-profile`. Warehouse
+  agents on OpenShell still chain to `vss-manage-alerts` for the alert-bridge
+  already in `bp_wh`.
 - Standalone microservice deployment outside a compose profile — use the matching skill: `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, or `vss-deploy-video-embedding`.
-- Summarizing a video once `lvs` is deployed — use `vss-summarize-video`.
 - NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or this skill will run it as part of the credential gate.
 
 ## Available Scripts
@@ -40,9 +48,14 @@ Match the user's request to a profile, then load that profile's reference for si
 |---|---|---|
 | "deploy vss" / "deploy base" | `base` | [`references/base.md`](references/base.md) |
 | "ask about a clip" / `vss-ask-video` | `base`, then `vss-ask-video` | [`references/base.md`](references/base.md) then `skills/operations/vss-ask-video/SKILL.md` |
-| "deploy lvs" / "video summarization" | `lvs` | [`references/lvs-profile.md`](references/lvs-profile.md) |
+| "VIOS / clips / snapshots" / `vss-manage-video-io-storage` | `base`, then `vss-manage-video-io-storage` | [`references/base.md`](references/base.md) then `skills/operations/vss-manage-video-io-storage/SKILL.md` |
+| "video report" / `vss-generate-video-report` | `base`, then `vss-generate-video-report` | [`references/base.md`](references/base.md) then `skills/operations/vss-generate-video-report/SKILL.md` |
+| "deploy lvs" / "video summarization" / `vss-summarize-video` | `lvs`, then `vss-summarize-video` | [`references/lvs-profile.md`](references/lvs-profile.md) then `skills/operations/vss-summarize-video/SKILL.md` |
+| "RAG / HITL report" / `vss-generate-video-report-rag` | `lvs`, then `vss-generate-video-report-rag` | [`references/lvs-profile.md`](references/lvs-profile.md) then `skills/operations/vss-generate-video-report-rag/SKILL.md` |
 | "deploy search" / "search the archive" / `vss-search-archive` | `search`, then `vss-search-archive` | [`references/search.md`](references/search.md) then `skills/operations/vss-search-archive/SKILL.md` |
 | "deploy warehouse agents" / "`BP_PROFILE=bp_wh`, `MODE=2d`" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
+| "query incidents / sensors" / `vss-query-analytics` | warehouse agents, then `vss-query-analytics` | [`references/warehouse.md`](references/warehouse.md) then `skills/operations/vss-query-analytics/SKILL.md` |
+| "operate alerts" / `vss-manage-alerts` | warehouse agents, then `vss-manage-alerts` | [`references/warehouse.md`](references/warehouse.md) then `skills/operations/vss-manage-alerts/SKILL.md` |
 
 The search path is two-GPU: RT-CV plus the RT-VLM proxy on GPU 0, RT-Embed
 plus the LLM on GPU 1, with a remote VLM behind the local proxy. Follow
@@ -361,9 +374,9 @@ selected `*_BASE_URL/v1/models` via `scripts/probe_remote_models.sh` — are in
 ## Limitations
 
 - This skill deploys `base`, `lvs`, `search`, and the two-GPU warehouse agents
-  variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM). Alerts, other warehouse
-  variants, and standalone microservices belong to other skills. Post-deploy
-  Q&A and archive search chain to `vss-ask-video` and `vss-search-archive`.
+  variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM). Other warehouse variants
+  and standalone microservices belong to other skills. Post-deploy operations
+  chain to the skills under `skills/operations/`.
 - Hardware sizing, model placement, and profile-specific readiness are owned by profile references; do not infer them from memory.
 - Privileged host remediation requires user approval when passwordless sudo is unavailable.
 
