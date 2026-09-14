@@ -47,6 +47,7 @@ push to pull-request/<N>
 │ plan  (lightweight runner, no GPU, no brev)                    │
 │  • diff vs PR base                                             │
 │  • map each changed path → target (skill, spec) set (rules ↓)  │
+│  • attach spec-derived GitHub runner labels to every leg        │
 │  • cheap missing-adapter check → collapse those skills         │
 │  • emit matrix JSON + has_targets flag                         │
 └───────────────┬──────────────────────────────────────────────┘
@@ -55,6 +56,7 @@ push to pull-request/<N>
 ┌──────────────────────────────────────────────────────────────┐
 │ eval  (strategy.matrix, one leg per (spec, platform))          │
 │  runs-on: [self-hosted, vss-skill-eval-runner]                 │
+│    (default; optional direct dispatch consumes matrix.runs_on)   │
 │  fail-fast: false   max-parallel: <≈ box count>                │
 │                                                                │
 │  each leg:  EVAL_SKILL / EVAL_SPEC set                         │
@@ -118,6 +120,32 @@ runner) and makes the per-`(spec,platform)` output root automatic.
 `max-parallel` is capped near the `vss-eval-*` box count so legs don't
 all grab runner slots only to wait inside `run_leg.py`. `fail-fast: false` so one
 failing leg doesn't cancel the others.
+
+## Spec-derived runner labels (default off)
+
+`plan_matrix.py` maps each existing `resources.platforms` GPU-name key and
+`gpu_count` to a GitHub Actions label array such as
+`["self-hosted", "vss-eval", "gpu-l40s", "gpus-1"]`. These are GitHub
+**labels** (the equivalent GitLab concept is called tags). Specs keep their
+current GPU-name keys; this preparation does not replace them with compute
+capability or VRAM requirements.
+
+Both eval workflows can consume that array through the manual
+`direct_runner_dispatch` input. The input defaults to `false`, including for
+PR pushes and scheduled daily runs, so merging this change leaves the
+production coordinator + Brev path unchanged.
+
+Before setting it to `true`, operators must:
+
+1. Register direct VM runners with every label requested by their intended
+   matrix legs. GitHub ANDs all labels, so a missing `self-hosted`, `vss-eval`,
+   `gpu-*`, or `gpus-N` label leaves the job queued; queueing is not fallback.
+2. Complete and canary local execution on those runners. The current eval body
+   loads coordinator-only files and `run_leg.py` selects and SSHes to a Brev
+   box. Enabling label routing before replacing or short-circuiting that path
+   would double-dispatch instead of evaluating on the selected runner.
+3. Verify one canary leg, then enable broader manual sweeps. Roll back by
+   dispatching with the input off (or reverting the later activation change).
 
 ## What changes in code
 

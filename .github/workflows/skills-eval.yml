@@ -45,6 +45,11 @@ on:
         options:
           - claude-code
           - nemoclaw
+      direct_runner_dispatch:
+        description: "EXPERIMENTAL: route eval legs by spec-derived runner labels (requires fully prepared local-execution runners)."
+        required: false
+        default: false
+        type: boolean
 
 # Authenticate as github-actions[bot] for all GitHub operations (gh pr
 # comment + git push of the adapter commit to the contributor's branch).
@@ -156,7 +161,12 @@ jobs:
     name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.has_targets == 'true'
-    runs-on: [self-hosted, vss-skill-eval-runner]
+    # Default-off preparation for direct VM runners. plan_matrix.py's output
+    # has already been parsed with fromJSON, so matrix.runs_on is an array;
+    # the round trip keeps both branches explicitly typed as label arrays.
+    # Do not enable until runners carry every requested label AND execute
+    # trials locally (otherwise run_leg.py would double-dispatch through Brev).
+    runs-on: ${{ inputs.direct_runner_dispatch && fromJSON(toJSON(matrix.runs_on)) || fromJSON('["self-hosted","vss-skill-eval-runner"]') }}
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
