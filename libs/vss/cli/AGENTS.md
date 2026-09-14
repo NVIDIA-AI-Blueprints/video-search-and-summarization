@@ -23,6 +23,27 @@ restate it.
 
 This file covers what is specific to the CLI's own surface.
 
+## The origin is the one you can reach
+
+The CLI runs on the host, so `--base-url` takes the origin **the host** can
+reach: `http://<host>:7777` for a local Compose stack, or the platform's
+`https://…` URL where something in front of the deployment terminates TLS (a
+Brev secure link does; plain HTTP is forwarded inward to HAProxy).
+
+**Never configure `vss.local`.** Services inside the deployment address the same
+HAProxy front door as `http://vss.local:7777` — that is what `VSS_GATEWAY_ORIGIN`
+holds, and it is the right answer for them. It is a container-network alias: it
+does not resolve on the host, so `vss configure --base-url http://vss.local:7777`
+fails every probe with a connection error and reports a deployment that is
+actually fine. One front door and one path contract; two origins, because the
+inside and the outside of the network are not the same place.
+
+`vss configure` probes `/api`, `/vst`, `/elasticsearch`, `/rtvi-embed`,
+`/rtvi-cv`, `/rtvi-vlm`, `/lvs` and `/va-mcp`. `/va-mcp` is recorded but belongs
+to no command group — nothing here calls the MCP server, the agent does — so it
+appears in the per-route block of `vss configure check` and never as a group
+requirement. Check it when the agent's video-analytics tools are missing.
+
 ## The two shapes
 
 **Job groups** — `search`, `summarize`, `vlm`. Work that runs a model and produces

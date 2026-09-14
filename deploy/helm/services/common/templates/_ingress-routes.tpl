@@ -40,7 +40,44 @@
     rewrite  none  -> forwarded with the prefix intact
              strip -> prefix removed before the backend sees it
              /x    -> prefix replaced with /x
-    anchored prepend ^ to the HAProxy rewrite source when true
+    exposure who is allowed to reach the mount (FR-29). One of:
+             public-user-accessible   a browser dereferences it
+             remote-agent-accessible  an off-host agent or the host-side CLI
+                                      calls it, but no browser does
+             internal-only            neither; only callers already inside the
+                                      deployment network
+
+  On `exposure`, because it is a policy field in a routing table and that
+  deserves saying plainly:
+
+  FR-29 requires every route to carry one of those three values and makes
+  `internal-only` the default "unless a route is required by browser clients or
+  remote agents". So the value is derived from who demonstrably calls the mount,
+  not from how sensitive the service feels: `/video-analytics-api` is
+  public-user-accessible because `NEXT_PUBLIC_MDX_WEB_API_URL` bakes it into the
+  browser bundle, and `/elasticsearch` is remote-agent-accessible because the
+  CLI probes it from the host -- restricted by the method/path allowlist at the
+  edge (FR-30) rather than by tier.
+
+  What the tier does and does not do. `internal-only` is enforced: the Docker
+  edge refuses those mounts to any caller that is not both on an internal Host
+  and in a private source range, and the canonical table does not mount them on
+  the public Ingress rule. The line between the other two is DESCRIPTIVE only --
+  both arrive over the same origin with no authentication, so separating them
+  would need the route-level auth FR-32 explicitly defers to a future
+  iteration. Recording it anyway is the point of FR-29: it is the review record
+  that says which mounts a browser is expected to reach, so the day auth
+  arrives there is a policy to implement rather than a survey to redo.
+
+  It lives on the row rather than in a lint's lookup table so that adding a
+  route and classifying it are the same edit. `.github/scripts/
+  check_gateway_route_exposure.py` holds this table and the Docker edge to
+  agreeing, and fails on a row with no `exposure` at all.
+
+  Every rewrite source renders `^`-anchored (`^<path>/(.*)`, `^<path>$`): the
+  rules run in order against the previous rule's output, so an unanchored
+  `/alerts` would fire again on what the /alert-bridge strip produced. There is
+  no per-row opt-out.
 
   Ordering is the rendered order: the UI's /api/* routes before the agent's
   /api catch-all, and the UI / catch-all last. The HAProxy controller matches
@@ -52,6 +89,7 @@
   path: /api/chat
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 # /api/agent is served by the UI's embedded backend-agnostic agent adapter (see
 # deploy/docker/services/ui/compose.yml and haproxy.cfg.template p_api_agent
 # rule). Must precede /api so the longest-prefix match falls to the UI rather
@@ -60,50 +98,74 @@
   path: /api/agent
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: ui
   path: /api/vss-chat
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: ui
   path: /api/proxy
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: agent
   path: /api
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: agent
   path: /chat
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
+- key: agent
+  path: /v1
+  pathType: Prefix
+  rewrite: none
+  exposure: public-user-accessible
 - key: agent
   path: /websocket
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: agent
   path: /static
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: agent
   path: /docs
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: agent
   path: /redoc
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: agent
   path: /generate
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 - key: agent
   path: /openapi.json
   pathType: Exact
   rewrite: none
+  exposure: public-user-accessible
 - key: vst
   path: /vst
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
+# Alias for /vst. Rewritten onto /vst, not stripped: VST serves its whole
+# surface under /vst/, so /vios/api/v1/x must arrive as /vst/api/v1/x.
+- key: vst
+  path: /vios
+  pathType: Prefix
+  rewrite: /vst
+  exposure: public-user-accessible
 # VST media links are minted absolute against the origin root. The Docker edge
 # answers them with the same replacement, so a clip URL works on either
 # deployment without the caller rewriting it.
@@ -111,49 +173,114 @@
   path: /storage
   pathType: Prefix
   rewrite: /vst/storage
-  anchored: true
+  exposure: public-user-accessible
+- key: vst
+  path: /vios/storage
+  pathType: Prefix
+  rewrite: /vst/storage
+  exposure: public-user-accessible
 - key: va-mcp
   path: /va-mcp
   pathType: Prefix
   rewrite: strip
+  exposure: remote-agent-accessible
 - key: alert-bridge
   path: /alert-bridge
   pathType: Prefix
   rewrite: strip
+  exposure: remote-agent-accessible
+# Alias for /alert-bridge; strips identically. The canonical prefix stays.
+- key: alert-bridge
+  path: /alerts
+  pathType: Prefix
+  rewrite: strip
+  exposure: remote-agent-accessible
 - key: video-analytics-api
   path: /video-analytics-api
   pathType: Prefix
   rewrite: strip
+  exposure: public-user-accessible
+# public-user-accessible on evidence, not on preference: the UI compose file
+# sets NEXT_PUBLIC_MDX_WEB_API_URL to the public origin plus this mount, and
+# Next.js inlines a NEXT_PUBLIC_ value into the bundle it ships, so a browser
+# dereferences this path by construction.
 # No strip: the Docker edge forwards this one whole, and the service is
 # reached by Kibana/ES in most builds, so nothing depends on a stripped form.
+#
+# The three warehouse charts strip it instead, and that disagreement is left
+# standing on purpose: this mount serves no HTTP on either chart family, so
+# there is nothing to observe. `vss-behavior-analytics:develop-latest` -- the
+# image both families render -- ships no web framework and no app source that
+# builds an HTTP server, the running container has no listening TCP socket, and
+# the live Docker edge answers /behavior-analytics with 503 (`nbsrv(...) eq 0`).
+# Reconciling strip-vs-forward needs an image that answers HTTP first, and
+# whether the mount should exist at all is a product question about the service
+# rather than a routing one.
+# internal-only by FR-29's default rather than by a judgement about the service:
+# no browser bundle names this mount, the CLI does not probe it, and it is not in
+# the remote agent's endpoint contract -- so it is "required by" neither of the
+# two things that lift a route out of the default.
+#
+# Carries the publicMountException below, so this row still renders on the
+# public rule. It is mounted there today by dev-profile-search and
+# dev-profile-alerts, and hand-written onto the two warehouse charts' own
+# Ingress objects, and dropping it would be answering the open product question
+# the note above records -- whether this mount should exist at all -- as a side
+# effect of classifying it. That is a decision for the service's owner. The
+# exception is what keeps the classification honest without taking it: the tier
+# says who needs the route, and the exception says what is still published while
+# somebody decides.
+#
+# Nothing observable rides on the difference in the meantime: the image both
+# chart families render serves no HTTP, so the mount answers 503 either way.
 - key: behavior-analytics
   path: /behavior-analytics
   pathType: Prefix
   rewrite: none
+  exposure: internal-only
+  publicMountException: open product question whether the mount should exist at all; serves no HTTP either way
+# remote-agent-accessible, NOT internal-only, and the distinction is the whole
+# point of FR-30 sitting next to FR-29: `vss search` runs on the host and
+# `vss configure` probes /elasticsearch/_cat/indices from there, so an
+# internal-only tier would break the CLI. What keeps the exposure defensible is
+# the method/path allowlist at the edge, not the tier -- FR-30's "method and
+# path restrictions sufficient for the intended query use case".
 - key: elasticsearch
   path: /elasticsearch
   pathType: Prefix
   rewrite: strip
+  exposure: remote-agent-accessible
 - key: rtvi-vlm
   path: /rtvi-vlm
   pathType: Prefix
   rewrite: strip
+  exposure: remote-agent-accessible
 - key: rtvi-cv
   path: /rtvi-cv
   pathType: Prefix
   rewrite: strip
+  exposure: remote-agent-accessible
 - key: rtvi-embed
   path: /rtvi-embed
   pathType: Prefix
   rewrite: strip
+  exposure: remote-agent-accessible
 - key: lvs
   path: /lvs
   pathType: Prefix
   rewrite: strip
+  exposure: remote-agent-accessible
+# Alias for /lvs; strips identically. The canonical prefix stays.
+- key: lvs
+  path: /video-summarization
+  pathType: Prefix
+  rewrite: strip
+  exposure: remote-agent-accessible
 - key: phoenix
   path: /phoenix
   pathType: Prefix
   rewrite: strip
+  exposure: public-user-accessible
 # One address for the LLM whatever GPU it landed on, so a consumer needs no
 # knowledge of the placement: <origin>/llm/v1/chat/completions reaches the NIM's
 # own /v1/chat/completions. Backed by the in-deployment LLM NIM Service, which
@@ -163,10 +290,12 @@
   path: /llm
   pathType: Prefix
   rewrite: strip
+  exposure: remote-agent-accessible
 - key: ui
   path: /
   pathType: Prefix
   rewrite: none
+  exposure: public-user-accessible
 {{- end -}}
 
 {{/*
@@ -258,12 +387,37 @@ port: {{ index $svc "port" | default 8000 }}
 {{- include "vss.ingress.pathRows" . | trim -}}
 {{- end -}}
 
+{{/*
+  Whether a row may be published on the public Ingress rule (FR-29).
+
+  This is the Kubernetes half of internal-only enforcement, and it is the
+  strongest form available here: an Ingress rule under the deployment's public
+  host IS the public exposure, so the way to make a mount unreachable from
+  outside is not to create it. There is no Host or source predicate to add --
+  the controller would have to route the request before anything could refuse
+  it.
+
+  An internal-only row is therefore skipped, unless it names a
+  `publicMountException` -- a written reason why it is still published while
+  somebody decides. `check_gateway_route_exposure.py` requires the reason to be
+  non-empty, so an exception is a sentence in this file rather than a silent
+  boolean.
+*/}}
+{{- define "vss.ingress.publiclyMountable" -}}
+{{- $row := .row -}}
+{{- if ne ($row.exposure | default "") "internal-only" -}}
+true
+{{- else if $row.publicMountException -}}
+true
+{{- end -}}
+{{- end -}}
+
 {{- define "vss.ingress.pathRows" -}}
 {{- $backends := .backends | default dict -}}
 {{- $only := .only | default (list) -}}
 {{- range $row := include "vss.ingress.routeTable" . | fromYamlArray }}
 {{- $b := index $backends $row.key | default dict }}
-{{- if and $b.service (or (eq (len $only) 0) (has $row.key $only)) }}
+{{- if and $b.service (include "vss.ingress.publiclyMountable" (dict "row" $row)) (or (eq (len $only) 0) (has $row.key $only)) }}
 - path: {{ $row.path }}
   pathType: {{ $row.pathType }}
   backend:
@@ -292,11 +446,13 @@ port: {{ index $svc "port" | default 8000 }}
 {{- range $row := include "vss.ingress.routeTable" . | fromYamlArray }}
 {{- $b := index $backends $row.key | default dict }}
 {{- $rw := $row.rewrite | default "none" }}
-{{- if and $b.service (ne $rw "none") }}
+{{- /* A route that is not mounted must not leave a rewrite pair behind: the
+       annotation would name a prefix no rule routes. Same predicate as the
+       paths, so the two cannot disagree about what is published. */}}
+{{- if and $b.service (include "vss.ingress.publiclyMountable" (dict "row" $row)) (ne $rw "none") }}
 {{- $to := ternary "" $rw (eq $rw "strip") }}
-{{- $anchor := ternary "^" "" ($row.anchored | default false) }}
-{{ $anchor }}{{ $row.path }}/(.*) {{ $to }}/\1
-{{ $anchor }}{{ $row.path }} {{ $to | default "/" }}
+^{{ $row.path }}/(.*) {{ $to }}/\1
+^{{ $row.path }}$ {{ $to | default "/" }}
 {{- end }}
 {{- end }}
 {{- end -}}

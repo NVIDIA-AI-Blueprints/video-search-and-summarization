@@ -1,0 +1,50 @@
+# Deployment-side evidence for the FR-35 off-host proof
+# Captured 2026-09-09T16:30:50Z from the DEPLOYMENT host by ssh.
+# The agent side of this pair is fr35-offhost-2026-09-09.agent-side.txt
+# (named .log when it was produced; *.log is gitignored repo-wide).
+
+## identity
+deployment-host
+machine-id: fa1e16e7... (truncated)
+addrs: 10.176.222.x 192.168.34.x 172.18.0.1 172.17.0.1 
+kernel: 6.8.0-136-generic
+
+## gateway identity (HAProxy container env)
+EXTERNAL_IP=10.176.222.x
+HAPROXY_PORT=7777
+HOST_IP=10.176.222.x
+VSS_GATEWAY_HOST=vss.local
+VSS_GATEWAY_PORT=7777
+VSS_PUBLIC_HOST=vss-gateway.fr35.test
+VSS_PUBLIC_PORT=7777
+
+## published port
+7777/tcp -> 0.0.0.0:7777
+7777/tcp -> [::]:7777
+
+## running services (compose project fr35)
+elasticsearch	Up 2 hours (healthy)
+kafka	Up 2 hours (healthy)
+kibana	Up 2 hours (healthy)
+logstash	Up 2 hours
+nemotron-3.5-lightning-30b-a3b	Up 32 seconds (health: starting)
+phoenix	Up 2 hours
+redis	Up 2 hours
+runner-<redacted>-build	(unrelated CI runner, not part of the profile)	Up 28 minutes
+vss-agent	Up About an hour (healthy)
+vss-agent-ui	Up About an hour
+vss-alert-bridge	Up 2 hours
+vss-behavior-analytics	Up 2 hours
+vss-haproxy-ingress	Up 2 hours
+vss-rtvi-vlm	Restarting (1) 28 seconds ago
+vss-va-mcp	Up 2 hours (healthy)
+vss-video-analytics-api	Up 2 hours
+vss-vios-ingress	Up 2 hours (healthy)
+vss-vios-nvstreamer	Up 2 hours
+vss-vios-postgres	Up 2 hours (healthy)
+vss-vios-sensor	Up About an hour (healthy)
+vss-vios-streamprocessing	Up 2 hours (unhealthy)
+
+## GPUs
+0, NVIDIA L40, 49140 MiB, 1106 MiB
+1, NVIDIA L40, 49140 MiB, 18 MiB
