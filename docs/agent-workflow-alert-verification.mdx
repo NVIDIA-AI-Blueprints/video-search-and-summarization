@@ -117,7 +117,7 @@ in `overrides.env`.
 
 <a id="alert-verification-available-vlm-models"></a>
 
-**Available VLM Models**
+#### Available VLM Models
 
 | Model | Name | Path |
 | --- | --- | --- |
@@ -134,6 +134,29 @@ Super models have only been tested on RTX PRO 6000 and H100 with a single GPU de
 NVFP4 models only work on Blackwell platforms.
 </Note>
 
+#### Enable Efficient Video Sampling
+
+You can enable Efficient Video Sampling (EVS++) to prune redundant video tokens and reduce VLM inference latency. Add the following settings to `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env` before
+starting the profile:
+
+```ini
+VIA_EVS_SESSION=true
+VLM_VIDEO_PRUNING_RATE=0.5
+VLLM_EVS_SIMILARITY_THRESHOLD=0.015
+```
+
+In testing with a warehouse dataset and the Cosmos 3 Super Reasoner FP8 VLM, this
+configuration reduced VLM latency by approximately 20% with an approximately
+1% decrease in accuracy.
+
+<Note>
+`VLLM_EVS_SIMILARITY_THRESHOLD` can be tuned for the characteristics of the
+input streams to improve the accuracy/latency tradeoff. For
+compatibility details and additional configuration options, see
+[Efficient Video Sampling (EVS and EVS++)](/vss/system-components/vision-microservices/real-time-vlm#efficient-video-sampling-evs-and-evs).
+</Note>
+
+#### Configure Required Deployment Values
 
 Set these required placeholder values in the existing assignments:
 
