@@ -39,7 +39,11 @@ from vss_agents.tools.search import decompose_query
 class TestResolveVideoSourcesForSearch:
     """Test source-name resolution for search filters."""
 
-    def test_rtsp_keeps_sensor_name_when_uuid_known(self):
+    def test_rtsp_resolves_sensor_name_to_uuid(self):
+        # RTSP ES documents store the VST sensor UUID under ``sensor.id`` (the
+        # stream name lives in ``sensor.description``), so the name must be
+        # resolved to the UUID just like the video_file path. Keeping the name
+        # here made every filtered RTSP search match zero documents.
         stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
 
         result = _resolve_video_sources_for_search(
@@ -48,9 +52,9 @@ class TestResolveVideoSourcesForSearch:
             source_type="rtsp",
         )
 
-        assert result == ["video1"]
+        assert result == [stream_id]
 
-    def test_rtsp_resolves_uuid_back_to_sensor_name(self):
+    def test_rtsp_keeps_uuid_already_supplied_by_caller(self):
         stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
 
         result = _resolve_video_sources_for_search(
@@ -59,7 +63,7 @@ class TestResolveVideoSourcesForSearch:
             source_type="rtsp",
         )
 
-        assert result == ["video1"]
+        assert result == [stream_id]
 
     def test_video_file_resolves_name_to_uuid(self):
         stream_id = "7f8fcbf4-9e1b-41b9-bf52-1e6ce1ca9f6c"
