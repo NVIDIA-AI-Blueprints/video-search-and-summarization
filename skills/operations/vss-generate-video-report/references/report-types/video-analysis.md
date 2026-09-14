@@ -1,6 +1,6 @@
 # Video analysis report (Mode A)
 
-Numbered steps for Mode A, loaded on demand from [`SKILL.md`](../../SKILL.md) (`$SKILL_DIR/SKILL.md`); routing, gates and the shared setup live there and the skeleton is defined in `SKILL.md` § Report types.
+Numbered steps for Mode A, loaded on demand from [`SKILL.md`](../../SKILL.md) (`$SKILL_DIR/SKILL.md`); routing, the shared setup and the generic prerequisite probes live there (mode-specific gates are the steps flagged below) and the skeleton is defined in `SKILL.md` § Report types.
 
 - **Trigger phrases:** `SKILL.md` § Examples — the Mode A rows.
 - **Prerequisite gate:** `SKILL.md` § Runtime prerequisites — the *Mode-by-mode checklist* row(s) for Mode A and the long-video hard gate; apply `SKILL.md` § HITL prompt mode before Step 3.
@@ -21,9 +21,9 @@ case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this
   kubernetes|docker) ;;
   *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
 esac
-# Kubernetes public Exact path when VSS_PUBLIC_URL is set; Docker host port otherwise.
+# Kubernetes (DEPLOYMENT_KIND from the hand-off) uses the public Exact path; Docker uses the host port.
 if [ "${DEPLOYMENT_KIND}" = "kubernetes" ]; then
-  _lvs_ready="${VSS_PUBLIC_URL:?}/lvs/v1/ready"
+  _lvs_ready="${VSS_PUBLIC_URL:?kubernetes hand-off lacks VSS_PUBLIC_URL — re-run Endpoint resolution}/lvs/v1/ready"
 else
   _lvs_ready="http://${HOST_IP:-localhost}:38111/v1/ready"
 fi
@@ -33,7 +33,7 @@ curl -sf --max-time 5 "${_lvs_ready}" >/dev/null && echo "LVS ready: ${_lvs_read
 
 When that returns HTTP 200, run `/vss-summarize-video` to produce the summary,
 then paste its output into the report template in Step 4 and skip Steps 1–3
-(the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200.
+(the VLM-direct path). Run Steps 1–3 only when `/v1/ready` is non-200. The LVS path has no Step 3 prompt-approval loop: when HITL resolved `false` (or the caller asked for autonomous execution) invoke `/vss-summarize-video` with its explicit autonomous instruction and defaults (`scenario="activity monitoring"`, `events=["notable activity"]`) and state those defaults in the chat response; when HITL resolved `true`, its settings dialogue replaces the Step 3 approval.
 
 ### Step 1 — Resolve Mode A input (A1 clip URL or A2 local-file/base64)
 
@@ -50,11 +50,18 @@ Hand off to `/vss-manage-video-io-storage` to:
    ```bash
    # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
    # Omit the window to take the whole recorded segment; the response echoes what it resolved.
-   # CLI bootstrap and exit codes: AGENTS.md at the repo root
+   # CLI bootstrap and exit codes: AGENTS.md at the repo root (repo checkout only)
+   # Fresh shell: paste the Endpoint resolution hand-off (SKILL.md) at the top of this block.
+   case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this block}" in
+     kubernetes) VSS_ORIGIN="${VSS_PUBLIC_URL:?kubernetes hand-off lacks VSS_PUBLIC_URL — re-run Endpoint resolution}" ;;
+     docker)     VSS_ORIGIN="http://${HOST_IP:?docker hand-off lacks HOST_IP — re-run Endpoint resolution}:7777" ;;   # HAProxy host port
+     *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
+   esac
    VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+   [ -d "${VSS_REPO_ROOT}/services/agent" ] || { echo "ERROR: VSS_REPO_ROOT (${VSS_REPO_ROOT}) has no services/agent — set it to the repo checkout" >&2; exit 1; }
    VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-   VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
-   "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}"   # once per deployment
+   "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}" \
+     || { echo "vss configure failed for ${VSS_ORIGIN} — is the VSS origin reachable?" >&2; exit 1; }   # once per deployment
 
    # Captured, not piped: `vss ... | jq` hides the CLI's exit code behind jq's,
    # so a failed command with empty stdout reads as an empty answer.
@@ -62,10 +69,13 @@ Hand off to `/vss-manage-video-io-storage` to:
      echo "vss vios clip failed for <sensor-name>" >&2; exit 1; }
    VIDEO_URL=$(printf '%s' "${CLIP}" | jq -er '.media_url | select(type=="string" and length>0)') \
      || { echo "vss vios clip returned no media_url for <sensor-name>" >&2; printf '%s\n' "${CLIP}" >&2; exit 1; }
-   printf 'VIDEO_URL=%q\n' "${VIDEO_URL}"   # shell-quoted assignment to paste at the top of the Step 3 block (fresh shell)
+   # Hand-off (shell-quoted, paste at the top of the Step 3 block and keep for Step 4): the clip URL and the
+   # window the CLI resolved (the whole recorded segment when none was given).
+   CLIP_START=$(printf '%s' "${CLIP}" | jq -r '.start_time // empty'); CLIP_END=$(printf '%s' "${CLIP}" | jq -r '.end_time // empty')
+   printf 'VIDEO_URL=%q\nCLIP_START=%q\nCLIP_END=%q\n' "${VIDEO_URL}" "${CLIP_START}" "${CLIP_END}"
    ```
 
-The block prints a shell-quoted `VIDEO_URL=…` assignment (signed clip URLs carry `&` and `?`, so paste that line as printed, never the bare URL). Each fenced block is a fresh shell: at the top of the Step 3 block paste that line, `CLIP_SECONDS=<endTime-startTime>` when known, and the `VLM_ENDPOINT` / `VLM_MODEL` (and `VLM_BACKEND`) values Step 2 resolved — the Step 3 guards refuse to run without a video source and a VLM endpoint + model. Set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
+The block prints shell-quoted `VIDEO_URL=…`, `CLIP_START=…` and `CLIP_END=…` assignments (signed clip URLs carry `&` and `?`, so paste the lines as printed, never the bare URL). Each fenced block is a fresh shell: at the top of the Step 3 block paste those lines, `CLIP_SECONDS=<CLIP_END minus CLIP_START, in seconds>`, and the `VLM_BACKEND` / `VLM_ENDPOINT` / `VLM_MODEL` hand-off Step 2 printed — the Step 3 guards refuse to run without a video source and a VLM endpoint + model. Set `RAW_URL="$VIDEO_URL"` before applying the report-link rewrite for Step 4.
 
 Remote VLM reachability guard (required):
 - If the selected `VLM_ENDPOINT` is remote/non-local, do not assume it can fetch `VIDEO_URL` when `VIDEO_URL` points to localhost/private VST addresses (for example `127.0.0.1`, `localhost`, `HOST_IP`, `172.16-31.x`, `192.168.x`, `10.x`, or in-cluster/internal DNS).
@@ -80,7 +90,7 @@ Remote VLM reachability guard (required):
 If the user provides either:
 - a local video file path on disk (where OpenClaw/agent is running), or
 - a base64 video payload,
-and a VLM endpoint, use that directly in Step 3.
+and a VLM endpoint, run Step 2 (it confirms caller-supplied values or discovers an endpoint, then prints the hand-off) and use that hand-off in Step 3.
 
 Local file requirement (strict):
 - `VIDEO_FILE` must point to a path that is directly readable from the runtime executing this skill (OpenClaw/agent host or container).
@@ -100,7 +110,7 @@ For this path, set report `Clip URL` row to `N/A (local/base64 input)` unless a 
 #### Long-video rule (required)
 
 If user input video/clip duration is **120 seconds (2 mins) or longer**, stop Mode A direct path and prompt:
-- deploy and use **LVS** via `/vss-deploy-profile` + `/vss-summarize-video`,
+- deploy and use **LVS** via `/vss-deploy-profile` (Docker Compose; on Kubernetes report the missing `/lvs` route to the deployment owner) + `/vss-summarize-video`,
 - then continue report templating with LVS output.
 
 Do not continue direct VLM Mode A on videos that are 120 seconds or longer.
@@ -137,7 +147,7 @@ fi
 if [ -z "${VLM_ENDPOINT:-}" ] && [ "${DEPLOYMENT_KIND}" = "docker" ]; then
   for _endpoint in "http://${HOST_IP:-localhost}:30082/v1" "http://${HOST_IP:-localhost}:8018/v1"; do
     _models="$(curl -sf --max-time 5 "${_endpoint}/models")" || continue
-    _model="$(printf '%s' "${_models}" | jq -er --arg m "${VLM_MODEL:-}" \
+    _model="$(printf '%s' "${_models}" | jq -er --arg m "${VLM_MODEL:-}" 2>/dev/null \
       'if $m == "" then (.data[0].id // empty) else (.data[]?.id | select(. == $m)) end' | head -n 1)" || continue
     [ -n "$_model" ] || continue
     VLM_ENDPOINT="${_endpoint}"
@@ -172,7 +182,7 @@ printf '%s' "${_models}" | jq -e --arg m "$VLM_MODEL" 'any(.data[]?.id; . == $m)
 
 # Backend, derived once from the FINAL endpoint / model (a pasted VLM_BACKEND from an earlier run is
 # ignored): the public /rtvi-vlm route and :8018 are RT-VLM (never send them NIM Cosmos kwargs), :30082 is
-# NIM Cosmos, anything else follows the model id — the same rule Step 3 applies when it runs standalone.
+# NIM Cosmos, anything else follows the model id. Step 3 requires this value from the hand-off.
 case "${VLM_ENDPOINT}" in
   */rtvi-vlm/*|*:8018/*) VLM_BACKEND="rtvlm" ;;
   *:30082/*)             VLM_BACKEND="nim_cosmos" ;;
@@ -195,12 +205,12 @@ Use the OpenAI-compatible `chat/completions` endpoint with a `video_url` content
 
 Use explicit `VIDEO_UNDERSTANDING_*` overrides when supplied; otherwise use
 the base-profile defaults (`max_fps=2`, `max_frames=30`, `min_pixels=3136`,
-`max_pixels=8388608`).
+`max_pixels=8388608`). Step 3 never reads the running vss-agent's config, so it does not fail when vss-agent is absent: the defaults (or the `VIDEO_UNDERSTANDING_*` overrides) apply.
 
 ```bash
 # Default prompt — load from the skill tree (do NOT use a cwd-relative path).
 # Set SKILL_DIR to the "Base directory for this skill" announced when this skill loads.
-: "${SKILL_DIR:?Set SKILL_DIR to the loaded skill's base directory (from the skill loader)}"
+: "${SKILL_DIR:?Set SKILL_DIR to the loaded skill base directory (from the skill loader)}"
 PROMPT_FILE="$SKILL_DIR/references/default-vlm-prompt.md"
 [ -s "$PROMPT_FILE" ] || {
   echo "ERROR: missing or empty VLM prompt file: $PROMPT_FILE" >&2
@@ -234,8 +244,9 @@ PROMPT="$FINAL_PROMPT"
 
 # Reasoning is OFF by default — matches the base-profile video_understanding config (`reasoning: false`).
 # video_understanding.py uses config.reasoning unless the caller overrides it, so default to non-reasoning.
-# Append the Cosmos Reason 2 reasoning suffix ONLY when the user explicitly asks for reasoning
-# (drop it for non-cosmos-reason2 VLMs). With reasoning off, the response has no <think> block.
+# Append the Cosmos Reason 2 reasoning suffix ONLY when the user explicitly asked for reasoning: set
+# REASONING=true at the top of this block in that case (drop it for non-cosmos-reason2 VLMs). With reasoning
+# off, the response has no <think> block.
 if [ "${REASONING:-false}" = "true" ]; then
 PROMPT="${PROMPT}
 
@@ -248,16 +259,9 @@ Your reasoning.
 Write your final answer immediately after the </think> tag."
 fi
 
-# If Step 3 is run standalone, derive a missing backend from endpoint/model.
-[ -z "${VLM_BACKEND:-}" ] && {
-  if [[ "${VLM_ENDPOINT:-}" == *":8018/"* || "${VLM_ENDPOINT:-}" == *"/rtvi-vlm/"* ]]; then
-    VLM_BACKEND="rtvlm"
-  elif [[ "${VLM_ENDPOINT:-}" == *":30082/"* || "${VLM_MODEL:-}" == nvidia/cosmos* ]]; then
-    VLM_BACKEND="nim_cosmos"
-  else
-    VLM_BACKEND="rtvlm"
-  fi
-}
+# Backend comes from the Step 2 hand-off (rtvlm | nim_cosmos); no second copy of the rule here.
+: "${VLM_BACKEND:?paste the Step 2 hand-off (VLM_BACKEND / VLM_ENDPOINT / VLM_MODEL) at the top of this block}"
+case "${VLM_BACKEND}" in rtvlm|nim_cosmos) ;; *) echo "ERROR: VLM_BACKEND must be rtvlm or nim_cosmos, got '${VLM_BACKEND}'" >&2; exit 1 ;; esac
 
 # Multimodal settings — explicit overrides or base-profile defaults.
 CFG_JSON='{"max_fps":2,"max_frames":30,"min_pixels":3136,"max_pixels":8388608}'
@@ -273,7 +277,7 @@ MIN_PIXELS="${VIDEO_UNDERSTANDING_MIN_PIXELS:-$MIN_PIXELS}"
 MAX_PIXELS="${VIDEO_UNDERSTANDING_MAX_PIXELS:-$MAX_PIXELS}"
 
 # num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
-# clip_seconds (Step 1 endTime-startTime) may be fractional; truncate to integer seconds — bash $((...))
+# clip_seconds (CLIP_END minus CLIP_START from the Step 1 hand-off) may be fractional; truncate to integer seconds — bash $((...))
 # is integer-only and errors on "15.0"/"1.5". Default 15s -> caps at MAX_FRAMES.
 CLIP_SECONDS=$(awk -v s="${CLIP_SECONDS:-15}" 'BEGIN{printf "%d", s}')
 NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
@@ -293,6 +297,9 @@ fi
 
 # Fresh shell: Step 2's VLM discovery does not arrive on its own — set both at the top of this block.
 : "${VLM_ENDPOINT:?set VLM_ENDPOINT (Step 2) at the top of this block}" "${VLM_MODEL:?set VLM_MODEL (Step 2) at the top of this block}"
+VLM_ENDPOINT="${VLM_ENDPOINT%/}"   # tolerate a trailing slash on a pasted / caller-supplied endpoint
+VLM_MAX_TOKENS="${VLM_MAX_TOKENS:-4096}"   # the agent's nim/openai/vllm VLM profiles use 4096 (rtvi_vlm sets none); override only with a positive integer
+case "$VLM_MAX_TOKENS" in ''|0*|*[!0-9]*) echo "ERROR: VLM_MAX_TOKENS must be a positive integer, got '${VLM_MAX_TOKENS}'" >&2; exit 1 ;; esac
 # A1 sends the VST clip URL; A2 (Step 1) sends inline bytes — this one block serves both paths.
 VIDEO_SRC="${VIDEO_DATA_URL:-${VIDEO_URL:?set VIDEO_URL (A1) or VIDEO_DATA_URL (A2) at the top of this block}}"
 case "$VIDEO_SRC" in
@@ -317,7 +324,7 @@ CODE=$(curl -sS --connect-timeout 5 --max-time 120 -o "$VLM_BODY" -w '%{http_cod
       ]
     }
   ],
-  "max_tokens": 1024,
+  "max_tokens": ${VLM_MAX_TOKENS},
   "temperature": 0.0${MM_KWARGS}
 }
 EOF
@@ -326,22 +333,30 @@ case "$CODE" in
   2??) ;;
   *) echo "VLM chat/completions failed: HTTP $CODE" >&2; cat "$VLM_BODY" >&2; exit 1 ;;
 esac
-# The report body is the text AFTER the first </think> of a Cosmos Reason reasoning block, trimmed. Failures
-# (surface per SKILL.md § Error Handling, never render): an error envelope, an empty body, null or list-typed
-# content, a reasoning-only answer, or a <think> block left unclosed because max_tokens cut the answer off.
+# The body must be JSON; a truncated answer (finish_reason "length") is not a report: stop and raise VLM_MAX_TOKENS.
+jq -e 'type == "object"' "$VLM_BODY" >/dev/null 2>&1 || { echo "VLM chat/completions returned a body that is not a JSON object" >&2; cat "$VLM_BODY" >&2; exit 1; }
+jq -e '(try .choices[0].finish_reason catch null) != "length"' "$VLM_BODY" >/dev/null 2>&1 \
+  || { echo "VLM answer truncated by max_tokens (finish_reason=length) — raise VLM_MAX_TOKENS" >&2; cat "$VLM_BODY" >&2; exit 1; }
+# The report body is the content with every <think>…</think> reasoning block (Cosmos Reason reasoning mode)
+# removed — also a leading block whose <think> the chat template injected — and any <answer> tags dropped, trimmed. Failures (surface per SKILL.md § Error Handling, never render): an error envelope, an
+# empty body, null or list-typed content, a reasoning-only answer, or a <think> block left unclosed because
+# max_tokens cut the answer off.
 jq -er '.choices[0].message.content | select(type=="string")
-        | split("</think>") | (if length > 1 then .[1:] | join("</think>") else .[0] end)
+        | gsub("<think>[\\s\\S]*?</think>"; "") | sub("^[\\s\\S]*?</think>"; "") | gsub("</?answer>"; "")
         | select(test("<think>") | not)
-        | sub("^\\s+"; "") | sub("\\s+$"; "") | select(length>0)' "$VLM_BODY" \
-  || { echo "VLM chat/completions returned no report text (error envelope, empty body, null / list-typed content, reasoning-only, or an unclosed <think> block — truncated by max_tokens?)" >&2; cat "$VLM_BODY" >&2; exit 1; }
+        | sub("^\\s+"; "") | sub("\\s+$"; "") | select(length>0)' "$VLM_BODY" 2>/dev/null \
+  || { echo "VLM chat/completions returned no report text (error envelope, empty body, null / list-typed content, reasoning-only, an unclosed <think> block — truncated by max_tokens? — or the literal text <think> in the answer)" >&2; cat "$VLM_BODY" >&2; exit 1; }
 ```
 
-For Mode A path A2 (inline bytes), run the same Step 3 block with `VIDEO_DATA_URL` (Step 1) set at its top instead of `VIDEO_URL`; the block sends whichever is set, so the HITL guard, prompt resolution, `CFG_JSON` and `MM_KWARGS` apply to A2 unchanged. Because the block is a fresh shell, build the data URL there too — for a local file: `[ -s "$VIDEO_FILE" ] || exit 1; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(base64 < "$VIDEO_FILE" | tr -d '\n')"` (the `tr` strips the line wrapping GNU `base64` adds, which would otherwise corrupt the data URL); for user-supplied base64 written to `VIDEO_B64_FILE`: `[ -s "$VIDEO_B64_FILE" ] || exit 1; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(tr -d '[:space:]' < "$VIDEO_B64_FILE")"`.
+For Mode A path A2 (inline bytes), run the same Step 3 block with `VIDEO_DATA_URL` (Step 1) set at its top instead of `VIDEO_URL`; the block sends whichever is set, so the HITL guard, prompt resolution, `CFG_JSON` and `MM_KWARGS` apply to A2 unchanged. Because the block is a fresh shell, build the data URL there too — for a local file: `[ -s "$VIDEO_FILE" ] || { echo "ERROR: VIDEO_FILE missing or empty: $VIDEO_FILE" >&2; exit 1; }; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(base64 < "$VIDEO_FILE" | tr -d '\n')"` (the `tr` strips the line wrapping GNU `base64` adds, which would otherwise corrupt the data URL); for user-supplied base64 written to `VIDEO_B64_FILE`: `[ -s "$VIDEO_B64_FILE" ] || { echo "ERROR: VIDEO_B64_FILE missing or empty: $VIDEO_B64_FILE" >&2; exit 1; }; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(tr -d '[:space:]' < "$VIDEO_B64_FILE")"`.
 
 > The kwargs block is backend-aware: on `nim_cosmos`, Reason2 variants (`nvidia/cosmos-reason2*`) use `mm_processor_kwargs.size{shortest_edge,longest_edge}` and other NIM Cosmos variants (`nvidia/cosmos*`) use `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; both also send `media_io_kwargs.video.num_frames`. On `rtvlm`, no Cosmos kwargs are sent.
 
-If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), the block above already prints only the text after the first `</think>` as the report body and exits non-zero when nothing follows it or when the block was left unclosed (answer truncated by `max_tokens`).
+If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), the block above already removes every closed block and prints the remaining text as the report body; it exits non-zero when nothing remains or when a block was left unclosed (answer truncated by `max_tokens`).
 
 ### Step 4 — Fill the Video Analysis Report template
 
-Load the matching template from [`$SKILL_DIR/references/report-templates/video-analysis-report.md`](../report-templates/video-analysis-report.md). Treat the template as read-only — copy its structure **verbatim**, keeping its exact headings and `## Basic Information` pipe-table, and fill every placeholder. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens (e.g. `<BROWSER_CLIP_URL>`, `<sensor_id>`, `<YYYY-MM-DD>`), or internal-only URLs in user output. Before rendering, verify `BROWSER_CLIP_URL` is set and non-empty, then replace `<BROWSER_CLIP_URL>` with that exact value in the `Clip URL` row. Never use the raw `HOST_IP:30888` URL.
+Load the matching template from [`$SKILL_DIR/references/report-templates/video-analysis-report.md`](../report-templates/video-analysis-report.md). Treat the template as read-only — copy its structure **verbatim**, keeping its exact headings and `## Basic Information` pipe-table, and fill every placeholder. Fill all placeholders before returning markdown. Never leave template instructions, placeholder tokens (e.g. `<BROWSER_CLIP_URL>`, `<sensor_id>`, `<YYYY-MM-DD>`), or internal-only URLs in user output. Row values by path — a literal `N/A (<reason>)` is a concrete value, a placeholder token is not:
+- `Clip URL`: A1 — the `BROWSER_CLIP_URL` printed by the rewrite block when non-empty; when it printed empty, `N/A (browser-playable URL unavailable)` and say why in the chat response that accompanies the report (never inside `## Analysis Results`). A2 — `N/A (local/base64 input)` unless a public playback URL exists. LVS path — the rewritten URL when a VST clip exists, else `N/A (LVS summary)`. Never use the raw `HOST_IP:30888` URL.
+- `Clip Range`: A1 — `CLIP_START - CLIP_END` from the Step 1 hand-off (the template's `<startTime> - <endTime>`); LVS path — the window given to `/vss-summarize-video`; A2 — `N/A (local/base64 input)`.
+- `VLM`: `VLM_MODEL` plus the backend kind in the template's form, `(NIM or RT-VLM)` (`nim_cosmos` → NIM, `rtvlm` → RT-VLM), for the VLM-direct path — never the endpoint URL; `LVS (/vss-summarize-video)` for the LVS path.
