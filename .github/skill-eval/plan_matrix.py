@@ -336,6 +336,19 @@ def openshell_job_labels(gpu_count: int) -> list[str]:
     return [*OPENSHELL_FLEET_LABELS, f"gpus-{gpu_count}"]
 
 
+def openshell_placement_tag(gpu_count: int) -> str:
+    """Slug / job-name token for an OpenShell leg.
+
+    This is the spec's GPU *demand* (`gpus-1` / `gpus-2`), not the
+    over-provisioned cohort id (`rtxpro6000-2g`). A 1-GPU spec may still
+    select a 2-GPU SKU internally for NIM profiles; the visible job name
+    must not claim 2 GPUs.
+    """
+    if gpu_count not in (1, 2):
+        return "gpus-blocked"
+    return f"gpus-{gpu_count}"
+
+
 def runs_on_labels(
     platform: str,
     config: dict | None,
@@ -747,6 +760,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 if cohort_error or cohort is None:
                     append_blocked(meta, cohort_error or "no compatible cohort")
                     continue
+                tag = openshell_placement_tag(requirements["gpu_count"])
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],
@@ -756,12 +770,8 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "hardware_profile": cohort.hardware_profile,
                     "cohort": cohort.name,
                     "kind": "eval",
-                    "slug": (
-                        f"{skill}__{meta['spec_stem']}__{cohort.name}"
-                    ),
-                    "name": (
-                        f"{skill} · {meta['spec_stem']} · {cohort.name}"
-                    ),
+                    "slug": f"{skill}__{meta['spec_stem']}__{tag}",
+                    "name": f"{skill} · {meta['spec_stem']} · {tag}",
                     "runs_on": openshell_job_labels(requirements["gpu_count"]),
                     "gpu_count": requirements["gpu_count"],
                     "min_vram_gb_per_gpu": (
@@ -840,6 +850,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                         smoke_meta, cohort_error or "no compatible cohort"
                     )
                 else:
+                    tag = openshell_placement_tag(requirements["gpu_count"])
                     include.append({
                         **smoke_meta,
                         "platform": cohort.platform,
@@ -847,14 +858,8 @@ def build_matrix(changed: list[str]) -> list[dict]:
                         "cohort": cohort.name,
                         "kind": "eval",
                         "skip_reason": "",
-                        "slug": (
-                            "vss-deploy-test-openshell__base__"
-                            f"{cohort.name}"
-                        ),
-                        "name": (
-                            "vss-deploy-test-openshell · base · "
-                            f"{cohort.name}"
-                        ),
+                        "slug": f"vss-deploy-test-openshell__base__{tag}",
+                        "name": f"vss-deploy-test-openshell · base · {tag}",
                         "runs_on": openshell_job_labels(requirements["gpu_count"]),
                         "gpu_count": requirements["gpu_count"],
                         "min_vram_gb_per_gpu": (

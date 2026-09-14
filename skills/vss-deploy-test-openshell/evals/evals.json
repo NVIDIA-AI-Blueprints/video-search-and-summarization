@@ -40,7 +40,7 @@
   },
   {
     "id": "warehouse-agents-h200-compose-generate",
-    "question": "Deploy the VSS warehouse agents variant on a two-GPU RTX PRO 6000 OpenShell host using a remote LLM.",
+    "question": "Deploy the VSS warehouse agents variant on a two-GPU H200 or RTX PRO 6000 OpenShell host using a remote LLM.",
     "expected_skill": "vss-deploy-test-openshell",
     "ground_truth": "Loads vss-deploy-test-openshell and routes to references/warehouse.md. Selects BP_PROFILE=bp_wh and MODE=2d, places RT-CV on GPU 0 and the always-local RTVI VLM on GPU 1, and configures LLM_MODE=remote with LLM_NAME_SLUG=none so no local LLM NIM starts. Acquires the harness-provided warehouse app-data resource, copies warehouse overrides.env to generated.env, selects COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}, resolves the service list, and deploys with containers.env plus the warehouse .env and generated.env using compose.yml and the no-TURN-TCP-relay overlay.",
     "expected_behavior": [
@@ -54,7 +54,7 @@
   },
   {
     "id": "search-openshell-compose-generate",
-    "question": "Deploy the VSS search profile on a two-GPU RTX PRO 6000 OpenShell host and then search the archive.",
+    "question": "Deploy the VSS search profile on a two-GPU H200 or RTX PRO 6000 OpenShell host and then search the archive.",
     "expected_skill": "vss-deploy-test-openshell",
     "ground_truth": "Loads vss-deploy-test-openshell and routes to references/search.md. Deploys the developer search profile with two GPUs, a remote VLM behind the local vss-rtvi-vlm proxy, local RT-CV and RT-Embed, then bootstraps the project-local CLI and uses vss-search-archive (`vss configure` plus `vss search run`) rather than hand-rolled /api/v1/search.",
     "expected_behavior": [
