@@ -143,18 +143,22 @@ EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
 # processes, which are not the machines the trials run on.
 BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 
-# OpenShell cohorts. GitHub still attaches `self-hosted` to each runner;
-# workflows must also require the cohort's dedicated active label. Register
-# replacements without that label (or keep listeners down) until canaries pass.
-#
-# `openshell-runner` is on every OpenShell job so the fleet can be targeted
-# as one pool without dropping SKU-specific labels (A16 vs H200 vs RTX).
-# `runs-on` is AND: runners must advertise this tag plus the cohort labels.
+# OpenShell cohorts. GitHub still attaches `self-hosted` to each runner.
+# Cohort tuples below describe how boxes are *registered* (SKU + active
+# labels). `vss-deploy-test-openshell` jobs do **not** require those SKU
+# labels: `openshell_job_labels()` emits only the shared fleet tags plus
+# `gpus-N`. Register replacements without a cohort active label (or keep
+# listeners down) until canaries pass.
 #
 # Post-job destroy/recreate is host-side: the OpenShell VM orchestrator
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
 # This workflow does not implement KVM/VFIO.
 OPENSHELL_RUNNER_LABEL = "openshell-runner"
+OPENSHELL_FLEET_LABELS: tuple[str, ...] = (
+    "vss-skill-eval-gpu",
+    OPENSHELL_RUNNER_LABEL,
+    "openshell",
+)
 OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
@@ -316,6 +320,20 @@ def _gpu_count(config: dict) -> int:
     except (TypeError, ValueError):
         # Explicit null / "" / garbage -> 0, same as run_leg's `or 0`.
         return 0
+
+
+def openshell_job_labels(gpu_count: int) -> list[str]:
+    """GitHub `runs-on` for `vss-deploy-test-openshell`.
+
+    Fleet tags only — no SKU (`gpu-h200`, `gpu-rtxpro6000bw`), no cohort
+    active label (`openshell-h200-active`), no VRAM/codec tags. `gpus-N`
+    is the GPU-count demand so 1-GPU and 2-GPU jobs stay on matching
+    guests. Operators still register SKU labels on the VMs if they want;
+    this skill does not require them.
+    """
+    if gpu_count not in (1, 2):
+        return list(SKIP_RUNNER)
+    return [*OPENSHELL_FLEET_LABELS, f"gpus-{gpu_count}"]
 
 
 def runs_on_labels(
@@ -709,7 +727,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "name": f"{skill} · missing-adapter",
                 # Commits an adapter; runs no trial and needs no GPU.
                 "runs_on": (
-                    [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"]
+                    list(OPENSHELL_FLEET_LABELS)
                     if _route_skill_on_openshell(skill)
                     else list(BASE_LABELS)
                 ),
@@ -744,7 +762,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "name": (
                         f"{skill} · {meta['spec_stem']} · {cohort.name}"
                     ),
-                    "runs_on": list(cohort.labels),
+                    "runs_on": openshell_job_labels(requirements["gpu_count"]),
                     "gpu_count": requirements["gpu_count"],
                     "min_vram_gb_per_gpu": (
                         requirements["min_vram_gb_per_gpu"]
@@ -837,7 +855,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                             "vss-deploy-test-openshell · base · "
                             f"{cohort.name}"
                         ),
-                        "runs_on": list(cohort.labels),
+                        "runs_on": openshell_job_labels(requirements["gpu_count"]),
                         "gpu_count": requirements["gpu_count"],
                         "min_vram_gb_per_gpu": (
                             requirements["min_vram_gb_per_gpu"]

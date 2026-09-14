@@ -240,8 +240,7 @@ class RealSpecCorpus(unittest.TestCase):
             counts,
             {
                 "brev": 54,
-                "h200-1g": 7,
-                "h200-2g": 4,
+                "rtxpro6000-2g": 11,
             },
         )
         for leg in include:
@@ -253,16 +252,27 @@ class RealSpecCorpus(unittest.TestCase):
             self.assertEqual(leg["kind"], "eval")
             self.assertEqual(leg["skill"], "vss-deploy-test-openshell")
             self.assertTrue(leg["local_gpu"])
-            self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, leg["runs_on"])
-            if leg["cohort"] == "h200-1g":
-                self.assertIn("openshell-h200-active", leg["runs_on"])
-                self.assertIn("gpu-h200", leg["runs_on"])
-                self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
-            elif leg["cohort"] == "h200-2g":
-                self.assertIn("openshell-h200-active", leg["runs_on"])
-                self.assertIn("gpus-2", leg["runs_on"])
-            else:
-                self.fail(leg["cohort"])
+            self.assertEqual(leg["cohort"], "rtxpro6000-2g")
+            self.assertEqual(
+                leg["runs_on"],
+                plan_matrix.openshell_job_labels(leg["gpu_count"]),
+            )
+            self.assertTrue(
+                set(leg["runs_on"]).issubset(
+                    {
+                        "vss-skill-eval-gpu",
+                        plan_matrix.OPENSHELL_RUNNER_LABEL,
+                        "openshell",
+                        "gpus-1",
+                        "gpus-2",
+                    }
+                ),
+                leg["runs_on"],
+            )
+            self.assertNotIn("openshell-h200-active", leg["runs_on"])
+            self.assertNotIn("gpu-h200", leg["runs_on"])
+            self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
+            self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
 
 
 class BuildMatrix(unittest.TestCase):
@@ -674,7 +684,27 @@ class OpenshellGpuFleet(unittest.TestCase):
             30,
         )
 
-    def test_every_openshell_job_carries_common_runner_label(self):
+    def test_openshell_job_labels_are_not_sku_specific(self):
+        one = plan_matrix.openshell_job_labels(1)
+        two = plan_matrix.openshell_job_labels(2)
+        self.assertEqual(
+            one,
+            ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-1"],
+        )
+        self.assertEqual(
+            two,
+            ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-2"],
+        )
+        sku = {
+            "h200", "a16", "a40", "rtx-pro-6000",
+            "gpu-h200", "gpu-nvidia-h200", "gpu-rtxpro6000bw",
+            "gpu-a16", "gpu-a40", "gpu-nvidia-a16", "gpu-nvidia-a40",
+            "openshell-h200-active", "openshell-a16-active",
+            "openshell-a40-active", "openshell-rtxpro6000-active",
+            "vram-15gb", "vram-46gb", "video-codec",
+        }
+        self.assertFalse(sku & set(one + two))
+        self.assertEqual(plan_matrix.openshell_job_labels(3), list(plan_matrix.SKIP_RUNNER))
         for labels in (
             plan_matrix.OPENSHELL_A16_LABELS,
             plan_matrix.OPENSHELL_A40_LABELS,
@@ -823,8 +853,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             counts,
             {
                 "brev": 54,
-                "h200-1g": 7,
-                "h200-2g": 4,
+                "rtxpro6000-2g": 11,
             },
         )
         self.assertEqual(sum(leg["local_gpu"] for leg in legs), 11)
@@ -861,16 +890,22 @@ class OpenshellGpuFleet(unittest.TestCase):
         for profile in ("A16", "A40", "H200", "RTXPRO6000BW"):
             self.assertEqual(plan_matrix.hardware_profile_for(profile), profile)
 
-    def test_harness_only_diff_emits_h200_smoke_leg(self):
+    def test_harness_only_diff_emits_rtx_smoke_leg(self):
         inc = plan_matrix.build_matrix([".github/workflows/skills-eval.yml"])
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["skill"], "vss-deploy-test-openshell")
         self.assertEqual(inc[0]["spec_stem"], "base")
-        self.assertEqual(inc[0]["platform"], "H200")
-        self.assertEqual(inc[0]["cohort"], "h200-1g")
-        self.assertIn("openshell-h200-active", inc[0]["runs_on"])
+        self.assertEqual(inc[0]["platform"], "RTXPRO6000BW")
+        self.assertEqual(inc[0]["cohort"], "rtxpro6000-2g")
+        self.assertEqual(
+            inc[0]["runs_on"],
+            plan_matrix.openshell_job_labels(inc[0]["gpu_count"]),
+        )
         self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, inc[0]["runs_on"])
+        self.assertNotIn("openshell-rtxpro6000-active", inc[0]["runs_on"])
         self.assertNotIn("gpu-rtxpro6000bw", inc[0]["runs_on"])
+        self.assertNotIn("openshell-h200-active", inc[0]["runs_on"])
+        self.assertNotIn("gpu-h200", inc[0]["runs_on"])
         self.assertEqual(inc[0]["kind"], "eval")
 
     def test_missing_metadata_is_visible_and_not_replaced_by_smoke(self):
