@@ -66,6 +66,18 @@ metadata:
 
 Before routing, detect the **entry mode** — one of three: **Prompt-driven**, **Pre-built workflow**, or **Custom build**. All three share the same downstream machinery (profile catalog, Foundation selection, delta composition, resolution, and deployment); the mode only determines where the flow enters. **Pre-built workflow** is a fast path — it deploys a validated developer profile's authoritative service set unchanged in Stock mode (**no capability delta**), still producing a minimal stock `_builds/<name>/` for the shared validate -> deploy -> readiness -> teardown lifecycle — while **Custom build** is a guided front door onto Delta mode.
 
+### Structured questions in NemoClaw
+
+When this skill runs inside the NemoClaw harness and the native
+`AskUserQuestion` tool is unavailable, use the foreground `exec` procedure in
+workspace `TOOLS.md` under **Asking a structured question**. Generate one fresh
+UUID, use it for both `env.VSS_HITL_INTERACTION_ID` and `interaction_id`, and
+set the exec timeout beyond the question timeout. The orchestrator call remains
+blocked until it is answered or expired; do not poll it through repeated model
+tool calls. Do not replace a required question with ordinary chat text:
+ordinary text completes the run and cannot resume the same in-flight tool call
+from the VSS sidebar.
+
 ### Exception — autonomous mode
 
 When **the caller's own instruction** says the run is autonomous ("deploy X

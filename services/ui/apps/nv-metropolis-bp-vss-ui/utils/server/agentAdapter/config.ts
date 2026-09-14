@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { strictJsonParse, isJsonObject } from "./json";
+import { accessSync, constants, statSync } from "node:fs";
 
 export type BackendProtocol = "openclaw-ws" | "responses" | "legacy-chat";
 
 export interface AgentAdapterConfig {
   backendProtocol: BackendProtocol;
   interactionsEnabled: boolean;
+  interactionBrokerDir?: string;
   backendUrl: string;
   backendPath: string;
   backendToken?: string;
@@ -208,6 +210,36 @@ export const loadAgentAdapterConfig = (
       "AGENT_INTERACTIONS_ENABLED is only supported with openclaw-ws"
     );
   }
+  const interactionBrokerDirRaw =
+    environment.AGENT_INTERACTION_BROKER_DIR?.trim() || "";
+  const interactionBrokerDir = interactionBrokerDirRaw || undefined;
+  if (
+    interactionBrokerDir &&
+    (!interactionBrokerDir.startsWith("/") ||
+      /\p{Cc}/u.test(interactionBrokerDir))
+  ) {
+    throw new ConfigError(
+      "AGENT_INTERACTION_BROKER_DIR must be an absolute path"
+    );
+  }
+  if (interactionBrokerDir && !interactionsEnabled) {
+    throw new ConfigError(
+      "AGENT_INTERACTION_BROKER_DIR requires AGENT_INTERACTIONS_ENABLED=true"
+    );
+  }
+  if (interactionBrokerDir) {
+    try {
+      if (!statSync(interactionBrokerDir).isDirectory()) throw new Error();
+      accessSync(
+        interactionBrokerDir,
+        constants.R_OK | constants.W_OK | constants.X_OK
+      );
+    } catch {
+      throw new ConfigError(
+        "AGENT_INTERACTION_BROKER_DIR must be an accessible directory"
+      );
+    }
+  }
   const backendUrl = validateUrl(
     rawUrl,
     "AGENT_BACKEND_URL",
@@ -296,6 +328,7 @@ export const loadAgentAdapterConfig = (
   return {
     backendProtocol,
     interactionsEnabled,
+    interactionBrokerDir,
     backendUrl,
     backendPath,
     backendToken: environment.AGENT_BACKEND_TOKEN?.trim() || undefined,

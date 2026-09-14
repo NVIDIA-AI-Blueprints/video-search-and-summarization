@@ -35,8 +35,10 @@ For direct Compose, copy the selected profile's `overrides.env` to the ignored
 `user-overrides.env` and set the same values there. OpenClaw uses
 `VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws`, a `ws://` or `wss://` URL, and path
 `/`. To enable structured mid-run questions, also set
-`VSS_AGENT_INTERACTIONS_ENABLED=true`; this requires OpenClaw 2026.8.1 or newer
-with the `operator.questions` scope. Never commit a real harness token. The
+`VSS_AGENT_INTERACTIONS_ENABLED=true`. NemoClaw uses the VSS Orchestrator MCP
+question broker and shared interaction mount; a BYO OpenClaw uses native
+questions and requires OpenClaw 2026.8.1 or newer with the
+`operator.questions` scope. Never commit a real harness token. The
 Compose service maps these host-side settings to the server-only `AGENT_*`
 variables shown below.
 

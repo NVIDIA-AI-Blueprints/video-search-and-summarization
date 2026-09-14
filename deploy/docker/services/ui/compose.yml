@@ -22,6 +22,9 @@ services:
     ports:
       - ${VSS_UI_HOST_PORT:-3000}:3000
     restart: always
+    group_add:
+      # Lets the non-root UI share broker envelopes with the host MCP process.
+      - ${VSS_AGENT_INTERACTION_BROKER_GID:-65532}
     extra_hosts:
       # Linux equivalent of Docker Desktop's host alias. Use it when the
       # configured harness endpoint is running on the Docker host.
@@ -46,6 +49,9 @@ services:
       # process. Backend credentials must never use NEXT_PUBLIC_*.
       AGENT_ADAPTER_ENABLED: ${VSS_AGENT_ADAPTER_ENABLED:-false}
       AGENT_INTERACTIONS_ENABLED: ${VSS_AGENT_INTERACTIONS_ENABLED:-false}
+      # Leave blank for a BYO OpenClaw with native question.* support. The
+      # NemoClaw notebook sets this to the mounted spool path.
+      AGENT_INTERACTION_BROKER_DIR: ${VSS_AGENT_INTERACTION_BROKER_CONTAINER_DIR:-}
       AGENT_BACKEND_PROTOCOL: ${VSS_AGENT_BACKEND_PROTOCOL:-responses}
       AGENT_BACKEND_URL: ${VSS_AGENT_BACKEND_URL:-}
       AGENT_BACKEND_PATH: ${VSS_AGENT_BACKEND_PATH:-}
@@ -155,3 +161,10 @@ services:
       NEXT_PUBLIC_ENABLE_SEARCH_TAB: ${NEXT_PUBLIC_ENABLE_SEARCH_TAB:-false}
       NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX: ${NEXT_PUBLIC_SEARCH_TAB_MEDIA_WITH_OBJECTS_BBOX:-true}
       # === End of Search Tab Configuration ===
+    volumes:
+      # Native OpenClaw uses the inert named volume. The NemoClaw orchestrator
+      # replaces the source with its prepared host spool in generated.env.
+      - ${VSS_AGENT_INTERACTION_BROKER_DIR:-vss-agent-interactions}:${VSS_AGENT_INTERACTION_BROKER_CONTAINER_DIR:-/var/lib/vss-agent-interactions}
+
+volumes:
+  vss-agent-interactions:

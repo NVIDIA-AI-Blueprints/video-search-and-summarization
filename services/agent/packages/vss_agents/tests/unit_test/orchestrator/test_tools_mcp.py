@@ -26,6 +26,7 @@ from unittest.mock import patch
 import pytest
 
 from vss_agents.orchestrator import tools as tools_mod
+from vss_agents.orchestrator.interaction_broker import AskUserQuestionInput
 from vss_agents.orchestrator.tools import ComposeAction
 from vss_agents.orchestrator.tools import ComposeArtifactsInput
 from vss_agents.orchestrator.tools import ComposeDownOperationInput
@@ -565,6 +566,26 @@ async def test_include_subset_exposes_only_requested_tools(tmp_path: Path):
         assert set(group._functions.keys()) == {"profiles"}
 
 
+@pytest.mark.asyncio
+async def test_ask_user_question_uses_configured_broker_dir(tmp_path: Path):
+    broker_dir = tmp_path / "broker"
+    config = _make_orchestrator_config(tmp_path, include=["ask_user_question"]).model_copy(
+        update={"interaction_broker_dir": str(broker_dir)}
+    )
+    expected = {"status": "answered", "answers": {"profile": ["base"]}}
+    request = AskUserQuestionInput.model_validate(
+        {
+            "interaction_id": "12345678-1234-4234-8234-123456789abc",
+            "questions": [{"question_id": "profile", "prompt": "Which profile?"}],
+        }
+    )
+    with patch("vss_agents.orchestrator.tools.ask_user_question", return_value=expected) as mock_ask:
+        async with vss_orchestrator(config, MagicMock()) as group:
+            result = await _call(group, "ask_user_question", request)
+    assert result == expected
+    mock_ask.assert_awaited_once_with(broker_dir, request)
+
+
 # ---------------------------------------------------------------------------
 # Easy coverage: startup, validation errors, docker_generate branches
 # ---------------------------------------------------------------------------
@@ -642,6 +663,8 @@ async def test_docker_up_missing_vss_data_dir(tmp_path: Path):
 async def test_docker_generate_applies_device_ids_from_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("LLM_DEVICE_ID", "2")
     monkeypatch.setenv("VLM_DEVICE_ID", "3")
+    monkeypatch.setenv("VSS_AGENT_INTERACTIONS_ENABLED", "true")
+    monkeypatch.setenv("VSS_AGENT_INTERACTION_BROKER_CONTAINER_DIR", "/var/lib/vss-agent-interactions")
     config = _make_orchestrator_config(tmp_path)
     builder = MagicMock()
     async with vss_orchestrator(config, builder) as group:
@@ -664,6 +687,10 @@ async def test_docker_generate_applies_device_ids_from_runtime(tmp_path: Path, m
     env_overrides = mock_recipe.call_args.kwargs["env_overrides"]
     assert env_overrides["LLM_DEVICE_ID"] == "2"
     assert env_overrides["VLM_DEVICE_ID"] == "3"
+    assert env_overrides["VSS_AGENT_INTERACTION_BROKER_CONTAINER_DIR"] == "/var/lib/vss-agent-interactions"
+    broker_dir = Path(config.output_dir).resolve() / "interactions"
+    assert env_overrides["VSS_AGENT_INTERACTION_BROKER_DIR"] == str(broker_dir)
+    assert env_overrides["VSS_AGENT_INTERACTION_BROKER_GID"] == str(broker_dir.stat().st_gid)
 
 
 @pytest.mark.asyncio

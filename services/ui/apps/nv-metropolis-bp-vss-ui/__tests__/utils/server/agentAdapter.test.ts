@@ -254,6 +254,31 @@ describe("embedded agent adapter", () => {
         AGENT_INTERACTIONS_ENABLED: "true",
       })?.interactionsEnabled
     ).toBe(true);
+    expect(() =>
+      loadAgentAdapterConfig({
+        AGENT_BACKEND_PROTOCOL: "openclaw-ws",
+        AGENT_BACKEND_URL: "ws://backend",
+        AGENT_INTERACTIONS_ENABLED: "true",
+        AGENT_INTERACTION_BROKER_DIR: "relative/interactions",
+      })
+    ).toThrow("AGENT_INTERACTION_BROKER_DIR must be an absolute path");
+    expect(
+      loadAgentAdapterConfig({
+        AGENT_BACKEND_PROTOCOL: "openclaw-ws",
+        AGENT_BACKEND_URL: "ws://backend",
+        AGENT_INTERACTIONS_ENABLED: "true",
+        AGENT_INTERACTION_BROKER_DIR: "/tmp",
+      })?.interactionBrokerDir
+    ).toBe("/tmp");
+    expect(() =>
+      loadAgentAdapterConfig({
+        AGENT_BACKEND_PROTOCOL: "openclaw-ws",
+        AGENT_BACKEND_URL: "ws://backend",
+        AGENT_INTERACTION_BROKER_DIR: "/tmp",
+      })
+    ).toThrow(
+      "AGENT_INTERACTION_BROKER_DIR requires AGENT_INTERACTIONS_ENABLED=true"
+    );
   });
 
   it("requires the global retention budget to cover event and thread limits", () => {

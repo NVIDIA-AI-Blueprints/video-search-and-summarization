@@ -8,6 +8,9 @@ import { OpenClawConnector } from "../../../utils/server/agentAdapter/connectors
 import { ResponsesConnector } from "../../../utils/server/agentAdapter/connectors/responses";
 import type { WebSocketLike } from "../../../utils/server/agentAdapter/connectors/websocket";
 import { parseCreateRunRequest } from "../../../utils/server/agentAdapter/contract";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 const config = (
   overrides: Partial<AgentAdapterConfig> = {},
@@ -349,6 +352,125 @@ class FakeOpenClawInteractionSocket
   }
 }
 
+class FakeOpenClawBrokerSocket extends EventTarget implements WebSocketLike {
+  readyState = 0;
+  binaryType: BinaryType = "arraybuffer";
+  readonly sent: Record<string, unknown>[] = [];
+  private sessionKey = "";
+  private readonly runId = "upstream-broker-run";
+
+  constructor(private readonly includeInteractionMarker = true) {
+    super();
+    queueMicrotask(() => {
+      this.readyState = 1;
+      this.dispatchEvent(new Event("open"));
+      this.message({
+        type: "event",
+        event: "connect.challenge",
+        payload: { nonce: "nonce", ts: 1 },
+      });
+    });
+  }
+
+  private message(payload: Record<string, unknown>): void {
+    this.dispatchEvent(
+      new MessageEvent("message", { data: JSON.stringify(payload) }),
+    );
+  }
+
+  send(data: string): void {
+    const frame = JSON.parse(data) as Record<string, unknown>;
+    this.sent.push(frame);
+    const params = frame.params as Record<string, unknown>;
+    if (frame.method === "connect") {
+      queueMicrotask(() =>
+        this.message({
+          type: "res",
+          id: frame.id,
+          ok: true,
+          payload: {
+            type: "hello-ok",
+            protocol: 4,
+            auth: {
+              role: "operator",
+              scopes: ["operator.read", "operator.write"],
+            },
+            features: {
+              methods: ["chat.send", "chat.abort"],
+              events: ["chat", "session.tool"],
+            },
+          },
+        }),
+      );
+    } else if (frame.method === "chat.send") {
+      this.sessionKey = String(params.sessionKey);
+      queueMicrotask(() => {
+        this.message({
+          type: "res",
+          id: frame.id,
+          ok: true,
+          payload: { runId: this.runId, status: "accepted" },
+        });
+        this.message({
+          type: "event",
+          event: "session.tool",
+          payload: {
+            sessionKey: this.sessionKey,
+            runId: this.runId,
+            data: {
+              phase: "start",
+              name: "exec",
+              toolCallId: "broker-tool-1",
+              args: {
+                command:
+                  "curl vss_orchestrator__ask_user_question with request JSON",
+                env: this.includeInteractionMarker
+                  ? {
+                      VSS_HITL_INTERACTION_ID:
+                        "12345678-1234-4234-8234-123456789abc",
+                    }
+                  : {},
+                timeout: 930,
+              },
+            },
+          },
+        });
+      });
+    }
+  }
+
+  complete(): void {
+    this.message({
+      type: "event",
+      event: "session.tool",
+      payload: {
+        sessionKey: this.sessionKey,
+        runId: this.runId,
+        data: {
+          phase: "result",
+          name: "exec",
+          toolCallId: "broker-tool-1",
+          result: { status: "answered" },
+        },
+      },
+    });
+    this.message({
+      type: "event",
+      event: "chat",
+      payload: {
+        sessionKey: this.sessionKey,
+        runId: this.runId,
+        state: "final",
+      },
+    });
+  }
+
+  close(): void {
+    this.readyState = 3;
+    this.dispatchEvent(new Event("close"));
+  }
+}
+
 describe("embedded adapter connectors", () => {
   const originalFetch = global.fetch;
 
@@ -566,6 +688,137 @@ describe("embedded adapter connectors", () => {
     ).rejects.toMatchObject({
       code: "unsupported_backend_interactions",
     });
+  });
+
+  it("resumes NemoClaw through the Orchestrator question broker", async () => {
+    const brokerDir = await mkdtemp(path.join(os.tmpdir(), "vss-hitl-"));
+    const interactionId = "12345678-1234-4234-8234-123456789abc";
+    const socket = new FakeOpenClawBrokerSocket();
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        interactionsEnabled: true,
+        interactionBrokerDir: brokerDir,
+        backendUrl: "ws://agent.local",
+        backendPath: "/",
+      }),
+      () => socket,
+    );
+    try {
+      const iterator = connector.run(
+        requestWithInstructions,
+        "run-1",
+        new AbortController().signal,
+      );
+      expect((await iterator.next()).value).toMatchObject({
+        type: "tool.started",
+      });
+      await writeFile(
+        path.join(brokerDir, `${interactionId}.request.json`),
+        JSON.stringify({
+          version: 1,
+          interaction_id: interactionId,
+          questions: [
+            {
+              question_id: "profile",
+              header: "Profile",
+              prompt: "Which deployment profile?",
+              options: [
+                { label: "Base", description: "Dense captioning" },
+                { label: "Search", description: "Agentic search" },
+              ],
+              multi_select: false,
+              allow_other: false,
+            },
+          ],
+          timeout_seconds: 900,
+          created_at_ms: Date.now(),
+          expires_at_ms: Date.now() + 900_000,
+        }),
+      );
+      expect((await iterator.next()).value).toMatchObject({
+        type: "interaction.required",
+        data: {
+          interaction_id: interactionId,
+          questions: [{ question_id: "profile", allow_other: false }],
+        },
+      });
+      let responseSettled = false;
+      const responsePromise = connector
+        .respond("run-1", {
+          interactionId,
+          answers: { profile: [" Search "] },
+        })
+        .finally(() => {
+          responseSettled = true;
+        });
+      const responsePath = path.join(
+        brokerDir,
+        `${interactionId}.response.json`,
+      );
+      let response: Record<string, unknown> | undefined;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          response = JSON.parse(await readFile(responsePath, "utf8"));
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      }
+      expect(response).toEqual({
+        version: 1,
+        interaction_id: interactionId,
+        answers: { profile: ["Search"] },
+      });
+      expect(responseSettled).toBe(false);
+      await writeFile(
+        path.join(brokerDir, `${interactionId}.ack.json`),
+        JSON.stringify({
+          ...response,
+          status: "answered",
+        }),
+      );
+      await responsePromise;
+      socket.complete();
+      expect((await iterator.next()).value).toMatchObject({
+        type: "tool.completed",
+      });
+      expect((await iterator.next()).done).toBe(true);
+      const connect = socket.sent.find((frame) => frame.method === "connect");
+      expect((connect?.params as Record<string, unknown>).scopes).toEqual([
+        "operator.read",
+        "operator.write",
+      ]);
+    } finally {
+      await rm(brokerDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an uncorrelated NemoClaw question exec", async () => {
+    const brokerDir = await mkdtemp(path.join(os.tmpdir(), "vss-hitl-"));
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        interactionsEnabled: true,
+        interactionBrokerDir: brokerDir,
+        backendUrl: "ws://agent.local",
+        backendPath: "/",
+      }),
+      () => new FakeOpenClawBrokerSocket(false),
+    );
+    try {
+      const iterator = connector.run(
+        requestWithInstructions,
+        "run-1",
+        new AbortController().signal,
+      );
+      await expect(iterator.next()).rejects.toMatchObject({
+        code: "invalid_backend_interaction",
+      });
+    } finally {
+      await rm(brokerDir, { recursive: true, force: true });
+    }
   });
 
   it("fails closed for OpenClaw secret-store questions", async () => {

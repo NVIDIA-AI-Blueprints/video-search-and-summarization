@@ -15,7 +15,8 @@
 
 """VSS Orchestrator MCP function group.
 
-Exposes nine tools that wrap the orchestrator utilities:
+Exposes ten tools that wrap the orchestrator utilities:
+  - ask_user_question: block for a structured answer from the VSS UI
   - profiles: list all supported deployment profiles
   - prereqs: run Docker/GPU prerequisite checks
   - docker_generate : resolve env + compose YAML artifacts
@@ -69,6 +70,9 @@ from .docker_compose_util import generate_dry_run_artifacts
 from .docker_compose_util import parse_env_file
 from .docker_compose_util import parse_env_overrides
 from .docker_compose_util import resolve_and_apply_profile_mode
+from .interaction_broker import AskUserQuestionInput
+from .interaction_broker import ask_user_question
+from .interaction_broker import prepare_interaction_broker
 from .prereqs_check import run_prereqs_checks
 from .storage import ensure_alerts_engine_directories
 from .storage import ensure_data_directories
@@ -275,6 +279,10 @@ class OrchestratorRuntimeSettings(BaseSettings):
     vlm_endpoint_url: str = Field(default="", validation_alias="VLM_ENDPOINT_URL")
     vlm_model_type: str = Field(default="", validation_alias="VLM_MODEL_TYPE")
     llm_enable_thinking: str = Field(default="", validation_alias="LLM_ENABLE_THINKING")
+    interaction_broker_container_dir: str = Field(
+        default="", validation_alias="VSS_AGENT_INTERACTION_BROKER_CONTAINER_DIR"
+    )
+    agent_interactions_enabled: bool = Field(default=False, validation_alias="VSS_AGENT_INTERACTIONS_ENABLED")
     # Outer/profile-level knob; hw-*.env files bridge this to NIM-internal NIM_KVCACHE_PERCENT.
     nim_kvcache_percent: str = Field(default="", validation_alias="VLM_NIM_KVCACHE_PERCENT")
     rtvi_vllm_gpu_memory_utilization: str = Field(default="", validation_alias="RTVI_VLLM_GPU_MEMORY_UTILIZATION")
@@ -436,6 +444,13 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
             "compose.resolved.<docker_compose_id>.dry-run.yml)."
         )
     )
+    interaction_broker_dir: str = Field(
+        default="",
+        description=(
+            "Shared host directory used by the blocking ask_user_question tool and "
+            "the VSS UI agent adapter. Defaults to <output_dir>/interactions."
+        ),
+    )
     mdx_data_directories: tuple[str, ...] = Field(
         ...,
         description="Relative subdirectories created under VSS_DATA_DIR for all profiles by docker_generate.",
@@ -463,6 +478,7 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
             "docker_up",
             "docker_status",
             "docker_down",
+            "ask_user_question",
         ],
         description="Subset of tools to expose. All tools are included by default.",
     )
@@ -592,9 +608,21 @@ async def vss_orchestrator(
     # ---------------------------------------------------------------------------
 
     configured_output_dir = resolve_config_path(_config.output_dir)
+    interaction_broker_dir = (
+        resolve_config_path(_config.interaction_broker_dir)
+        if _config.interaction_broker_dir
+        else configured_output_dir / "interactions"
+    )
     mdx_data_dir = resolve_config_path(_config.mdx_data_dir)
     configured_mdx_data_directories = tuple(_config.mdx_data_directories)
     configured_model_resolution = _config.model_resolution
+
+    try:
+        interaction_broker_gid = prepare_interaction_broker(interaction_broker_dir)
+    except (OSError, RuntimeError) as exc:
+        raise RuntimeError(
+            f"Startup interaction broker directory bootstrap failed for '{interaction_broker_dir}': {exc}"
+        ) from exc
 
     # Bootstrap required data directories as soon as config is loaded, so MCP
     # server startup fails fast if any directory cannot be created.
@@ -1046,6 +1074,27 @@ async def vss_orchestrator(
         group.add_function(name="prereqs", fn=_prereqs, description=_prereqs.__doc__)
 
     # ---------------------------------------------------------------------------
+    # Tool: ask_user_question
+    # ---------------------------------------------------------------------------
+
+    if "ask_user_question" in _config.include:
+
+        async def _ask_user_question(input: AskUserQuestionInput) -> dict:
+            """Ask one to three structured questions and wait for the VSS UI user's answer.
+
+            Use this whenever progress requires user input during a run. Generate a
+            fresh UUID for interaction_id. This call remains blocked until the VSS
+            UI answers or timeout_seconds expires; do not start another run.
+            """
+            return await ask_user_question(interaction_broker_dir, input)
+
+        group.add_function(
+            name="ask_user_question",
+            fn=_ask_user_question,
+            description=_ask_user_question.__doc__,
+        )
+
+    # ---------------------------------------------------------------------------
     # Tool: docker_generate
     # ---------------------------------------------------------------------------
 
@@ -1070,6 +1119,19 @@ async def vss_orchestrator(
                 docker_compose_id = f"{input.profile}-{uuid4().hex[:8]}"
                 env_path, compose_path = _resolve_output_paths(docker_compose_id)
                 env_overrides = parse_env_overrides(input.env_overrides)
+                if runtime_settings.agent_interactions_enabled:
+                    env_overrides.setdefault(
+                        "VSS_AGENT_INTERACTION_BROKER_CONTAINER_DIR",
+                        runtime_settings.interaction_broker_container_dir or "/var/lib/vss-agent-interactions",
+                    )
+                    env_overrides.setdefault(
+                        "VSS_AGENT_INTERACTION_BROKER_DIR",
+                        str(interaction_broker_dir),
+                    )
+                    env_overrides.setdefault(
+                        "VSS_AGENT_INTERACTION_BROKER_GID",
+                        str(interaction_broker_gid),
+                    )
                 # Honor LLM_DEVICE_ID / VLM_DEVICE_ID from the runtime settings, but NOT
                 # for edge hardware profiles.
                 effective_hardware_profile = (
