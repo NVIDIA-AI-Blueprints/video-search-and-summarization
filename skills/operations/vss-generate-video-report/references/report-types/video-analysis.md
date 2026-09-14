@@ -300,9 +300,12 @@ case "$VIDEO_SRC" in
   data:*,) echo "ERROR: VIDEO_DATA_URL carries no base64 payload (empty or unreadable VIDEO_FILE / VIDEO_B64_FILE)" >&2; exit 1 ;;
 esac
 
-curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/completions" \
+# Keep the raw response: classify transport / HTTP / API failures BEFORE treating anything as report text.
+VLM_BODY=$(mktemp) || exit 1
+trap 'rm -f "$VLM_BODY"' EXIT
+CODE=$(curl -sS --connect-timeout 5 --max-time 120 -o "$VLM_BODY" -w '%{http_code}' -X POST "${VLM_ENDPOINT}/chat/completions" \
   -H "Content-Type: application/json" \
-  -d @- <<EOF | jq -r '.choices[0].message.content'
+  -d @- <<EOF
 {
   "model": $(printf '%s' "${VLM_MODEL}" | jq -Rs .),
   "messages": [
@@ -318,13 +321,26 @@ curl -s --connect-timeout 5 --max-time 120 -X POST "${VLM_ENDPOINT}/chat/complet
   "temperature": 0.0${MM_KWARGS}
 }
 EOF
+) || { echo "VLM chat/completions: curl failed (transport error above)" >&2; cat "$VLM_BODY" >&2; exit 1; }
+case "$CODE" in
+  2??) ;;
+  *) echo "VLM chat/completions failed: HTTP $CODE" >&2; cat "$VLM_BODY" >&2; exit 1 ;;
+esac
+# The report body is the text AFTER the first </think> of a Cosmos Reason reasoning block, trimmed. Failures
+# (surface per SKILL.md § Error Handling, never render): an error envelope, an empty body, null or list-typed
+# content, a reasoning-only answer, or a <think> block left unclosed because max_tokens cut the answer off.
+jq -er '.choices[0].message.content | select(type=="string")
+        | split("</think>") | (if length > 1 then .[1:] | join("</think>") else .[0] end)
+        | select(test("<think>") | not)
+        | sub("^\\s+"; "") | sub("\\s+$"; "") | select(length>0)' "$VLM_BODY" \
+  || { echo "VLM chat/completions returned no report text (error envelope, empty body, null / list-typed content, reasoning-only, or an unclosed <think> block — truncated by max_tokens?)" >&2; cat "$VLM_BODY" >&2; exit 1; }
 ```
 
 For Mode A path A2 (inline bytes), run the same Step 3 block with `VIDEO_DATA_URL` (Step 1) set at its top instead of `VIDEO_URL`; the block sends whichever is set, so the HITL guard, prompt resolution, `CFG_JSON` and `MM_KWARGS` apply to A2 unchanged. Because the block is a fresh shell, build the data URL there too — for a local file: `[ -s "$VIDEO_FILE" ] || exit 1; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(base64 < "$VIDEO_FILE" | tr -d '\n')"` (the `tr` strips the line wrapping GNU `base64` adds, which would otherwise corrupt the data URL); for user-supplied base64 written to `VIDEO_B64_FILE`: `[ -s "$VIDEO_B64_FILE" ] || exit 1; VIDEO_DATA_URL="data:${VIDEO_MIME:-video/mp4};base64,$(tr -d '[:space:]' < "$VIDEO_B64_FILE")"`.
 
 > The kwargs block is backend-aware: on `nim_cosmos`, Reason2 variants (`nvidia/cosmos-reason2*`) use `mm_processor_kwargs.size{shortest_edge,longest_edge}` and other NIM Cosmos variants (`nvidia/cosmos*`) use `mm_processor_kwargs.videos_kwargs{min_pixels,max_pixels}`; both also send `media_io_kwargs.video.num_frames`. On `rtvlm`, no Cosmos kwargs are sent.
 
-If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), keep only the text after `</think>` as the report body.
+If the VLM returns a `<think>…</think>` block (Cosmos Reason reasoning mode), the block above already prints only the text after the first `</think>` as the report body and exits non-zero when nothing follows it or when the block was left unclosed (answer truncated by `max_tokens`).
 
 ### Step 4 — Fill the Video Analysis Report template
 
