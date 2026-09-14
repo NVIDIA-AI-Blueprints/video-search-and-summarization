@@ -42,7 +42,7 @@ metadata:
       ^/rtvi-vlm$ /
       ^/phoenix/(.*) /\1
       ^/phoenix$ /
-      /llm/(.*) /\1
+      ^/llm/(.*) /\1
       ^/llm$ /
 spec:
   ingressClassName: haproxy

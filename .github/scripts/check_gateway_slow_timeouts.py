@@ -113,11 +113,29 @@ SLOW_BACKENDS = {
         "why": (
             "POST /api/v1/videos/<sensor>/complete blocks on RT-Embed generation for the agent's "
             "own 600s client timeout plus the VST calls around it, and the ingest contract in "
-            "skills/operations/vss-search-archive bounds that request at 900s -- above the "
-            "default, so the edge is what truncates it"
+            "skills/operations/vss-search-archive bounds that request at 900s; an interactive "
+            "chat turn on the same backend waits on whatever tools it calls and runs longer "
+            "still -- either way the edge is what truncates it"
         ),
         "helm": "services/agent/charts/agent",
         "key": "vss-agent",
+    },
+    "bk_vss_ui": {
+        "why": (
+            "/api/vss-chat proxies through the UI to the agent, so this backend carries a whole "
+            "agent turn and outlasts the default whenever a tool does"
+        ),
+        # No Helm counterpart to compare against: services/ui's Service template
+        # has no `ingressTimeoutServer` hook, so unlike the agent chart there is
+        # nothing for rule 5 to read. The raise arrived with #2152, which scoped
+        # its own Docker-vs-Helm assertion (deploy/tests/test_agent_edge_timeout.py)
+        # to the agent chart for the same reason. Recorded here so the registry
+        # does not fall behind the config; the Kubernetes side of this route is a
+        # real asymmetry rather than a solved one, and closing it means adding the
+        # annotation to services/ui and re-vendoring the four profiles that
+        # package it -- deliberately not done as a drive-by.
+        "helm": None,
+        "key": None,
     },
     "bk_rtvi_embed_strip": {
         "why": (
