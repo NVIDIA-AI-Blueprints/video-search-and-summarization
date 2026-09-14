@@ -157,11 +157,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   );
 
   const requestInteraction = useCallback(
-    (request: InteractionRequest) =>
+    (request: InteractionRequest, originatingConversationId: string) =>
       new Promise<InteractionAnswer>((resolve) => {
         const pending = {
           request,
-          conversationId: conversationIdRef.current,
+          conversationId: originatingConversationId,
         };
         pendingInteractionRef.current = pending;
         setPendingInteraction(pending);

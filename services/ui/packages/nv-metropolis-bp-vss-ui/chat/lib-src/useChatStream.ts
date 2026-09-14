@@ -46,7 +46,10 @@ export interface UseChatStreamOptions {
   onAnswer?: (answer: string) => CallerInfo | boolean | void;
   onAnswerComplete?: () => void;
   onBusyChange?: (busy: boolean) => void;
-  onInteraction?: (interaction: InteractionRequest) => Promise<InteractionAnswer>;
+  onInteraction?: (
+    interaction: InteractionRequest,
+    conversationId: string,
+  ) => Promise<InteractionAnswer>;
   onInteractionResolved?: (interactionId: string) => void;
   /** Called when the turn's conversation is no longer the selected one. */
   isConversationStale?: (uploadConversationId: string) => boolean;
@@ -188,7 +191,44 @@ export function useChatStream(
       const artifactEnvelopes: string[] = [];
       const steps: ChatStep[] = [];
       const activeStructuredInteractions = new Set<string>();
+      const resolvedStructuredInteractions = new Set<string>();
+      const interactionResolutionWaiters = new Map<string, Set<(resolved: boolean) => void>>();
       let interactionFailure: unknown;
+      const turnConversationId = endpointRef.current.conversationId;
+
+      const markStructuredInteractionResolved = (interactionId: string): void => {
+        resolvedStructuredInteractions.add(interactionId);
+        for (const resolve of interactionResolutionWaiters.get(interactionId) ?? []) {
+          resolve(true);
+        }
+        interactionResolutionWaiters.delete(interactionId);
+      };
+
+      const waitForStructuredInteractionResolution = (
+        interactionId: string,
+        timeoutMs = 5_000,
+      ): Promise<boolean> => {
+        if (resolvedStructuredInteractions.has(interactionId)) return Promise.resolve(true);
+        return new Promise((resolve) => {
+          let settled = false;
+          const finish = (resolved: boolean): void => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            controller.signal.removeEventListener('abort', aborted);
+            const waiters = interactionResolutionWaiters.get(interactionId);
+            waiters?.delete(finish);
+            if (waiters?.size === 0) interactionResolutionWaiters.delete(interactionId);
+            resolve(resolved);
+          };
+          const aborted = (): void => finish(false);
+          const timeout = setTimeout(() => finish(false), timeoutMs);
+          const waiters = interactionResolutionWaiters.get(interactionId) ?? new Set();
+          waiters.add(finish);
+          interactionResolutionWaiters.set(interactionId, waiters);
+          controller.signal.addEventListener('abort', aborted, { once: true });
+        });
+      };
 
       const beginStructuredInteraction = (
         interaction: Extract<InteractionRequest, { questions: unknown }>,
@@ -199,7 +239,7 @@ export function useChatStream(
         }
         activeStructuredInteractions.add(interaction.interaction_id);
         void (async () => {
-          const interactionAnswer = await answerInteraction(interaction);
+          const interactionAnswer = await answerInteraction(interaction, turnConversationId);
           if (interactionAnswer === null) return;
           if (typeof interactionAnswer === 'string') {
             throw new Error('Structured agent interaction UI returned an invalid response');
@@ -216,7 +256,15 @@ export function useChatStream(
               response: interactionAnswer,
             }),
           });
-          if (!response.ok) {
+          // Another OpenClaw operator may win the resolution race after the
+          // local Submit. A matching interaction.resolved event is definitive:
+          // keep consuming the resumed run instead of turning the late 409 into
+          // an abort/cancel. Uncorrelated conflicts still fail normally.
+          if (
+            !response.ok &&
+            (response.status !== 409 ||
+              !(await waitForStructuredInteractionResolution(interaction.interaction_id)))
+          ) {
             throw new Error(`interaction response returned HTTP ${response.status}`);
           }
         })()
@@ -251,7 +299,7 @@ export function useChatStream(
               beginStructuredInteraction(ev.interaction, answerInteraction);
               continue;
             }
-            const interactionAnswer = await answerInteraction(ev.interaction);
+            const interactionAnswer = await answerInteraction(ev.interaction, turnConversationId);
             if (interactionAnswer === null) continue;
             if (ev.interaction.prompt.input_type !== 'text') {
               throw new Error(`Unsupported interaction type: ${ev.interaction.prompt.input_type}`);
@@ -275,6 +323,7 @@ export function useChatStream(
               throw new Error(`interaction response returned HTTP ${interactionResponse.status}`);
             }
           } else if (ev.kind === 'interaction-resolved') {
+            markStructuredInteractionResolved(ev.interactionId);
             activeStructuredInteractions.delete(ev.interactionId);
             optionsRef.current.onInteractionResolved?.(ev.interactionId);
           } else if (ev.kind === 'error') {
@@ -428,6 +477,10 @@ export function useChatStream(
           error: aborted ? 'cancelled' : reported instanceof Error ? reported.message : String(reported),
         }));
       } finally {
+        for (const waiters of interactionResolutionWaiters.values()) {
+          for (const resolve of waiters) resolve(false);
+        }
+        interactionResolutionWaiters.clear();
         for (const interactionId of activeStructuredInteractions) {
           optionsRef.current.onInteractionResolved?.(interactionId);
         }

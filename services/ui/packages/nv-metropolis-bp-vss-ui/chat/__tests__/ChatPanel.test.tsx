@@ -72,13 +72,45 @@ function gatedSseResponse(initial: string[], continuation: Promise<string[]>): R
   } as unknown as Response;
 }
 
-function agentApiFrame(type: string, data: Record<string, unknown>, id: number): string {
+/** Stream a sequence of immediate or externally released SSE stages. */
+function stagedSseResponse(stages: Array<string[] | Promise<string[]>>): Response {
+  const encoder = new TextEncoder();
+  let stageIndex = 0;
+  let chunks: string[] = [];
+  let chunkIndex = 0;
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      getReader: () => ({
+        read: async () => {
+          while (chunkIndex >= chunks.length) {
+            if (stageIndex >= stages.length) {
+              return { done: true, value: undefined };
+            }
+            chunks = await stages[stageIndex++];
+            chunkIndex = 0;
+          }
+          return { done: false, value: encoder.encode(chunks[chunkIndex++]) };
+        },
+        releaseLock: () => {},
+      }),
+    },
+  } as unknown as Response;
+}
+
+function agentApiFrame(
+  type: string,
+  data: Record<string, unknown>,
+  id: number,
+  threadId = 'thread_1',
+): string {
   return `id: ${id}\nevent: ${type}\ndata: ${JSON.stringify({
     protocol_version: '1.0',
     id: String(id),
     type,
     run_id: 'run_1',
-    thread_id: 'thread_1',
+    thread_id: threadId,
     data,
   })}\n\n`;
 }
@@ -664,6 +696,216 @@ describe('ChatPanel', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps a run alive when another client resolves during local submission', async () => {
+    const now = Date.now();
+    let releaseEvents!: () => void;
+    const continuation = new Promise<string[]>((resolve) => {
+      releaseEvents = () =>
+        resolve([
+          agentApiFrame(
+            'interaction.resolved',
+            { interaction_id: 'question-race', status: 'answered' },
+            3,
+          ),
+          agentApiFrame('message.delta', { delta: 'continued after remote answer' }, 4),
+          agentApiFrame('run.completed', {}, 5),
+        ]);
+    });
+    const eventsResponse = gatedSseResponse(
+      [
+        agentApiFrame('run.started', {}, 1),
+        agentApiFrame(
+          'interaction.required',
+          {
+            interaction_id: 'question-race',
+            kind: 'questions',
+            created_at_ms: now,
+            expires_at_ms: now + 60_000,
+            questions: [
+              {
+                question_id: 'profile',
+                header: 'Profile',
+                prompt: 'Which deployment profile?',
+                options: [{ label: 'buarch' }, { label: 'smartcities' }],
+                multi_select: false,
+                allow_other: false,
+                secret: false,
+              },
+            ],
+          },
+          2,
+        ),
+      ],
+      continuation,
+    );
+    const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/agent/runs') {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+            respond_url: '/api/agent/runs/run_1/respond',
+          }),
+        } as Response;
+      }
+      if (input === '/api/agent/runs/run_1/events') return eventsResponse;
+      if (input === '/api/agent/runs/run_1/respond') {
+        releaseEvents();
+        // Let the matching interaction.resolved frame win the race before the
+        // late response reaches the submitter.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return { ok: false, status: 409 } as Response;
+      }
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    global.fetch = fetchMock as any;
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          surface: 'vss-ui-main',
+          conversationId: 'thread_1',
+        }}
+        features={noHeader}
+      />,
+    );
+    await act(async () => typeAndSend('deploy VSS'));
+
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('hitl-option-profile-0'));
+    await act(async () => fireEvent.click(screen.getByTestId('hitl-modal-submit')));
+
+    await waitFor(() =>
+      expect(screen.getByText('continued after remote answer')).toBeInTheDocument(),
+    );
+    expect(fetchMock.mock.calls.map(([input]) => input)).not.toContain(
+      '/api/agent/runs/run_1/cancel',
+    );
+    expect(screen.queryByText('interaction response returned HTTP 409')).not.toBeInTheDocument();
+  });
+
+  it('keeps a delayed structured question with the conversation that started the run', async () => {
+    const now = Date.now();
+    let runThreadId = '';
+    let eventsResponse: Response | undefined;
+    let releaseQuestion!: () => void;
+    let releaseCompletion!: () => void;
+    const questionStage = new Promise<string[]>((resolve) => {
+      releaseQuestion = () =>
+        resolve([
+          agentApiFrame(
+            'interaction.required',
+            {
+              interaction_id: 'question-delayed',
+              kind: 'questions',
+              created_at_ms: now,
+              expires_at_ms: now + 60_000,
+              questions: [
+                {
+                  question_id: 'profile',
+                  header: 'Profile',
+                  prompt: 'Which delayed profile?',
+                  options: [{ label: 'buarch' }, { label: 'smartcities' }],
+                  multi_select: false,
+                  allow_other: false,
+                  secret: false,
+                },
+              ],
+            },
+            2,
+            runThreadId,
+          ),
+        ]);
+    });
+    const completionStage = new Promise<string[]>((resolve) => {
+      releaseCompletion = () =>
+        resolve([
+          agentApiFrame(
+            'interaction.resolved',
+            { interaction_id: 'question-delayed', status: 'answered' },
+            3,
+            runThreadId,
+          ),
+          agentApiFrame(
+            'message.delta',
+            { delta: 'finished in the original chat' },
+            4,
+            runThreadId,
+          ),
+          agentApiFrame('run.completed', {}, 5, runThreadId),
+        ]);
+    });
+    const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/api/agent/runs') {
+        runThreadId = JSON.parse(String(init?.body)).thread_id;
+        eventsResponse = stagedSseResponse([
+          [agentApiFrame('run.started', {}, 1, runThreadId)],
+          questionStage,
+          completionStage,
+        ]);
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            run_id: 'run_1',
+            events_url: '/api/agent/runs/run_1/events',
+            cancel_url: '/api/agent/runs/run_1/cancel',
+            respond_url: '/api/agent/runs/run_1/respond',
+          }),
+        } as Response;
+      }
+      if (input === '/api/agent/runs/run_1/events') return eventsResponse!;
+      if (input === '/api/agent/runs/run_1/respond') {
+        releaseCompletion();
+        return { ok: true, status: 202 } as Response;
+      }
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    global.fetch = fetchMock as any;
+    const onControlsReady = jest.fn();
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          surface: 'vss-ui-main',
+        }}
+        features={noHeader}
+        onControlsReady={onControlsReady}
+      />,
+    );
+    await waitFor(() => expect(onControlsReady).toHaveBeenCalled());
+    const controls = () => onControlsReady.mock.calls.at(-1)![0];
+    const originatingId = controls().selectedConversationId;
+    await act(async () => controls().onNewConversation());
+    const otherId = controls().selectedConversationId;
+    await act(async () => controls().onSelectConversation(originatingId));
+    await waitFor(() => expect(controls().selectedConversationId).toBe(originatingId));
+    await act(async () => typeAndSend('deploy VSS'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    await act(async () => controls().onSelectConversation(otherId));
+    await waitFor(() => expect(controls().selectedConversationId).toBe(otherId));
+    await act(async () => releaseQuestion());
+    expect(screen.queryByTestId('hitl-modal')).not.toBeInTheDocument();
+
+    await act(async () => controls().onSelectConversation(originatingId));
+    await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
+    expect(screen.getByText('Which delayed profile?')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('hitl-option-profile-0'));
+    await act(async () => fireEvent.click(screen.getByTestId('hitl-modal-submit')));
+
+    await waitFor(() =>
+      expect(screen.getByText('finished in the original chat')).toBeInTheDocument(),
+    );
+  });
+
   it('folds a context chip into the request and clears it after sending', async () => {
     const fetchMock = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
     global.fetch = fetchMock as any;
@@ -753,15 +995,17 @@ describe('ChatPanel', () => {
   });
 
   it('keeps workflow children visible when a start frame is replaced by completion', async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      sseResponse([
-        'intermediate_data: {"id":"workflow","name":"Function Start: <workflow>","parent_id":"root"}\n',
-        'intermediate_data: {"id":"model","name":"nvidia/model","parent_id":"workflow"}\n',
-        'intermediate_data: {"id":"workflow","name":"Function Complete: <workflow>","parent_id":"root","status":"complete"}\n',
-        'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
-        'data: [DONE]\n\n',
-      ]),
-    ) as any;
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          'intermediate_data: {"id":"workflow","name":"Function Start: <workflow>","parent_id":"root"}\n',
+          'intermediate_data: {"id":"model","name":"nvidia/model","parent_id":"workflow"}\n',
+          'intermediate_data: {"id":"workflow","name":"Function Complete: <workflow>","parent_id":"root","status":"complete"}\n',
+          'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ) as any;
 
     render(<ChatPanel endpoint={endpoint} features={noHeader} />);
     await act(async () => typeAndSend('run'));
