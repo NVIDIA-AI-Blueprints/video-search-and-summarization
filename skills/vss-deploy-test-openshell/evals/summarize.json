@@ -8,9 +8,6 @@
     "platforms": {
       "RTXPRO6000BW": {
         "gpu_count": 1
-      },
-      "H200": {
-        "gpu_count": 1
       }
     }
   },
@@ -37,8 +34,7 @@
     "multi_gpu_capable": false,
     "requires_blackwell": false,
     "supported_hardware_profiles": [
-      "RTXPRO6000BW",
-      "H200"
+      "RTXPRO6000BW"
     ]
   }
 }
