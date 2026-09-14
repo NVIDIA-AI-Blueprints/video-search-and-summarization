@@ -893,7 +893,7 @@ Each span carries its attributes, such as `category`, `sensorId`, `pipeline_mode
 
 Trace context is read from Kafka records. When an upstream producer stamps a W3C `traceparent` header, the root span for that record continues the caller's trace. One trace then spans the producer and the Alerts Microservice. Records without the header start their own trace. Each record uses its own header, so a batch carrying several callers is not collapsed onto one of them. REST requests carrying a `traceparent` header are joined the same way.
 
-The same mechanism joins the Alerts Microservice with the Real-Time VLM microservice, which also exports OpenTelemetry traces. A record it produces with a `traceparent` header, or a REST call it receives from the Alerts Microservice and joins, places both services in one trace. Today its records carry no header, so the two services appear as separate traces in the same backend.
+The same mechanism can join the Alerts Microservice with the Real-Time VLM microservice, which also exports OpenTelemetry traces. Neither path is wired today: the records it produces carry no `traceparent` header, and its HTTP server does not read the header that the Alerts Microservice sends on REST calls. Until one of them is added, the two services appear as separate traces in the same backend.
 
 The current propagation boundaries are:
 
