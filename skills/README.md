@@ -215,3 +215,5 @@ To uninstall skills, paste the following prompt:
 ## Source of truth
 
 This `skills/` directory is the canonical source. Skills published to the public catalog at `github.com/nvidia/skills` are mirrored from here at sync time.
+
+**Deprecated skills are still mirrored.** A skill marked deprecated continues to sync to the public catalog for one release carrying its deprecation notice, so anyone who already installed it sees the redirect before it disappears. It is dropped from the catalog in the release that deletes it from this directory.
