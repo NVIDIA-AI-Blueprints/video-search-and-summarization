@@ -13,39 +13,33 @@ are in [MEMORY.md](MEMORY.md).
 ## Run it
 
 ```bash
-cd services/agent
-uv run --no-dev --extra cli vss --help
+cd libs/vss
+uv run vss --help
 ```
 
-`uv run` syncs `services/agent/.venv` on first use. `--extra cli` is required —
-the base meta-package does not pull the `nvidia-vss-cli` distribution that
-provides the executable — and `--no-dev` keeps it to the CLI's runtime
-(256 MB, no `nvidia-nat`) rather than the agent stack (630 MB).
+`uv run` syncs `libs/vss/.venv` on first use. No extras and no `--no-dev`:
+`libs/vss` is the library's own workspace and the agent stack is not a member,
+so the environment is NAT-free by construction rather than by flag. There is no
+`cli` extra to ask for here — that one belongs to `services/agent`, which
+re-exports this distribution for the agent image.
 
 ## Develop
 
 ```bash
-cd services/agent
-uv sync --frozen --extra cli
-uv run --no-sync pytest packages/vss_cli/tests packages/vss_core/tests -q
+cd libs/vss
+uv sync --frozen
+uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -q
+uv run --no-sync ruff check core cli
+uv run --no-sync mypy cli/src/vss_cli core/src/vss_core/vios
 ```
 
-Development needs the test tooling, so this one keeps the default group.
+The `dev` group carries the test tooling and is included by default. Keep
+`--no-sync` after that first sync so each command reuses the same `.venv`
+instead of re-resolving.
 
-Keep `--no-sync` after that first sync, and note it works the other way too:
-the `--no-dev` run above re-resolves to the runtime spec and drops pytest. The
-two specs share one `.venv`, so pick the one matching what you are doing and
-stay on it.
-
-CI additionally runs a NAT-free lane (`--no-dev --group cli-dev`) to prove the
-CLI imports nothing from the agent stack:
-
-```bash
-uv sync --frozen --no-dev --group cli-dev --extra cli
-uv run pytest packages/vss_cli/tests packages/vss_core/tests -q
-uv run ruff check packages/vss_cli packages/vss_core
-uv run mypy packages/vss_cli/src/vss_cli packages/vss_core/src/vss_core/vios
-```
+Being NAT-free is a property of the workspace, not of a lane you have to
+remember to run — nothing in `libs/vss` may depend on the agent stack, so
+`import nat` fails here by construction. CI asserts it on every run.
 
 ## Point it at a deployment
 

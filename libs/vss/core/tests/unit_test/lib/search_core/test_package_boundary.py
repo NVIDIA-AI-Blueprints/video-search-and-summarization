@@ -74,7 +74,7 @@ def _requirement_names(requirements: list[str]) -> set[str]:
 
 
 def test_distribution_is_nvidia_nat_torch_and_langchain_free_by_default() -> None:
-    # parents[4] is the vss_core package root (packages/vss_core).
+    # parents[4] is the vss_core package root (libs/vss/core).
     package_root = Path(__file__).resolve().parents[4]
     with (package_root / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)["project"]
@@ -88,7 +88,8 @@ def test_distribution_is_nvidia_nat_torch_and_langchain_free_by_default() -> Non
 def test_agent_extra_gates_the_nat_stack() -> None:
     # The NAT stack lives in the nvidia-vss-agents distribution, reachable only
     # via the meta `[agent]` extra -- not in nvidia-vss-core.
-    agent_root = Path(__file__).resolve().parents[6]  # services/agent
+    # libs/vss/core/tests/unit_test/lib/search_core -> repo root is 7 up.
+    agent_root = Path(__file__).resolve().parents[7] / "services" / "agent"
     with (agent_root / "pyproject.toml").open("rb") as stream:
         meta = tomllib.load(stream)["project"]
     meta_extras = meta["optional-dependencies"]
@@ -103,6 +104,9 @@ def test_agent_extra_gates_the_nat_stack() -> None:
     assert {"nvidia-nat", "torch", "langchain-core"} <= _requirement_names(agents["dependencies"])
 
     # And the `vss` console script ships from the cli distribution, not core.
-    with (agent_root / "packages" / "vss_cli" / "pyproject.toml").open("rb") as stream:
+    # The cli distribution moved to libs/vss; the assertion is unchanged --
+    # the `vss` console script ships from cli, never from core.
+    cli_root = Path(__file__).resolve().parents[5] / "cli"
+    with (cli_root / "pyproject.toml").open("rb") as stream:
         cli_project = tomllib.load(stream)["project"]
     assert cli_project["scripts"]["vss"] == "vss_cli:main"

@@ -82,7 +82,7 @@ PREAMBLE = (
     "/v1/ready until the service is ready, then make exactly one "
     "`vss summarize run` invocation with --chunk-duration 10. "
     "Run it through the project-local CLI from the checkout "
-    "(`uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss`), "
+    "(`uv run --project \"${VSS_REPO_ROOT}/libs/vss\" vss`), "
     "relying on the deployment `vss configure` recorded: pass no endpoint, index, "
     "or model flag, and never hand-roll a POST /v1/summarize with curl or python. "
     "Any completed run ends the operation; do not re-run it, mutate "

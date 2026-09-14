@@ -76,7 +76,7 @@ def test_preamble_pins_the_cli_to_the_recorded_deployment() -> None:
     """
     preamble = _load_adapter().PREAMBLE
 
-    assert "--extra cli" in preamble
+    assert "libs/vss" in preamble
     assert "vss configure" in preamble
     assert "pass no endpoint, index, or model flag" in preamble
     assert "never hand-roll a POST /v1/summarize" in preamble
@@ -115,7 +115,7 @@ def test_summarization_steps_require_a_persisted_job() -> None:
     setup, summarize = spec["expects"][0], spec["expects"][1]
 
     setup_contract = "\n".join([setup["query"], *setup["checks"]])
-    assert "--extra cli" in setup_contract
+    assert "libs/vss" in setup_contract
     assert "vss configure --base-url http://localhost:7777" in setup["query"]
     assert (
         "vss configure memory --enable --backend elasticsearch "
@@ -353,7 +353,7 @@ def test_the_skill_loads_a_cli_reference_that_documents_the_exit_codes() -> None
     assert "One run is one `POST /v1/summarize`" in summarize_skill
     assert "never replace a failed run with hand-rolled curl" in summarize_skill
 
-    assert "--extra cli" in cli_reference
+    assert "libs/vss" in cli_reference
     assert "vss configure" in cli_reference
     for exit_code in ("| 0 |", "| 2 |", "| 3 |", "| 4 |", "| 5 |", "| 6 |", "| 7 |"):
         assert exit_code in cli_reference

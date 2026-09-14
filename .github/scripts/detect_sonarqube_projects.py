@@ -66,14 +66,16 @@ PROJECTS: list[dict[str, Any]] = [
             "_video-search-and-summarization"
         ),
         "project_name": "video-search-and-summarization-agent",
-        "sources": "services/agent",
+        # The agent project covers the NAT service and the library it builds
+        # on; both must be scanned, and a library-only change must trigger it.
+        "sources": "services/agent,libs/vss",
         "tests": (
-            "services/agent/packages/vss_core/tests,"
+            "libs/vss/core/tests,"
             "services/agent/packages/vss_agents/tests,"
-            "services/agent/packages/vss_cli/tests"
+            "libs/vss/cli/tests"
         ),
         "python_version": "3.13",
-        "paths": ["services/agent"],
+        "paths": ["services/agent", "libs/vss"],
     },
     {
         "name": "alert",

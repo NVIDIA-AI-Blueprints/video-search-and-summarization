@@ -39,7 +39,7 @@
       "strategy": "build",
       "ghcr_build": true,
       "source_path": "services/agent",
-      "context": "services",
+      "context": ".",
       "dockerfile": "services/agent/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": ["vss-agent"],
