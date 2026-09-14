@@ -147,11 +147,17 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # workflows must also require the cohort's dedicated active label. Register
 # replacements without that label (or keep listeners down) until canaries pass.
 #
+# `openshell-runner` is on every OpenShell job so the fleet can be targeted
+# as one pool without dropping SKU-specific labels (A16 vs H200 vs RTX).
+# `runs-on` is AND: runners must advertise this tag plus the cohort labels.
+#
 # Post-job destroy/recreate is host-side: the OpenShell VM orchestrator
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
 # This workflow does not implement KVM/VFIO.
+OPENSHELL_RUNNER_LABEL = "openshell-runner"
 OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
+    OPENSHELL_RUNNER_LABEL,
     "openshell",
     "rtx-pro-6000",
     "gpu-rtxpro6000bw",
@@ -159,6 +165,7 @@ OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
 )
 OPENSHELL_A16_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
+    OPENSHELL_RUNNER_LABEL,
     "openshell",
     "a16",
     "gpu-a16",
@@ -171,6 +178,7 @@ OPENSHELL_A16_LABELS: tuple[str, ...] = (
 )
 OPENSHELL_A40_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
+    OPENSHELL_RUNNER_LABEL,
     "openshell",
     "a40",
     "gpu-a40",
@@ -183,6 +191,7 @@ OPENSHELL_A40_LABELS: tuple[str, ...] = (
 )
 OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
+    OPENSHELL_RUNNER_LABEL,
     "openshell",
     "h200",
     "gpu-h200",
@@ -397,9 +406,18 @@ def list_changed_files() -> list[str]:
         # job errored here too).
         skills_map = discover_skills()
         if manual != "*" and manual not in skills_map:
+            hint = ""
+            branch = (os.environ.get("PR_BASE") or "").strip()
+            if branch and manual == branch:
+                hint = (
+                    f" {manual!r} is the branch this workflow is running from "
+                    f"(Actions 'Use workflow from' / gh --ref), not a skill. "
+                    f"Leave the skills input as '*' or pass a skill directory "
+                    f"such as vss-deploy-test-openshell."
+                )
             raise ValueError(
                 f"MANUAL_SKILLS_FILTER {manual!r}: skill not found under skills/ "
-                f"on this ref — check the skill name"
+                f"on this ref — check the skill name.{hint}"
             )
         skills = sorted(skills_map) if manual == "*" else [manual]
         return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]

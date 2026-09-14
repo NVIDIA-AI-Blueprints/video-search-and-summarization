@@ -1,8 +1,10 @@
 ## Description: <br>
 Use when the user asks to select, configure, deploy, verify, debug, or tear
 down the VSS **base**, **lvs**, **search**, or two-GPU **warehouse agents**
-profile on OpenShell, including post-deploy **vss-ask-video** and
-**vss-search-archive**. For alerts, other warehouse variants, or the full
+profile on OpenShell, then chain to operations skills (`vss-ask-video`,
+`vss-search-archive`, `vss-summarize-video`, `vss-manage-video-io-storage`,
+`vss-query-analytics`, `vss-manage-alerts`, `vss-generate-video-report`,
+`vss-generate-video-report-rag`). For other warehouse variants or the full
 catalog, use vss-deploy-profile. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
@@ -14,10 +16,11 @@ NVIDIA <br>
 Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers deploying NVIDIA Video Search and Summarization
-(VSS) **base** (quickstart, plus `vss-ask-video`), **lvs** (long-video
-summarization), **search** (plus `vss-search-archive`), or the two-GPU
-warehouse agents variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM) on
-OpenShell GPU hosts. <br>
+(VSS) **base** (quickstart, plus operations skills such as `vss-ask-video`
+and `vss-manage-video-io-storage`), **lvs** (plus `vss-summarize-video`),
+**search** (plus `vss-search-archive`), or the two-GPU warehouse agents
+variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM; plus `vss-query-analytics`
+and `vss-manage-alerts`) on OpenShell GPU hosts. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
