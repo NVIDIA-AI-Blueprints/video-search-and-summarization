@@ -32,7 +32,8 @@ def test_adapter_has_no_direct_backend_fallback_contract() -> None:
 
     solution = _load_adapter().generate_solve_script("L40S")
     assert "uv run --project" in solution
-    assert "--no-dev --extra cli vss" in solution
+    assert 'uv run --project "${VSS_REPO_ROOT}/libs/vss" vss' in solution
+    assert "--extra cli" not in solution
     for forbidden in ("curl ", "/models", "/generate", ":9200", ":8018", ":30082"):
         assert forbidden not in solution
 
@@ -111,8 +112,9 @@ def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() ->
                 in block
             )
             assert "VSS=(uv run" in block
-            assert "--no-dev" in block
-            assert "--extra cli" in block
+            assert "--project" in block
+            assert "/libs/vss" in block
+            assert "--extra cli" not in block
         if "--record-id" in block:
             assert "--job-id" in block
             assert "--record-type" in block

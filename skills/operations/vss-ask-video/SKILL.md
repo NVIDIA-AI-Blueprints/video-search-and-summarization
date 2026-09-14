@@ -249,9 +249,7 @@ first setup:
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
 VSS=(uv run \
-  --project "${VSS_REPO_ROOT}/services/agent" \
-  --no-dev \
-  --extra cli \
+  --project "${VSS_REPO_ROOT}/libs/vss" \
   vss)
 
 "${VSS[@]}" configure memory introspection \

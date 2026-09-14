@@ -100,14 +100,14 @@
       "query": "Introspect child record event-17. No job id or record type is known. Show the safe next step, assuming each OpenClaw command runs in a fresh shell.",
       "checks": [
         "It never emits --record-id without both --job-id and --record-type and requests the missing identity or another valid scope.",
-        "Any proposed VSS command defines VSS_REPO_ROOT and the uv run array in the same shell call, with --no-dev and --extra cli.",
+        "Any proposed VSS command defines VSS_REPO_ROOT and the uv run array in the same shell call against libs/vss.",
         "It does not rely on a shell function or prior-shell state and does not use raw REST."
       ]
     },
     {
       "query": "Live VLM prerequisite: confirm a configured VSS deployment with reachable RT-VLM using the project-local CLI (`vss configure check`) before inspecting. Then freshly inspect local video file warehouse_safety_0001.mp4 using the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: Is the worker wearing PPE?",
       "checks": [
-        "The run confirms VSS configuration / RT-VLM readiness with the project-local CLI, then uses the complete `uv run --project ... --no-dev --extra cli vss vlm run --file` invocation in one shell call and returns its answer.",
+        "The run confirms VSS configuration / RT-VLM readiness with the project-local CLI, then uses the complete `uv run --project ... libs/vss vss vlm run --file` invocation in one shell call and returns its answer.",
         "It does not search Markdown, introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent."
       ]
     }
