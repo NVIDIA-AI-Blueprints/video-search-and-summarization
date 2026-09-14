@@ -79,6 +79,78 @@
     ]
   },
   {
+    "id": "summarize-openshell-after-lvs",
+    "question": "Deploy VSS lvs on OpenShell and then prepare video summarization.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, deploys the lvs profile via references/lvs-profile.md, then chains to vss-summarize-video: project-local `vss configure --base-url` and `vss summarize run --help`, never POST /v1/summarize.",
+    "expected_behavior": [
+      "Loads vss-deploy-test-openshell and deploys the lvs profile (references/lvs-profile.md).",
+      "After the stack is healthy, follows vss-summarize-video rather than posting to /v1/summarize.",
+      "Bootstraps the project-local CLI with --extra cli and runs vss configure against the ingress origin.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "vios-openshell-after-base",
+    "question": "Deploy VSS base on OpenShell and then use VIOS via the CLI.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, deploys the base profile, then chains to vss-manage-video-io-storage (`vss vios --help`) without uploading sample media.",
+    "expected_behavior": [
+      "Loads vss-deploy-test-openshell and deploys the base profile (references/base.md).",
+      "After the stack is healthy, follows vss-manage-video-io-storage.",
+      "Uses the project-local `vss vios` CLI and does not upload sample media in the smoke step.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "query-analytics-openshell-after-warehouse",
+    "question": "Deploy warehouse agents on OpenShell and then query analytics.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, deploys warehouse agents via references/warehouse.md, then chains to vss-query-analytics against the Video Analytics API.",
+    "expected_behavior": [
+      "Loads references/warehouse.md and deploys BP_PROFILE=bp_wh MODE=2d.",
+      "After the stack is healthy, follows vss-query-analytics (read-only).",
+      "Does not POST to the VSS agent /generate endpoint.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "alerts-openshell-after-warehouse",
+    "question": "Deploy warehouse agents on OpenShell and inspect alert-bridge.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, deploys warehouse agents, then chains to vss-manage-alerts to inspect vss-alert-bridge without authoring rules.",
+    "expected_behavior": [
+      "Loads references/warehouse.md.",
+      "After deploy, follows vss-manage-alerts.",
+      "Does not author a new always-on rule or edit alert config.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "report-openshell-after-base",
+    "question": "Deploy VSS base on OpenShell and then prepare a video report.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, deploys the base profile, then chains to vss-generate-video-report without generating a report in the smoke step.",
+    "expected_behavior": [
+      "Loads vss-deploy-test-openshell and deploys the base profile.",
+      "After the stack is healthy, follows vss-generate-video-report.",
+      "Does not generate a report or upload sample media in the smoke step.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "report-rag-openshell-after-lvs",
+    "question": "Deploy VSS lvs on OpenShell and then prepare a RAG video report.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, deploys the lvs profile, then chains to vss-generate-video-report-rag without rewriting VSS_AGENT_CONFIG_FILE.",
+    "expected_behavior": [
+      "Loads vss-deploy-test-openshell and deploys the lvs profile.",
+      "After the stack is healthy, follows vss-generate-video-report-rag.",
+      "Does not generate a RAG report or rewrite VSS_AGENT_CONFIG_FILE in the smoke step.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
     "id": "deploy-profile-negative-standalone-microservice",
     "question": "Stand up just the RT-VLM microservice on this host, outside of any compose profile.",
     "expected_skill": null,
