@@ -137,9 +137,10 @@ export class OpenClawConnector implements Connector {
   private async receive(
     socket: JsonWebSocket,
     signal: AbortSignal,
+    timeoutMs = this.config.requestTimeoutMs,
   ): Promise<JsonObject> {
     try {
-      return await socket.receive(this.config.requestTimeoutMs, signal);
+      return await socket.receive(timeoutMs, signal);
     } catch (error) {
       if (signal.aborted) throw error;
       if (error instanceof WebSocketTransportTimeoutError) {
@@ -156,6 +157,23 @@ export class OpenClawConnector implements Connector {
         { cause: error },
       );
     }
+  }
+
+  private receiveTimeout(active: ActiveRun): number {
+    if (!active.pendingQuestions.size) return this.config.requestTimeoutMs;
+    const latestExpiry = Math.max(
+      ...[...active.pendingQuestions.values()].map(
+        (question) => question.expiresAtMs,
+      ),
+    );
+    // A human pause is not a stalled backend request. Keep the websocket read
+    // alive through the question lifetime (plus a small delivery grace), while
+    // retaining the ordinary backend timeout before and after the pause.
+    const throughQuestion = latestExpiry - Date.now() + 5_000;
+    return Math.min(
+      2_147_000_000,
+      Math.max(this.config.requestTimeoutMs, throughQuestion),
+    );
   }
 
   private request(
@@ -874,7 +892,8 @@ export class OpenClawConnector implements Connector {
       };
       while (!signal.aborted) {
         const frame =
-          pendingEvents.shift() ?? (await this.receive(socket, signal));
+          pendingEvents.shift() ??
+          (await this.receive(socket, signal, this.receiveTimeout(active)));
         if (this.settleResponse(active, frame)) continue;
         const normalized = this.normalizeEvent(frame, state);
         for (const event of normalized.events) yield event;

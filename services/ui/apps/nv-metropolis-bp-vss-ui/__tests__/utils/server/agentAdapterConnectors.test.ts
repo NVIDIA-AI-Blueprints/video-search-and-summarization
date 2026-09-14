@@ -475,6 +475,7 @@ describe("embedded adapter connectors", () => {
         interactionsEnabled: true,
         backendUrl: "ws://agent.local",
         backendPath: "/",
+        requestTimeoutMs: 10,
         backendSessionField: undefined,
         backendSessionHeader: undefined,
       }),
@@ -506,6 +507,14 @@ describe("embedded adapter connectors", () => {
       },
     });
 
+    const remaining = (async () => {
+      const events = [];
+      for await (const event of iterator) events.push(event);
+      return events;
+    })();
+    // The normal backend timeout must not expire while a human question with
+    // a longer advertised lifetime is pending.
+    await new Promise((resolve) => setTimeout(resolve, 25));
     const response = connector.respond("run-1", {
       interactionId: "question-1",
       answers: {
@@ -513,11 +522,6 @@ describe("embedded adapter connectors", () => {
         notes: [" edge deployment "],
       },
     });
-    const remaining = (async () => {
-      const events = [];
-      for await (const event of iterator) events.push(event);
-      return events;
-    })();
     await response;
 
     expect((await remaining).map((event) => event.type)).toEqual([
