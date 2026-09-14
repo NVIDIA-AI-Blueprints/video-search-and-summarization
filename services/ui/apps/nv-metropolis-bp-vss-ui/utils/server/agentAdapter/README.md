@@ -44,7 +44,18 @@ harness forward binds to Docker's private bridge address and the UI connects to
 - `GET /api/agent/runs/<run_id>`
 - `GET /api/agent/runs/<run_id>/events`
 - `POST /api/agent/runs/<run_id>/cancel`
+- `POST /api/agent/runs/<run_id>/respond`
 
 Run creation accepts an optional `Idempotency-Key`. Event streams support
-`Last-Event-ID` replay while retained. Interaction responses remain
-unsupported and return a conflict response.
+`Last-Event-ID` replay while retained.
+
+`respond` answers a paused run that emitted an `interaction.required` event.
+The connector reports this capability via `capabilities().features
+.interaction_responses`; it currently returns `true` only for the
+`openclaw-ws` connector, best-effort. The request body is
+`{ "response": { "type": "text", "text": "..." }, "interaction_id": "..." }`,
+where `interaction_id` must match the run's currently pending interaction
+(from the `interaction.required` event's `data.interaction_id`) — a stale,
+replayed, or mismatched id is rejected with `409` instead of being forwarded
+to the connector. If the connector doesn't support interaction responses, or
+the run is no longer active, this also returns `409`.

@@ -110,6 +110,18 @@ export class AgentAdapterService {
   private async executeRun(record: RunRecord): Promise<void> {
     const parser = new ArtifactStreamParser(true);
     const append = (type: string, rawData: JsonObject): void => {
+      if (type === "interaction.required") {
+        // A newer pause supersedes any prior unanswered one; a response
+        // naming an id that no longer matches (or none pending) is rejected
+        // in respondToRun rather than forwarded blind to the connector.
+        const interactionId =
+          typeof rawData.interaction_id === "string"
+            ? rawData.interaction_id
+            : null;
+        record.setPendingInteraction(interactionId);
+        record.append(type, rawData);
+        return;
+      }
       if (type === "message.delta" && typeof rawData.delta === "string") {
         for (const parsed of parser.feed(rawData.delta)) {
           record.append(parsed.type, parsed.data);
@@ -205,7 +217,7 @@ export class AgentAdapterService {
 
   async respondToRun(
     runId: string,
-    response: { text: string }
+    response: { text: string; interactionId: string }
   ): Promise<RunRecord> {
     const record = this.store.get(runId);
     if (record.terminal) {
@@ -214,13 +226,28 @@ export class AgentAdapterService {
         "run_not_active"
       );
     }
+    if (!record.pendingInteractionId) {
+      throw new ConnectorError(
+        "the run has no pending interaction to respond to",
+        "no_pending_interaction"
+      );
+    }
+    if (record.pendingInteractionId !== response.interactionId) {
+      throw new ConnectorError(
+        "interaction_id does not match the run's pending interaction",
+        "interaction_mismatch"
+      );
+    }
     if (!this.connector.respond) {
       throw new ConnectorError(
         "the active connector does not support interaction responses",
         "interaction_not_supported"
       );
     }
-    await this.connector.respond(runId, response);
+    // Clear before dispatch: a duplicate/replayed response racing this one
+    // finds nothing pending instead of also reaching the connector.
+    record.setPendingInteraction(null);
+    await this.connector.respond(runId, { text: response.text });
     return record;
   }
 }

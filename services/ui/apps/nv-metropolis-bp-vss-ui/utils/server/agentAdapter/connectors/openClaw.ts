@@ -33,10 +33,19 @@ const sequenceText = (value: unknown): string => {
   return "unknown";
 };
 
+interface PendingRequest {
+  resolve: (payload: JsonObject) => void;
+  reject: (error: Error) => void;
+}
+
 interface ActiveRun {
   socket: JsonWebSocket;
   sessionKey: string;
   upstreamRunId: string;
+  // Follow-up requests sent while `run()`'s loop owns the socket (e.g.
+  // respond()) are acked here instead of via awaitResponse, since only one
+  // reader can be pulling frames off the socket at a time.
+  pendingRequests: Map<string, PendingRequest>;
 }
 
 class HandshakeRejected extends Error {
@@ -533,7 +542,13 @@ export class OpenClawConnector implements Connector {
   ): AsyncGenerator<ConnectorEvent> {
     const socket = await this.connect(signal);
     const sessionKey = this.sessionKey(request.threadId);
-    this.activeRuns.set(runId, { socket, sessionKey, upstreamRunId: runId });
+    const pendingRequests = new Map<string, PendingRequest>();
+    this.activeRuns.set(runId, {
+      socket,
+      sessionKey,
+      upstreamRunId: runId,
+      pendingRequests,
+    });
     try {
       const pendingEvents: JsonObject[] = [];
       const sendId = this.request(socket, "chat.send", {
@@ -572,7 +587,12 @@ export class OpenClawConnector implements Connector {
           "backend_request_rejected"
         );
       }
-      this.activeRuns.set(runId, { socket, sessionKey, upstreamRunId });
+      this.activeRuns.set(runId, {
+        socket,
+        sessionKey,
+        upstreamRunId,
+        pendingRequests,
+      });
       const state: NormalizationState = {
         sessionKey,
         upstreamRunId,
@@ -584,6 +604,26 @@ export class OpenClawConnector implements Connector {
       while (!signal.aborted) {
         const frame =
           pendingEvents.shift() ?? (await this.receive(socket, signal));
+        // Acks for requests sent outside this loop (respond()) are settled
+        // here rather than yielded as connector events, since this loop is
+        // the only reader pulling frames off the socket once it starts.
+        if (frame.type === "res" && typeof frame.id === "string") {
+          const pending = pendingRequests.get(frame.id);
+          if (pending) {
+            pendingRequests.delete(frame.id);
+            if (frame.ok === true && isJsonObject(frame.payload)) {
+              pending.resolve(frame.payload);
+            } else {
+              pending.reject(
+                new ConnectorError(
+                  "OpenClaw rejected the interaction response",
+                  "backend_request_rejected"
+                )
+              );
+            }
+          }
+          continue;
+        }
         const normalized = this.normalizeEvent(frame, state);
         for (const event of normalized.events) yield event;
         if (normalized.terminal) return;
@@ -592,6 +632,16 @@ export class OpenClawConnector implements Connector {
       if (signal.aborted) return;
       throw error;
     } finally {
+      for (const pending of pendingRequests.values()) {
+        pending.reject(
+          new ConnectorError(
+            "OpenClaw Gateway stream ended unexpectedly",
+            "backend_stream_error",
+            true
+          )
+        );
+      }
+      pendingRequests.clear();
       if (this.activeRuns.get(runId)?.socket === socket) {
         this.activeRuns.delete(runId);
       }
@@ -614,7 +664,7 @@ export class OpenClawConnector implements Connector {
     }
   }
 
-  respond(runId: string, response: InteractionResponse): void {
+  async respond(runId: string, response: InteractionResponse): Promise<void> {
     const active = this.activeRuns.get(runId);
     if (!active) {
       throw new ConnectorError(
@@ -627,10 +677,45 @@ export class OpenClawConnector implements Connector {
     // chat.respond), so this assumes a reply continues the paused turn via
     // another chat.send on the same sessionKey, mirroring how the turn was
     // started. Confirm against a live gateway before relying on this.
-    this.request(active.socket, "chat.send", {
-      sessionKey: active.sessionKey,
-      message: response.text,
-      idempotencyKey: randomUUID(),
+    let requestId = "";
+    const ack = new Promise<JsonObject>((resolve, reject) => {
+      try {
+        requestId = this.request(active.socket, "chat.send", {
+          sessionKey: active.sessionKey,
+          message: response.text,
+          idempotencyKey: randomUUID(),
+        });
+      } catch (error) {
+        reject(error as Error);
+        return;
+      }
+      active.pendingRequests.set(requestId, { resolve, reject });
     });
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        active.pendingRequests.delete(requestId);
+        reject(
+          new ConnectorError("OpenClaw Gateway timed out", "backend_timeout", true)
+        );
+      }, this.config.requestTimeoutMs);
+      timeoutHandle.unref?.();
+    });
+    let accepted: JsonObject;
+    try {
+      accepted = await Promise.race([ack, timeout]);
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+    if (
+      accepted.status !== undefined &&
+      accepted.status !== "started" &&
+      accepted.status !== "accepted"
+    ) {
+      throw new ConnectorError(
+        "OpenClaw did not accept the interaction response",
+        "backend_request_rejected"
+      );
+    }
   }
 }

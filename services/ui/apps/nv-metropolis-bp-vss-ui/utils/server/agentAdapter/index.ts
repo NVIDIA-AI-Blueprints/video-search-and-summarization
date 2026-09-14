@@ -376,24 +376,34 @@ export const agentAdapterHandler = async (
     const response = isJsonObject(body) ? body.response : undefined;
     const text = isJsonObject(response) ? response.text : undefined;
     const type = isJsonObject(response) ? response.type : undefined;
-    if (type !== "text" || typeof text !== "string" || !text.trim()) {
+    const interactionId = isJsonObject(body) ? body.interaction_id : undefined;
+    if (
+      type !== "text" ||
+      typeof text !== "string" ||
+      !text.trim() ||
+      typeof interactionId !== "string" ||
+      !interactionId.trim()
+    ) {
       errorResponse(
         res,
         400,
         "invalid_request",
-        "response.type must be 'text' and response.text must be a non-empty string"
+        "response.type must be 'text', response.text must be a non-empty string, " +
+          "and interaction_id must be a non-empty string"
       );
       return;
     }
     try {
-      await service.respondToRun(runId, { text });
+      await service.respondToRun(runId, { text, interactionId });
     } catch (error) {
-      if (
-        error instanceof ConnectorError &&
-        (error.code === "interaction_not_supported" ||
-          error.code === "run_not_active")
-      ) {
-        errorResponse(res, 409, error.code, error.message);
+      if (error instanceof ConnectorError) {
+        const status =
+          error.code === "backend_timeout"
+            ? 504
+            : error.code === "backend_request_rejected"
+              ? 502
+              : 409;
+        errorResponse(res, status, error.code, error.message);
         return;
       }
       throw error;

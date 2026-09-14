@@ -48,6 +48,7 @@ export class RunRecord {
   private nextSequence = 1;
   private updatedAt = Date.now();
   private readonly listeners = new Set<() => void>();
+  private _pendingInteractionId: string | null = null;
 
   constructor(
     readonly runId: string,
@@ -64,6 +65,16 @@ export class RunRecord {
 
   get terminal(): boolean {
     return ["completed", "failed", "cancelled"].includes(this.status);
+  }
+
+  /** Id of the interaction.required the connector is currently paused on, if any. */
+  get pendingInteractionId(): string | null {
+    return this._pendingInteractionId;
+  }
+
+  /** A newer pending interaction (or a response) supersedes any prior one. */
+  setPendingInteraction(id: string | null): void {
+    this._pendingInteractionId = id;
   }
 
   get lastUpdatedAt(): number {

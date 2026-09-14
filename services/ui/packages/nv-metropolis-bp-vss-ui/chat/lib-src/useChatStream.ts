@@ -225,7 +225,12 @@ export function useChatStream(
                   'Content-Type': 'application/json',
                   ...(isAgentApi ? endpointRef.current.headers ?? {} : {}),
                 },
-                body: JSON.stringify({ response: { type: 'text', text: interactionText } }),
+                body: JSON.stringify({
+                  response: { type: 'text', text: interactionText },
+                  // The backend uses this to reject a stale/mismatched
+                  // response instead of forwarding it as a fresh message.
+                  ...(isAgentApi ? { interaction_id: ev.interaction.interaction_id } : {}),
+                }),
               },
             );
             if (!interactionResponse.ok) {
