@@ -86,7 +86,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | I want to… | Use this skill |
 |---|---|
 | Stand up a whole VSS workflow (base / search / lvs / alerts / warehouse) | [`vss-build-vision-ai`](vss-build-vision-ai/SKILL.md) |
-| Stand up **base**, **lvs**, **search**, or two-GPU warehouse agents on OpenShell (then `vss-ask-video` / `vss-search-archive`) | [`vss-deploy-test-openshell`](vss-deploy-test-openshell/SKILL.md) |
+| Stand up **base**, **lvs**, **search**, or two-GPU warehouse agents on OpenShell (then operations skills) | [`vss-deploy-test-openshell`](vss-deploy-test-openshell/SKILL.md) |
 | Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](deployment/vss-deploy-warehouse-helm/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](operations/vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](operations/vss-summarize-video/SKILL.md) |
@@ -121,7 +121,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Skill | Description |
 |---|---|
 | [vss-build-vision-ai](vss-build-vision-ai/SKILL.md) | Compose, configure, deploy, verify, or tear down a whole VSS workflow — the `base`, `search`, `lvs` and `alerts` developer profiles, the `warehouse` industry profile, or a custom delta overlay on one of them. **Start here for a full workflow.** |
-| [vss-deploy-test-openshell](vss-deploy-test-openshell/SKILL.md) | Same compose deploy workflow as a stock profile, limited to **base**, **lvs**, **search**, and two-GPU warehouse agents. Post-deploy Q&A and archive search chain to `vss-ask-video` and `vss-search-archive`. Used to exercise OpenShell skill-eval. |
+| [vss-deploy-test-openshell](vss-deploy-test-openshell/SKILL.md) | Same compose deploy workflow as a stock profile, limited to **base**, **lvs**, **search**, and two-GPU warehouse agents. Post-deploy work chains to `skills/operations/` (`vss-ask-video`, `vss-search-archive`, `vss-summarize-video`, `vss-manage-video-io-storage`, `vss-query-analytics`, `vss-manage-alerts`, `vss-generate-video-report`, `vss-generate-video-report-rag`). Used to exercise OpenShell skill-eval. |
 | [vss-deploy-warehouse-helm](deployment/vss-deploy-warehouse-helm/SKILL.md) | Deploy/upgrade the warehouse blueprint (2D/3D/MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
 | [vss-generate-video-calibration](tools/vss-generate-video-calibration/SKILL.md) | Run AutoMagicCalib (AMC) camera calibration on local MP4s, RTSP streams, or the bundled sample dataset; deploy the `vss-auto-calibration` microservice when needed. |
 

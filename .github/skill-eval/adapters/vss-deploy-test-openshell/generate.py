@@ -161,6 +161,43 @@ PROFILES: dict[str, dict] = {
         "profile": "base",
         "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
     },
+    "summarize": {
+        "description": "VSS LVS profile plus vss-summarize-video CLI (`vss summarize run`)",
+        "profile": "lvs",
+        "bundled_skills": ("vss-summarize-video", "vss-manage-video-io-storage"),
+    },
+    "vios": {
+        "description": "VSS base profile plus vss-manage-video-io-storage CLI (`vss vios`)",
+        "profile": "base",
+        "bundled_skills": ("vss-manage-video-io-storage",),
+    },
+    "query-analytics": {
+        "description": "Warehouse agents plus vss-query-analytics (VA API / VA-MCP read path)",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-query-analytics",),
+    },
+    "alerts": {
+        "description": "Warehouse agents plus vss-manage-alerts (alert-bridge already in bp_wh)",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-query-analytics"),
+    },
+    "report": {
+        "description": "VSS base profile plus vss-generate-video-report",
+        "profile": "base",
+        "bundled_skills": (
+            "vss-generate-video-report",
+            "vss-manage-video-io-storage",
+            "vss-query-analytics",
+        ),
+    },
+    "report-rag": {
+        "description": "VSS LVS profile plus vss-generate-video-report-rag",
+        "profile": "lvs",
+        "bundled_skills": (
+            "vss-generate-video-report-rag",
+            "vss-summarize-video",
+        ),
+    },
 }
 
 
@@ -174,6 +211,24 @@ def _find_bundled_skill(skills_root: Path, name: str) -> Path | None:
         if nested.is_dir() and (nested / "SKILL.md").is_file():
             return nested
     return None
+
+
+def _iter_operations_skills(skills_root: Path) -> list[Path]:
+    """Every SKILL.md directory under skills/operations/."""
+    operations = skills_root / "operations"
+    if not operations.is_dir():
+        return []
+    found: list[Path] = []
+    for child in sorted(operations.iterdir()):
+        if child.is_dir() and (child / "SKILL.md").is_file():
+            found.append(child)
+    return found
+
+
+def _copy_skill_dir(src: Path, dest: Path) -> None:
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src, dest)
 
 
 def deploy_profile(eval_profile: str) -> str:
@@ -608,24 +663,24 @@ def generate_task(
         generate_solve_script(profile, platform),
     )
 
-    # -- skills/vss-deploy-test-openshell/ plus any operate skills the
-    # eval chains into (vss-search-archive, vss-ask-video, …).
+    # -- skills/vss-deploy-test-openshell/ plus every skills/operations/*
+    # skill (ask-video, search, summarize, VIOS, alerts, reports, …).
     if skill_dir and skill_dir.exists():
-        skill_dest = task_dir / "skills" / "vss-deploy-test-openshell"
-        if skill_dest.exists():
-            shutil.rmtree(skill_dest)
-        shutil.copytree(skill_dir, skill_dest)
         skills_root = skill_dir.parent
+        _copy_skill_dir(skill_dir, task_dir / "skills" / "vss-deploy-test-openshell")
+        copied: set[str] = {"vss-deploy-test-openshell"}
+        for extra in _iter_operations_skills(skills_root):
+            _copy_skill_dir(extra, task_dir / "skills" / extra.name)
+            copied.add(extra.name)
         for extra in profile_def.get("bundled_skills") or ():
+            if extra in copied:
+                continue
             src = _find_bundled_skill(skills_root, extra)
             if src is None:
                 print(f"WARN: bundled skill {extra!r} not found under {skills_root}",
                       file=sys.stderr)
                 continue
-            extra_dest = task_dir / "skills" / extra
-            if extra_dest.exists():
-                shutil.rmtree(extra_dest)
-            shutil.copytree(src, extra_dest)
+            _copy_skill_dir(src, task_dir / "skills" / extra)
 
 
 # ---------------------------------------------------------------------------
