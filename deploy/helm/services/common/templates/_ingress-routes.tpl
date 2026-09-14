@@ -40,7 +40,13 @@
     rewrite  none  -> forwarded with the prefix intact
              strip -> prefix removed before the backend sees it
              /x    -> prefix replaced with /x
-    anchored prepend ^ to the HAProxy rewrite source when true
+
+  There is no per-row anchoring field. `path` is both the Ingress `pathType:
+  Prefix` path and the source of the rewrite, and the controller selects a
+  backend on the *start* of the request path -- so a request that matches a
+  rewrite mid-path was routed here by some other row, and rewriting it is
+  damage rather than intent. Every rewrite is anchored; see
+  `vss.ingress.pathRewrites` below.
 
   Ordering is the rendered order: the UI's /api/* routes before the agent's
   /api catch-all, and the UI / catch-all last. The HAProxy controller matches
@@ -111,7 +117,6 @@
   path: /storage
   pathType: Prefix
   rewrite: /vst/storage
-  anchored: true
 - key: va-mcp
   path: /va-mcp
   pathType: Prefix
@@ -280,6 +285,17 @@ port: {{ index $svc "port" | default 8000 }}
   mounted route that rewrites, derived from the same table as the paths, so the
   two can never disagree about which prefix is stripped (FR-16).
 
+  Both forms are anchored, and have to be. HAProxy's `replace-path` matches its
+  regex anywhere in the path, and `path-rewrite` is Ingress-scope only, so every
+  pair here reaches every backend of the Ingress that carries it -- the
+  NVStreamer and Kibana hosts included. Unanchored, `/storage/(.*)` also matches
+  NVStreamer's `POST /api/v1/storage/file` and VST's own `/vst/api/v1/storage/`,
+  and the backend answers 404 on the mangled path. The Docker edge anchors the
+  same pair (services/infra/haproxy/haproxy.cfg.template:bk_vst_storage_compat),
+  and every other `replace-path` it carries, which is why there is no opt-out
+  here either: /storage is the mount the collision was found on, not the only
+  one able to collide.
+
   Emitted at zero indent with no leading or trailing blank line; the caller
   applies `nindent`.
 */}}
@@ -294,9 +310,8 @@ port: {{ index $svc "port" | default 8000 }}
 {{- $rw := $row.rewrite | default "none" }}
 {{- if and $b.service (ne $rw "none") }}
 {{- $to := ternary "" $rw (eq $rw "strip") }}
-{{- $anchor := ternary "^" "" ($row.anchored | default false) }}
-{{ $anchor }}{{ $row.path }}/(.*) {{ $to }}/\1
-{{ $anchor }}{{ $row.path }} {{ $to | default "/" }}
+^{{ $row.path }}/(.*) {{ $to }}/\1
+^{{ $row.path }}$ {{ $to | default "/" }}
 {{- end }}
 {{- end }}
 {{- end -}}
