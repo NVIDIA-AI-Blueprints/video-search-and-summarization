@@ -102,9 +102,17 @@ _NULL_ARG_SENTINELS = {"none", "null"}
 # Original invocation plus this many identical retries. A further exact duplicate is skipped.
 MAX_IDENTICAL_TOOL_CALL_RETRIES = 2
 MAX_IDENTICAL_TOOL_CALL_ATTEMPTS = 1 + MAX_IDENTICAL_TOOL_CALL_RETRIES
+DUPLICATE_TOOL_CALL_SKIP_PREFIX = "Identical tool call skipped:"
 DUPLICATE_TOOL_CALL_SKIP_MESSAGE = (
-    "Identical tool call skipped: `{name}` was already executed {attempts} time(s) with the same "
+    DUPLICATE_TOOL_CALL_SKIP_PREFIX + " `{name}` was already executed {attempts} time(s) with the same "
     "arguments. Do not call it again with these arguments. Use the previous result and continue."
+)
+DUPLICATE_TOOL_CALL_SKIP_NO_RESULT_MESSAGE = (
+    DUPLICATE_TOOL_CALL_SKIP_PREFIX + " `{name}` already reached the retry limit ({attempts} attempts) "
+    "with the same arguments. Do not call it again with these arguments."
+)
+DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE = (
+    "This tool failed {attempts} times: {last_error}. Retry limit reached; no successful result is available."
 )
 _TRACE_TOOL_NAME = re.compile(r"^(?:Tool|Calling sub-agent):\s*([^\r\n]+)", re.IGNORECASE)
 
@@ -320,6 +328,50 @@ def reserve_identical_tool_call(state: "TopAgentState", name: str, args: dict[st
     return True
 
 
+def _is_duplicate_tool_call_skip(response: Any) -> bool:
+    """Return whether a ToolMessage is a retry-cap skip, not a fresh execution."""
+    text = _get_content_text(response)
+    return text.startswith(DUPLICATE_TOOL_CALL_SKIP_PREFIX) or text.startswith("This tool failed ")
+
+
+def duplicate_tool_call_skip_payload(state: "TopAgentState", name: str, args: dict[str, Any] | None) -> tuple[str, str]:
+    """Return (content, status) for a skipped identical call from the recorded outcome."""
+    outcome = state.identical_tool_call_last_outcome.get(identical_tool_call_key(name, args), {})
+    last_status = str(outcome.get("status", ""))
+    last_content = str(outcome.get("content", "")).strip()
+    if last_status == "success":
+        return (
+            DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(name=name, attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS),
+            "success",
+        )
+    if last_status == "error" or last_content.startswith(_TOOL_FAILURE_PREFIX):
+        last_error = last_content or "unknown error"
+        return (
+            DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE.format(
+                attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+                last_error=last_error,
+            ),
+            "error",
+        )
+    return (
+        DUPLICATE_TOOL_CALL_SKIP_NO_RESULT_MESSAGE.format(name=name, attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS),
+        "success",
+    )
+
+
+def _store_identical_tool_call_outcome(
+    state: "TopAgentState",
+    name: str,
+    args: dict[str, Any] | None,
+    status: str,
+    content: Any,
+) -> None:
+    state.identical_tool_call_last_outcome[identical_tool_call_key(name, args)] = {
+        "status": status,
+        "content": str(content),
+    }
+
+
 class TopAgentState(BaseModel):
     """State for the Top Agent conversation tracking"""
 
@@ -349,6 +401,10 @@ class TopAgentState(BaseModel):
     identical_tool_call_attempts: dict[str, int] = Field(
         default_factory=dict,
         description="Per-request counts of exact tool name + argument invocations.",
+    )
+    identical_tool_call_last_outcome: dict[str, dict[str, str]] = Field(
+        default_factory=dict,
+        description="Last status and content for each exact tool name + argument fingerprint.",
     )
 
 
@@ -540,10 +596,11 @@ class TopAgent(AsyncMixin):
                 tool_name = (call_info["name"] if call_info else None) or getattr(msg, "name", None) or "tool"
                 result_text = _get_content_text(msg)
                 tool_failed = _tool_response_failed(msg) or result_text.lstrip().startswith(_TOOL_FAILURE_PREFIX)
+                skipped_duplicate = _is_duplicate_tool_call_skip(msg)
                 has_tool_failure = has_tool_failure or tool_failed
                 # Full result for programmatic appendix
                 tool_results_lines.append(f"`{tool_name}` result:\n{result_text}")
-                if not tool_failed:
+                if not tool_failed and not skipped_duplicate:
                     completed_tools.append(tool_name)
                     if call_info:
                         scratchpad_lines.append(f"Called tool `{tool_name}` with args: {call_info['args']}")
@@ -1145,9 +1202,8 @@ class TopAgent(AsyncMixin):
                     tool_name = tool_call["name"]
                     is_subagent = tool_name in self.subagent_names
                     if tool_call["id"] in skipped_tool_call_ids:
-                        skip_content = DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
-                            name=tool_name,
-                            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+                        skip_content, skip_status = duplicate_tool_call_skip_payload(
+                            state, tool_name, tool_call.get("args")
                         )
                         logger.warning(
                             "Skipping duplicate %s after %d identical attempts",
@@ -1168,6 +1224,7 @@ class TopAgent(AsyncMixin):
                             name=tool_name,
                             tool_call_id=tool_call["id"],
                             content=skip_content,
+                            status=skip_status,
                         )
 
                     # Caption HITL (lvs_config_media) is allowed only on an explicit user
@@ -1405,11 +1462,15 @@ class TopAgent(AsyncMixin):
                         logger.warning(f"Tool {tool_call['name']} returned empty content, using placeholder")
                         tool_content = "Tool returned empty content"
 
+                    status = "error" if _tool_response_failed(tool_response) else "success"
+                    _store_identical_tool_call_outcome(
+                        state, tool_call["name"], tool_call.get("args"), status, tool_content
+                    )
                     return ToolMessage(
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
                         content=tool_content,
-                        status="error" if _tool_response_failed(tool_response) else "success",
+                        status=status,
                     )
 
                 except Exception as ex:
@@ -1420,6 +1481,9 @@ class TopAgent(AsyncMixin):
                     # cannot resolve) then never reaches the step that writes the report. The agent node
                     # surfaces this instead of an answer it wrote without the tool.
                     state.tool_failure = error_response
+                    _store_identical_tool_call_outcome(
+                        state, tool_call["name"], tool_call.get("args"), "error", error_response
+                    )
                     return ToolMessage(
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
@@ -1432,7 +1496,10 @@ class TopAgent(AsyncMixin):
             any_tool_succeeded = False
             for task in asyncio.as_completed(tasks):
                 tool_response = await task
-                any_tool_succeeded = any_tool_succeeded or getattr(tool_response, "status", None) == "success"
+                executed_successfully = getattr(
+                    tool_response, "status", None
+                ) == "success" and not _is_duplicate_tool_call_skip(tool_response)
+                any_tool_succeeded = any_tool_succeeded or executed_successfully
                 state.agent_scratchpad.append(tool_response)
 
             # A sibling tool that answered grounds this turn, so a failure beside it is not the answer.

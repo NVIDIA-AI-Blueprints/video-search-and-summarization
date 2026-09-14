@@ -33,6 +33,7 @@ from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
 from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.search_agent import SearchAgentInput
+from vss_agents.agents.top_agent import DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE
 from vss_agents.agents.top_agent import DUPLICATE_TOOL_CALL_SKIP_MESSAGE
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
 from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
@@ -1337,6 +1338,95 @@ class TestIdenticalToolCallCap:
             attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
         )
         assert skip_message.content == expected
+        assert getattr(skip_message, "status", None) == "success"
+        assert not state.tool_failure
+
+    @staticmethod
+    def _failing_tool():
+        class FailingTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                raise RuntimeError("backend unavailable")
+                yield "unreachable"
+
+        return FailingTool()
+
+    @pytest.mark.asyncio
+    async def test_tool_node_preserves_failure_when_skipping_after_failed_attempts(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._failing_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        for index in range(MAX_IDENTICAL_TOOL_CALL_ATTEMPTS):
+            state.agent_scratchpad = self._scratchpad_call(f"fail_{index}")
+            await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        recorded_failure = state.tool_failure
+        assert recorded_failure.startswith("Tool call failed: backend unavailable")
+
+        state.agent_scratchpad = self._scratchpad_call("skip_after_fail")
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        skip_message = state.agent_scratchpad[-1]
+        assert isinstance(skip_message, ToolMessage)
+        expected = DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE.format(
+            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+            last_error=recorded_failure,
+        )
+        assert skip_message.content == expected
+        assert getattr(skip_message, "status", None) == "error"
+        assert state.tool_failure == recorded_failure
+
+    @pytest.mark.asyncio
+    async def test_plan_update_does_not_claim_success_after_failed_then_skip(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="<think>retry</think>"))
+        agent.callbacks = []
+        skip_content = DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE.format(
+            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+            last_error="Tool call failed: backend unavailable",
+        )
+        state = TopAgentState(
+            current_message=HumanMessage(content="What happened in warehouse_safety_001?"),
+            plan="1. [ ] Call `video_understanding_iso` to analyze the video.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding_iso",
+                            "args": IDENTICAL_TOOL_CALL_ARGS,
+                            "id": "skip_after_fail",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    name="video_understanding_iso",
+                    tool_call_id="skip_after_fail",
+                    content=skip_content,
+                    status="error",
+                ),
+            ],
+            tool_failure="Tool call failed: backend unavailable",
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_not_awaited()
+        assert result.plan.startswith("1. [ ] Call `video_understanding_iso`")
+        assert "already completed successfully" not in result.plan
+        assert result.tool_failure == "Tool call failed: backend unavailable"
 
     @pytest.mark.asyncio
     async def test_tool_node_does_not_cap_same_tool_with_different_args(self, monkeypatch):
