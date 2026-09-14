@@ -4,7 +4,7 @@
 """Generate Harbor tasks for the vss-deploy-detection-tracking-2d skill.
 
 The vss-deploy-detection-tracking-2d skill exercises the RTVI-CV perception
-microservice. It is standalone — there is no `/vss-deploy-profile`
+microservice. It is standalone — there is no `/vss-build-vision-ai`
 prerequisite; the skill launches its own `rtvicv-perception-docker`
 container via `docker run` from a user-supplied RTVI-CV image.
 
@@ -112,7 +112,7 @@ def _instruction_intro(kind: str, platform: str) -> str:
             f"container on this `{platform}` host. If the container isn't already "
             "running, the precheck below brings it up via `docker start` (the "
             "image is pre-pulled on the box from a prior deploy trial); do not "
-            "invoke `/vss-deploy-profile` or `scripts/dev-profile.sh` for this "
+            "invoke `/vss-build-vision-ai` or `scripts/dev-profile.sh` for this "
             "trial — just ensure `http://localhost:9000/api/v1` responds before "
             "running the query.\n"
             "\n"
@@ -140,7 +140,7 @@ def _instruction_intro(kind: str, platform: str) -> str:
         f"Use the `/vss-deploy-detection-tracking-2d` skill on this `{platform}` host "
         "to deploy or tear down the RTVI-CV perception microservice via the skill's "
         "own `docker run` flow against a user-supplied RTVI-CV image. Do not invoke "
-        "`/vss-deploy-profile`, `scripts/dev-profile.sh`, or any full VSS profile."
+        "`/vss-build-vision-ai`, `scripts/dev-profile.sh`, or any full VSS profile."
     )
 
 

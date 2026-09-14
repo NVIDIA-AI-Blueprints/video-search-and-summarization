@@ -33,7 +33,7 @@ BLUEPRINT_CONFIG = (
 HELM_WAREHOUSE_DIR = REPO_ROOT / "deploy/helm/industry-profiles/warehouse-operations"
 
 # nvidia-smi GPU name substring -> HARDWARE_PROFILE, matching
-# skills/vss-deploy-profile/references/warehouse.md "Supported Hardware".
+# skills/vss-build-vision-ai/references/profiles/warehouse.md "Supported Hardware".
 GPU_NAME_TO_PROFILE = [
     ("RTX PRO 6000 Blackwell Server Edition", "RTXPRO6000BW-SE"),
     ("RTX PRO 6000 Blackwell", "RTXPRO6000BW"),

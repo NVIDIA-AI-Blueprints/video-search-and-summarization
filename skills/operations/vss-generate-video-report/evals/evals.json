@@ -136,7 +136,7 @@
       "id": "video-report-long-video-lvs-handoff",
       "question": "If the input video is longer than 2 minutes, what should the report skill do?",
       "expected_skill": "vss-generate-video-report",
-      "ground_truth": "Loads vss-generate-video-report and states direct Mode A VLM should stop for videos that are 120 seconds or longer and prompt the user to deploy/use LVS via /vss-deploy-profile and /vss-summarize-video.",
+      "ground_truth": "Loads vss-generate-video-report and states direct Mode A VLM should stop for videos that are 120 seconds or longer and prompt the user to deploy/use LVS via /vss-build-vision-ai and /vss-summarize-video.",
       "expected_behavior": [
         "Loads vss-generate-video-report.",
         "States videos of 120 seconds or longer should not continue on direct Mode A VLM path.",

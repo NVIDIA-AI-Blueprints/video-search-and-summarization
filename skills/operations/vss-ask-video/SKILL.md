@@ -239,7 +239,7 @@ file or the VSS sensor. If a VSS deployment is configured, use Path A
 - Long-form summarization -> `/vss-summarize-video`.
 - Structured reports -> `/vss-generate-video-report`.
 - Existing analytics incidents or metrics -> `/vss-query-analytics`.
-- Deployment/profile changes -> `/vss-deploy-profile`.
+- Deployment/profile changes -> `/vss-build-vision-ai`.
 
 ## Cross-Reference
 
