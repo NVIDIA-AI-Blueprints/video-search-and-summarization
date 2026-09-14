@@ -48,6 +48,7 @@ class TestRequestInfo:
         assert ri.progress == 0
         assert ri.response == []
         assert ri.enable_audio is False
+        assert ri.cleanup_requested is False
 
     def test_status_enum_values(self):
         from via_stream_handler import RequestInfo
@@ -261,7 +262,7 @@ def _make_mock_stream_handler():
         handler.default_caption_prompt = "Summarize"
         handler.NUM_CA_RAG_PROCESSES_LAUNCH = 10
         handler.num_ctx_mgr = 0
-        handler.MAX_STREAMS = 4
+        handler.MAX_CONTEXT_MANAGERS = 4
         handler._start_time = time.time()
         # Bypass real __init__; empty-guard needs this (0 => single attempt).
         handler._aggregation_empty_retries = 0
@@ -490,6 +491,7 @@ class TestCheckStatusRemoveReqId:
 
         handler.check_status_remove_req_id(ri.request_id)
         assert ri.request_id in handler._request_info_map
+        assert ri.cleanup_requested is True
 
     def test_ctx_mgr_reset_and_returned_to_pool_when_removed(self):
         from via_stream_handler import RequestInfo
@@ -510,6 +512,25 @@ class TestCheckStatusRemoveReqId:
 
         mock_ctx.reset.assert_called_once()
         assert mock_ctx in handler._ctx_mgr_pool
+
+    def test_reset_is_detached_and_scheduled_off_request_path(self):
+        from via_stream_handler import RequestInfo
+
+        handler = _make_mock_stream_handler()
+        handler._context_cleanup_executor = MagicMock()
+        ri = RequestInfo()
+        ri.source_id = "test-stream"
+        mock_ctx = MagicMock()
+        ri._ctx_mgr = mock_ctx
+
+        with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
+            handler._release_request_contexts(ri)
+
+        assert ri._ctx_mgr is None
+        assert mock_ctx not in handler._ctx_mgr_pool
+        handler._context_cleanup_executor.submit.assert_called_once_with(
+            handler._reset_and_release_ctx_mgr, mock_ctx, ri
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1188,11 +1209,25 @@ class TestPopulateArgumentParser:
         ViaStreamHandler.populate_argument_parser(parser)
         add_calls = [c[0][0] for c in parser.add_argument.call_args_list]
         assert "--max-live-streams" in add_calls
+        assert "--max-context-managers" in add_calls
+        assert "--max-async-workers" in add_calls
         assert "--enable-audio" in add_calls
         assert "--enable-dev-dc-gen" in add_calls
         assert "--max-file-duration" in add_calls
         assert "--disable-ca-rag" in add_calls
         assert "--ca-rag-config" in add_calls
+
+    def test_worker_default_preserves_admission_headroom(self):
+        from argparse import ArgumentParser
+
+        from via_stream_handler import ViaStreamHandler
+
+        parser = ArgumentParser()
+        ViaStreamHandler.populate_argument_parser(parser)
+        args = parser.parse_args([])
+
+        assert args.max_context_managers == 256
+        assert args.max_async_workers == 320
 
 
 # ---------------------------------------------------------------------------
@@ -1436,7 +1471,7 @@ class TestUpdateCaRagConfigBranches:
 
 @pytest.mark.unit
 class TestGetAggregatedSummary:
-    def test_file_kafka_db_mode_waits_for_logstash_flush_before_aggregation(self):
+    def test_file_kafka_db_mode_waits_for_expected_raw_events(self):
         from via_stream_handler import RequestInfo
 
         handler = _make_mock_stream_handler()
@@ -1450,7 +1485,7 @@ class TestGetAggregatedSummary:
                     "tools": {"db": "elasticsearch_db"},
                 }
             },
-            "tools": {"elasticsearch_db": {"params": {"kafka_consumer_settle_secs": 2.5}}},
+            "tools": {"elasticsearch_db": {"params": {"host": "elasticsearch", "port": 9200}}},
         }
         handler._publish_aggregate_to_kafka = MagicMock()
 
@@ -1458,6 +1493,7 @@ class TestGetAggregatedSummary:
         req_info.file = "/tmp/video.mp4"
         req_info.source_id = "source-1"
         req_info.request_id = "request-1"
+        req_info.rtvi_request_id = "rtvi-request-1"
         req_info.enable_audio = False
         req_info.is_live = False
         req_info.summarize = True
@@ -1485,11 +1521,150 @@ class TestGetAggregatedSummary:
             vlm_stats={},
         )
 
-        with patch("via_stream_handler.time.sleep") as sleep_mock:
+        with patch.object(handler, "_wait_for_kafka_raw_events") as wait_mock:
             handler._get_aggregated_summary(req_info, [chunk_response])
 
-        sleep_mock.assert_called_once_with(2.5)
+        wait_mock.assert_called_once_with("source-1", 1, "rtvi-request-1")
         req_info._ctx_mgr.call.assert_called_once_with({"summarization": {"uuids": ["source-1"]}})
+
+
+# ---------------------------------------------------------------------------
+# Kafka -> Logstash -> Elasticsearch readiness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestKafkaRawEventsReadiness:
+    @staticmethod
+    def _handler(timeout=1.0, poll_interval=0.001):
+        handler = _make_mock_stream_handler()
+        handler._ca_rag_config = {
+            "functions": {
+                "summarization": {
+                    "params": {"kafka_enabled": True},
+                    "tools": {"db": "elasticsearch_db"},
+                }
+            },
+            "tools": {
+                "elasticsearch_db": {
+                    "params": {
+                        "host": "elasticsearch",
+                        "port": 9200,
+                        "kafka_consumer_wait_timeout_secs": timeout,
+                        "kafka_consumer_poll_interval_secs": poll_interval,
+                    }
+                }
+            },
+        }
+        return handler
+
+    @staticmethod
+    def _count_response(count, status_code=200):
+        response = MagicMock()
+        response.status_code = status_code
+        response.json.return_value = {"count": count}
+        return response
+
+    def test_polls_until_expected_count_is_searchable(self):
+        handler = self._handler()
+        responses = [
+            self._count_response(0, status_code=404),
+            self._count_response(1),
+            self._count_response(3),
+        ]
+
+        with (
+            patch("via_stream_handler.requests.post", side_effect=responses) as post_mock,
+            patch("via_stream_handler.time.sleep") as sleep_mock,
+        ):
+            handler._wait_for_kafka_raw_events("source-1", 3, "rtvi-request-1")
+
+        assert post_mock.call_count == 3
+        assert sleep_mock.call_count == 2
+        request = post_mock.call_args
+        assert request.args[0] == "http://elasticsearch:9200/default_source_1/_count"
+        assert request.kwargs["json"] == {
+            "query": {
+                "bool": {
+                    "filter": [
+                        {
+                            "term": {
+                                "metadata.content_metadata.doc_type.keyword": "raw_events"
+                            }
+                        },
+                        {
+                            "term": {
+                                "metadata.content_metadata.requestId.keyword": "rtvi-request-1"
+                            }
+                        },
+                    ]
+                }
+            }
+        }
+
+    def test_requires_current_rtvi_request_id(self):
+        from via_stream_handler import KafkaIngestionTimeout
+
+        handler = self._handler()
+
+        with pytest.raises(KafkaIngestionTimeout, match="RTVI request ID is unavailable"):
+            handler._wait_for_kafka_raw_events("source-1", 1, None)
+
+    def test_timeout_has_service_unavailable_status(self):
+        from via_stream_handler import KafkaIngestionTimeout
+
+        handler = self._handler(timeout=0.001, poll_interval=0.001)
+        missing_index = self._count_response(0, status_code=404)
+
+        with patch("via_stream_handler.requests.post", return_value=missing_index):
+            with pytest.raises(KafkaIngestionTimeout) as exc_info:
+                handler._wait_for_kafka_raw_events("source-1", 2, "rtvi-request-1")
+
+        assert exc_info.value.status_code == 503
+        assert "0/2 raw_events" in str(exc_info.value)
+
+    def test_timeout_is_returned_as_dependency_failure(self):
+        from via_exception import ViaException
+        from via_stream_handler import KafkaIngestionTimeout, RequestInfo
+
+        handler = self._handler()
+        handler._args.enable_dev_dc_gen = False
+        handler._kafka_enabled = True
+        handler._caption_source = "db"
+
+        req_info = RequestInfo()
+        req_info.file = "/tmp/video.mp4"
+        req_info.source_id = "source-1"
+        req_info.request_id = "request-1"
+        req_info.enable_audio = False
+        req_info.is_live = False
+        req_info.summarize = True
+        req_info.camera_id = "default"
+        req_info._ctx_mgr = MagicMock()
+        chunk = SimpleNamespace(
+            chunkIdx=0,
+            start_pts=0,
+            end_pts=10_000_000_000,
+            start_ntp="1970-01-01T00:00:00.000Z",
+            end_ntp="1970-01-01T00:00:10.000Z",
+        )
+        chunk_response = SimpleNamespace(
+            chunk=chunk,
+            vlm_response='{"events":[]}',
+            vlm_stats={},
+        )
+
+        with patch.object(
+            handler,
+            "_wait_for_kafka_raw_events",
+            side_effect=KafkaIngestionTimeout("ingestion timed out"),
+        ):
+            with pytest.raises(ViaException) as exc_info:
+                handler._get_aggregated_summary(req_info, [chunk_response])
+
+        assert exc_info.value.status_code == 503
+        assert req_info.status == RequestInfo.Status.FAILED
+        req_info._ctx_mgr.call.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1968,6 +2143,26 @@ class TestProcessOutputAdditional:
         # Exception is caught internally; status should be FAILED for non-live
         assert ri.status == RequestInfo.Status.FAILED
 
+    def test_terminal_processing_releases_context_before_response_cleanup(self):
+        from via_stream_handler import RequestInfo
+
+        handler = self._make_handler()
+        handler._ctx_mgr_pool = []
+        handler._qa_ctx_mgr_pool = []
+        ri = RequestInfo()
+        ri.status = RequestInfo.Status.FAILED
+        ri.is_live = False
+        ri.source_id = "file-1"
+        ri.start_time = time.time()
+        mock_ctx = MagicMock()
+        ri._ctx_mgr = mock_ctx
+
+        with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "true"}):
+            handler._process_output(ri, False, [])
+
+        assert ri._ctx_mgr is None
+        assert mock_ctx in handler._ctx_mgr_pool
+
 
 # ---------------------------------------------------------------------------
 # _create_ctx_mgr_pool
@@ -1985,9 +2180,8 @@ class TestCreateCtxMgrPool:
         handler._lock = RLock()
         handler._ctx_mgr_pool = []
         handler._args = MagicMock()
-        handler._args.max_live_streams = 4
         handler.num_ctx_mgr = 0
-        handler.MAX_STREAMS = 4
+        handler.MAX_CONTEXT_MANAGERS = 4
         handler.NUM_CA_RAG_PROCESSES_LAUNCH = 2
         return handler
 
@@ -2014,14 +2208,33 @@ class TestCreateCtxMgrPool:
         # ContextManager should never have been called
         assert len(handler._ctx_mgr_pool) == 1  # unchanged
 
-    def test_raises_when_num_ctx_mgr_at_max_streams(self):
-        from via_stream_handler import ViaException
+    def test_does_not_create_when_num_ctx_mgr_at_capacity(self):
+        handler = self._make_handler()
+        handler.num_ctx_mgr = 4  # equal to MAX_CONTEXT_MANAGERS
+        with self._ctx_rag_patch():
+            handler._create_ctx_mgr_pool(config={})
+        assert handler._ctx_mgr_pool == []
+
+    def test_acquire_returns_fast_503_at_capacity(self):
+        from via_exception import ViaException
 
         handler = self._make_handler()
-        handler.num_ctx_mgr = 4  # equal to MAX_STREAMS
+        handler._metrics = MagicMock()
+        handler.num_ctx_mgr = 4
+        with self._ctx_rag_patch(), pytest.raises(ViaException) as exc_info:
+            handler._acquire_ctx_mgr(config={})
+        assert exc_info.value.code == "ServerBusy"
+        assert exc_info.value.status_code == 503
+        assert "summarization requests" in exc_info.value.message
+        assert "context managers" in exc_info.value.message
+        handler._metrics.context_manager_rejections.inc.assert_called_once()
+
+    def test_acquire_returns_available_context_manager(self):
+        handler = self._make_handler()
+        expected = MagicMock()
+        handler._ctx_mgr_pool = [expected]
         with self._ctx_rag_patch():
-            with pytest.raises(ViaException):
-                handler._create_ctx_mgr_pool(config={})
+            assert handler._acquire_ctx_mgr(config={}) is expected
 
     def test_creates_context_managers_up_to_launch_count(self):
         import sys
@@ -2045,7 +2258,7 @@ class TestCreateCtxMgrPool:
         import sys
 
         handler = self._make_handler()
-        handler.num_ctx_mgr = 3  # 1 away from MAX_STREAMS=4
+        handler.num_ctx_mgr = 3  # 1 away from MAX_CONTEXT_MANAGERS=4
         handler.NUM_CA_RAG_PROCESSES_LAUNCH = 5  # would add 5, but stops at MAX
         mock_cm_mod = MagicMock()
         mock_cm_mod.ContextManager.return_value = MagicMock()
@@ -2624,6 +2837,26 @@ class TestClassifyEsError:
         assert status == 503
         assert message == self._SHARD_MESSAGE
 
+    @pytest.mark.parametrize(
+        "detail",
+        [
+            "NoShardAvailableActionException: all shards failed",
+            "no_shard_available_action_exception",
+            "primary shard is not active for index default_video_1",
+        ],
+    )
+    def test_unavailable_shard_text_returns_503(self, detail):
+        from lvs_errors import classify_es_error
+
+        status, message = classify_es_error(Exception(detail))
+
+        assert status == 503
+        assert message == (
+            "Service temporarily unavailable: Elasticsearch dependency error (503). "
+            "See server logs for details."
+        )
+        assert detail not in message
+
     def test_generic_es_4xx_returns_sanitised_message(self):
         from lvs_errors import classify_es_error
 
@@ -2703,9 +2936,9 @@ class TestClassifyEsError:
 
 @pytest.mark.unit
 class TestCheckStatusRemoveReqIdDropsIndex:
-    """``check_status_remove_req_id`` should call
-    ``drop_collection_for_asset(force_legacy=True)`` after a file
-    summarize completes, but ONLY when:
+    """``check_status_remove_req_id`` should drop the collection through
+    the request's leased context manager after a file summarize completes,
+    but ONLY when:
 
       * ``LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`` is unset / "false"
       * ``req_info.is_live`` is False (live-stream completions reuse
@@ -2732,22 +2965,21 @@ class TestCheckStatusRemoveReqIdDropsIndex:
         return handler, ri, mock_ctx
 
     def test_drops_index_when_gate_unset(self):
-        handler, ri, _ = self._make_completed_file_request()
-        handler.drop_collection_for_asset = MagicMock(return_value={"ok": True})
+        handler, ri, mock_ctx = self._make_completed_file_request()
+        mock_ctx.drop_collection.return_value = {"ok": True}
 
         with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
             handler.check_status_remove_req_id(ri.request_id)
 
-        handler.drop_collection_for_asset.assert_called_once_with(ri.source_id, force_legacy=True)
+        mock_ctx.drop_collection.assert_called_once_with()
 
     def test_skips_drop_when_gate_true(self):
-        handler, ri, _ = self._make_completed_file_request()
-        handler.drop_collection_for_asset = MagicMock(return_value={"ok": True})
+        handler, ri, mock_ctx = self._make_completed_file_request()
 
         with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "true"}):
             handler.check_status_remove_req_id(ri.request_id)
 
-        handler.drop_collection_for_asset.assert_not_called()
+        mock_ctx.drop_collection.assert_not_called()
 
     def test_skips_drop_for_live_stream_completion(self):
         from via_stream_handler import LiveStreamInfo, RequestInfo
@@ -2767,25 +2999,37 @@ class TestCheckStatusRemoveReqIdDropsIndex:
         lsi = LiveStreamInfo()
         lsi.live_stream_ended = True
         handler._live_stream_info_map[ri.source_id] = lsi
-        handler.drop_collection_for_asset = MagicMock(return_value={"ok": True})
 
         with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
             handler.check_status_remove_req_id(ri.request_id)
 
-        handler.drop_collection_for_asset.assert_not_called()
+        mock_ctx.drop_collection.assert_not_called()
 
     def test_drop_failure_does_not_break_pool_return(self):
-        """If drop_collection_for_asset raises (transient ES blip during
-        cleanup), the ctx_mgr must still be returned to the pool.
+        """If drop_collection raises during cleanup, the ctx_mgr must still
+        be returned to the pool.
         """
         handler, ri, mock_ctx = self._make_completed_file_request()
-        handler.drop_collection_for_asset = MagicMock(
-            side_effect=Exception("transient ES failure during cleanup")
+        mock_ctx.drop_collection.side_effect = Exception("transient ES failure during cleanup")
+
+        with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
+            handler.check_status_remove_req_id(ri.request_id)
+
+        assert mock_ctx in handler._ctx_mgr_pool
+
+    def test_drop_does_not_acquire_second_manager_at_capacity(self):
+        handler, ri, mock_ctx = self._make_completed_file_request()
+        handler._ctx_mgr_pool = []
+        handler.num_ctx_mgr = handler.MAX_CONTEXT_MANAGERS
+        handler._acquire_ctx_mgr = MagicMock(
+            side_effect=AssertionError("cleanup must not acquire another manager")
         )
 
         with patch.dict(os.environ, {"LVS_DISABLE_DB_RESET_ON_REQUEST_DONE": "false"}):
             handler.check_status_remove_req_id(ri.request_id)
 
+        mock_ctx.drop_collection.assert_called_once_with()
+        handler._acquire_ctx_mgr.assert_not_called()
         assert mock_ctx in handler._ctx_mgr_pool
 
 

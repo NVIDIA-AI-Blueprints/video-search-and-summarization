@@ -195,6 +195,10 @@ export KAFKA_ENABLED=false                       # Enable Kafka streaming pipeli
 export ENABLE_AUDIO=false                        # Enable audio transcription
 export VIA_DEV_API=true                          # Enable /files and /generate_vlm_captions dev routes
 export DISABLE_CA_RAG=false                      # Disable CA-RAG aggregation
+# Optional: tune independent CA-RAG and HTTP worker limits. Keep the defaults
+# for normal deployments; scale out instead of raising the per-process cap.
+export VSS_EXTRA_ARGS="--max-context-managers 256 --max-async-workers 320"
+# The provided Compose deployment raises the descriptor limit for this pool.
 
 # Optional — Elasticsearch tuning
 export ES_MAX_SHARDS_PER_NODE=2000   # Raise for retain-mode workloads
@@ -217,6 +221,27 @@ RT-VLM credential fallback.
 The runtime environment variables above do not log Docker into `nvcr.io`. If Docker
 needs to pull private NGC images, authenticate the Docker client with an NGC credential
 before running `docker compose up`.
+
+### Scaling concurrent summarization
+
+Each service replica has an independent pool of 256 CA-RAG ContextManager
+processes. When that pool is exhausted, the replica returns HTTP 503 with the
+`ServerBusy` code at admission so callers can retry another replica; excess
+requests do not wait for a ContextManager lease.
+
+Use one `vss-summarization` replica for up to two VLM replicas. Deploy at least
+two summarization replicas when running more than two VLM replicas:
+
+```bash
+helm upgrade --install <RELEASE_NAME> <CHART> \
+  --set vss-summarization.replicas=2
+```
+
+Do not raise `--max-context-managers` to absorb sustained concurrency. Every
+manager creates a process and supporting threads inside the same Python
+service; scaling replicas spreads that CPU and file-descriptor load. Clients
+should use a bounded request timeout and retry transient `ServerBusy`
+responses. Let one benchmark wave drain before starting the next.
 
 ### Data directory prerequisites for repo-level Compose
 
@@ -541,7 +566,7 @@ http://<host>:38112/sse
 | 422 | Unprocessable | Extra unknown field, wrong type, value out of range |
 | 429 | Rate Limited | Too many concurrent requests |
 | 500 | Server Error | VLM inference failure, GPU OOM, internal error |
-| 503 | Server Busy | Processing another file/stream — retry with backoff |
+| 503 | Server Busy | ContextManager capacity exhausted — retry another replica with backoff |
 
 ## Important Notes
 

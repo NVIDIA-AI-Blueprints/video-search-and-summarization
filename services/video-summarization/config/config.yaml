@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,7 +30,8 @@ tools:
     params:
       host: !ENV ${ES_HOST}
       port: !ENV ${ES_PORT}
-      kafka_consumer_settle_secs: 5.0
+      kafka_consumer_wait_timeout_secs: 90.0
+      kafka_consumer_poll_interval_secs: 0.5
       collection_name: lvs-events
     tools:
       embedding: nvidia_embedding

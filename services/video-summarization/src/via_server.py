@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -165,7 +165,7 @@ class ViaServer:
         self._args = args
 
         self._async_executor = ThreadPoolExecutor(
-            max_workers=args.max_live_streams, thread_name_prefix="vss-async-worker"
+            max_workers=args.max_async_workers, thread_name_prefix="vss-async-worker"
         )
 
         # Use FastAPI to implement the REST API
@@ -229,6 +229,26 @@ class ViaServer:
         self._server = None
 
         self._stream_settings_cache = StreamSettingsCache(logger=logger)
+
+    async def _wait_for_request_done(self, request_id: str) -> None:
+        """Wait without occupying an HTTP offload worker."""
+        try:
+            while not self._stream_handler.is_request_done(request_id):
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            # A non-streaming client disconnected. Mark the request for
+            # deferred removal once its processing thread reaches safety.
+            self._stream_handler.check_status_remove_req_id(request_id)
+            raise
+
+    async def _cleanup_sse_generator(self, generator, source_id: str, request_id: str):
+        """Record cleanup on normal completion and client disconnect."""
+        try:
+            async for message in generator:
+                yield message
+        finally:
+            self._sse_active_clients.pop(source_id, None)
+            self._stream_handler.check_status_remove_req_id(request_id)
 
     def run(self):
         from via_stream_handler import ViaStreamHandler
@@ -795,15 +815,15 @@ class ViaServer:
                         except ViaException:
                             pass
                     yield "[DONE]"
-                    self._sse_active_clients.pop(videoId, None)
-                    self._stream_handler.check_status_remove_req_id(request_id)
 
-                return EventSourceResponse(message_generator(), send_timeout=5, ping=1)
+                return EventSourceResponse(
+                    self._cleanup_sse_generator(message_generator(), videoId, request_id),
+                    send_timeout=5,
+                    ping=1,
+                )
             else:
                 # Non-streaming output. Wait for request to be completed.
-                await loop.run_in_executor(
-                    self._async_executor, self._stream_handler.wait_for_request_done, request_id
-                )
+                await self._wait_for_request_done(request_id)
                 req_info, resp_list = self._stream_handler.get_response(request_id)
                 self._stream_handler.check_status_remove_req_id(request_id)
                 if req_info.status == RequestInfo.Status.FAILED:
@@ -1146,11 +1166,7 @@ class ViaServer:
                 stream_id,
             )
 
-            await loop.run_in_executor(
-                self._async_executor,
-                self._stream_handler.wait_for_request_done,
-                request_id,
-            )
+            await self._wait_for_request_done(request_id)
             req_info, resp_list = self._stream_handler.get_response(request_id)
             self._stream_handler.check_status_remove_req_id(request_id)
 
@@ -1609,15 +1625,15 @@ class ViaServer:
                         except ViaException:
                             pass
                     yield "[DONE]"
-                    self._sse_active_clients.pop(videoId, None)
-                    self._stream_handler.check_status_remove_req_id(request_id)
 
-                return EventSourceResponse(message_generator(), send_timeout=5, ping=1)
+                return EventSourceResponse(
+                    self._cleanup_sse_generator(message_generator(), videoId, request_id),
+                    send_timeout=5,
+                    ping=1,
+                )
             else:
                 # Non-streaming output. Wait for request to be completed.
-                await loop.run_in_executor(
-                    self._async_executor, self._stream_handler.wait_for_request_done, request_id
-                )
+                await self._wait_for_request_done(request_id)
                 req_info, resp_list = self._stream_handler.get_response(request_id)
                 self._stream_handler.check_status_remove_req_id(request_id)
                 if req_info.status == RequestInfo.Status.FAILED:
@@ -1948,4 +1964,3 @@ if __name__ == "__main__":
 
     server = ViaServer(args)
     server.run()
-

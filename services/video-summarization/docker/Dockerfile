@@ -69,6 +69,13 @@ RUN uv pip install \
     --extra-index-url https://pypi.nvidia.com/ \
     --python-version 3.13 --target /tmp/packages
 
+# Apply a downstream patch to retry transient Elasticsearch primary-shard
+# failures until the behavior is available in an upstream release.
+RUN --mount=type=bind,source=docker/patches/context-aware-rag,target=/tmp/context-aware-rag-patches \
+    cd /tmp/packages \
+    && git apply --no-index --unidiff-zero -p2 \
+        /tmp/context-aware-rag-patches/elasticsearch-shard-readiness.patch
+
 # Ubuntu builder: shell-based operations only — user creation, config/source copy scripts
 FROM jammy-builder-base AS app-builder
 
