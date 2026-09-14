@@ -6,6 +6,11 @@ metadata:
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "always"
 ---
 ## Purpose
 
@@ -81,10 +86,11 @@ VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 
 For Kubernetes, do not use `kubectl port-forward`, an in-cluster Service name,
 a NodePort, or a guessed Helm release name. This skill does not deploy VIOS
-itself, but when VIOS is unreachable it coordinates a deploy using its bundled
-deployment runbook
-([`references/deploy-vios-service.md`](references/deploy-vios-service.md)) or
-hands off to the full-stack `/vss-deploy-profile` skill. Before doing any work:
+itself, but when VIOS is unreachable it coordinates a standalone bring-up using
+its bundled deployment runbook
+([`references/deploy-vios-service.md`](references/deploy-vios-service.md)). A
+full VSS profile is deployed by the operator, outside this skill. Before doing
+any work:
 
 1. **Probe VIOS:**
 
@@ -92,18 +98,18 @@ hands off to the full-stack `/vss-deploy-profile` skill. Before doing any work:
    curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null
    ```
 
-2. **If the probe fails, VIOS is not deployed.** Offer two paths forward:
+2. **If the probe fails, VIOS is not deployed.** Offer the standalone path:
 
-   > *"VIOS is not reachable at `${VSS_VIOS_URL}` — no deployment is currently up. You have two options:*
+   > *"VIOS is not reachable at `${VSS_VIOS_URL}` — no deployment is currently up.*
    > *(a) Bring up VIOS standalone using this skill's bundled [`references/deploy-vios-service.md`](references/deploy-vios-service.md) runbook — image tags, env vars (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true`), host directories, NGC login, bring-up command, healthcheck loop, and known deployment issues are all documented there. This is the right path if you only need VIOS itself (no RT-VLM / ELK / etc.) or if you're composing a custom profile.*
-   > *(b) Deploy a full VSS profile that includes VIOS via the `/vss-deploy-profile` skill — `base` (recommended), `lvs`, `search`, or `alerts` all bring VIOS up alongside other components. This is the right path if you want a complete VSS stack.*
-   > *Which would you like?"*
+   > *(b) If you want a complete VSS stack instead, deploy a profile that includes VIOS — `base` (recommended), `lvs`, `search`, or `alerts` — outside this skill, then come back.*
+   > *Shall I walk you through (a)?"*
 
    - If the user picks (a) → walk them through `references/deploy-vios-service.md` step by step. Pay particular attention to its `§ Environment Variables — Required for Upload-to-Caption Path` and `§ Known Deployment Issues` sections — the libav-missing failure (`VST_INSTALL_ADDITIONAL_PACKAGES=true`) and the volume-drift hang (`docker compose up --yes` or `docker volume rm` first) are the two most common bring-up blockers. After deploy succeeds and the probe in step 1 passes, return here.
-   - If the user picks (b) → hand off to `/vss-deploy-profile -p <profile>` (default `base`). Return here once it succeeds.
+   - If the user picks (b) → **stop**; deploying a profile is outside this skill. Resume once VIOS answers the probe.
    - If the user declines both → **stop**. VIOS operations require the VST backend to be up; do not attempt to fabricate responses or proceed with a degraded mode.
 
-   *Pre-authorized autonomous mode:* if your caller has granted explicit pre-authorization to deploy prerequisites (e.g. the request says "pre-authorized to deploy prerequisites", or you are running in a non-interactive evaluation harness with that permission), skip the confirmation and prefer path (a) — bring up VIOS standalone via this skill's bundled `references/deploy-vios-service.md` — unless the request explicitly asks for a full VSS profile, in which case invoke `/vss-deploy-profile -p base`.
+   *Pre-authorized autonomous mode:* if your caller has granted explicit pre-authorization to deploy prerequisites (e.g. the request says "pre-authorized to deploy prerequisites", or you are running in a non-interactive evaluation harness with that permission), skip the confirmation and take path (a) — bring up VIOS standalone via this skill's bundled `references/deploy-vios-service.md`. A full VSS profile is never deployed from this skill.
 
 3. **If the probe passes, proceed.** VIOS is up; all operations below are safe to execute.
 
@@ -115,8 +121,9 @@ hands off to the full-stack `/vss-deploy-profile` skill. Before doing any work:
 can return **HTTP 502 Bad Gateway** or stale results when leftover `*-smc`
 VST containers from an earlier deploy survive teardown and win the
 `network_mode: host` port-bind race on `:30000` / `:30888`. **Remediation:
-re-run `/vss-deploy-profile`** — its Step 0 teardown grep clears the full
-`sensor-ms-*` / `vst-ingress-*` / `sdr-*` / `sdrc-*` / `rtspserver-ms-*` set.
+remove the leftover containers** — the full `sensor-ms-*` / `vst-ingress-*` /
+`sdr-*` / `sdrc-*` / `rtspserver-ms-*` set (`docker rm -f`) — before VIOS is
+brought up again.
 Other paths (`storage/file/*` upload, `*/picture/url` snapshot, `*/url` clip
 extraction) are unaffected. Full failure-mode catalogue, remediation, and the
 current routing contract (direct vs SDRC; SDR/Envoy removed in PR #711) live in

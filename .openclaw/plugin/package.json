@@ -1,0 +1,55 @@
+{
+  "name": "@nvidia-vss/openclaw-plugin",
+  "version": "0.1.0",
+  "description": "VSS for OpenClaw: the vss CLI as an agent tool, plus the VSS skills",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "skills/",
+    "skills-active/",
+    "workspace/",
+    "openclaw.plugin.json"
+  ],
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.5.22",
+      "minGatewayVersion": "2026.5.22"
+    },
+    "build": {
+      "openclawVersion": "2026.7.1"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "stage": "./stage-assets.sh ../../../skills ../workspace && node dist/sync.js --all --plugin-dir .",
+    "prepare-local": "npm run build && npm run stage"
+  },
+  "dependencies": {
+    "typebox": "1.1.38"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "openclaw": "2026.7.1",
+    "typescript": "6.0.3"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.5.17"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "overrides": {
+    "openclaw": {
+      "fast-uri": "3.1.6"
+    }
+  },
+  "bin": {
+    "vss-openclaw-sync": "dist/sync.js"
+  }
+}
