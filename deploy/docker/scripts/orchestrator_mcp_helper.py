@@ -20,6 +20,7 @@ DOCKER_QUERY_TIMEOUT_S = 20
 
 
 class OrchestratorTool(StrEnum):
+    ASK_USER_QUESTION = "vss_orchestrator__ask_user_question"
     PROFILES = "vss_orchestrator__profiles"
     PREREQS = "vss_orchestrator__prereqs"
     DOCKER_GENERATE = "vss_orchestrator__docker_generate"

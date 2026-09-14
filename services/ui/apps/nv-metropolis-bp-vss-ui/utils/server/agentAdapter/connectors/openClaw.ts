@@ -17,6 +17,15 @@ import {
   WebSocketTransportTimeoutError,
 } from "./websocket";
 import { createHmac, randomUUID } from "node:crypto";
+import {
+  access,
+  chmod,
+  link,
+  readFile,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import path from "node:path";
 
 const PROTOCOL_VERSION = 4;
 const CHAT_SCOPES = ["operator.read", "operator.write"];
@@ -24,6 +33,12 @@ const QUESTION_SCOPE = "operator.questions";
 const CLIENT_CAPABILITIES = ["tool-events", "session-scoped-events"];
 const QUESTION_ID = /^[a-z][a-z0-9_]*$/u;
 const MAX_QUESTION_TEXT_LENGTH = 100_000;
+const BROKER_TOOL_NAMES = new Set([
+  "ask_user_question",
+  "vss_orchestrator__ask_user_question",
+]);
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
@@ -62,6 +77,7 @@ interface NormalizedQuestion {
 interface PendingQuestion {
   questions: NormalizedQuestion[];
   expiresAtMs: number;
+  source: "native" | "broker";
 }
 
 class RpcRejected extends Error {
@@ -77,6 +93,9 @@ interface NormalizationState {
   startedTools: Set<string>;
   completedTools: Set<string>;
   toolNames: Map<string, string>;
+  brokerInteractionsByToolCall: Map<string, string>;
+  brokerInteractionCandidates: Set<string>;
+  discoveredBrokerInteractions: Set<string>;
   sawText: boolean;
 }
 
@@ -104,7 +123,7 @@ export class OpenClawConnector implements Connector {
   }
 
   private requestedScopes(): string[] {
-    return this.config.interactionsEnabled
+    return this.config.interactionsEnabled && !this.config.interactionBrokerDir
       ? [...CHAT_SCOPES, QUESTION_SCOPE]
       : CHAT_SCOPES;
   }
@@ -174,6 +193,60 @@ export class OpenClawConnector implements Connector {
       2_147_000_000,
       Math.max(this.config.requestTimeoutMs, throughQuestion),
     );
+  }
+
+  private async discoverBrokerInteractions(
+    state: NormalizationState,
+  ): Promise<ConnectorEvent[]> {
+    const directory = this.config.interactionBrokerDir;
+    if (!directory) return [];
+    const events: ConnectorEvent[] = [];
+    for (const interactionId of state.brokerInteractionCandidates) {
+      if (state.discoveredBrokerInteractions.has(interactionId)) continue;
+      let value: unknown;
+      try {
+        value = JSON.parse(
+          await readFile(
+            path.join(directory, `${interactionId}.request.json`),
+            "utf8",
+          ),
+        );
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw new ConnectorError(
+          "NemoClaw emitted an unreadable ask_user_question request",
+          "invalid_backend_interaction",
+          false,
+          { cause: error },
+        );
+      }
+      if (!isJsonObject(value)) {
+        throw new ConnectorError(
+          "NemoClaw emitted an invalid ask_user_question request",
+          "invalid_backend_interaction",
+        );
+      }
+      const record = OpenClawConnector.normalizeBrokerFileRequest(value);
+      if (!record || record.interactionId !== interactionId) {
+        throw new ConnectorError(
+          "NemoClaw emitted an invalid ask_user_question request",
+          "invalid_backend_interaction",
+        );
+      }
+      state.discoveredBrokerInteractions.add(interactionId);
+      state.pendingQuestions.set(interactionId, record.pending);
+      events.push({
+        type: "interaction.required",
+        data: {
+          interaction_id: interactionId,
+          kind: "questions",
+          questions: record.pending.questions,
+          created_at_ms: record.createdAtMs,
+          expires_at_ms: record.pending.expiresAtMs,
+        },
+      });
+    }
+    return events;
   }
 
   private request(
@@ -407,6 +480,7 @@ export class OpenClawConnector implements Connector {
       }
       if (
         this.config.interactionsEnabled &&
+        !this.config.interactionBrokerDir &&
         (!scopes.length || !scopes.includes(QUESTION_SCOPE))
       ) {
         throw new ConnectorError(
@@ -439,6 +513,7 @@ export class OpenClawConnector implements Connector {
       }
       if (
         this.config.interactionsEnabled &&
+        !this.config.interactionBrokerDir &&
         (!methods.includes("question.resolve") ||
           !events.includes("question.requested") ||
           !events.includes("question.resolved"))
@@ -638,8 +713,97 @@ export class OpenClawConnector implements Connector {
     }
     return {
       interactionId,
-      pending: { questions: normalized, expiresAtMs },
+      pending: { questions: normalized, expiresAtMs, source: "native" },
       createdAtMs,
+    };
+  }
+
+  private static normalizeBrokerQuestion(
+    value: unknown,
+  ): NormalizedQuestion | null {
+    if (!isJsonObject(value)) return null;
+    return OpenClawConnector.normalizeQuestion({
+      questionId: value.question_id,
+      header: value.header,
+      question: value.prompt,
+      options: value.options,
+      multiSelect: value.multi_select,
+      isOther: value.allow_other,
+    });
+  }
+
+  private static normalizeBrokerRequest(value: unknown): {
+    interactionId: string;
+    pending: PendingQuestion;
+    createdAtMs: number;
+  } | null {
+    if (!isJsonObject(value)) return null;
+    const rawInteractionId = OpenClawConnector.boundedString(
+      value.interaction_id,
+      36,
+    );
+    const interactionId = rawInteractionId?.toLowerCase();
+    const timeoutSeconds = value.timeout_seconds ?? 900;
+    if (
+      !interactionId ||
+      !UUID.test(interactionId) ||
+      !Array.isArray(value.questions) ||
+      value.questions.length < 1 ||
+      value.questions.length > 3 ||
+      typeof timeoutSeconds !== "number" ||
+      !Number.isInteger(timeoutSeconds) ||
+      timeoutSeconds < 30 ||
+      timeoutSeconds > 3_600
+    ) {
+      return null;
+    }
+    const questions = value.questions.map(
+      OpenClawConnector.normalizeBrokerQuestion,
+    );
+    if (questions.some((question) => question === null)) return null;
+    const normalized = questions as NormalizedQuestion[];
+    if (
+      new Set(normalized.map((question) => question.question_id)).size !==
+      normalized.length
+    ) {
+      return null;
+    }
+    const createdAtMs = Date.now();
+    return {
+      interactionId,
+      pending: {
+        questions: normalized,
+        expiresAtMs: createdAtMs + timeoutSeconds * 1_000,
+        source: "broker",
+      },
+      createdAtMs,
+    };
+  }
+
+  private static normalizeBrokerFileRequest(value: JsonObject): {
+    interactionId: string;
+    pending: PendingQuestion;
+    createdAtMs: number;
+  } | null {
+    const record = OpenClawConnector.normalizeBrokerRequest(value);
+    const createdAtMs = value.created_at_ms;
+    const expiresAtMs = value.expires_at_ms;
+    if (
+      !record ||
+      typeof createdAtMs !== "number" ||
+      !Number.isSafeInteger(createdAtMs) ||
+      createdAtMs < 0 ||
+      typeof expiresAtMs !== "number" ||
+      !Number.isSafeInteger(expiresAtMs) ||
+      expiresAtMs - createdAtMs < 30_000 ||
+      expiresAtMs - createdAtMs > 3_600_000
+    ) {
+      return null;
+    }
+    return {
+      ...record,
+      createdAtMs,
+      pending: { ...record.pending, expiresAtMs },
     };
   }
 
@@ -768,6 +932,36 @@ export class OpenClawConnector implements Connector {
       state.toolNames.get(toolCallId) || "Agent tool",
     );
     state.toolNames.set(toolCallId, name);
+    if (
+      this.config.interactionsEnabled &&
+      this.config.interactionBrokerDir &&
+      name === "exec"
+    ) {
+      const rawArguments =
+        toolData.args ?? toolData.arguments ?? toolData.input ?? {};
+      const execArguments = isJsonObject(rawArguments)
+        ? rawArguments
+        : undefined;
+      const command = asString(execArguments?.command) ?? "";
+      if (command.includes("vss_orchestrator__ask_user_question")) {
+        const environment = isJsonObject(execArguments?.env)
+          ? execArguments.env
+          : undefined;
+        const rawInteractionId = OpenClawConnector.boundedString(
+          environment?.VSS_HITL_INTERACTION_ID,
+          36,
+        );
+        const interactionId = rawInteractionId?.toLowerCase();
+        if (!interactionId || !UUID.test(interactionId)) {
+          throw new ConnectorError(
+            "NemoClaw ask_user_question exec calls must set VSS_HITL_INTERACTION_ID",
+            "invalid_backend_interaction",
+          );
+        }
+        state.brokerInteractionCandidates.add(interactionId);
+        state.brokerInteractionsByToolCall.set(toolCallId, interactionId);
+      }
+    }
     const phase = (
       asString(toolData.phase) ??
       asString(toolData.status) ??
@@ -786,6 +980,51 @@ export class OpenClawConnector implements Connector {
           },
         });
       }
+      if (
+        this.config.interactionsEnabled &&
+        this.config.interactionBrokerDir &&
+        BROKER_TOOL_NAMES.has(name) &&
+        !state.brokerInteractionsByToolCall.has(toolCallId)
+      ) {
+        const request = OpenClawConnector.normalizeBrokerRequest(
+          toolData.args ?? toolData.arguments ?? toolData.input,
+        );
+        if (!request) {
+          throw new ConnectorError(
+            "NemoClaw emitted an invalid ask_user_question request",
+            "invalid_backend_interaction",
+          );
+        }
+        const existing = state.pendingQuestions.get(request.interactionId);
+        if (
+          existing &&
+          (existing.source !== "broker" ||
+            JSON.stringify(existing.questions) !==
+              JSON.stringify(request.pending.questions))
+        ) {
+          throw new ConnectorError(
+            "NemoClaw reused a pending interaction id for a different question",
+            "invalid_backend_interaction",
+          );
+        }
+        state.brokerInteractionsByToolCall.set(
+          toolCallId,
+          request.interactionId,
+        );
+        if (!existing) {
+          state.pendingQuestions.set(request.interactionId, request.pending);
+          events.push({
+            type: "interaction.required",
+            data: {
+              interaction_id: request.interactionId,
+              kind: "questions",
+              questions: request.pending.questions,
+              created_at_ms: request.createdAtMs,
+              expires_at_ms: request.pending.expiresAtMs,
+            },
+          });
+        }
+      }
       return { events, terminal: false };
     }
     if (["update", "delta", "progress"].includes(phase)) {
@@ -798,6 +1037,28 @@ export class OpenClawConnector implements Connector {
       return { events: [], terminal: false };
     }
     state.completedTools.add(toolCallId);
+    const brokerInteractionId =
+      state.brokerInteractionsByToolCall.get(toolCallId);
+    if (brokerInteractionId) {
+      state.brokerInteractionsByToolCall.delete(toolCallId);
+      state.brokerInteractionCandidates.delete(brokerInteractionId);
+      const pending = state.pendingQuestions.get(brokerInteractionId);
+      const failed =
+        ["error", "failed"].includes(phase) || toolData.isError === true;
+      const expired = !!pending && pending.expiresAtMs <= Date.now();
+      if (
+        (failed || expired) &&
+        state.pendingQuestions.delete(brokerInteractionId)
+      ) {
+        events.push({
+          type: "interaction.resolved",
+          data: {
+            interaction_id: brokerInteractionId,
+            status: failed ? "cancelled" : "expired",
+          },
+        });
+      }
+    }
     if (!state.startedTools.has(toolCallId)) {
       state.startedTools.add(toolCallId);
       events.push({
@@ -888,12 +1149,38 @@ export class OpenClawConnector implements Connector {
         startedTools: new Set(),
         completedTools: new Set(),
         toolNames: new Map(),
+        brokerInteractionsByToolCall: new Map(),
+        brokerInteractionCandidates: new Set(),
+        discoveredBrokerInteractions: new Set(),
         sawText: false,
       };
       while (!signal.aborted) {
-        const frame =
-          pendingEvents.shift() ??
-          (await this.receive(socket, signal, this.receiveTimeout(active)));
+        for (const event of await this.discoverBrokerInteractions(state)) {
+          yield event;
+        }
+        const pollingBroker = [...state.brokerInteractionCandidates].some(
+          (interactionId) =>
+            !state.discoveredBrokerInteractions.has(interactionId),
+        );
+        let frame = pendingEvents.shift();
+        if (!frame && pollingBroker) {
+          try {
+            frame = await socket.receive(250, signal);
+          } catch (error) {
+            if (error instanceof WebSocketTransportTimeoutError) continue;
+            throw new ConnectorError(
+              "OpenClaw Gateway stream ended unexpectedly",
+              "backend_stream_error",
+              true,
+              { cause: error },
+            );
+          }
+        }
+        frame ??= await this.receive(
+          socket,
+          signal,
+          this.receiveTimeout(active),
+        );
         if (this.settleResponse(active, frame)) continue;
         const normalized = this.normalizeEvent(frame, state);
         for (const event of normalized.events) yield event;
@@ -983,6 +1270,14 @@ export class OpenClawConnector implements Connector {
       }
       normalizedAnswers[question.question_id] = answers;
     }
+    if (pending.source === "broker") {
+      await this.respondThroughBroker(
+        response.interactionId,
+        normalizedAnswers,
+      );
+      active.pendingQuestions.delete(response.interactionId);
+      return;
+    }
     let result: JsonObject;
     try {
       // OpenClaw 2026.8.1 validates a closed payload: only the question id,
@@ -1008,6 +1303,144 @@ export class OpenClawConnector implements Connector {
       );
     }
     active.pendingQuestions.delete(response.interactionId);
+  }
+
+  private async respondThroughBroker(
+    interactionId: string,
+    answers: Record<string, string[]>,
+  ): Promise<void> {
+    const directory = this.config.interactionBrokerDir;
+    if (!directory) {
+      throw new ConnectorError(
+        "the interaction broker is not configured",
+        "interaction_not_supported",
+      );
+    }
+    const requestPath = path.join(directory, `${interactionId}.request.json`);
+    const responsePath = path.join(directory, `${interactionId}.response.json`);
+    const acknowledgementPath = path.join(
+      directory,
+      `${interactionId}.ack.json`,
+    );
+    const temporaryPath = path.join(
+      directory,
+      `${interactionId}.${randomUUID()}.response.tmp`,
+    );
+    const deadline = Date.now() + Math.min(this.config.requestTimeoutMs, 5_000);
+    while (true) {
+      try {
+        await access(requestPath);
+        break;
+      } catch {
+        if (Date.now() >= deadline) {
+          throw new ConnectorError(
+            "the NemoClaw interaction is no longer pending",
+            "interaction_not_pending",
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    try {
+      await writeFile(
+        temporaryPath,
+        JSON.stringify({
+          version: 1,
+          interaction_id: interactionId,
+          answers,
+        }),
+        { encoding: "utf8", flag: "wx", mode: 0o660 },
+      );
+      await chmod(temporaryPath, 0o660);
+      await link(temporaryPath, responsePath);
+    } catch (error) {
+      throw new ConnectorError(
+        "the VSS UI could not deliver the interaction response to NemoClaw",
+        "backend_interaction_rejected",
+        true,
+        { cause: error },
+      );
+    } finally {
+      await unlink(temporaryPath).catch(() => undefined);
+    }
+    const acknowledgementDeadline =
+      Date.now() + Math.min(this.config.requestTimeoutMs, 10_000);
+    while (true) {
+      let value: unknown;
+      try {
+        value = JSON.parse(await readFile(acknowledgementPath, "utf8"));
+      } catch (error) {
+        if (
+          (error as NodeJS.ErrnoException).code === "ENOENT" &&
+          Date.now() < acknowledgementDeadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          continue;
+        }
+        throw new ConnectorError(
+          "NemoClaw did not acknowledge the interaction response",
+          "backend_interaction_rejected",
+          true,
+          { cause: error },
+        );
+      }
+      if (
+        !isJsonObject(value) ||
+        value.version !== 1 ||
+        asString(value.interaction_id)?.toLowerCase() !== interactionId ||
+        !["answered", "expired", "rejected", "cancelled"].includes(
+          String(value.status),
+        )
+      ) {
+        throw new ConnectorError(
+          "NemoClaw emitted an invalid interaction acknowledgement",
+          "invalid_backend_interaction",
+        );
+      }
+      if (
+        value.status === "answered" &&
+        OpenClawConnector.answersMatch(value.answers, answers)
+      ) {
+        return;
+      }
+      if (value.status === "answered") {
+        throw new ConnectorError(
+          "NemoClaw acknowledged a different interaction response",
+          "invalid_backend_interaction",
+        );
+      }
+      const error = OpenClawConnector.boundedString(value.error, 2_000, true);
+      throw new ConnectorError(
+        error || `NemoClaw rejected the interaction response (${value.status})`,
+        value.status === "expired"
+          ? "interaction_expired"
+          : "backend_interaction_rejected",
+      );
+    }
+  }
+
+  private static answersMatch(
+    value: unknown,
+    expected: Record<string, string[]>,
+  ): boolean {
+    if (!isJsonObject(value)) return false;
+    const expectedIds = Object.keys(expected);
+    const actualIds = Object.keys(value);
+    if (
+      actualIds.length !== expectedIds.length ||
+      expectedIds.some((questionId) => !Object.hasOwn(value, questionId))
+    ) {
+      return false;
+    }
+    return expectedIds.every((questionId) => {
+      const actual = value[questionId];
+      const wanted = expected[questionId];
+      return (
+        Array.isArray(actual) &&
+        actual.length === wanted.length &&
+        actual.every((answer, index) => answer === wanted[index])
+      );
+    });
   }
 
   cancel(runId: string): void {

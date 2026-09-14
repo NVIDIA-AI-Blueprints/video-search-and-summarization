@@ -20,9 +20,13 @@ The principal settings are:
 
 - `AGENT_ADAPTER_ENABLED`: explicit profile-level adapter switch.
 - `AGENT_INTERACTIONS_ENABLED`: enables OpenClaw structured questions. This is
-  opt-in so ordinary chat remains compatible with older gateways; enabling it
-  requires OpenClaw 2026.8.1 or newer and a token that grants
-  `operator.questions`.
+  opt-in so ordinary chat remains compatible with older gateways. NemoClaw's
+  pinned OpenClaw uses the Orchestrator MCP broker described below; a BYO
+  OpenClaw uses native questions and requires OpenClaw 2026.8.1 or newer plus
+  a token that grants `operator.questions`.
+- `AGENT_INTERACTION_BROKER_DIR`: container path shared with the Orchestrator
+  `ask_user_question` MCP tool. Set by the NemoClaw deployment path; leave it
+  unset for a BYO OpenClaw that supports native `question.*` events.
 - `AGENT_BACKEND_PROTOCOL`: `openclaw-ws`, `responses`, or `legacy-chat`.
 - `AGENT_BACKEND_URL` and `AGENT_BACKEND_PATH`: private harness location.
 - `AGENT_BACKEND_TOKEN`: server-only harness credential.
@@ -38,8 +42,11 @@ The adapter connects to an already-configured harness. It does not install
 Skills, provision a CLI, or modify the harness's identity, memory, or history.
 
 Never place a backend credential in a `NEXT_PUBLIC_*` variable. In Docker, the
-harness forward binds to Docker's private bridge address and the UI connects to
-`host.docker.internal`; the port is not published on an external interface.
+harness must separately be reachable from `host.docker.internal`; PR #2183
+tracks the NemoClaw bridge-binding setup. The HITL broker does not alter gateway
+network exposure.
+The Compose deployment mounts `.orchestrator-artifacts/interactions` into the
+UI for broker responses. The browser never sees or writes that directory.
 
 ## Same-origin API
 

@@ -1,6 +1,6 @@
 # VSS Orchestrator MCP (`tools.py`)
 
-This module exposes a NAT MCP function group named `vss_orchestrator` for generating Docker Compose artifacts, running deployments, and inspecting runtime state.
+This module exposes a NAT MCP function group named `vss_orchestrator` for structured user interaction, generating Docker Compose artifacts, running deployments, and inspecting runtime state.
 
 ### Required environment-specific configuration
 
@@ -59,6 +59,7 @@ uv run nat mcp client tool call \
 
 ## Tool summary
 
+- `ask_user_question`: Ask one to three structured questions and block until the VSS UI answer is consumed or the request expires. Each question uses a fresh UUID `interaction_id`; the terminal acknowledgement remains briefly as a replay tombstone. NemoClaw invokes this through one foreground `exec` call whose timeout exceeds the question timeout.
 - `profiles`: List all supported deployment profiles.
 - `prereqs`: Run Docker/GPU prerequisite checks.
 - `docker_generate`: Generate resolved Docker Compose YAML and `.env` artifacts.
@@ -254,5 +255,3 @@ uv run nat mcp client tool call \
       "pid": -1
     }
     ```
-
-

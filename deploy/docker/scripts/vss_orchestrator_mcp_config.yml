@@ -15,7 +15,8 @@
 
 # VSS Orchestrator MCP Server
 #
-# Exposes nine tools:
+# Exposes ten tools:
+#   vss_orchestrator__ask_user_question - block for a structured VSS UI answer
 #   vss_orchestrator__profiles - list all supported deployment profiles
 #   vss_orchestrator__prereqs - run Docker/GPU prerequisite checks
 #   vss_orchestrator__docker_generate - resolve env + compose YAML artifacts
@@ -46,6 +47,7 @@ function_groups:
     mdx_data_dir: "~/video-search-and-summarization/.mdx_data"
     # Required output directory for docker_generate artifacts.
     output_dir: "~/video-search-and-summarization/.orchestrator-artifacts"
+    interaction_broker_dir: "~/video-search-and-summarization/.orchestrator-artifacts/interactions"
     # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
     _type: vss_orchestrator
     # Absolute path to the deploy/docker root. Set HOST_IP separately via env
@@ -143,6 +145,7 @@ function_groups:
         verification: 2d_cv
         real-time: 2d_vlm
     include:
+    - ask_user_question
     - profiles
     - prereqs
     - docker_generate

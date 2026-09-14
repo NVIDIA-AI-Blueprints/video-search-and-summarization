@@ -98,11 +98,45 @@ OpenClaw's built-in MCP client can't fully handshake with the orchestrator's
 establishing a session). Only **`vss_orchestrator__docker_list`** reliably
 registers as a native tool. Prefer it natively when present. Every other
 orchestrator tool (`prereqs`, `docker_generate`, `docker_up`, `docker_down`,
-`docker_status`, `docker_logs`, `docker_read`, `profiles`) must be invoked
-via `curl` from the `exec` tool. Ignore `react_agent` — it's the workflow's
-entry function, not a deployment tool.
+`docker_status`, `docker_logs`, `docker_read`, `profiles`,
+`ask_user_question`) must be invoked via `curl` from the `exec` tool. Ignore
+`react_agent` — it's the workflow's entry function, not a deployment tool.
 
-### Handshake (once per session)
+### Asking a structured question
+
+`ask_user_question` is the one long-lived MCP request. Invoke it in a single
+foreground `exec` call so the agent turn remains paused while the VSS sidebar
+collects the answer. For that `exec` call:
+
+1. Set the tool argument `env.VSS_HITL_INTERACTION_ID` to the same fresh UUID
+   used in the MCP request's `interaction_id` field. The adapter uses this
+   explicit correlation value; merely placing an arbitrary UUID in shell text
+   is not sufficient.
+2. Set the tool argument `timeout` to at least `timeout_seconds + 30`.
+3. In `command`, perform the handshake below and then call
+   `vss_orchestrator__ask_user_question` with the flat arguments
+   `interaction_id`, `questions`, and `timeout_seconds`.
+4. Do not set `background` or return before curl finishes. The MCP call returns
+   only after the sidebar answers or the interaction expires.
+
+The `exec` arguments therefore have this shape (replace the UUID, question
+payload, and timeout together):
+
+```json
+{
+  "command": "<initialize, initialized, and tools/call curl commands below; the tools/call name is vss_orchestrator__ask_user_question>",
+  "env": {
+    "VSS_HITL_INTERACTION_ID": "12345678-1234-4234-8234-123456789abc"
+  },
+  "timeout": 930
+}
+```
+
+If the call returns `status=expired`, report that result. Never issue another
+`chat.send`, generate a replacement UUID, or ask the same question as ordinary
+chat text; all three would leave the paused execution uncorrelated.
+
+### Handshake (once per foreground exec command)
 
 Always use heredocs from the `exec` tool — never hand-write inline JSON.
 Responses are SSE-framed (`event: message\n\ndata: {...}\n\n`); strip the
@@ -130,6 +164,9 @@ curl -s -X POST http://host.openshell.internal:9988/mcp \
   -H 'Accept: application/json, text/event-stream' \
   --data '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 ```
+
+Keep the `SID` and the subsequent `tools/call` in this same shell command; a
+new `exec` shell does not inherit the session variable.
 
 ### Calling a tool
 
