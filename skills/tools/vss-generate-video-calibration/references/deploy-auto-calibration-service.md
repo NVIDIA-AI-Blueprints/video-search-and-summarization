@@ -128,33 +128,56 @@ printenv NGC_CLI_API_KEY | docker login nvcr.io --username '$oauthtoken' --passw
 
 > **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key. Use `printenv NGC_CLI_API_KEY | docker login … --password-stdin` — do **not** `echo "$NGC_CLI_API_KEY"` (that expands the secret into echo's argv). Keep the key out of any file you write.
 
-### Step 2 — (Optional) Stage the VGGT model
+### Step 2 — Stage the VGGT model when required
 
-Skip this step unless the user explicitly asks for independent VGGT calibration. For automated or noninteractive deployment checks where a real HuggingFace token and accepted license are not available, do not attempt a model download; report that VGGT staging needs those prerequisites and continue with the normal non-VGGT AMC deployment path.
+Explicit multi-camera tuning counts as a request for VGGT. For ordinary calibration or deployment, skip this step unless the user asks for VGGT. For automated checks without accepted model access, do not attempt the gated download or claim the model exists.
 
-**2a. Accept the model license** (one-time, manual): visit https://huggingface.co/facebook/VGGT-1B-Commercial and click "Agree and access repository".
-
-**2b. Get a HuggingFace read token**: https://huggingface.co/settings/tokens (starts with `hf_…`). Ask the user for it via `AskUserQuestion`.
-
-**2c. Download into the VSS data dir**:
+First check the model path used by the VSS deployment:
 
 ```bash
-# venv with huggingface_hub
-python3 -m venv /tmp/amc-hf-venv
-/tmp/amc-hf-venv/bin/pip install --quiet huggingface_hub
-
-# Download into the path the MS expects to mount
-mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
-/tmp/amc-hf-venv/bin/hf download facebook/VGGT-1B-Commercial \
-  --local-dir "${VSS_DATA_DIR}/auto-calib/vggt/" \
-  --token <HF_TOKEN>
-
-# Verify
-ls -lh "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
-# Should show ~4.7GB file
+test -s "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
 ```
 
-> **Do not log or echo the HuggingFace token value.** Pass it inline to the `hf` CLI via `--token` rather than storing it on disk or in shell history.
+If the model is missing, check the Hugging Face CLI:
+
+```bash
+command -v hf && hf --help
+```
+
+If `hf` is missing and `uv` is available, present only this installation action and wait for the user to reply `done`:
+
+```bash
+uv tool install huggingface_hub
+export PATH="$(uv tool dir --bin):$PATH"
+command -v hf
+hf --help
+```
+
+If `uv` is unavailable, present only this fallback installation action and wait for `done`:
+
+```bash
+python3 -m pip install --user --upgrade 'huggingface_hub[cli]'
+HF_USER_BIN="$(python3 -c 'import site; print(site.USER_BASE + "/bin")')"
+export PATH="$HF_USER_BIN:$PATH"
+command -v hf
+hf --help
+```
+
+Do not continue until both `command -v hf` and `hf --help` succeed. Do not use `sudo pip`, show the token/download action with the CLI-install action, or assume a user-level installation updated `PATH`.
+
+Once the CLI works, direct the user to accept the model terms at https://huggingface.co/facebook/VGGT-1B-Commercial and create a read token at https://huggingface.co/settings/tokens. Then present only this action and wait for a successful download:
+
+```bash
+mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
+read -rsp "Hugging Face token: " HF_TOKEN; printf '\n'
+export HF_TOKEN
+hf download facebook/VGGT-1B-Commercial vggt_1B_commercial.pt \
+  --local-dir "${VSS_DATA_DIR}/auto-calib/vggt"
+unset HF_TOKEN
+test -s "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
+```
+
+Never ask the user to paste the token into chat or put it directly in command arguments. If the backend was already running, restart the Auto Calibration service, wait for `/v1/ready`, and confirm a verified multi-camera project reports `vggt_state == READY` before tuning.
 
 ### Step 2b — If VIOS is already running, confirm `VIOS_BASE_URL`
 
