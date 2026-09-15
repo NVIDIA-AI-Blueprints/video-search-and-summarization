@@ -349,6 +349,47 @@ class TestStopAlert:
         assert code == 200
         mock_rtvi_client.stop_stream.assert_awaited()
 
+    @pytest.mark.asyncio
+    async def test_stop_captions_and_stop_stream_are_sequential(
+        self, realtime_service, mock_rtvi_client
+    ):
+        """Regression test for the always-on camera_remove orphan race.
+
+        RTVI's ``remove_rtsp_stream`` is guarded by a per-stream mutex
+        that rejects a second concurrent teardown call for the same
+        stream with HTTP 409. Both ``/generate_captions`` DELETE and
+        ``/streams/delete`` route through it. Firing stop_captions and
+        stop_stream concurrently (``asyncio.gather``) let one lose that
+        race; when ``/streams/delete`` lost, RTVI's asset cleanup never
+        ran, permanently orphaning the stream record even though this
+        method reported the teardown as clean. ``stop_stream`` must not
+        start until ``stop_captions`` has fully completed.
+        """
+        create_data, _ = await realtime_service.start_alert(make_config())
+        rule_id = create_data["id"]
+
+        order = []
+
+        async def _stop_captions(*args, **kwargs):
+            order.append("captions_start")
+            await asyncio.sleep(0.01)
+            order.append("captions_end")
+            return {"status": "stopped"}
+
+        async def _stop_stream(*args, **kwargs):
+            order.append("stream_start")
+            return {"status": "deleted"}
+
+        mock_rtvi_client.stop_captions.side_effect = _stop_captions
+        mock_rtvi_client.stop_stream.side_effect = _stop_stream
+
+        await realtime_service.stop_alert(rule_id)
+
+        assert order == ["captions_start", "captions_end", "stream_start"], (
+            "stop_captions must fully complete before stop_stream starts "
+            f"— got {order}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # list_alerts
@@ -951,6 +992,51 @@ class TestPersistentStopAlert:
 
         assert code == 200
         assert fake_rule_store.get(rule_id) is None
+
+    @pytest.mark.asyncio
+    async def test_stop_captions_and_stop_stream_are_sequential(
+        self, persistent_service, fake_rule_store, mock_rtvi_client
+    ):
+        """Regression test for the always-on camera_remove orphan race.
+
+        This is the ES-backed path SDR's always-on camera_remove webhook
+        actually drives. RTVI's ``remove_rtsp_stream`` is guarded by a
+        per-stream mutex that rejects a second concurrent teardown call
+        for the same stream with HTTP 409 — both ``/generate_captions``
+        DELETE and ``/streams/delete`` route through it. Firing
+        stop_captions and stop_stream concurrently (``asyncio.gather``)
+        let one lose that race; when ``/streams/delete`` lost, RTVI's
+        asset cleanup never ran, permanently orphaning the stream record
+        (visible via RTVI's ``get-stream-info``) even though the ES rule
+        was already deleted and this method reported success. VIOS's
+        retry of camera_remove then found no tracked rule left and
+        never reconciled the orphan. ``stop_stream`` must not start
+        until ``stop_captions`` has fully completed.
+        """
+        create_data, _ = await persistent_service.start_alert(make_config())
+        rule_id = create_data["id"]
+
+        order = []
+
+        async def _stop_captions(*args, **kwargs):
+            order.append("captions_start")
+            await asyncio.sleep(0.01)
+            order.append("captions_end")
+            return {"status": "stopped"}
+
+        async def _stop_stream(*args, **kwargs):
+            order.append("stream_start")
+            return {"status": "deleted"}
+
+        mock_rtvi_client.stop_captions.side_effect = _stop_captions
+        mock_rtvi_client.stop_stream.side_effect = _stop_stream
+
+        await persistent_service.stop_alert(rule_id)
+
+        assert order == ["captions_start", "captions_end", "stream_start"], (
+            "stop_captions must fully complete before stop_stream starts "
+            f"— got {order}"
+        )
 
 
 class TestPersistentListAlerts:
