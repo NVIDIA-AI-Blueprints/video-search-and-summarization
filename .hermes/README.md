@@ -64,6 +64,12 @@ docker build -t <registry>/vss-harness-hermes:<tag> .hermes
 .hermes/Dockerfile` when `AGENT_RUNTIME=hermes`. The eval harness's
 Provision panel lists this Dockerfile next to the OpenClaw one.
 
+**Dev loop:** `python3 skills/vss-build-vision-ai/scripts/stage_vss_src.py`
+snapshots the working tree (skills, workspace docs, `vss` CLI source) into
+`.hermes/.vss-src/`, which the next build uses instead of fetching `VSS_REF`;
+`--clean` returns builds to the pin. Same mechanism and provenance marker as
+the OpenClaw image (see `.openclaw/README.md`).
+
 | Build arg | Default | What it pins |
 |---|---|---|
 | `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7…` (v0.0.114 cohort) | the managed runtime |

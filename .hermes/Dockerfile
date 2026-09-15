@@ -22,7 +22,10 @@
 # notebook's NEMOCLAW_INSTALL_REF: NemoClaw requires CLI and images to be one release.
 #
 # Build context is this directory (.hermes); skills, workspace docs
-# and the vss CLI all come from one pinned commit of this repo (VSS_REF).
+# and the vss CLI all come from one pinned commit of this repo (VSS_REF) — or,
+# dev loop, from a `.vss-src/` working-tree snapshot placed here by
+# skills/vss-build-vision-ai/scripts/stage_vss_src.py, which wins over the pin
+# when present.
 #
 #   docker build -t <registry>/vss-harness-hermes:<tag> .hermes
 
@@ -37,9 +40,19 @@ ARG VSS_REPO
 ARG VSS_REF
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-RUN git init -q /opt/vss-src \
-    && git -C /opt/vss-src fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
-    && git -C /opt/vss-src checkout -q FETCH_HEAD
+# Dev-loop override: a .vss-src/ snapshot in the build context (staged by
+# stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
+# reaches the image without a push. The Dockerfil[e] glob keeps this COPY
+# valid when nothing is staged — the Dockerfile itself always matches.
+COPY Dockerfil[e] .vss-sr[c] /opt/vss-src/
+RUN rm -f /opt/vss-src/Dockerfile \
+    && if [ -f /opt/vss-src/STAGED ]; then \
+         echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
+       else \
+         git init -q /opt/vss-src \
+         && git -C /opt/vss-src fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
+         && git -C /opt/vss-src checkout -q FETCH_HEAD; \
+       fi
 # Operation skills: every skill whose SKILL.md frontmatter declares vss-requires
 # (the same selection rule as the OpenClaw plugin's stage-assets.sh).
 RUN mkdir -p /opt/vss-assets/skills \
@@ -59,6 +72,15 @@ RUN mkdir -p /opt/vss-assets/workspace \
     && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
     && cp /opt/vss-src/.openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
     && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md
+# CLI-source handoff for a pre-staged snapshot: it has no .git for the runtime
+# stage to re-fetch, so its services/agent and STAGED marker ride the one
+# /opt/vss-assets COPY the runtime's layer budget allows (absent on the pinned
+# path, where the runtime fetches).
+RUN if [ -f /opt/vss-src/STAGED ]; then \
+      mkdir -p /opt/vss-assets/vss-cli-src \
+      && cp -R /opt/vss-src/services/agent /opt/vss-assets/vss-cli-src/agent \
+      && cp /opt/vss-src/STAGED /opt/vss-assets/STAGED; \
+    fi
 
 # ── Managed Hermes runtime + vss CLI + skills + docs ───────────────────────────
 # NemoClaw's Hermes image already has 124 filesystem layers, right under the
@@ -75,7 +97,9 @@ COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 #  - The vss CLI from the same pinned checkout as the skills: installed editable
 #    (uv workspace members) on the intact checkout (setuptools-scm versioning),
 #    then the tree stripped to what the editable links point at. uv and python
-#    3.13 ship in the base; the venv is its own, never /opt/hermes/.venv.
+#    3.13 ship in the base; the venv is its own, never /opt/hermes/.venv. A
+#    pre-staged snapshot (STAGED in /opt/vss-assets) supplies services/agent
+#    directly and a pretend version, since a snapshot has no .git to read.
 #  - Skills into Hermes' canonical writable skill root (sandbox-owned, like the
 #    ones `nemohermes <sb> skill install` places there); docs into /sandbox,
 #    where Hermes and the notebook's verification expect them.
@@ -84,9 +108,16 @@ COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 #    every root process on the node). Process limits are the cluster's job.
 RUN set -eux; \
     for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done \
-    && git init -q /usr/local/src/vss \
-    && git -C /usr/local/src/vss fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
-    && git -C /usr/local/src/vss checkout -q FETCH_HEAD \
+    && if [ -f /opt/vss-assets/STAGED ]; then \
+         export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-assets/STAGED)" \
+         && test -n "$SETUPTOOLS_SCM_PRETEND_VERSION" \
+         && mkdir -p /usr/local/src/vss/services \
+         && cp -R /opt/vss-assets/vss-cli-src/agent /usr/local/src/vss/services/agent; \
+       else \
+         git init -q /usr/local/src/vss \
+         && git -C /usr/local/src/vss fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
+         && git -C /usr/local/src/vss checkout -q FETCH_HEAD; \
+       fi \
     && uv venv --python /opt/hermes/.venv/bin/python3 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install "nvidia-vss[cli] @ /usr/local/src/vss/services/agent" \
     && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \

@@ -20,7 +20,9 @@
 # Build context is this directory (.openclaw): the plugin source is
 # COPYd from ./plugin and the OpenClaw workspace instructions from ./workspace;
 # the skills and the vss CLI come from a pinned commit of this repo so the two
-# always match.
+# always match — or, dev loop, from a `.vss-src/` working-tree snapshot placed
+# here by skills/vss-build-vision-ai/scripts/stage_vss_src.py, which wins over
+# the pin when present.
 #
 #   docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
 
@@ -52,9 +54,27 @@ ARG VSS_REPO
 ARG VSS_REF
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-RUN git init -q /opt/vss-src \
-    && git -C /opt/vss-src fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
-    && git -C /opt/vss-src checkout -q FETCH_HEAD
+# Dev-loop override: a .vss-src/ snapshot in the build context (staged by
+# stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
+# reaches the image without a push. The Dockerfil[e] glob keeps this COPY
+# valid when nothing is staged — the Dockerfile itself always matches.
+COPY Dockerfil[e] .vss-sr[c] /opt/vss-src/
+RUN rm -f /opt/vss-src/Dockerfile \
+    && if [ -f /opt/vss-src/STAGED ]; then \
+         echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
+       else \
+         git init -q /opt/vss-src \
+         && git -C /opt/vss-src fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
+         && git -C /opt/vss-src checkout -q FETCH_HEAD; \
+       fi
+# CLI-source handoff to the runtime stage: a snapshot carries no .git for the
+# runtime to re-fetch, so its services/agent and STAGED marker travel through
+# this directory (left empty on the pinned path, where the runtime fetches).
+RUN mkdir -p /opt/vss-cli-src \
+    && if [ -f /opt/vss-src/STAGED ]; then \
+         cp -R /opt/vss-src/services/agent /opt/vss-cli-src/agent \
+         && cp /opt/vss-src/STAGED /opt/vss-cli-src/STAGED; \
+       fi
 
 # ── Plugin build (from its lockfile) ───────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-plugin-builder
@@ -107,17 +127,28 @@ USER root
 RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
 
 # The vss CLI. nvidia-vss is on no reachable index, so it is installed from the
-# same pinned checkout the skills came from. Its packages are uv workspace
-# members (installed editable, so the checkout stays) and take their version
-# from git metadata (so the install runs before .git is stripped). Own venv, so
-# it never touches the runtime's python.
+# same pinned checkout the skills came from — or from the pre-staged snapshot
+# when one is in the context (the vss-cli-src handoff above). Its packages are
+# uv workspace members (installed editable, so the checkout stays) and take
+# their version from git metadata (so the install runs before .git is
+# stripped); a snapshot has no .git, so it carries a pretend version instead.
+# Own venv, so it never touches the runtime's python.
 ARG VSS_REPO
 ARG VSS_REF
 COPY --from=uv /uv /usr/local/bin/uv
+COPY --from=vss-src /opt/vss-cli-src/ /opt/vss-cli-src/
 RUN set -eux; \
-    git init -q /usr/local/src/vss \
-    && git -C /usr/local/src/vss fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
-    && git -C /usr/local/src/vss checkout -q FETCH_HEAD \
+    if [ -f /opt/vss-cli-src/STAGED ]; then \
+      export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-cli-src/STAGED)"; \
+      test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
+      mkdir -p /usr/local/src/vss/services; \
+      mv /opt/vss-cli-src/agent /usr/local/src/vss/services/agent; \
+    else \
+      git init -q /usr/local/src/vss \
+      && git -C /usr/local/src/vss fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
+      && git -C /usr/local/src/vss checkout -q FETCH_HEAD; \
+    fi \
+    && rm -rf /opt/vss-cli-src \
     && uv venv --python /usr/bin/python3 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install "nvidia-vss[cli] @ /usr/local/src/vss/services/agent" \
     && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
