@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Test script for deploy/docker/scripts/dev-profile.sh
 # Uses --dry-run for positive cases so no docker compose is started.
 #

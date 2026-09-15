@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Clean up root-owned bind-mount artefacts (./log, ./.wdm-env) without needing
 # host sudo. Runs a one-shot Alpine container as root and removes the contents.
 #
