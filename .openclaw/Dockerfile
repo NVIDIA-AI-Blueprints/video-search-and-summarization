@@ -44,7 +44,7 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572
 # `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise).
 # Override with --build-arg VSS_REF=<sha>; bump the default when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=7f080d33ed5b3716a0954f2967bc536bb935c6a5
+ARG VSS_REF=5212368036879feb704a258be0db012ce518aeaa
 
 # ── VSS source checkout ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
@@ -74,14 +74,19 @@ RUN npm run build \
 # SKILL.md frontmatter declares `vss-requires` — and the OpenClaw
 # workspace instructions from this directory, staged under the plugin root.
 # skills/ is the full set; the manifest points at skills-active/, which the
-# plugin fills from the deployment the vss CLI recorded (see plugin/src/sync.ts).
+# plugin fills from the deployment the vss CLI recorded (see sync_skills.py,
+# the shared selector staged from the pinned VSS checkout).
 # At build every listed skill is active, so a sandbox that has not run
 # `vss configure` yet still has them all.
 COPY --from=vss-src /opt/vss-src/skills /tmp/vss-skills
+COPY --from=vss-src /opt/vss-src/skills/vss-build-vision-ai/scripts/sync_skills.py ./sync_skills.py
 COPY workspace/ /tmp/vss-workspace/
+# Build-time equivalent of `sync_skills.py --all` (everything active); this
+# builder is a node image without python3, and --all is a plain copy. The
+# runtime re-selects with the shared tool (register() and vss-openclaw-sync).
 RUN ./stage-assets.sh /tmp/vss-skills /tmp/vss-workspace \
     && rm -rf /tmp/vss-skills /tmp/vss-workspace \
-    && node dist/sync.js --all --plugin-dir . \
+    && cp -R skills skills-active \
     && test "$(ls skills-active | wc -l)" = "$(ls skills | wc -l)"
 
 # ── uv, for the vss CLI venv ───────────────────────────────────────────────────
@@ -138,6 +143,7 @@ COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/dist/ /op
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/node_modules/ /opt/vss-plugin/node_modules/
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills/ /opt/vss-plugin/skills/
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/skills-active/ /opt/vss-plugin/skills-active/
+COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/sync_skills.py /opt/vss-plugin/sync_skills.py
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox /opt/vss-plugin/workspace/ /opt/vss-plugin/workspace/
 
 # Staged outside the managed extensions dir and installed (copied) into it, per
@@ -158,7 +164,7 @@ RUN test ! -e /opt/vss-plugin/node_modules/openclaw \
 # recorded, for operators and harnesses that configure the deployment after the
 # gateway is up. The plugin runs the same selection itself at register time.
 USER root
-RUN printf '%s\n' '#!/bin/sh' 'exec node /sandbox/.openclaw/extensions/vss/dist/sync.js "$@"' > /usr/local/bin/vss-openclaw-sync \
+RUN printf '%s\n' '#!/bin/sh' 'exec python3 /sandbox/.openclaw/extensions/vss/sync_skills.py --plugin-dir /sandbox/.openclaw/extensions/vss "$@"' > /usr/local/bin/vss-openclaw-sync \
     && chmod 755 /usr/local/bin/vss-openclaw-sync
 
 # Enabling the plugin changes openclaw.json after the managed runtime hashed it;

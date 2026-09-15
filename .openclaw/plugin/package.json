@@ -27,7 +27,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "stage": "./stage-assets.sh ../../../skills ../workspace && node dist/sync.js --all --plugin-dir .",
+    "stage": "./stage-assets.sh ../../../skills ../workspace && python3 ../../../skills/vss-build-vision-ai/scripts/sync_skills.py --all --plugin-dir .",
     "prepare-local": "npm run build && npm run stage"
   },
   "dependencies": {
@@ -48,8 +48,5 @@
     "openclaw": {
       "fast-uri": "3.1.6"
     }
-  },
-  "bin": {
-    "vss-openclaw-sync": "dist/sync.js"
   }
 }

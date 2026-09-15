@@ -29,7 +29,7 @@
 ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7ed6a6f1b682991818a2acaf5636d9fb066ae33265b011837b0ba601c0970
 ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=e7ea9804a6444f5d9a9dd3256ba6ba9a2a81e89d
+ARG VSS_REF=5212368036879feb704a258be0db012ce518aeaa
 
 # ── VSS source checkout: operation skills + workspace docs ─────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
@@ -50,17 +50,14 @@ RUN mkdir -p /opt/vss-assets/skills \
        done \
     && test "$(ls /opt/vss-assets/skills | wc -l)" -gt 0 \
     && ls /opt/vss-assets/skills
-# The skill-selection tool, shared verbatim with the OpenClaw harness. Path is
-# inside the pinned VSS_REF checkout (predates the .openclaw rename); move it
-# with VSS_REF. Node 24 in the Hermes runtime executes the .ts directly.
-RUN cp /opt/vss-src/agent-harness/openclaw/plugin/src/sync.ts /opt/vss-assets/sync.ts
+# The skill-selection tool, shared with the OpenClaw harness and the host:
+# the harness-neutral python selector from the pinned VSS_REF checkout.
+RUN cp /opt/vss-src/skills/vss-build-vision-ai/scripts/sync_skills.py /opt/vss-assets/sync_skills.py
 # Workspace docs: the shared set plus the _nemoclaw overlay, overlay winning,
 # flattened the way deploy_nemoclaw.ipynb uploads them for Hermes (into /sandbox).
 RUN mkdir -p /opt/vss-assets/workspace \
-    # Paths inside the pinned VSS_REF checkout, which predates the
-    # agent-harness -> .openclaw rename; move these with VSS_REF.
-    && cp /opt/vss-src/agent-harness/openclaw/workspace/*.md /opt/vss-assets/workspace/ \
-    && cp /opt/vss-src/agent-harness/openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
+    && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
+    && cp /opt/vss-src/.openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
     && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md
 
 # ── Managed Hermes runtime + vss CLI + skills + docs ───────────────────────────
@@ -100,21 +97,20 @@ RUN set -eux; \
     && chmod -R a+rX /usr/local/src/vss \
     && vss --version \
     && su -s /bin/sh sandbox -c "vss --version" \
-    # Skill discovery, same machinery as the OpenClaw plugin: the shipped set
-    # stays read-only under /opt/vss-skills/skills, and sync.ts fills the
-    # active set from what `vss configure` records. Hermes scans
-    # /sandbox/.hermes/skills natively, so that IS the active dir — reached
-    # through the skills-active symlink sync.ts expects. --all at build
-    # activates everything; `vss-hermes-sync` re-selects after `vss configure`.
+    # Skill discovery, same machinery as the OpenClaw plugin, same python
+    # tool: the shipped set stays read-only under /opt/vss-skills/skills, and
+    # sync_skills.py fills the active set from what `vss configure` records.
+    # Hermes scans /sandbox/.hermes/skills natively, so that IS the active
+    # dir. --all at build activates everything; `vss-hermes-sync` re-selects
+    # after `vss configure`.
     && mkdir -p /opt/vss-skills \
     && cp -R /opt/vss-assets/skills /opt/vss-skills/skills \
-    && cp /opt/vss-assets/sync.ts /opt/vss-skills/sync.ts \
+    && cp /opt/vss-assets/sync_skills.py /opt/vss-skills/sync_skills.py \
     && mkdir -p /sandbox/.hermes/skills \
-    && ln -s /sandbox/.hermes/skills /opt/vss-skills/skills-active \
     && chmod -R a+rX /opt/vss-skills \
-    && printf '#!/bin/sh\nexec node /opt/vss-skills/sync.ts --plugin-dir /opt/vss-skills "$@"\n' > /usr/local/bin/vss-hermes-sync \
+    && printf '#!/bin/sh\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /sandbox/.hermes/skills "$@"\n' > /usr/local/bin/vss-hermes-sync \
     && chmod 0755 /usr/local/bin/vss-hermes-sync \
-    && node /opt/vss-skills/sync.ts --plugin-dir /opt/vss-skills --all \
+    && python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /sandbox/.hermes/skills --all \
     && chown -R sandbox:sandbox /sandbox/.hermes/skills \
     && su -s /bin/sh sandbox -c "vss-hermes-sync --all" \
     && cp /opt/vss-assets/workspace/*.md /sandbox/ \

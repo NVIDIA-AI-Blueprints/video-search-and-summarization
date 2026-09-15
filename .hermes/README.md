@@ -80,12 +80,13 @@ and `WORKDIR /sandbox`. `LABEL harness.agent=hermes`.
 ## Skill discovery
 
 Same machinery as the OpenClaw plugin, same file: the image carries
-`.openclaw/plugin/src/sync.ts` verbatim (staged from the pinned `VSS_REF`
-checkout) at `/opt/vss-skills/sync.ts`, with the shipped skill set read-only
-under `/opt/vss-skills/skills/`. Hermes scans `/sandbox/.hermes/skills`
-natively, so that directory is the active set — sync reaches it through the
-`skills-active` symlink it expects. Node 24 in the Hermes runtime executes the
-`.ts` directly.
+`skills/vss-build-vision-ai/scripts/sync_skills.py` (staged from the pinned
+`VSS_REF` checkout) at `/opt/vss-skills/sync_skills.py`, with the shipped
+skill set read-only under `/opt/vss-skills/skills/`. Hermes scans
+`/sandbox/.hermes/skills` natively, so that directory is passed as
+`--active-dir` — no layout adapter needed. Stdlib-only python; the same file
+serves the OpenClaw plugin and host tooling, with its behavior pinned by unit
+tests beside it.
 
 At build, `--all` activates every shipped skill. After `vss configure` records
 a deployment, run `vss-hermes-sync` in the sandbox to re-select: each skill's

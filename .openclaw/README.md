@@ -13,7 +13,7 @@ that harness loads skills.
 | Path | What it is |
 |---|---|
 | `Dockerfile` | The sandbox image: NemoClaw's published managed OpenClaw runtime (digest-pinned) + the `vss` CLI + this plugin, installed with `openclaw plugins install` |
-| `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts` (tool, workspace seeding), `src/sync.ts` (skill selection), `stage-assets.sh` |
+| `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts` (tool, workspace seeding, skill-selection shim), `stage-assets.sh` |
 | `workspace/` | The OpenClaw workspace instruction files (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `BOOTSTRAP.md`) and the `_nemoclaw/` overlay for the sandbox (`ENV.md`, host alias, proxy notes) |
 
 ## The plugin
@@ -32,7 +32,7 @@ the OpenClaw SDK:
   deployment gets, such as `vss-manage-video-io-storage`) is an operation skill
   and is staged.
   At register time, and on demand via
-  `vss-openclaw-sync`, `src/sync.ts` runs `vss configure check`, which reports
+  `vss-openclaw-sync`, the shared `sync_skills.py` (staged from `skills/vss-build-vision-ai/scripts/` at the pinned `VSS_REF`) runs `vss configure check`, which reports
   the command groups the recorded deployment can serve (the CLI joins the routes
   it recorded, such as `lvs`, `rt_vlm`, `elasticsearch` + `rt_embed`, with what
   each group needs), probes the Alert Bridge at `<base_url>/alerts` or the

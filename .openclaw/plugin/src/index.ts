@@ -11,9 +11,11 @@
 // Two things happen at register time. Skills are selected: each shipped skill
 // declares the vss command group (or the alerts path) it needs in its SKILL.md
 // frontmatter (`metadata.vss-requires`), and
-// src/sync.ts asks `vss configure check` which groups the recorded deployment can
-// serve, then copies exactly those skills into skills-active/, the directory the
-// manifest points OpenClaw at. Unconfigured deployment: all shipped skills.
+// sync_skills.py (the shared, harness-neutral selector staged from the pinned
+// VSS checkout at image build) asks `vss configure check` which groups the
+// recorded deployment can serve, then copies exactly those skills into
+// skills-active/, the directory the manifest points OpenClaw at. Unconfigured
+// deployment: all shipped skills.
 // And the OpenClaw workspace instructions
 // (`workspace/` — AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, BOOTSTRAP.md, copied
 // from .openclaw/workspace at build) are seeded into the agent's
@@ -22,13 +24,12 @@
 // a NemoClaw sandbox). Existing files are never overwritten: the workspace is
 // the agent's memory.
 
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { sync as syncSkills } from "./sync.js";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import { Type } from "typebox";
 
@@ -195,7 +196,16 @@ vssPlugin.register = (api) => {
   const a = api as unknown as WorkspaceApi & { pluginConfig?: { skillSelection?: string; vssBin?: string } };
   try {
     const all = (process.env.VSS_SKILL_SELECTION ?? a.pluginConfig?.skillSelection) === "all";
-    syncSkills(join(dirname(fileURLToPath(import.meta.url)), ".."), { all, vssBin: a.pluginConfig?.vssBin, logger: a.logger });
+    const pluginDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+    const argv = [join(pluginDir, "sync_skills.py"), "--plugin-dir", pluginDir];
+    if (all) argv.push("--all");
+    if (a.pluginConfig?.vssBin) argv.push("--vss", a.pluginConfig.vssBin);
+    const r = spawnSync("python3", argv, { encoding: "utf8", timeout: 120_000 });
+    for (const line of `${r.stdout ?? ""}`.split("\n")) if (line.trim()) a.logger.info(line);
+    // exit 3 (nothing active) is a selection outcome, not a failure.
+    if (r.error || (r.status !== 0 && r.status !== 3)) {
+      throw new Error(r.error ? r.error.message : `sync_skills.py exit ${r.status}: ${(r.stderr ?? "").trim()}`);
+    }
   } catch (err) {
     a.logger.warn(`[vss] skill selection failed, keeping the current skills-active/: ${err instanceof Error ? err.message : String(err)}`);
   }

@@ -230,3 +230,20 @@ def test_cli_error_exits_one(tmp_path, monkeypatch, capsys):
     rc = sync_skills.main(["--skills-dir", str(tmp_path / "afile" / "nope"),
                            "--active-dir", str(tmp_path / "active2")])
     assert rc in (1, 3)
+
+
+# --- pin lockstep ---------------------------------------------------------------
+
+def test_vss_ref_pins_are_in_lockstep():
+    """Both harness images must stage skills, docs, and this tool from the SAME
+    commit — two pins drifting apart means the harnesses ship different skill
+    snapshots (the defect this check exists to prevent)."""
+    import re as _re
+    repo = Path(__file__).resolve().parents[4]
+    refs = {}
+    for df in (repo / ".openclaw" / "Dockerfile", repo / ".hermes" / "Dockerfile"):
+        m = _re.search(r"^ARG VSS_REF=([0-9a-f]{40})$", df.read_text(), _re.M)
+        assert m, f"{df} has no full-SHA VSS_REF default"
+        refs[df.parent.name] = m.group(1)
+    assert refs[".openclaw"] == refs[".hermes"], f"VSS_REF pins drifted: {refs}"
+
