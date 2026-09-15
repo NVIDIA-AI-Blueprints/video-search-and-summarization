@@ -240,7 +240,7 @@ Git conventions live in **`/vios-git`** (`.claude/commands/vios-git.md`). Consul
 
 ### Git LFS
 
-`services/vios/` tracks selected files with Git LFS; see `.gitattributes` for paths such as `LICENSE.3rdparty`, prebuilt `*.so` and `*.a` files, bundled UI `*.js` files, and `*.tar.gz` archives. When adding an LFS-tracked notice or another LFS file that CI source jobs must read, ensure `.gitattributes` tracks it and add its path to the `git lfs pull --include=` list in `.github/workflows/ci.yml` (the **Fetch required LFS source notices** step). CI intentionally leaves other `services/vios/**` LFS objects as pointer stubs in the source artifact.
+`services/vios/` tracks selected files with Git LFS; see `.gitattributes` for paths such as prebuilt `*.so` and `*.a` files, bundled UI `*.js` files, and `*.tar.gz` archives. The third-party license inventory (`LICENSE.3rdparty` + `LICENSE.3rdparty.part2`) is stored as plain text (split under the 5 MiB blob limit) so public source archives and non-LFS clones always carry the legal text. When adding an LFS-tracked file that CI source jobs must read, ensure `.gitattributes` tracks it and add a `git lfs pull --include=` step in `.github/workflows/ci.yml`. CI intentionally leaves `services/vios/**` LFS objects as pointer stubs in the source artifact.
 
 ---
 

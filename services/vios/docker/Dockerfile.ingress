@@ -108,6 +108,7 @@ COPY --from=ui-builder /workspace/ui/vios-ui/dist/ /vst-ui/
 # (cp -f LICENSE.3rdparty vst-ui/LICENSE.3rdparty) so the image carries the same
 # OSS attributions as the released NGC image.
 COPY LICENSE.3rdparty /vst-ui/LICENSE.3rdparty
+COPY LICENSE.3rdparty.part2 /vst-ui/LICENSE.3rdparty.part2
 
 # Ensure nginx workers can traverse directories and read the UI files even when
 # the build host uses a restrictive umask.

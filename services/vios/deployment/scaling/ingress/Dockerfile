@@ -55,6 +55,7 @@ COPY vst-ui /vst-ui/
 # build.sh stages the current VIOS third-party license file with the UI build
 # context. Keep it at the same path used by the other VIOS runtime images.
 COPY vst-ui/LICENSE.3rdparty /home/vst/vst_release/LICENSE.3rdparty
+COPY vst-ui/LICENSE.3rdparty.part2 /home/vst/vst_release/LICENSE.3rdparty.part2
 
 # Ensure nginx workers can traverse directories and read the UI files even when
 # the build host uses a restrictive umask.
