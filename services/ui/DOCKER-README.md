@@ -22,11 +22,11 @@ generated, ignored `generated.env` receives them:
 
 ```bash
 export VSS_AGENT_ADAPTER_ENABLED=true
-export VSS_AGENT_BACKEND_PROTOCOL=responses
-export VSS_AGENT_BACKEND_URL=http://host.docker.internal:8642
-export VSS_AGENT_BACKEND_PATH=/v1/responses
-export VSS_AGENT_BACKEND_MODEL=agent
+export VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws
+export VSS_AGENT_BACKEND_URL=ws://host.docker.internal:18789
+export VSS_AGENT_BACKEND_PATH=/
 export VSS_AGENT_BACKEND_TOKEN='<harness-token>'
+export HITL_ENABLED=false
 
 ./deploy/docker/scripts/dev-profile.sh up --profile base --hardware-profile H100
 ```
@@ -35,7 +35,11 @@ For direct Compose, copy the selected profile's `overrides.env` to the ignored
 `user-overrides.env` and set the same values there. OpenClaw uses
 `VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws`, a `ws://` or `wss://` URL, and path
 `/`. Never commit a real harness token. The Compose service maps these
-host-side settings to the server-only `AGENT_*` variables shown below.
+host-side settings to the server-only `AGENT_*` variables shown below. Keep
+`HITL_ENABLED=false` for OpenClaw so follow-up questions complete as ordinary
+chat turns. Structured HITL defaults to `false` for `vss-agent` too. Set
+`HITL_ENABLED=true` explicitly only when its configured tools and the UI should
+use the legacy inline response modal; Compose passes that one value to both.
 
 .env sample to use for docker run when running the Metropolis BP VSS UI app:
 
@@ -68,6 +72,7 @@ NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false
 NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON=true
 NEXT_PUBLIC_RIGHT_MENU_OPEN=false
 NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS=true
+NEXT_PUBLIC_ENABLE_HITL=false
 NEXT_PUBLIC_DARK_THEME_DEFAULT=true
 NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON=true
 NEXT_PUBLIC_SIDE_CHATBAR_COLLAPSED=true

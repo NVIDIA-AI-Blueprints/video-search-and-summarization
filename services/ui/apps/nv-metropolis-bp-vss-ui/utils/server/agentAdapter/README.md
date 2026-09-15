@@ -37,6 +37,20 @@ Never place a backend credential in a `NEXT_PUBLIC_*` variable. In Docker, the
 harness forward binds to Docker's private bridge address and the UI connects to
 `host.docker.internal`; the port is not published on an external interface.
 
+## Follow-up questions
+
+Structured interaction responses are deliberately unsupported in the launch
+configuration. An OpenClaw agent must ask a required question in its ordinary
+assistant response and finish that turn. The user's reply creates a new run on
+the same UI thread, which the connector maps back to the same OpenClaw session.
+
+Set `NEXT_PUBLIC_ENABLE_HITL=false` for an adapter-backed chat surface. The
+sidebar-specific `NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL` takes precedence when
+set. Both default to false, and the UI suppresses the legacy response modal
+whenever the adapter is enabled even if a public flag is accidentally true. Set
+the flags to true only when a legacy `vss-agent` chat-SSE surface has also
+explicitly enabled its structured interaction tools.
+
 ## Same-origin API
 
 - `GET /api/agent/capabilities`

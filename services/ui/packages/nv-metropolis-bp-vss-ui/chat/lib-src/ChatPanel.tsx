@@ -23,6 +23,7 @@ import type {
  */
 const DEFAULT_FEATURES: Required<ChatFeatureFlags> = {
   chatHistory: true,
+  hitl: false,
   intermediateSteps: true,
   expandIntermediateSteps: false,
   messageCopy: false,
@@ -174,7 +175,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     onAnswerComplete,
     onBusyChange,
     isConversationStale,
-    onInteraction: requestInteraction,
+    onInteraction: features.hitl ? requestInteraction : undefined,
   });
 
   // Only the conversation that asked may answer: the prompt is hidden while
@@ -447,7 +448,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         </div>
       ) : null}
 
-      {interaction ? (
+      {features.hitl && interaction ? (
         <div
           data-testid="hitl-modal"
           className="absolute inset-0 z-[130] flex items-center justify-center bg-black/60 p-4"

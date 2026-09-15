@@ -154,17 +154,22 @@ const vssChatConfig = (surface: ChatSurface) => {
  * Reading the toolkit's own variables is the point: a deployment that already
  * turned message copy off keeps it off after the swap, with nothing to migrate.
  */
-const vssChatFeatures = (surface: ChatSurface) => ({
-  chatHistory: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON', true),
-  intermediateSteps: surfaceFlag(surface, 'NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS', true),
-  messageCopy: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED', false),
-  messageEdit: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED', false),
-  messageSpeaker: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED', false),
-  inputMic: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED', false),
-  uploadFile: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE', true),
-  uploadFileMetadata: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED', false),
-  themeToggle: surfaceFlag(surface, 'NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON', false),
-});
+const vssChatFeatures = (surface: ChatSurface) => {
+  const adapterEnabled = surfaceFlag(surface, 'NEXT_PUBLIC_AGENT_ADAPTER_ENABLED', false);
+  return {
+    chatHistory: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON', true),
+    // Adapter connectors do not accept legacy vss-agent interaction responses.
+    hitl: !adapterEnabled && surfaceFlag(surface, 'NEXT_PUBLIC_ENABLE_HITL', false),
+    intermediateSteps: surfaceFlag(surface, 'NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS', true),
+    messageCopy: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED', false),
+    messageEdit: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED', false),
+    messageSpeaker: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED', false),
+    inputMic: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED', false),
+    uploadFile: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE', true),
+    uploadFileMetadata: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED', false),
+    themeToggle: surfaceFlag(surface, 'NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON', false),
+  };
+};
 
 const vssChatUploadConfig = (surface: ChatSurface) => ({
   customAgentParamsJson: surfaceEnv(surface, 'NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON'),
