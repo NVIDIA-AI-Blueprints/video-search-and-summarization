@@ -113,11 +113,18 @@ spec:
           env:
             {{- /*
               Option B: container env is the explicit list `env` (each value may use Helm `tpl` with .Values / .Release).
-              `extraEnv` is appended last (duplicate names: last wins). No envOverrides layer.
+              `extraEnv` entries override same-named `env` entries (a Kubernetes env list must not
+              repeat a name, and server-side apply rejects duplicates), and may use `valueFrom`
+              (e.g. secretKeyRef) so credentials never have to be written into values files.
             */}}
+            {{- $extra := .Values.extraEnv | default list }}
+            {{- $overridden := dict }}
+            {{- range $extra }}{{- $_ := set $overridden .name true }}{{- end }}
             {{- range .Values.env }}
+            {{- if not (hasKey $overridden .name) }}
             - name: {{ .name }}
               value: {{ tpl (.value | default "" | toString) $ | quote }}
+            {{- end }}
             {{- end }}
             {{- $videoIngestTimeouts := .Values.videoIngestTimeouts | default dict }}
             {{- with get $videoIngestTimeouts "vstUploadTimeoutSeconds" }}
@@ -136,9 +143,14 @@ spec:
             - name: VIDEO_INGEST_RTVI_EMBED_TIMEOUT_SECONDS
               value: {{ tpl (. | toString) $ | quote }}
             {{- end }}
-            {{- range (.Values.extraEnv | default list) }}
+            {{- range $extra }}
             - name: {{ .name }}
+              {{- if .valueFrom }}
+              valueFrom:
+                {{- toYaml .valueFrom | nindent 16 }}
+              {{- else }}
               value: {{ tpl (.value | default "" | toString) $ | quote }}
+              {{- end }}
             {{- end }}
           {{- with .Values.startupProbe }}
           startupProbe:
