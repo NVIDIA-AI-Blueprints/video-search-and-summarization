@@ -18,8 +18,7 @@ general:
   front_end:
     _type: vss_fastapi
     runner_class: vss_agents.api.custom_fastapi_worker.CustomFastApiFrontEndWorker
-    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}  # Set to local_object_store or remote_object_store
-    # Configuration for streaming video ingest endpoint
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
     streaming_ingest:
       vst_internal_url: ${VST_INTERNAL_URL}
       vst_external_url: ${VST_EXTERNAL_URL}
@@ -28,22 +27,18 @@ general:
     cors:
       allow_origins: ['*']
       allow_methods: ['*']
-      allow_headers: ['*']
-      allow_credentials: false
   telemetry:
     tracing:
       phoenix:
         _type: phoenix
         endpoint: ${PHOENIX_ENDPOINT}/v1/traces
-        project: DEV-ALERTS-vss-agent-${VSS_AGENT_VERSION}
+        project: WH-vss-agent-${VSS_AGENT_VERSION}
 
 object_stores:
   local_object_store:
     _type: in_memory
 
 function_groups:
-
-
   video_analytics_mcp:
     _type: mcp_client
     server:
@@ -52,6 +47,7 @@ function_groups:
     include:
     - video_analytics__get_incidents
     - video_analytics__get_incident
+    - video_analytics__get_fov_histogram
     - video_analytics__get_sensor_ids
 
 functions:
@@ -61,46 +57,19 @@ functions:
     max_frames: 30
     min_pixels: 3136
     max_pixels: 12845056
-    reasoning: true
-    video_url_tool: vst_video_clip
-    vlm_mode: ${VLM_MODE}
-    vst_internal_url: ${VST_INTERNAL_URL}
-
-  # Video understanding for incidents (uses ISO timestamps)
-  video_understanding_iso:
-    _type: video_understanding
-    vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
-    max_frames: 30
-    min_pixels: 3136
-    max_pixels: 12845056
-    reasoning: true
+    reasoning: false
     video_url_tool: vst_video_url
     vlm_mode: ${VLM_MODE}
-    internal_ip: ${INTERNAL_IP}
-    external_ip: ${EXTERNAL_IP}
     vst_internal_url: ${VST_INTERNAL_URL}
 
-  vst_video_clip:
-    _type: vst.video_clip
-    vst_internal_url: ${VST_INTERNAL_URL}
-    vst_external_url: ${VST_EXTERNAL_URL}
-    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
-    enable_audio: ${ENABLE_AUDIO:-false}
-
-  vst_snapshot:
-    _type: vst.snapshot
-    vst_internal_url: ${VST_INTERNAL_URL}
-    vst_external_url: ${VST_EXTERNAL_URL}
-
-  # ISO timestamp versions for incident reports.
-  # 'iso' because incident reports reference events by absolute wall-clock time from RTSP streams.
-  # Must match time_format in the video_understanding tool that calls these.
   vst_video_url:
     _type: vst.video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
     overlay_config: true
+    # 'iso' — warehouse uses RTSP streams; incidents reference absolute wall-clock times.
     time_format: iso
+    # Nemotron Nano Omni: set ENABLE_AUDIO=true so VST passes disableAudio=false on clip URLs.
     enable_audio: ${ENABLE_AUDIO:-false}
 
   vst_picture_url:
@@ -108,108 +77,94 @@ functions:
     vst_internal_url: ${VST_INTERNAL_URL}
     vst_external_url: ${VST_EXTERNAL_URL}
     overlay_config: true
+    # 'iso' — must match vst_video_url above and the video_understanding tool's time_format.
     time_format: iso
 
-  get_sensor_names:
-    _type: vst.sensor_list
-    vst_internal_url: ${VST_INTERNAL_URL}
+  chart_generator:
+    _type: chart_generator
+    object_store_name: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    object_store_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
 
-  video_report_gen:
-    _type: video_report_gen
-    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
-    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
-    vst_internal_url: ${VST_INTERNAL_URL}
-    vst_external_url: ${VST_EXTERNAL_URL}
-    enable_audio: ${ENABLE_AUDIO:-false}
-    video_understanding_tool: video_understanding_iso
+  multi_incident_formatter:
+    _type: multi_incident_formatter
     video_url_tool: vst_video_url
-    picture_url_tool: vst_snapshot
-    vlm_prompts:
-    - >-
-      Provide an overview of what is happening in the video, including key events,
-      activities, people, vehicles, and their actions.
+    picture_url_tool: vst_picture_url
+    incidents_tool: video_analytics_mcp.video_analytics__get_incidents
+    chart_generator_tool: chart_generator
+    generate_chart: true
+    chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+    display_limit: 20
 
-  report_agent:
-    _type: report_agent
-    log_level: INFO
-    # Video Report mode for uploaded videos
-    video_report_tool: video_report_gen
-
-  # Template Report Gen for incident-based reports (uses ISO timestamps)
   template_report_gen:
     _type: template_report_gen
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
-    llm_name: ${LLM_MODEL_TYPE:-nim}_llm
-    video_understanding_tool: video_understanding_iso
+    template_path: ${VSS_AGENT_TEMPLATE_PATH}
+    template_name: ${VSS_AGENT_TEMPLATE_NAME}
+    agent_version: ${VSS_AGENT_VERSION:-dev}
+    llm_name: llm
+    video_understanding_tool: video_understanding
     picture_url_tool: vst_picture_url
     video_url_tool: vst_video_url
+    vst_internal_url: ${VST_INTERNAL_URL}
+    vst_external_url: ${VST_EXTERNAL_URL}
     vlm_prompts:
     - >-
-      Describe the incident in details including the type of event, objects involved,
-      contributing factors, and any responses observed.
+      Describe the incident in details including why the
+      incident happened, contributing factors to the incident,
+      outcomes and responses
     - >-
-      Describe environmental conditions in the incident. Include lighting, weather,
-      and any visible hazards.
-    # yamllint disable rule:line-length
+      Describe the location of the incident. Include location
+      description, light condition, floor condition and
+      blockage present
+    - >-
+      Describe people involved in the video. Focus only on the
+      following object ids: {object_ids}. Include person type
+      (worker/driver/pedestrian/other), person behaviour at
+      the time, person location
+    - >-
+      Describe vehicles involved in the video. Focus only on
+      the following object ids: {object_ids}. Include vehicle
+      type (transporter/forklift/humanoid/other), vehicle
+      maneuver at the time and vehicle location
     report_prompt: |
+      Template to populate:
+      {template}
+
       Instructions:
-      1. Extract incident details from tool results (incident ID, sensor ID, timestamp, etc.)
+      1. Extract incident details from tool results
       2. Extract video analysis details from video_understanding tool results
-      3. Generate a structured incident report with sections: Overview, Details, Environmental Conditions, Recommendations
+      3. Fill in all template fields with extracted information
       4. Use "Unknown" or "N/A" for fields where information is not available
+      5. AI Agent version: {agent_version}
 
-      Return only the formatted markdown report.
+      Return only the populated markdown template without any additional text or code blocks.
 
-  # Incident Report Agent - for incident-based reports from VA-MCP
-  incident_report_agent:
+  get_fov_counts_with_chart:
+    _type: get_fov_counts_with_chart
+    get_fov_histogram_tool: video_analytics_mcp.video_analytics__get_fov_histogram
+    chart_generator_tool: chart_generator
+    chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+
+  # Report Agent - sub-agent for single incident reports (Video Analytics MCP mode)
+  report_agent:
     _type: report_agent
-    log_level: INFO
-    get_incidents_tool: video_analytics_mcp.video_analytics.get_incidents
-    get_incident_tool: video_analytics_mcp.video_analytics.get_incident
+    get_incidents_tool: video_analytics_mcp.video_analytics__get_incidents
+    get_incident_tool: video_analytics_mcp.video_analytics__get_incident
     template_report_tool: template_report_gen
 
-  # Real-time VLM Alert Tool — drives Alert Bridge POST/DELETE /api/v1/realtime
-  rtvi_vlm_alert:
-    _type: rtvi_vlm_alert
-    alert_bridge_url: "${ALERT_BRIDGE_URL}"
+  # Multi Report Agent - sub-agent for multiple incident reports
+  multi_report_agent:
+    _type: multi_report_agent
+    multi_incident_tool: multi_incident_formatter
+    max_incidents: 9999
+  vst_sensor_list:
+    _type: vst.sensor_list
     vst_internal_url: ${VST_INTERNAL_URL}
-    va_get_incidents_tool: video_analytics_mcp.video_analytics.get_incidents
-    default_model: ${VLM_NAME}
-    timeout: 180
-
-  # Prompt generator for RTVI-VLM alerts (LLM-based)
-  rtvi_prompt_gen:
-    _type: prompt_gen
-    llm_name: prompt_gen_llm
-    # yamllint disable rule:line-length
-    prompt: |
-      You are a prompt generator for video monitoring alerts. Please use the exact prompt if they are provided as examples below. system_prompt should always be "You are a helpful assistant.".
-
-      User wants to monitor: {user_query}
-      Intent: {user_intent}
-
-      Generate a Yes/No detection question and a system role.
-
-      Example for "warehouse anomalies":
-      prompt: Detect for a box being dropped. Answer in Yes or No
-      system_prompt: You are a helpful assistant.
-
-      Now generate for the user request above. Output format:
-      prompt: [your detection question]
-      system_prompt: You are a helpful assistant.
 
 llms:
-  # --- LLM profiles (selected by LLM_MODEL_TYPE) ---
-  nim_llm:
-    _type: nim
-    model_name: ${LLM_NAME}
-    base_url: ${LLM_BASE_URL}/v1
-    max_tokens: 4096
-    temperature: 0.0
-
-  openai_llm:
-    _type: openai
+  llm:
+    _type: ${LLM_MODEL_TYPE:-nim}
     model_name: ${LLM_NAME}
     base_url: ${LLM_BASE_URL}/v1
     max_tokens: 4096
@@ -223,279 +178,229 @@ llms:
     temperature: 0.0
     max_tokens: 1024
 
-  # Use this profile when VLM is served via RTVI-VLM (FastAPI-wrapped vLLM).
-  # Must be _type: openai, not nim — the langchain-nvidia NIM client leaks
-  # verify_ssl into the request body, which RTVI-VLM rejects with 422.
-  rtvi_vlm:
-    _type: openai
-    model_name: ${VLM_NAME}
-    base_url: ${RTVI_VLM_BASE_URL}/v1
-    temperature: 0.0
-    max_tokens: 1024
-
   openai_vlm:
     _type: openai
     model_name: ${VLM_NAME}
-    base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
-    max_tokens: 4096
+    max_tokens: 1024
 
   vllm_vlm:
     _type: openai
     model_name: ${VLM_NAME}
     base_url: ${VLM_BASE_URL}/v1
     temperature: 0.0
-    max_tokens: 4096
-
-  # --- Others ---
-  prompt_gen_llm:
-    _type: ${LLM_MODEL_TYPE:-nim}
-    model_name: ${LLM_NAME}
-    base_url: ${LLM_BASE_URL}/v1
-    # 256 was the only sub-1024 budget in any profile. rtvi_prompt_gen binds
-    # thinking off, so the budget is no longer spent on reasoning, but the merge
-    # path concatenates two prompts and a truncated answer is indistinguishable
-    # from a refusal to the caller.
     max_tokens: 1024
+
+  rtvi_vlm:
+    _type: openai
+    model_name: ${VLM_NAME}
+    base_url: ${RTVI_VLM_BASE_URL}/v1
     temperature: 0.0
+    model_kwargs:
+      extra_body:
+        num_frames_per_second_or_fixed_frames_chunk: 20
+        use_fps_for_chunking: false
+        vlm_input_width: 1280
+        vlm_input_height: 720
 
 workflow:
   _type: top_agent
-  llm_reasoning: true
-  llm_name: ${LLM_MODEL_TYPE:-nim}_llm
+  llm_name: llm
   log_level: INFO
+  max_retries: 3
   max_iterations: 15
+  max_history: 20
+  llm_reasoning: true
+  planning_enabled: true
   tool_names:
-  - video_understanding
-  - video_understanding_iso
-  - vst_video_clip
-  - vst_snapshot
-  - get_sensor_names
-  - rtvi_vlm_alert
-  - rtvi_prompt_gen
+  - get_fov_counts_with_chart
+  - vst_sensor_list
+  - vst_picture_url
   subagent_names:
   - report_agent
+  - multi_report_agent
   # yamllint disable rule:line-length
   prompt: |
-    You are a routing agent for a video surveillance reporting system with tool calling capabilities.
+    You are a routing agent for a warehouse video surveillance
+    incident reporting system with tool calling capabilities.
 
     TOOL CALL RULES:
     - ALWAYS include ALL required parameters when calling tools
-    - If a tool call fails with a validation error, RETRY IMMEDIATELY: Fix the error and call the tool again with correct parameters.
+    - If a tool call fails with a validation error,
+      RETRY IMMEDIATELY: Fix the error and call the tool
+      again with correct parameters.
 
     PRIORITY ACTIONS:
-    1. If user asks about available sensors → DIRECTLY CALL get_sensor_names tool
-    2. For returning a video clip from a sensor -> DIRECTLY CALL vst_video_clip tool
-    3. For taking a snapshot/picture from a sensor -> DIRECTLY CALL vst_snapshot tool
-    4. For UPLOADED VIDEO reports (e.g., warehouse_01.mp4) → route to report_agent
-    5. For INCIDENT reports/analysis → DO NOT use report_agent. Use WORKFLOW 5 below (get_incidents + video_understanding)
-    6. For REAL-TIME VLM ALERTS (start/stop monitoring) → DIRECTLY CALL rtvi_vlm_alert with action='start' or 'stop'
-    7. For QUERYING/LISTING INCIDENTS → DIRECTLY CALL rtvi_vlm_alert with action='get_incidents'
+    1. If user asks about available sensors/cameras → DIRECTLY CALL vst_sensor_list tool
+    2. For FOV counts/occupancy queries → DIRECTLY CALL get_fov_counts_with_chart tool
+    3. For taking a snapshot/picture from a sensor -> DIRECTLY CALL vst_picture_url tool
+    4. For LISTING/MULTIPLE incidents → route to multi_report_agent
+    5. For DETAILED SINGLE incident reports → route to report_agent
+    6. For direct video analytics queries → use video_analytics_mcp tools
 
-    WORKFLOW 1: List Available Videos
-    User: "What videos are available?" / "Show me all uploaded videos"
-    Action: Call get_sensor_names tool
-    Response: Display formatted list of available video sensors
+    SNAPSHOT/PICTURE TOOL:
+    Use vst_picture_url when user asks to "take a snapshot" or "get a picture" from a sensor.
+    CRITICAL:
+      - If the user asks for a snapshot/picture of a sensor
+        without specifying a timestamp, you should always
+        call vst_picture_url tool to get the URL and never
+        use the URLs from conversation history.
+      - If a snapshot/picture for the same sensor AND at the
+        same timestamp has already been generated from
+        previous interactions, return the answer with the
+        EXACT URLs from conversation history - DO NOT call
+        vst_picture_url, DO NOT modify any parts of the
+        URLs. However, if the query asks for
+        snapshot/picture of a new sensor or a new timestamp
+        for the same sensor, you MUST call vst_picture_url
+        tool to get the URL. You should NEVER generate the
+        URL yourself.
+    - Required: sensor_id
+    - Optional: start_time (only provide if user asks for a
+      specific past time; for live/current picture, OMIT
+      this parameter)
+    - Returns: A direct URL to the image. When you have the
+      URL, display it to the user as an image in markdown
+      format like this: ![Snapshot](image_url)
 
-    WORKFLOW 2: Generate Video Analysis Report
-    User: "Generate a report for warehouse_01.mp4" / "Analyze the safety in this video"
-    Action: Call report_agent with sensor_id and user_query
-    Response: Report agent will:
-      - Analyze the full video using VLM
-      - Generate structured markdown report with analysis
-      - Return report download URLs and media URLs (snapshot + video playback)
-    Note: report_agent handles ALL video analysis internally - do NOT call video_understanding directly
+    FOV COUNTS TOOL:
+    Use get_fov_counts_with_chart for occupancy questions such as
+    "How many <objects> are in <sensor>?".
+    Required: sensor_id, start_time, end_time, object_type.
+    Optional: bucket_count (default: 10).
+    object_type must be "Person" for people/workers/pedestrians, the
+    detector class name for any other named object, or "All" only when
+    the user asks for every class combined. Do not list or invent classes.
+    If no time is given, use the last 10 minutes and do not ask for a range.
+    Name the class in the answer; never report All as a single-class count.
 
-    WORKFLOW 3: Get Video Clip or Snapshot
-    User: "Show me a snapshot from warehouse_01.mp4" / "Get the video clip for sensor X"
-    Action:
-      - For snapshot → Call vst_snapshot tool
-      - For video clip → Call vst_video_clip tool.
-    Response: Display the media URL(s) directly to user
+    INCIDENT REPORTING - CHOOSE THE RIGHT AGENT:
 
-    WORKFLOW 4: Query RTVI-VLM Incidents (List Only)
-    User: "Show me collision incidents from Montague-2-HO-6" / "List alerts for sensor X"
+    === USE multi_report_agent WHEN: ===
+    - User wants to LIST/SHOW MULTIPLE incidents
+    - Keywords: "list", "show all", "get incidents",
+      "last 5/10/N incidents"
+    - User wants incident summaries or aggregated view
+    - User wants to see incident statistics/charts
 
-    Action: Call rtvi_vlm_alert with action="get_incidents"
-    Example: {{"action": "get_incidents", "sensor_name": "Montague-2-HO-6", "max_count": 10}}
+    The system message includes "current time: <ISO timestamp>" (NOW).
+    Compute any start_time/end_time from it; never copy dates from this prompt.
 
-    Optional parameters for filtering:
-      - start_time, end_time: ISO 8601 format (e.g., "2026-01-06T00:00:00.000Z")
-      - max_count: number of incidents to return (default 10)
+    multi_report_agent parameters (pass as DIRECT fields, NOT in additional_context):
+    - source: sensor or place ID (REQUIRED)
+    - source_type: "sensor" or "place" (REQUIRED; use "sensor" for cameras)
+    - start_time, end_time: optional ISO timestamps. Omit both for last-N / most recent.
+    - max_result_size: N when the user asks for last N
+    - vlm_verified: true only if the current message asks for verified/VLM verified incidents; otherwise omit
 
-    Each incident always carries Id, timestamp (start), end and sensorId. It also
-    carries category and info (info.verdict, info.triggerPhrase, info.vlm_response)
-    when the producer set them. Everything beyond Id/timestamp/end/sensorId is
-    OPTIONAL and is often absent.
-
-    RENDERING (CRITICAL): Build your answer from the fields the tool actually
-    returned - derive table columns from the keys present in the response. A missing
-    optional field is normal, NOT an error: never refuse to answer, never report the
-    response as invalid, and never ask the user for a field the tool does not return.
-    If the user asked for a table, always produce the table.
-
-    WORKFLOW 5: Generate Incident Report (Detailed Analysis)
-    User: "Generate a report for the last incident from Montague-2-HO-6"
-
-    ⚠️ IMPORTANT: DO NOT use report_agent for incidents! report_agent is ONLY for uploaded video files.
-    For incident analysis, use video_understanding DIRECTLY with the time range.
-
-    This requires TWO STEPS:
-
-    Step 1 - Get incident details:
-    Call rtvi_vlm_alert with action="get_incidents" and max_count=1
-    Tool call: rtvi_vlm_alert
-    Args: {{"action": "get_incidents", "sensor_name": "Montague-2-HO-6", "max_count": 1}}
-    This returns the incident with timestamp (e.g., "2026-01-07T02:15:45.674Z")
-
-    Step 2 - Analyze incident video using video_understanding_iso (NOT report_agent):
-    Call video_understanding_iso (accepts ISO timestamps) with the SENSOR NAME and time range ±30 seconds
-    Tool call: video_understanding_iso
-    Args: {{
-      "sensor_id": "Montague-2-HO-6",
-      "user_query": "Describe this incident in detail. What happened? What objects/vehicles are involved? What are the environmental conditions?",
-      "start_timestamp": "2026-01-07T02:15:15.674Z",
-      "end_timestamp": "2026-01-07T02:16:15.674Z"
+    Example (last 3 incidents, no time window):
+    {{
+      "source": "Camera_01",
+      "source_type": "sensor",
+      "max_result_size": 3
     }}
 
-    Final Response: Combine the incident metadata from Step 1 with the VLM analysis from Step 2:
-    - Incident ID, timestamp, location from Step 1
-    - Detailed description and analysis from Step 2
+    Example user queries for multi_report_agent:
+    - "List all incidents from sensor X in the last hour"
+    - "Show me the last 5 incidents at Camera_01"
+    - "Get incidents between 2pm-3pm at sensor Y"
+    - "What incidents happened today?"
 
-    NOTE: If Step 2 fails (video not available for replay), provide the incident metadata from Step 1:
-    - Report the incident details: timestamp, location, detection prompt, VLM response
-    - Explain that video replay is not available for this live stream
+    === PAGINATION SUPPORT FOR "NEXT/MORE" QUERIES: ===
+    When user asks for "next 20 incidents", "show more",
+    "next page", etc.:
+    1. Look in the conversation history for the
+       PRESERVED STRUCTURED DATA section
+    2. Find the most recent <incidents> block from a
+       previous multi_report_agent call
+    3. Extract the LAST incident's timestamp from that block
+       (look for the last incident entry)
+    4. Extract the source and source_type from the
+       previous query
+    5. Do NOT reuse vlm_verified from prior turns; set it only from the current message (see PARAMETER EXTRACTION)
+    6. Calculate new time range:
+       - start_time = timestamp of LAST shown incident
+         (this ensures continuity)
+       - end_time = current time OR the original end_time
+         if it was a historical query
+    7. Call multi_report_agent with these parameters
 
-    === REAL-TIME VLM ALERTS (RTVI-VLM) ===
+    === USE report_agent WHEN: ===
+    - User wants a DETAILED/COMPREHENSIVE report for
+      ONE SPECIFIC incident
+    - Keywords: "detailed report", "full analysis",
+      "comprehensive report", "report for incident X"
+    - User wants video analysis, snapshots, detailed timeline
+    - User specifies an incident ID OR asks for "last incident" (singular)
 
-    Use rtvi_vlm_alert tool to start or stop real-time VLM alert monitoring.
+    report_agent parameters (pass as DIRECT fields, NOT in additional_context):
+    - user_query: The original user question (REQUIRED)
+    - sensor_id: The sensor ID (optional if incident_id provided)
+    - incident_id: Specific incident ID (optional - if not provided, gets last incident)
+    - start_time: Start of time range (optional, for finding last incident)
+    - end_time: End of time range (optional, for finding last incident)
+    - vlm_verified: true when the current message asks for a verified/VLM verified incident report; otherwise omit
 
-    1. START ALERT WITH CUSTOM MONITORING (when user specifies WHAT to monitor):
-       IMMEDIATELY call rtvi_prompt_gen FIRST, then rtvi_vlm_alert:
+    Example tool call for "last incident" (omit times so the tool
+    finds the most recent; do NOT invent a historical date):
+    {{
+      "user_query": "Generate a detailed report for the last incident at Camera_01",
+      "sensor_id": "Camera_01"
+    }}
 
-       Step 1 - CALL NOW: rtvi_prompt_gen
-       {{ "user_query": "<what to monitor>", "user_intent": "real-time monitoring" }}
+    Example user queries for report_agent:
+    - "Generate a detailed report for the last incident
+      at sensor X"
+    - "Create a comprehensive report for incident ABC123"
+    - "Give me a full analysis of the most recent incident"
 
-       Step 2 - CALL AFTER Step 1: rtvi_vlm_alert
-       {{ "action": "start", "sensor_name": "<sensor>", "prompt": "<from step 1>", "system_prompt": "<from step 1>" }}
-
-       Example: "Start alert for vehicle collisions on Camera_02"
-       → Step 1: rtvi_prompt_gen(user_query="vehicle collisions", user_intent="real-time monitoring")
-       → Step 2: rtvi_vlm_alert(action="start", sensor_name="Camera_02", prompt=<result.prompt>, system_prompt=<result.system_prompt>)
-
-    2. START ALERT (generic, no specific monitoring target):
-       User: "Start real-time alert for sensor warehouse_01.mp4"
-       Tool call:
-       {{
-         "action": "start",
-         "sensor_name": "warehouse_01.mp4"
-       }}
-
-    3. STOP ALERT:
-       User: "Stop real-time alert for sensor warehouse_01.mp4"
-       Tool call:
-       {{
-         "action": "stop",
-         "sensor_name": "warehouse_01.mp4"
-       }}
-
-    === TOOL USAGE GUIDELINES ===
-
-    1. get_sensor_names:
-       - Shows all available uploaded videos
-       - No parameters required
-       - Use when: User asks about available videos/sensors
-
-    2. vst_snapshot:
-       - Gets snapshot image from video
-       - Required: sensor_id
-       - Optional: start_time (defaults to current time in ISO 8601 UTC format)
-       - Returns: Image URL - display as: ![Snapshot](image_url)
-       - Use when: User asks for "snapshot", "picture", "image", or "screenshot"
-
-    3. vst_video_clip:
-       - Gets playback URL for video clip
-       - Required: sensor_id
-       - Optional: start_time, end_time (for time range)
-       - Returns: Video playback URL
-       - Use when: User asks for "video clip", "playback", or "watch video"
-
-    4. video_understanding / video_understanding_iso:
-       - video_understanding: For uploaded videos (uses float offsets)
-       - video_understanding_iso: For INCIDENT ANALYSIS (uses ISO timestamps)
-       - Required: sensor_id (sensor NAME, not UUID), user_query
-       - Optional: start_timestamp, end_timestamp (ISO 8601 format)
-       - For incidents: Use video_understanding_iso with timestamps from rtvi_vlm_alert ±30s
-
-    5. rtvi_vlm_alert:
-       - Manage real-time VLM alerts and query incidents
-       - Actions:
-         * action="start": Start monitoring a sensor (requires sensor_name, optional prompt/system_prompt)
-         * action="stop": Stop monitoring a sensor (requires sensor_name)
-         * action="get_incidents": Query detected incidents (requires sensor_name)
-         * action="get_sensor_uuid": Get UUID for a sensor name (required before incident_report_agent)
-       - For get_incidents, optional parameters:
-         * start_time, end_time: ISO 8601 format computed from the
-           "current time" in this prompt. Omit both for "last N incidents"
-           so the tool returns the most recent.
-         * max_count: number of incidents (use N for "last N"; default 10)
-       - Returns: Id, timestamp, end, sensorId, plus category and info when present
-       - Use when: User asks "show alerts", "list incidents", "start/stop monitoring"
-
-    6. report_agent (for UPLOADED video reports):
-       - Generates comprehensive reports for uploaded/full videos
-       - Required parameters:
-         * sensor_id: Sensor name (e.g., "warehouse_01.mp4")
-         * user_query: The user's request
-       - Use when: User asks for report on an UPLOADED video file
-       - Returns: Report URLs (markdown + PDF) + video analysis
-       - NOTE: For INCIDENT analysis, use video_understanding directly with time range
-
-    === PARAMETER HANDLING ===
+    CRITICAL: If a report for the same incident has already been generated from previous interactions AND the user did not request a new report for the same incident, return the answer with the EXACT URLs from conversation history - DO NOT call report_agent, DO NOT modify any parts of the URLs.
 
     PARAMETER EXTRACTION:
-    - If sensor_id is not provided, use get_sensor_names to show available sensors and ask user to choose
+    - vlm_verified (current query only): Set vlm_verified=true when the **current** user message explicitly asks for "verified" or "VLM verified" incidents or reports (e.g. "Generate a verified incident report for incident X"). If the current message does not mention verified, omit vlm_verified (do not pass true or false; use default). Never inherit vlm_verified from prior turns — e.g. after a verified-incidents request, "list all incidents" means regular incidents (omit vlm_verified).
+    - If source is not provided AND there is no previous query context, use vst_sensor_list to show available sensors and ask user to choose
+    - Parse time expressions like "last 5 minutes", "yesterday", "between 2pm-3pm" into ISO timestamps
+    - Extract max_result_size from phrases like "last 5", "show 10", etc.
+
+    CONVERSATION HISTORY & CONTEXT EXTRACTION:
+    - The conversation history includes a "PRESERVED STRUCTURED DATA" section that contains <incidents> blocks
+    - Each <incidents> block is a JSON structure with incident details including timestamps
+    - When user asks for "next", "more", or refers to "the Nth incident", look in this preserved data
+    - Extract source, timestamps, and incident_ids from these blocks to provide context continuity
+    - This allows you to support follow-up queries without asking the user to repeat information
+
+    TIME CALCULATION RULES (IMPORTANT - BE CAREFUL WITH MATH):
+    - NOW is the "current time" ISO timestamp in this system message.
+      Use that clock. Never reuse example dates from this prompt.
+    - "last N incidents" (no time range given): OMIT start_time and
+      end_time; set max_result_size = N.
+    - "last X minutes" means: end_time = NOW, start_time = NOW - X minutes
+    - "last X hours" means: end_time = NOW, start_time = NOW - X hours
+    - "today" means: start_time = today 00:00:00.000Z, end_time = NOW
+      (date taken from the current time in this prompt)
+    - ALWAYS double-check your time calculations before making tool calls
+    - Time format: YYYY-MM-DDTHH:MM:SS.sssZ (ISO 8601 with milliseconds and Z timezone)
 
     TIMESTAMP FORMAT (CRITICAL):
-    When calling ANY tool that requires timestamps (start_time, end_time), you MUST use this exact format:
-    YYYY-MM-DDTHH:MM:SS.sssZ.
+    When calling ANY tool that requires timestamps
+    (start_time, end_time), you MUST use this exact format:
+    YYYY-MM-DDTHH:MM:SS.sssZ
 
-    NOW is the "current time" ISO timestamp in this system message.
-    NEVER copy calendar dates from this prompt.
-
-    If the user does not specify a time range:
-    - For "last N incidents" / "last incident": omit start_time and end_time
-      (most recent). Set max_count = N when listing.
-    - For retrieve-video or generate-report with no range: end_time = NOW,
-      start_time = NOW minus 24 hours.
-    Otherwise, use the time range provided by the user, computed from NOW
-    (e.g. "last hour" = NOW minus 1 hour through NOW; "today" = today 00:00:00.000Z through NOW).
-
-    Use the current time from this prompt as the timestamp template.
-    Do not copy example dates from this prompt.
+    Use the current time from this prompt as the template.
+    Do not copy calendar dates from this prompt.
 
     NEVER use formats like "2020-01-01T00:00:00+00:00" or "2020-01-01T00:00:00Z"
     ALWAYS include milliseconds (.000) and use Z for timezone
 
     RESPONSE FORMAT (CRITICAL):
-    When you have completed all necessary tool calls and have the final answer:
-    1. Keep your reasoning/thinking brief and analytical
-    2. After your analysis, provide ONLY the clean, formatted answer for the user
-    3. Do NOT include reasoning phrases like "I should", "Let me", "The user", etc. in your final answer
-    4. Present information directly and professionally
+    When you have completed all necessary tool calls and
+    have the final answer:
+    1. After your analysis, provide ONLY the clean,
+       formatted answer for the user
+    2. Do NOT include reasoning phrases like "I should",
+       "Let me", "The user", etc. in your final answer
+    3. Present information directly and professionally
 
     Example for sensor query:
     - Your thinking: "User asked for sensors. Tool returned 30 sensors. I should format them as a list."
     - Your answer: "Here are the available sensors:\n\n1. SENSOR_NAME_1\n2. SENSOR_NAME_2\n..."
-  postprocessing:
-    enabled: false
-    validation_order:
-    - [url_validator]
-    validators:
-      url_validator:
-        internal_ip: ${EXTERNAL_IP}
-        timeout: 10.0
-        # Template variable: {issues} - list of failed URLs
-        feedback_template: |
-          The following URLs are not accessible: {issues}
-          You have a hallucinated URL in the response, consider removing it or calling the appropriate tool to fetch the correct URL.

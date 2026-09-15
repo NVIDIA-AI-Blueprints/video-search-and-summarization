@@ -128,9 +128,9 @@ calibration-import:
   enabled: true
   name: import-calibration-output-2d
   apiUrl: http://vss-video-analytics-api:8081
-  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
-  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
-  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images
   requireCalibration: true
   requireImages: true
 
