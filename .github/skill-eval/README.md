@@ -116,7 +116,7 @@ Each generated task contains:
 
 Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` (singular) specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
 
-The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. OpenShell specs also carry an `openshell` capability object. The planner validates the two declarations agree and emits one cohort, not one leg per compatible GPU family.
+The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. `vss-deploy-test-openshell` is the one exception: its legs are placed on the OpenShell fleet by label and `openshell.gpu_count` alone, so the spec names no card, its adapter generates for whichever card the guest actually has, and one leg covers every GPU family.
 
 Schema:
 

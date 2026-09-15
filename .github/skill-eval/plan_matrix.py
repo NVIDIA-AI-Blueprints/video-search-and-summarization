@@ -244,8 +244,11 @@ class OpenShellCohort(NamedTuple):
     blackwell: bool = False
 
 
-# Order is the placement preference: use the smallest explicitly-supported
-# cohort that satisfies every per-GPU capability. Capacity is runner capacity,
+# The OpenShell fleet inventory. It is documentation and capacity
+# accounting only — no leg is placed from it. `vss-deploy-test-openshell`
+# asks for a GPU count and takes whichever guest claims the labels, and
+# the guest's own card decides `HARDWARE_PROFILE`; see
+# `openshell_requirements`. Capacity is runner capacity,
 # not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, 8 one-GPU
 # H200 VMs, 4 two-GPU H200 VMs, and 4 two-GPU RTX PRO 6000 VMs. H200 has no
 # NVENC; do not give it RTX PRO 6000 labels.
@@ -336,13 +339,19 @@ def openshell_job_labels(gpu_count: int) -> list[str]:
     return [*OPENSHELL_FLEET_LABELS, f"gpus-{gpu_count}"]
 
 
+# `cohort` on a leg names the fleet the runner comes from, and is what the
+# per-cohort concurrency accounting groups on. An OpenShell leg no longer
+# resolves to one SKU cohort — every OpenShell guest is interchangeable at
+# its GPU count — so they share one tag.
+OPENSHELL_COHORT_TAG = "openshell"
+
+
 def openshell_placement_tag(gpu_count: int) -> str:
     """Slug / job-name token for an OpenShell leg.
 
-    This is the spec's GPU *demand* (`gpus-1` / `gpus-2`), not the
-    over-provisioned cohort id (`rtxpro6000-2g`). A 1-GPU spec may still
-    select a 2-GPU SKU internally for NIM profiles; the visible job name
-    must not claim 2 GPUs.
+    The spec's GPU *demand* (`gpus-1` / `gpus-2`) is the whole placement
+    key, so it is also the whole visible token. There is no SKU to name:
+    the job may land on any OpenShell guest with that many GPUs.
     """
     if gpu_count not in (1, 2):
         return "gpus-blocked"
@@ -531,12 +540,17 @@ def spec_platform_config(spec_path: str) -> dict[str, dict]:
 
 
 def openshell_requirements(spec_path: str) -> tuple[dict | None, str | None]:
-    """Return validated per-spec OpenShell requirements or a blocker.
+    """Return the spec's OpenShell demand, or a blocker.
 
-    Every field is mandatory so a new or stale spec cannot inherit a guessed
-    placement. VRAM is per GPU; it is never multiplied into an aggregate
-    address space. Two-GPU demand additionally requires an explicit
-    ``multi_gpu_capable`` declaration.
+    `gpu_count` is the whole contract. OpenShell legs are independent of
+    the GPU spec: placement is GitHub labels plus a live GPU count, and
+    the sizing profile (`HARDWARE_PROFILE`) is read off the guest's own
+    card at dataset-generation time. Nothing here may select a SKU, so
+    per-SKU declarations are not consumed and not required.
+
+    The other `openshell` keys are still accepted — they document what a
+    spec was authored against — and are type-checked when present so a
+    typo is visible rather than silently inert.
     """
     try:
         data = json.loads((REPO_ROOT / spec_path).read_text())
@@ -547,101 +561,31 @@ def openshell_requirements(spec_path: str) -> tuple[dict | None, str | None]:
     req = data.get("openshell")
     if not isinstance(req, dict):
         return None, "missing openshell capability metadata"
-    required = {
-        "gpu_count",
-        "min_vram_gb_per_gpu",
-        "requires_video_codec",
-        "multi_gpu_capable",
-        "requires_blackwell",
-        "supported_hardware_profiles",
-    }
-    missing = sorted(required - set(req))
-    if missing:
-        return None, "stale openshell metadata; missing " + ", ".join(missing)
+    if "gpu_count" not in req:
+        return None, "stale openshell metadata; missing gpu_count"
     gpu_count = req.get("gpu_count")
-    min_vram = req.get("min_vram_gb_per_gpu")
-    profiles = req.get("supported_hardware_profiles")
     if isinstance(gpu_count, bool) or gpu_count not in (1, 2):
         return None, "openshell.gpu_count must be 1 or 2"
-    if isinstance(min_vram, bool) or not isinstance(min_vram, int) or min_vram <= 0:
-        return None, "openshell.min_vram_gb_per_gpu must be a positive integer"
     for key in ("requires_video_codec", "multi_gpu_capable", "requires_blackwell"):
-        if not isinstance(req.get(key), bool):
+        if key in req and not isinstance(req[key], bool):
             return None, f"openshell.{key} must be boolean"
-    if gpu_count == 2 and req["multi_gpu_capable"] is not True:
-        return None, "two-GPU demand requires multi_gpu_capable=true"
-    if not isinstance(profiles, list) or not profiles or not all(
-        isinstance(value, str) and value for value in profiles
+    min_vram = req.get("min_vram_gb_per_gpu")
+    if min_vram is not None and (
+        isinstance(min_vram, bool) or not isinstance(min_vram, int) or min_vram <= 0
+    ):
+        return None, "openshell.min_vram_gb_per_gpu must be a positive integer"
+    profiles = req.get("supported_hardware_profiles")
+    if profiles is not None and (
+        not isinstance(profiles, list)
+        or not all(isinstance(value, str) and value for value in profiles)
     ):
         return None, "openshell.supported_hardware_profiles must be non-empty strings"
-    known = {cohort.hardware_profile for cohort in OPENSHELL_COHORTS}
-    unknown = sorted(set(profiles) - known)
-    if unknown:
-        return None, "unsupported hardware profile metadata: " + ", ".join(unknown)
-    platforms = (data.get("resources") or {}).get("platforms")
-    if not isinstance(platforms, dict) or set(platforms) != set(profiles):
-        return None, (
-            "stale resources.platforms; keys must exactly match "
-            "openshell.supported_hardware_profiles"
-        )
-    for profile in profiles:
-        config = platforms.get(profile)
-        if not isinstance(config, dict) or _gpu_count(config) != gpu_count:
-            return None, (
-                f"stale resources.platforms.{profile}.gpu_count; "
-                f"expected {gpu_count}"
-            )
     return req, None
-
-
-def hardware_profile_files(profile: str) -> list[Path]:
-    """Exact checked-in NIM profile files; similarly-sized SKUs do not count."""
-    root = REPO_ROOT / "deploy" / "docker" / "services" / "nim"
-    return sorted(
-        path
-        for path in root.glob(f"*/hw-{profile}*.env")
-        if path.is_file() and path.stat().st_size > 0
-    )
-
-
-def select_openshell_cohort(
-    requirements: dict,
-) -> tuple[OpenShellCohort | None, str | None]:
-    """Pick one demand-appropriate cohort, or explain why none is safe."""
-    supported = set(requirements["supported_hardware_profiles"])
-    profile_missing: list[str] = []
-    for cohort in OPENSHELL_COHORTS:
-        if cohort.hardware_profile not in supported:
-            continue
-        demand = requirements["gpu_count"]
-        # A two-GPU VM may run a one-GPU large/Blackwell workload, but two
-        # 46 GB GPUs never satisfy a >46 GB-per-GPU requirement.
-        if demand > cohort.gpu_count:
-            continue
-        if requirements["min_vram_gb_per_gpu"] > cohort.vram_gb_per_gpu:
-            continue
-        if requirements["requires_video_codec"] and not cohort.video_codec:
-            continue
-        if requirements["requires_blackwell"] and not cohort.blackwell:
-            continue
-        if demand == 2 and not requirements["multi_gpu_capable"]:
-            continue
-        if not hardware_profile_files(cohort.hardware_profile):
-            profile_missing.append(cohort.hardware_profile)
-            continue
-        return cohort, None
-    if profile_missing:
-        profiles = ", ".join(sorted(set(profile_missing)))
-        return None, (
-            f"exact hardware profile prerequisite missing: {profiles}; "
-            "no profile substitution is permitted"
-        )
-    return None, "no compatible OpenShell cohort for declared capabilities"
 
 
 def spec_requires_video_codec(spec_path: str) -> bool:
     requirements, _ = openshell_requirements(spec_path)
-    return bool(requirements and requirements["requires_video_codec"])
+    return bool(requirements and requirements.get("requires_video_codec"))
 
 
 def spec_platforms(spec_path: str) -> list[str]:
@@ -756,27 +700,22 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 if metadata_error or requirements is None:
                     append_blocked(meta, metadata_error or "invalid metadata")
                     continue
-                cohort, cohort_error = select_openshell_cohort(requirements)
-                if cohort_error or cohort is None:
-                    append_blocked(meta, cohort_error or "no compatible cohort")
-                    continue
                 tag = openshell_placement_tag(requirements["gpu_count"])
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],
                     "spec_stem": meta["spec_stem"],
                     "eval_dir": meta["eval_dir"],
-                    "platform": cohort.platform,
-                    "hardware_profile": cohort.hardware_profile,
-                    "cohort": cohort.name,
+                    # Empty on purpose: the guest that claims the job owns
+                    # its own SKU, and the adapter reads it from the card.
+                    "platform": "",
+                    "hardware_profile": "",
+                    "cohort": OPENSHELL_COHORT_TAG,
                     "kind": "eval",
                     "slug": f"{skill}__{meta['spec_stem']}__{tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {tag}",
                     "runs_on": openshell_job_labels(requirements["gpu_count"]),
                     "gpu_count": requirements["gpu_count"],
-                    "min_vram_gb_per_gpu": (
-                        requirements["min_vram_gb_per_gpu"]
-                    ),
                     "local_gpu": True,
                 })
                 continue
@@ -844,29 +783,20 @@ def build_matrix(changed: list[str]) -> list[dict]:
             if metadata_error or requirements is None:
                 append_blocked(smoke_meta, metadata_error or "invalid metadata")
             else:
-                cohort, cohort_error = select_openshell_cohort(requirements)
-                if cohort_error or cohort is None:
-                    append_blocked(
-                        smoke_meta, cohort_error or "no compatible cohort"
-                    )
-                else:
-                    tag = openshell_placement_tag(requirements["gpu_count"])
-                    include.append({
-                        **smoke_meta,
-                        "platform": cohort.platform,
-                        "hardware_profile": cohort.hardware_profile,
-                        "cohort": cohort.name,
-                        "kind": "eval",
-                        "skip_reason": "",
-                        "slug": f"vss-deploy-test-openshell__base__{tag}",
-                        "name": f"vss-deploy-test-openshell · base · {tag}",
-                        "runs_on": openshell_job_labels(requirements["gpu_count"]),
-                        "gpu_count": requirements["gpu_count"],
-                        "min_vram_gb_per_gpu": (
-                            requirements["min_vram_gb_per_gpu"]
-                        ),
-                        "local_gpu": True,
-                    })
+                tag = openshell_placement_tag(requirements["gpu_count"])
+                include.append({
+                    **smoke_meta,
+                    "platform": "",
+                    "hardware_profile": "",
+                    "cohort": OPENSHELL_COHORT_TAG,
+                    "kind": "eval",
+                    "skip_reason": "",
+                    "slug": f"vss-deploy-test-openshell__base__{tag}",
+                    "name": f"vss-deploy-test-openshell · base · {tag}",
+                    "runs_on": openshell_job_labels(requirements["gpu_count"]),
+                    "gpu_count": requirements["gpu_count"],
+                    "local_gpu": True,
+                })
     return include
 
 
