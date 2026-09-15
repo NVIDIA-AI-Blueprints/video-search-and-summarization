@@ -68,7 +68,7 @@ jsonpatch==1.33
 jsonpointer==3.1.1
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
-kafka-python==2.2.15
+kafka-python==2.3.2
 kiwisolver==1.5.0
 langchain-core==0.3.81
 langchain-openai==0.3.29
