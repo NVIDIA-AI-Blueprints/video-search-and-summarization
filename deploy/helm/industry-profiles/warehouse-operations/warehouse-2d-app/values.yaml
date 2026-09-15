@@ -434,7 +434,17 @@ agent:
   # va-mcp is off in the agent chart by default; alerts needs it.
   vss-va-mcp:
     enabled: true
+    vlmVerified: false
   vss-agent:
+    # Report-templates mount is gated on profile == alerts in the agent chart.
+    profile: alerts
+    reportTemplates:
+      enabled: true
+    extraEnv:
+      - name: VSS_AGENT_TEMPLATE_PATH
+        value: '{{- $rt := .Values.reportTemplates | default dict }}{{- if ($rt.enabled | default false) }}/etc/vss-agent/report-templates{{- end }}'
+      - name: VSS_AGENT_TEMPLATE_NAME
+        value: '{{- $rt := .Values.reportTemplates | default dict }}{{- if ($rt.enabled | default false) }}{{ $rt.configMapKey | default "incident_report_template.md" }}{{- end }}'
     waitForDependencies:
       enabled: true
       waitForMcp: true
