@@ -394,7 +394,16 @@ analytics:
             {"name": "sinkType", "value": "kafka"},
             {"name": "numWorkersForBehaviorCreation", "value": "1"},
             {"name": "numWorkersForFrameEnhancement", "value": "1"},
-            {"name": "numWorkersForSpaceEstimation", "value": "0"}
+            {"name": "numWorkersForSpaceEstimation", "value": "0"},
+            {"name": "restrictedAreaViolationIncidentEnable", "value": "true"},
+            {"name": "restrictedAreaViolationIncidentThreshold", "value": "1.0"},
+            {"name": "restrictedAreaViolationIncidentExpirationWindow", "value": "0.5"},
+            {"name": "confinedAreaViolationIncidentEnable", "value": "true"},
+            {"name": "confinedAreaViolationIncidentThreshold", "value": "1.0"},
+            {"name": "confinedAreaViolationIncidentExpirationWindow", "value": "0.5"},
+            {"name": "proximityViolationIncidentEnable", "value": "true"},
+            {"name": "proximityViolationIncidentThreshold", "value": "1.0"},
+            {"name": "proximityViolationIncidentExpirationWindow", "value": "0.5"}
           ]
         }
     imagePullSecrets:
