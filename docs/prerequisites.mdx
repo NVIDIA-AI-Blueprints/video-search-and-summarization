@@ -32,17 +32,18 @@ The following software must be installed on your system:
 
 - **OS:**
 
-  - x86 hosts: Ubuntu 22.04 or Ubuntu 24.04
+  - x86 hosts: Ubuntu 24.04
+  - DGX Station (GB300): DGX OS 7.6.0
   - DGX-SPARK: DGX OS 7.5.0
   - IGX-THOR (T5000 and T7000): IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04)
-  - Jetson AGX Orin and AGX-THOR: JetPack 7.2 (Jetson Linux/L4T r39.2)
+  - Jetson AGX Orin, AGX-THOR, and Jetson Orin NX: JetPack 7.2 (Jetson Linux/L4T r39.2)
 - **NVIDIA Driver:**
 
-  - 580.105.08 (x86 hosts with Ubuntu 24.04)
-  - 580.65.06 (x86 hosts with Ubuntu 22.04)
-  - 580.159.03 (DGX-SPARK)
-  - Bundled with IGX-SW 2.0 (580 series) (IGX-THOR)
-  - 595.78 (Jetson AGX Orin and AGX-THOR)
+  - 595.58.03 (x86 hosts with Ubuntu 24.04)
+  - 595.58.03 (DGX Station GB300)
+  - 580.173.02 (DGX-SPARK)
+  - 580.00, bundled with IGX-SW 2.0 (IGX-THOR)
+  - 595.78 (Jetson AGX Orin, AGX-THOR, and Jetson Orin NX)
 - **NVIDIA Container Toolkit:** 1.17.8+
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
@@ -439,10 +440,10 @@ When pulling resources from NGC, you may encounter the following issues:
 
 #### Ubuntu 24.04
 
-NVIDIA Driver version 580.105.08 is required with Ubuntu 24.04.
+NVIDIA Driver version 595.58.03 is required with Ubuntu 24.04.
 
 You can download the driver directly from:
-https://www.nvidia.com/en-us/drivers/details/257738/
+https://www.nvidia.com/en-us/drivers/details/266021/
 
 #### Additional resources
 
@@ -476,12 +477,12 @@ For full details, refer to the official NVIDIA Fabric Manager documentation:
 
 - Installation Guide: https://docs.nvidia.com/datacenter/tesla/fabric-manager-user-guide/index.html
 
-Example setup on Ubuntu 24.04. Use Fabric Manager version **580.105.08** (see [Install NVIDIA Driver](/vss/getting-started/prerequisites#install-nvidia-driver) for driver requirements):
+Example setup on Ubuntu 24.04. Use Fabric Manager version **595.58.03** so that it matches the installed NVIDIA driver (see [Install NVIDIA Driver](/vss/getting-started/prerequisites#install-nvidia-driver) for driver requirements):
 
 ```bash
-# Install Fabric Manager 580.105.08 (version pin may vary by repository; use the package version that matches 580.105.08)
+# Install the Fabric Manager package that matches driver 595.58.03
 sudo apt-get update
-sudo apt-get install -y nvidia-fabricmanager-580=580.105.08-1
+sudo apt-get install -y nvidia-fabricmanager-595=595.58.03-1ubuntu1
 
 # Enable and start the service
 sudo systemctl enable nvidia-fabricmanager
@@ -491,9 +492,14 @@ sudo systemctl start nvidia-fabricmanager
 sudo systemctl status nvidia-fabricmanager
 ```
 
-If that package version is not available from your apt repository, install from the NVIDIA Fabric Manager archive for 580.105.08: https://developer.download.nvidia.com/compute/nvidia-driver/redist/fabricmanager/linux-x86_64/fabricmanager-linux-x86_64-580.105.08-archive.tar.xz
+If that exact package revision is unavailable from your apt repository, download and install the matching Debian package directly:
 
-Typically the package version will be the same as the driver version.
+```bash
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/nvidia-fabricmanager_595.58.03-1ubuntu1_amd64.deb
+sudo dpkg -i nvidia-fabricmanager_595.58.03-1ubuntu1_amd64.deb
+```
+
+Fabric Manager must match the installed driver version.
 </Note>
 
 ### Install Docker
@@ -630,7 +636,9 @@ For setup instructions, see the [DGX Spark User Guide](https://docs.nvidia.com/d
 
 Setup installs DGX OS (including the NVIDIA driver), Docker with NVIDIA Container Toolkit integration, and NGC access.
 
-DGX Spark deployments require DGX OS 7.5.0 and its NVIDIA driver version 580.159.03.
+DGX Spark ships with DGX OS pre-installed; do not flash a separate OS image for normal setup. VSS deployments require DGX OS 7.5.0, NVIDIA driver 580.173.02.
+
+Connect the display, keyboard, mouse, and network before connecting power. The system powers on as soon as the power supply is connected. Complete the OOBE wizard and allow its software download and automatic reboot to finish; do not power off or reboot while software is being installed.
 
 <Note>
 - Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vss/getting-started/prerequisites#run-docker-without-sudo).
@@ -638,10 +646,12 @@ DGX Spark deployments require DGX OS 7.5.0 and its NVIDIA driver version 580.159
 
 ### Setup AGX-THOR
 
-Setup JetPack 7.2 (Jetson Linux/L4T r39.2) via instructions in the [Jetson AGX Thor Developer Kit User Guide](https://docs.nvidia.com/jetson/agx-thor-devkit/user-guide/latest/index.html).
+Setup JetPack 7.2 (Jetson Linux/L4T r39.2) via instructions in the [Jetson AGX Thor Developer Kit User Guide](https://docs.nvidia.com/jetson/agx-thor-devkit/user-guide/latest/index.html). Use the Jetson ISO r39.2 USB installation path and select NVMe as the target storage.
 
-- Setup installs the Jetson Linux BSP and NVIDIA driver 595.78.
-- Install JetPack after the BSP is in place (for CUDA and other components), as described in the user guide.
+- Create the bootable USB with BalenaEtcher; copying the ISO files to a USB drive is not sufficient.
+- Accept the QSPI update when prompted. Do not skip this update.
+- After installation, remove the USB drive before rebooting, complete `oem-config`, and install JetPack with `sudo apt install nvidia-jetpack`.
+- The resulting stack must report Jetson Linux/L4T r39.2, NVIDIA driver 595.78.
 
 <Note>
 The Jetson ISO update path requires an existing BSP at L4T r35.5 or later.
@@ -657,8 +667,10 @@ Use another supported update path for older installations.
 
 Setup IGX-SW 2.0 Production (LTS), including IGX OS 2.0, via instructions in the [Jetson IGX Thor User Guide](https://docs.nvidia.com/igx/user-guide/latest/OV/introduction.html).
 
-- Setup installs the NVIDIA driver bundled with IGX-SW 2.0 (580 series).
-- Install JetPack after the BSP is in place (for CUDA and other components), as described in the user guide.
+- Setup installs NVIDIA driver 580.00 with the IGX-SW 2.0 stack.
+- For T5000, install from a bootable USB and select **Install IGX OS with Real-Time Kernel**.
+- For T7000, use a bootable USB or BMC Virtual Media. Update the firmware in the BMC WebUI before installing, and connect the monitor to the iGPU DisplayPort rather than the dGPU port.
+- After installing either platform, install the IGX AI software with `sudo apt install nvidia-igx-ai` and enable the NVIDIA CDI service as described in the user guide.
 
 <Note>
 Use the public IGX-SW 2.0 GA release for customer-facing deployments.
