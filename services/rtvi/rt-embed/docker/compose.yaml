@@ -30,7 +30,7 @@ services:
       - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
       - "${RTVI_SRC_DIR:-/dummy}${RTVI_SRC_DIR:+:/opt/nvidia/rtvi:ro}"
       - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
-      - "${RTVI_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_IPC_SOCKET_HOST_DIR:+:${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}}"
+      - "${RTVI_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_IPC_SOCKET_HOST_DIR:+:/run/rtvi-ipc}"
       - rtvi-hf-cache:/tmp/huggingface
       - rtvi-triton-model-repo:/tmp/triton_model_repo
 
@@ -65,8 +65,6 @@ services:
       RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
       RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-true}"
       RTVI_IPC_FRAME_COPY: "${RTVI_IPC_FRAME_COPY:-false}"
-      RTVI_IPC_SOCKET_DIR: "${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"
-      RTVI_IPC_SOCKET_TEMPLATE: "${RTVI_IPC_SOCKET_TEMPLATE:-nvds_ipc_{camera_id}.sock}"
       # Standard OTEL environment variables (see https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/)
       ENABLE_OTEL_MONITORING: "${ENABLE_OTEL_MONITORING:-false}"  # Set to 'true' to enable OpenTelemetry
       OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES:-}"
