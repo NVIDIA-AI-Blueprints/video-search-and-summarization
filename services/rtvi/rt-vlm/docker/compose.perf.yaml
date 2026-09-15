@@ -29,6 +29,8 @@
 #   MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
 # Optional image override; defaults to GHCR develop-latest:
 #   RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+# DGX Spark (SBSA) uses:
+#   RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa
 #
 # BCD 3.2 static-KV8 runs can use:
 #   MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
