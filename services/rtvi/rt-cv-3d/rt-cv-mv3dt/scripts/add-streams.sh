@@ -480,7 +480,7 @@ print(json.dumps({
     echo "     The perception REST API is not responding. Check whether it is alive:" >&2
     echo "       docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
     echo "     If it is running but unresponsive, recreate it:" >&2
-    echo "       (cd docker && docker compose up -d --force-recreate perception)" >&2
+    echo "       cd docker && docker compose up -d --force-recreate perception" >&2
     rm -f "$tmp"; return 1
   fi
   echo "   ✗ HTTP ${code}"; cat "$tmp" >&2 || true; echo >&2
@@ -525,7 +525,58 @@ report_api_lost() {
   echo "   ⚠ the perception REST API stopped responding after the removal." >&2
   echo "     The container keeps running but /api/v1 requests time out; recreate it" >&2
   echo "     before adding or listing streams again:" >&2
-  echo "       (cd docker && docker compose up -d --force-recreate perception)" >&2
+  echo "       cd docker && docker compose up -d --force-recreate perception" >&2
+}
+
+PERCEPTION_CONTAINER="${PERCEPTION_CONTAINER:-vss-rtvi-cv-mv3dt}"
+
+# Cameras this deployment expects: NUM_CAMS when set, else the configured camInfo
+# entries. Defined here because the remove path runs before the add path helpers.
+required_cameras() {
+  local n="${NUM_CAMS:-}"
+  if [[ "$n" =~ ^[0-9]+$ ]] && (( n > 0 )); then printf '%s\n' "$n"; return 0; fi
+  n="$(ls -1 "$ROOT"/generated/camInfo/*.yml "$ROOT"/generated/camInfo/*.yaml 2>/dev/null | wc -l | tr -d ' ')"
+  [[ "$n" =~ ^[0-9]+$ ]] && (( n > 0 )) || return 1
+  printf '%s\n' "$n"
+}
+
+# Whether this perception instance has ever reached its full camera count.
+# Removing a source before the muxer has batched once parks its streaming task
+# while it holds the lock that add, list and get-stream-info share, so the whole
+# REST API stops answering. After the first batch removals are clean down to
+# zero, including sources that stalled once the count dropped, so the test is
+# historical rather than whether the source is decoding right now.
+# 0 activated, 1 not activated, 2 cannot tell.
+pipeline_activated_once() {
+  local required
+  required="$(required_cameras)" || return 2
+  command -v docker >/dev/null 2>&1 || return 2
+  docker inspect "$PERCEPTION_CONTAINER" >/dev/null 2>&1 || return 2
+  # grep -q closes the pipe on the first match, so a long log is not read whole.
+  docker logs "$PERCEPTION_CONTAINER" 2>&1 | grep -qa "Active sources : ${required}\b"
+}
+
+# Refusing is the useful answer: the removal cannot succeed and would take the
+# REST API down with it.
+report_removal_blocked() {
+  echo "   ✗ perception has not reached its full camera count since it started." >&2
+  echo "     Removing a source before the pipeline has batched once leaves the REST" >&2
+  echo "     API unresponsive. Register the remaining cameras and wait for" >&2
+  echo "     \"Active sources\" to reach the full count, or drop this attempt by" >&2
+  echo "     recreating perception:" >&2
+  echo "       cd docker && docker compose up -d --force-recreate perception" >&2
+}
+
+# First-buffer alignment runs once per pipeline: the flag latches on the first
+# batch and is never reset, so a set registered later shares no time origin.
+report_alignment_reset() {
+  echo
+  echo "   Note: no streams are registered now. Streams added from now on are not"
+  echo "   guaranteed to be time synchronized. Please recreate perception before"
+  echo "   registering streams again to avoid timing issues:"
+  echo
+  echo "     cd docker && docker compose up -d --force-recreate perception"
+  echo
 }
 
 if [[ "$MODE" == remove ]]; then
@@ -551,6 +602,15 @@ if [[ "$MODE" == remove ]]; then
       read -r -p "   Remove all of them? [y/N] " reply || reply=""
       [[ "$reply" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     fi
+  fi
+
+  act=0; pipeline_activated_once || act=$?
+  if (( act == 1 )); then
+    report_removal_blocked
+    exit 2
+  fi
+  if (( act == 2 )); then
+    echo "   ⚠ cannot tell whether perception has activated; removing unchecked" >&2
   fi
 
   echo "── Removing ${#STREAMS[@]} stream(s) (delay=${DELAY}s)"
@@ -591,6 +651,9 @@ if [[ "$MODE" == remove ]]; then
   if ! show_stream_info 2>/dev/null; then
     report_api_lost
     (( rc )) || rc=1
+  else
+    remaining="$(registered_camera_ids 2>/dev/null | grep -c . || true)"
+    [[ "${remaining:-1}" == 0 ]] && report_alignment_reset
   fi
   exit "$rc"
 fi
