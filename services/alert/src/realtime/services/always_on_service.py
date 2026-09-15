@@ -509,6 +509,21 @@ class AlwaysOnService:
             len(tracked),
         )
 
+        if not tracked:
+            # Nothing tracked for this camera — either already removed,
+            # or its rule lost the last-reader race in
+            # RealtimeAlertService and got dropped despite RTVI teardown
+            # failing. Always-on rules register RTVI streams under
+            # sensor_id=camera_id, so reconcile directly against RTVI:
+            # otherwise a retried camera_remove reports success forever
+            # on a stream nothing is tracking anymore.
+            await self._realtime.reconcile_orphaned_stream(camera_id)
+            return AlwaysOnResult(
+                status_code=200,
+                reason=AlwaysOnReason.REMOVE_SUCCESS,
+                details=[],
+            )
+
         # ``stop_alert`` returns 200 on clean teardown and 404 when the
         # rule is already gone from the core registry. Both are valid
         # end-states for ``camera_remove``: SDR wants the rule gone, and
