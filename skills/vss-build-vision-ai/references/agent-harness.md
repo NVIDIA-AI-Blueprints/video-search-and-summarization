@@ -391,10 +391,10 @@ blocker: report it with the log path and stop, rather than going on to the UI
 link.
 
 **Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
-`| tail`, `| head`, or a dropped stream loses section 3.7's `Agent UI:` line and
-the `WARNING:` that cell prints — without failing — when the dashboard forward
-does not come up. A clean exit does not mean the link is usable. Read the link
-from the `tee`d log.
+`| tail`, `| head`, or a dropped stream loses section 3.7's `Sandbox:` and
+`Agent UI:` lines and the `WARNING:` that cell prints — without failing — when
+the dashboard forward does not come up. A clean exit does not mean the link is
+usable. Read the link and the sandbox name from the `tee`d log.
 
 Do not reconstruct the URL from the notebook source. Its origin branches on
 whether the Brev context file publishes a secure link for the dashboard port.
@@ -447,7 +447,8 @@ The notebook runs with errors fatal and asserts each step itself, so a clean
 exit already means onboarding, policy, skills, and workspace docs all landed.
 Confirm the two things that exit code cannot cover:
 
-1. **The harness is reachable.** Section 3.7 prints `Agent UI: <url>`. Put it in
+1. **The harness is reachable.** Section 3.7 prints `Sandbox: <name>` and
+   `Agent UI: <url>`. Put the link in
    the final summary as a **markdown link** — `[Open the NemoClaw Agent UI](<url>)`
    — not as a bare URL in prose, so the user can click straight through to the
    harness they just deployed. The target is the printed URL character for
@@ -474,6 +475,17 @@ Confirm the two things that exit code cannot cover:
 Section 3.8 is an optional deeper pass over the live sandbox, active policy
 metadata, webhooks, and the installed workspace docs. Run it when onboarding
 behaved unexpectedly.
+
+### Name the sandbox in the summary
+
+Report the sandbox name next to the Agent UI link — the `NEMOCLAW_SANDBOX_NAME`
+the bring-up was given, read back from section 3.7's `Sandbox: <name>` line
+rather than assumed. It is the handle every later command takes:
+`nemoclaw <name> status`, `openshell sandbox exec -n <name>`, and the
+[Teardown](#teardown) destroy. The sandbox lives outside the Compose project, so
+nothing that lists the build reveals it, and a name left at the `demo` default is
+the one a second build silently reuses — a user who cannot name this sandbox
+cannot tell the two apart later.
 
 ## Teardown
 
