@@ -16,6 +16,7 @@
 """Unit tests for RealtimeAlertService."""
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -1036,6 +1037,49 @@ class TestPersistentStopAlert:
         assert order == ["captions_start", "captions_end", "stream_start"], (
             "stop_captions must fully complete before stop_stream starts "
             f"— got {order}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_stop_alert_shared_stream_only_one_deletes(
+        self, persistent_service, fake_rule_store, mock_rtvi_client
+    ):
+        """Regression test: two rules sharing one RTVI stream, stopped
+        concurrently, must not both decide they're the last reader.
+
+        Each stop_alert deletes its own rule, then counts remaining
+        ACTIVE rules referencing the shared stream to decide whether to
+        call ``/streams/delete``. Without serializing "delete + count"
+        per stream, both concurrent deletes can land before either
+        count runs, so both counts observe zero remaining readers and
+        both fire ``/streams/delete`` for the same stream — the same
+        class of RTVI 409/orphan collision the sequencing fix
+        addressed, just triggered by two overlapping requests instead
+        of one. The fake store's delete is slowed slightly to force
+        the overlap deterministically.
+        """
+        d1, _ = await persistent_service.start_alert(make_config(alert_type="a"))
+        d2, _ = await persistent_service.start_alert(make_config(alert_type="b"))
+        assert (
+            fake_rule_store.get(d1["id"])["rtvi_stream_id"]
+            == fake_rule_store.get(d2["id"])["rtvi_stream_id"]
+        )
+
+        real_delete = fake_rule_store.delete
+
+        def _slow_delete(rule_id):
+            time.sleep(0.02)
+            return real_delete(rule_id)
+
+        fake_rule_store.delete = _slow_delete
+
+        await asyncio.gather(
+            persistent_service.stop_alert(d1["id"]),
+            persistent_service.stop_alert(d2["id"]),
+        )
+
+        assert mock_rtvi_client.stop_stream.await_count == 1, (
+            "exactly one of the two concurrent deletes should tear down "
+            f"the shared stream, got {mock_rtvi_client.stop_stream.await_count}"
         )
 
 

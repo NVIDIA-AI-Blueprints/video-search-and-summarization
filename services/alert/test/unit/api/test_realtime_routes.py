@@ -2196,6 +2196,47 @@ class TestAlwaysOnCameraRemove:
         assert body["details"] == []
         mocks["realtime"].stop_alert.assert_not_awaited()
 
+    def test_remove_unknown_camera_reconciles_against_rtvi(
+        self, client, mocks, always_on
+    ):
+        """Regression test: camera_remove with no tracked rule must still
+        check RTVI directly for a stale stream.
+
+        A rule can be dropped from the always-on sidecar despite its
+        RTVI teardown failing (see :meth:`RealtimeAlertService.stop_alert`
+        — RTVI failures are best-effort and don't block rule removal).
+        A retried camera_remove then finds no rule and, before this
+        fix, reported success without ever checking whether RTVI still
+        has the stream. It must now reconcile directly using the
+        camera_id (always-on rules register RTVI streams under
+        sensor_id=camera_id).
+        """
+        always_on([_sample_rule("r1")])
+        resp = client.post(
+            "/api/v1/realtime/always-on",
+            json=_remove_event(camera_id="orphaned-camera"),
+        )
+        assert resp.status_code == 200
+        mocks["realtime"].reconcile_orphaned_stream.assert_awaited_once_with(
+            "orphaned-camera"
+        )
+
+    def test_remove_tracked_camera_does_not_reconcile(
+        self, client, mocks, always_on
+    ):
+        """When a rule was actually tracked and stopped, no reconciliation
+        call is needed — the normal stop_alert path already ran."""
+        always_on([_sample_rule("r1")])
+        mocks["realtime"].start_alert.return_value = (
+            {"status": "success", "id": "rule-1", "created_at": "T", "message": "ok"},
+            201,
+        )
+        client.post("/api/v1/realtime/always-on", json=_streaming_event())
+
+        client.post("/api/v1/realtime/always-on", json=_remove_event())
+
+        mocks["realtime"].reconcile_orphaned_stream.assert_not_awaited()
+
     def test_remove_details_include_per_rule_outcomes(
         self, client, mocks, always_on
     ):
