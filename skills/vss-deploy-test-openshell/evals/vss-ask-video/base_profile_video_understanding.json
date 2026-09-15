@@ -9,6 +9,9 @@
       "H200": {
         "gpu_count": 1
       },
+      "L40S": {
+        "gpu_count": 1
+      },
       "RTXPRO6000BW": {
         "gpu_count": 1
       }
