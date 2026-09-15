@@ -100,8 +100,8 @@ the installed path or in the slash command.**
 | --- | --- |
 | `vss-search-archive` | Search video archives using natural language with fusion search over Cosmos Embed1 embeddings and computer vision attribute matching. |
 | `vss-summarize-video` | Summarize a video by routing short clips to the VLM NIM and longer videos to the Video Summarization microservice. |
-| `vss-ask-video` | Answer text questions about video content by calling the VLM (or RT-VLM) `chat/completions` endpoint directly, on a VIOS clip or a video the user supplies. Does not go through the VSS agent. |
-| `vss-generate-video-report` | Produce video analysis reports through Mode A (clip URL + direct VLM `chat/completions` call) or Mode B (incident-range query via `vss-query-analytics`), then render markdown output. Does **not** route report generation through VSS agent `/generate`. |
+| `vss-ask-video` | Answer a question about previously analyzed or freshly scoped video, routing through hot conversation context, agent Markdown memory, structured VSS memory, bounded memory introspection, or an exact-window `vss vlm run`. Not for retrieval or metadata-answerable questions. |
+| `vss-generate-video-report` | Produce a video analysis report through one of three backends — Mode A per-clip VLM, Mode B incident-range via `vss-query-analytics`, or Mode C SOP compliance via the SOP tools — then render markdown output. Never routes through the VSS agent's `/generate` endpoint. |
 | `vss-generate-video-report-rag` | Generate video summary reports using the `video_search_frag` extension with Video Summarization, Enterprise RAG context, and HITL parameter collection. |
 | `vss-query-analytics` | Query video analytics data and metrics from Elasticsearch via the VA-MCP server. |
 | `vss-manage-alerts` | Add, manage, and monitor alerts on streamed video in either CV verification mode or VLM real-time mode. |
