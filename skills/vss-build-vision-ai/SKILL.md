@@ -174,6 +174,8 @@ why, and this list only says when to apply them:
   and auto-calibration needs to know which dataset it is calibrating. Set
   `NUM_STREAMS` to the chosen dataset's camera count (4 / 3 / 4); that is the
   Hard constraint that survives, and there is no dataset ↔ variant pairing rule.
+  `warehouse-loading-dock-3cams-degraded-synthetic` uses the same calibration as
+  `warehouse-loading-dock-3cams-synthetic`.
 
 The answers select exactly one `COMPOSE_PROFILES_WH_*` list. Record its name in
 `FOUNDATION_VARIANT`, expand it verbatim into `COMPOSE_PROFILES`, and continue
