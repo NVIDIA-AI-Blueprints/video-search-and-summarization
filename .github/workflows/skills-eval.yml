@@ -172,10 +172,11 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Total runner capacity is 30. Cohort-specific active + GPU-count labels
-      # cap each pool independently (8 A16-1g, 4 A40-1g, 2 A40-2g, 8 H200-1g,
-      # 4 H200-2g, 4 RTX-2g), so one cohort cannot consume another cohort's
-      # runners.
+      # Total OpenShell runner capacity is 30 (8 A16-1g, 4 A40-1g, 2 A40-2g,
+      # 8 H200-1g, 4 H200-2g, 4 RTX-2g). `gpus-N` keeps a 2-GPU leg off a
+      # 1-GPU guest; beyond that an OpenShell leg takes any free guest,
+      # since it declares no SKU. Legs queue on labels rather than being
+      # capped per cohort here.
       max-parallel: 30
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
@@ -223,9 +224,10 @@ jobs:
           echo "/usr/local/bin" >> "$GITHUB_PATH"
 
       - name: Assert OpenShell GPU runtime
-        # Planner sets matrix.local_gpu on every OpenShell GPU cohort
-        # (A16/A40/H200/RTX). Do not key this on runner.name: H200
-        # registrations are h200-N-g<gen>-<id>, not vss-skill-eval-gpu-h200-*.
+        # Planner sets matrix.local_gpu on every OpenShell leg, whichever
+        # guest claims it (A16/A40/H200/RTX). Do not key this on runner.name:
+        # H200 registrations are h200-N-g<gen>-<id>, not
+        # vss-skill-eval-gpu-h200-*.
         if: ${{ matrix.local_gpu }}
         run: |
           export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
@@ -438,8 +440,10 @@ jobs:
           export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
           export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
           export EVAL_PLATFORM="${{ matrix.platform }}"
-          # NIM compose `hw-${HARDWARE_PROFILE}.env`. The planner uses exact
-          # identities and blocks absent A16/A40 profiles; no SKU substitution.
+          # NIM compose `hw-${HARDWARE_PROFILE}.env`. Exact identities only;
+          # no SKU substitution. Both of these are EMPTY for an OpenShell
+          # leg: it is placed by label + GPU count, so its adapter reads the
+          # SKU off this guest's card and exports the profile itself.
           export HARDWARE_PROFILE="${{ matrix.hardware_profile }}"
           # Per-leg scratch scope. Every leg keys its datasets/results/
           # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)

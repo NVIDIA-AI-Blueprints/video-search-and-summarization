@@ -143,6 +143,13 @@ The canonical harbor command is in § Harbor invocation.
          non-zero, or finishes but the resulting dataset is missing
          `tests/`, `instruction.md`, `task.toml`, `solution/solve.sh`,
          or any platform listed in `spec.resources.platforms`.
+         `vss-deploy-test-openshell` is exempt from that last clause: its
+         legs are placed by label and GPU count, so it generates exactly
+         one platform — this guest's card — and a dataset with one
+         platform directory is correct, not stale. A non-zero exit
+         naming an unrecognised GPU there is the guest's problem, not the
+         adapter's: `BLOCKED:` with the detected card, do not patch the
+         adapter to force a platform.
        - **Spec drift**: the rendered `instruction.md` references an
          old skill name, the `[metadata]` profile is hardcoded
          instead of read from the spec, or the spec needs a placeholder
@@ -500,7 +507,7 @@ The canonical harbor command is in § Harbor invocation.
 
 | Platform | Fleet prefix in `brev ls` | Notes |
 |---|---|---|
-| `a16` | Direct OpenShell GHA cohort (`openshell-a16-active`) | 8 VMs × 1 NVIDIA A16 16 GB. Only explicitly A16-supported, one-GPU workloads at or below 16 GB/GPU; codec capability is available. |
+| `a16` | Direct OpenShell GHA cohort (`openshell-a16-active`) | 8 VMs × 1 NVIDIA A16 16 GB. Codec capability is available. |
 | `a40` | Direct OpenShell GHA cohort (`openshell-a40-active`) | 4 VMs × 1 A40 plus 2 VMs × 2 A40, measured 46068 MiB/GPU (`vram-46gb`). `gpus-1` and `gpus-2` are distinct demands; two cards are not one 96 GB address space. |
 | `h200` | Direct OpenShell GHA cohort (`openshell-h200-active`) | 8 VMs × 1 H200 141 GB plus 4 VMs × 2 H200. `gpus-1` and `gpus-2` are distinct demands. Labels `gpu-h200` + `openshell-h200-active` only — never `gpu-rtxpro6000bw`, and these boxes do not carry `gpu-h200-nvl`. No NVENC. |
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
@@ -508,13 +515,46 @@ The canonical harbor command is in § Harbor invocation.
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
-For the direct OpenShell path, each spec's required `openshell` object is the
-authoritative placement contract: GPU count, minimum VRAM **per GPU**, codec
-need, multi-GPU support, Blackwell need, and supported exact hardware
-profiles. `plan_matrix.py` emits exactly one smallest compatible cohort. Missing
-or stale metadata, an absent exact `hw-A16*.env` / `hw-A40*.env` / `hw-H200*.env` profile, or no
-compatible cohort produces a visible `BLOCKED_NO_COMPATIBLE_COHORT` leg. Never
-substitute another SKU's profile or add two cards' VRAM together.
+`vss-deploy-test-openshell` is the only skill on the direct OpenShell
+path, and its legs are independent of the GPU spec. Placement and sizing
+are decided in different places, by different things:
+
+- **Placement** is GitHub labels plus GPU count, and nothing else.
+  `openshell_job_labels()` emits `vss-skill-eval-gpu` +
+  `openshell-runner` + `openshell` + `gpus-N` and no SKU;
+  `openshell_requirements()` reads `openshell.gpu_count` and ignores the
+  rest; `brev_env` gates the guest on live `gpu_count` only — no
+  `gpu_type`, no VRAM floor. The matrix leg therefore carries an **empty**
+  `platform` and `hardware_profile`, and its `cohort` is the flat tag
+  `openshell`. Any OpenShell guest with that many GPUs may claim the job,
+  and none of them is the wrong one. Every cohort carries those fleet
+  tags, so a `gpus-1` leg can land on a 15 GB A16 as easily as on a
+  141 GB H200. A profile that does not fit the card it got fails as a
+  deployment failure on a real guest — that is a result, not a
+  misroute. Do not "fix" it by reintroducing a SKU label.
+- **Sizing** is read off the guest, never guessed. `HARDWARE_PROFILE`
+  selects `nim/<slug>/hw-<profile>(-shared).env`, and those files are
+  per-card: `hw-H200-shared.env` sets `NIM_KVCACHE_PERCENT=0.5`, the
+  value measured to leave 1682 MiB free on an RTX PRO 6000. So the
+  adapter resolves the platform from live `nvidia-smi` at
+  dataset-generation time and generates exactly one task, for that card.
+  The spec's `resources.platforms` keys do not restrict it — refusing to
+  generate for the guest that claimed the labels would only invent a
+  failure.
+
+Pass `--platform "$EVAL_PLATFORM"` through verbatim (it is empty for
+these legs, which means "the guest decides") and never substitute a
+platform by hand: a hand-picked one is how an `lvs` leg deploys H200
+KV-cache fractions onto a 96 GB card. A card the adapter does not
+recognise has no measured sizing, so generation **blocks** with the
+detected GPU name rather than falling back to a profile.
+
+The other `openshell` keys — `min_vram_gb_per_gpu`, `requires_video_codec`,
+`multi_gpu_capable`, `requires_blackwell`, `supported_hardware_profiles` —
+remain in the specs as a record of what each was authored and measured
+against. They are type-checked when present so a typo is visible, but
+they do not place, block, or size anything. A missing or non-`1`/`2`
+`gpu_count` is still a visible `BLOCKED_NO_COMPATIBLE_COHORT` leg.
 
 Pool naming is operator-managed; the actual fleet is the union of managed
 instances from `brev ls --json` and connected registered nodes from

@@ -109,7 +109,7 @@ Each generated task contains:
 
 Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` (singular) specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
 
-The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. OpenShell specs also carry an `openshell` capability object. The planner validates the two declarations agree and emits one cohort, not one leg per compatible GPU family.
+The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. `vss-deploy-test-openshell` is the one exception: its legs are placed on the OpenShell fleet by label and `openshell.gpu_count` alone, so the spec names no card, its adapter generates for whichever card the guest actually has, and one leg covers every GPU family.
 
 Schema:
 
@@ -117,7 +117,7 @@ Schema:
 |---|---|---|
 | `skills` | `string[]` | Skill names this spec exercises (usually just one). |
 | `resources.platforms` | `object` | `{<platform>: {"gpu_count": N}}` — the exact adapter hardware profile. Platforms include `A16`, `A40`, `H100`, `L40S`, `RTXPRO6000BW`, and `DGX-SPARK`. **Required**. |
-| `openshell` | `object` | Required direct-fleet contract: `gpu_count`, `min_vram_gb_per_gpu`, `requires_video_codec`, `multi_gpu_capable`, `requires_blackwell`, and `supported_hardware_profiles`. Missing/stale metadata or a missing exact checked-in profile fails closed as `BLOCKED_NO_COMPATIBLE_COHORT`; VRAM is never aggregated across GPUs. |
+| `openshell` | `object` | Direct-fleet contract. `gpu_count` (1 or 2) is the only key the planner consumes — it is the whole placement key, and a missing or out-of-range value fails closed as `BLOCKED_NO_COMPATIBLE_COHORT`. `min_vram_gb_per_gpu`, `requires_video_codec`, `multi_gpu_capable`, `requires_blackwell` and `supported_hardware_profiles` record what the spec was authored against; they are type-checked when present but select no card. The guest's own GPU sets `HARDWARE_PROFILE`, and VRAM is never aggregated across GPUs. |
 | `expects` | `array` | Ordered list — **each entry becomes one Harbor task**, chained to the previous via `requires_previous_passed`. There is no separate `env` field: every prerequisite (deployed profile, required env vars, ports, sample-data ingest, platform notes) goes **inside the relevant `expects[].query`** — usually the first/setup query, often a `/vss-deploy-profile …` deploy step. |
 | `expects[].query` | `string` | What the agent is asked to do at this step, in plain English — including any prerequisites/environment the step needs. Can embed `{{platform}}`, `{{mode}}`, `{{llm_mode}}`, `{{vlm_mode}}`, `{{repo_root}}` — the adapter substitutes these per-dataset. |
 | `expects[].checks` | `string[]` | Assertions the verifier runs after the agent acts. Backtick-wrapped `curl` / `docker` / `grep` commands are extracted and run as shell subprocesses (pass if exit 0). Everything else is handed to a `claude-agent-sdk` judge agent with `Bash` + `Read` + `Grep` tools — so trajectory-style checks ("agent called X exactly once", "response renders a 'Verification Step' section") are first-class; no per-skill probe scripts required. |
