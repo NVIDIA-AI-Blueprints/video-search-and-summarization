@@ -331,11 +331,16 @@ Refer to the [Sparse4D model page](/vss/system-components/models/sparse4d-3d-mul
 
   For H100 SXM HBM3 to run local LLM, Fabric Manager is required.
 
-1. Download the Fabric Manager from https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb
-2. Install the Fabric Manager using the following command:
+1. Download the Fabric Manager Debian package:
 
     ```bash
-    sudo dpkg -i nvidia-fabricmanager_580.105.08-1_amd64.deb
+    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/nvidia-fabricmanager_595.58.03-1ubuntu1_amd64.deb
+    ```
+
+2. Install the downloaded package:
+
+    ```bash
+    sudo dpkg -i nvidia-fabricmanager_595.58.03-1ubuntu1_amd64.deb
     ```
 
 3. Start the Fabric Manager using the following command:
