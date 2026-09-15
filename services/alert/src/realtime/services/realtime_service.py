@@ -2238,26 +2238,32 @@ class RealtimeAlertService:
         ctx: Dict[str, Any],
         stop_stream: bool = True,
     ) -> None:
-        """Stop captions and (when ``stop_stream``) the stream concurrently.
+        """Stop captions, then (when ``stop_stream``) the stream.
 
-        Best-effort — both calls tolerate failures so neither blocks
-        nor aborts the other. ``stop_stream=False`` skips the
-        ``/streams/delete`` call entirely so the underlying RTVI
-        stream is left running for any other alert rules that are
-        still reusing it. The caller is expected to compute that flag
-        from the live refcount rather than just the deleted rule's
-        ``owns_rtvi_stream`` attribute (see
-        :meth:`_count_other_rules_for_stream`).
+        Best-effort — both calls tolerate failures so neither aborts
+        the other. Sequenced rather than run concurrently: both calls
+        ultimately tear down the same RTVI-side pipeline for
+        ``rtvi_stream_id``, and RTVI rejects a second concurrent
+        teardown request for the same stream with a 409, which can
+        abort ``/streams/delete`` before it removes the stream record
+        — orphaning it. Running ``stop_captions`` to completion first
+        means ``stop_stream`` never contends with it.
+
+        ``stop_stream=False`` skips the ``/streams/delete`` call
+        entirely so the underlying RTVI stream is left running for
+        any other alert rules that are still reusing it. The caller
+        is expected to compute that flag from the live refcount
+        rather than just the deleted rule's ``owns_rtvi_stream``
+        attribute (see :meth:`_count_other_rules_for_stream`).
         """
-        coros = [self._safe_stop_captions(rtvi_stream_id, ctx)]
+        await self._safe_stop_captions(rtvi_stream_id, ctx)
         if stop_stream:
-            coros.append(self._safe_stop_stream_with_ctx(rtvi_stream_id, ctx))
+            await self._safe_stop_stream_with_ctx(rtvi_stream_id, ctx)
         else:
             logger.info(
                 "Skipping stop_stream — other rules still use this RTVI stream",
                 extra=ctx,
             )
-        await asyncio.gather(*coros)
 
     async def _safe_teardown_rtvi_with_outcome(
         self,
@@ -2317,9 +2323,14 @@ class RealtimeAlertService:
                 return False
 
         if stop_stream:
-            captions_ok, stream_ok = await asyncio.gather(
-                _stop_captions(), _stop_stream(),
-            )
+            # Sequenced, not gathered: both calls tear down the same
+            # RTVI-side pipeline for rtvi_stream_id, and RTVI 409s a
+            # second concurrent teardown for the same stream — which
+            # can abort /streams/delete before it removes the stream
+            # record, orphaning it. Waiting for stop_captions to
+            # finish first means stop_stream never contends with it.
+            captions_ok = await _stop_captions()
+            stream_ok = await _stop_stream()
             return "success" if captions_ok and stream_ok else "partial"
 
         logger.info(
