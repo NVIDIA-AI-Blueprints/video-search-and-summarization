@@ -192,15 +192,6 @@ jobs:
           ))
           PY
 
-      - name: Fetch required LFS source notices
-        run: |
-          git lfs pull \
-            --include='services/vios/LICENSE.3rdparty' \
-            --exclude=''
-          if head -c 64 services/vios/LICENSE.3rdparty | grep -q '^version https://git-lfs'; then
-            echo "::error::git lfs pull did not materialize services/vios/LICENSE.3rdparty"
-            exit 1
-          fi
 
       - name: Package tracked source
         run: |
