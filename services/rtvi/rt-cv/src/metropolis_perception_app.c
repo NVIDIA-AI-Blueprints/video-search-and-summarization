@@ -153,7 +153,6 @@ static gchar **cfg_files = NULL;
 static gchar **input_files = NULL;
 static gchar **override_cfg_file = NULL;
 static gboolean playback_utc = FALSE;
-static gboolean print_version = FALSE;
 static gboolean show_bbox_text = FALSE;
 static gboolean force_tcp = TRUE;
 static gboolean quit = FALSE;
@@ -199,8 +198,6 @@ static gint target_class = 0;
 
 /** @} imported from deepstream-app as is */
 GOptionEntry entries[] = {
-    {"version", 'v', 0, G_OPTION_ARG_NONE, &print_version,
-     "Print metropolis_perception_app version", NULL},
     {"tiledtext", 0, 0, G_OPTION_ARG_NONE, &show_bbox_text,
      "Display Bounding box labels in tiled mode", NULL},
     {"cfg-file", 'c', 0, G_OPTION_ARG_FILENAME_ARRAY, &cfg_files,
@@ -2266,7 +2263,6 @@ int main(int argc, char *argv[]) {
   GError *error = NULL;
   guint i;
   OTAInfo *otaInfo = NULL;
-  gchar versionString[256] = {0};
 
   ctx = g_option_context_new("NVIDIA Metropolis Perception");
   group = g_option_group_new("abc", NULL, NULL, NULL, NULL);
@@ -2283,20 +2279,7 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  /* Allow the printed image registry/tag to be overridden at runtime via the
-   * REGISTRY/TAG environment variables, so updating the printout does not
-   * require recompiling the app. Fall back to the build-time macros. */
-  const char *image_path = getenv("REGISTRY");
-  const char *image_tag = getenv("TAG");
-  if (!image_path || image_path[0] == '\0') {
-    image_path = IMAGE_PATH;
-  }
-  if (!image_tag || image_tag[0] == '\0') {
-    image_tag = IMAGE_TAG;
-  }
-  snprintf(versionString, sizeof(versionString), "%s:%s", image_path, image_tag);
   if (log_level >= LOG_LVL_INFO) {
-    g_print("Starting Perception Application Image %s\n", versionString);
     g_print("Tiled text: %d\n", show_bbox_text);
     g_print("Playback UTC: %d\n", playback_utc);
     g_print("PGIE model used: %d\n", model_used);
@@ -2309,17 +2292,6 @@ int main(int argc, char *argv[]) {
 
   if (log_level == 99 || log_level == 100) {
     show_bbox_text = TRUE;
-  }
-
-  if (print_version) {
-    /* Print only the semantic version (e.g. "3.3.0") from the image tag,
-     * stripping any build/date suffix (e.g. "3.3.0-26.07.1" -> "3.3.0").
-     * g_strsplit always yields a non-NULL first element for a non-NULL
-     * input, so parts[0] holds the segment before the first '-'. */
-    gchar **parts = g_strsplit(image_tag, "-", 2);
-    g_print("metropolis_perception_app version %s\n", parts[0]);
-    g_strfreev(parts);
-    return 0;
   }
 
   if (cfg_files) {
