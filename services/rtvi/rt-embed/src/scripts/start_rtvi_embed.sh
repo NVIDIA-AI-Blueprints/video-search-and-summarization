@@ -130,9 +130,9 @@ echo "Total GPU memory is $GPU_MEM MiB per GPU"
 # Tegra runtime libraries are valid only on Thor/Jetson.  Do not expose them
 # on SBSA: they override the Spark driver libraries used by nvidia-smi.
 if [ -f /etc/nv_tegra_release ]; then
-    export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra:${LD_LIBRARY_PATH}"
+    export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
     if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
-        export LD_LIBRARY_PATH="/opt/nvidia/via/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="/opt/nvidia/via/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
     fi
 fi
 
@@ -258,8 +258,16 @@ start_rtvi_server() {
         EXTRA_ARGS+=" --model-repository-script-path $MODEL_REPOSITORY_SCRIPT_PATH"
     fi
     ipc_frame_copy=$(echo "${RTVI_IPC_FRAME_COPY:-false}" | tr '[:upper:]' '[:lower:]')
+    ipc_socket_dir="${RTVI_IPC_SOCKET_DIR:-}"
+    ipc_socket_template="${RTVI_IPC_SOCKET_TEMPLATE:-}"
     if [ "$ipc_frame_copy" = "true" ] || [ "$ipc_frame_copy" = "1" ] || [ "$ipc_frame_copy" = "yes" ] || [ "$ipc_frame_copy" = "on" ]; then
         IPC_ARGS+=(--ipc-frame-copy)
+        if [ -n "$ipc_socket_dir" ]; then
+            IPC_ARGS+=(--ipc-socket-dir "$ipc_socket_dir")
+        fi
+        if [ -n "$ipc_socket_template" ]; then
+            IPC_ARGS+=(--ipc-socket-template "$ipc_socket_template")
+        fi
     fi
 
     # Generated-message output bus configuration.
