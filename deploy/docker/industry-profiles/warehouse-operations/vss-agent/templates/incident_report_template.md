@@ -18,7 +18,7 @@
 | **Detailed Description** | {detailed_description}
 | **Safety Distance** | {radious_from_restricted_area}
 | **Number of Persons involved** | {persons_involved} |
-| **Number of Vehicles involved** | {persons_involved} |
+| **Number of Vehicles involved** | {vehicles_involved} |
 
 ## Location and Environment Details
 
