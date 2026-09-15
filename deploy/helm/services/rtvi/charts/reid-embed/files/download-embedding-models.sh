@@ -18,7 +18,7 @@
 # current directory, skipping anything already present.
 #
 #   ./radio-clip_vdeployable_v1.0/         # with --secondary
-#   ./siglip_v2_vdeployable_v1.0/
+#   ./siglip_v2_vdeployable_v1.1/
 #   ./clip-reid/                           # with --clipreid: source, ckpt, cache
 #   ./reid_model.onnx                      # with --clipreid
 #
@@ -47,12 +47,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 MODELS=(
-  "nvidia/tao/siglip_v2:deployable_v1.0"
+  "nvidia/tao/siglip_v2:deployable_v1.1"
 )
 
 # Filename ReID loads from SECONDARY_EMBEDDING_ONNX_MODEL_PATH. Cache hits and
 # download success are keyed on this file, not on any other leftover .onnx.
-SIGLIP_ONNX_NAME="siglip2_v1.0.onnx"
+SIGLIP_ONNX_NAME="siglip_v2_v1.1.onnx"
 
 # Matches NGC_ORG_DEFAULT in rtvi-cv/download-models.sh.
 NGC_ORG_DEFAULT="${NGC_ORG_DEFAULT:-nvidia}"
