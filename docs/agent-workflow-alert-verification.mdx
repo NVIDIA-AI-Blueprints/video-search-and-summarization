@@ -764,7 +764,7 @@ By default, this profile only supports up to one stream being processed at a tim
 
 This can be increased by modifying the `NUM_SENSORS` environment variable in the `deploy/docker/developer-profiles/dev-profile-alerts/.env` file before deployment. On RTX PRO 6000, up to 4 streams at 30 FPS have been tested to work.
 
-On edge platforms like DGX Spark, IGX Thor, and AGX Thor, up to 1 stream at 30fps has been tested to work due to GPU requirements.
+On edge platforms like DGX Spark, IGX Thor, and AGX Thor, up to 1 stream at 30 FPS has been tested to work due to GPU requirements.
 
 RTVI CV supports input streams at up to 30 FPS by default. On dGPU systems,
 `interval=0` in the `[primary-gie]` group runs inference on every frame. On edge
