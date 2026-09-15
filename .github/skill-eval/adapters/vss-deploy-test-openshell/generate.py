@@ -47,6 +47,11 @@ Run with Harbor:
     export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
     uvx harbor run --environment-import-path "envs.brev_env:BrevEnvironment" \\
         -p .github/skill-eval/datasets/vss-deploy-test-openshell/base -a claude-code -n 1
+
+On a CI guest this also writes
+``/tmp/skill-eval/current-leg-$RUNNER_NAME.json`` so a host-side fleet
+probe can read the spec without inferring it from a SKU job-name token.
+Local ``generate.py`` runs (no ``RUNNER_NAME`` + spec identity) skip it.
 """
 
 from __future__ import annotations
@@ -54,9 +59,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
@@ -153,6 +160,63 @@ def resolve_sizing_platform(requested: str | None) -> tuple[str | None, str | No
         "_LIVE_GPU_TOKENS and ship the profile files, or pass --platform "
         "explicitly to override."
     )
+
+
+# Host-side identity for OpenShell fleet probes. Job names are now
+# ``gpus-N`` (no SKU), and EVAL_* lives only in the agent process env, so
+# a watcher that used to guess the spec from the cohort token has nothing
+# left. This file is the adapter-only substitute: other skills never
+# write it, and generate_task() never writes it.
+_GUEST_LEG_MARKER_DIR = Path("/tmp/skill-eval")
+_SAFE_RUNNER_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def guest_leg_marker_path(
+    runner_name: str, dest_dir: Path | None = None
+) -> Path:
+    """Stable path a host probe can glob without knowing the spec."""
+    safe = _SAFE_RUNNER_RE.sub("_", runner_name).strip("._") or "unknown"
+    return (dest_dir or _GUEST_LEG_MARKER_DIR) / f"current-leg-{safe}.json"
+
+
+def write_guest_leg_marker(
+    extra: Mapping[str, object] | None = None,
+    dest_dir: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Path | None:
+    """Publish this OpenShell leg's identity on the guest, or no-op.
+
+    Requires ``RUNNER_NAME`` and either ``EVAL_SPEC_STEM`` or ``EVAL_SLUG``
+    so a local generate, a unit test, or any non-CI caller does not drop
+    a marker. Never raises: a probe aid must not fail dataset generation.
+    """
+    env = os.environ if environ is None else environ
+    runner = (env.get("RUNNER_NAME") or "").strip()
+    spec_stem = (env.get("EVAL_SPEC_STEM") or "").strip()
+    slug = (env.get("EVAL_SLUG") or "").strip()
+    if not runner or not (spec_stem or slug):
+        return None
+    payload: dict[str, object] = {
+        "runner_name": runner,
+        "skill": (env.get("EVAL_SKILL") or "").strip(),
+        "spec_stem": spec_stem,
+        "spec_path": (env.get("EVAL_SPEC_PATH") or "").strip(),
+        "slug": slug,
+        "run_id": (env.get("GITHUB_RUN_ID") or "").strip(),
+        "eval_platform": (env.get("EVAL_PLATFORM") or "").strip(),
+    }
+    if extra:
+        payload.update(dict(extra))
+    path = guest_leg_marker_path(runner, dest_dir=dest_dir)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print(f"WARN: guest leg marker write failed: {exc!r}", file=sys.stderr)
+        return None
+    print(f"=== Guest leg marker: {path} spec={spec_stem or slug} ===")
+    return path
+
 
 # ---------------------------------------------------------------------------
 # Platform specs
@@ -930,12 +994,15 @@ def main() -> None:
                 + ", ".join(PROFILES)
             )
 
+    write_guest_leg_marker()
     platform, sizing_error = resolve_sizing_platform(args.platform or None)
     if platform is None:
+        write_guest_leg_marker(extra={"sizing_error": sizing_error})
         parser.exit(2, f"ERROR: {sizing_error}\n")
     if not args.platform:
         print(f"=== Sizing profile from live GPU: {platform} ===")
     os.environ["HARDWARE_PROFILE"] = platform
+    write_guest_leg_marker(extra={"hardware_profile": platform})
 
     print("=== Inputs ===")
     print(f"  output_dir       : {output_root}")
