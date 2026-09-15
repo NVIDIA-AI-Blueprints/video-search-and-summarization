@@ -20,7 +20,7 @@ def valid_manifest():
         "run_id": "rtvi-canary-20260829T010203Z",
         "host": "runner@example",
         "expected_hostname": "gpu-host",
-        "repo": "/work/rtvi-microservices",
+        "repo": "/work/video-search-and-summarization/services/rtvi/rt-vlm",
         "repo_commit": "a" * 40,
         "benchmark_python": "/venv/bin/python",
         "config": "perf/benchmark/rtvi_vlm_config_h100.yaml",
@@ -84,6 +84,14 @@ def valid_manifest():
 
 
 class CanaryExecutorTests(unittest.TestCase):
+    def test_uses_github_service_compose_directory(self):
+        run = canary_executor.RemoteRun(valid_manifest())
+
+        self.assertEqual(
+            run.deploy,
+            Path("/work/video-search-and-summarization/services/rtvi/rt-vlm/docker"),
+        )
+
     def test_validates_one_stream_identity_and_builds_one_remote_job(self):
         manifest = canary_executor.resolve_manifest(valid_manifest())
         launch = canary_executor.build_launch(manifest, "/tmp/manifest.json", "/bundle")
