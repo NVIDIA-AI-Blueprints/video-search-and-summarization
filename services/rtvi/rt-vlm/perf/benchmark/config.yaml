@@ -1,0 +1,153 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+# Performance Test Configuration
+# This file defines test scenarios for the RTVI performance test harness
+
+# Global test settings
+global:
+  # RTVI backend URL for the API (can be overridden by RTVI_BACKEND env var)
+  rtvi_backend: "http://localhost:8000"
+
+  # Backend type: "rtvi_vlm" (default, for VLM captions) or "rtvi_embed" (for video embeddings)
+  backend_type: "rtvi_vlm"
+
+  # Output directory for test results
+  output_dir: "rtvi-perf-report"
+
+  # GPU configuration
+  vlm_gpus: [0, 1]  # GPU indices used for VLM
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true  # Enable GPU monitoring during tests
+    interval_seconds: 1  # Monitoring interval in seconds (default: 2)
+
+  # /generate_captions API parameters
+  generate_captions_params:
+    temperature: 0.7
+    max_tokens: 85
+    enable_audio: false
+
+
+  # Global prompts
+  prompt: "Write a concise and clear dense caption for the provided warehouse video, focusing on irregular or hazardous events such as boxes falling, workers not wearing PPE, workers falling, workers taking photographs, workers chitchatting, forklift stuck, etc. Start and end each sentence with a time stamp."
+
+# Test scenarios - each scenario defines a set of tests to run
+test_scenarios:
+  # Quick test scenario - for development/debugging
+  quick_test:
+    description: "Quick test with short videos"
+    benchmark_mode: "single_file"
+    iterations: 1
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/perf/0.5min.mp4"
+        chunk_sizes: [10]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/10min.mp4"
+        chunk_sizes: [10]
+        # Example: Override API params for specific video
+        generate_captions_params:
+          temperature: 0.5
+
+  # Mode 1: Single File Generate Captions (Traditional mode)
+  single_file_test:
+    description: "Single file processing with generate captions"
+    benchmark_mode: "single_file"
+    iterations: 3
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/perf/1min.mp4"
+        chunk_sizes: [10, 20]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/10min.mp4"
+        chunk_sizes: [10]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/30min.mp4"
+        chunk_sizes: [10]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/60min.mp4"
+        chunk_sizes: [10]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/120min.mp4"
+        chunk_sizes: [10]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/720min.mp4"
+        chunk_sizes: [10]
+        # prompt: "Analyze this short video clip for key events."
+
+  # Mode 2: File Burst Test (Concurrency video files)
+  file_burst_test:
+    description: "Test different concurrency levels and measure latency statistics"
+    benchmark_mode: "file_burst"
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/perf/0.5min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8, 16]
+        # Example: Override generate_captions API params
+        # generate_captions_params:
+        #   temperature: 0.5
+        # target_latency_seconds: 60.0   # set to 0 to disable optimal-concurrency binary search
+        # target_latency_tolerance: 5.0
+      - filepath: "/opt/nvidia/rtvi/streams/perf/1min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [2, 4, 8, 16, 32]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/2min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [2, 4, 8, 16, 32]
+
+  # Mode 3: Max Live Streams Test (Concurrent live streams)
+  max_live_streams_test:
+    description: "Test maximum concurrent live streams without performance degradation"
+    benchmark_mode: "max_live_streams"
+    videos:
+      - name: "rtsp_stream_30sec"
+        rtsp_url: "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/concat_wh_52.mp4"
+        chunk_sizes: [10]
+        initial_stream_count: 25  # Start testing from 25 streams
+        latency_threshold_seconds: 30
+        stability_check_interval: 60  # Seconds between stability checks (default: 60)
+        # Optional timing parameters:
+        # chunk_overlap_duration: 5  # Overlap between chunks in seconds
+        # Example: Video-level prompt override
+        # prompt: "Monitor warehouse safety and operational efficiency."
+
+      # - name: "local_rtsp_stream_30sec"
+      #   rtsp_url: "rtsp://localhost:4344/file-stream"
+      #   chunk_sizes: [10]
+      #   initial_stream_count: 50  # Start testing from 25 streams
+      #   latency_threshold_seconds: 30.0
+      #   # Optional timing parameters:
+      #   # chunk_overlap_duration: 5  # Overlap between chunks in seconds
+
+  # Mode 4: VLM Captions Burst Test (Concurrent VLM caption generation)
+  concurrency_test:
+    description: "Test VLM caption generation performance with concurrent requests"
+    benchmark_mode: "concurrency"
+    videos:
+      - filepath: "/opt/nvidia/rtvi/streams/perf/0.5min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8, 16]
+        # Example: Override generate_captions API params
+        generate_captions_params:
+          temperature: 0.5
+          max_tokens: 100
+          system_prompt: "You are a warehouse safety monitoring assistant that provides detailed video captions."
+        target_latency_seconds: 60.0
+        target_latency_tolerance: 5.0
+      - filepath: "/opt/nvidia/rtvi/streams/perf/1min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8, 16]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/5min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8, 16]
+      - filepath: "/opt/nvidia/rtvi/streams/perf/10min.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1, 2, 4, 8, 16]

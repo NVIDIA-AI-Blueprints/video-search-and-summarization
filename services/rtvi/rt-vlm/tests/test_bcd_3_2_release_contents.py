@@ -1,0 +1,58 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+from pathlib import Path
+
+import yaml
+
+
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_bcd_3_2_vlm_release_is_complete():
+    required_paths = [
+        "docker/compose.perf.yaml",
+        "docker/prometheus.perf.yml",
+        "perf/setup_perf_env.sh",
+        "perf/teardown_perf_env.sh",
+        "perf/benchmark/base.py",
+        "perf/benchmark/concurrent_live_streams_benchmark.py",
+        "perf/benchmark/file_burst_benchmark.py",
+        "perf/benchmark/generate_perf_xlsx.py",
+        "perf/benchmark/live_streams_benchmark.py",
+        "perf/benchmark/rtvi_perf_benchmark.py",
+        "perf/benchmark/rtvi_vlm_bcd_3_2_config.yaml",
+        "perf/benchmark/rtvi_vlm_bcd_3_2_spark_config.yaml",
+        "perf/benchmark/rtvi_vlm_bcd_3_2_thor_config.yaml",
+    ]
+    assert not [path for path in required_paths if not (SERVICE_ROOT / path).is_file()]
+
+    config = yaml.safe_load(
+        (SERVICE_ROOT / "perf/benchmark/rtvi_vlm_bcd_3_2_config.yaml").read_text()
+    )
+    expected_scenarios = {
+        f"{family}_{output_tokens}_token_{token_tier}"
+        for family in (
+            "max_live_streams_test",
+            "concurrency_test",
+            "file_burst",
+            "e2e_latency",
+        )
+        for output_tokens in (1, 100)
+        for token_tier in ("2k", "4k", "8k")
+    }
+    assert set(config["test_scenarios"]) == expected_scenarios

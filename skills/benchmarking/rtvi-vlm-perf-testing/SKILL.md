@@ -13,7 +13,7 @@ metadata:
 
 ## Operating Rules
 
-This skill orchestrates a separate RTVI microservices checkout; the VSS repository does not contain that benchmark implementation. Require the checkout path in the manifest or from the user, and confirm that it contains `perf/benchmark/` before using repository-specific benchmark commands. Read that checkout's contributor instructions before changing scripts, configs, docs, or benchmark behavior. Check `git status --short` before editing and preserve unrelated dirty worktree changes.
+This repository ships the benchmark implementation under `services/rtvi/rt-vlm/perf/`. Set the manifest `repo` to that service directory and confirm that it contains `perf/benchmark/` before using repository-specific benchmark commands. Read the repository contributor instructions before changing scripts, configs, docs, or benchmark behavior. Check `git status --short` before editing and preserve unrelated dirty worktree changes.
 
 The committed planning and canary helpers require Python 3.9+. Executed canaries additionally require SSH, `tmux`, Docker with NVIDIA Container Toolkit, FFmpeg/FFprobe, and an NVIDIA GPU on the named remote host. Model images and protected artifacts may require the user's existing NGC or artifact-registry access; never request that credentials be stored in a manifest.
 
@@ -274,7 +274,7 @@ the baseline into an EVS run. Keep `VLLM_IGNORE_EOS=true` so baseline OSL still 
 the EVS run:
 
 ```bash
-cd docker/rtvi_vlm/deploy
+cd docker
 unset VIA_EVS_SESSION VLM_VIDEO_PRUNING_RATE VLLM_EVS_SIMILARITY_THRESHOLD VIA_EVS_TOKEN_BUDGET
 export VLLM_IGNORE_EOS=true
 docker compose -f compose.perf.yaml --env-file .env.perf down
@@ -293,7 +293,7 @@ docker compose -f compose.perf.yaml --env-file .env.perf exec rtvi-server env | 
 Then deploy the EVS++ run with this configuration:
 
 ```bash
-cd docker/rtvi_vlm/deploy
+cd docker
 export VIA_EVS_SESSION=true VLM_VIDEO_PRUNING_RATE=0.5 VLLM_IGNORE_EOS=true
 export VLLM_EVS_SIMILARITY_THRESHOLD=0.4
 export VIA_EVS_TOKEN_BUDGET=1

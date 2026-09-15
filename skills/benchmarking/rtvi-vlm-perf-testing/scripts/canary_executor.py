@@ -670,7 +670,7 @@ class RemoteRun:
         self.evidence = self.root / "evidence"
         self.output = self.root / "output"
         self.project = manifest["project"]
-        self.deploy = Path(manifest["repo"]) / "docker/rtvi_vlm/deploy"
+        self.deploy = Path(manifest["repo"]) / "docker"
         self.media_name = f"{self.project}-mediamtx"
         self.publisher_names = [
             f"{self.project}-publisher-{index}"

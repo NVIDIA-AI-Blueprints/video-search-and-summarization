@@ -1,0 +1,312 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+# RTVI Performance Test Configuration — NVIDIA RTX PRO
+# Platform-specific tuning for max_live_streams tests:
+#   max_live_streams_test_1_token:       initial_stream_count=80, add_stream_count=3
+#   max_live_streams_test_100_token:     initial_stream_count=80, add_stream_count=3
+#   max_live_streams_test_1_token_448:   initial_stream_count=20, add_stream_count=3
+#   max_live_streams_test_100_token_448: initial_stream_count=10, add_stream_count=3
+
+# Global test settings
+global:
+  # RTVI backend URL for the API (can be overridden by RTVI_BACKEND env var)
+  rtvi_backend: "http://localhost:8017/v1"
+
+  # Output directory for test results
+  output_dir: "rtvi-vlm-perf-report-rtx-pro"
+
+  # GPU configuration
+  vlm_gpus: [0]  # from NVIDIA_VISIBLE_DEVICES=0
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+    # Optional: Prometheus/DCGM exporter (runs alongside legacy pynvml monitoring)
+    # Requires DCGM Exporter container exposing /metrics (default port 9400)
+    prometheus:
+      enabled: true
+      dcgm_exporter_url: "http://localhost:9400/metrics"
+      node_exporter_enabled: true
+      node_exporter_url: "http://localhost:9102/metrics"
+      scrape_interval_seconds: 1  # defaults to gpu_monitoring.interval_seconds
+
+  # /generate_captions API parameters
+  generate_captions_params:
+    temperature: 0.7
+    max_tokens: 100
+    enable_audio: false
+    # Frame sampling mode:
+    #   use_fps_for_chunking: false (default) → num_frames_per_second_or_fixed_frames_chunk is a fixed
+    #     frame count per chunk (e.g. 80 frames → ~8K vision tokens at 448×448, ≈100 tokens/frame).
+    #   use_fps_for_chunking: true             → num_frames_per_second_or_fixed_frames_chunk is an FPS
+    #     value (e.g. 2.0 = 2 frames/s); frame count scales with chunk_size.
+    # This is a per-request override; the container server default (VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK)
+    # is set to 20 in .env.perf. Change these values here to adjust for all benchmark scenarios at once.
+    use_fps_for_chunking: false
+    num_frames_per_second_or_fixed_frames_chunk: 80
+
+  # Default prompts
+  prompt: "Describe the key events in this video with timestamps."
+
+# Test scenarios
+test_scenarios:
+
+  # Mode 3: Max Live Streams Mode - Testing stream capacity
+  # RTSP streams come from VST (started via perf/setup_perf_env.sh).
+  # rtsp://10.78.14.129:30557/live/warehouse_gopro_60m is replaced by the setup script with the VST live stream URL.
+  max_live_streams_test_1_token:
+    description: "Demo maximum concurrent live streams capacity"
+    benchmark_mode: "max_live_streams"
+    generate_captions_params:
+      vlm_input_width: 372   # 372×372 (legacy — 2K vision tokens)
+      vlm_input_height: 372
+    videos:
+      - name: "warehouse_cam_1_single_token"
+        rtsp_url: "RTSP_STREAM_URL"
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        initial_stream_count: 80
+        chunk_overlap_duration: 0
+        stability_check_interval: 30 # Seconds between stability checks (default: 60)
+        add_stream_count: 3
+        binary_search_refinement: true
+        required_stable_windows: 2  # Consecutive stable windows needed before adding streams (default: 3)
+        required_unstable_windows: 3  # Consecutive unstable windows needed to declare degradation (default: 2)
+        generate_captions_params:
+          temperature: 0.5
+          max_tokens: 1
+          use_fps_for_chunking: false  # fixed frames per chunk (see global generate_captions_params)
+          num_frames_per_second_or_fixed_frames_chunk: 30  # 372×372×30 ≈ 2K vision tokens
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+
+
+  max_live_streams_test_100_token:
+    description: "Demo maximum concurrent live streams capacity"
+    benchmark_mode: "max_live_streams"
+    generate_captions_params:
+      vlm_input_width: 372   # 372×372 (legacy — 2K vision tokens)
+      vlm_input_height: 372
+    videos:
+      - name: "warehouse_cam_1_100_token"
+        rtsp_url: "RTSP_STREAM_URL"
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        initial_stream_count: 80
+        chunk_overlap_duration: 0
+        stability_check_interval: 30  # Seconds between stability checks (default: 60)
+        add_stream_count: 3
+        binary_search_refinement: true
+        required_stable_windows: 2  # Consecutive stable windows needed before adding streams (default: 3)
+        required_unstable_windows: 3  # Consecutive unstable windows needed to declare degradation (default: 2)
+        generate_captions_params:
+          temperature: 0.5
+          max_tokens: 100
+          use_fps_for_chunking: false  # fixed frames per chunk (see global generate_captions_params)
+          num_frames_per_second_or_fixed_frames_chunk: 30  # 372×372×30 ≈ 2K vision tokens
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+
+  # 448x448 Max Live Streams — lower resolution, higher stream density
+  max_live_streams_test_1_token_448:
+    description: "Maximum concurrent live streams at 448x448 resolution, 1-token generation"
+    benchmark_mode: "max_live_streams"
+    generate_captions_params:
+      vlm_input_width: 448
+      vlm_input_height: 448
+    videos:
+      - name: "warehouse_cam_448_single_token"
+        rtsp_url: "RTSP_STREAM_URL"
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        initial_stream_count: 20
+        chunk_overlap_duration: 0
+        stability_check_interval: 30
+        add_stream_count: 3
+        binary_search_refinement: true
+        required_stable_windows: 2
+        required_unstable_windows: 3
+        generate_captions_params:
+          temperature: 0.5
+          max_tokens: 1
+          use_fps_for_chunking: false  # fixed frames per chunk (see global generate_captions_params)
+          num_frames_per_second_or_fixed_frames_chunk: 80
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+
+  max_live_streams_test_100_token_448:
+    description: "Maximum concurrent live streams at 448x448 resolution, 100-token generation"
+    benchmark_mode: "max_live_streams"
+    generate_captions_params:
+      vlm_input_width: 448
+      vlm_input_height: 448
+    videos:
+      - name: "warehouse_cam_448_100_token"
+        rtsp_url: "RTSP_STREAM_URL"
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        initial_stream_count: 10
+        chunk_overlap_duration: 0
+        stability_check_interval: 30
+        add_stream_count: 3
+        binary_search_refinement: true
+        required_stable_windows: 2
+        required_unstable_windows: 3
+        generate_captions_params:
+          temperature: 0.5
+          max_tokens: 100
+          use_fps_for_chunking: false  # fixed frames per chunk (see global generate_captions_params)
+          num_frames_per_second_or_fixed_frames_chunk: 80
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+
+  # Concurrency tests at 448x448 using VST live streams.
+  # Uses concurrent_live_streams mode: starts all N streams simultaneously and
+  # measures per-chunk latency for stream_count in [1, 10, 20].
+  # rtsp://10.78.14.129:30557/live/warehouse_gopro_60m is replaced by perf/setup_perf_env.sh.
+  concurrency_test_1_token:
+    description: "Concurrent VST live streams at 448x448 resolution, 1-token generation"
+    benchmark_mode: "concurrent_live_streams"
+    iterations: 3
+    generate_captions_params:
+      vlm_input_width: 448
+      vlm_input_height: 448
+      temperature: 0.5
+      max_tokens: 1
+      use_fps_for_chunking: false  # fixed frames per chunk
+      num_frames_per_second_or_fixed_frames_chunk: 80
+    videos:
+      - name: "warehouse_concurrent_1t"
+        rtsp_url: "RTSP_STREAM_URL"
+        chunk_sizes: [10]
+        stream_count: [1, 10, 20]
+        duration_seconds: 120
+        chunk_overlap_duration: 0
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+
+  concurrency_test_100_token:
+    description: "Concurrent VST live streams at 448x448 resolution, 100-token generation"
+    benchmark_mode: "concurrent_live_streams"
+    iterations: 3
+    generate_captions_params:
+      vlm_input_width: 448
+      vlm_input_height: 448
+      temperature: 0.5
+      max_tokens: 100
+      use_fps_for_chunking: false  # fixed frames per chunk
+      num_frames_per_second_or_fixed_frames_chunk: 80
+    videos:
+      - name: "warehouse_concurrent_100t"
+        rtsp_url: "RTSP_STREAM_URL"
+        chunk_sizes: [10]
+        stream_count: [1, 10, 20]
+        duration_seconds: 120
+        chunk_overlap_duration: 0
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # BCD metric: Request Throughput [Non-Streaming]
+  #   Average number of requests the microservice completes per second (RPS),
+  #   equivalent to the aiperf RPS metric.
+  #   Aggregation: min, max, average, p90, and p99 across iterations.
+  #   Concurrency sweep: [1, 2, 4, 8, 16, 32, 64].  Video: 10 s (1 chunk per request).
+  #
+  #   warehouse_gopro_10s.mp4 can be extracted from warehouse_gopro_1m.mp4 with:
+  #     ffmpeg -i warehouse_gopro_1m.mp4 -t 10 -c copy warehouse_gopro_10s.mp4
+  # ──────────────────────────────────────────────────────────────────────────────
+  # ──────────────────────────────────────────────────────────────────────────────
+  # BCD metric: VLM E2E Request Latency [Non-Streaming]
+  #   Duration between request initiation and response completion (e2e_latency).
+  #   This is the same as the aiperf e2e_latency.
+  #   Aggregation: min, max, average, p90, and p99 across iterations.
+  #   Concurrency sweep varies by video duration:
+  #     warehouse_gopro_10s.mp4  =   10 s →   1 chunk  → concurrency [1, 2, 4, 8, 16, 32]
+  #     warehouse_gopro_10m.mp4  =  600 s →  60 chunks → concurrency [1]
+  #     warehouse_gopro_60m.mp4  = 3600 s → 360 chunks → concurrency [1]
+  #
+  #   Videos are downloaded by perf/setup_perf_env.sh to PERF_VIDEOS_DIR
+  #   (default: ${VST_DIR}/videos) and mounted into the container at
+  #   /opt/nvidia/rtvi/streams/perf/ via the PERF_VIDEOS_DIR volume in compose.perf.yaml.
+  # ──────────────────────────────────────────────────────────────────────────────
+
+  e2e_latency_1_token:
+    description: "VLM E2E request latency at 10 s/600 s/3600 s video durations, 1-token OSL"
+    benchmark_mode: "file_burst"
+    iterations: 3
+    generate_captions_params:
+      vlm_input_width: 448
+      vlm_input_height: 448
+      temperature: 0.5
+      max_tokens: 1
+      use_fps_for_chunking: false  # fixed frames per chunk
+      num_frames_per_second_or_fixed_frames_chunk: 80
+    videos:
+      # 10 s: 1 chunk per request
+      - name: "warehouse_10s"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10s.mp4"
+        chunk_sizes: [0]
+        concurrency_levels: [1, 2, 4, 8, 16, 32]
+        target_latency_seconds: 0          # set to 0 to disable optimal-concurrency binary search
+        target_latency_tolerance: 1.0    # Accept within ±1 s of target
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+      # 600 s (10 min): 60 chunks per request
+      - name: "warehouse_10min"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1]
+        request_timeout_seconds: 1800  # 30 min — 60 chunks can take ~13 min per request
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+      # 3600 s (60 min): 360 chunks per request
+      - name: "warehouse_60min"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1]
+        request_timeout_seconds: 7200  # 2 h — 360 chunks can take ~80 min per request
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+
+  e2e_latency_100_token:
+    description: "VLM E2E request latency at 10 s/600 s/3600 s video durations, 100-token OSL"
+    benchmark_mode: "file_burst"
+    iterations: 3
+    generate_captions_params:
+      vlm_input_width: 448
+      vlm_input_height: 448
+      temperature: 0.5
+      max_tokens: 100
+      use_fps_for_chunking: false  # fixed frames per chunk
+      num_frames_per_second_or_fixed_frames_chunk: 80
+    videos:
+      # 10 s: 1 chunk per request
+      - name: "warehouse_10s"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10s.mp4"
+        chunk_sizes: [0]
+        concurrency_levels: [1, 2, 4, 8, 16, 32]
+        target_latency_seconds: 0          # set to 0 to disable optimal-concurrency binary search
+        target_latency_tolerance: 1.0    # Accept within ±1 s of target
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+      # 600 s (10 min): 60 chunks per request
+      - name: "warehouse_10min"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1]
+        request_timeout_seconds: 900  # 15 min — 60 chunks can take ~13 min per request
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+      # 3600 s (60 min): 360 chunks per request
+      - name: "warehouse_60min"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1]
+        request_timeout_seconds: 3600  # 1 h — 360 chunks can take ~80 min per request
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
