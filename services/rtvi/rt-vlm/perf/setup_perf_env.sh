@@ -41,7 +41,8 @@
 #                            Can also be set inline: NVIDIA_VISIBLE_DEVICES=3 bash perf/setup_perf_env.sh
 #
 # Optional environment variables (all have sensible defaults):
-#   RTVI_IMAGE          — RTVI VLM image (default: GHCR develop-latest)
+#   RTVI_IMAGE          — RTVI VLM image (default: GHCR develop-latest;
+#                         develop-latest-sbsa on DGX Spark)
 #   VLM_MODEL_PRESET    — Optional model preset; supported values:
 #                         cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8,
 #                         cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8,
@@ -101,7 +102,7 @@ Required environment variables (must be exported before running):
 
 Optional environment variables (sensible defaults shown):
   RTVI_IMAGE            RTVI VLM Docker image
-                        (default: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest)
+                        (default: GHCR develop-latest; develop-latest-sbsa on DGX Spark)
   BACKEND_PORT          RTVI VLM host port                 (default: 8010)
   REDIS_PORT            VST Redis port                     (default: 6379)
   CENTRALIZE_DB_PORT    VST PostgreSQL port                (default: 5432)
@@ -213,7 +214,7 @@ Teardown:
 Example:
   export ARTIFACTORY_USER=jdoe
   export ARTIFACTORY_TOKEN=mytoken
-  # Optional: override the default GHCR develop-latest image.
+  # Optional: override the platform-specific GHCR develop image.
   # export RTVI_IMAGE=registry/rtvi_vlm:custom
   export NGC_API_KEY=nvapi-abc123
   export BACKEND_PORT=8010
@@ -381,8 +382,8 @@ COMPOSE_PERF_YAML="${COMPOSE_PERF_YAML:-${REPO_ROOT}/docker/compose.perf.yaml}"
 RTVI_HEALTH_TIMEOUT="${RTVI_HEALTH_TIMEOUT:-600}"  # seconds; model download can take several minutes
 
 # RTVI VLM container configuration — used to auto-generate .env.perf at Step 12.
-# NGC_API_KEY is required; the image and all other values have defaults.
-RTVI_IMAGE="${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest}"
+# NGC_API_KEY is required; the image default is selected after platform detection.
+RTVI_IMAGE="${RTVI_IMAGE:-}"
 NGC_API_KEY="${NGC_API_KEY:-}"
 NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
 HF_TOKEN="${HF_TOKEN:-}"
@@ -885,6 +886,15 @@ if [[ "${PLATFORM}" == "unknown" ]]; then
         PLATFORM="dgx_spark"
         log "  DGX Spark platform detected (DMI: ${DMI_PRODUCT})"
     fi
+fi
+
+if [[ -z "${RTVI_IMAGE}" ]]; then
+    if [[ "${PLATFORM}" == "dgx_spark" ]]; then
+        RTVI_IMAGE="ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa"
+    else
+        RTVI_IMAGE="ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest"
+    fi
+    log "  RTVI VLM image default: ${RTVI_IMAGE}"
 fi
 
 if [[ "${PLATFORM}" == "jetson" || "${PLATFORM}" == "dgx_spark" ]]; then
