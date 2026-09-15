@@ -154,6 +154,7 @@ VLM_MODEL_TO_USE=cosmos-reason2
 MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
 # Optional image override; defaults to GHCR develop-latest
 # RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+# DGX Spark is detected automatically and defaults to develop-latest-sbsa.
 # For CR3 Nano Reasoner FP8, use:
 # VLM_MODEL_TO_USE=cosmos-reason3
 # MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix

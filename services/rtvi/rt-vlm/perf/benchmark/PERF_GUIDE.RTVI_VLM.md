@@ -103,6 +103,7 @@ export NVIDIA_VISIBLE_DEVICES=0                # GPU index
 
 # ── Optional (override defaults if needed) ───────────────────────────────────
 export RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+# DGX Spark default: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa
 export BACKEND_PORT=8010          # RTVI VLM host port          (default: 8010)
 export REDIS_PORT=6379            # VST Redis port               (default: 6379)
 export VLM_MODEL_TO_USE=cosmos-reason2
@@ -238,6 +239,7 @@ For detailed deployment instructions, refer to the release documentation:
 | Image | Registry |
 |-------|----------|
 | **RTVI VLM Microservice** | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest` |
+| **RTVI VLM Microservice (DGX Spark/SBSA)** | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa` |
 
 ### VLM Deployment (Recommended: compose.perf.yaml)
 
@@ -269,6 +271,7 @@ cat > .env.perf << 'EOF'
 # Service Configuration
 BACKEND_PORT=8010
 RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+# DGX Spark/SBSA: use ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa
 NVIDIA_VISIBLE_DEVICES=0
 
 # Model Configuration

@@ -86,9 +86,16 @@ def test_perf_compose_tracks_github_runtime_controls():
     assert {key: environment.get(key) for key in expected} == expected
 
     setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    assert 'RTVI_IMAGE="${RTVI_IMAGE:-}"' in setup
+    assert setup.index('if [[ -z "${RTVI_IMAGE}" ]]') > setup.index('PLATFORM="unknown"')
+    assert 'if [[ "${PLATFORM}" == "dgx_spark" ]]; then' in setup
     assert (
-        'RTVI_IMAGE="${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/'
-        'vss-rt-vlm:develop-latest}"' in setup
+        'RTVI_IMAGE="ghcr.io/nvidia-ai-blueprints/vss/'
+        'vss-rt-vlm:develop-latest-sbsa"' in setup
+    )
+    assert (
+        'RTVI_IMAGE="ghcr.io/nvidia-ai-blueprints/vss/'
+        'vss-rt-vlm:develop-latest"' in setup
     )
     assert '[[ -n "${RTVI_IMAGE:-}" ]]' not in setup
     setup_keys = (
