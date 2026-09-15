@@ -48,7 +48,7 @@ import urllib.parse
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
-from model_config import resolve_model_config
+from model_config import SkillEvalModelConfig, resolve_model_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -1562,14 +1562,10 @@ def run_invocations(
     spec_stem: str,
     platform: str,
     harbor_timeout_sec: int,
+    model_config: SkillEvalModelConfig,
     work_deadline: float | None = None,
 ) -> int:
     env = harbor_env(instance)
-    try:
-        model_config = resolve_model_config(os.environ)
-    except ValueError as exc:
-        print(f"FATAL: invalid evaluated-agent model configuration: {exc}", file=sys.stderr)
-        return 1
     agent = model_config.runtime
     model = model_config.model
     base_url = model_config.endpoint_url
@@ -1720,9 +1716,17 @@ def run_invocations(
             invocation_agent,
             **command_kwargs,
         )
+        invocation_env = env.copy()
+        if invocation_agent == "claude-code":
+            # Harbor 0.20's ClaudeCode adapter reads the endpoint from the
+            # child environment, not its api_base kwarg. Scope this per
+            # invocation so NemoClaw's setup coding agent keeps the runner
+            # route while a directly evaluated Claude agent gets its selected
+            # endpoint.
+            invocation_env["ANTHROPIC_BASE_URL"] = invocation_base_url
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
-            rc = run_command(cmd, env, harbor_timeout_sec)
+            rc = run_command(cmd, invocation_env, harbor_timeout_sec)
         # Publish before the rc checks below: a timed-out (rc=124) trial
         # returns early, and its partial trace is exactly what needs reading.
         try:
@@ -1848,6 +1852,14 @@ def main(argv: list[str] | None = None) -> int:
         # ValueError if not on the main thread; never fatal either way.
         signal.signal(signal.SIGTERM, _terminate)
     args = parse_args(argv or sys.argv[1:])
+    try:
+        model_config = resolve_model_config(os.environ)
+    except ValueError as exc:
+        print(
+            f"FATAL: invalid evaluated-agent model configuration: {exc}",
+            file=sys.stderr,
+        )
+        return 1
     # Instrumentation must not be able to fail the leg, and starting a thread
     # can: a runner at its thread limit raises RuntimeError here. Losing the
     # heartbeat costs visibility, while raising costs the whole leg, so this
@@ -1944,6 +1956,7 @@ def main(argv: list[str] | None = None) -> int:
                         args.spec_stem,
                         args.platform,
                         args.harbor_timeout_sec,
+                        model_config,
                         work_deadline,
                     )
                     if rc == 0:

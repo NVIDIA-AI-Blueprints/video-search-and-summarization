@@ -70,6 +70,33 @@ def test_claude_rejects_generic_key_instead_of_ignoring_it() -> None:
         )
 
 
+def test_codex_requires_its_own_default_model() -> None:
+    with pytest.raises(
+        ValueError, match="SKILLS_EVAL_MODEL or CODEX_MODEL is required for codex"
+    ):
+        model_config.resolve_model_config(
+            {
+                "EVAL_AGENT": "codex",
+                "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
+                "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+                "ANTHROPIC_API_KEY": "secret",
+            }
+        )
+
+
+def test_codex_accepts_explicit_evaluated_model_override() -> None:
+    config = model_config.resolve_model_config(
+        {
+            "EVAL_AGENT": "codex",
+            "SKILLS_EVAL_MODEL": "openai/openai/gpt-5-codex",
+            "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+            "ANTHROPIC_API_KEY": "secret",
+        }
+    )
+
+    assert config.model == "openai/openai/gpt-5-codex"
+
+
 def test_nemoclaw_default_preserves_existing_route() -> None:
     config = model_config.resolve_model_config(
         {
@@ -129,6 +156,37 @@ def test_nemoclaw_nvidia_build_uses_build_contract() -> None:
 
     assert config.nemoclaw_provider == "build"
     assert config.endpoint_url == ""
+
+
+@pytest.mark.parametrize("provider", ["nvidia-build", "build"])
+def test_managed_build_provider_rejects_explicit_endpoint(provider: str) -> None:
+    environment = {
+        "EVAL_AGENT": "nemoclaw",
+        "SKILLS_EVAL_PROVIDER": "nvidia-build",
+        "SKILLS_EVAL_MODEL": "nvidia/model",
+        "SKILLS_EVAL_ENDPOINT_URL": "https://models.example.test/v1",
+        "NVIDIA_API_KEY": "secret",
+    }
+    if provider == "build":
+        environment["SKILLS_EVAL_PROVIDER"] = "default"
+        environment["NEMOCLAW_PROVIDER"] = "build"
+
+    with pytest.raises(ValueError, match="manages its own endpoint"):
+        model_config.resolve_model_config(environment)
+
+
+@pytest.mark.parametrize("provider", ["install-vllm", "ollama", "nim-local"])
+def test_local_provider_rejects_explicit_endpoint(provider: str) -> None:
+    with pytest.raises(ValueError, match="manages its own endpoint"):
+        model_config.resolve_model_config(
+            {
+                "EVAL_AGENT": "nemoclaw",
+                "SKILLS_EVAL_PROVIDER": "default",
+                "NEMOCLAW_PROVIDER": provider,
+                "SKILLS_EVAL_MODEL": "local/model",
+                "SKILLS_EVAL_ENDPOINT_URL": "https://models.example.test/v1",
+            }
+        )
 
 
 def test_custom_requires_explicit_endpoint() -> None:
