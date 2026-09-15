@@ -17,11 +17,12 @@ The adapter does **not** pick LLM/VLM placement — the
 runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
-    Profiles : base, lvs, warehouse, search, ask-video
+    Profiles : base, lvs, warehouse, search, ask-video, plus one spec
+               per Skills Eval Daily operational/VDR job (same stem)
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
-               DGX-SPARK, IGX-THOR this guest has (warehouse and search
-               are two-GPU jobs; ask-video deploys base then chains to
-               vss-ask-video)
+               DGX-SPARK, IGX-THOR this guest has (warehouse, search,
+               and vdr_2 are two-GPU jobs; ask-video deploys base then
+               chains to vss-ask-video)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
@@ -348,6 +349,132 @@ PROFILES: dict[str, dict] = {
             "vss-generate-video-report-rag",
             "vss-summarize-video",
         ),
+    },
+    # Skills Eval Daily jobs, same spec stems as the operations /
+    # vss-build-vision-ai corpus. `search` is already an OpenShell spec.
+    "base_profile_video_understanding": {
+        "description": "Daily ask-video job — base deploy then vss-ask-video",
+        "profile": "base",
+        "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
+    },
+    "vdr_1_quickstart_vision_agent": {
+        "description": "Daily VDR-1 quickstart via vss-build-vision-ai",
+        "profile": "base",
+        "bundled_skills": ("vss-build-vision-ai",),
+    },
+    "vdr_2_add_alerting_summarization": {
+        "description": "Daily VDR-2 alerting + summarization (two GPU)",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-build-vision-ai",),
+    },
+    "base_profile_report": {
+        "description": "Daily report job — base deploy then vss-generate-video-report",
+        "profile": "base",
+        "bundled_skills": (
+            "vss-generate-video-report",
+            "vss-manage-video-io-storage",
+            "vss-query-analytics",
+        ),
+    },
+    "alerts_vlm_real_time": {
+        "description": "Daily real-time VLM alerts job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-query-analytics", "vss-build-vision-ai"),
+    },
+    "always_on_operate": {
+        "description": "Daily always-on alerts operate-not-author job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "cv_mode_gate": {
+        "description": "Daily CV-mode alerts gate job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "ondemand_verification": {
+        "description": "Daily on-demand alert verification job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "routing_e_gate_negative": {
+        "description": "Daily alerts routing-E negative gate job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "routing_vlm_c_vs_d": {
+        "description": "Daily alerts routing C vs D job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "slack_notify_ops": {
+        "description": "Daily Slack alert-notification job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "subscriptions_create_phrasings": {
+        "description": "Daily alert-subscription phrasing job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "subscriptions_edge_cases": {
+        "description": "Daily alert-subscription edge-case job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "subscriptions_lifecycle": {
+        "description": "Daily alert-subscription lifecycle job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "verification_flow": {
+        "description": "Daily alert verification-flow job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "nvstreamer_ops": {
+        "description": "Daily NvStreamer / VIOS job",
+        "profile": "base",
+        "bundled_skills": ("vss-manage-video-io-storage",),
+    },
+    "vios_ops": {
+        "description": "Daily VIOS operations job",
+        "profile": "base",
+        "bundled_skills": ("vss-manage-video-io-storage",),
+    },
+    "query_analytics": {
+        "description": "Daily query-analytics job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-query-analytics", "vss-build-vision-ai"),
+    },
+    "lvs_api_ops": {
+        "description": "Daily LVS API operations job",
+        "profile": "lvs",
+        "bundled_skills": ("vss-summarize-video", "vss-build-vision-ai"),
+    },
+    "lvs_profile_summarize": {
+        "description": "Daily LVS summarization job",
+        "profile": "lvs",
+        "bundled_skills": ("vss-summarize-video", "vss-build-vision-ai"),
     },
 }
 

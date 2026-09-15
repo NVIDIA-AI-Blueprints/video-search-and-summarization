@@ -284,7 +284,7 @@ class RealSpecCorpus(unittest.TestCase):
         finally:
             os.environ.pop("OPENSHELL_GPU_FLEET", None)
 
-        self.assertEqual(len(include), 32)
+        self.assertEqual(len(include), 52)
         self.assertEqual(
             len({leg["spec_path"] for leg in include}),
             len(include),
@@ -296,7 +296,7 @@ class RealSpecCorpus(unittest.TestCase):
             )
             for key in {(leg.get("cohort") or "brev") for leg in include}
         }
-        self.assertEqual(counts, {"brev": 21, "openshell": 11})
+        self.assertEqual(counts, {"brev": 21, "openshell": 31})
         for leg in include:
             if not leg["local_gpu"]:
                 self.assertEqual(leg["kind"], "eval")
@@ -869,14 +869,14 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 32)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 32)
+        self.assertEqual(len(legs), 52)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 52)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
-        self.assertEqual(counts, {"brev": 21, "openshell": 11})
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 11)
+        self.assertEqual(counts, {"brev": 21, "openshell": 31})
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 31)
         # Every OpenShell leg travels without a SKU: no platform for the
         # adapter to size from, and no hardware profile for the workflow to
         # export. The guest's own card decides both.
@@ -885,7 +885,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             for leg in legs
             if leg.get("cohort") == plan_matrix.OPENSHELL_COHORT_TAG
         ]
-        self.assertEqual(len(openshell), 11)
+        self.assertEqual(len(openshell), 31)
         for leg in openshell:
             self.assertEqual(leg["platform"], "", leg["slug"])
             self.assertEqual(leg["hardware_profile"], "", leg["slug"])

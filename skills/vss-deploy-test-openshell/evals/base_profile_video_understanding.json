@@ -1,0 +1,94 @@
+{
+  "skills": [
+    "vss-deploy-test-openshell",
+    "vss-ask-video"
+  ],
+  "resources": {
+    "platforms": {
+      "H200": {
+        "gpu_count": 1
+      },
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS and a video-understanding VLM ready for the following vss-ask-video queries. Use the configured remote model endpoints and run autonomously.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
+        "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup)."
+      ]
+    },
+    {
+      "query": "There is no VSS deployment or VIOS sensor in scope. Explicitly use the standalone non-VSS fallback to answer 'Is the worker wearing PPE?' from local file warehouse_safety_0001.mp4. Send the complete MP4 bytes as one native data:video/mp4;base64 video_url input to the caller-provided OpenAI-compatible VLM; do not extract or send JPEG/PNG frames.",
+      "checks": [
+        "The response clearly labels this as the explicit non-VSS local-file fallback.",
+        "The complete local MP4 is base64-encoded and sent as one video_url content part whose URI starts with data:video/mp4;base64,. No ffmpeg, OpenCV, frame extraction, image/jpeg, image/png, or image_url inputs are used.",
+        "The trajectory does not run vss memory introspect, vss memory query, vss memory get, vss vlm run, or access VIOS.",
+        "The answer is derived from the standalone VLM response."
+      ]
+    },
+    {
+      "query": "Answer this question about the local video file warehouse_safety_0001.mp4 using a configured VSS deployment and vss-ask-video Path A --file \u2014 do NOT use VST/VIOS and do NOT call the agent's summarize pipeline: Is the worker wearing PPE?",
+      "checks": [
+        "The run used `vss vlm run --file` to send the local video to RT-VLM. The command exited 0 and the output JSON contains a non-empty answer.",
+        "The run did NOT POST to http://<host>:8000/generate."
+      ]
+    },
+    {
+      "query": "The current conversation already states that the forklift crossed at 10:14 UTC. When did it cross?",
+      "checks": [
+        "The final answer says 10:14 UTC from hot conversation context.",
+        "No vss memory command, vss vlm run, or direct chat/completions call is made."
+      ]
+    },
+    {
+      "query": "Read the stored VSS summary with job id sum-01JXYZ.",
+      "checks": [
+        "The trajectory uses the project-local CLI bootstrap from root AGENTS.md and runs vss memory get --job-id sum-01JXYZ or vss summarize get --job-id sum-01JXYZ.",
+        "It does not run memory introspect, vss vlm run, or direct chat/completions."
+      ]
+    },
+    {
+      "query": "Find stored VSS results about forklifts for sensor dock_cam.",
+      "checks": [
+        "The trajectory runs vss memory query with forklift text and dock_cam sensor scope.",
+        "It does not run memory introspect or vss vlm run."
+      ]
+    },
+    {
+      "query": "Use any past VSS analysis that may exist to answer: was anyone missing PPE on warehouse_safety_0001?",
+      "checks": [
+        "The trajectory runs vss memory introspect with the verbatim question and warehouse_safety_0001 scope.",
+        "It does not call an OpenAI chat/completions endpoint directly."
+      ]
+    },
+    {
+      "query": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a hard hat?",
+      "checks": [
+        "The trajectory runs exactly one vss vlm run with dock_cam, the exact supplied UTC bounds, and the question.",
+        "It does not run memory introspect or call chat/completions directly."
+      ]
+    },
+    {
+      "query": "The preceding vss memory introspect result is no_memory. No exact sensor or UTC window is available. Continue safely.",
+      "checks": [
+        "The response explains that no matching memory/window is available and requests an exact recorded sensor and UTC window.",
+        "It does not invoke vss vlm run and does not switch to local-file/base64 inference."
+      ]
+    }
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "H200",
+      "RTXPRO6000BW"
+    ]
+  }
+}

@@ -214,6 +214,14 @@ def test_guest_marker_write_failure_does_not_raise(
     assert path is None
 
 
+def test_every_eval_spec_stem_is_a_profile() -> None:
+    """CI `--spec …/evals/<stem>.json` rejects stems missing from PROFILES."""
+    adapter = _load_adapter()
+    evals = REPO_ROOT / "skills" / "vss-deploy-test-openshell" / "evals"
+    stems = {p.stem for p in evals.glob("*.json") if p.name != "evals.json"}
+    assert stems == set(adapter.PROFILES)
+
+
 def test_generate_task_does_not_write_a_guest_marker(tmp_path: Path) -> None:
     """Harbor task generation stays a dataset write; the marker is CI-only."""
     adapter = _load_adapter()
