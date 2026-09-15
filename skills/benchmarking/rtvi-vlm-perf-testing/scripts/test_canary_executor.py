@@ -85,7 +85,9 @@ def valid_manifest():
 
 class CanaryExecutorTests(unittest.TestCase):
     def test_uses_github_service_compose_directory(self):
-        run = canary_executor.RemoteRun(valid_manifest())
+        run = canary_executor.RemoteRun(
+            canary_executor.resolve_manifest(valid_manifest())
+        )
 
         self.assertEqual(
             run.deploy,
