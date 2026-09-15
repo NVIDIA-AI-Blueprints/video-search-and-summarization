@@ -247,7 +247,13 @@ COPY --from=app-builder /etc/group /etc/group
 COPY start_via.sh /opt/nvidia/via/
 COPY VERSION /opt/nvidia/via/
 
-COPY LICENSE /opt/mm/LICENSE
+# The repository keeps a single root-level LICENSE, outside this build
+# context. Ship the canonical Apache-2.0 text instead, checksum-pinned the
+# same way as the NVIDIA SLA below.
+ADD --chown=root:root --chmod=444 \
+    --checksum=sha256:cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30 \
+    https://www.apache.org/licenses/LICENSE-2.0.txt \
+    /opt/mm/LICENSE
 
 # The NVIDIA Software License Agreement is not vendored in this source tree.
 # BuildKit performs this download itself, so no HTTP client is needed in any
