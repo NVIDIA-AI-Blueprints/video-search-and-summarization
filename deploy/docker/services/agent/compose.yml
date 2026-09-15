@@ -107,7 +107,11 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL}
       VLM_NAME: ${VLM_NAME}
       VLM_BASE_URL: ${VLM_BASE_URL}
-      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL}
+      # Defaulted like services/alert/compose.yml: no profile overrides.env
+      # defines this, so without a fallback the agent config renders
+      # base_url: ${RTVI_VLM_BASE_URL}/v1 as the relative path /v1, which
+      # aiohttp rejects as InvalidUrlClientError before any request is sent.
+      RTVI_VLM_BASE_URL: ${RTVI_VLM_BASE_URL:-http://rtvi-vlm:8000}
       ALERT_BRIDGE_URL: ${ALERT_BRIDGE_URL:-http://alert-bridge:${ALERT_BRIDGE_PORT:-9080}}
 
       # Audio Configuration
