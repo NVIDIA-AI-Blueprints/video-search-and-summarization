@@ -190,7 +190,7 @@ class EvalScope(unittest.TestCase):
 
     def test_uncovered_categories_attribute_to_nothing(self):
         skills = plan_matrix.discover_skills()
-        for path in ("skills/deployment/vss-deploy-profile/evals/base.json",
+        for path in ("skills/vss-manage-alerts/evals/base.json",
                      "skills/tools/vss-generate-video-calibration/SKILL.md",
                      "skills/benchmarking/benchmark-video-summarization/scripts/x.py"):
             self.assertIsNone(plan_matrix.skill_for_file(path, skills), path)

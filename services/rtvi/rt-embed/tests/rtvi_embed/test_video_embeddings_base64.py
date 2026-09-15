@@ -298,6 +298,22 @@ class TestAssetManagerSaveFromBase64:
         with open(asset.path, "rb") as f:
             assert f.read() == raw
 
+    @pytest.mark.asyncio
+    async def test_duplicate_asset_id_is_rejected(self, asset_manager):
+        """A concurrent caller-supplied id cannot replace a published asset."""
+        from common.service_exception import ServiceException
+
+        data_url = f"data:video/mp4;base64,{_MP4_FTYP_B64}"
+        asset_id = str(uuid.uuid4())
+        await asset_manager.save_from_base64(data_url, "video", None, asset_id)
+
+        with pytest.raises(ServiceException) as exc_info:
+            await asset_manager.save_from_base64(data_url, "video", None, asset_id)
+
+        assert exc_info.value.code == "DuplicateAssetId"
+        assert exc_info.value.status_code == 409
+        assert asset_manager.get_asset(asset_id)._lifecycle_lock is asset_manager._asset_lock
+
 
 # ---------------------------------------------------------------------------
 # Server endpoint dispatch (no GPU required)

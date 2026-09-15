@@ -68,6 +68,7 @@ services:
       SEND_CONFIG_TO_SDR: false
       CALL_SENSOR_ADD_API: true
     env_file:
+      - ${VSS_APPS_DIR}/containers.env
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
     volumes:

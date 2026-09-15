@@ -135,7 +135,7 @@ PreToolUse hook); each leg's foreground agent therefore *must* drive
 ## Unchanged on purpose
 
 - Per-leg agent logic: adapter autogeneration, adapter auto-commit flow, harbor flags
-  (incl. `--agent-timeout-multiplier 6.0` = 1 h), result-comment format,
+  (incl. `--agent-timeout-multiplier 9.0` = 1.5 h), result-comment format,
   per-trial metric extraction, failure-mode handling, no `skills/` writes,
   no instance lifecycle calls.
 - The drop of harness-side profile pre-deploy / `active-deploy.txt`
@@ -175,7 +175,7 @@ host, or move the lock onto the box itself.
 
 - **No pre-trial box reset.** Post-#781 there is no harness-side
   `docker compose down` / volume wipe before a trial — cleanup is
-  delegated to the trial's own `/vss-deploy-profile` first query. With
+  delegated to the trial's own `/vss-build-vision-ai` first query. With
   the matrix reusing warm boxes across *heterogeneous* specs (leg A =
   alerts, leg B = base), cross-profile container/volume leftovers can
   cause port/GPU conflicts or stale-data false results. Candidate fix: a

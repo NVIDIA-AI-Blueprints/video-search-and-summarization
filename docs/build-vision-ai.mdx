@@ -184,7 +184,7 @@ CLI against that origin. Run this from the VSS Blueprint checkout:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$PWD}"
-vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 vss --version
 
 vss configure --base-url "<VSS_PUBLIC_URL>"

@@ -47,6 +47,11 @@ def repo(tmp_path):
     (root / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").write_text("# env\n")
     (root / "services" / "agent").mkdir(parents=True)
     (root / "services" / "agent" / "pyproject.toml").write_text('[project]\nname = "nvidia-vss"\n')
+    (root / "libs" / "vss" / "core").mkdir(parents=True)
+    (root / "libs" / "vss" / "pyproject.toml").write_text('[tool.uv.workspace]\nmembers = ["core"]\n')
+    (root / "libs" / "vss" / "core" / "pyproject.toml").write_text('[project]\nname = "nvidia-vss-core"\n')
+    (root / "libs" / "other").mkdir(parents=True)
+    (root / "libs" / "other" / "keep.txt").write_text("not a staged root\n")
     (root / ".openclaw" / "Dockerfile").write_text("FROM scratch\n")
     (root / ".hermes").mkdir()
     (root / ".hermes" / "Dockerfile").write_text("FROM scratch\n")
@@ -72,6 +77,9 @@ def test_stages_all_roots_into_both_default_harness_dirs(repo):
         assert (dest / ".openclaw" / "workspace" / "AGENTS.md").is_file()
         assert (dest / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").is_file()
         assert (dest / "services" / "agent" / "pyproject.toml").is_file()
+        # The CLI library workspace services/agent's editable sources point at.
+        assert (dest / "libs" / "vss" / "core" / "pyproject.toml").is_file()
+        assert not (dest / "libs" / "other").exists()
         assert (dest / "STAGED").is_file()
 
 

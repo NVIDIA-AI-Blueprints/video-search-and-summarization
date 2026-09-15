@@ -23,3 +23,6 @@ vss-rtvi-vlm:
 
 vss-rtvi-embed:
   enabled: false
+
+vss-reid-embed:
+  enabled: false

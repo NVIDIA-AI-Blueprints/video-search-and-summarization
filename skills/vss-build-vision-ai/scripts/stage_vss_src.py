@@ -37,8 +37,11 @@ from pathlib import Path
 
 # Everything the harness Dockerfiles consume from the VSS checkout. A unit
 # test (test_stage_vss_src.py) parses the Dockerfiles and fails when they
-# start consuming a path outside these roots.
-STAGE_ROOTS = ("skills", ".openclaw/workspace", "services/agent")
+# start consuming a path outside these roots. libs/vss is the CLI library
+# workspace services/agent's editable sources point at (../../libs/vss/*);
+# absent on trees older than that move, which is fine — the Dockerfiles
+# guard on its presence.
+STAGE_ROOTS = ("skills", ".openclaw/workspace", "services/agent", "libs/vss")
 STAGE_DIR_NAME = ".vss-src"
 MARKER_NAME = "STAGED"
 DEFAULT_HARNESS_DIRS = (".openclaw", ".hermes")

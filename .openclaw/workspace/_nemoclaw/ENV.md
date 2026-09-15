@@ -28,7 +28,7 @@ export HOST_IP=host.openshell.internal
 export VSS_PUBLIC_URL=""
 
 # Skills that drive the VSS CLI (vss-search-archive, vss-summarize-video)
-# invoke it as `uv run --project <checkout>/services/agent`, so uv has to
+# invoke it as `uv run --project <checkout>/libs/vss`, so uv has to
 # resolve. `pip install --user` puts it here, and this directory is not on
 # the default PATH. Harmless when uv is not installed; TOOLS.md "VSS CLI
 # checkout" sets it up.

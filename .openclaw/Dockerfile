@@ -68,12 +68,20 @@ RUN rm -f /opt/vss-src/Dockerfile \
          && git -C /opt/vss-src checkout -q FETCH_HEAD; \
        fi
 # CLI-source handoff to the runtime stage: a snapshot carries no .git for the
-# runtime to re-fetch, so its services/agent and STAGED marker travel through
-# this directory (left empty on the pinned path, where the runtime fetches).
+# runtime to re-fetch, so its CLI sources and STAGED marker travel through this
+# directory (left empty on the pinned path, where the runtime fetches). The
+# services/ + libs/ layout is preserved because services/agent's editable
+# sources point at ../../libs/vss (the CLI library workspace; guarded — absent
+# on trees from before that move).
 RUN mkdir -p /opt/vss-cli-src \
     && if [ -f /opt/vss-src/STAGED ]; then \
-         cp -R /opt/vss-src/services/agent /opt/vss-cli-src/agent \
-         && cp /opt/vss-src/STAGED /opt/vss-cli-src/STAGED; \
+         mkdir -p /opt/vss-cli-src/services \
+         && cp -R /opt/vss-src/services/agent /opt/vss-cli-src/services/agent \
+         && cp /opt/vss-src/STAGED /opt/vss-cli-src/STAGED \
+         && if [ -d /opt/vss-src/libs/vss ]; then \
+              mkdir -p /opt/vss-cli-src/libs \
+              && cp -R /opt/vss-src/libs/vss /opt/vss-cli-src/libs/vss; \
+            fi; \
        fi
 
 # ── Plugin build (from its lockfile) ───────────────────────────────────────────
@@ -141,8 +149,9 @@ RUN set -eux; \
     if [ -f /opt/vss-cli-src/STAGED ]; then \
       export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-cli-src/STAGED)"; \
       test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
-      mkdir -p /usr/local/src/vss/services; \
-      mv /opt/vss-cli-src/agent /usr/local/src/vss/services/agent; \
+      mkdir -p /usr/local/src/vss; \
+      mv /opt/vss-cli-src/services /usr/local/src/vss/services; \
+      if [ -d /opt/vss-cli-src/libs ]; then mv /opt/vss-cli-src/libs /usr/local/src/vss/libs; fi; \
     else \
       git init -q /usr/local/src/vss \
       && git -C /usr/local/src/vss fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
@@ -152,10 +161,15 @@ RUN set -eux; \
     && uv venv --python /usr/bin/python3 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install "nvidia-vss[cli] @ /usr/local/src/vss/services/agent" \
     && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
+    # Strip to what the editable install points at: services/agent, plus
+    # libs/vss when the source tree has it (the CLI library moved there; the
+    # pinned VSS_REF predates the move, so the pinned path is unchanged).
     && mv /usr/local/src/vss/services/agent /usr/local/src/vss-agent \
+    && if [ -d /usr/local/src/vss/libs/vss ]; then mkdir -p /usr/local/src/vss-libs && mv /usr/local/src/vss/libs/vss /usr/local/src/vss-libs/vss; fi \
     && rm -rf /usr/local/src/vss \
     && mkdir -p /usr/local/src/vss/services \
     && mv /usr/local/src/vss-agent /usr/local/src/vss/services/agent \
+    && if [ -d /usr/local/src/vss-libs ]; then mkdir -p /usr/local/src/vss/libs && mv /usr/local/src/vss-libs/vss /usr/local/src/vss/libs/vss && rmdir /usr/local/src/vss-libs; fi \
     && chmod -R a+rX /usr/local/src/vss \
     && vss --version \
     && su -s /bin/sh sandbox -c "vss --version"

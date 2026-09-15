@@ -32,5 +32,9 @@ dependencies:
     version: 3.3.0
     repository: "file://./charts/rtvi-embed"
     condition: vss-rtvi-embed.enabled
+  - name: vss-reid-embed
+    version: 3.3.0
+    repository: "file://./charts/reid-embed"
+    condition: vss-reid-embed.enabled
 maintainers:
   - name: NVIDIA
