@@ -148,4 +148,40 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, branch nami
 
 
 ## License
-Refer to [LICENSE](LICENSE)
+
+The repository license is [LICENSE](LICENSE): Apache-2.0 for all code except
+`services/ui/` (MIT) and the file-level exceptions LICENSE lists, with SSPL/AGPL
+appendices for the Elasticsearch, Kibana and Redis configuration files.
+
+All license and notice files retained in this repository:
+
+| Path | Covers |
+|---|---|
+| [LICENSE](LICENSE) | Repository license (Apache-2.0 + MIT appendix + SSPL/AGPL appendices, file-level exceptions) |
+| [LICENSE-3rd-party.txt](LICENSE-3rd-party.txt) | Root third-party attributions for the source distribution |
+| [LICENSE.DATA](LICENSE.DATA) | NVIDIA Asset License for sample media assets (covered paths listed in LICENSE) |
+| [deploy/LICENSE-3rd-party.txt](deploy/LICENSE-3rd-party.txt) | Third-party attributions for deploy tooling |
+| [deploy/docker/NOTICE.md](deploy/docker/NOTICE.md) | Notices for the docker deploy profile |
+| [deploy/docker/scripts/LICENSE-3rd-party-dev-profile.txt](deploy/docker/scripts/LICENSE-3rd-party-dev-profile.txt) | Third-party attributions for the developer profile scripts |
+| [deploy/docker/scripts/nemoclaw/LICENSE-3rd-party.txt](deploy/docker/scripts/nemoclaw/LICENSE-3rd-party.txt) | Third-party attributions for nemoclaw scripts |
+| [libs/analytics/spatialai-data-utils/NOTICE](libs/analytics/spatialai-data-utils/NOTICE) | Notices for spatialai-data-utils |
+| [libs/analytics/spatialai-data-utils/release/NOTICE](libs/analytics/spatialai-data-utils/release/NOTICE) | Notices bundled with the spatialai-data-utils release artifact |
+| [services/agent/LICENSE.md](services/agent/LICENSE.md) | Component-scoped copy of the Apache-2.0 license (ships in the agent container) |
+| [services/agent/LICENSE-3rd-party.txt](services/agent/LICENSE-3rd-party.txt) | Third-party attributions for the agent service |
+| [services/alert/LICENSE-3rd-party.txt](services/alert/LICENSE-3rd-party.txt) | Third-party attributions for the alert service |
+| [services/rtvi/rt-cv/LICENSE.3rdparty](services/rtvi/rt-cv/LICENSE.3rdparty) | Third-party attributions for rt-cv |
+| [services/rtvi/rt-cv/NOTICE.txt](services/rtvi/rt-cv/NOTICE.txt) | Notices for rt-cv |
+| [services/rtvi/rt-embed/LICENSE-3rd-party.txt](services/rtvi/rt-embed/LICENSE-3rd-party.txt) | Third-party attributions for rt-embed (Python deps) |
+| [services/rtvi/rt-embed/LICENSE.3rdparty](services/rtvi/rt-embed/LICENSE.3rdparty) | Third-party attributions for rt-embed (container) |
+| [services/rtvi/rt-vlm/LICENSE.3rdparty](services/rtvi/rt-vlm/LICENSE.3rdparty) | Third-party attributions for rt-vlm |
+| [services/ui/LICENSE](services/ui/LICENSE) | MIT license for the UI (upstream-derived code) |
+| [services/ui/LICENSE-3rd-party.txt](services/ui/LICENSE-3rd-party.txt) | Third-party attributions for the UI |
+| [services/video-summarization/LICENSE](services/video-summarization/LICENSE) | Component-scoped copy of the Apache-2.0 license (ships in the video-summarization container) |
+| [services/video-summarization/LICENSE.3rdparty](services/video-summarization/LICENSE.3rdparty) | Third-party attributions for video-summarization |
+| [services/vios/LICENSE.md](services/vios/LICENSE.md) | Component-scoped copy of the Apache-2.0 license (ships in the vios packages) |
+| [services/vios/LICENSE.3rdparty](services/vios/LICENSE.3rdparty) | Third-party attributions for vios, part 1 of 2 |
+| [services/vios/LICENSE.3rdparty.part2](services/vios/LICENSE.3rdparty.part2) | Third-party attributions for vios, part 2 of 2 |
+| [services/vios/LICENSE_libnvjpeg](services/vios/LICENSE_libnvjpeg) | NVIDIA license for the bundled libnvjpeg |
+
+The component-scoped Apache-2.0 copies are intentional: each service ships as a
+separate container or package, and its license file travels with that artifact.
