@@ -205,10 +205,12 @@ with no way to drive it.
   is the harness's *own* LLM, unrelated to the build's `LLM_*` and `VLM_*` knobs.
   The notebook offers three — (a) an OpenAI-compatible endpoint, (b) a
   NemoClaw-managed local model, (c) a build.nvidia.com hosted model — and **this
-  skill defaults to (a) with a remote Claude Opus** (see [Default
-  provider](#default-provider) below). Section 1.2 of the notebook remains the
-  authority on which variables each provider needs; do not infer them, and do not
-  preflight a variable a different provider would have used.
+  skill defaults to (a) serving Claude Opus 4-8** (see [Default
+  provider](#default-provider) below). The provider is a default; the endpoint,
+  model id, and bearer token it needs are **collected from the user** at Q3a,
+  which is where a missing credential surfaces. Section 1.2 of the notebook
+  remains the authority on which variables each provider needs; do not infer
+  them, and do not preflight a variable a different provider would have used.
 - **A GPU budget that accounts for the harness.** The default remote provider
   costs no GPU. This applies only when the user overrides to the local
   provider: (b)
@@ -254,15 +256,40 @@ working chat.
 ## Default provider
 
 **Default to notebook option (a) — the remote OpenAI-compatible endpoint —
-serving Claude Opus.** Do not ask which provider to use, and do not fall through
-to the notebook's own (c) build.nvidia.com path:
+serving Claude Opus 4-8 through the NVIDIA Inference Hub.** Do not ask *which
+provider* to use, and do not fall through to the notebook's own (c)
+build.nvidia.com path. **Do put the values in front of the user**, per [Harness
+model — Q3a](../SKILL.md#harness-model--q3a): the endpoint and model have
+defaults to confirm or replace, and the token has none to offer at all.
 
 | Variable | Default | Note |
 |---|---|---|
-| `NEMOCLAW_PROVIDER` | `custom` | option (a); the only provider that consumes `NEMOCLAW_ENDPOINT_URL` |
-| `NEMOCLAW_MODEL` | `claude-opus-4-8` | matches the notebook's own (a) example; override for a different Opus revision, or for a router **route id** when the endpoint is a model router |
-| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` | any OpenAI-compatible base URL; point it at an internal gateway or router instead when one is in use |
+| `NEMOCLAW_PROVIDER` | `custom` — not asked | option (a); the only provider that consumes `NEMOCLAW_ENDPOINT_URL` |
+| `NEMOCLAW_MODEL` | `aws/anthropic/bedrock-claude-opus-4-8` | Claude Opus 4-8 as the Inference Hub routes it. The id is **the endpoint's, not the model's**: `azure/anthropic/claude-opus-4-8` is the same model over another route, a provider's public API serves the bare `claude-opus-4-8`, and a model router takes a **route id**. Replace it whenever the endpoint changes |
+| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` | the NVIDIA Inference Hub gateway, reachable from NVIDIA infrastructure — the same upstream the bundled `inference-api-proxy.py` defaults to. Any OpenAI-compatible base URL replaces it: another gateway, a model router, a self-hosted server, or a provider's public API |
 | `COMPATIBLE_API_KEY` | **no default** | a real bearer token is required for a public endpoint. Take it from the environment or the platform secret store — never a literal in a command, a file, or skill output |
+
+### Where the user gets each value
+
+What to tell a user at Q3a who cannot use a default or does not have the key.
+Guidance, not a second provider menu — the answer is still one endpoint, one
+model id, one token.
+
+| Value | Where it comes from |
+|---|---|
+| A key for the default endpoint | Create one at <https://inference.nvidia.com/key-management?action=new-key>; the model ids the Hub serves are listed at <https://inference.nvidia.com/?new=0>. Its gateway answers from NVIDIA infrastructure, so a host outside that network takes one of the rows below — settle that before onboard, not after the first agent turn fails |
+| Another gateway or router the user runs | Whoever operates it, plus its own model list for the matching Opus id. Usually the endpoint their other tooling already points at, so ask about that first when the default does not apply. A router's route ids come from [`deploy_vss_switchyard.ipynb`](../../../deploy/docker/scripts/deploy_vss_switchyard.ipynb), and it forwards the caller's credential upstream, so the key stays the **upstream** provider's |
+| A provider's public API key | That provider's own documentation, for both the key and the model ids it serves. Point the user there rather than describing a key format or a console layout this skill does not own |
+| No key at all | The build's own LLM NIM, per *(a) against the build's own LLM NIM* below (`NIM_SERVED_MODEL_NAME` and `COMPATIBLE_API_KEY=EMPTY`) on a build that resolved `LLM_MODE=local` or `local_shared`; or option (c) with an `nvapi-…` key from <https://build.nvidia.com>, which replaces this route and serves Nemotron rather than Opus |
+
+Two cases need no question at all. **Values already in the environment are the
+answer**: `NEMOCLAW_MODEL`, `NEMOCLAW_ENDPOINT_URL`, and
+`COMPATIBLE_API_KEY` exported by the caller, by CI, or by a platform secret
+store win over anything Q3a collects, so read them first and confirm what was
+found instead of re-asking. And in **autonomous mode**
+([`SKILL.md`](../SKILL.md#exception--autonomous-mode)) the caller's instruction
+plus that environment answer Q3a; a token missing from both is still a blocker
+to report, never grounds to substitute a provider.
 
 Override the default **only on an explicit request** for a local or different
 model. "Use a local model", "air-gapped", "use Nemotron", or a named endpoint of
@@ -346,7 +373,7 @@ Set the environment, then run the notebook:
 | `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
 | `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
-| `NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, `NEMOCLAW_ENDPOINT_URL`, `COMPATIBLE_API_KEY` | per [Default provider](#default-provider) | remote Claude Opus unless the user asked for local or another model. The block below spells out that remote route alone; every other route **replaces** these values rather than defaulting through them |
+| `NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, `NEMOCLAW_ENDPOINT_URL`, `COMPATIBLE_API_KEY` | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 4-8 unless the user named another endpoint, model, or a local one. The block below spells out that remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
 
@@ -359,13 +386,15 @@ export VSS_REPO_DIR="$REPO"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
 export NEMOCLAW_RECREATE_SANDBOX=0
 
-# Default harness LLM: notebook option (a), remote Claude Opus. The `:-` form
-# lets an already-exported value win — right for a caller-supplied remote
-# endpoint, and exactly why these four lines must not be copied as-is for the
-# NIM route, where a stale remote endpoint and model would survive.
+# Harness LLM: notebook option (a), Claude Opus 4-8 through the NVIDIA
+# Inference Hub. Substitute the Q3a answers whenever the user replaced a
+# default; the `:-` form lets an already-exported value win — right for a
+# caller-supplied endpoint or CI, and exactly why these lines must not be
+# copied as-is for the NIM route, where a stale endpoint and model would
+# survive.
 export NEMOCLAW_PROVIDER=custom
-export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-claude-opus-4-6}"
-export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://api.anthropic.com/v1/}"
+export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-aws/anthropic/bedrock-claude-opus-4-8}"
+export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://inference-api.nvidia.com/v1}"
 # From the environment or the secret store; never a literal here.
 : "${COMPATIBLE_API_KEY:?bearer token for NEMOCLAW_ENDPOINT_URL is required}"
 export COMPATIBLE_API_KEY
