@@ -16,8 +16,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=elasticsearch-init-helpers.sh
-source "${SCRIPT_DIR}/elasticsearch-init-helpers.sh"
+# shellcheck source=elasticsearch-connection-init.sh
+source "${SCRIPT_DIR}/elasticsearch-connection-init.sh"
 
 # ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
 ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS="${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}"

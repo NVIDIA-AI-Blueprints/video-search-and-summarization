@@ -10,8 +10,8 @@ metadata:
     {{- include "elasticsearch.labels" . | nindent 4 }}
     app.kubernetes.io/component: elasticsearch-init
 data:
-  elasticsearch-init-helpers.sh: |
-{{ .Files.Get "configs/elasticsearch-init-helpers.sh" | indent 4 }}
+  elasticsearch-connection-init.sh: |
+{{ .Files.Get "configs/elasticsearch-connection-init.sh" | indent 4 }}
   elasticsearch-ilm-policy-creation.sh: |
 {{ .Files.Get "configs/elasticsearch-ilm-policy-creation.sh" | indent 4 }}
   elasticsearch-template-creation.sh: |
