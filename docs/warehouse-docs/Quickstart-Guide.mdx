@@ -85,14 +85,14 @@ Warehouse App Data contains sample video datasets, pre-trained TensorRT models (
 
 The package includes the following MP4 datasets at 1920x1080 and 30 FPS:
 
-The repository includes 2D, 3D, and MV3DT calibration for `nv-warehouse-4cams`, `warehouse-loading-dock-3cams-synthetic`, and `warehouse-4cams-20mx20m-synthetic`, so any of these three datasets can be used with any Warehouse analytics mode. Set `NUM_STREAMS` to the camera count shown below. The degraded dataset does not have profile calibration in the repository; generate or supply calibration before deploying it with an analytics mode.
+The repository includes 2D, 3D, and MV3DT calibration for `nv-warehouse-4cams`, `warehouse-loading-dock-3cams-synthetic`, and `warehouse-4cams-20mx20m-synthetic`, so any of these three datasets can be used with any Warehouse analytics mode. Set `NUM_STREAMS` to the camera count shown below. `warehouse-loading-dock-3cams-degraded-synthetic` uses the same calibration as `warehouse-loading-dock-3cams-synthetic`.
 
 | Dataset | Cameras | Duration | Scene Details |
 | --- | --- | --- | --- |
 | `nv-warehouse-4cams` | 4 | Approximately 10 minutes per camera (600 seconds) | Real-world high-angle aisle footage with racks, palletized inventory, workers in safety vests, boxes, shrink-wrapped pallets, forklift activity, and pallet movement. |
 | `warehouse-loading-dock-3cams-synthetic` | 3 | 4 minutes per camera (240 seconds) | Synthetic loading dock footage with overhead views, loading bays, yellow-and-black floor safety zones, boxes on pallets, and forklift equipment. |
 | `warehouse-4cams-20mx20m-synthetic` | 4 | 5 minutes per camera (300 seconds) | Synthetic 20mx20m 3D warehouse scene with overlapping corner-mounted camera views, numbered zones, palletized boxes, forklifts, workers, safety boundaries, and barriers. Used for multi-camera tracking, spatial analytics, and cross-camera object re-identification. |
-| `warehouse-loading-dock-3cams-degraded-synthetic` | 3 | 4 minutes per camera (240 seconds) | Degraded synthetic loading dock footage with low-light and lower-quality camera visuals, representing deployments where camera feeds vary in quality. Profile calibration is not shipped in this repository. |
+| `warehouse-loading-dock-3cams-degraded-synthetic` | 3 | 4 minutes per camera (240 seconds) | Degraded synthetic loading dock footage with low-light and lower-quality camera visuals, representing deployments where camera feeds vary in quality. Uses the same calibration as `warehouse-loading-dock-3cams-synthetic`. |
 
 <Note>
 After extracting the package, set `VSS_DATA_DIR` in `industry-profiles/warehouse-operations/overrides.env` to point to the extracted data directory.
@@ -400,7 +400,7 @@ Set the common deployment variables in `industry-profiles/warehouse-operations/o
 | `VSS_DATA_DIR` | **Required.** Absolute path to the extracted warehouse application data directory. |
 | `HOST_IP` | **Required.** Host IP address of the machine where the blueprint is deployed. For cloud VMs, use the private instance IP and set `EXTERNAL_IP` to the public IP or hostname. |
 | `EXTERNAL_IP` | Required only when clients cannot reach `HOST_IP`; used for externally reachable service URLs. |
-| `SAMPLE_VIDEO_DATASET` | Dataset to process. The repository contains 2D, 3D, and MV3DT calibration for the three non-degraded datasets listed above. The degraded dataset requires generated or supplied calibration. |
+| `SAMPLE_VIDEO_DATASET` | Dataset to process. The repository contains 2D, 3D, and MV3DT calibration for the three non-degraded datasets listed above. `warehouse-loading-dock-3cams-degraded-synthetic` uses the same calibration as `warehouse-loading-dock-3cams-synthetic`. |
 | `NUM_STREAMS` | Number of concurrent streams to process. This must match the camera count of `SAMPLE_VIDEO_DATASET`; it is not selected by system architecture. When NVStreamer is the sensor source, the VSS Configurator also waits until this many streams appear before registering cameras with VST. See [NVStreamer Settings](/vss/system-components/configuration/vss-configurator#nvstreamer-settings). |
 | `DATASET_TYPE` | Required for `MODE=3d`; selects the Sparse4D model, engine, anchor, and labels. Use `real` for `nv-warehouse-4cams` and `synthetic` for the two synthetic datasets with repository calibration. |
 
@@ -1159,7 +1159,7 @@ To obtain the required NGC API Key, follow the steps in:
 
 The launchable notebook uses the same `MODE` and `BP_PROFILE` values described in the [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection) section above. It derives `STREAM_TYPE` from `BP_PROFILE`: `bp_wh_redis` uses Redis, and the other profiles use Kafka.
 
-The notebook selects a default dataset and stream count for each mode and profile. To select a different dataset, set `SAMPLE_VIDEO_DATASET` in Section 1 and update the existing `NUM_STREAMS` value in `industry-profiles/warehouse-operations/overrides.env` to match the dataset's camera count before running Section 9. For 3D, also set `DATASET_TYPE` to `real` or `synthetic` for the selected dataset. The degraded dataset requires generated or supplied calibration.
+The notebook selects a default dataset and stream count for each mode and profile. To select a different dataset, set `SAMPLE_VIDEO_DATASET` in Section 1 and update the existing `NUM_STREAMS` value in `industry-profiles/warehouse-operations/overrides.env` to match the dataset's camera count before running Section 9. For 3D, also set `DATASET_TYPE` to `real` or `synthetic` for the selected dataset. `warehouse-loading-dock-3cams-degraded-synthetic` uses the same calibration as `warehouse-loading-dock-3cams-synthetic`.
 
 See [Deployment Options](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-options) for full details on each profile.
 
