@@ -11,8 +11,8 @@ real-time video understanding capabilities using Vision Language Models
 (VLM). It enables users to generate captions, process live video streams,
 and manage live streams through a comprehensive set of REST endpoints.
 
-For the 3.3.0 release, use the multi-architecture RTVI-VLM 26.08.1 image:
-`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1`.
+For current development builds, use the multi-architecture RTVI-VLM image:
+`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`.
 
 <Note>
 RTVI-VLM does not support cosmos-reason1 in VSS 3.3.
@@ -262,7 +262,7 @@ git checkout tags/v3.3.0
 ```
 
 Then follow the Docker Compose or Helm Chart section below. The RTVI-VLM
-container used by this release is tagged `3.3.0-26.08.1`.
+container used by this release is tagged `3.3.0-26.08.2`.
 
 ### Docker Compose Deployment
 
@@ -272,24 +272,23 @@ container used by this release is tagged `3.3.0-26.08.1`.
    cd services/rtvi/rt-vlm/docker
    ```
 
-2. Create a `.env` file with your configuration:
+2. Create a `.env` file for the pinned release, then replace the NGC API key:
 
    ```bash
-   cat > .env << EOF
+   cat > .env <<'EOF'
    BACKEND_PORT=8000
-   RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1
+   RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
    VLM_MODEL_TO_USE=cosmos-reason3
    MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
+   NGC_API_KEY=<replace-with-your-ngc-api-key>
+   NVIDIA_VISIBLE_DEVICES=0
    MESSAGE_BUS=kafka
    MESSAGE_BUS_TOPIC=mdx-vlm-captions
    KAFKA_PORT=9092
    KAFKA_BOOTSTRAP_SERVERS=kafka:9092
    KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
    ERROR_BUS=kafka
-   ERROR_MESSAGE_TOPIC=mdx-vlm-errors
-   NGC_API_KEY=nvapi-XXXXXX
-   VLM_BATCH_SIZE=128
-   NVIDIA_VISIBLE_DEVICES=0
+   ERROR_MESSAGE_TOPIC=vision-llm-errors
    EOF
    ```
 
@@ -373,14 +372,14 @@ Compose deployment.
 
    ```bash
    cd video-search-and-summarization/services/rtvi/rt-vlm
-   docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom .
+   docker build -f docker/Dockerfile -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom .
    ```
 
 2. Test the image with Docker Compose by setting `RTVI_IMAGE` in
    `docker/.env`:
 
    ```bash
-   RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom
+   RTVI_IMAGE=<registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom
    ```
 
    Then restart the service:
@@ -401,19 +400,19 @@ export IS_SBSA=true
 docker buildx build --platform linux/arm64 \
   --build-arg IS_SBSA \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom-sbsa \
+  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom-sbsa \
   --load .
 ```
 
 For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set
 `IS_SBSA`. The default base image
-(`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1`) is multi-arch, so a
+(`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`) is multi-arch, so a
 `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
 
 ```bash
 docker buildx build --platform linux/arm64 \
   -f docker/Dockerfile \
-  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.1-custom-thor \
+  -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom-thor \
   --load .
 ```
 
@@ -653,6 +652,11 @@ Use `GET /v1/streams/get-stream-info` to list all currently registered live stre
 This is useful for verifying that a stream was added successfully or for retrieving
 the stream ID of an existing stream.
 
+The returned `id` is an opaque string of at most 256 characters. Streams added
+through `/v1/streams/add` normally use a generated UUID, while streams registered
+through the CV-/VIOS-compatible API retain their caller-supplied `camera_id`, such
+as `camera-entrance-east-01`.
+
 ```python
 import requests
 
@@ -681,10 +685,10 @@ These endpoints accept two payload shapes:
   `event` carries the camera fields. Use this when forwarding VIOS
   camera-status events.
 
-For existing VIOS camera flows, the hidden aliases ``POST
-/api/v1/camera/add` and `PUT /api/v1/camera/streaming`` use the same add
-handler. `POST` and `DELETE /api/v1/camera/remove` use the same remove
-handler. Prefer the documented `/v1/stream/*` endpoints for new
+For existing VIOS camera flows, the hidden aliases
+`POST /api/v1/camera/add` and `PUT /api/v1/camera/streaming` use the same add
+handler. `POST /api/v1/camera/remove` and `DELETE /api/v1/camera/remove` use
+the same remove handler. Prefer the documented `/v1/stream/*` endpoints for new
 integrations; the compatibility API is evolving and its request and response
 schema can change between releases.
 
@@ -978,8 +982,10 @@ Supported schemes: `http://`, `https://`, `s3://`, and `file://`.
 
 * `url` — media URL (any supported scheme).
 * `media_type` — `"video"` (default) or `"image"`.
-* `creation_time` — ISO 8601 timestamp used as the frame-time offset
-  baseline (useful for live-correlated archive playback).
+* `creation_time` — UTC ISO 8601 timestamp used as the frame-time offset
+  baseline (useful for live-correlated archive playback). Both whole-second
+  (`2025-01-15T10:00:00Z`) and millisecond
+  (`2025-01-15T10:00:00.123Z`) precision are accepted.
 * `url_headers` — per-request authorization headers (dict). HTTPS only;
   cross-domain redirects strip these headers.
 
@@ -1097,11 +1103,12 @@ Generated-message output is controlled by the following environment variables:
 * **ERROR_BUS**: Error-message output bus. Set to `kafka` (default),
   `redis`, or empty to disable error-message output.
 * **ERROR_MESSAGE_TOPIC**: Topic/channel for error messages. Default:
-  `mdx-vlm-errors`.
+  `vision-llm-errors` in the standard Docker Compose deployment. The bare
+  service fallback, when this variable is not set, is `mdx-vlm-errors`.
 
 ### Generated-Message Bus Startup Selection
 
-In 26.08.1, `MESSAGE_BUS` is the startup source of truth for generated-message
+In 26.08.2, `MESSAGE_BUS` is the startup source of truth for generated-message
 output. `KAFKA_ENABLED` is removed from the active RTVI-VLM startup path, and
 `KAFKA_TOPIC` is replaced by `MESSAGE_BUS_TOPIC`.
 
@@ -1355,7 +1362,7 @@ standalone Helm override.
 
 | Variable | Description | Standalone default |
 | --- | --- | --- |
-| `RTVI_IMAGE` | Docker Compose image to run | `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.1` |
+| `RTVI_IMAGE` | Docker Compose image to run | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest` |
 | `MODEL_PATH` (Helm: `modelPath`) | Model source | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | `MODEL_IMPLEMENTATION_PATH` | Custom model implementation path | Empty |
 | `NGC_API_KEY` | NGC API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
@@ -1371,26 +1378,36 @@ standalone Helm override.
 | `ASSET_DOWNLOAD_CONNECT_TIMEOUT` | Server-side URL download connection timeout in seconds | `10` |
 | `ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS` | Comma-separated domains where URL ingestion skips SSL verification | Empty |
 | `ASSET_DOWNLOAD_AUTH_TOKENS` | Server-level URL ingestion auth tokens, formatted as `domain1=Bearer token1;domain2=Basic xyz` | Empty |
-| `NVIDIA_API_KEY` | NVIDIA API key for hosted endpoints | `NOAPIKEYSET` |
 | `NVIDIA_VISIBLE_DEVICES` | GPU device IDs exposed to the container | `all` |
 | `OPENAI_API_KEY` | OpenAI-compatible API key | `NOAPIKEYSET` |
-| `OPENAI_API_VERSION` | Azure OpenAI API version | Empty |
+| `OPENAI_API_VERSION` | OpenAI-compatible API version | Empty |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key for `openai-compat` | Empty |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL for `openai-compat` | Empty |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version for `openai-compat` | Empty |
 | `VIA_VLM_API_KEY` | OpenAI-compatible VLM API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
+| `VIA_VLM_ENDPOINT` | OpenAI-compatible VLM endpoint URL | Empty |
+| `VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME` | OpenAI-compatible VLM model or deployment name | Empty |
+| `VIA_VLM_OPENAI_TOKEN_PARAM` | Token-limit field for `openai-compat`: `max_tokens` or `max_completion_tokens` | `max_tokens` |
+| `NV_LLMG_CLIENT_ID` | NVIDIA LLM Gateway OAuth client ID for `openai-compat` | Empty |
+| `NV_LLMG_CLIENT_SECRET` | NVIDIA LLM Gateway OAuth client secret for `openai-compat` | Empty |
 | `VLM_MODEL_TO_USE` | Backend selector | `cosmos-reason3` |
 | `VLM_BATCH_SIZE` | VLM inference batch size | Empty |
 | `NUM_VLM_PROCS` | Number of VLM inference processes | Empty |
 | `NUM_GPUS` | Number of GPUs to use | Compose: Empty; Helm: `1` |
-| `VSS_NUM_GPUS_PER_VLM_PROC` | Number of GPUs per VLM process | Empty |
 | `VLM_INPUT_WIDTH` | Input frame width | Empty |
 | `VLM_INPUT_HEIGHT` | Input frame height | Empty |
 | `VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | Frame sampling rate or fixed frames per chunk | `30` |
 | `VLM_USE_FPS_FOR_CHUNKING` | Interpret the frame selection value as FPS instead of fixed frames per chunk | Empty |
+| `RTVI_QWEN_REFERENCE_RESIZE` | Use the Qwen reference file-frame sampling and resize path; file inputs only | `false` |
 | `VLM_SYSTEM_PROMPT` | Default system prompt | Empty |
 | `VLM_PROMPT_MAX_LENGTH` | Maximum user-prompt length in characters | `10240` |
 | `VLM_SYSTEM_PROMPT_MAX_LENGTH` | Maximum system-prompt length in characters | `10240` |
 | `VLM_MAX_GENERATION_TOKENS` (alias: `RTVI_VLM_MAX_GENERATION_TOKENS`) | Maximum generated tokens | `16384` |
 | `VLM_MODEL_SUPPORTS_AUDIO` | Enable native audio support for Omni models | `false` |
 | `VLM_TRUST_REMOTE_CODE` | Enable trust of model-supplied remote code | `false` |
+| `RTVI_ALLOW_UNSAFE_MODEL_CONFIG` | Allow blocked model configuration keys. Use only with a trusted local model configuration. | `false` |
+| `RTVI_ENFORCE_MODEL_PATH_ALLOWLIST` | Require `MODEL_PATH` to match `RTVI_MODEL_PATH_ALLOWLIST` | `false` |
+| `RTVI_MODEL_PATH_ALLOWLIST` | Comma- or newline-separated `MODEL_PATH` glob allowlist; required when remote code is trusted | Empty |
 | `INSTALL_PROPRIETARY_CODECS` | Install proprietary codecs at container startup | `false` |
 | `FORCE_SW_AV1_DECODER` | Force software AV1 decode | Empty |
 | `LOG_LEVEL` | Service logging verbosity | Compose: Empty; Helm: `INFO` |
@@ -1411,29 +1428,39 @@ standalone Helm override.
 | `RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE` | Custom suffix appended after the user query for RTSP inputs. Supports `{timestamps}`, `{query}`, `{first_ts}`, and `{last_ts}`. VLM only. | `(unset)` |
 | `RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS` | When `true`, encodes absolute video timestamps into `frames_indices` for models using mRoPE temporal encoding, such as Qwen3-VL. VLM only. | `false` |
 | `RTVI_EMPTY_CUDA_CACHE_ON_RESULT` | Empty CUDA cache after result handling | `false` |
+| `RTVI_ENABLE_CUDA_OOM_RECOVERY` | Convert CUDA OOM during frame copy/preprocess into recoverable chunk errors and clear cached CUDA tensors | `true` |
+| `RTVI_IPC_FRAME_COPY` | Consume live frames from CV-published `nvunixfd` sockets. Requires `RTVI_IPC_SOCKET_HOST_DIR`. | `false` |
+| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing CV-published IPC sockets; bind-mounted read-only when set | Empty |
+| `RTVI_IPC_SOCKET_DIR` | In-container directory containing IPC sockets | `/run/rtvi-ipc` |
+| `RTVI_IPC_SOCKET_TEMPLATE` | IPC socket filename template with `{camera_id}`, `{sensor_id}`, or `{stream_id}` | `nvds_ipc_{camera_id}.sock` |
 | `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete drain timeout for non-blocking live-stream and file cleanup | `30` |
 | `RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC` | Blocking timeout for stream deletion cleanup | `300` |
 | `RTVI_ENABLE_GOP_DECODE_OPT` | Enable GOP-aligned decode optimization for file-based H.264/H.265/MPEG4 decoding. No effect on live RTSP or when all frames are selected. | `true` |
-| `RTVI_ENABLE_CUDA_OOM_RECOVERY` | Convert CUDA OOM during frame copy/preprocess into recoverable chunk errors and clear cached CUDA tensors | `true` |
+| `RTVI_LIVE_STREAM_GPU_MEMORY_GUARD` | Reject a new live stream before it crosses the free-GPU-memory watermark | `true` |
+| `RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB` | Free GPU memory watermark for live-stream admission in MiB | `1024` |
+| `RTVI_VLM_ADMISSION_MODE` | Request admission control: `off`, `bounded`, or `adaptive` | `off` |
+| `RTVI_VLM_ADMISSION_MAX_ACTIVE_COST` | Maximum active admission cost; `0` derives a limit from decoder and batch settings | `0` |
+| `ENABLE_DENSE_CAPTION` | Reuse saved dense-caption sidecar responses for file inputs | `false` |
 | `RTVI_DISABLE_LIVESTREAM_PREVIEW` | Disable live stream preview frames | `true` |
 | `VSS_SKIP_INPUT_MEDIA_VERIFICATION` | Skip input media validation | Empty |
 | `SKIP_PIPELINE_WARMUP` | Skip pipeline warmup on startup | `0` |
 | `VLLM_GPU_MEMORY_UTILIZATION` | vLLM GPU memory utilization fraction | Empty |
+| `VLM_MAX_MODEL_LEN` | Maximum vLLM context length | `32768` |
 | `VLLM_MAX_NUM_SEQS` | Maximum number of sequences in the vLLM batch | `1024` |
 | `VLLM_MAX_NUM_BATCHED_TOKENS` | Maximum number of batched tokens in vLLM | `16384` |
 | `VLLM_IGNORE_EOS` | Ignore end-of-sequence tokens | `false` |
 | `VLLM_HAS_FLASHINFER_CUBIN` | Enable FlashInfer CUBIN optimizations | `1` |
 | `VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES` | Maximum video frames passed to the vLLM multimodal processor | `256` |
 | `VLLM_NUM_PREPROCESS_WORKERS` | vLLM multimodal preprocessing worker count | `16` |
+| `RTVI_VLLM_ADAPTIVE_PREPROCESS` | Adaptive preprocessing limiter: `disabled`, `shadow`, `enforced`, or a JSON tuning object | `disabled` |
 | `VLLM_NUM_SCHEDULER_STEPS` | Number of scheduler steps for vLLM | `8` |
-| `VLLM_WORKER_MULTIPROC_METHOD` | Multiprocessing method for vLLM workers | `spawn` |
-| `VLLM_ENABLE_PREFIX_CACHING` | Enable vLLM prefix caching | `true` |
+| `VLLM_ENABLE_PREFIX_CACHING` | Enable vLLM prefix caching | `false` |
 | `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `true` |
 | `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Compose: Empty; Helm: `0.0` |
 | `VIA_EVS_SESSION` | Enable the optional EVS++ video-session path when set to `true` or `1` | Empty (disabled) |
-| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.2` when EVS++ session mode is enabled |
-| `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced | `20000` |
-| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `100` |
+| `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ session mode is enabled |
+| `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced; `1` generates on every clip | `1` |
+| `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `256` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
 | `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `0` |
 | `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
@@ -1446,6 +1473,8 @@ standalone Helm override.
 | `VLLM_USE_AOT_COMPILE` | Reuse vLLM ahead-of-time compile artifacts; disabled by default | `0` |
 | `VLLM_DISABLE_COMPILE_CACHE` | Disable persisted vLLM/Torch Inductor compile cache | `1` |
 | `VLLM_ENFORCE_EAGER` | Force eager vLLM execution | `false` |
+| `TORCH_CUDNN_V8_API_DISABLED` | Disable the cuDNN v8 API on platforms affected by the Qwen3-VL Conv3D engine issue | `false` |
+| `VLLM_CUDAGRAPH_MODE` | vLLM CUDA graph mode; supported values are `NONE`, `PIECEWISE`, `FULL`, `FULL_DECODE_ONLY`, and `FULL_AND_PIECEWISE` | Empty (Cosmos3 Edge defaults to `PIECEWISE`) |
 | `VLLM_DISABLED_KERNELS` | Comma-separated vLLM kernels to disable | `MacheteLinearKernel` |
 | `GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS` | Enable custom GStreamer parser modifications | `1` |
 | `REMOTE_VIDEO_INPUT` | For `openai-compat` remote endpoints, send multi-frame chunks as MP4 video payloads instead of per-frame JPEG payloads | `true` |
@@ -1456,12 +1485,14 @@ standalone Helm override.
 | `KAFKA_INCIDENT_TOPIC` | Kafka-only topic for incident messages; independent of `MESSAGE_BUS_TOPIC` | `mdx-vlm-incidents` |
 | `RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` (Helm env: `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE`) | Bounded queue size for async Kafka sends | `1024` |
 | `ERROR_BUS` | Error-message output bus (`kafka`, `redis`, or empty to disable) | Docker Compose: `kafka` |
-| `ERROR_MESSAGE_TOPIC` | Kafka topic or Redis channel for error messages | `mdx-vlm-errors` |
+| `ERROR_MESSAGE_TOPIC` | Kafka topic or Redis channel for error messages | `vision-llm-errors` |
 | `ENABLE_REDIS_ERROR_MESSAGES` | Legacy alias for `ERROR_BUS=redis` when `ERROR_BUS` is unset | `false` |
 | `REDIS_HOST` | Redis host | Compose: `redis`; Helm: `127.0.0.1` |
 | `REDIS_PORT` | Redis application port | `6379` |
 | `REDIS_HOST_PORT` | Docker Compose host port for Redis | `6379` |
 | `REDIS_DB` | Redis database number | `0` |
+| `REDIS_PASSWORD` | Redis password; set a strong value for authenticated Redis deployments | Empty |
+| `ENABLE_REQUEST_PROFILING` | Collect per-request GPU and latency profiling data | `false` |
 | `ENABLE_OTEL_MONITORING` | Enable OpenTelemetry | `false` |
 | `OTEL_RESOURCE_ATTRIBUTES` | OpenTelemetry resource attributes | Empty |
 | `OTEL_TRACES_EXPORTER` | OpenTelemetry traces exporter | `otlp` |
@@ -1482,13 +1513,13 @@ The chart injects `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`,
   `true`.
 * `image.repository`, `image.tag`, and `image.pullPolicy`: Image
   settings. For 3.3.0 RTVI-VLM, use
-  `nvcr.io/nvstaging/vss-core/vss-rt-vlm`, `3.3.0-26.08.1`, and
+  `nvcr.io/nvstaging/vss-core/vss-rt-vlm`, `3.3.0-26.08.2`, and
   `IfNotPresent`. The image tag supports the supported x86 and ARM64
   platforms.
 * `replicas`: Number of replicas. Default: `1`.
 * `useSharedNim`: Use a shared OpenAI-compatible NIM instead of loading a
   model in this pod. Default: `false`.
-* `modelPath`: Model path when `useSharedNim=false`. The 26.08.1
+* `modelPath`: Model path when `useSharedNim=false`. The 26.08.2
   standalone default is
   `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`.
 * `sharedNimService`, `sharedNimPort`, `vlmBaseUrl`, `vlmName`,
@@ -1637,7 +1668,11 @@ INSTALL_PROPRIETARY_CODECS=true # required for proprietary audio codecs
 Set `INSTALL_PROPRIETARY_CODECS=true` when audio inputs may contain
 proprietary audio codecs. Without it, the service falls back to the
 default codec set and may fail to decode the audio track of such
-inputs. The flag has no effect when audio is disabled.
+inputs. Enabling the flag downloads and extracts the codec overlay during
+service startup, verifies that the GStreamer `avdec_aac` decoder is available,
+and can therefore increase the first startup time. Enable it only when the
+deployment requires those codecs; request-level `enable_audio` remains the
+separate control for passing decoded audio to an Omni model.
 </Note>
 
 **Request side:** pass `enable_audio: true` on `POST /v1/generate_captions`
@@ -1680,7 +1715,7 @@ VLM_VIDEO_PRUNING_RATE=0.5
 # EVS++ session mode
 VIA_EVS_SESSION=true
 VLM_VIDEO_PRUNING_RATE=0.5
-VLLM_EVS_SIMILARITY_THRESHOLD=0.2
+VLLM_EVS_SIMILARITY_THRESHOLD=0.4
 ```
 
 Fixed-rate EVS is available on vLLM-compatible local models that use the

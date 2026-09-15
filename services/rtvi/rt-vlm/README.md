@@ -51,39 +51,22 @@ The Docker artifacts are shipped under [`docker/`](docker/):
 
 | File | Purpose |
 |------|---------|
-| [`docker/compose.yaml`](docker/compose.yaml) | Standalone Compose stack: `rtvi-server` + Kafka + Redis. Common Compose/Helm variables are listed in [Docker Compose and Helm Variables](#docker-compose-and-helm-variables) |
+| [`docker/compose.yaml`](docker/compose.yaml) | Standalone Compose stack: `rtvi-server` + Kafka + Redis. Common Compose/Helm variables are listed in the [RTVI-VLM configuration reference](../../../docs/real-time-vlm.mdx#docker-compose-and-helm-variables) |
+| [`docker/.env.example`](docker/.env.example) | Copyable Compose configuration with a GHCR developer image and a pinned NVCR release alternative |
 | [`docker/Dockerfile`](docker/Dockerfile) | (Optional) layers your local `src/` edits onto the shipped image |
 
 #### 2. Create a `.env` file
 
-Create `.env` with your configuration:
+Copy the tracked sample to `.env`, then replace the NGC API key placeholder:
 
 ```bash
-cat > .env << EOF
-BACKEND_PORT=8000
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
-# For DGX Spark/SBSA platforms:
-#RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2-sbsa
-VLM_MODEL_TO_USE=cosmos-reason3
-MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
-KAFKA_ENABLED=true
-#KAFKA_BOOTSTRAP_SERVERS=<Kafka_server_ip:port>
-MESSAGE_BUS=kafka
-MESSAGE_BUS_TOPIC=mdx-vlm-captions
-ERROR_BUS=kafka
-KAFKA_INCIDENT_TOPIC=mdx-vlm-incidents
-NGC_API_KEY=nvapi-XXXXXX
-VLM_BATCH_SIZE=128
-NVIDIA_VISIBLE_DEVICES=0
-
-# Omni audio support (set true for Nemotron Nano Omni and similar models)
-#VLM_MODEL_SUPPORTS_AUDIO=false
-#VLM_TRUST_REMOTE_CODE=false
-#INSTALL_PROPRIETARY_CODECS=false
-EOF
+cp .env.example .env
 ```
 
-`compose.yaml` provides defaults for every other Compose variable except `BACKEND_PORT`, which must be set. See [Docker Compose and Helm Variables](#docker-compose-and-helm-variables) for variables common to the standalone Compose stack and Helm override.
+The sample defaults to the moving GHCR development image. For a pinned release,
+replace its `RTVI_IMAGE` value with the NVCR release image shown in the sample.
+
+`compose.yaml` provides defaults for every other Compose variable except `BACKEND_PORT`, which must be set. See the [RTVI-VLM configuration reference](../../../docs/real-time-vlm.mdx#docker-compose-and-helm-variables) for the authoritative Compose and Helm variable list.
 
 #### 3. Start the service
 
@@ -206,7 +189,7 @@ helm upgrade --install vss-rtvi-vlm . \
 
 When using the `hf-token-secret` secret, set `hfTokenSecret.name=hf-token-secret` and `hfTokenSecret.key=HF_TOKEN` in your values file or with `--set`.
 
-The standalone override sets `enabled=true`, `useSharedNim=false`, `modelPath=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`, disables Kafka publishing with `KAFKA_ENABLED=false`, and uses loopback placeholders for Kafka and Redis.
+The standalone override sets `enabled=true`, `useSharedNim=false`, and `modelPath=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final`; it uses loopback Kafka and Redis placeholders. `KAFKA_ENABLED` is a legacy runtime no-op; use `MESSAGE_BUS` to control generated-message output.
 
 #### 4. Expose the API for local testing
 
@@ -912,80 +895,7 @@ MP4 encoding failed for chunk 0 — sending 10/50 frames as images
 
 ## Environment Variables Reference
 
-The shared list below covers variables common to the standalone Docker Compose stack and standalone Helm override.
-
-### Docker Compose and Helm Variables
-
-The table lists variables in the standalone Docker Compose stack and the standalone Helm override.
-
-| Variable | Description | Standalone default |
-|----------|-------------|--------------------|
-| `MODEL_PATH` (Helm: `modelPath`) | Model source | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
-| `MODEL_IMPLEMENTATION_PATH` | Custom model implementation path | Empty |
-| `NGC_API_KEY` | NGC API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
-| `HF_TOKEN` | Hugging Face token | Compose: Empty; Helm: `hf-token-secret/HF_TOKEN` secret |
-| `NVIDIA_API_KEY` | NVIDIA API key for hosted endpoints | `NOAPIKEYSET` |
-| `NVIDIA_VISIBLE_DEVICES` | GPU device IDs exposed to the container | `all` |
-| `OPENAI_API_KEY` | OpenAI-compatible API key | `NOAPIKEYSET` |
-| `OPENAI_API_VERSION` | Azure OpenAI API version | Empty |
-| `VIA_VLM_API_KEY` | OpenAI-compatible VLM API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
-| `VLM_MODEL_TO_USE` | Backend selector | `cosmos-reason3` |
-| `VLM_BATCH_SIZE` | VLM inference batch size | Empty |
-| `NUM_VLM_PROCS` | Number of VLM inference processes | Empty |
-| `NUM_GPUS` | Number of GPUs to use | Compose: Empty; Helm: `1` |
-| `VSS_NUM_GPUS_PER_VLM_PROC` | Number of GPUs per VLM process | Empty |
-| `VLM_INPUT_WIDTH` | Input frame width | Empty |
-| `VLM_INPUT_HEIGHT` | Input frame height | Empty |
-| `VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK` | Frame sampling rate or fixed frames per chunk | `30` |
-| `VLM_SYSTEM_PROMPT` | Default system prompt | Empty |
-| `VLM_PROMPT_MAX_LENGTH` | Maximum user-prompt length in characters | `10240` |
-| `RTVI_VLM_MAX_GENERATION_TOKENS` (Helm env: `VLM_MAX_GENERATION_TOKENS`) | Maximum generated tokens | `16384` |
-| `VLM_MODEL_SUPPORTS_AUDIO` | Enable native audio support for Omni models | `false` |
-| `VLM_TRUST_REMOTE_CODE` | Enable trust of model-supplied remote code | `false` |
-| `INSTALL_PROPRIETARY_CODECS` | Install proprietary codecs at container startup | `false` |
-| `FORCE_SW_AV1_DECODER` | Force software AV1 decode | Empty |
-| `LOG_LEVEL` | Service logging verbosity | Compose: Empty; Helm: `INFO` |
-| `RTVI_EXTRA_ARGS` | Additional RT-VLM runtime arguments | Empty |
-| `RTVI_RTSP_LATENCY` | RTSP latency override | Empty |
-| `RTVI_RTSP_TIMEOUT` | RTSP timeout override | Empty |
-| `RTVI_RTSP_RECONNECTION_INTERVAL` | Time to wait between RTSP reconnection attempts | `5` |
-| `RTVI_RTSP_RECONNECTION_WINDOW` | RTSP reconnection window in seconds | `60` |
-| `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | Maximum RTSP reconnection attempts | `10` |
-| `RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY` | GStreamer jitterbuffer drop-on-latency setting | `false` |
-| `RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS` | GStreamer jitterbuffer fast-start packet threshold | `2` |
-| `RTVI_ENABLE_LIVE_TIMESTAMP_FILTER` | Enable timestamp filtering for live streams | `false` |
-| `RTVI_ENABLE_FILE_TIMESTAMP_FILTER` | Enable timestamp filtering for file streams | `true` |
-| `RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT` | Add timestamp metadata to VLM prompts | Empty |
-| `RTVI_EMPTY_CUDA_CACHE_ON_RESULT` | Empty CUDA cache after result handling | `false` |
-| `RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC` | Blocking timeout for stream deletion cleanup | `300` |
-| `RTVI_ENABLE_GOP_DECODE_OPT` | Enable GOP-aligned decode optimization | `true` |
-| `VSS_SKIP_INPUT_MEDIA_VERIFICATION` | Skip input media validation | Empty |
-| `VLLM_GPU_MEMORY_UTILIZATION` | vLLM GPU memory utilization fraction | Empty |
-| `VLM_VIDEO_PRUNING_RATE` | Efficient Video Sampling pruning rate | Compose: Empty; Helm: `0.0` |
-| `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |
-| `RTVI_VLLM_MM_PROCESSOR_CACHE_GB` (Helm env: `VLLM_MM_PROCESSOR_CACHE_GB`) | Multimodal processor cache size | `0` |
-| `VLLM_MM_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
-| `VLLM_MULTIMODAL_TENSOR_IPC` | vLLM multimodal tensor IPC setting | Empty |
-| `VLLM_MM_ENCODER_ATTN_BACKEND` | vLLM multimodal encoder attention backend | Empty |
-| `VLLM_ROOT` | vLLM package root used by runtime patches | `/usr/local/lib/python3.12/dist-packages/vllm` |
-| `VLLM_USE_NVFP4_CT_EMULATIONS` | Enable NVFP4 CT emulation | `0` |
-| `KAFKA_ENABLED` | Enable Kafka publishing | Compose: `true`; Helm: `false` |
-| `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | Compose: `kafka:9092`; Helm: `127.0.0.1:9092` |
-| `MESSAGE_BUS` | Generated-output broker type | `kafka` |
-| `MESSAGE_BUS_TOPIC` | VisionLLM message topic / Redis stream | `mdx-vlm-captions` |
-| `ERROR_BUS` | Error-output broker type; empty disables errors | `kafka` |
-| `KAFKA_INCIDENT_TOPIC` | Incident topic | `mdx-vlm-incidents` |
-| `RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` (Helm env: `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE`) | Bounded queue size for async Kafka sends | `1024` |
-| `ERROR_MESSAGE_TOPIC` | Kafka topic or Redis channel for error messages | `vision-llm-errors` |
-| `ENABLE_REDIS_ERROR_MESSAGES` | Publish errors to Redis instead of Kafka | `false` |
-| `REDIS_HOST` | Redis host | Compose: `redis`; Helm: `127.0.0.1` |
-| `REDIS_PORT` | Redis application port | `6379` |
-| `REDIS_DB` | Redis database number | `0` |
-| `ENABLE_OTEL_MONITORING` | Enable OpenTelemetry | `false` |
-| `OTEL_RESOURCE_ATTRIBUTES` | OpenTelemetry resource attributes | Empty |
-| `OTEL_TRACES_EXPORTER` | OpenTelemetry traces exporter | `otlp` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry OTLP endpoint | `http://otel-collector:4318` |
-| `OTEL_METRIC_EXPORT_INTERVAL` | OpenTelemetry metric export interval in milliseconds | `60000` |
+The [RTVI-VLM configuration reference](../../../docs/real-time-vlm.mdx#docker-compose-and-helm-variables) is the authoritative list for the standalone Docker Compose stack and standalone Helm override. Keeping the list there avoids inconsistent defaults between this service README and the product documentation.
 
 ### Additional Helm Chart Values
 

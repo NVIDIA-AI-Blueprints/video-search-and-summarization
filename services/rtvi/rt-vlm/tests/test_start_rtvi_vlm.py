@@ -12,9 +12,11 @@
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 START_SCRIPT = Path(__file__).parents[1] / "start_rtvi_vlm.sh"
+SRC_START_SCRIPT = Path(__file__).parents[1] / "src/scripts/start_rtvi_vlm.sh"
 
 
 def _run_entrypoint_defaults(
@@ -24,7 +26,9 @@ def _run_entrypoint_defaults(
     cudagraph_mode: str | None = None,
     gemm_backend: str | None = None,
 ) -> str:
-    prefix = START_SCRIPT.read_text(encoding="utf-8").split("mkdir -p /tmp/rtvi-logs/", 1)[0]
+    prefix = START_SCRIPT.read_text(encoding="utf-8").split(
+        "mkdir -p /tmp/rtvi-logs/", 1
+    )[0]
     stubs = r"""
 nvdec_get_count() { echo 8; }
 python3() { return 0; }
@@ -115,7 +119,8 @@ def test_cr3_nano_non_gb300_does_not_default_to_triton_attention() -> None:
 
 def test_explicit_attention_backend_is_preserved() -> None:
     output = _run_entrypoint_defaults(
-        "FLASHINFER", model_path="ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-test"
+        "FLASHINFER",
+        model_path="ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-test",
     )
 
     assert output.endswith("FLASHINFER")
@@ -140,3 +145,83 @@ def test_non_gb300_empty_cudagraph_behavior_is_unchanged() -> None:
     )
 
     assert output.endswith("x:|:|")
+
+
+def _run_start_server(**overrides: str) -> list[str]:
+    script = START_SCRIPT.read_text(encoding="utf-8")
+    start_server = "start_rtvi_server() {" + script.split(
+        "start_rtvi_server() {", 1
+    )[1].split("\nstart_processes() {", 1)[0]
+    with tempfile.NamedTemporaryFile() as capture:
+        env = {
+            "PATH": os.environ["PATH"],
+            "CAPTURE": capture.name,
+            "MODE": "development",
+            "VLM_MODEL_TO_USE": "cosmos-reason3",
+            "MODEL_PATH": "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final",
+            "MODEL_IMPLEMENTATION_PATH": "",
+            "RTVI_EXTRA_ARGS": "",
+            "VLM_MODEL_SUPPORTS_AUDIO": "false",
+            "RTVI_IPC_FRAME_COPY": "false",
+            "ENABLE_NSYS_PROFILER": "false",
+            "BACKEND_PORT": "8000",
+            "NUM_GPUS": "1",
+            "VLM_BATCH_SIZE": "3",
+            "ASSET_STORAGE_DIR": "/tmp/assets",
+            "NUM_NVDEC_ENGINES": "8",
+            "MAX_ASSET_STORAGE_SIZE_GB": "",
+            "NUM_VLM_PROCS": "",
+            "VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK": "",
+            "VLM_USE_FPS_FOR_CHUNKING": "",
+            "MESSAGE_BUS": "",
+            "MESSAGE_BUS_TOPIC": "",
+            "ERROR_BUS": "",
+            "KAFKA_BOOTSTRAP_SERVERS": "",
+            **overrides,
+        }
+        stubs = r'''
+python3() { printf '%s\n' "$@" > "$CAPTURE"; }
+check_rtvi_process_status() { wait; }
+'''
+        subprocess.run(
+            ["bash", "-c", stubs + start_server + "\nstart_rtvi_server"],
+            check=True,
+            capture_output=True,
+            cwd=START_SCRIPT.parent,
+            env=env,
+            text=True,
+        )
+        capture.seek(0)
+        return [line.decode().rstrip("\n") for line in capture.readlines()]
+
+
+def test_ipc_environment_is_forwarded_without_splitting_values() -> None:
+    args = _run_start_server(
+        RTVI_IPC_FRAME_COPY="On",
+        RTVI_IPC_SOCKET_DIR="/tmp/ipc sockets",
+        RTVI_IPC_SOCKET_TEMPLATE="frame {camera_id} copy.sock",
+        VLM_MODEL_SUPPORTS_AUDIO="true",
+    )
+
+    assert "--enable-audio" in args
+    assert args[args.index("--ipc-socket-dir") + 1] == "/tmp/ipc sockets"
+    assert (
+        args[args.index("--ipc-socket-template") + 1]
+        == "frame {camera_id} copy.sock"
+    )
+
+
+def test_ipc_defaults_and_disabled_behavior() -> None:
+    disabled_args = _run_start_server()
+    enabled_args = _run_start_server(RTVI_IPC_FRAME_COPY="TRUE")
+
+    assert "--ipc-frame-copy" not in disabled_args
+    assert enabled_args[enabled_args.index("--ipc-socket-dir") + 1] == "/run/rtvi-ipc"
+    assert (
+        enabled_args[enabled_args.index("--ipc-socket-template") + 1]
+        == "nvds_ipc_{camera_id}.sock"
+    )
+
+
+def test_launcher_copies_remain_identical() -> None:
+    assert START_SCRIPT.read_bytes() == SRC_START_SCRIPT.read_bytes()

@@ -235,11 +235,26 @@ start_rtvi_server() {
         bash "$MODEL_IMPLEMENTATION_PATH/install_prerequisites.sh"
     fi
     EXTRA_ARGS="$RTVI_EXTRA_ARGS"
+    local -a ipc_args=()
     # ENABLE_AUDIO is derived from VLM_MODEL_SUPPORTS_AUDIO.
     # Set VLM_MODEL_SUPPORTS_AUDIO=true in .env to enable native audio processing for Omni models.
     if [ "${VLM_MODEL_SUPPORTS_AUDIO:-false}" = "true" ]; then
         EXTRA_ARGS+=" --enable-audio"
     fi
+    case "$(printf '%s' "${RTVI_IPC_FRAME_COPY:-false}" | tr '[:upper:]' '[:lower:]')" in
+        true|1|yes|on)
+            local ipc_socket_dir="${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"
+            local ipc_socket_template="${RTVI_IPC_SOCKET_TEMPLATE:-}"
+            if [ -z "$ipc_socket_template" ]; then
+                ipc_socket_template='nvds_ipc_{camera_id}.sock'
+            fi
+            ipc_args=(
+                --ipc-frame-copy
+                --ipc-socket-dir "$ipc_socket_dir"
+                --ipc-socket-template "$ipc_socket_template"
+            )
+            ;;
+    esac
     if [ $ENABLE_NSYS_PROFILER = true ]; then
 	    echo "Profiling with  nsys"
 	    PROFILE_GPU_IDS=$(nvidia-smi --query-gpu=index --format=csv,noheader | paste -sd "," -)
@@ -305,7 +320,7 @@ start_rtvi_server() {
         --vlm-model-type $VLM_MODEL_TO_USE \
         --vlm-batch-size $VLM_BATCH_SIZE \
         --asset-dir $ASSET_STORAGE_DIR --num-decoders-per-gpu $(( NUM_NVDEC_ENGINES + 1)) \
-        $EXTRA_ARGS &
+        $EXTRA_ARGS "${ipc_args[@]}" &
     check_rtvi_process_status
 }
 
