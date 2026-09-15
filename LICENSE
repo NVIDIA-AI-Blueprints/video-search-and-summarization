@@ -1,13 +1,31 @@
 Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 This project is dual-licensed:
-  - Apache-2.0 applies to all code in the repository except the services/ui/ directory.
+  - Apache-2.0 applies to all code in the repository except the services/ui/
+    directory and the file-level exceptions listed below.
   - MIT applies to the original code under the services/ui/ directory, which is
     derived from upstream projects (see MIT appendix below).
+
+File-level exceptions:
+  - A file that carries its own license notice - an SPDX-License-Identifier
+    header or an explicit license text - stating a license other than
+    Apache-2.0 is licensed as stated in that file, which prevails over this
+    notice for that file. In particular, vendored NVIDIA SDK headers under
+    services/vios/src/framework/webrtc_streamer/inc/nvmultimedia/ and the
+    DeepStream schema services/vios/src/framework/notification/ds_schema_2d.proto
+    are provided under LicenseRef-NvidiaProprietary, and NVIDIA-authored
+    WebRTC/V4L2 codec headers under services/vios/src/framework/webrtc_streamer/inc/
+    are provided under BSD-3-Clause.
 
 This project also contains Elasticsearch, Kibana and Redis configuration files, which are dual-licensed and may be used under your choice of either:
    - Server Side Public License v1 (SSPLv1)
    - GNU Affero General Public License v3 (AGPLv3)
+
+Data assets:
+  - Sample media assets in this repository are provided under the NVIDIA Asset
+    License in LICENSE.DATA, not under the code licenses above. Covered assets:
+      - services/alert/warmup/test.mp4
+      - services/vios/test/bdd_tests/data/test_video.mp4
 
 All contributions to this repository are accepted under the Apache-2.0 license.
 See CONTRIBUTING.md for the contribution terms and the Developer Certificate of
