@@ -166,7 +166,6 @@ All license and notice files retained in this repository:
 | [deploy/docker/scripts/nemoclaw/LICENSE-3rd-party.txt](deploy/docker/scripts/nemoclaw/LICENSE-3rd-party.txt) | Third-party attributions for nemoclaw scripts |
 | [libs/analytics/spatialai-data-utils/NOTICE](libs/analytics/spatialai-data-utils/NOTICE) | Notices for spatialai-data-utils |
 | [libs/analytics/spatialai-data-utils/release/NOTICE](libs/analytics/spatialai-data-utils/release/NOTICE) | Notices bundled with the spatialai-data-utils release artifact |
-| [services/agent/LICENSE.md](services/agent/LICENSE.md) | Component-scoped copy of the Apache-2.0 license (source tree only; retained so the license accompanies the directory wherever it is consumed) |
 | [services/agent/LICENSE-3rd-party.txt](services/agent/LICENSE-3rd-party.txt) | Third-party attributions for the agent service |
 | [services/alert/LICENSE-3rd-party.txt](services/alert/LICENSE-3rd-party.txt) | Third-party attributions for the alert service |
 | [services/rtvi/rt-cv/LICENSE.3rdparty](services/rtvi/rt-cv/LICENSE.3rdparty) | Third-party attributions for rt-cv |
@@ -176,9 +175,7 @@ All license and notice files retained in this repository:
 | [services/rtvi/rt-vlm/LICENSE.3rdparty](services/rtvi/rt-vlm/LICENSE.3rdparty) | Third-party attributions for rt-vlm |
 | [services/ui/LICENSE](services/ui/LICENSE) | MIT license for the UI (upstream-derived code) |
 | [services/ui/LICENSE-3rd-party.txt](services/ui/LICENSE-3rd-party.txt) | Third-party attributions for the UI |
-| [services/video-summarization/LICENSE](services/video-summarization/LICENSE) | Component-scoped copy of the Apache-2.0 license (source tree only; retained so the license accompanies the directory wherever it is consumed) |
 | [services/video-summarization/LICENSE.3rdparty](services/video-summarization/LICENSE.3rdparty) | Third-party attributions for video-summarization |
-| [services/vios/LICENSE.md](services/vios/LICENSE.md) | Component-scoped copy of the Apache-2.0 license (source tree only; retained so the license accompanies the directory wherever it is consumed) |
 | [services/vios/LICENSE.3rdparty](services/vios/LICENSE.3rdparty) | Third-party attributions for vios, part 1 of 2 |
 | [services/vios/LICENSE.3rdparty.part2](services/vios/LICENSE.3rdparty.part2) | Third-party attributions for vios, part 2 of 2 |
 | [services/vios/LICENSE_libnvjpeg](services/vios/LICENSE_libnvjpeg) | NVIDIA license for the bundled libnvjpeg |
@@ -200,6 +197,6 @@ All license and notice files retained in this repository:
 | [tools/message-broker-consumers/3rdParty_Licenses.md](tools/message-broker-consumers/3rdParty_Licenses.md) | Third-party attributions for message-broker-consumers |
 | [tools/sdg-postprocessing/3rdParty_Licenses.md](tools/sdg-postprocessing/3rdParty_Licenses.md) | Third-party attributions for sdg-postprocessing |
 
-The component-scoped Apache-2.0 copies are retained deliberately so each service
-directory carries its license wherever the directory is consumed on its own;
-removing them is an OSRB call, not a cleanup.
+Nested duplicates of the repository's own Apache-2.0 license were removed; the
+root [LICENSE](LICENSE) is the single copy. Third-party attribution and notice
+files stay with their components.
