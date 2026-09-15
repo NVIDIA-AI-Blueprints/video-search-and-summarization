@@ -16,8 +16,9 @@ document is the equivalent command reference for running it by hand.
 - Provider credentials in the environment (`NVIDIA_API_KEY`, or
   `NEMOCLAW_ENDPOINT_URL` + `COMPATIBLE_API_KEY` for a custom OpenAI-compatible
   endpoint).
-- This repo checked out so the policy, the OpenClaw harness image definition
-  (`.openclaw/`), skills, and workspace docs are available.
+- This repo checked out so the policy, the harness image definition for the
+  runtime you pick (`.openclaw/` or `.hermes/`), skills, and workspace docs are
+  available.
 
 ## Canonical flow
 
