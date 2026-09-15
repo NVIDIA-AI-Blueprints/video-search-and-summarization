@@ -35,13 +35,13 @@
 # Required environment variables:
 #   ARTIFACTORY_USER    — Artifactory username (required for benchmark video downloads)
 #   ARTIFACTORY_TOKEN   — Artifactory API token / password (required for benchmark video downloads)
-#   RTVI_IMAGE          — Docker image for the RTVI VLM service (e.g. rtvi_vlm:main)
 #   NGC_API_KEY         — NGC API key for model download (nvapi-...)
 #   NVIDIA_VISIBLE_DEVICES — GPU index(es) to expose to the RTVI container and DCGM exporter
 #                            e.g. export NVIDIA_VISIBLE_DEVICES=0
 #                            Can also be set inline: NVIDIA_VISIBLE_DEVICES=3 bash perf/setup_perf_env.sh
 #
 # Optional environment variables (all have sensible defaults):
+#   RTVI_IMAGE          — RTVI VLM image (default: GHCR develop-latest)
 #   VLM_MODEL_PRESET    — Optional model preset; supported values:
 #                         cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8,
 #                         cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8,
@@ -95,12 +95,13 @@ generation → RTVI VLM startup → Python venv → RTSP URL injection.
 Required environment variables (must be exported before running):
   ARTIFACTORY_USER      Artifactory username (required for benchmark video downloads)
   ARTIFACTORY_TOKEN     Artifactory API token / password (required for benchmark video downloads)
-  RTVI_IMAGE            RTVI VLM Docker image (e.g. rtvi_vlm:main)
   NGC_API_KEY           NGC API key for model download (nvapi-...)
   NVIDIA_VISIBLE_DEVICES  GPU index(es) for RTVI container + DCGM exporter
                           Can be set inline: NVIDIA_VISIBLE_DEVICES=3 bash perf/setup_perf_env.sh
 
 Optional environment variables (sensible defaults shown):
+  RTVI_IMAGE            RTVI VLM Docker image
+                        (default: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest)
   BACKEND_PORT          RTVI VLM host port                 (default: 8010)
   REDIS_PORT            VST Redis port                     (default: 6379)
   CENTRALIZE_DB_PORT    VST PostgreSQL port                (default: 5432)
@@ -212,7 +213,8 @@ Teardown:
 Example:
   export ARTIFACTORY_USER=jdoe
   export ARTIFACTORY_TOKEN=mytoken
-  export RTVI_IMAGE=registry/rtvi_vlm:main
+  # Optional: override the default GHCR develop-latest image.
+  # export RTVI_IMAGE=registry/rtvi_vlm:custom
   export NGC_API_KEY=nvapi-abc123
   export BACKEND_PORT=8010
   export REDIS_PORT=6379
@@ -379,8 +381,8 @@ COMPOSE_PERF_YAML="${COMPOSE_PERF_YAML:-${REPO_ROOT}/docker/compose.perf.yaml}"
 RTVI_HEALTH_TIMEOUT="${RTVI_HEALTH_TIMEOUT:-600}"  # seconds; model download can take several minutes
 
 # RTVI VLM container configuration — used to auto-generate .env.perf at Step 12.
-# RTVI_IMAGE and NGC_API_KEY are required; all others have defaults.
-RTVI_IMAGE="${RTVI_IMAGE:-}"
+# NGC_API_KEY is required; the image and all other values have defaults.
+RTVI_IMAGE="${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest}"
 NGC_API_KEY="${NGC_API_KEY:-}"
 NVIDIA_API_KEY="${NVIDIA_API_KEY:-}"
 HF_TOKEN="${HF_TOKEN:-}"
@@ -684,7 +686,6 @@ fi
 if [[ -n "${BCD_10S_VIDEO_SOURCE_PATH}" && ! -f "${BCD_10S_VIDEO_SOURCE_PATH}" ]]; then
     _missing+=("BCD_10S_VIDEO_SOURCE_PATH")
 fi
-[[ -n "${RTVI_IMAGE:-}" ]]              || _missing+=("RTVI_IMAGE")
 [[ -n "${NGC_API_KEY:-}" ]]             || _missing+=("NGC_API_KEY")
 [[ -n "${NVIDIA_VISIBLE_DEVICES:-}" ]]  || _missing+=("NVIDIA_VISIBLE_DEVICES")
 
@@ -701,7 +702,6 @@ if [[ "${#_missing[@]}" -gt 0 ]]; then
             BCD_10S_VIDEO_SOURCE_PATH)
                 echo -e "    ${_C_YELLOW}export BCD_10S_VIDEO_SOURCE_PATH=/path/to/10s_10fps_clip.mp4${_C_RESET}" >&2
                 ;;
-            RTVI_IMAGE)            echo -e "    ${_C_YELLOW}export RTVI_IMAGE=<rtvi_vlm_container_image>${_C_RESET}" >&2 ;;
             NGC_API_KEY)           echo -e "    ${_C_YELLOW}export NGC_API_KEY=<nvapi-...>${_C_RESET}" >&2 ;;
             NVIDIA_VISIBLE_DEVICES)
                 echo -e "    ${_C_YELLOW}export NVIDIA_VISIBLE_DEVICES=<gpu_index>${_C_RESET}  # or inline: NVIDIA_VISIBLE_DEVICES=0 bash perf/setup_perf_env.sh" >&2
