@@ -237,6 +237,7 @@ jobs:
           # below, then this value is restored so it cannot overwrite the
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
           SKILLS_EVAL_PROVIDER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || 'default' }}
           SKILLS_EVAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
