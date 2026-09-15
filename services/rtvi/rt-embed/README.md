@@ -605,7 +605,9 @@ Use the /v1/models API to get the name of the model once the server is up.
 | `RTVI_RTSP_RECONNECTION_WINDOW` | Duration to attempt reconnection after interruption before terminating the session (seconds) | `60.0` | No |
 | `RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS` | Max attempts for reconnection after interruption before terminating the session (no.) | `10` | No |
 | `RTVI_IPC_FRAME_COPY` | Enable decoded-frame IPC for live streams. | `false` | No |
-| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing producer IPC sockets. Compose mounts it at the fixed container path `/run/rtvi-ipc` when set. | *(unset)* | No |
+| `RTVI_IPC_SOCKET_HOST_DIR` | Host directory containing producer IPC sockets. Compose mounts it at `RTVI_IPC_SOCKET_DIR` when set. | *(unset)* | No |
+| `RTVI_IPC_SOCKET_DIR` | Container directory for decoded-frame IPC Unix sockets. | `/run/rtvi-ipc` | No |
+| `RTVI_IPC_SOCKET_TEMPLATE` | Socket filename template. Must include `{camera_id}`, `{sensor_id}`, or `{stream_id}`. Stream identities must use only ASCII letters, digits, `.`, `_`, or `-` to avoid socket-name collisions. | `nvds_ipc_{camera_id}.sock` | No |
 | `RTVI_STREAM_DELETE_DRAIN_TIMEOUT_SEC` | Per-delete upper bound (seconds) shared by the pre-delete setup wait (while `use_count > 1`) and the pipeline drain of in-flight chunks. On timeout each stage logs a warning and proceeds. Applies to `DELETE /v1/streams/delete-batch`, `DELETE /v1/streams/delete/{stream_id}`, `POST /v1/stream/remove`, `DELETE /v1/generate_video_embeddings/{stream_id}`. | `30` | No |
 
 #### Single decode for multiple microservices
@@ -623,8 +625,9 @@ digits, `.`, `_`, and `-` (standard UUIDs are valid). Other characters are
 rejected to prevent distinct stream IDs from selecting the same socket.
 
 Set `RTVI_IPC_SOCKET_HOST_DIR` to the producer's host directory; Compose mounts
-it at the fixed `/run/rtvi-ipc` path.
-Embed resolves each socket as `nvds_ipc_{camera_id}.sock`. The directory and
+it at `RTVI_IPC_SOCKET_DIR` (default `/run/rtvi-ipc`).
+Embed resolves each socket using `RTVI_IPC_SOCKET_TEMPLATE` (default
+`nvds_ipc_{camera_id}.sock`). The directory and
 socket must be accessible to the Embed container user (UID/GID `1001`). A
 compatible RTVI CV image must provide `ipc-frame-copy` and create the producer
 socket before Embed starts the stream.
