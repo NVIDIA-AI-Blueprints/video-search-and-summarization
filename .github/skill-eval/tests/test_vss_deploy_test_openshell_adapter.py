@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -146,3 +147,122 @@ def test_solve_script_writes_the_resolved_profile() -> None:
         script = adapter.generate_solve_script("lvs", "RTXPRO6000BW")
     assert "HARDWARE_PROFILE=RTXPRO6000BW" in script
     assert "HARDWARE_PROFILE=H200" not in script
+
+
+def test_guest_marker_is_skipped_outside_ci(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    assert (
+        adapter.write_guest_leg_marker(
+            dest_dir=tmp_path,
+            environ={"EVAL_SPEC_STEM": "lvs"},
+        )
+        is None
+    )
+    assert list(tmp_path.glob("current-leg-*.json")) == []
+
+
+def test_guest_marker_is_skipped_without_a_spec(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    assert (
+        adapter.write_guest_leg_marker(
+            dest_dir=tmp_path,
+            environ={"RUNNER_NAME": "h200-1-g1-abc"},
+        )
+        is None
+    )
+    assert list(tmp_path.glob("current-leg-*.json")) == []
+
+
+def test_guest_marker_names_the_spec_for_a_fleet_probe(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    path = adapter.write_guest_leg_marker(
+        extra={"hardware_profile": "H200"},
+        dest_dir=tmp_path,
+        environ={
+            "RUNNER_NAME": "h200-2-g3-xyz",
+            "EVAL_SKILL": "vss-deploy-test-openshell",
+            "EVAL_SPEC_STEM": "lvs",
+            "EVAL_SPEC_PATH": "skills/vss-deploy-test-openshell/evals/lvs.json",
+            "EVAL_SLUG": "vss-deploy-test-openshell__lvs__gpus-1",
+            "GITHUB_RUN_ID": "12345",
+            "EVAL_PLATFORM": "",
+        },
+    )
+    assert path == tmp_path / "current-leg-h200-2-g3-xyz.json"
+    payload = json.loads(path.read_text())
+    assert payload["spec_stem"] == "lvs"
+    assert payload["skill"] == "vss-deploy-test-openshell"
+    assert payload["slug"] == "vss-deploy-test-openshell__lvs__gpus-1"
+    assert payload["run_id"] == "12345"
+    assert payload["hardware_profile"] == "H200"
+    assert payload["eval_platform"] == ""
+
+
+def test_guest_marker_write_failure_does_not_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = _load_adapter()
+    blocked = tmp_path / "blocked"
+    blocked.write_text("not a directory")
+    monkeypatch.setattr(adapter, "_GUEST_LEG_MARKER_DIR", blocked)
+    path = adapter.write_guest_leg_marker(
+        environ={
+            "RUNNER_NAME": "guest-1",
+            "EVAL_SPEC_STEM": "search",
+        },
+    )
+    assert path is None
+
+
+def test_generate_task_does_not_write_a_guest_marker(tmp_path: Path) -> None:
+    """Harbor task generation stays a dataset write; the marker is CI-only."""
+    adapter = _load_adapter()
+    with mock.patch.object(adapter, "write_guest_leg_marker") as write_marker:
+        adapter.generate_task(
+            "base",
+            "H200",
+            adapter.PROFILES["base"],
+            tmp_path,
+            skill_dir=None,
+            gpu_count=1,
+        )
+    write_marker.assert_not_called()
+    assert list(tmp_path.rglob("current-leg-*.json")) == []
+
+
+def test_main_refreshes_the_marker_with_the_live_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = _load_adapter()
+    calls: list[dict] = []
+
+    def _capture(extra=None, dest_dir=None, environ=None):
+        calls.append({"extra": extra})
+        return tmp_path / "current-leg-guest.json"
+
+    monkeypatch.setattr(adapter, "write_guest_leg_marker", _capture)
+    monkeypatch.setattr(
+        adapter, "resolve_sizing_platform", lambda requested: ("H200", None)
+    )
+    monkeypatch.setattr(
+        adapter,
+        "expand_matrix",
+        lambda *args, **kwargs: ([("base", "H200", 1)], []),
+    )
+    monkeypatch.setattr(adapter, "generate_task", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate.py",
+            "--output-dir",
+            str(tmp_path),
+            "--profile",
+            "base",
+            "--platform",
+            "H200",
+        ],
+    )
+    adapter.main()
+    assert calls[0]["extra"] is None
+    assert calls[-1]["extra"] == {"hardware_profile": "H200"}
