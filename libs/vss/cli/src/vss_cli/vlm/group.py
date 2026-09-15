@@ -109,7 +109,9 @@ def _is_loopback_url(url: str) -> bool:
         host = urllib.parse.urlparse(url).hostname or ""
     except Exception:
         return False
-    return host in ("localhost", "127.0.0.1", "::1") or host.startswith("127.")
+    return host in ("localhost", "127.0.0.1", "::1", "host.openshell.internal") or host.startswith(
+        "127."
+    )
 
 
 def _vios_exit_for(exc: Exception) -> tuple[Exit, str]:

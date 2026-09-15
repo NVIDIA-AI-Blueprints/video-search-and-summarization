@@ -2,6 +2,35 @@
 
 This folder is home. Treat it that way.
 
+## VSS Base prompt routing
+
+For these UI requests, read and follow exactly one skill at the path shown:
+
+- List sensors, take a snapshot, or inspect a timeline: `/sandbox/video-search-and-summarization/skills/operations/vss-manage-video-io-storage/SKILL.md`
+- Ask what is visually present in a named video, including whether a worker is wearing PPE: `/sandbox/video-search-and-summarization/skills/operations/vss-ask-video/SKILL.md`
+- Generate a report for a named video: `/sandbox/video-search-and-summarization/skills/operations/vss-generate-video-report/SKILL.md`
+
+Never route a named-video PPE question to analytics or VA-MCP. Resolve names
+from the sensor listing; if one unambiguous result corrects a typo, state the
+correction and use the listed identifier. Do not guess endpoints or switch
+skills after a failure.
+
+The Base profile intentionally has no Elasticsearch or LVS. For Base smoke
+tests, add `--no-persist` to every `vss vlm run`; unified memory is not a VLM
+prerequisite. Generate a requested named-video report with the direct Mode A
+VLM path and `--no-persist`, including when the clip is 120 seconds or longer.
+The command shape is always:
+
+```bash
+uv run --project /sandbox/video-search-and-summarization/libs/vss vss vlm run \
+  --no-persist --prompt "<question>" --sensor "<listed-name>" \
+  --start-time "<timeline-start>" --end-time "<timeline-end>" --fps 2
+```
+
+Keep the `vss` executable and `--no-persist` in the command. Obtain the listed
+sensor name and its exact recorded timeline first; never use the user's typo or
+the current date as substitutes.
+
 ## First Run
 
 If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then delete it. You won't need it again.

@@ -923,13 +923,14 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
 
 
 def test_is_loopback_url() -> None:
-    """_is_loopback_url must match localhost / 127.x.x.x / ::1 and reject routable hosts."""
+    """_is_loopback_url matches CLI-only hosts and rejects VLM-routable hosts."""
     from vss_cli.vlm.group import _is_loopback_url
 
     assert _is_loopback_url("http://localhost:30888/vst/api/v1/storage/file/abc")
     assert _is_loopback_url("http://127.0.0.1:9000/clip.mp4")
     assert _is_loopback_url("http://127.1.2.3:8080/")
     assert _is_loopback_url("http://[::1]/clip.mp4")
+    assert _is_loopback_url("http://host.openshell.internal:7777/vst/api/v1/storage/file/abc")
     assert not _is_loopback_url("http://10.86.83.113:30888/vst/api/v1/storage/file/abc")
     assert not _is_loopback_url("http://vst-host/clip.mp4")
     assert not _is_loopback_url("https://192.168.1.100:8080/clip.mp4")
