@@ -17,10 +17,20 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/es-retry.sh
+source "${SCRIPT_DIR}/lib/es-retry.sh"
+
 # ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
 ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS="${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS:-0}"
 ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS="${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}"
+ELASTICSEARCH_CONNECTION_RETRY_INTERVAL="${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL:-5}"
 ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-http://elasticsearch:9200}"
+
+# Retry parameters for index template creation (kept separate from the connection
+# wait above, and from ILM's own knobs, for consistency and independent tuning)
+ELASTICSEARCH_TEMPLATE_CREATE_MAX_ATTEMPTS="${ELASTICSEARCH_TEMPLATE_CREATE_MAX_ATTEMPTS:-12}"
+ELASTICSEARCH_TEMPLATE_CREATE_RETRY_INTERVAL="${ELASTICSEARCH_TEMPLATE_CREATE_RETRY_INTERVAL:-10}"
 
 # Master switch: create kNN-searchable dense_vector fields in mdx-behavior-* / mdx-raw-* templates
 ELASTICSEARCH_ENABLE_EMBEDDINGS=${ELASTICSEARCH_ENABLE_EMBEDDINGS:-false}
@@ -45,7 +55,7 @@ check_ES_status(){
 
         ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS=$(($ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS+1))
         echo "Unable to connect to ES. Trying to reconnect - (attempt $ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS/$ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS)"
-        sleep 5
+        sleep "${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL}"
     done
 }
 
@@ -57,26 +67,8 @@ create_index_template(){
     local data_raw=$2
 
     echo "Creating index template: ${template_name}"
-
-    response=$(curl -s -w "\\n%{http_code}" "${ELASTICSEARCH_URL}/_index_template/${template_name}" \
-      -X 'PUT' \
-      -H 'Content-Type: application/json' \
-      --data-raw "$data_raw" \
-      --compressed \
-      --insecure)
-
-    curl_exit_code=$?
-    if [ $curl_exit_code -ne 0 ]; then
-        exit_with_msg "Curl command failed with exit code ${curl_exit_code} for template '${template_name}'. Error: ${response}"
-    fi
-
-    http_code=$(echo "$response" | tail -n1)
-    echo "HTTP code: ${http_code}"
-    if [ "$http_code" != "200" ]; then
-        response_body=$(echo "$response"| sed '$d')
-        exit_with_msg "Failed to create index template '${template_name}'.\n  Status code: ${http_code}\n  Response: ${response_body}"
-    fi
-    echo "Successfully created index template: ${template_name}"
+    put_json_with_retry "index template ${template_name}" "/_index_template/${template_name}" "${data_raw}" \
+      "200" "${ELASTICSEARCH_TEMPLATE_CREATE_MAX_ATTEMPTS}" "${ELASTICSEARCH_TEMPLATE_CREATE_RETRY_INTERVAL}"
 }
 
 ####################################
