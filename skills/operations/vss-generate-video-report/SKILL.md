@@ -179,6 +179,12 @@ Resolve HITL mode for **Mode A only** in this order:
 2. Harness override `HITL_ENABLED=true|false` (fallback only when runtime config is unavailable)
 3. If neither source is set, default to `false`
 
+The agent cannot introspect `video_report_gen`'s in-process Pydantic config.
+Treat the runtime value as available only when a tool or caller actually
+surfaces it; do not claim to have read it otherwise. Shipped VSS configs derive
+that field from `HITL_ENABLED`, so the harness value and runtime value normally
+match.
+
 Behavior:
 
 - resolved `false`: do not ask clarification; run Mode A with the current default prompt.

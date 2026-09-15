@@ -258,7 +258,7 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - Enterprise RAG requires a reachable RAG server with data already ingested in `KNOWLEDGE_COLLECTION`
 - If objects are not needed, respond with "skip"
 - The HITL response format is always: `{"response": {"type": "text", "text": "value"}}`
-- The RAG-enabled agent config must keep its HITL templates and `hitl_enabled: true` settings for HTTP HITL to work
+- HTTP HITL requires explicit `HITL_ENABLED=true`; the shipped config derives
+  its `hitl_enabled` field from that variable and defaults it to false.
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
-
 
