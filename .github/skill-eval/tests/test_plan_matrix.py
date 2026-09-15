@@ -29,18 +29,18 @@ _SPEC.loader.exec_module(plan_matrix)
 
 # A fake universe: skill -> list of (spec_path, eval_dir, stem).
 FAKE_SPECS = {
-    "vss-matrix-fixture": [
-        ("skills/vss-matrix-fixture/evals/a.json", "evals", "a"),
-        ("skills/vss-matrix-fixture/evals/b.json", "evals", "b"),
+    "vss-summarize-video": [
+        ("skills/operations/vss-summarize-video/evals/a.json", "evals", "a"),
+        ("skills/operations/vss-summarize-video/evals/b.json", "evals", "b"),
     ],
-    "vss-matrix-search": [
-        ("skills/vss-matrix-search/evals/search.json", "evals", "search"),
+    "vss-search-archive": [
+        ("skills/operations/vss-search-archive/evals/search.json", "evals", "search"),
     ],
     "vss-no-adapter": [
-        ("skills/vss-no-adapter/evals/only.json", "evals", "only"),
+        ("skills/operations/vss-no-adapter/evals/only.json", "evals", "only"),
     ],
 }
-SKILLS_WITH_ADAPTERS = {"vss-matrix-fixture", "vss-matrix-search"}
+SKILLS_WITH_ADAPTERS = {"vss-summarize-video", "vss-search-archive"}
 
 
 class SkillFilePaths(unittest.TestCase):
@@ -284,7 +284,7 @@ class RealSpecCorpus(unittest.TestCase):
         finally:
             os.environ.pop("OPENSHELL_GPU_FLEET", None)
 
-        self.assertEqual(len(include), 65)
+        self.assertEqual(len(include), 32)
         self.assertEqual(
             len({leg["spec_path"] for leg in include}),
             len(include),
@@ -296,7 +296,7 @@ class RealSpecCorpus(unittest.TestCase):
             )
             for key in {(leg.get("cohort") or "brev") for leg in include}
         }
-        self.assertEqual(counts, {"brev": 54, "openshell": 11})
+        self.assertEqual(counts, {"brev": 21, "openshell": 11})
         for leg in include:
             if not leg["local_gpu"]:
                 self.assertEqual(leg["kind"], "eval")
@@ -366,24 +366,24 @@ class BuildMatrix(unittest.TestCase):
         return sorted(leg["spec_stem"] for leg in include)
 
     def test_single_spec_change_dispatches_only_that_spec(self):
-        inc = plan_matrix.build_matrix(["skills/vss-matrix-fixture/evals/a.json"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-summarize-video/evals/a.json"])
         self.assertEqual(self._stems(inc), ["a"])
         self.assertEqual(inc[0]["kind"], "eval")
 
     def test_skill_nonspec_change_dispatches_all_specs(self):
-        inc = plan_matrix.build_matrix(["skills/vss-matrix-fixture/SKILL.md"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-summarize-video/SKILL.md"])
         self.assertEqual(self._stems(inc), ["a", "b"])
 
     def test_adapter_change_dispatches_all_specs(self):
         inc = plan_matrix.build_matrix(
-            [".github/skill-eval/adapters/vss-matrix-fixture/generate.py"]
+            [".github/skill-eval/adapters/vss-summarize-video/generate.py"]
         )
         self.assertEqual(self._stems(inc), ["a", "b"])
 
     def test_spec_plus_skill_file_dedupes(self):
         inc = plan_matrix.build_matrix([
-            "skills/vss-matrix-fixture/evals/a.json",
-            "skills/vss-matrix-fixture/SKILL.md",
+            "skills/operations/vss-summarize-video/evals/a.json",
+            "skills/operations/vss-summarize-video/SKILL.md",
         ])
         self.assertEqual(self._stems(inc), ["a", "b"])  # a appears once
 
@@ -392,7 +392,7 @@ class BuildMatrix(unittest.TestCase):
         # changed evals.json must not dispatch as its own leg. It falls through
         # to whole-skill scope like any other non-spec file under the skill.
         inc = plan_matrix.build_matrix(
-            ["skills/vss-matrix-fixture/evals/evals.json"]
+            ["skills/operations/vss-summarize-video/evals/evals.json"]
         )
         self.assertEqual(self._stems(inc), ["a", "b"])
         self.assertNotIn("evals", self._stems(inc))
@@ -409,7 +409,7 @@ class BuildMatrix(unittest.TestCase):
             self.assertEqual(plan_matrix.build_matrix([f]), [], f)
 
     def test_missing_adapter_collapses_to_one_leg(self):
-        inc = plan_matrix.build_matrix(["skills/vss-no-adapter/SKILL.md"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-no-adapter/SKILL.md"])
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["kind"], "missing_adapter")
         self.assertEqual(inc[0]["slug"], "vss-no-adapter__missing-adapter")
@@ -418,8 +418,8 @@ class BuildMatrix(unittest.TestCase):
 
     def test_every_leg_carries_runs_on(self):
         inc = plan_matrix.build_matrix([
-            "skills/vss-matrix-fixture/SKILL.md",
-            "skills/vss-no-adapter/SKILL.md",
+            "skills/operations/vss-summarize-video/SKILL.md",
+            "skills/operations/vss-no-adapter/SKILL.md",
         ])
         self.assertTrue(inc)
         for leg in inc:
@@ -431,7 +431,7 @@ class BuildMatrix(unittest.TestCase):
             "L40S": {"gpu_count": 1},
             "RTXPRO6000BW": {"gpu_count": 2},
         }
-        inc = plan_matrix.build_matrix(["skills/vss-matrix-search/evals/search.json"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-search-archive/evals/search.json"])
         self.assertEqual(
             {leg["platform"]: leg["runs_on"] for leg in inc},
             {
@@ -443,33 +443,33 @@ class BuildMatrix(unittest.TestCase):
         )
 
     def test_slug_carries_platform(self):
-        inc = plan_matrix.build_matrix(["skills/vss-matrix-search/evals/search.json"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-search-archive/evals/search.json"])
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["platform"], "L40S")
-        self.assertEqual(inc[0]["slug"], "vss-matrix-search__search__L40S")
+        self.assertEqual(inc[0]["slug"], "vss-search-archive__search__L40S")
 
     def test_multi_platform_spec_fans_into_one_leg_per_platform(self):
         plan_matrix.spec_platform_config = lambda p: {
             "L40S": {"gpu_count": 1},
             "RTXPRO6000BW": {"gpu_count": 2},
         }
-        inc = plan_matrix.build_matrix(["skills/vss-matrix-search/evals/search.json"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-search-archive/evals/search.json"])
         self.assertEqual(
             sorted(leg["slug"] for leg in inc),
-            ["vss-matrix-search__search__L40S",
-             "vss-matrix-search__search__RTXPRO6000BW"],
+            ["vss-search-archive__search__L40S",
+             "vss-search-archive__search__RTXPRO6000BW"],
         )
 
     def test_mixed_skills_sorted_and_scoped(self):
         inc = plan_matrix.build_matrix([
-            "skills/vss-matrix-search/evals/search.json",
-            "skills/vss-matrix-fixture/SKILL.md",
+            "skills/operations/vss-search-archive/evals/search.json",
+            "skills/operations/vss-summarize-video/SKILL.md",
             ".github/skill-eval/verifiers/generic_judge.py",  # noise
         ])
         self.assertEqual(self._stems(inc), ["a", "b", "search"])
 
     def test_every_leg_has_a_safe_slug(self):
-        inc = plan_matrix.build_matrix(["skills/vss-matrix-fixture/SKILL.md"])
+        inc = plan_matrix.build_matrix(["skills/operations/vss-summarize-video/SKILL.md"])
         for leg in inc:
             self.assertRegex(leg["slug"], r"^[A-Za-z0-9_-]+$")
 
@@ -478,7 +478,7 @@ class BuildMatrix(unittest.TestCase):
         # process the entire changed-file list. The GitHub compare API caps
         # its .files array at 300; plan_matrix now diffs locally
         # (see list_changed_files), and build_matrix itself has no cap.
-        changed = [f"skills/vss-matrix-fixture/evals/s{i}.json" for i in range(400)]
+        changed = [f"skills/operations/vss-summarize-video/evals/s{i}.json" for i in range(400)]
         inc = plan_matrix.build_matrix(changed)
         self.assertEqual(len(inc), 400)
         self.assertTrue(all(leg["kind"] == "eval" for leg in inc))
@@ -869,13 +869,13 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 65)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 65)
+        self.assertEqual(len(legs), 32)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 32)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
-        self.assertEqual(counts, {"brev": 54, "openshell": 11})
+        self.assertEqual(counts, {"brev": 21, "openshell": 11})
         self.assertEqual(sum(leg["local_gpu"] for leg in legs), 11)
         # Every OpenShell leg travels without a SKU: no platform for the
         # adapter to size from, and no hardware profile for the workflow to

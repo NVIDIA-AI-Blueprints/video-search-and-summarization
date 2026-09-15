@@ -378,8 +378,10 @@ def build_harbor_command(
     model: str,
     anthropic_base_url: str,
     agent: str = "claude-code",
-    agent_timeout_multiplier: float = HARBOR_AGENT_TIMEOUT_MULTIPLIER,
+    agent_timeout_multiplier: float | None = None,
 ) -> list[str]:
+    if agent_timeout_multiplier is None:
+        agent_timeout_multiplier = harbor_agent_timeout_multiplier()
     environment_import_path = "envs.brev_env:BrevEnvironment"
     environment_build_timeout_multiplier = (
         HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
@@ -1722,10 +1724,6 @@ def run_invocations(
                 "[run-leg] running expects[0] with Build Vision AI to deploy "
                 "VSS and NemoClaw",
                 flush=True,
-            )
-        else:
-            command_kwargs["agent_timeout_multiplier"] = (
-                harbor_agent_timeout_multiplier()
             )
         cmd = build_harbor_command(
             invocation,
