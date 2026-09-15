@@ -123,6 +123,12 @@ export MS_PORT="${MS_PORT:-8010}"
 HOST_IP="$(grep ^HOST_IP "$ENV_RUNTIME" 2>/dev/null | cut -d= -f2 | tr -d '"')"
 export BASE_URL="http://${HOST_IP:-localhost}:${MS_PORT}/v1"
 # Optional: export SAMPLE_DIR=/abs/path/to/extracted/sample to override autodetection
+# Optional: choose sample calibration detector; default is resnet.
+export DETECTOR_TYPE="${DETECTOR_TYPE:-resnet}"
+case "$DETECTOR_TYPE" in
+  resnet|transformer) ;;
+  *) echo "DETECTOR_TYPE must be resnet or transformer" >&2; exit 1 ;;
+esac
 
 # Pick a python3 that has `requests`; create a throwaway venv if needed (no repo files written)
 PY=python3
@@ -259,8 +265,9 @@ print(f"[5] Uploaded GT zip")
 
 # Shared Calibration Tail — see references/calibration-tail.md for the snippet
 # (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results)
-# Note: detector_type is hard-coded to "resnet" for the sample dataset.
-DETECTOR_TYPE = "resnet"
+DETECTOR_TYPE = os.environ.get("DETECTOR_TYPE", "resnet").strip().lower()
+if DETECTOR_TYPE not in {"resnet", "transformer"}:
+    sys.exit("DETECTOR_TYPE must be resnet or transformer")
 MEDIA_MODE = "linear"  # bundled sample is confirmed already-linear media
 # Run the snippet from references/calibration-tail.md here. It fetches available
 # VGGT and AMC statistics and prints the result-comparison guidance.
@@ -293,7 +300,7 @@ The microservice exposes an interactive OpenAPI UI at **`http://<HOST_IP>:<MS_PO
    | 9 | `POST /v1/vggt/calibrate/{project_id}` | When `vggt_state` is `READY`; resume polling when already `RUNNING` |
    | 10 | `POST /v1/postprocess/{project_id}` | After every completed VGGT run; poll `postprocess_state` to `COMPLETED` |
    | 11 | `GET /v1/vggt_results/{project_id}/evaluation_statistics` | Read VGGT metrics when available |
-   | 12 | `POST /v1/calibrate/{project_id}` | JSON: `{"detector_type": "resnet"}` |
+   | 12 | `POST /v1/calibrate/{project_id}` | JSON: `{"detector_type": "resnet"}` or `{"detector_type": "transformer"}` |
    | 13 | `GET /v1/get_project_info/{project_id}` | Refresh every ~10 s until `amc_state` is `COMPLETED` |
    | 14 | `POST /v1/postprocess/{project_id}` | After AMC; poll `postprocess_state` until `COMPLETED` |
    | 15 | `GET /v1/result/{project_id}/evaluation_statistics` | Read AMC metrics, compare both methods and overlays, then select the more accurate result |
