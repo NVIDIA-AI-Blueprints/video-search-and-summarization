@@ -50,11 +50,6 @@
           "x": 9.446897054410842,
           "y": -12.980046625004634
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "11",
@@ -162,11 +157,6 @@
           "x": 9.4552971335774,
           "y": -13.263953305592763
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "11",
@@ -273,11 +263,6 @@
           "z": 0,
           "x": 9.445879799665683,
           "y": -13.569027364201625
-        },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
         },
         "dir": [],
         "confidence": 0,

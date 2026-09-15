@@ -1,0 +1,46 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "vdr-2-alerting-summarization",
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "env": "A stock RTX PRO 6000 Blackwell host with two GPUs, Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. Covers VDR row 2, \"Use the vss-build-vision-ai skill to add real-time VLM alerting and summarization\" - the prompts are the slide's verbatim. Query 1 stands the vision agent up so query 2 has a running deployment to extend.\n\nWrite query 1's artifacts under `_builds/vdr-2-base/` and query 2's under `_builds/vdr-2-alerting-summarization/`. For both, bring the stack up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes rather than spending the trial budget on a separate blocking image pull.\n\nBoth builds run with **no agent harness**: the in-stack `vss-agent` is removed and no host-side NemoClaw is installed - the developer drives the build from their own coding agent using the `vss` CLI. Removing `vss-agent` makes each a Delta build on its Foundation; `vss-ui`, `phoenix`, `redis`, the VIOS services and the LLM peer stay, so the Web UI is still served with its chat and search surfaces inactive. Alerting and summarization are therefore verified through their own REST endpoints rather than through the agent. Two GPUs because real-time alerting runs continuous RT-VLM alongside the LLM; the base profile alone fits on one.",
+  "expects": [
+    {
+      "artifact_expected": false,
+      "query": "deploy a vss vision agent, non-interactively",
+      "checks": [
+        "`{{repo_root}}/_builds/vdr-2-base/override.env` exists and declares `FOUNDATION=base` and the full effective `COMPOSE_PROFILES`.",
+        "The effective service set is the `base` profile minus `vss-agent` and nothing else - a Delta build, not a stock deploy.",
+        "The deployment is launched directly from `_builds/vdr-2-base/resolved.yml` after validation.",
+        "The effective `COMPOSE_PROFILES` carries no alerting or summarization keys yet: neither `alert-bridge` nor `lvs-server`, so query 2 has a real delta to compute.",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx vss-rtvi-vlm && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (the base profile's integrated RT-VLM; polls up to ~2 min).",
+        "`docker ps --format '{{.Names}}' | awk '$0 == \"vss-agent\" { found=1 } END { exit found ? 1 : 0 }'` returns exit 0 (the in-stack agent is absent, as the harness choice requires)."
+      ]
+    },
+    {
+      "query": "take down the vision agent and add vlm alerting and video summarization to my deployment",
+      "checks": [
+        "The query-1 deployment is torn down before the extended build is brought up: the trajectory runs a `docker compose ... down` against the query-1 project rather than leaving two projects running.",
+        "`{{repo_root}}/_builds/vdr-2-alerting-summarization/override.env` exists, declares `FOUNDATION` as exactly one of `base`, `alerts`, `lvs` or `search`, and carries the full effective `COMPOSE_PROFILES`. The resulting key set is expected to differ from any shipped profile - that is what a delta is - so combining keys drawn from more than one profile is correct and is not by itself a failure.",
+        "No build-directory label is used as a Compose profile: `COMPOSE_PROFILES` contains no key named `vdr-2-alerting-summarization`, and every entry in it is a canonical service-profile key.",
+        "The effective `COMPOSE_PROFILES` adds real-time alerting and video summarization: it includes `alert-bridge`, `vss-video-analytics-api` and `lvs-server`, together with the Kafka and Elasticsearch peers `alert-bridge` requires.",
+        "The effective `COMPOSE_PROFILES` keeps `rtvi-vlm` for VLM-based alerting, and still carries no `vss-agent` and no `nemoclaw` key - the build stays harness-free.",
+        "`{{repo_root}}/_builds/vdr-2-alerting-summarization/` contains `override.env`, `compose.yml`, and `resolved.yml`, and the deployment is launched directly from that `resolved.yml` after validation.",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do curl -sf --max-time 10 http://localhost:38111/v1/ready >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (LVS summarization API responsive; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do curl -sf --max-time 10 http://localhost:8081/livez >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (Video Analytics API responsive; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx vss-alert-bridge && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (real-time VLM alerting; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx vss-lvs && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (video summarization service; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx vss-video-analytics-api && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (analytics REST API; polls up to ~2 min).",
+        "`sh -c 'i=1; while [ \"$i\" -le 24 ]; do docker ps --format \"{{.Names}}\" | grep -qx vss-rtvi-vlm && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (RT-VLM still serving after the rebuild; polls up to ~2 min).",
+        "`docker ps --format '{{.Names}}' | awk '$0 == \"vss-agent\" { found=1 } END { exit found ? 1 : 0 }'` returns exit 0 (the build remains harness-free after the rebuild)."
+      ]
+    }
+  ]
+}

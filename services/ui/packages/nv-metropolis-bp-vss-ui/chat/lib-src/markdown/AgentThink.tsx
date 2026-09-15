@@ -29,6 +29,35 @@ interface ThinkProps {
   messageIsStreaming?: boolean;
 }
 
+const textFromReactNode = (node: React.ReactNode): string =>
+  React.Children.toArray(node)
+    .map((child) => {
+      if (typeof child === 'string' || typeof child === 'number') return String(child);
+      if (React.isValidElement<{ children?: React.ReactNode }>(child)) return textFromReactNode(child.props.children);
+      return '';
+    })
+    .join('');
+
+/**
+ * Older agent streams use generic tool/sub-agent headings, but put the actual
+ * callable name at the start of the step body. Keep those traces useful
+ * without requiring the backend to be upgraded in lockstep with the UI.
+ */
+export const stepTitleWithToolName = (title: string | undefined, children: React.ReactNode): string | undefined => {
+  if (!title) return title;
+
+  const stepType = title.match(/(?:^| - )(Tool Call|Sub-Agent Call)$/i)?.[1]?.toLowerCase();
+  if (!stepType) return title;
+
+  // Legacy markup normalizes body newlines to spaces, so match an identifier
+  // rather than reading to end-of-line and accidentally including Args/Result.
+  const prefix = stepType === 'tool call' ? 'Tool' : 'Calling sub-agent';
+  const callable = textFromReactNode(children).match(
+    new RegExp(`^\\s*${prefix}:\\s*([A-Za-z0-9_.:/-]+)`, 'i'),
+  )?.[1];
+  return callable ? `${title}: ${callable}` : title;
+};
+
 export const AgentThink: React.FC<ThinkProps> = ({
   children,
   title,
@@ -101,6 +130,7 @@ export const AgentThinkStep: React.FC<ThinkProps> = ({
   ...props
 }) => {
   const isStreaming = props['data-streaming'] === 'true' && !!messageIsStreaming;
+  const displayTitle = stepTitleWithToolName(title, children);
   // Steps stay open once written — unlike the parent trace, a finished step is
   // the part a user goes back to read.
   const [isOpen, setIsOpen] = useState(true);
@@ -133,7 +163,7 @@ export const AgentThinkStep: React.FC<ThinkProps> = ({
             )}
             <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
               <strong>Step</strong>
-              {title ? ` - ${title}` : ''}
+              {displayTitle ? ` - ${displayTitle}` : ''}
             </span>
           </span>
           {!isStreaming &&

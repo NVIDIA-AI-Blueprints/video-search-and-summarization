@@ -29,7 +29,6 @@ interval: 0 # Number of consecutive batches to be skipped for inference
 # Calibration Properties
 calib_file_path: /opt/data/ds-configurator/calibration.json # Calibration file path
 bev_group_name: bev-sensor-1 # BEV group name
-calib_mode: synthetic # Calibration mode
 use_camera_groups: True # Groups cameras for multi-view fusion in synthetic mode
 recentering: True # Recalculates camera coordinates from a reference point
 
@@ -60,7 +59,7 @@ reid_dims: -1
 # Decoder properties
 num_output: 300 # Max number of bboxes to be output
 score_threshold: 0.1 # Score threshold for decoding output
-num_torch_threads: 0 # Number of threads for PyTorch
+num_torch_threads: 8 # Number of threads for PyTorch
 
 # Visualisation properties
 generate_3d_bbox: False # Generate 3D bounding boxes for display

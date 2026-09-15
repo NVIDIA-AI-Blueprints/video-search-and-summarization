@@ -60,7 +60,12 @@ from api_models.file import (
 )
 from api_models.live_stream import AddLiveStream, AddLiveStreamResponse, LiveStreamInfo
 from api_models.models import ListModelsResponse
-from common.logger import LOG_PERF_LEVEL, TimeMeasure, logger
+from common.logger import (
+    LOG_PERF_LEVEL,
+    TimeMeasure,
+    logger,
+    sanitize_data_for_logging,
+)
 from common.service_exception import ServiceException
 from common.version import VERSION
 from utils.asset_manager import Asset, AssetManager
@@ -801,7 +806,12 @@ class RTVIServer:
                 "Received generate_captions query: id=%s, is_live=%s, query=%s",
                 ", ".join(videoIdList),
                 asset.is_live,
-                query.model_dump_json(exclude_none=True),
+                json.dumps(
+                    sanitize_data_for_logging(
+                        query.model_dump(mode="json", exclude_none=True)
+                    ),
+                    separators=(",", ":"),
+                ),
             )
 
             # Check if user has specified the model that is initialized

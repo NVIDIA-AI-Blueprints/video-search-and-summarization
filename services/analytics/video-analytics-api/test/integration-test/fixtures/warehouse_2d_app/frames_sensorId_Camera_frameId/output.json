@@ -6,12 +6,6 @@
       "timestamp": "2026-02-14T10:13:51.292Z",
       "objects": [
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "3",
@@ -33,12 +27,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "7",
@@ -60,12 +48,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "20",
@@ -87,12 +69,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "14",
@@ -114,12 +90,6 @@
           "type": "Pallet"
         },
         {
-          "bbox3d": {
-            "coordinates": [],
-            "embeddings": [],
-            "confidence": 0,
-            "info": {}
-          },
           "dir": [],
           "confidence": 0,
           "id": "26",

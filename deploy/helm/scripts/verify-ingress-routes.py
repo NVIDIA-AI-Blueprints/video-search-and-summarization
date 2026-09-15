@@ -54,7 +54,7 @@ HELM = HERE.parent
 REPO = HELM.parent.parent
 PROFILES_DIR = HELM / "developer-profiles"
 TABLE = HELM / "services" / "common" / "templates" / "_ingress-routes.tpl"
-CLI_CONFIG = REPO / "services/agent/packages/vss_cli/src/vss_cli/config.py"
+CLI_CONFIG = REPO / "libs/vss/cli/src/vss_cli/config.py"
 
 # Profiles whose vssIngress is off by default need it switched on to render.
 ON = ["--set", "vssIngress.enabled=true"]

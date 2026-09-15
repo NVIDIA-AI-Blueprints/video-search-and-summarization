@@ -1,0 +1,16 @@
+{
+  "fovOccupancy": [
+    {
+      "type": "Pallet",
+      "averageCount": 6
+    },
+    {
+      "type": "Forklift",
+      "averageCount": 1
+    },
+    {
+      "type": "Person",
+      "averageCount": 2
+    }
+  ]
+}

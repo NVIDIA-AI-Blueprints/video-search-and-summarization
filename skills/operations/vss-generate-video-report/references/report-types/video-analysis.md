@@ -58,8 +58,8 @@ Hand off to `/vss-manage-video-io-storage` to:
      *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
    esac
    VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-   [ -d "${VSS_REPO_ROOT}/services/agent" ] || { echo "ERROR: VSS_REPO_ROOT (${VSS_REPO_ROOT}) has no services/agent — set it to the repo checkout" >&2; exit 1; }
-   VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+   [ -d "${VSS_REPO_ROOT}/libs/vss" ] || { echo "ERROR: VSS_REPO_ROOT (${VSS_REPO_ROOT}) has no libs/vss — set it to the repo checkout" >&2; exit 1; }
+   VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
    "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}" \
      || { echo "vss configure failed for ${VSS_ORIGIN} — is the VSS origin reachable?" >&2; exit 1; }   # once per deployment
 
@@ -119,7 +119,7 @@ For this path, set report `Clip URL` row to `N/A (local/base64 input)` unless a 
 #### Long-video rule (required)
 
 If user input video/clip duration is **120 seconds (2 mins) or longer**, stop Mode A direct path and prompt:
-- deploy and use **LVS** via `/vss-deploy-profile` (Docker Compose; on Kubernetes report the missing `/lvs` route to the deployment owner) + `/vss-summarize-video`,
+- deploy and use **LVS** via `/vss-build-vision-ai` (Docker Compose; on Kubernetes report the missing `/lvs` route to the deployment owner) + `/vss-summarize-video`,
 - then continue report templating with LVS output.
 
 Do not continue direct VLM Mode A on videos that are 120 seconds or longer. The rule is enforced in code: the A1 Step 1 block computes `CLIP_SECONDS` from the resolved window and refuses at 120 s or more, and the Step 3 block requires `CLIP_SECONDS` (A1 hand-off, or the A2 duration measured with `ffprobe`) and refuses again — never a default.

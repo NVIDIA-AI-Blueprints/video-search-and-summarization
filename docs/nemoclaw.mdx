@@ -10,7 +10,7 @@ NemoClaw is an open-source reference stack for running always-on AI agents more 
 Running VSS through NemoClaw turns a multi-service Docker Compose deployment into a chat session:
 
 * **Natural-language operations.** Prompts like *"Deploy the VSS alerts profile in verification mode"* or *"Show me the logs from vss-alert-bridge"* are mapped to the right orchestrator tools in the right order, without manual `.env` editing or compose flag juggling.
-* **Guided host setup.** Two bundled Jupyter notebooks walk through the Brev/host prerequisites: credentials, Docker version pinning, NGC CLI setup, `nvcr.io` login, the VSS agent Python environment, and the host-side MCP server.
+* **Guided host setup.** Two bundled Jupyter notebooks walk through the Brev/host prerequisites: credentials, Docker version pinning, `nvcr.io` login, the VSS agent Python environment, and the host-side MCP server.
 * **Policy-controlled skills.** The setup applies NemoClaw's VSS policy specified in a yaml file, installs the repository's VSS skills, and uploads the NemoClaw workspace bootstrap docs into the sandbox.
 * **Safe operations.** The agent asks before destructive actions such as `docker_down` and streams progress, logs, and errors back into chat so you can remediate without leaving the UI.
 

@@ -13,7 +13,8 @@ movement of vehicles and people in a parking garage.
 
 Sensor object to be nested in every message:
 
-```
+```json
+{
 "sensor": {
  "id": "string",
  "type": "Camera/Puck",
@@ -29,26 +30,31 @@ Sensor object to be nested in every message:
  },
  "description": "Entrance of Endeavor Garage Right Lane"
 }
+}
 ```
 
 ### Video Path
 
 Data Source to be included with every metadata for playback:
 
-```
+```json
+{
 "videoPath": "URL of the playback Video"
+}
 ```
 
 ### Analytics Module
 
 Analytics Module to be nested in every message:
 
-```
+```json
+{
 "analyticsModule": {
    "id": "string",
    "description": "Vehicle Detection and License Plate Recognition",
    "source": "OpenALR",
    "version": "string"
+}
 }
 ```
 
@@ -60,7 +66,8 @@ participating in the event.
 
 To describe a place:
 
-```
+```json
+{
 "place": {
    "id": "string",
    "name": "endeavor",
@@ -74,12 +81,13 @@ To describe a place:
       "x": 1.0,
       "y": 2.0,
       "z": 3.0
-   }
+   },
    "info": {
       "name": "walsh",
       "lane": "lane1",
-      "level": "P2",
+      "level": "P2"
    }
+}
 }
 ```
 
@@ -87,7 +95,8 @@ To describe a place:
 
 To describe an object – for example a vehicle:
 
-```
+```json
+{
 "object": {
    "id": "string",
    "type": "Vehicle",
@@ -109,7 +118,7 @@ To describe an object – for example a vehicle:
    "location": {
       "lat": 30.333,
       "lon": -40.555,
-      "alt": 100.00,
+      "alt": 100.00
    },
 
    "coordinate": {
@@ -129,11 +138,13 @@ To describe an object – for example a vehicle:
    "direction": 225.0,
    "speed": 7.5
 }
+}
 ```
 
 Person will be described as below:
 
-```
+```json
+{
 "object": {
      "id": "123",
      "type": "Person",
@@ -174,11 +185,13 @@ Person will be described as below:
       "direction": 225.0,
       "speed": 7.5
  }
+}
 ```
 
 Face will be described as below:
 
-```
+```json
+{
 "object": {
     "id": "string",
     "type": "Face",
@@ -216,10 +229,11 @@ Face will be described as below:
       -263123344,
       -12817122
     ]
-  }
+  },
     "orientation": 45.0,
     "direction": 225.0,
     "speed": 7.5
+}
 }
 ```
 
@@ -229,7 +243,8 @@ To support any other object-type like Cat, Dog, Painting etc.,
 
 Use the field generic inside object as shown below:
 
-```
+```json
+{
 "Object": {
   "type": "Cat or Dog or Painting",
 
@@ -237,11 +252,11 @@ Use the field generic inside object as shown below:
 
       {
          "name-1": "value-1",
-         "name-2": "value-2":
+         "name-2": "value-2"
 
-      }
-
-},
+  }
+}
+}
 ```
 
 The secondary attributes for object-type i.e., Cat, Dog or Painting in
@@ -252,13 +267,14 @@ by default persist all message for search and retrieval.
 
 Example below of Cat object:
 
-```
+```json
+{
 "object": {
      "id": "string",
      "type": "Cat",
      "info": {
             "color": "grey",
-            "species": "X":
+            "species": "X"
 
      },
      "bbox": {
@@ -284,21 +300,24 @@ Example below of Cat object:
        -263123344,
        -12817122
      ]
-   }
+   },
      "orientation": 45.0,
      "direction": 225.0,
      "speed": 7.5
  }
+}
 ```
 
 ### Event
 
 To describe an event:
 
-```
+```json
+{
 "event": {
    "id": "event-id",
    "type": "entry"
+}
 }
 ```
 
@@ -334,7 +353,7 @@ The following set of events can be implemented using similar approach:
 
 This JSON is compatible with protobuf object, the best practice is to send protobuf messages over network, and the generated JSON in database for search query. See section 4 represents a variation of the JSON schema. If the message payload is less an application can send JSON based on section 4:
 
-```
+```json
  {
     "version": "4.0",
     "id": "252",
@@ -366,8 +385,8 @@ This JSON is compatible with protobuf object, the best practice is to send proto
              -12817122
           ]
           }
-          ]
        }
+    ]
 }
 ```
 

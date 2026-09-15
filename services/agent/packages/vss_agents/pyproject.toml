@@ -60,7 +60,7 @@ vst_tools = "vss_agents.tools.vst.register"
 vss_knowledge_layer = "vss_agents.register_knowledge_layers"
 
 [tool.uv.sources]
-nvidia-vss-core = { workspace = true }
+# nvidia-vss-core comes from the workspace root, which points at libs/vss/core.
 langchain-nvidia-ai-endpoints = { index = "pypi" }
 torch = [
     { index = "pytorch-cpu", marker = "platform_machine == 'x86_64' or platform_machine == 'aarch64'" },

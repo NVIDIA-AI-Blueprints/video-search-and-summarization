@@ -729,11 +729,6 @@
           "x": 8.152852188200235,
           "y": -11.352845604193675
         },
-        "bbox3d": {
-          "coordinates": [],
-          "confidence": 0,
-          "info": {}
-        },
         "dir": [],
         "confidence": 0,
         "id": "0",

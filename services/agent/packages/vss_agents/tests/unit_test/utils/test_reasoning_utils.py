@@ -251,3 +251,32 @@ class TestGetLlmReasoningBindKwargs:
         mock_llm = _make_mock("ChatAnthropic", model_name="claude-3")
         result = get_llm_reasoning_bind_kwargs(mock_llm, llm_reasoning=False)
         assert result == {}
+
+
+class TestChatOpenAIEnableThinking:
+    """A NIM reached over the OpenAI-compatible API still needs the chat-template kwarg."""
+
+    def _llm(self, model_name):
+        llm = MagicMock()
+        type(llm).__name__ = "ChatOpenAI"
+        llm.model_name = model_name
+        return llm
+
+    def test_reasoning_off_disables_thinking_for_a_nemotron_nim(self):
+        llm = self._llm("nvidia/nemotron-3.5-lightning-30b-a3b")
+        assert get_llm_reasoning_bind_kwargs(llm, False) == {
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}
+        }
+
+    def test_reasoning_off_leaves_a_hosted_openai_model_alone(self):
+        """The kwarg is meaningless to OpenAI-hosted models, so it must not be sent."""
+        llm = self._llm("gpt-4o")
+        assert get_llm_reasoning_bind_kwargs(llm, False) == {}
+
+    def test_reasoning_none_binds_nothing(self):
+        llm = self._llm("nvidia/nemotron-3.5-lightning-30b-a3b")
+        assert get_llm_reasoning_bind_kwargs(llm, None) == {}
+
+    def test_reasoning_on_still_requests_effort(self):
+        llm = self._llm("nvidia/nemotron-3.5-lightning-30b-a3b")
+        assert get_llm_reasoning_bind_kwargs(llm, True) == {"reasoning": {"effort": "medium", "summary": "auto"}}

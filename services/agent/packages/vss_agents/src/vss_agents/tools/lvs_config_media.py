@@ -47,7 +47,9 @@ logger = logging.getLogger(__name__)
 
 
 GENERATE_CAPTIONS_ENDPOINT = "/v1/generate_captions"
-CAPTION_GENERATION_STARTED_MESSAGE = "Caption generation started. Please try again later."
+CAPTION_GENERATION_STARTED_MESSAGE = (
+    "Caption generation has started and is in progress. Captions will become available shortly."
+)
 LVS_CONFIG_MEDIA_TOOL_NAME = "lvs_config_media"
 LVS_CONFIG_MEDIA_BLOCKED_MESSAGE = (
     "lvs_config_media was not executed. Caption generation starts only after the user "

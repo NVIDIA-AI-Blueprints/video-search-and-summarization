@@ -23,6 +23,7 @@ deploy/docker/rag-secret.override.yml
 # paths for the machine it ran on. It was once committed carrying a developer
 # path and an internal IP; untracking it removes that failure mode.
 services/analytics/behavior-analytics/tests/integration/docker_compose/infra/.env
+services/analytics/video-analytics-api/test/integration-test/docker_compose/infra/.env
 
 *.log
 *checkpoint.*

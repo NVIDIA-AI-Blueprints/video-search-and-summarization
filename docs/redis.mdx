@@ -28,6 +28,8 @@ Additional information regarding Redis can be found in the [Redis documentation]
 | `mdx-incidents` | Protobuf | `nv.Incident` | Used for sending incident data from the analytics pipeline. |
 | `mdx-vlm-incidents` | Protobuf | `nv.Incident` | Used for sending Vision Language Model (VLM) verified incident data. |
 | `mdx-embed` | Protobuf | `nv.VisionLLM` | Used for sending embedding data for vector similarity searches. |
+| `mdx-embed-filtered` | Protobuf | `nv.VisionLLM` | Used for sending filtered vision embeddings to Logstash for vector similarity searches. |
+| `mdx-compressed-embeddings` | Protobuf | `nv.Frame` | Used for sending frame metadata with compressed per-object embeddings. |
 
 <Note>
 * You can use the [redis-py](https://redis-py.readthedocs.io/en/stable/) library to produce and consume messages from Redis Streams.

@@ -313,10 +313,13 @@ function get_vlm_slug() {
 }
 
 # Hardware-specific RTVI local VLM GPU memory utilization (empty = keep compose/env default).
-# Matches deploy/docker/scripts/dev-profile.sh for RTXPRO4500BW.
+# Warehouse overrides.env ships 0.8; high-memory boards must lower that so vLLM
+# does not reserve most of the card before RT-CV (and, on bp_wh 2d, the LLM) start.
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   case "${_hardware_profile}" in
+    GB300) echo "0.2" ;;
+    DGX-SPARK|IGX-THOR|AGX-THOR) echo "0.35" ;;
     RTXPRO4500BW) echo "0.8" ;;
     *) echo "" ;;
   esac
@@ -580,10 +583,34 @@ function validate_args() {
   fi
 }
 
-# Return whether nvidia-smi can inspect the host GPU inventory. An unavailable
+# Run an nvidia-smi query against the host GPU inventory and echo the result.
+#
+# The driver binary is not always present next to this script: CI drives the
+# deployment from inside a plain container image (docker:27), where nvidia-smi
+# lives on the host and is only reachable through a sidecar started with the
+# NVIDIA runtime. Probe the local binary first, then that sidecar, so hardware
+# resolution behaves the same on a bare host and in a containerized runner.
+# Override the sidecar with NVIDIA_SMI_PROBE_CONTAINER; unset it to disable.
+function nvidia_smi_query() {
+  local _output _probe_container="${NVIDIA_SMI_PROBE_CONTAINER-gpu-monitor}"
+  if command -v nvidia-smi >/dev/null 2>&1 \
+    && _output="$(nvidia-smi "$@" 2>/dev/null)" && [[ -n "${_output}" ]]; then
+    printf '%s\n' "${_output}"
+    return 0
+  fi
+  if [[ -n "${_probe_container}" ]] && command -v docker >/dev/null 2>&1 \
+    && _output="$(docker exec "${_probe_container}" nvidia-smi "$@" 2>/dev/null)" \
+    && [[ -n "${_output}" ]]; then
+    printf '%s\n' "${_output}"
+    return 0
+  fi
+  return 1
+}
+
+# Return whether the host GPU inventory can be inspected at all. An unavailable
 # inventory is distinct from an invalid individual device ID.
 function nvidia_smi_is_available() {
-  command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=index --format=csv,noheader >/dev/null 2>&1
+  nvidia_smi_query --query-gpu=index --format=csv,noheader >/dev/null 2>&1
 }
 
 # Return the selected GB300 index. An explicit GPU/LLM/VLM device ID selects
@@ -623,11 +650,17 @@ function resolve_gb300_device_id() {
       if [[ "${_lower}" == *gb300* || "${_lower}" == *b300* ]]; then
         _gb300_matches+=("${_index}")
       fi
-    done < <(nvidia-smi --query-gpu=index,name --format=csv,noheader 2>/dev/null)
+    done < <(nvidia_smi_query --query-gpu=index,name --format=csv,noheader || true)
     if [[ "${#_gb300_matches[@]}" -eq 1 ]]; then
       _device_id="${_gb300_matches[0]}"
     elif [[ "${#_gb300_matches[@]}" -eq 0 ]]; then
-      echo "[ERROR] Hardware profile 'GB300' was selected, but no GB300 GPU was detected. Pass --gpu-device-id <id> when nvidia-smi is unavailable." >&2
+      if nvidia_smi_is_available; then
+        echo "[ERROR] Hardware profile 'GB300' was selected, but no GB300 GPU was detected" >&2
+      else
+        echo "[ERROR] Hardware profile 'GB300' was selected, but the GPU inventory could not be read." >&2
+        echo "[ERROR] nvidia-smi is not on PATH and container '${NVIDIA_SMI_PROBE_CONTAINER-gpu-monitor}' could not run it." >&2
+        echo "[ERROR] Start that sidecar, or pass --gpu-device-id <id> to name the GB300 directly." >&2
+      fi
       return 1
     else
       echo "[ERROR] Multiple GB300 GPUs were detected; select the deployment GPU with --llm-device-id or --vlm-device-id" >&2
@@ -635,7 +668,7 @@ function resolve_gb300_device_id() {
     fi
   fi
 
-  _gpu_name="$(nvidia-smi --id="${_device_id}" --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1)"
+  _gpu_name="$(nvidia_smi_query --id="${_device_id}" --query-gpu=name --format=csv,noheader | head -n1)"
   _gpu_name="${_gpu_name,,}"
   if [[ -z "${_gpu_name}" ]] && [[ "${_is_explicit}" -eq 1 ]]; then
     if nvidia_smi_is_available; then
@@ -1311,13 +1344,17 @@ function state_up() {
     if [[ "${_vlm_mode}" != "remote" ]] && [[ -n "${vlm_device_id}" ]]; then
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
-    # RTVI local VLM sizing for RTXPRO4500BW (same as dev-profile.sh).
-    # Remote VLM does not host the model locally.
+    # RTVI local VLM sizing (same high-memory reductions as dev-profile.sh).
+    # Warehouse VLM_MODE=none still hosts the model in rtvi-vlm; only remote
+    # VLM skips local vLLM reservation.
     if [[ "${_vlm_mode}" != "remote" ]]; then
       local _rtvi_vllm_gpu_memory_utilization _rtvi_vlm_max_model_len
       _rtvi_vllm_gpu_memory_utilization="$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}")"
       if [[ -n "${_rtvi_vllm_gpu_memory_utilization}" ]]; then
         set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${_rtvi_vllm_gpu_memory_utilization}"
+      fi
+      if [[ "${hardware_profile}" == "GB300" ]]; then
+        set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi
       _rtvi_vlm_max_model_len="$(get_rtvi_vlm_max_model_len "${hardware_profile}")"
       if [[ -n "${_rtvi_vlm_max_model_len}" ]]; then
@@ -1395,6 +1432,16 @@ function state_up() {
     set_env_var "RT_CV_DEVICE_ID" "${hardware_device_id}"
     set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
     set_env_var "RT_EMBED_DEVICE_ID" "${hardware_device_id}"
+    # overrides.env ships RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8. vLLM reserves
+    # that fraction of total memory and will not start unless free >= reservation
+    # (it does not subtract co-resident LLM/RT-CV). Always pin the same 0.2 +
+    # TRITON_ATTN alerts/search use whenever RT-VLM shares this GB300.
+    local _gb300_rtvi_vllm_gpu_memory_utilization
+    _gb300_rtvi_vllm_gpu_memory_utilization="$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}")"
+    if [[ -n "${_gb300_rtvi_vllm_gpu_memory_utilization}" ]]; then
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${_gb300_rtvi_vllm_gpu_memory_utilization}"
+    fi
+    set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
   fi
 
   echo "[INFO] Generated environment file: ${_generated_env}"
@@ -1436,6 +1483,18 @@ function state_up() {
   if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
     export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
     echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
+    # containers.env applies the suffix during compose interpolation only, so a
+    # service that reads a tag as plain configuration never sees it — the
+    # bp-configurator validates VSS_RT_CV_TAG from its env_file and rejects
+    # DGX-SPARK without 'sbsa'. Mirror the same four suffixed keys that
+    # containers.env derives, keeping shell/env-file overrides intact.
+    local _sbsa_base_tag _sbsa_key _sbsa_value
+    _sbsa_base_tag="${VSS_CONTAINER_TAG:-$(get_env_value_from_files "VSS_CONTAINER_TAG" "${_source_env}" "${_generated_env}")}"
+    _sbsa_base_tag="${_sbsa_base_tag:-develop-latest}"
+    for _sbsa_key in VSS_RT_CV_TAG VSS_RT_EMBED_TAG VSS_RT_VLM_TAG VSS_VIDEO_SUMMARIZATION_TAG; do
+      _sbsa_value="${!_sbsa_key:-$(get_env_value_from_files "${_sbsa_key}" "${_source_env}" "${_generated_env}")}"
+      set_env_var "${_sbsa_key}" "${_sbsa_value:-${_sbsa_base_tag}${VSS_CONTAINER_TAG_SUFFIX}}"
+    done
   fi
 
   # Resolve and display the managed container channel before deployment.

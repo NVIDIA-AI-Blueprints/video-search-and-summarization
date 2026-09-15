@@ -16,9 +16,9 @@
 class-attrs-all:
   pre-cluster-threshold: 0.25
   topk: 15
-# class-attrs-0:
-#   pre-cluster-threshold: 0.5
-#   topk: 20
+class-attrs-0:
+  pre-cluster-threshold: 0.25
+  topk: 50
 # class-attrs-1:
 #   pre-cluster-threshold: 0.85
 # class-attrs-2:

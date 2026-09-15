@@ -91,8 +91,14 @@ class VARetrievalInput(BaseModel):
     )
 
     # High-level incident retrieval mode
-    start_time: str | None = Field(None, description="Start time in ISO format (e.g., 2025-11-13T16:00:00.000Z)")
-    end_time: str | None = Field(None, description="End time in ISO format (e.g., 2025-11-13T17:00:00.000Z)")
+    start_time: str | None = Field(
+        None,
+        description="Start time in ISO 8601 UTC with milliseconds (YYYY-MM-DDTHH:MM:SS.sssZ). Omit with end_time to fetch the most recent incidents.",
+    )
+    end_time: str | None = Field(
+        None,
+        description="End time in ISO 8601 UTC with milliseconds (YYYY-MM-DDTHH:MM:SS.sssZ). Omit with start_time to fetch the most recent incidents.",
+    )
     source: str | None = Field(None, description="Source ID (e.g., sensor ID or place ID)")
     source_type: str | None = Field(None, description="Source type: 'sensor' or 'place'")
     max_count: int = Field(10, description="Maximum number of incidents to return")
@@ -411,8 +417,8 @@ async def va_retrieval(config: VARetrievalConfig, _builder: Builder) -> AsyncGen
         sql_query: SQL query string (required if action='query')
 
     High-level Mode Input:
-        start_time: ISO timestamp (e.g., "2025-11-13T16:00:00.000Z")
-        end_time: ISO timestamp
+        start_time: ISO 8601 UTC timestamp with milliseconds (YYYY-MM-DDTHH:MM:SS.sssZ)
+        end_time: ISO 8601 UTC timestamp with milliseconds; omit both times to fetch most recent incidents
         source: sensor ID or place ID (optional)
         source_type: 'sensor' or 'place' (optional)
         max_count: maximum incidents to return (default: 10)

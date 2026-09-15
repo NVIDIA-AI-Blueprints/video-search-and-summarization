@@ -347,6 +347,33 @@ class VlmRequestParams:
         )
 
 
+# Caption emitted for a chunk that the frame selector deliberately left empty
+# (nvdsframeselector classified it STATIC and static-frame-count=0). The chunk
+# never reaches the VLM — this text is substituted directly.
+NO_ACTIVITY_CAPTION = "no activity found"
+
+
+def _fselect_emits_empty_static_chunks() -> bool:
+    """True when nvdsframeselector is configured to emit NOTHING for a STATIC chunk.
+
+    Requires CHOOSE_FSELECT=true AND NVDS_FSELECT_STATIC_FRAME_COUNT=0. Under that
+    config a 0-frame chunk is the *intended* outcome, not a decode failure, so the
+    chunk is captioned NO_ACTIVITY_CAPTION without invoking the VLM.
+
+    Any other config keeps the existing hard error, so genuine decode failures
+    (corrupt file, bad seek, missing codec) still surface loudly.
+    """
+    if os.environ.get("CHOOSE_FSELECT", "false").strip().lower() != "true":
+        return False
+    raw = os.environ.get("NVDS_FSELECT_STATIC_FRAME_COUNT", "").strip()
+    if raw == "":
+        return False
+    try:
+        return int(raw) == 0
+    except ValueError:
+        return False
+
+
 class DecoderProcess(ProcessBase):
     """Chunk decoder process"""
 
@@ -670,6 +697,7 @@ class DecoderProcess(ProcessBase):
         error_status_code = 500
         decode_retry_count = 0
         decode_max_attempts = _decode_max_attempts()
+        static_skip_enabled = _fselect_emits_empty_static_chunks()
         for attempt in range(decode_max_attempts):
             try:
                 frames, frame_times, audio_frames, error = fgetter.get_frames(
@@ -692,10 +720,17 @@ class DecoderProcess(ProcessBase):
             decoded_frame_count = len(frames)
             if not error and decoded_frame_count >= min_required_frames:
                 break
+            # Intentional empty STATIC chunk: the frame selector was asked to emit
+            # nothing, so 0 frames is success, not failure. Break immediately —
+            # retrying would tear down and rebuild the GStreamer pipeline + CUDA
+            # decoder on every static chunk, making them the most expensive chunks
+            # in the run instead of the cheapest.
+            if not error and static_skip_enabled:
+                break
             if is_cuda_oom_error(error):
                 error_status_code = CUDA_OOM_STATUS_CODE
                 break
-            if not error:
+            if not error and not static_skip_enabled:
                 error = (
                     f"decoded {decoded_frame_count} frame(s), "
                     f"required at least {min_required_frames}"
@@ -762,7 +797,9 @@ class DecoderProcess(ProcessBase):
 
         error_msg = f"Decode error: {error}" if error else None
 
-        if not error_msg and len(frames) >= min_required_frames:
+        # An intentionally-empty STATIC chunk carries 0 frames and no error; let it
+        # through so VlmProcess can substitute NO_ACTIVITY_CAPTION.
+        if not error_msg and (len(frames) >= min_required_frames or static_skip_enabled):
             return {
                 "chunk": chunk,
                 "frames": frames,
@@ -1300,6 +1337,31 @@ class VlmProcess(ProcessBase):
                 )
                 for _ in chunk
             ]
+        elif (
+            is_text_only
+            and chunk
+            and chunk[0].chunk_type != "text"
+            and _fselect_emits_empty_static_chunks()
+        ):
+            # nvdsframeselector emitted nothing for this chunk (classified STATIC
+            # with static-frame-count=0). Substitute the caption directly — the VLM
+            # is never invoked, so this chunk costs no inference at all.
+            for _chunk_ in chunk:
+                logger.info(
+                    "[fselect] NO_ACTIVITY chunk_id=%s stream=%s — frame selector "
+                    "emitted 0 frames (STATIC); captioning %r without the VLM.",
+                    getattr(_chunk_, "chunkIdx", "?"),
+                    getattr(_chunk_, "streamId", "?"),
+                    NO_ACTIVITY_CAPTION,
+                )
+            vlm_output_batch = [
+                VlmModelOutput(
+                    output=NO_ACTIVITY_CAPTION,
+                    input_tokens=0,
+                    output_tokens=0,
+                )
+                for _ in chunk
+            ]
         elif is_text_only and chunk and chunk[0].chunk_type == "text":
             # Text-only VLM request — bypass frame processing
             # Use structured chat_messages if available (multi-turn), else build from prompt
@@ -1439,6 +1501,7 @@ class VlmProcess(ProcessBase):
                     chunk_,
                     vlm_output_list[idx].output,
                 )
+            _vlm_end = time.time()
             return {
                 "chunk": chunk,
                 "request_params": request_params,
@@ -1448,7 +1511,7 @@ class VlmProcess(ProcessBase):
                 "audio_transcript": audio_transcript,
                 "error": error_msg,
                 "vlm_start_time": [vlm_start_time] * len(chunk),
-                "vlm_end_time": [time.time()] * len(chunk),
+                "vlm_end_time": [_vlm_end] * len(chunk),
                 **kwargs,
             }
 
@@ -1985,7 +2048,9 @@ class VlmPipeline:
             for i in range(args.num_gpus)
         ]
         for idx, dec_proc in enumerate(self._decoder_procs):
-            dec_proc.set_output_queue(self._vlm_procs[idx % self._num_vlm_procs].input_queue)
+            dec_proc.set_output_queue(
+                self._vlm_procs[idx % self._num_vlm_procs].input_queue
+            )
             dec_proc.set_final_output_queue(self._processed_chunk_queue)
             dec_proc.start()
 
@@ -2091,6 +2156,19 @@ class VlmPipeline:
                 # vlm_output is a single VlmModelOutput object (already unbatched)
                 chunk_result.vlm_model_output = item.get("vlm_output", None)
 
+                # Server-log: VLM caption per chunk, flattened to one line.
+                if (
+                    chunk_result.vlm_model_output
+                    and getattr(chunk_result.vlm_model_output, "output", None)
+                ):
+                    big_vlm_text = chunk_result.vlm_model_output.output
+                    logger.info(
+                        "[BigVLMCaption] chunk_id=%s stream=%s caption='%s'",
+                        item.get("chunk_id"),
+                        chunk_result.chunk.streamId if chunk_result.chunk else "",
+                        big_vlm_text.replace("\n", " "),
+                    )
+
                 audio_transcript_raw = item.get("audio_transcript", None)
                 if isinstance(audio_transcript_raw, list):
                     chunk_result.audio_transcript = (
@@ -2115,6 +2193,7 @@ class VlmPipeline:
                 chunk_result.asr_start_time = item.get("asr_start_time", 0)
                 chunk_result.asr_end_time = item.get("asr_end_time", 0)
                 chunk_result.frame_times = item.get("frame_times", [])
+
 
             if item.get("is_live_stream", False):
                 if chunk_result.vlm_end_time and chunk_result.vlm_end_time - (
@@ -2192,6 +2271,7 @@ class VlmPipeline:
                         daemon=True,
                     ).start()
                 continue
+
             callback = self._chunk_callback_map.pop(item["chunk_id"], None)
             if callback:
                 callback(chunk_result)

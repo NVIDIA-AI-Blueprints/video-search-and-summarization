@@ -1,7 +1,7 @@
 {
   "skills": [
     "vss-manage-alerts",
-    "vss-deploy-profile"
+    "vss-build-vision-ai"
   ],
   "resources": {
     "platforms": {
@@ -16,7 +16,7 @@
   "description": "Always-on operation as a first-class workflow (Workflow G, operate-not-author): on a real-time (VLM) alerts deploy dev-profile.sh sets ALERT_AGENT_ALWAYS_ON=true, so the agent must (a) determine always-on IS active from evidence it gathered — the config gate and/or a benign camera_remove probe that answers 200 STREAM_REMOVE_SUCCESS rather than 503 ALWAYS_ON_DISABLED — and explain the always-on chain WITHOUT editing anything, and (b) answer 'have any always-on alerts fired' grounded in the incidents endpoint, with a root cause drawn from the real links of that chain (no camera has posted a camera_streaming webhook, so no per-camera rule ever started). Also guards against inventing a nonexistent /always-on/health endpoint, against authoring always-on config, and against reflexively blaming a gate that is in fact enabled.",
   "expects": [
     {
-      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode using remote LLM and remote VLM endpoints.",
+      "query": "Deploy the VSS alerts profile on {{platform}} in real-time (VLM) mode (`MODE=2d_vlm`) using remote LLM and remote VLM endpoints. This deployment uses the in-stack agent: deploy `vss-agent` as part of the service set and do not substitute a host-side harness, so harness selection does not apply.",
       "checks": [
         "`sh -c 'i=1; while [ \"$i\" -le 12 ]; do curl -sf --max-time 10 http://localhost:8000/docs >/dev/null 2>&1 && exit 0; sleep 5; i=$((i+1)); done; exit 1'` returns exit 0 (VSS Agent REST API responsive; polls up to ~3 min to absorb deploy readiness timing).",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0.",

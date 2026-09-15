@@ -664,5 +664,74 @@ class DeterminismTest(unittest.TestCase):
             self.assertGreater(Path(outputs[0]).stat().st_size, 0)
 
 
+
+class LicenseAcrossVersionsTest(unittest.TestCase):
+    """The last tier: a licence known for other versions of the same package.
+
+    Every other tier matches an exact (name, version), which breaks the moment
+    a version moves. #2101 relocated the CLI into libs/vss, the new lockfile
+    re-resolved cryptography 50.0.0 -> 50.0.1, and the licence recorded three
+    times elsewhere in the same tree stopped being found.
+    """
+
+    def _entry(self, package, version, licenses=(), module="m", language="python"):
+        return osrb_inventory._Entry(
+            package=package, version=version, module=module,
+            language=language, licenses=set(licenses),
+        )
+
+    def test_unanimous_license_carries_to_an_unseen_version(self) -> None:
+        entries = [
+            self._entry("cryptography", "50.0.0", ["Apache-2.0 OR BSD-3-Clause"]),
+            self._entry("cryptography", "48.0.0", ["Apache-2.0 OR BSD-3-Clause"]),
+        ]
+        across = osrb_inventory.unanimous_package_licenses(entries)
+        self.assertEqual("Apache-2.0 OR BSD-3-Clause",
+                         across[("cryptography", "python")])
+
+    def test_a_relicence_gets_no_fallback(self) -> None:
+        """MIT at 1.0 and GPL-3.0 at 2.0 must NOT silently pick one."""
+        entries = [
+            self._entry("shifty", "1.0", ["MIT"]),
+            self._entry("shifty", "2.0", ["GPL-3.0"]),
+        ]
+        across = osrb_inventory.unanimous_package_licenses(entries)
+        self.assertNotIn(("shifty", "python"), across)
+
+    def test_the_previous_inventory_also_feeds_it(self) -> None:
+        across = osrb_inventory.unanimous_package_licenses(
+            [], {("typer", "python"): {"MIT"}})
+        self.assertEqual("MIT", across[("typer", "python")])
+
+    def test_unknown_in_the_previous_inventory_is_not_an_answer(self) -> None:
+        across = osrb_inventory.unanimous_package_licenses(
+            [self._entry("mystery", "1.0", [osrb_inventory.UNKNOWN])])
+        self.assertNotIn(("mystery", "python"), across)
+
+    def test_the_same_name_in_two_ecosystems_never_answers_for_the_other(self) -> None:
+        """`regex` is Apache-2.0 AND CNRI-Python on PyPI and MIT on npm."""
+        entries = [
+            self._entry("regex", "2026.7.10", ["Apache-2.0 AND CNRI-Python"]),
+            self._entry("regex", "6.1.0", ["MIT"], language="node"),
+        ]
+        across = osrb_inventory.unanimous_package_licenses(entries)
+        self.assertEqual("Apache-2.0 AND CNRI-Python", across[("regex", "python")])
+        self.assertEqual("MIT", across[("regex", "node")])
+
+    def test_it_is_the_last_tier_and_never_overrides_an_exact_match(self) -> None:
+        entry = self._entry("pkg", "2.0")
+        licence, source = osrb_inventory.resolve_license(
+            entry,
+            {("m", "pkg", "2.0"): "BSD-3-Clause"},   # exact attribution wins
+            {},
+            None,
+            {("pkg", "python"): "MIT"},
+        )
+        self.assertEqual(("BSD-3-Clause", "attribution"), (licence, source))
+        # with no exact match, the fallback fills what would be UNKNOWN
+        licence, source = osrb_inventory.resolve_license(
+            entry, {}, {}, None, {("pkg", "python"): "MIT"})
+        self.assertEqual(("MIT", "another-version"), (licence, source))
+
 if __name__ == "__main__":
     unittest.main()

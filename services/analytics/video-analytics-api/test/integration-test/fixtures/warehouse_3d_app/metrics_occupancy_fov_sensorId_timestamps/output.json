@@ -1,3 +1,20 @@
 {
-  "fovOccupancy": []
+  "fovOccupancy": [
+    {
+      "type": "Agility_Digit_Humanoid",
+      "averageCount": 2
+    },
+    {
+      "type": "Fourier_GR1_T2_Humanoid",
+      "averageCount": 4
+    },
+    {
+      "type": "Person",
+      "averageCount": 9
+    },
+    {
+      "type": "Nova_Carter",
+      "averageCount": 1
+    }
+  ]
 }

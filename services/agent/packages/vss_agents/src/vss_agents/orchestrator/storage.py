@@ -16,13 +16,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import StrEnum
 import os
 from pathlib import Path
-import shutil
-import subprocess
-import tempfile
 from typing import TYPE_CHECKING
 from typing import Final
 
@@ -32,23 +27,6 @@ if TYPE_CHECKING:
 DEFAULT_PERMISSION_RELATIVE_ROOTS: Final[tuple[str, ...]] = ("data_log", "agent_eval", "models")
 DEFAULT_PERMISSION_MODE: Final[int] = 0o777
 ALERTS_ENGINE_RELATIVE_PATHS: Final[tuple[str, ...]] = ("engines/gdino", "engines/rtdetr-its")
-
-NGC_ENV_API_KEY: Final[str] = "NGC_CLI_API_KEY"
-NGC_DOWNLOAD_TIMEOUT_S: Final[int] = 1800
-NGC_TMP_DIR_PREFIX: Final[str] = "vss-search-models-"
-
-
-class ArtifactKind(StrEnum):
-    FILE = "file"
-    DIRECTORY = "dir"
-
-
-@dataclass(frozen=True)
-class ModelArtifact:
-    package_ref: str
-    downloaded_relative_path: str
-    output_name: str
-    artifact_kind: ArtifactKind
 
 
 def resolve_config_path(path_value: str | Path) -> Path:
@@ -77,103 +55,6 @@ def resolve_required_absolute_file(
     if not resolved_path.is_file():
         raise error_type(f"{missing_label} not found: {resolved_path}")
     return resolved_path
-
-
-def _artifact_is_valid(path: Path, kind: ArtifactKind) -> bool:
-    if kind == ArtifactKind.FILE:
-        return path.is_file()
-    if kind == ArtifactKind.DIRECTORY:
-        return path.is_dir()
-
-
-def ensure_model_artifacts(
-    data_directory: str | Path,
-    ngc_cli_api_key: str,
-    *,
-    artifacts: tuple[ModelArtifact, ...],
-) -> None:
-    """Ensure required profile model artifacts exist under ``<data_directory>/models``."""
-
-    mdx_data_dir = Path(data_directory).expanduser().resolve()
-    models_dir = mdx_data_dir / "models"
-    try:
-        models_dir.mkdir(parents=True, exist_ok=True)
-    except PermissionError as exc:
-        raise RuntimeError(f"Permission denied creating model directory: {models_dir}") from exc
-
-    missing_artifacts = [
-        artifact
-        for artifact in artifacts
-        if not _artifact_is_valid(models_dir / artifact.output_name, artifact.artifact_kind)
-    ]
-    if not missing_artifacts:
-        print("=== Model Artifacts ===")
-        print("Required model artifacts are already present.")
-        print()
-        return
-
-    if not ngc_cli_api_key:
-        missing_names = ", ".join(sorted({artifact.output_name for artifact in missing_artifacts}))
-        raise RuntimeError(
-            "Profile requires model artifacts but some are missing: "
-            f"{missing_names}. Provide NGC_CLI_API_KEY to auto-download them."
-        )
-
-    print("=== Model Artifacts ===")
-    print("Downloading missing model artifacts from NGC...")
-    print()
-
-    ngc_env = os.environ.copy()
-    ngc_env[NGC_ENV_API_KEY] = ngc_cli_api_key
-
-    with tempfile.TemporaryDirectory(prefix=NGC_TMP_DIR_PREFIX) as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        for package_ref in sorted({artifact.package_ref for artifact in missing_artifacts}):
-            try:
-                result = subprocess.run(
-                    ["ngc", "registry", "model", "download-version", package_ref],
-                    capture_output=True,
-                    text=True,
-                    timeout=NGC_DOWNLOAD_TIMEOUT_S,
-                    cwd=str(tmp_path),
-                    env=ngc_env,
-                )
-            except FileNotFoundError as exc:
-                raise RuntimeError(f"Failed to download required model package: {package_ref}") from exc
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError(
-                    f"Failed to download required model package: {package_ref} "
-                    f"(timed out after {NGC_DOWNLOAD_TIMEOUT_S}s)"
-                ) from exc
-            if result.returncode != 0:
-                details = result.stderr.strip() or result.stdout.strip() or f"exit code {result.returncode}"
-                raise RuntimeError(f"Failed to download required model package: {package_ref}\n{details}")
-
-        for artifact in missing_artifacts:
-            source_path = tmp_path / artifact.downloaded_relative_path
-            if not _artifact_is_valid(source_path, artifact.artifact_kind):
-                raise RuntimeError(f"Downloaded model artifact is missing or invalid: {source_path}")
-
-            destination_path = models_dir / artifact.output_name
-            # output_name may include nested directories (e.g. rtdetr-its/model.onnx),
-            # so ensure parent directories exist before moving downloaded artifacts.
-            destination_path.parent.mkdir(parents=True, exist_ok=True)
-            if destination_path.exists():
-                try:
-                    if destination_path.is_dir():
-                        shutil.rmtree(destination_path)
-                    else:
-                        destination_path.unlink()
-                except PermissionError as exc:
-                    raise RuntimeError(f"Permission denied while replacing model artifact: {destination_path}") from exc
-
-            try:
-                shutil.move(str(source_path), str(destination_path))
-            except PermissionError as exc:
-                raise RuntimeError(f"Permission denied writing model artifact: {destination_path}") from exc
-
-    print(f"Model artifacts are ready at: {models_dir}")
-    print()
 
 
 def ensure_required_directories(

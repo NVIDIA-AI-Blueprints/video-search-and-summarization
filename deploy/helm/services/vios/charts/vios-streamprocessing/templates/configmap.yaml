@@ -30,6 +30,10 @@ data:
 {{- $esH := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
 {{- $redisAddr := .Values.redisServerAddress | default (printf "%s:6379" $redisH) }}
 {{- $kafkaAddr := .Values.kafkaServerAddress | default (printf "%s:9092" $kafkaH) }}
+{{- $rtviVlmH := ternary (printf "%s-vss-rtvi-vlm" .Release.Name) "vss-rtvi-vlm" $pfx }}
+{{- $rtviVlmAddr := .Values.rtviVlmServerAddress | default (printf "%s:8000" $rtviVlmH) }}
+{{- $viosGlobal := index $g "vios" | default dict }}
+{{- $notificationConfig := .Values.notificationConfig | default (index $viosGlobal "notificationConfig" | default "") | default (.Files.Get "configs/notification_config.json") }}
 {{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "%s:9200/mdx-raw*" $esH) }}
 {{- $cloudStorage := .Values.cloudStorageEndpoint | default "http://127.0.0.1:9000" }}
 {{- $mqttHost := ternary (printf "%s-mosquitto" .Release.Name) "mosquitto" $pfx }}
@@ -52,7 +56,7 @@ data:
 {{- end }}
 {{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "__USE_SOFTWARE_PATH__" ($softwarePath | toString) | replace "__STATIC_TURNURL_LIST__" ($turnUrls | toJson) | indent 4 }}
   notification_config.json: |
-{{ .Files.Get "configs/notification_config.json" | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr |  indent 4 }}
+{{ $notificationConfig | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | indent 4 }}
   adaptor_config.json: |
 {{ .Files.Get "configs/adaptor_config.json" | indent 4 }}
   vst_storage.json: |

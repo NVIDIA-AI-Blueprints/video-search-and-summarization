@@ -244,12 +244,13 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`monitoring.nodeExporter.enabled`** | **`true`** | Enable the node exporter DaemonSet for host-level metrics. |
 | **`monitoring.dcgmExporter.enabled`** | **`false`** | Stays off because the GPU Operator already runs `nvidia-dcgm-exporter`. Enable only on clusters without the GPU Operator. |
 
-##### `cameraInfo`
+##### `global.cameraInfo`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| **`cameraInfo.enabled`** | **`false`** | Enable live RTSP camera registration. When `true`, also set `bp-configurator` env `SENSOR_INFO_SOURCE=file` so the configurator reads the sensor list from this ConfigMap rather than discovering NVStreamer files. |
-| **`cameraInfo.sensors`** | **`[]`** | List of RTSP camera entries. Each entry takes `camera_name`, `rtsp_url`, `group_id`, and `region`. |
+| **`global.cameraInfo.enabled`** | **`false`** | Enable live RTSP camera registration. Also flips `bp-configurator`'s `SENSOR_INFO_SOURCE` env entry to `file` automatically, so no other setting is needed. |
+| **`global.cameraInfo.sensors`** | **`[]`** | List of RTSP camera entries: `camera_name`, `rtsp_url`, `group_id`, `region`. For a handful of cameras. |
+| **`global.cameraInfo.sensorsFile`** | **`""`** | Raw JSON content (strict JSON, no comments). Takes priority over `sensors` when set. Copy `../camera_configs/camera_info.example.json` somewhere outside the repo, fill in real cameras, and point `--set-file` at that path. Fails the render if the JSON is invalid or missing a `sensors` key. |
 
 ##### `vssIngress`
 

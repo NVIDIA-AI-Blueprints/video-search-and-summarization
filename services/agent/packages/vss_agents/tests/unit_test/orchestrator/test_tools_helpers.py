@@ -20,8 +20,6 @@ import pytest
 from vss_agents.orchestrator.tools import ContainerLogsInput
 from vss_agents.orchestrator.tools import HardwareResolutionConfig
 from vss_agents.orchestrator.tools import LruRegistry
-from vss_agents.orchestrator.tools import ModelArtifactEntry
-from vss_agents.orchestrator.tools import ModelPackageConfig
 from vss_agents.orchestrator.tools import OrchestratorToolConfig
 from vss_agents.orchestrator.tools import _truncate_text_to_max_bytes
 
@@ -165,29 +163,35 @@ class TestHardwareResolutionConfig:
 
 
 class TestOrchestratorToolConfig:
-    def test_rejects_unknown_model_artifact_profile(self):
-        with pytest.raises(ValidationError, match="unsupported profile key"):
-            OrchestratorToolConfig(
-                deployments_dir="/tmp/deploy",
-                source_compose_yaml="/tmp/compose.yml",
-                source_env="/tmp/{profile}.env",
-                mdx_data_dir="/tmp/mdx",
-                output_dir="/tmp/out",
-                mdx_data_directories=("models",),
-                model_artifacts={
-                    "not-a-profile": (
-                        ModelPackageConfig(
-                            package_ref="nvidia/pkg:1",
-                            artifacts=(ModelArtifactEntry(src="a", out="b", kind="file"),),
-                        ),
-                    )
-                },
-                model_resolution={
-                    "hardware": {
-                        "edge_profiles": ["DGX-SPARK"],
-                        "edge_allowed_profiles": ["base"],
-                        "edge_device_ids": {"llm": "0"},
-                        "hardware_profiles": {"H100": {}},
-                    }
-                },
-            )
+    @staticmethod
+    def _config_kwargs(**overrides):
+        kwargs = {
+            "deployments_dir": "/tmp/deploy",
+            "source_compose_yaml": "/tmp/compose.yml",
+            "source_env": "/tmp/{profile}.env",
+            "mdx_data_dir": "/tmp/mdx",
+            "output_dir": "/tmp/out",
+            "mdx_data_directories": ("data_log/kafka", "models"),
+            "model_resolution": {
+                "hardware": {
+                    "edge_profiles": ["DGX-SPARK"],
+                    "edge_allowed_profiles": ["base"],
+                    "edge_device_ids": {"llm": "0"},
+                    "hardware_profiles": {"H100": {}},
+                }
+            },
+        }
+        kwargs.update(overrides)
+        return kwargs
+
+    def test_accepts_mdx_data_directories(self):
+        config = OrchestratorToolConfig(**self._config_kwargs())
+
+        assert config.mdx_data_directories == ("data_log/kafka", "models")
+
+    def test_requires_mdx_data_directories(self):
+        kwargs = self._config_kwargs()
+        del kwargs["mdx_data_directories"]
+
+        with pytest.raises(ValidationError, match="mdx_data_directories"):
+            OrchestratorToolConfig(**kwargs)

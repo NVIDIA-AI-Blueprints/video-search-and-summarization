@@ -146,9 +146,18 @@ accepts the original line protocol:
 | `data: {"choices":[{"delta":{"content":"…"}}]}` | assistant text |
 | `data: [DONE]` | turn complete |
 | `intermediate_data: {…}` | tool/skill step (`parent_id` nests it) |
+| `artifact_data: {…}` | validated artifact delivered to `onAnswer`, not rendered as prose |
 | `error_data: {…}` | turn-level failure |
 | `interaction_data: {…}` | unsupported-interaction error |
 | `: keepalive` | ignored |
+
+`artifact_data` carries the same `{version, kind, payload}` frame as the agent
+API's `artifact.created`, is validated the same way, and gets the same
+`mediaProxyUrl` rewriting. Any `vss.*` kind travels; which tab acts on one is
+decided by that tab's answer handler, so a new kind needs no transport change.
+Without this frame an agent answering in prose leaves the feature tabs empty,
+and embedding the payload in the reply text costs tokens and invites truncated
+or invented fields.
 
 Legacy content is also read from `choices[0].message.content` and the plain
 `value` / `output` / `answer` fields because agent servers differ.

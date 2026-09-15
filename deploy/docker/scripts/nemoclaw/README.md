@@ -92,7 +92,8 @@ Two things invoke it. Skill-eval CI is the usual one:
 [`notebook_setup_adapter.py`](../../../../.github/skill-eval/nemoclaw/notebook_setup_adapter.py)
 loads the runner by file path (`.github` is not an importable package), maps the
 eval's provider contract onto the notebook-native variables below, and runs
-`deploy_nemoclaw.ipynb` then `deploy_vss_orchestrator.ipynb` on the trial box.
+`deploy_nemoclaw.ipynb`, `deploy_nemo_relay.ipynb`, then
+`deploy_vss_orchestrator.ipynb` on the trial box.
 The other is anyone running the command above by hand or from their own
 automation. Everything CI-specific — the provider mapping, the scoped MCP
 cleanup, the runtime env file — stays in the adapter; the runner has no

@@ -21,6 +21,18 @@ global:
   # Comma-separated static TURN URLs (username:password@host:port). See
   # deploy/helm/industry-profiles/warehouse-operations/TURN-SERVER.md.
   turnServerUrl: ""
+  # Live RTSP cameras. Global so bp-configurator's chart (services/bp-configurator)
+  # can read enabled too and flip SENSOR_INFO_SOURCE to "file".
+  # Large fleet: --set-file global.cameraInfo.sensorsFile=camera_info.json
+  cameraInfo:
+    enabled: false
+    configMapName: warehouse-camera-info
+    sensorsFile: ""
+    sensors: []
+      # - camera_name: <camera_name_1>
+      #   rtsp_url: <rtsp_url_1>
+      #   group_id: <group_id_1>
+      #   region: <region_1>
 
 bp-configurator:
   enabled: true
@@ -456,18 +468,6 @@ monitoring:
     enabled: true
   dcgmExporter:
     enabled: false
-
-# Live RTSP cameras. Enable, list the sensors, then switch the bp-configurator
-# env SENSOR_INFO_SOURCE to "file" so the configurator registers these with VST
-# instead of discovering nvstreamer files.
-cameraInfo:
-  enabled: false
-  configMapName: warehouse-camera-info
-  sensors: []
-    # - camera_name: cam-01
-    #   rtsp_url: rtsp://10.0.0.10:554/stream
-    #   group_id: dock
-    #   region: north
 
 # HAProxy Ingress, mirroring the vss-haproxy-ingress compose service.
 # Optional HAProxy path-based ingress (requires a cluster-wide HAProxy ingress

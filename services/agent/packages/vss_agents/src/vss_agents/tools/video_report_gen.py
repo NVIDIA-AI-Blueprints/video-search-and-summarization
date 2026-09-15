@@ -1004,30 +1004,55 @@ async def _inject_snapshots(
         logger.warning("Video Analysis Report: No timestamps found in VLM response for snapshot injection")
         return content
 
-    image_urls = await asyncio.gather(
-        *[
-            picture_url_tool.ainvoke(
+    async def _fetch_snapshot(ts: TimestampMatch) -> tuple[TimestampMatch, str | None]:
+        try:
+            snapshot = await picture_url_tool.ainvoke(
                 input={
                     "sensor_id": sensor_id,
                     "start_time": ts.seconds,
                 }
             )
-            for ts in timestamps
-        ]
-    )
+        except Exception as e:
+            logger.warning(
+                "Video Analysis Report: Snapshot at %.1fs failed (%s); skipping image",
+                ts.seconds,
+                e,
+            )
+            return ts, None
+        image_src = _snapshot_image_src(snapshot)
+        if not image_src:
+            logger.warning(
+                "Video Analysis Report: Snapshot at %.1fs returned no image URL; skipping image",
+                ts.seconds,
+            )
+        return ts, image_src
+
+    fetched = await asyncio.gather(*[_fetch_snapshot(ts) for ts in timestamps])
     result_content = content
-    for ts, image_url in reversed(list(zip(timestamps, image_urls, strict=False))):
+    for ts, image_src in reversed(fetched):
+        if not image_src:
+            continue
         # Format seconds to readable string for alt text
         mins = int(ts.seconds) // 60
         secs = int(ts.seconds) % 60
         time_str = f"{mins:02d}:{secs:02d}"
         # Use HTML img tag for size control with minimal spacing
         # Add style to control margins for PDF rendering
-        image_md = (
-            f'\n\n<img src="{image_url.image_url}" alt="Snapshot at {time_str}" width="400" style="margin: 10px 0;">\n'
-        )
+        image_md = f'\n\n<img src="{image_src}" alt="Snapshot at {time_str}" width="400" style="margin: 10px 0;">\n'
         result_content = result_content[: ts.position] + image_md + result_content[ts.position :]
     return result_content
+
+
+def _snapshot_image_src(snapshot: Any) -> str | None:
+    """Extract a usable image URL from a snapshot tool result, if any."""
+    if snapshot is None:
+        return None
+    image_src = getattr(snapshot, "image_url", None)
+    if not image_src and isinstance(snapshot, dict):
+        image_src = snapshot.get("image_url")
+    if isinstance(image_src, str) and image_src.strip():
+        return image_src.strip()
+    return None
 
 
 def _clean_vlm_response(vlm_response: str) -> str:

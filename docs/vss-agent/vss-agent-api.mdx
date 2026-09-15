@@ -8,9 +8,27 @@ The VSS Agent exposes HTTP endpoints for chat, workflow execution, and video man
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| `POST` | `/generate` | Execute workflow (non-streaming) |
-| `POST` | `/generate/stream` | Execute workflow (streaming) |
-| `POST` | `/chat` | OpenAI-compatible chat (non-streaming) |
-| `POST` | `/chat/stream` | OpenAI-compatible chat (streaming) |
+| `POST` | `/v1/workflow` | Execute workflow (non-streaming) |
+| `POST` | `/v1/workflow/stream` | Execute workflow (streaming) |
+| `POST` | `/v1/chat` | OpenAI-compatible chat (non-streaming) |
+| `POST` | `/v1/chat/stream` | OpenAI-compatible chat (streaming) |
+| `POST` | `/v1/chat/completions` | OpenAI Chat Completions API (`stream` selects the mode) |
+
+The deployment defaults point the Reference Agentic UI chat surfaces at `/v1/chat/stream`.
+
+## Interactive requests
+
+The `/v1/workflow` and `/v1/chat` routes support human-in-the-loop. When the workflow needs input from the user, the route emits an `interaction_required` SSE event carrying `execution_id`, `interaction_id`, the prompt to show, and a `response_url` of the form `/executions/<execution_id>/interactions/<interaction_id>/response`, then holds the connection open. `POST` the answer to that URL and the same stream resumes.
+
+`/v1/chat/completions` follows the OpenAI specification exactly and is non-interactive unless the front end is configured with `enable_interactive_extensions: true`.
+
+## Legacy routes
+
+| Method | Endpoint | Replaced by |
+| --- | --- | --- |
+| `POST` | `/generate`, `/generate/stream` | `/v1/workflow`, `/v1/workflow/stream` |
+| `POST` | `/chat`, `/chat/stream` | `/v1/chat`, `/v1/chat/stream` |
+
+These paths are still served for existing integrations, but they run non-interactively: a workflow that pauses for user input over a legacy route never receives an answer. Any client that must handle an interaction — including the UI chat surfaces — has to use the `/v1` routes. Set `disable_legacy_routes: true` on the front end to stop serving them.
 
 Additional video-management routes (`/api/v1/videos` and related) are served by the same process when the agent UI is enabled. Refer to the running service OpenAPI document at `http://<host>:8000/openapi.json` for the complete live surface.

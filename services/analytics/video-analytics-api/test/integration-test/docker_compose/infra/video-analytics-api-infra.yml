@@ -13,26 +13,54 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Infra services for video-analytics-api integration tests (Elasticsearch only).
-# Environment variables are set by generate_env.sh and sourced from .env.
-
+# Test-only overrides layered on the deployment's own infra compose.
+#
+# This file is never used alone. test.sh and cleanup.sh stack it between the
+# deployment's definitions and this suite's app:
+#
+#   docker compose -f $INFRA_DIR/compose.yml \
+#                  -f infra/video-analytics-api-infra.yml \
+#                  -f apps/video-analytics-api-app.yml
+#
+# so Elasticsearch and its init container are the deployment's own services --
+# same image, config, index templates and ingest pipeline a real deployment
+# serves -- selected through COMPOSE_PROFILES. Everything else the deployment
+# defines (Kafka, Redis, logstash, Kibana, HAProxy) stays defined but unstarted.
+#
+# Layering with -f rather than `include:` is deliberate: Compose rejects any
+# attempt to redefine a resource that `include:` imported, and the volumes below
+# have to be redefined.
+#
+# Elasticsearch storage: the deployment binds elastic-data and elastic-logs to a
+# host directory under $VSS_DATA_DIR so an operator can inspect a node's storage
+# across restarts. A test suite needs the opposite, and neither of the obvious
+# swaps works:
+#
+#   - Keeping the bind mounts means `compose down --volumes` removes the volume
+#     but cannot empty the host directory behind it, so run N+1 starts on run
+#     N's index -- and Elasticsearch leaves tens of megabytes of uid-1000 files
+#     inside the checkout that the developer's own account cannot delete.
+#   - Plain Docker-managed volumes are created root-owned, and this image runs
+#     as uid 1000, so Elasticsearch cannot write its logs and the JVM aborts
+#     before startup.
+#
+# So mount neither: give Elasticsearch tmpfs for both paths, which is what this
+# suite used before it adopted the deployment's definition. Storage is genuinely
+# per-run, nothing lands in the checkout, and ownership is a non-issue. The
+# config mount has to be restated because `!override` replaces the whole list.
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.3
-    network_mode: "host"
-    environment:
-      ES_JAVA_OPTS: "-Xmx1024m -Xms256m"
-      discovery.type: single-node
-    volumes:
-      - $INTEGRATION_TEST_DIR/docker_compose/infra/elk/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    volumes: !override
+      - ${VSS_APPS_DIR}/services/infra/elk/elasticsearch/configs/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
     tmpfs:
       - /tmp/elastic/data
       - /tmp/elastic/logs
-    container_name: web-api-elastic
-    restart: always
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
-      interval: 10s
-      timeout: 10s
-      retries: 60
-      start_period: 30s
+
+# Nothing references these once the service above stops mounting them, but the
+# deployment still declares them; drop the bind so a stray creation cannot fail
+# on a missing host directory.
+volumes:
+  elastic-data:
+    driver_opts: !reset null
+  elastic-logs:
+    driver_opts: !reset null
