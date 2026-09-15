@@ -13,10 +13,58 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Shared HTTP-PUT-with-retry helper for the Elasticsearch init scripts
+# Shared helpers for the Elasticsearch init scripts
 # (elasticsearch-ilm-policy-creation.sh, elasticsearch-template-creation.sh,
-# elasticsearch-ingest-pipeline-creation.sh). Meant to be `source`d, not run
+# elasticsearch-ingest-pipeline-creation.sh): waiting for a healthy cluster,
+# PUT-with-retry, and the common error exit. Meant to be `source`d, not run
 # directly.
+
+############################
+## function: exit_with_msg
+############################
+exit_with_msg(){
+    echo -e "$1 \nExiting Script."
+    exit 1
+}
+
+#################################
+## function: check_ES_status
+## args: [context]
+## Blocks until Elasticsearch reports a healthy cluster (via the cluster
+## health API, wait_for_status=yellow) or ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS
+## is exceeded (in which case it exits the script). `context`, if given, is
+## folded into the log lines (e.g. "ILM policy creation") so each caller keeps
+## its own distinct message without duplicating the check itself.
+#################################
+check_ES_status(){
+    local context="${1:-}"
+    local suffix=""
+    [ -n "${context}" ] && suffix=" for ${context}"
+
+    echo "Attempting to connect to the Elasticsearch server${suffix}."
+
+    local attempt=1
+    local response
+    local health_url="${ELASTICSEARCH_URL}/_cluster/health?local=false&wait_for_status=yellow&wait_for_events=normal&timeout=${ELASTICSEARCH_HEALTH_TIMEOUT:-5s}"
+
+    while [ "${attempt}" -le "${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS}" ]; do
+        if response=$(curl -fsS "${health_url}" 2>&1); then
+            if echo "${response}" | grep -Eq '"timed_out"[[:space:]]*:[[:space:]]*false'; then
+                echo "Elasticsearch cluster health is ready${suffix}."
+                return
+            fi
+            echo "Elasticsearch cluster health check timed out waiting for a ready master."
+        else
+            echo "Unable to connect to ES: ${response}"
+        fi
+
+        echo "Trying to reconnect - (attempt ${attempt}/${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS})"
+        attempt=$((attempt+1))
+        sleep "${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL}"
+    done
+
+    exit_with_msg "Max attempts to connect to a ready Elasticsearch cluster reached."
+}
 
 #################################
 ## function: is_retryable_http_code

@@ -18,11 +18,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=elasticsearch-retry-lib.sh
-source "${SCRIPT_DIR}/elasticsearch-retry-lib.sh"
+# shellcheck source=elasticsearch-init-helpers.sh
+source "${SCRIPT_DIR}/elasticsearch-init-helpers.sh"
 
 # ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
-ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS="${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS:-0}"
 ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS="${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}"
 ELASTICSEARCH_CONNECTION_RETRY_INTERVAL="${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL:-5}"
 ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-http://elasticsearch:9200}"
@@ -39,25 +38,6 @@ echo "ELASTICSEARCH_ENABLE_EMBEDDINGS: ${ELASTICSEARCH_ENABLE_EMBEDDINGS}"
 # Embedding dimensions for Elasticsearch dense_vector
 ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM:-1536}
 ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM=${ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM:-768}
-
-#################################
-## function: check_ES_status
-#################################
-check_ES_status(){
-
-    echo "Attempting to connect to the Elasticsearch server."
-
-    # Wait for ES to come up
-    until curl --output /dev/null --silent --head --fail -XGET "$ELASTICSEARCH_URL"; do
-        if [ ${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS} -eq ${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS} ];then
-            exit_with_msg "Max attempts to connect to ES reached."
-        fi
-
-        ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS=$(($ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS+1))
-        echo "Unable to connect to ES. Trying to reconnect - (attempt $ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS/$ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS)"
-        sleep "${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL}"
-    done
-}
 
 ####################################
 ## function: create_index_template
@@ -589,19 +569,11 @@ setup_elasticsearch_templates(){
     echo "Successfully created index templates."
 }
 
-############################
-## function: exit_with_msg
-############################
-exit_with_msg(){
-    echo -e "$1 \nExiting Script."
-    exit 1
-}
-
 ######################
 ## Main
 ######################
 main(){
-    check_ES_status
+    check_ES_status "index template creation"
     setup_elasticsearch_templates
 }
 main

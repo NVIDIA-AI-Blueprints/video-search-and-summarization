@@ -18,11 +18,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=elasticsearch-retry-lib.sh
-source "${SCRIPT_DIR}/elasticsearch-retry-lib.sh"
+# shellcheck source=elasticsearch-init-helpers.sh
+source "${SCRIPT_DIR}/elasticsearch-init-helpers.sh"
 
 # ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
-ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS="${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS:-0}"
 ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS="${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}"
 ELASTICSEARCH_CONNECTION_RETRY_INTERVAL="${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL:-5}"
 ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-http://elasticsearch:9200}"
@@ -31,21 +30,6 @@ ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-http://elasticsearch:9200}"
 # wait above, and from ILM's/templates' own knobs, for consistency and independent tuning)
 ELASTICSEARCH_INGEST_PIPELINE_CREATE_MAX_ATTEMPTS="${ELASTICSEARCH_INGEST_PIPELINE_CREATE_MAX_ATTEMPTS:-12}"
 ELASTICSEARCH_INGEST_PIPELINE_CREATE_RETRY_INTERVAL="${ELASTICSEARCH_INGEST_PIPELINE_CREATE_RETRY_INTERVAL:-10}"
-
-#################################
-## function: check_ES_status
-#################################
-check_ES_status(){
-    echo "Attempting to connect to the Elasticsearch server for ingest pipeline creation."
-    until curl --output /dev/null --silent --head --fail -XGET "$ELASTICSEARCH_URL"; do
-        if [ ${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS} -eq ${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS} ];then
-            exit_with_msg "Max attempts to connect to ES reached."
-        fi
-        ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS=$(($ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS+1))
-        echo "Unable to connect to ES. Trying to reconnect - (attempt $ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS/$ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS)"
-        sleep "${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL}"
-    done
-}
 
 ####################################
 ## function: create_ingest_pipeline
@@ -106,19 +90,11 @@ EOF
     create_ingest_pipeline "${pipeline_id}" "${pipeline_config}"
 }
 
-############################
-## function: exit_with_msg
-############################
-exit_with_msg(){
-    echo -e "$1 \nExiting Script."
-    exit 1
-}
-
 ######################
 ## Main
 ######################
 main(){
-    check_ES_status
+    check_ES_status "ingest pipeline creation"
     create_insertion_timestamp_ingest_pipeline
 }
 main "$@"
