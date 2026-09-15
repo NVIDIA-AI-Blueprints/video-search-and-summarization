@@ -78,7 +78,7 @@ Given the cumulative diff `base...pull-request/<N>`:
 
 | Changed path | Matrix effect |
 |---|---|
-| `skills/<skill>/evals/<spec>.json` (or legacy `eval/`) | dispatch **just** `(skill, spec)` |
+| `skills/<skill>/evals/<spec>.json`, `evals/<group>/<spec>.json` (or legacy `eval/`) | dispatch **just** `(skill, spec)` |
 | any other file under `skills/<skill>/` (SKILL.md, references, skill-card…) | dispatch **all** specs under `<skill>` |
 | `.github/skill-eval/adapters/<skill>/**` | dispatch **all** specs under `<skill>` |
 | `.github/skill-eval/{envs,verifiers}/**`, `skills_eval_agent.py`, `AGENTS.md`, `skills-eval.yml`, `plan_matrix.py` | **skip eval entirely** (harness-only — validate via manual dispatch) |

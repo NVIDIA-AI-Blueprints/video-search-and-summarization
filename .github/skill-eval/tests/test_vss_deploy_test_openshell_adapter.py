@@ -144,7 +144,7 @@ def test_conflicting_gpu_demand_is_reported(tmp_path: Path) -> None:
 def test_solve_script_writes_the_resolved_profile() -> None:
     adapter = _load_adapter()
     with mock.patch.dict("os.environ", {"HARDWARE_PROFILE": "H200"}, clear=False):
-        script = adapter.generate_solve_script("lvs", "RTXPRO6000BW")
+        script = adapter.generate_solve_script("lvs_api_ops", "RTXPRO6000BW")
     assert "HARDWARE_PROFILE=RTXPRO6000BW" in script
     assert "HARDWARE_PROFILE=H200" not in script
 
@@ -154,7 +154,7 @@ def test_guest_marker_is_skipped_outside_ci(tmp_path: Path) -> None:
     assert (
         adapter.write_guest_leg_marker(
             dest_dir=tmp_path,
-            environ={"EVAL_SPEC_STEM": "lvs"},
+            environ={"EVAL_SPEC_STEM": "lvs_api_ops"},
         )
         is None
     )
@@ -181,18 +181,18 @@ def test_guest_marker_names_the_spec_for_a_fleet_probe(tmp_path: Path) -> None:
         environ={
             "RUNNER_NAME": "h200-2-g3-xyz",
             "EVAL_SKILL": "vss-deploy-test-openshell",
-            "EVAL_SPEC_STEM": "lvs",
-            "EVAL_SPEC_PATH": "skills/vss-deploy-test-openshell/evals/lvs.json",
-            "EVAL_SLUG": "vss-deploy-test-openshell__lvs__gpus-1",
+            "EVAL_SPEC_STEM": "lvs_api_ops",
+            "EVAL_SPEC_PATH": "skills/vss-deploy-test-openshell/evals/vss-summarize-video/lvs_api_ops.json",
+            "EVAL_SLUG": "vss-deploy-test-openshell__lvs_api_ops__gpus-1",
             "GITHUB_RUN_ID": "12345",
             "EVAL_PLATFORM": "",
         },
     )
     assert path == tmp_path / "current-leg-h200-2-g3-xyz.json"
     payload = json.loads(path.read_text())
-    assert payload["spec_stem"] == "lvs"
+    assert payload["spec_stem"] == "lvs_api_ops"
     assert payload["skill"] == "vss-deploy-test-openshell"
-    assert payload["slug"] == "vss-deploy-test-openshell__lvs__gpus-1"
+    assert payload["slug"] == "vss-deploy-test-openshell__lvs_api_ops__gpus-1"
     assert payload["run_id"] == "12345"
     assert payload["hardware_profile"] == "H200"
     assert payload["eval_platform"] == ""
@@ -215,10 +215,14 @@ def test_guest_marker_write_failure_does_not_raise(
 
 
 def test_every_eval_spec_stem_is_a_profile() -> None:
-    """CI `--spec …/evals/<stem>.json` rejects stems missing from PROFILES."""
+    """CI `--spec` stems must exist as nested or top-level evals JSON."""
     adapter = _load_adapter()
     evals = REPO_ROOT / "skills" / "vss-deploy-test-openshell" / "evals"
-    stems = {p.stem for p in evals.glob("*.json") if p.name != "evals.json"}
+    stems = {
+        p.stem
+        for p in evals.rglob("*.json")
+        if p.name != "evals.json"
+    }
     assert stems == set(adapter.PROFILES)
 
 

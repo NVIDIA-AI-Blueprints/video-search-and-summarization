@@ -219,11 +219,15 @@ class RealSpecCorpus(unittest.TestCase):
     """
 
     def setUp(self):
+        skills = plan_matrix.REPO_ROOT / "skills"
         self.specs = sorted(
             p
-            for p in (plan_matrix.REPO_ROOT / "skills").rglob("*.json")
-            if p.parent.name in ("eval", "evals")
-            and p.name not in plan_matrix.EXCLUDED_SPEC_NAMES
+            for p in skills.rglob("*.json")
+            if p.name not in plan_matrix.EXCLUDED_SPEC_NAMES
+            and any(
+                part in ("eval", "evals")
+                for part in p.relative_to(skills).parts
+            )
         )
         if not self.specs:
             self.skipTest("no specs on disk")
@@ -284,7 +288,7 @@ class RealSpecCorpus(unittest.TestCase):
         finally:
             os.environ.pop("OPENSHELL_GPU_FLEET", None)
 
-        self.assertEqual(len(include), 52)
+        self.assertEqual(len(include), 45)
         self.assertEqual(
             len({leg["spec_path"] for leg in include}),
             len(include),
@@ -296,7 +300,7 @@ class RealSpecCorpus(unittest.TestCase):
             )
             for key in {(leg.get("cohort") or "brev") for leg in include}
         }
-        self.assertEqual(counts, {"brev": 21, "openshell": 31})
+        self.assertEqual(counts, {"brev": 21, "openshell": 24})
         for leg in include:
             if not leg["local_gpu"]:
                 self.assertEqual(leg["kind"], "eval")
@@ -845,16 +849,58 @@ class OpenshellGpuFleet(unittest.TestCase):
         skill_evals = (
             plan_matrix.REPO_ROOT / "skills" / "vss-deploy-test-openshell"
         )
+        evals_root = skill_evals / "evals"
         for spec in sorted(
             p
-            for p in skill_evals.glob("eval*/*.json")
+            for p in evals_root.rglob("*.json")
             if p.name not in plan_matrix.EXCLUDED_SPEC_NAMES
+            and len(p.relative_to(evals_root).parts) <= 2
         ):
             relative = spec.relative_to(plan_matrix.REPO_ROOT).as_posix()
             requirements, error = plan_matrix.openshell_requirements(relative)
             self.assertIsNone(error, relative)
             self.assertIsNotNone(requirements, relative)
             self.assertIn(requirements["gpu_count"], (1, 2), relative)
+
+    def test_spec_info_accepts_one_grouping_folder(self):
+        skill = "skills/vss-deploy-test-openshell"
+        self.assertEqual(
+            plan_matrix._spec_info(f"{skill}/evals/openshell/base.json", skill),
+            ("evals", "base"),
+        )
+        self.assertEqual(
+            plan_matrix._spec_info(
+                f"{skill}/evals/vss-search-archive/search.json", skill
+            ),
+            ("evals", "search"),
+        )
+        self.assertIsNone(
+            plan_matrix._spec_info(f"{skill}/evals/too/deep/x.json", skill)
+        )
+
+    def test_nested_eval_json_dispatches_one_openshell_leg(self):
+        plan_matrix.specs_for_skill = self._orig_specs
+        plan_matrix.adapter_exists = lambda s: s == "vss-deploy-test-openshell"
+        plan_matrix.spec_platform_config = self._orig_platforms
+        try:
+            inc = plan_matrix.build_matrix(
+                [
+                    "skills/vss-deploy-test-openshell/evals/vss-search-archive/search.json"
+                ]
+            )
+        finally:
+            plan_matrix.specs_for_skill = lambda s: FAKE_SPECS.get(s, [])
+            plan_matrix.adapter_exists = lambda s: s in SKILLS_WITH_ADAPTERS
+            plan_matrix.spec_platform_config = lambda p: {
+                "L40S": {"gpu_count": 1}
+            }
+        self.assertEqual(len(inc), 1)
+        self.assertEqual(inc[0]["spec_stem"], "search")
+        self.assertEqual(
+            inc[0]["spec_path"],
+            "skills/vss-deploy-test-openshell/evals/vss-search-archive/search.json",
+        )
+        self.assertEqual(inc[0]["cohort"], plan_matrix.OPENSHELL_COHORT_TAG)
 
     def test_future_matrix_uses_one_leg_per_spec_across_all_cohorts(self):
         current_specs = plan_matrix.specs_for_skill
@@ -869,14 +915,14 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 52)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 52)
+        self.assertEqual(len(legs), 45)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 45)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
-        self.assertEqual(counts, {"brev": 21, "openshell": 31})
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 31)
+        self.assertEqual(counts, {"brev": 21, "openshell": 24})
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 24)
         # Every OpenShell leg travels without a SKU: no platform for the
         # adapter to size from, and no hardware profile for the workflow to
         # export. The guest's own card decides both.
@@ -885,7 +931,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             for leg in legs
             if leg.get("cohort") == plan_matrix.OPENSHELL_COHORT_TAG
         ]
-        self.assertEqual(len(openshell), 31)
+        self.assertEqual(len(openshell), 24)
         for leg in openshell:
             self.assertEqual(leg["platform"], "", leg["slug"])
             self.assertEqual(leg["hardware_profile"], "", leg["slug"])
@@ -946,7 +992,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         plan_matrix.adapter_exists = lambda s: s == "vss-deploy-test-openshell"
         try:
             inc = plan_matrix.build_matrix(
-                ["skills/vss-deploy-test-openshell/evals/base.json"]
+                ["skills/vss-deploy-test-openshell/evals/openshell/base.json"]
             )
         finally:
             plan_matrix.openshell_requirements = original

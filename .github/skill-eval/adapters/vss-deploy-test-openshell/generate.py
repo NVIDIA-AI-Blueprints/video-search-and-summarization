@@ -17,12 +17,13 @@ The adapter does **not** pick LLM/VLM placement — the
 runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
-    Profiles : base, lvs, warehouse, search, ask-video, plus one spec
-               per Skills Eval Daily operational/VDR job (same stem)
+    Profiles : openshell/{base,warehouse,report-rag} plus one spec per
+               Skills Eval Daily operational/VDR job, nested under
+               evals/<source-skill>/ (stem matches the daily spec)
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
                DGX-SPARK, IGX-THOR this guest has (warehouse, search,
-               and vdr_2 are two-GPU jobs; ask-video deploys base then
-               chains to vss-ask-video)
+               warehouse, search, and vdr_2 are two-GPU jobs; daily
+               ask-video is `base_profile_video_understanding`)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
@@ -298,49 +299,8 @@ PROFILES: dict[str, dict] = {
     "base": {
         "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
     },
-    "lvs": {
-        "description": "VSS LVS profile — long video summarization",
-    },
     "warehouse": {
         "description": "VSS warehouse blueprint — RT-DETR 2D (`bp_wh_2d`) with always-local RTVI VLM, agent, UI, behavior analytics, Kafka",
-    },
-    "search": {
-        "description": "VSS search profile — RT-CV, RT-Embed, remote VLM proxy, then vss-search-archive CLI",
-        "bundled_skills": ("vss-search-archive", "vss-ask-video"),
-    },
-    "ask-video": {
-        "description": "VSS base profile plus vss-ask-video CLI (`vss vlm run`)",
-        "profile": "base",
-        "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
-    },
-    "summarize": {
-        "description": "VSS LVS profile plus vss-summarize-video CLI (`vss summarize run`)",
-        "profile": "lvs",
-        "bundled_skills": ("vss-summarize-video", "vss-manage-video-io-storage"),
-    },
-    "vios": {
-        "description": "VSS base profile plus vss-manage-video-io-storage CLI (`vss vios`)",
-        "profile": "base",
-        "bundled_skills": ("vss-manage-video-io-storage",),
-    },
-    "query-analytics": {
-        "description": "Warehouse agents plus vss-query-analytics (VA API / VA-MCP read path)",
-        "profile": "warehouse",
-        "bundled_skills": ("vss-query-analytics",),
-    },
-    "alerts": {
-        "description": "Warehouse agents plus vss-manage-alerts (alert-bridge already in bp_wh)",
-        "profile": "warehouse",
-        "bundled_skills": ("vss-manage-alerts", "vss-query-analytics"),
-    },
-    "report": {
-        "description": "VSS base profile plus vss-generate-video-report",
-        "profile": "base",
-        "bundled_skills": (
-            "vss-generate-video-report",
-            "vss-manage-video-io-storage",
-            "vss-query-analytics",
-        ),
     },
     "report-rag": {
         "description": "VSS LVS profile plus vss-generate-video-report-rag",
@@ -349,6 +309,10 @@ PROFILES: dict[str, dict] = {
             "vss-generate-video-report-rag",
             "vss-summarize-video",
         ),
+    },
+    "search": {
+        "description": "VSS search profile — RT-CV, RT-Embed, remote VLM proxy, then vss-search-archive CLI",
+        "bundled_skills": ("vss-search-archive", "vss-ask-video", "vss-build-vision-ai"),
     },
     # Skills Eval Daily jobs, same spec stems as the operations /
     # vss-build-vision-ai corpus. `search` is already an OpenShell spec.
@@ -632,16 +596,14 @@ def _render_eval_spec(spec: dict, profile: str, platform: str) -> dict:
 # Test script generation
 # ---------------------------------------------------------------------------
 
-def generate_test_script(spec_name: str, profile: str) -> str:
+def generate_test_script(spec_name: str, profile: str, step: int = 1) -> str:
     """Wrapper test.sh that invokes the generic LLM-as-judge verifier
     against the rendered eval spec shipped alongside it. Harbor reads
     /logs/verifier/reward.txt.
 
-    No `profile` argument is needed by the script itself anymore — the
-    harness used to consume the deployed-profile marker written here
-    for instance reuse, but that machinery (active-deploy.txt +
-    `_ensure_prerequisite_deployed`) is gone. Each trial deploys
-    inside its own agent turn now; nothing reads a marker."""
+    `step` is the 1-based index into `expects[]`, matching Skills Eval
+    Daily adapters so a copied daily spec is judged the same way.
+    """
     del profile  # retained in signature for caller compatibility
     return (
         "#!/bin/bash\n"
@@ -655,7 +617,7 @@ def generate_test_script(spec_name: str, profile: str) -> str:
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
-        f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
+        f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
         "\n"
         "exit 0\n"
     )
@@ -821,30 +783,24 @@ def generate_task(
     # being collapsed into the generic "Deploy the <profile> profile" fallback.
     spec_query: str | None = None
     expected_services: list[str] = []
-    if skill_dir is not None:
-        spec_path = skill_dir / "evals" / f"{profile}.json"
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
-        if spec_path.exists():
-            try:
-                raw = json.loads(spec_path.read_text())
-                declared_services = raw.get("expected_services") or []
-                if not isinstance(declared_services, list) or any(
-                    not isinstance(name, str) for name in declared_services
-                ):
-                    raise ValueError("expected_services must be a string list")
-                expected_services = declared_services
-                expects = raw.get("expects") or []
-                if expects and isinstance(expects[0].get("query"), str):
-                    import re as _re
-                    spec_query = _re.sub(
-                        r"\{\{\s*platform\s*\}\}", platform, expects[0]["query"]
-                    )
-            except Exception as exc:  # noqa: BLE001
-                print(f"WARN: could not read spec query for {profile}: {exc}",
-                      file=sys.stderr)
+    spec_path = _spec_path_for(profile, skill_dir)
+    if spec_path is not None:
+        try:
+            raw = json.loads(spec_path.read_text())
+            declared_services = raw.get("expected_services") or []
+            if not isinstance(declared_services, list) or any(
+                not isinstance(name, str) for name in declared_services
+            ):
+                raise ValueError("expected_services must be a string list")
+            expected_services = declared_services
+            expects = raw.get("expects") or []
+            if expects and isinstance(expects[0].get("query"), str):
+                spec_query = re.sub(
+                    r"\{\{\s*platform\s*\}\}", platform, expects[0]["query"]
+                )
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARN: could not read spec query for {profile}: {exc}",
+                  file=sys.stderr)
 
     (task_dir / "instruction.md").write_text(
         generate_instruction(profile, platform, spec_query=spec_query),
@@ -909,15 +865,8 @@ def generate_task(
     # -- tests/: wrapper + generic judge + rendered eval spec --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    if skill_dir:
-        spec_path = skill_dir / "evals" / f"{profile}.json"
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
-    else:
-        spec_path = None
-    if spec_path and spec_path.exists():
+    spec_path = _spec_path_for(profile, skill_dir)
+    if spec_path is not None:
         raw_spec = json.loads(spec_path.read_text())
         rendered = _render_eval_spec(raw_spec, profile, platform)
         spec_name = spec_path.name
@@ -928,7 +877,7 @@ def generate_task(
     else:
         (tests_dir / "test.sh").write_text(
             "#!/bin/bash\n"
-            f"echo 'FAIL: no eval spec at skills/vss-deploy-test-openshell/evals/{profile}.json' >&2\n"
+            f"echo 'FAIL: no eval spec named {profile}.json under skills/vss-deploy-test-openshell/evals/' >&2\n"
             "mkdir -p /logs/verifier\n"
             "echo 0 > /logs/verifier/reward.txt\n"
             "exit 0\n"
@@ -966,14 +915,29 @@ def generate_task(
 # ---------------------------------------------------------------------------
 
 def _spec_path_for(profile: str, skill_dir: Path | None) -> Path | None:
-    """`evals/<profile>.json`, accepting the legacy `eval/` directory."""
+    """`evals/<profile>.json` or `evals/<group>/<profile>.json`.
+
+    The OpenShell pack nests daily jobs under the source skill folder.
+    """
     if skill_dir is None:
         return None
+    matches: list[Path] = []
     for sub in ("evals", "eval"):
-        candidate = skill_dir / sub / f"{profile}.json"
-        if candidate.exists():
-            return candidate
-    return None
+        root = skill_dir / sub
+        if not root.is_dir():
+            continue
+        for candidate in root.rglob(f"{profile}.json"):
+            if len(candidate.relative_to(root).parts) > 2:
+                continue
+            matches.append(candidate)
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise ValueError(
+            f"duplicate spec stem {profile!r}: "
+            + ", ".join(m.as_posix() for m in matches)
+        )
+    return matches[0]
 
 
 def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, int] | None:
@@ -1033,8 +997,8 @@ def _spec_gpu_count(
     spec_path = _spec_path_for(profile, skill_dir)
     if spec_path is None:
         return None, (
-            "no spec at skills/vss-deploy-test-openshell/evals/"
-            f"{profile}.json"
+            "no spec named "
+            f"{profile}.json under skills/vss-deploy-test-openshell/evals/"
         )
     try:
         spec = json.loads(spec_path.read_text())

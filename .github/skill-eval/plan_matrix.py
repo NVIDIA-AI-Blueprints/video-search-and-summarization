@@ -10,7 +10,8 @@ to $GITHUB_OUTPUT so the workflow can fan out one `eval` leg per spec.
 
 Rules (see docs/matrix-dispatch-design.md). `<skill>` is a skill dir under one
 of EVAL_SKILL_ROOTS; skills outside those roots dispatch nothing:
-  - skills/<skill>/evals/<spec>.json (or legacy eval/) changed
+  - skills/<skill>/evals/<spec>.json (or evals/<group>/<spec>.json, or
+    legacy eval/) changed
         -> dispatch just that (skill, spec)
   - any other skills/<skill>/** file changed (SKILL.md, references, ...)
         -> dispatch every spec under <skill>
@@ -133,13 +134,24 @@ def skill_for_file(path: str, skills: dict[str, Path]) -> str | None:
 
 
 def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:
-    """(eval_dir, stem) if `path` is skill_reldir/(evals|eval)/<stem>.json directly."""
+    """(eval_dir, stem) if `path` is a dispatchable spec under evals/ or eval/.
+
+    Accepts `evals/<stem>.json` and one grouping folder
+    (`evals/<group>/<stem>.json`) so OpenShell can nest daily jobs by
+    source skill without flattening every JSON into evals/.
+    """
     for eval_dir in ("evals", "eval"):
         prefix = f"{skill_reldir}/{eval_dir}/"
         if path.startswith(prefix):
             rest = path[len(prefix):]
-            if "/" not in rest and rest.endswith(".json"):
-                return eval_dir, rest[:-5]
+            if not rest.endswith(".json"):
+                return None
+            parts = rest.split("/")
+            if any(part.startswith(".") for part in parts):
+                return None
+            if len(parts) not in (1, 2):
+                return None
+            return eval_dir, Path(rest).stem
     return None
 
 # `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
@@ -221,7 +233,7 @@ OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "openshell-h200-active",
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
-SMOKE_SPEC = "skills/vss-deploy-test-openshell/evals/base.json"
+SMOKE_SPEC = "skills/vss-deploy-test-openshell/evals/openshell/base.json"
 # OpenShell GHA guests are only for this test skill. Every other skill
 # keeps `local_gpu: False` and lands on the Brev coordinator (`vss-eval`).
 OPENSHELL_SKILLS = frozenset({"vss-deploy-test-openshell"})
@@ -506,8 +518,10 @@ def specs_for_skill(skill: str, skills_map: dict[str, Path] | None = None) -> li
         d = base / eval_dir
         if not d.is_dir():
             continue
-        for p in sorted(d.glob("*.json")):
+        for p in sorted(d.rglob("*.json")):
             if p.name in EXCLUDED_SPEC_NAMES:
+                continue
+            if len(p.relative_to(d).parts) > 2:
                 continue
             rel = p.relative_to(REPO_ROOT).as_posix()
             found.append((rel, eval_dir, p.stem))
