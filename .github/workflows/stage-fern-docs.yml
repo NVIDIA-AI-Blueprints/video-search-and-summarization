@@ -34,6 +34,7 @@ on:
     paths:
       - 'docs/**'
       - 'fern/**'
+      - 'services/analytics/video-analytics-api/src/app/specification/openapi.json'
       - '.github/workflows/stage-fern-docs.yml'
 
 permissions:

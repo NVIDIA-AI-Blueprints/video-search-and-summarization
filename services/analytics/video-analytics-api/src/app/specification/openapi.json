@@ -5,7 +5,7 @@
         "description": "REST API endpoints in Video Analytics API microservice",
         "license": {
             "name": "Apache 2.0",
-            "url": ""
+            "url": "https://www.apache.org/licenses/LICENSE-2.0"
         },
         "version": "3.3.0"
     },
@@ -15,6 +15,7 @@
             "x-internal": false
         }
     ],
+    "security": [],
     "tags": [
         {
             "name": "metrics",
@@ -31,6 +32,14 @@
         {
             "name": "behavior",
             "description": "Endpoint(s) related to behavior metadata."
+        },
+        {
+            "name": "alerts",
+            "description": "Endpoint(s) related to alerts."
+        },
+        {
+            "name": "incidents",
+            "description": "Endpoint(s) related to incidents."
         },
         {
             "name": "clustering",
@@ -59,7 +68,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Average Speed",
+                "summary": "Get average speed",
+                "description": "Calculate average object speed for a place or sensor over a time range, with optional filters for stationary and short-lived behaviors.",
                 "operationId": "controller.metrics.getAverageSpeed",
                 "parameters": [
                     {
@@ -256,7 +266,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Flowrate",
+                "summary": "Get flow rate",
+                "description": "Calculate object flow rate for a place or sensor over a time window, using the requested flow-rate unit and optional behavior filters.",
                 "operationId": "controller.metrics.getFlowrate",
                 "parameters": [
                     {
@@ -492,7 +503,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Average Speed and Flowrate",
+                "summary": "Get average speed and flow rate",
+                "description": "Calculate average object speed and flow rate for a place or sensor over a time range.",
                 "operationId": "controller.metrics.getAverageSpeedWithFlowrate",
                 "parameters": [
                     {
@@ -702,7 +714,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Average Speed and Travel Time",
+                "summary": "Get average speed and travel time",
+                "description": "Calculate average object speed and corridor travel time for a place over a time range.",
                 "operationId": "controller.metrics.getAverageSpeedWithTravelTime",
                 "parameters": [
                     {
@@ -900,7 +913,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get effective and actual tripwire counts for a sensor.",
+                "summary": "Get tripwire counts",
+                "description": "Get effective and actual tripwire crossing counts for a sensor over a time range, optionally filtered by tripwire and object type.",
                 "operationId": "controller.metrics.getTripwireCounts",
                 "parameters": [
                     {
@@ -1072,7 +1086,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Calculate occupancy from IN/OUT tripwire events and occupancy reset values. Use the '/metrics/occupancy/reset' endpoint to reset a place's occupancy and keep the calculated occupancy accurate.",
+                "summary": "Get tripwire-based occupancy",
+                "description": "Calculate occupancy for a place at a specified time from IN/OUT tripwire events and occupancy reset values. Use the occupancy reset endpoint to establish an accurate baseline.",
                 "operationId": "controller.metrics.getTripwireBasedOccupancy",
                 "parameters": [
                     {
@@ -1223,7 +1238,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Reset the occupancy of a place",
+                "summary": "Reset place occupancy",
+                "description": "Reset the occupancy baseline for a place using the values in the request body.",
                 "operationId": "controller.metrics.resetOccupancy",
                 "security": [
                     {
@@ -1357,7 +1373,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get a histogram of tripwire counts. Please check the input descriptions to check its dependencies.",
+                "summary": "Get tripwire count histogram",
+                "description": "Aggregate tripwire crossing counts into histogram buckets for a sensor using either an explicit time range or a relative lookback window.",
                 "operationId": "controller.metrics.getTripwireHistogram",
                 "parameters": [
                     {
@@ -1556,7 +1573,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Fov Occupancy of a sensor.",
+                "summary": "Get FOV occupancy",
+                "description": "Get field-of-view occupancy counts for a sensor over a time range, optionally filtered by object type.",
                 "operationId": "controller.metrics.getFovOccupancy",
                 "parameters": [
                     {
@@ -1718,7 +1736,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Fov Histogram of a sensor. Please check the input descriptions to check its dependencies.",
+                "summary": "Get FOV occupancy histogram",
+                "description": "Aggregate field-of-view occupancy into histogram buckets for a sensor using either an explicit time range or a relative lookback window.",
                 "operationId": "controller.metrics.getFovHistogram",
                 "parameters": [
                     {
@@ -1907,7 +1926,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Roi Occupancy of a sensor.",
+                "summary": "Get ROI occupancy",
+                "description": "Get region-of-interest occupancy counts for a sensor over a time range, optionally filtered by ROI and object type.",
                 "operationId": "controller.metrics.getRoiOccupancy",
                 "parameters": [
                     {
@@ -2079,7 +2099,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Roi Histogram of a sensor. Please check the input descriptions to check its dependencies.",
+                "summary": "Get ROI occupancy histogram",
+                "description": "Aggregate region-of-interest occupancy into histogram buckets for a sensor using either an explicit time range or a relative lookback window.",
                 "operationId": "controller.metrics.getRoiHistogram",
                 "parameters": [
                     {
@@ -2278,7 +2299,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get occupancy of a place based on mutually exclusive rois",
+                "summary": "Get mutually exclusive ROI occupancy",
+                "description": "Calculate occupancy for a place from mutually exclusive ROIs at a specified time, with optional object details and timing controls.",
                 "operationId": "controller.metrics.getOccupancyBasedOnMutuallyExclusiveRoi",
                 "parameters": [
                     {
@@ -2461,7 +2483,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get the count of different object types at a given place and timestamp",
+                "summary": "Get tracker-based occupancy",
+                "description": "Get object counts by type from tracker data for a place at a specified time.",
                 "operationId": "controller.metrics.getOccupancyTracker",
                 "parameters": [
                     {
@@ -2613,7 +2636,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Calculates the histogram of average occupancy of each object type at a given place within a time range",
+                "summary": "Get tracker occupancy histogram",
+                "description": "Aggregate average tracker-based occupancy by object type into time buckets for a place using either an explicit time range or a relative lookback window.",
                 "operationId": "controller.metrics.getTripwireOccupancyHistogram",
                 "parameters": [
                     {
@@ -2791,7 +2815,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Space Utilization Histogram of roi(s). Please check the input descriptions to check its dependencies.",
+                "summary": "Get space utilization histogram",
+                "description": "Aggregate ROI space-utilization values into time buckets, optionally filtered by ROI identifiers and time window.",
                 "operationId": "controller.metrics.getSpaceUtilizationHistogram",
                 "parameters": [
                     {
@@ -2975,7 +3000,8 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Get Last Processed Timestamp",
+                "summary": "Get last processed timestamp",
+                "description": "Get the most recent timestamp processed for a specified place or sensor.",
                 "operationId": "controller.metrics.getLastProcessedTimestamp",
                 "parameters": [
                     {
@@ -3118,9 +3144,9 @@
                 "tags": [
                     "metrics"
                 ],
-                "summary": "Calculate segment speed data",
+                "summary": "Get road-segment speeds",
                 "operationId": "controller.roadNetwork.averageSegmentSpeed",
-                "description": "Calculate segment speed data",
+                "description": "Calculate average object speed for specified road-network segments at a place over a time range.",
                 "parameters": [
                     {
                         "name": "place",
@@ -3302,7 +3328,8 @@
                 "tags": [
                     "tracker"
                 ],
-                "summary": "Unique Object Count for a given Place. The data from multiple sensors are processed to estimate an approximate number of Objects / Persons in a given place",
+                "summary": "Get unique object count",
+                "description": "Estimate the number of unique objects observed across sensors at a specified time, optionally filtered by place, sensor, or object identifier.",
                 "operationId": "controller.tracker.getUniqueObjectCount",
                 "parameters": [
                     {
@@ -3487,7 +3514,8 @@
                 "tags": [
                     "tracker"
                 ],
-                "summary": "Unique Object Count with locations for a given Place. The data from multiple sensors are processed to estimate an approximate number of Objects / Persons and their locations in a given place",
+                "summary": "Get unique object count and locations",
+                "description": "Estimate unique objects and their locations across sensors for a place, with timing controls for RTLS and AMR data.",
                 "operationId": "controller.tracker.getUniqueObjectCountWithLocations",
                 "parameters": [
                     {
@@ -3688,7 +3716,8 @@
                 "tags": [
                     "tracker"
                 ],
-                "summary": "Unique Objects, represents an Object tracked across multiple sensors, Each object comprise of list of Behavior or Tracklets. The Behavior represents an object traversal/appearance etc in a given sensor with respect to time and space. Please check the input descriptions to check its dependencies.",
+                "summary": "Get tracked objects",
+                "description": "Retrieve objects tracked across one or more sensors, including their constituent behaviors or tracklets, for a specified time range and optional filters.",
                 "operationId": "controller.tracker.getUniqueObjects",
                 "parameters": [
                     {
@@ -3898,7 +3927,8 @@
                 "tags": [
                     "tracker"
                 ],
-                "summary": "List of behaviors and their corresponding locations. Please check the input descriptions to check its dependencies.",
+                "summary": "Get behavior locations",
+                "description": "Retrieve behaviors and their corresponding locations over a time range, optionally filtered by behavior identifiers or global object identifier.",
                 "operationId": "controller.tracker.getBehaviorLocations",
                 "parameters": [
                     {
@@ -4071,7 +4101,9 @@
                 "tags": [
                     "tracker"
                 ],
-                "summary": "Get the last record either from RTLS or AMR(mission control) source. The record can be further filtered based on objectType that can be obtained from a particular source. Example: 'Person' objectType can be used in case of RTLS source, 'AMR' objectType can be used in case of AMR source",
+                "summary": "Get the latest RTLS or AMR record",
+                "description": "Retrieve the latest record for a place from an RTLS or AMR source, optionally filtered by object type.",
+                "operationId": "controller.tracker.getLastRecord",
                 "parameters": [
                     {
                         "name": "place",
@@ -4225,6 +4257,7 @@
                     "frames"
                 ],
                 "summary": "Get raw frame metadata",
+                "description": "Retrieve raw frame metadata for a sensor, optionally filtered by frame identifier, timestamp, time range, and result limit.",
                 "operationId": "controller.frames.getRawFrames",
                 "parameters": [
                     {
@@ -4415,6 +4448,7 @@
                     "frames"
                 ],
                 "summary": "Get enhanced frame metadata",
+                "description": "Retrieve enhanced frame metadata for a sensor, optionally filtered by frame identifier, timestamp, time range, and result limit.",
                 "operationId": "controller.frames.getEnhancedFrames",
                 "parameters": [
                     {
@@ -4604,7 +4638,8 @@
                 "tags": [
                     "frames"
                 ],
-                "summary": "Get bev frame metadata",
+                "summary": "Get BEV frame metadata",
+                "description": "Retrieve bird's-eye-view frame metadata for a sensor, optionally filtered by frame identifier, timestamp, time range, and result limit.",
                 "operationId": "controller.frames.getBevFrames",
                 "parameters": [
                     {
@@ -4853,7 +4888,8 @@
                 "tags": [
                     "frames"
                 ],
-                "summary": "Get frame based alerts",
+                "summary": "Get frame-based alerts",
+                "description": "Retrieve frame-based alerts over a time range, optionally filtered by sensor, alert type, and result limit.",
                 "operationId": "controller.frames.getAlerts",
                 "parameters": [
                     {
@@ -5029,7 +5065,8 @@
                 "tags": [
                     "frames"
                 ],
-                "summary": "Get frame based objects with high confidence. These object detections can be used for reference embedding, based on which object search can be done. Please check the input descriptions to check its dependencies.",
+                "summary": "Get high-confidence frame objects",
+                "description": "Retrieve high-confidence object detections from frames for use as reference embeddings in object search, filtered by sensor and time range.",
                 "operationId": "controller.frames.getHighConfidenceObjects",
                 "parameters": [
                     {
@@ -5216,7 +5253,8 @@
                 "tags": [
                     "frames"
                 ],
-                "summary": "Get the latest proximity clusters for a given sensorId and time range.",
+                "summary": "Get proximity clusters",
+                "description": "Retrieve the latest proximity-detection clusters for a sensor within a specified time range.",
                 "operationId": "controller.frames.getProximityClusters",
                 "parameters": [
                     {
@@ -5367,7 +5405,8 @@
                 "tags": [
                     "frames"
                 ],
-                "summary": "It is used to calculate pts in milliseconds for a given frameId. It can also be used to calculate estimated pts for a given timestamp. This endpoint is used for video files (sensors) that are streamed using nvstreamer.",
+                "summary": "Get frame PTS",
+                "description": "Calculate a frame presentation timestamp in milliseconds from a frame identifier, or estimate it from a timestamp, for video sources streamed with NVStreamer.",
                 "operationId": "controller.frames.getPts",
                 "parameters": [
                     {
@@ -5521,7 +5560,8 @@
                 "tags": [
                     "behavior"
                 ],
-                "summary": "Retrieves behavior(s) from database.",
+                "summary": "Get behaviors",
+                "description": "Retrieve behavior records from the database using optional sensor, place, object, time-range, query-string, and result-limit filters.",
                 "operationId": "controller.behavior.getBehavior",
                 "parameters": [
                     {
@@ -5731,7 +5771,8 @@
                 "tags": [
                     "behavior"
                 ],
-                "summary": "It is used to get the start and end pts of a behavior in milliseconds. This endpoint is used for video files (sensors) that are streamed using nvstreamer.",
+                "summary": "Get behavior PTS",
+                "description": "Calculate the start and end presentation timestamps of a behavior in milliseconds for video sources streamed with NVStreamer.",
                 "operationId": "controller.behavior.getPts",
                 "parameters": [
                     {
@@ -5881,7 +5922,8 @@
                 "tags": [
                     "alerts"
                 ],
-                "summary": "Get Alerts",
+                "summary": "Get alerts",
+                "description": "Retrieve alerts using optional sensor, place, object, time-range, query-string, VLM-verification, and result-limit filters.",
                 "operationId": "controller.alerts.getAlerts",
                 "parameters": [
                     {
@@ -6117,7 +6159,8 @@
                 "tags": [
                     "alerts"
                 ],
-                "summary": "Get Places or sensor with severe Alerts",
+                "summary": "Get severe alerts by place or sensor",
+                "description": "Identify places or sensors with severe alerts over a time range, optionally filtered by alert type and VLM-verification result.",
                 "operationId": "controller.alerts.getSevereAlerts",
                 "parameters": [
                     {
@@ -6322,7 +6365,8 @@
                 "tags": [
                     "incidents"
                 ],
-                "summary": "Get Incidents",
+                "summary": "Get incidents",
+                "description": "Retrieve incidents using optional sensor, place, object, time-range, category, query-string, VLM-verification, and result-limit filters.",
                 "operationId": "controller.incidents.getIncidents",
                 "parameters": [
                     {
@@ -6572,7 +6616,8 @@
                 "tags": [
                     "incidents"
                 ],
-                "summary": "Get Places or sensor with severe Incidents",
+                "summary": "Get severe incidents by place or sensor",
+                "description": "Identify places or sensors with severe incidents, optionally filtered by time range, incident type, and VLM-verification result.",
                 "operationId": "controller.incidents.getSevereIncidents",
                 "parameters": [
                     {
@@ -6682,7 +6727,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/SevereAlerts"
+                                    "$ref": "#/components/schemas/SevereIncidents"
                                 }
                             }
                         }
@@ -6791,7 +6836,8 @@
                 "tags": [
                     "clustering"
                 ],
-                "summary": "Get Clustering Results of behaviors belonging to a sensor.",
+                "summary": "Get behavior clusters",
+                "description": "Retrieve behavior-clustering results for a sensor over a time range, with optional cluster, sample-size, and distance filters.",
                 "operationId": "controller.clustering.getClusteringResults",
                 "parameters": [
                     {
@@ -6975,7 +7021,8 @@
                 "tags": [
                     "clustering"
                 ],
-                "summary": "Adds label to a behavior cluster.",
+                "summary": "Label a behavior cluster",
+                "description": "Assign a label to a behavior cluster using the cluster details in the request body.",
                 "operationId": "controller.clustering.addClusterLabel",
                 "security": [
                     {
@@ -7109,7 +7156,8 @@
                 "tags": [
                     "events"
                 ],
-                "summary": "Get Tripwire Events. Please check the input descriptions to check its dependencies.",
+                "summary": "Get tripwire events",
+                "description": "Retrieve tripwire events over a time range, optionally filtered by sensor, place, tripwire, object type, effective status, and result limit.",
                 "operationId": "controller.events.getTripwireEvents",
                 "parameters": [
                     {
@@ -7315,7 +7363,9 @@
                 "tags": [
                     "events"
                 ],
-                "summary": "Provides the list of events sent by mission control (AMR) which have occurred within a given timerange at a particular place",
+                "summary": "Get AMR events",
+                "description": "Retrieve events sent by mission control for a place within a time range, optionally filtered by object type and result limit.",
+                "operationId": "controller.events.getAMREvents",
                 "parameters": [
                     {
                         "name": "place",
@@ -7486,7 +7536,8 @@
                 "tags": [
                     "events"
                 ],
-                "summary": "Get Roi Events. Please check the input descriptions to check its dependencies.",
+                "summary": "Get ROI events",
+                "description": "Retrieve region-of-interest events over a time range, optionally filtered by sensor, place, ROI, object type, and result limit.",
                 "operationId": "controller.events.getRoiEvents",
                 "parameters": [
                     {
@@ -7680,7 +7731,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Upload config file.",
+                "summary": "Upload a configuration file",
+                "description": "Upload a configuration file for the document type specified in the path.",
                 "operationId": "controller.config.uploadFile",
                 "security": [
                     {
@@ -7818,7 +7870,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Update configs of microservices.",
+                "summary": "Update service configuration",
+                "description": "Submit a behavior analytics configuration update for the document type specified in the path.",
                 "operationId": "controller.config.update",
                 "security": [
                     {
@@ -7966,7 +8019,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Get status of a behavior analytics config update request.",
+                "summary": "Get configuration update status",
+                "description": "Retrieve the processing status of a behavior analytics configuration update by document type and reference identifier.",
                 "operationId": "controller.config.getUpdateStatus",
                 "security": [
                     {
@@ -8065,7 +8119,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Insert/Update calibration of sensor(s). If calibration attributes like: 'version', 'calibrationType' or 'osmURL' needs to be changed, then use '/config/upload-file/{docType}' to upload the calibration file.",
+                "summary": "Upsert sensor calibration",
+                "description": "Insert or update calibration data for one or more sensors. To change file-level attributes such as version, calibration type, or OSM URL, upload the complete calibration file instead.",
                 "operationId": "controller.config.upsertCalibration",
                 "security": [
                     {
@@ -8199,7 +8254,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Delete calibration of sensor(s).",
+                "summary": "Delete sensor calibration",
+                "description": "Delete calibration data for the sensor identifiers provided in the request body.",
                 "operationId": "controller.config.deleteSensorCalibration",
                 "security": [
                     {
@@ -8349,7 +8405,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Gets calibration config from database",
+                "summary": "Get calibration configuration",
+                "description": "Retrieve calibration configuration from the database, optionally for a specific sensor or as an empty result when no configuration is found.",
                 "operationId": "controller.config.getCalibrationConfig",
                 "parameters": [
                     {
@@ -8488,7 +8545,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Gets the last modification timestamp of calibration data",
+                "summary": "Get calibration modification timestamp",
+                "description": "Retrieve the timestamp of the most recent calibration-data modification.",
                 "operationId": "controller.config.getCalibrationLastModifiedTimestamp",
                 "responses": {
                     "200": {
@@ -8595,7 +8653,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Gets road network config from database",
+                "summary": "Get road-network configuration",
+                "description": "Retrieve the road-network configuration stored in the database.",
                 "operationId": "controller.config.getRoadNetworkConfig",
                 "responses": {
                     "200": {
@@ -8712,7 +8771,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Gets usd assets config from database",
+                "summary": "Get USD asset configuration",
+                "description": "Retrieve the USD asset configuration stored in the database.",
                 "operationId": "controller.config.getUsdAssetsConfig",
                 "responses": {
                     "200": {
@@ -8829,7 +8889,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Upload calibration images.",
+                "summary": "Upload calibration images",
+                "description": "Upload one or more calibration images together with a single image-metadata JSON file.",
                 "operationId": "controller.config.uploadCalibrationImages",
                 "security": [
                     {
@@ -8863,7 +8924,7 @@
                                     }
                                 },
                                 "required": [
-                                    "placeImages",
+                                    "images",
                                     "imageMetadata"
                                 ]
                             }
@@ -8986,7 +9047,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Retrieves calibration image.",
+                "summary": "Get a calibration image",
+                "description": "Retrieve a calibration image by sensor or place and view in PNG, JPEG, or SVG format.",
                 "operationId": "controller.config.getCalibrationImage",
                 "parameters": [
                     {
@@ -9153,7 +9215,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Retrieves metadata of calibration images.",
+                "summary": "Get calibration image metadata",
+                "description": "Retrieve calibration image metadata, optionally filtered by sensor, place, or view.",
                 "operationId": "controller.config.getCalibrationImageMetadata",
                 "parameters": [
                     {
@@ -9307,7 +9370,8 @@
                 "tags": [
                     "config"
                 ],
-                "summary": "Delete calibration images.",
+                "summary": "Delete calibration images",
+                "description": "Delete the calibration images identified in the request body and return the deletion result.",
                 "operationId": "controller.config.deleteCalibrationImages",
                 "security": [
                     {
@@ -9441,7 +9505,8 @@
                 "tags": [
                     "sensor"
                 ],
-                "summary": "Provides the list of sensors that overlooks a co-ordinate in the floorplan of a given place",
+                "summary": "Find sensors covering a floor-plan coordinate",
+                "description": "Return the sensors whose field of view covers a specified floor-plan coordinate at a place.",
                 "operationId": "controller.sensor.getSensorLookup",
                 "parameters": [
                     {
@@ -9611,7 +9676,8 @@
                 "tags": [
                     "livez"
                 ],
-                "summary": "Responds if api server is alive.",
+                "summary": "Check service health",
+                "description": "Report whether the Video Analytics API server is running.",
                 "operationId": "controller.livez.isAlive",
                 "responses": {
                     "200": {
@@ -11981,11 +12047,7 @@
                 }
             },
             "ConfigUpdate": {
-                "oneOf": [
-                    {
-                        "$ref": "#/components/schemas/BehaviorAnalyticsConfig"
-                    }
-                ]
+                "$ref": "#/components/schemas/BehaviorAnalyticsConfig"
             },
             "BehaviorAnalyticsConfig": {
                 "type": "object",

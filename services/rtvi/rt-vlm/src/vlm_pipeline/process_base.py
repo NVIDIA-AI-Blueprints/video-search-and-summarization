@@ -265,12 +265,16 @@ class ProcessBase(mp_ctx.Process):
         num_items = len(kwargs["chunk"]) if self._supports_batching() else 1
 
         if isinstance(result, concurrent.futures.Future):
-            if result.exception():
+            if result.cancelled():
+                result = {}
+            elif result.exception():
                 result = result.exception()
             else:
                 result = result.result()
 
-        if isinstance(result, BaseException):
+        if isinstance(result, concurrent.futures.CancelledError):
+            result = {}
+        elif isinstance(result, BaseException):
             logger.error("".join(traceback.format_exception(result)))
             # Preserve ServiceException message and status code if available
             try:
@@ -373,18 +377,22 @@ class ProcessBase(mp_ctx.Process):
         elif isinstance(result, dict):
             # Empty dict returned by process method, send the chunk to final output queue
             for idx in range(num_items):
-                self._final_output_queue.put(
-                    {
-                        "chunk": (
-                            kwargs["chunk"][idx] if self._supports_batching() else kwargs["chunk"]
-                        ),
-                        "chunk_id": (
-                            kwargs["chunk_id"][idx]
-                            if self._supports_batching()
-                            else kwargs["chunk_id"]
-                        ),
-                    }
-                )
+                ret_item = {
+                    "chunk": (
+                        kwargs["chunk"][idx] if self._supports_batching() else kwargs["chunk"]
+                    ),
+                    "chunk_id": (
+                        kwargs["chunk_id"][idx]
+                        if self._supports_batching()
+                        else kwargs["chunk_id"]
+                    ),
+                }
+                for key in ("is_live_stream", "request_id"):
+                    if key in kwargs:
+                        ret_item[key] = (
+                            kwargs[key][idx] if self._supports_batching() else kwargs[key]
+                        )
+                self._final_output_queue.put(ret_item)
         _safe_cuda_empty_cache()
         # Force Garbage Collect
         if os.environ.get("FORCE_PYTHON_GC"):

@@ -29,7 +29,6 @@ interval: 0 # Number of consecutive batches to be skipped for inference
 # Calibration Properties
 calib_file_path: /opt/data/ds-configurator/calibration.json # Calibration file path
 bev_group_name: bev-sensor-1 # BEV group name
-calib_mode: synthetic # Calibration mode
 use_camera_groups: True # Groups cameras for multi-view fusion in synthetic mode
 recentering: True # Recalculates camera coordinates from a reference point
 

@@ -45,7 +45,7 @@ vss configure check
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 vss --version
 ```
 
@@ -127,7 +127,7 @@ For one fresh inspection, use **`vss vlm run`** — never a hand-built VLM reque
 media directly; skip the sensor check):
 
 ```bash
-VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss" vss)
 # Exit 6 means the answer was produced but could not be written to memory.
 check_rc() { [ "$1" -eq 0 ] || [ "$1" -eq 6 ] || { echo "vss vlm run failed (exit $1)" >&2; exit "$1"; }; }
 
@@ -239,7 +239,7 @@ file or the VSS sensor. If a VSS deployment is configured, use Path A
 - Long-form summarization -> `/vss-summarize-video`.
 - Structured reports -> `/vss-generate-video-report`.
 - Existing analytics incidents or metrics -> `/vss-query-analytics`.
-- Deployment/profile changes -> `/vss-deploy-profile`.
+- Deployment/profile changes -> `/vss-build-vision-ai`.
 
 ## Cross-Reference
 

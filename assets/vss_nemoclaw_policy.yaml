@@ -387,7 +387,7 @@ network_policies:
       - { path: /usr/bin/python3.13 }
       - { path: /usr/local/bin/node }
 
-  # Host-CLI skills run `uv run --project services/agent --extra cli vss`.
+  # Host-CLI skills run `uv run --project libs/vss vss`.
   # Pair with the `pypi` policy: uv comes from PyPI, not the astral.sh
   # script (its release assets are not listed).
   #

@@ -606,70 +606,131 @@ Verified alerts include the original fields plus an extended `info` section cont
 
 ## Scaling and Performance Tuning
 
-The Alerts Microservice supports concurrent processing to maximize throughput. This section describes the key configuration parameters for scaling the service to meet your deployment requirements.
+One setting scales the Alerts Microservice: `alert_agent.processes`, the number of pipeline processes one instance runs. Each process uses about one CPU core and holds its own Kafka consumers, event loop, and clients. The concurrency caps toward the VLM and VIOS backends are profile defaults sized to those backends and are described under [Profile defaults](#profile-defaults). This section covers when more processes help, how to configure them, what startup validates, and how to read the metrics that show which stage is limiting throughput.
 
-### Concurrency Model
+### Pipeline Modes
 
-The Alerts Microservice uses a main thread with a fixed-size worker pool for concurrent processing:
+`alert_agent.pipeline_mode` selects how each message is dispatched inside a process. The shipped profile uses `event_loop`, and multi-process scaling requires it.
 
-1. **Main Thread**: Polls alerts from Kafka (or receives via HTTP API) and dispatches them to available workers.
-2. **Worker Threads**: Each worker processes an assigned alert through the full pipeline:
-
-   - Retrieves video URL from VIOS for the alert time window
-   - Renders the prompt with alert context
-   - Passes video URL, prompts and other required inputs to VLM backend for verification
-   - Publishes the verified result to configured sinks
-
-Workers operate independently, allowing multiple alerts to be processed in parallel. The main thread blocks when all workers are busy, providing natural backpressure. The end-to-end latency of external services (VLM, VIOS) directly bounds throughput per worker.
-
-### Key Scaling Parameters
-
-The following parameters control concurrency and throughput:
-
-| Parameter | Default | Impact |
+| Mode | Dispatch | Use |
 | --- | --- | --- |
-| `alert_agent.num_workers` | `1` | Number of concurrent worker threads. Increasing this value scales alert processing throughput roughly linearly until constrained by CPU/memory or downstream service limits (VLM, VIOS). |
-| `alert_agent.chunk_size` | `1` | Number of alerts processed per batch within a worker. Higher values reduce overhead but increase memory usage. |
-| `kafka.max_poll_records` | `10` | Maximum records fetched per Kafka poll. Controls batch size for ingestion; higher values improve throughput but increase memory and latency variance. |
-| `kafka.poll_timeout` | `100` | Kafka consumer poll wait timeout (ms). Lower values reduce latency for sparse traffic; higher values reduce CPU usage. |
-| `kafka.max_poll_interval_ms` | `60000` | Maximum interval between polls before consumer is considered failed. Must exceed worst-case VLM processing time multiplied by batch size. |
+| `sync` | Inline in the batch worker thread, sized by `alert_agent.num_workers` | Reference and rollback mode |
+| `thread_bridge` | Dispatch thread pool with a blocking wait, sized by `alert_agent.async_dispatch_workers` | Legacy asynchronous mode |
+| `event_loop` | One coroutine per message on a persistent event loop, with asynchronous VLM, VIOS, and Elasticsearch clients | Shipped default. Kafka consumption is decoupled from VLM latency |
 
-### Scaling Guidelines
+An invalid value fails startup. When the key is unset, the mode is derived from the deprecated `alert_agent.async_io.enabled` flag; set `pipeline_mode` explicitly instead. `alert_agent.chunk_size` is retired and ignored with a startup warning, as are the per-service switches `async_io.vst_enabled`, `async_io.elastic_enabled`, `async_io.dedup_enabled`, and `async_io.redis_enabled`.
 
-**Vertical Scaling (Single Instance)**
+### Scaling Across Processes
 
-1. **Increase `num_workers`**: Start with the number of CPU cores available. Monitor CPU utilization and increase until VLM backend becomes the bottleneck.
+The pipeline runs inside one Python process, and the interpreter lock allows one thread to execute Python code at a time. A single process therefore uses about one CPU core regardless of the thread count or the host size. `alert_agent.processes` runs the consume and dispatch stack in that many independent operating system processes, each with its own Kafka consumers, event loop, clients, and interpreter lock.
 
-2. **Tune `chunk_size`**: For high-volume deployments, increase to 2-4 to reduce per-message overhead. Keep at 1 for low-latency requirements.
+#### When more processes help
 
-3. **Adjust `max_poll_records`**: Match to `num_workers × chunk_size` for optimal batching. Avoid setting too high to prevent memory pressure.
+Additional processes add CPU capacity only. They help when a single process is consistently near one CPU core and the processed rate stays below the input rate, as described under [Monitoring throughput](#monitoring-throughput). A process below one core is limited by offered traffic or by a downstream service, and more processes add memory and consumer-group members without adding capacity.
 
-**Horizontal Scaling (Multiple Instances)**
+#### Configuration
 
-1. **Kafka Consumer Groups**: Multiple instances of the Alerts Microservice can share the same `event_bridge.kafka_source.group_id` to distribute load across partitions.
+For the Alerts developer profile, edit the following file and redeploy:
 
-2. **Partition Alignment**: Ensure Kafka topic partitions `>=` number of consumer instances for effective load distribution.
+```text
+deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/configs/config.yml
+```
 
-3. **Stateless Design**: The Alerts Microservice is stateless; scale horizontally by adding replicas behind Kubernetes or Docker instances.
+The process count is startup topology. It is not resized while the service runs, and the developer profile does not expose it through `user-overrides.env`.
 
-### Performance Tuning Example
-
-For a deployment targeting 10 alerts/second with average VLM latency of 0.5 seconds:
+A four-process configuration that keeps the profile's instance-wide load on the VLM and VIOS backends unchanged:
 
 ```yaml
 alert_agent:
-  num_workers: 5         # 10 alerts/sec × 0.5 sec latency = 5 concurrent
-  chunk_size: 1          # Process one alert at a time for consistent latency
+  pipeline_mode: event_loop
+  processes: 4
+  startup_timeout_seconds: 60
+  async_dispatch_max_in_flight: 4
+  async_io:
+    max_vlm_concurrent: 1
+    max_vst_concurrent: 2
 
-kafka:
-  max_poll_records: 5    # Match worker count
-  poll_timeout: 100      # Low latency polling
-  max_poll_interval_ms: 30000   # 30 seconds sufficient for fast VLM
+persistence:
+  enabled: true
 ```
 
-<Note>
-For Prometheus metric names, labels, and scrape configuration, see [Metrics](#metrics). In addition, monitor worker utilization (all workers busy indicates a need to scale up), Kafka consumer lag, and host CPU and memory.
-</Note>
+Every per-process cap is multiplied by the process count. The one-process profile sets these caps to 16, 4, and 8; dividing them by four keeps `processes × cap` equal to the shipped values, so the backends see the same load after enabling processes. When the VLM is the limiting service, capacity comes from the VLM side, for example more replicas behind the same endpoint.
+
+#### Rules
+
+1. `processes` above `1` requires `pipeline_mode: event_loop`. The other modes hold their concurrency in threads, with no per-process cap on the load offered to the backends.
+2. `processes` above `1` requires shared alert-configuration storage: `persistence.enabled: true` with Elasticsearch reachable.
+3. Every input topic must have at least as many partitions as consumer-group members, counted per topic and not summed. The members are the pipeline processes of every Alerts Microservice instance that shares the consumer group, so with `replicas` instances:
+
+   ```text
+   replicas × processes ≤ partitions on every input topic
+   ```
+
+   The developer profile creates eight partitions on each topic. One instance can run four processes without changing the Kafka layout; two instances with four processes each use all eight assignments.
+4. Work is spread across processes by Kafka key. The shipped Behavior Analytics pipeline keys `mdx-incidents` by `sensorId`, so every message of one stream lands on one partition and one process, and every process receives work only when there are at least as many active streams as processes. Alerts submitted through the HTTP API are keyed by event id and spread across partitions regardless of stream.
+5. Allocate about one CPU core per pipeline process, plus capacity for the parent and API processes. Each process holds its own Kafka consumers, HTTP connection pools to the VLM and VIOS backends, Elasticsearch clients, and memory, so connection, file-descriptor, and memory use grow with the process count.
+6. Redeploy after changing the process count.
+
+Startup validates the count against the mode, the persistence setting, and the live partition count of every input topic. A combination the deployment cannot honor fails startup with a message that names the topic and its partition count. The service never runs fewer processes than configured. Startup also logs the resolved instance-wide caps, `processes × cap` for each backend.
+
+#### Startup, readiness, and shutdown
+
+- `startup_timeout_seconds` covers topic metadata, prompt seeding, VLM warmup, and every process joining its consumer group. The default is 60 seconds and the minimum is 30. With one process, the startup watchdog stops the instance when the budget runs out. With more than one process, it stops the instance 5 seconds after the budget, so size a startup probe against 65 seconds at the default.
+- `/health` and `/ready` return HTTP 503 until every configured process holds a decided Kafka assignment, and again during a rebalance until the assignment is decided. Do not point a liveness probe at them.
+- The shipped Docker and Helm definitions allow 60 seconds for shutdown. Keep that grace period so in-flight work can drain.
+- A pipeline process that exits takes the instance down, and the orchestrator restarts it. Processes are not respawned individually.
+
+#### Rollback
+
+Set `processes: 1` and redeploy without overlapping the old and new instances. No data migration is needed.
+
+### Scaling Across Instances
+
+Multiple Alerts Microservice instances share `event_bridge.kafka_source.group_id`, and the broker distributes partitions across them. Consumer-group members are instances and processes together, so the partition rule above applies to the product `replicas × processes`. Instances share no state. In-process deduplication relies on every message of one sensor reaching the same member, which holds when the producer keys by `sensorId`, as the shipped Behavior Analytics pipeline does. Confirmed-verdict protection is stored in Elasticsearch and holds across members.
+
+### Monitoring throughput
+
+The service keeps up when the processed rate matches the input rate. Compare the two over the same window:
+
+```text
+input      rate(alert_bridge_events_after_dedup_total[5m])
+processed  rate(alert_bridge_events_total[5m])
+```
+
+When processed stays below input, `alert_bridge_kafka_lag_duration_seconds` grows, because the in-flight bound applies backpressure to the Kafka consumer and unread messages wait in the topic. The stage that is limiting shows as growing wait time:
+
+| Stage | Signal | Capacity Comes From |
+| --- | --- | --- |
+| CPU | Process CPU near one core, `alert_bridge_dispatch_wait_seconds` growing while VLM and VIOS waits stay flat | More pipeline processes |
+| VLM | `alert_bridge_capacity_wait_seconds{service="vlm"}` growing, `alert_bridge_event_loop_vlm_in_flight` pinned at the cap, `alert_bridge_vlm_duration_seconds` rising | VLM backend capacity |
+| VIOS | `alert_bridge_capacity_wait_seconds{service="vst"}` growing, `alert_bridge_vst_duration_seconds` rising | VIOS capacity |
+
+With `processes` above `1`, also watch the following series:
+
+| Metric | Interpretation |
+| --- | --- |
+| `alert_bridge_pipeline_processes_configured` | Requested pipeline-process count. |
+| `alert_bridge_pipeline_processes_alive` | Processes currently running. Should equal the configured count. |
+| `alert_bridge_pipeline_processes_ready` | Processes with a decided Kafka assignment. |
+| `alert_bridge_assigned_partitions` | Partitions currently assigned to the instance. A value below the process count means some processes hold nothing. |
+| `alert_bridge_pipeline_process_exits_total{reason}` | Process exits. `reason` is `shutdown` for an exit that a stop requested, or `unexpected`. |
+| `alert_bridge_rebalance_drains_total{outcome}` | Drains of revoked partitions. `outcome` is `nothing_owed` when the partitions had no work in flight, `drained` when the work finished before the deadline, or `timed_out`. |
+| `alert_bridge_records_read_after_revoke_total` | Records observed after partition ownership changed. Investigate sustained growth. |
+
+Metric names, labels, and scrape configuration are described under [Metrics](#metrics).
+
+### Profile defaults
+
+The following caps are set in the shipped profile to match the backends it deploys with. They are per process, so the instance-wide value is `processes × cap`, and they are divided by the process count when `processes` is raised, as in the example above. They are not tuned to raise throughput: a cap above what the backend serves concurrently queues requests inside the backend and raises per-call latency without adding throughput.
+
+| Setting | Shipped Value | Meaning |
+| --- | --- | --- |
+| `alert_agent.async_io.max_vlm_concurrent` | `4` | VLM requests in flight per process. Sized to what the VLM backend serves concurrently. |
+| `alert_agent.async_io.max_vst_concurrent` | `8` | VIOS requests in flight per process. |
+| `alert_agent.async_dispatch_max_in_flight` | `16` | Post-deduplication messages accepted but not finished, per process. Offsets are committed when a record is read, so this bounds memory and the number of read-but-unfinished messages lost if a process exits. |
+| `alert_agent.startup_timeout_seconds` | `60` | Budget for the whole of startup. Minimum 30. |
+
+`alert_agent.num_workers` applies to `sync` mode only and is kept for the rollback path. The shipped `event_loop` mode does not use it.
 
 ## Metrics
 
@@ -700,7 +761,11 @@ Metric shape and coverage are affected by these `config.yml` keys:
 | `event_bridge.redis_source.protect_confirmed_verdicts.enabled` | `false` | When enabled, confirmed-verdict short-circuits increment `alert_bridge_events_skipped_confirmed_total` instead of `alert_bridge_events_total`. |
 | `alert_agent.include_latency_info` | `false` | Not required for Prometheus metrics. It only controls whether latency fields are written into output documents for Elasticsearch-based analysis. |
 
-When per-sensor labels are enabled, missing, non-string, empty, or over-128-character sensor IDs are folded into `sensorId="unknown"`. Valid string IDs, including IDs with punctuation such as `/`, `:`, `?`, or `.`, pass through unchanged after trimming whitespace. The recorder caps distinct `sensorId` label values at 128 per process; any additional unseen ID is recorded as `sensorId="unknown_overflow"`. ### Pipeline histograms These histograms expose `_bucket`, `_sum`, and `_count` series.
+When per-sensor labels are enabled, missing, non-string, empty, or over-128-character sensor IDs are folded into `sensorId="unknown"`. Valid string IDs, including IDs with punctuation such as `/`, `:`, `?`, or `.`, pass through unchanged after trimming whitespace. The recorder caps distinct `sensorId` label values at 128 per process; any additional unseen ID is recorded as `sensorId="unknown_overflow"`.
+
+### Pipeline histograms
+
+These histograms expose `_bucket`, `_sum`, and `_count` series.
 
 | Metric | Measures |
 | --- | --- |
@@ -768,6 +833,13 @@ Known `mode` values are `sync`, `async`, `sync_fallback`, and `async_submit`. Kn
 
 | Metric | Labels | Meaning |
 | --- | --- | --- |
+| `alert_bridge_pipeline_processes_configured` | (none) | Pipeline processes requested by `alert_agent.processes`. |
+| `alert_bridge_pipeline_processes_alive` | (none) | Pipeline processes currently running. |
+| `alert_bridge_pipeline_processes_ready` | (none) | Pipeline processes holding a decided Kafka assignment. |
+| `alert_bridge_assigned_partitions` | (none) | Source partitions currently assigned to the instance, summed across its processes. |
+| `alert_bridge_pipeline_process_exits_total` | `reason` | Pipeline process exits, labelled `shutdown` or `unexpected`. |
+| `alert_bridge_rebalance_drains_total` | `outcome` | Drains of revoked partitions, labelled `nothing_owed`, `drained`, or `timed_out`. |
+| `alert_bridge_records_read_after_revoke_total` | (none) | Records read for a partition after this member lost it. |
 | `alert_bridge_realtime_rules_active` | (none) | Current in-memory realtime rules registered with the service. |
 | `alert_bridge_realtime_rules_count` | (none) | Current durable realtime rules with `status=ACTIVE` in Elasticsearch. |
 | `alert_bridge_realtime_rules_created_total` | (none) | Realtime rules created and committed to the live registry. |
@@ -847,6 +919,119 @@ Events per second by verdict:
 sum by (verdict) (rate(alert_bridge_events_total[1m]))
 ```
 
+## OpenTelemetry Tracing
+
+With tracing enabled, the Alerts Microservice starts one [OpenTelemetry](https://opentelemetry.io/) trace per alert and exports the sampled ones over OTLP/HTTP to the configured endpoint; it does not open a port or store spans itself. The shipped sampling ratio is `0.1`, so about one alert in ten is exported. Where the metrics above aggregate across events, a trace covers a single alert. Tracing is off by default and is enabled independently of Prometheus metrics. Turning it off, or leaving it off, does not change alert processing or the `alert_bridge_*` Prometheus metrics.
+
+Spans need a collector and a backend to reach. The Docker Compose deployment ships an OpenTelemetry Collector and a Jaeger instance behind their own Compose profiles, neither of which is in a shipped profile list. The microservice sends OTLP/HTTP to the collector on port `4318`. The collector forwards traces to both backends:
+
+- Jaeger, with its UI at `http://<HOST_IP>:16686` when the `jaeger` profile is enabled.
+- Phoenix, through the trace ingestion and UI service already deployed with the alert profiles.
+
+The collector's published ports are bound to `127.0.0.1` on the host; services reach the collector over the Compose network.
+
+<Warning>
+The OTLP receivers on ports `4317` and `4318` are unauthenticated. Any client that can reach them can inject forged telemetry into Jaeger and Phoenix. Keep them on the loopback binding unless the host is on a trusted network, or the ports are protected by a firewall, an ACL, or an authenticated gateway. `OTEL_COLLECTOR_GRPC_HOST_PORT` and `OTEL_COLLECTOR_HTTP_HOST_PORT` change these bindings.
+</Warning>
+
+The Prometheus scrape port `8889` is read-only and is also bound to `127.0.0.1`. Set `OTEL_COLLECTOR_METRICS_HOST_PORT` to `0.0.0.0:8889` when a Prometheus server outside the host needs to scrape it. Workflow endpoints are listed in [Alert Verification](/vss/vision-agent/agent-workflows/alert-verification#service-endpoints) and [Real-Time Alerts](/vss/vision-agent/agent-workflows/real-time-alerts#service-endpoints).
+
+### Enabling tracing
+
+In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, the file the workflow pages create from the `overrides.env` template:
+
+1. Set `ALERT_ENABLE_OTEL_MONITORING=true`.
+2. Append `otel-collector,jaeger` to both `COMPOSE_PROFILES_CV` and `COMPOSE_PROFILES_VLM`.
+3. Run the `docker compose ... up -d` command from the workflow page again.
+
+Add the two profiles to the list definitions rather than to `COMPOSE_PROFILES`, which is derived from them. Then open the Jaeger UI and select the `vss-alert-ms` service.
+
+### Span hierarchy
+
+Each alert produces one root span, `Alert Verification`, covering the event from ingestion to sink completion. Child spans divide that interval.
+
+![One alert as a span tree in the Jaeger UI](/assets/images/alert-otel-trace-timeline.png)
+
+| Span | Covers |
+| --- | --- |
+| `Alert Verification` | Root span for one alert, from ingestion to sink-ready completion. |
+| `Kafka Consume Lag` | Kafka publish to microservice consume. |
+| `Worker Queue Wait` | Consume to worker assignment. |
+| `Dispatch Wait` | Task dispatch to task start. |
+| `VST Video URL Resolution (overlay)` | VIOS (VST) video URL fetch with overlay. |
+| `VST Video URL Resolution (no overlay)` | The retry fallback fetch. Both VST spans can appear for one event: the no-overlay call is a fallback, not a replacement. |
+| `VST Capacity Wait`, `VLM Capacity Wait` | Time spent waiting for a per-service concurrency slot before the call is made, one span per acquisition. A long wait here means the microservice is at its own configured limit rather than waiting on the downstream service. |
+| `VLM Request` | One VLM attempt. The retry loop emits one span per attempt, so a retried event shows several. |
+| `Elasticsearch get`, `Elasticsearch update`, `Elasticsearch write` | Elasticsearch reads and writes made while processing the event. |
+
+`Dispatch Wait`, the two `Capacity Wait` spans, and `VLM Request` are emitted by the `event_loop` pipeline, which is the shipped default. The synchronous path does not emit them.
+
+Requests to the REST API produce their own server spans through FastAPI instrumentation, and outbound HTTP calls to VIOS (VST) and the VLM backend add client spans beneath whichever span is active.
+
+Each span carries its attributes, such as `category`, `sensorId`, `pipeline_mode`, and `verdict` on the root span. Spans rebuilt from recorded timestamps carry `timing.source=reconstructed`.
+
+![Span attributes in the Jaeger UI](/assets/images/alert-otel-span-detail.png)
+
+### Trace context
+
+Trace context is read from Kafka records. When an upstream producer stamps a W3C `traceparent` header, the root span for that record continues the caller's trace. One trace then spans the producer and the Alerts Microservice. Records without the header start their own trace. Each record uses its own header, so a batch carrying several callers is not collapsed onto one of them. REST requests carrying a `traceparent` header are joined the same way.
+
+The same mechanism can join the Alerts Microservice with the Real-Time VLM microservice, which also exports OpenTelemetry traces. Neither path is wired today: the records it produces carry no `traceparent` header, and its HTTP server does not read the header that the Alerts Microservice sends on REST calls. Until one of them is added, the two services appear as separate traces in the same backend.
+
+The current propagation boundaries are:
+
+- Inbound: Kafka record headers and REST request headers.
+- Outbound: HTTP calls to VIOS (VST) and the VLM backend carry the active trace context. The consolidation Kafka sink stamps `traceparent` on the records it produces; other produce sites do not.
+- Not included: `vss_agents` does not stamp `traceparent` on the records it produces, and Elasticsearch requests do not carry trace context.
+
+### OpenTelemetry metrics
+
+With tracing enabled, the microservice also exports three OpenTelemetry metrics on the same OTLP/HTTP connection. The collector exposes them in Prometheus format on port `8889`, bound to `127.0.0.1` by default. No shipped profile scrapes the collector; the `dev-profile-alerts` profile does not deploy Prometheus. The `alert_bridge_*` metrics and the `/metrics` endpoint described above are unchanged. A Prometheus server you deploy can scrape the collector, the `/metrics` endpoint, or both.
+
+| Metric | Type | Attributes | Measures |
+| --- | --- | --- | --- |
+| `alert.verification.duration` | Histogram (s) | `pipeline_mode`, `verdict` | End-to-end verification time per event, from event end to sink-ready completion. |
+| `alert.vlm.attempt.count` | Counter | `success`, `attempt` | VLM requests, counted per attempt rather than per event. |
+| `alert.capacity.wait.duration` | Histogram (s) | `service` | Time spent waiting for a VST or VLM concurrency slot. |
+
+### Log correlation
+
+Log lines written while a trace is active end with `trace_id=<id> span_id=<id>`. Use the `trace_id` with the Jaeger lookup by trace ID to open the trace for that log line. The IDs are appended for every alert, but the trace is present in Jaeger only when it was sampled. Log lines written outside a trace are unchanged.
+
+### Configuration
+
+Tracing is switched on with an environment variable. The values below are the ones the Docker Compose deployment sets. A container run outside it keeps the service name `vss-alert-ms` and falls back to the OpenTelemetry SDK default endpoint on `localhost`:
+
+| Option | Compose value | Meaning |
+| --- | --- | --- |
+| `ENABLE_OTEL_MONITORING` | `false` | Set to `true` to enable tracing and OpenTelemetry metrics. When false, the OpenTelemetry SDK is not initialized and no spans are created. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4318` | Base OTLP/HTTP endpoint. The exporter appends `/v1/traces` and `/v1/metrics`. |
+| `OTEL_SERVICE_NAME` | `vss-alert-ms` | Service name that spans are recorded under in the backend. |
+| `OTEL_TRACES_EXPORTER` | `otlp` | Set to `none` to keep tracing initialized but export no spans. |
+| `OTEL_METRICS_EXPORTER` | Same as `OTEL_TRACES_EXPORTER` | Set to `none` to export no OpenTelemetry metrics. Follows the traces setting unless set explicitly. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Metric export interval, in milliseconds. |
+| `OTEL_METRIC_EXPORT_TIMEOUT` | `5000` | Metric export timeout, in milliseconds. |
+| `OTEL_RESOURCE_ATTRIBUTES` | (empty) | Additional resource attributes, as `key=value` pairs. |
+| `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT` | `4096` | SDK-level ceiling on attribute value length; unlimited when unset. Applies after the `max_content_chars` limit below. |
+
+In the Docker Compose deployment, each option is set through the matching `ALERT_`-prefixed variable in `user-overrides.env`. `ALERT_ENABLE_OTEL_MONITORING` sets `ENABLE_OTEL_MONITORING`, `ALERT_OTEL_EXPORTER_OTLP_ENDPOINT` sets `OTEL_EXPORTER_OTLP_ENDPOINT`, and so on. The container receives the unprefixed name.
+
+Tracing behavior is tuned with these `config.yml` keys:
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `alert_agent.tracing.sampling_ratio` | `0.1` | Fraction of traces sampled, 0.0-1.0. Applied with ParentBased sampling, so a record whose caller was sampled keeps its whole trace. It affects export volume and backend storage. In the recorded test below, throughput at `0.1` and at `1.0` was within about one point, so lowering the ratio does not recover the tracing overhead. |
+| `alert_agent.tracing.include_content` | `false` | When true, prompt text, VLM responses, and video URLs are attached to spans. See the warning below. |
+| `alert_agent.tracing.max_content_chars` | `512` | Maximum characters of any content attribute, applied only when `include_content` is true. Truncated values end with `...[+N chars]`, and that marker counts against the limit. `OTEL_ATTRIBUTE_VALUE_LENGTH_LIMIT` applies after it and adds no marker, so the effective ceiling is the lower of the two. |
+
+<Warning>
+`include_content` records prompts, VLM responses, and video URLs in spans. Alert data may contain personally identifiable information, and video URLs may carry presigned access tokens. Do not enable it where the tracing backend is not equally protected.
+</Warning>
+
+### Performance
+
+In a recorded test, the microservice processed 39.24 events/s with tracing disabled and 35.31 events/s with tracing enabled at the shipped `sampling_ratio` of `0.1`, about 10% lower. The test ran one pipeline process against the simulator rig under `services/alert/test/functional/capability/`, with no GPU, a simulated VLM, an offered rate of 120 events/s, and three 45-second repeats per arm. It measured the cost of producing telemetry; the exporters were set to `none`, so network and collector cost were not included. Results on other hardware and workloads will differ. Choose the sampling ratio by the trace volume and backend storage you need. To remove the overhead, disable tracing.
+
 ## Configuration
 
 The Alerts Microservice is configured via a YAML-based configuration file. The following tables describe key configuration parameters organized by category.
@@ -924,11 +1109,17 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `alert_agent.num_workers` | `10` | Number of worker threads for concurrent processing. |
+| `alert_agent.pipeline_mode` | `event_loop` | Dispatch model: `sync`, `thread_bridge`, or `event_loop`. See [Pipeline Modes](#pipeline-modes). |
+| `alert_agent.processes` | `1` | Independent pipeline processes. Values above `1` require `event_loop`, `persistence.enabled: true`, and enough Kafka partitions. See [Scaling Across Processes](#scaling-across-processes). |
+| `alert_agent.startup_timeout_seconds` | `60` | Budget for the whole of startup. Minimum 30. |
+| `alert_agent.num_workers` | `10` | Worker threads in `sync` mode. Not a throughput control in the other modes. |
+| `alert_agent.async_dispatch_workers` | `num_workers` | Dispatch pool threads in `thread_bridge` mode. |
+| `alert_agent.async_dispatch_max_in_flight` | `16` | Post-deduplication messages accepted but not finished, per process. |
+| `alert_agent.async_io.max_vlm_concurrent` | `4` | VLM requests in flight per process in `event_loop` mode. |
+| `alert_agent.async_io.max_vst_concurrent` | `8` | VIOS requests in flight per process in `event_loop` mode. |
 | `alert_agent.max_allowed_stream_size` | `2` | Maximum stream size in minutes. |
 | `alert_agent.default_stream_interval` | `1` | Default stream interval in minutes. |
 | `alert_agent.vst_pass_through_mode` | `false` | Skip VIOS lookup; use local media files directly. |
-| `alert_agent.chunk_size` | `1` | Chunk size for processing. |
 | `alert_agent.enrichment.enabled` | `false` | Enable alert enrichment for generating detailed event descriptions after verification. |
 | `alert_agent.metrics.per_sensor_labels` | `false` | When `true`, emits the opt-in `sensorId` histogram and counter variants documented under [Metrics](#metrics). |
 

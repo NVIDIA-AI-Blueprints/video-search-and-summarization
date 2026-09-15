@@ -386,14 +386,14 @@ class FirstPartyIndexTest(unittest.TestCase):
         # basename as first-party would erase `import openai` from the report
         # with no trace, which is the worst outcome for a compliance gate.
         paths = [
-            "services/agent/packages/vss_core/src/vss_core/__init__.py",
-            "services/agent/packages/vss_core/src/vss_core/vlm/__init__.py",
-            "services/agent/packages/vss_core/src/vss_core/vlm/openai.py",
+            "libs/vss/core/src/vss_core/__init__.py",
+            "libs/vss/core/src/vss_core/vlm/__init__.py",
+            "libs/vss/core/src/vss_core/vlm/openai.py",
         ]
         names = osrb_usage.first_party_names(paths, ".py", frozenset({"openai"}))
-        self.assertNotIn("openai", names["services/agent"])
-        self.assertIn("vss_core", names["services/agent"])
-        self.assertIn("vlm", names["services/agent"])
+        self.assertNotIn("openai", names["libs/vss"])
+        self.assertIn("vss_core", names["libs/vss"])
+        self.assertIn("vlm", names["libs/vss"])
 
     def test_test_directories_do_not_register_packages(self) -> None:
         # tests/kafka/ and tests/redis/ would otherwise mask the real clients.

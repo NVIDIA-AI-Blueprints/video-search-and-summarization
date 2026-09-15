@@ -67,6 +67,7 @@ services:
       SEND_CONFIG_TO_SDR: true
       ENABLE_CALIBRATION_PROCESS: true
     env_file:
+      - ${VSS_APPS_DIR}/containers.env
       - ${BP_CONFIGURATOR_BASE_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env}
       - ${BP_CONFIGURATOR_ENV_FILE:-$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env}
     volumes:

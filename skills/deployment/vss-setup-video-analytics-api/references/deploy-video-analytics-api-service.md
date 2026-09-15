@@ -232,7 +232,7 @@ The API checks once per second until the pipeline exists, then, only with `STREA
 docker compose -f services/analytics/video-analytics-api/compose.yml down
 ```
 
-For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` teardown workflow.
+For a multi-service teardown (broker, ES, etc.), use the `vss-build-vision-ai` teardown workflow.
 
 ---
 
@@ -248,7 +248,7 @@ For a multi-service teardown (broker, ES, etc.), use the `vss-deploy-profile` te
 | Container is running but port 8081 is unavailable | API is waiting for its Elasticsearch pipeline or configured Kafka requirements. | Read container logs for the missing readiness requirement; `/livez` returns 200 only after route registration. |
 | `/livez` returns 200 but data endpoints return empty results | Elasticsearch indices don't exist or have no data. | Check indices: `curl -s http://localhost:9200/_cat/indices?v \| grep mdx`. If empty, the upstream pipeline (behavior-analytics, perception) hasn't produced data yet. |
 | Config update via POST `/config` times out | The ACK from behavior-analytics didn't arrive within `configStatusTimeoutMs`. | Check that behavior-analytics is running and consuming from `mdx-notification`. Check the `configStatusTimeoutMs` value (default `30000`ms). |
-| Image won't run `docker exec -it ... sh` | Runtime is a **Node** image (`nvcr.io/nvidia/distroless/node:22-v4.1.2`) — no shell, but the `node` binary is present. | Use `docker logs <container>` for runtime output. To print a bind-mounted file (e.g. bootstrap config), use `docker exec <container> node -e '...'` — see below. Prefer reading the host-side mount path when the file is volume-bound. |
+| Image won't run `docker exec -it ... sh` | Runtime is a **Node** image (`nvcr.io/nvidia/distroless/node:22-v4.1.4`) — no shell, but the `node` binary is present. | Use `docker logs <container>` for runtime output. To print a bind-mounted file (e.g. bootstrap config), use `docker exec <container> node -e '...'` — see below. Prefer reading the host-side mount path when the file is volume-bound. |
 
 **Inspect a mounted config inside the container** (same path as `command: node index.js --config …`):
 

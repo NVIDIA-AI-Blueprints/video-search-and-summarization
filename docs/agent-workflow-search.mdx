@@ -1159,7 +1159,7 @@ The skill will choose the `<platform>` to match your system, as detailed in [Dev
 
 What the agent does:
 
-1. Reads the skill `vss-deploy-profile` and its search profile reference to determine the deployment recipe, GPU layout, sizing, and service list.
+1. Reads the skill `vss-build-vision-ai` and its search profile reference to determine the deployment recipe, GPU layout, sizing, and service list.
 2. Runs pre-flight checks — auto-detects the repo path, validates GPU/Docker/NVIDIA runtime, and probes `NGC_CLI_API_KEY` against NGC auth.
 3. Prepares the environment — copies the source `.env` to `generated.env`, writes overrides (`HOST_IP`, `EXTERNAL_IP`, `NGC_CLI_API_KEY`, `VSS_DATA_DIR`, `VSS_APPS_DIR`), creates the data directory tree with correct permissions.
 4. Generates and normalizes the resolved compose — runs `docker compose config`, then `normalize_resolved_yml.py` to strip dangling dependencies, and validates the output.

@@ -97,28 +97,28 @@ Load these files only as directed:
 - `curl` and `jq` on the agent host.
 - Network reachability from the LVS service to the final VIOS clip URL (Docker:
   from `vss-lvs`; Kubernetes: deploy must mint a URL the LVS pod can fetch).
-- A checkout containing `services/agent` and host `uv`, for `vss summarize run`.
+- A checkout containing `libs/vss` and host `uv`, for `vss summarize run`.
 - One recorded deployment origin. Configure it once, before Stage 4:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
+test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
   echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
   exit 1
 }
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
 cd "${VSS_REPO_ROOT}" && "${VSS[@]}" summarize run --help >/dev/null || exit 1
 # Compose publishes the ingress on :7777; Kubernetes uses VSS_PUBLIC_URL.
 VSS_ORIGIN="${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"
 "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}" || exit 1
 ```
 
-`--extra cli` is mandatory: the base distribution holds the core libraries,
-while `nvidia-vss-cli` declares the `vss` executable. Configure against the
+`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
+needed — the agent stack is not in it. Configure against the
 ingress origin, never `:38111` — that LVS container port exposes no
 Elasticsearch, so a deployment recorded from it cannot persist.
 
-The `vss-deploy-profile` skill can deploy the profile. A remote fallback VLM
+The `vss-build-vision-ai` skill can deploy the profile. A remote fallback VLM
 must be able to fetch the clip URL; it generally cannot fetch localhost or
 private addresses.
 
@@ -200,10 +200,10 @@ If LVS is unavailable, ask:
 
 > The VSS `lvs` profile isn't reachable
 > (`${VSS_PUBLIC_URL:-$HOST_IP:38111}`). Shall I deploy it now using
-> `/vss-deploy-profile -p lvs`? Reply `no` to stop here; I can use the
+> `the `/vss-build-vision-ai` stock Video Summarization workflow`? Reply `no` to stop here; I can use the
 > lower-quality VLM-only fallback only if you explicitly ask for it.
 
-- Deployment approved or pre-authorized: invoke `vss-deploy-profile`, re-probe,
+- Deployment approved or pre-authorized: invoke `vss-build-vision-ai`, re-probe,
   and continue only after LVS returns 200.
 - Deployment declined: ask separately whether to use VLM fallback. Stop unless
   the user approves it.
@@ -410,7 +410,7 @@ re-voice either backend's content.
 | `/v1/ready` remains 503 | Treat LVS as unavailable after the warmup loop. |
 | Readiness stdout is empty | Use the HTTP status; a 200 body may be empty. |
 | Summary and events are empty | Inspect saved `summary.usage.total_chunks_processed`; do not retry. |
-| `vss` not found | Keep `--extra cli` and verify `VSS_REPO_ROOT`; never install globally. |
+| `vss` not found | Verify `VSS_REPO_ROOT` points at the checkout; never install globally. |
 | Run exits 4 | Follow stderr: configure the deployment, or configure the Markdown sink requested explicitly. |
 | Run exits 6 | A post-operation memory write failed. Present the summary and separate ES/Markdown status; do not re-run. |
 | Run exits 7 | Timed out. `vss summarize get --job-id <id>`; do not re-run. |
@@ -430,12 +430,12 @@ recorded-video workflow. `/lvs` is a Prefix mount, so everything LVS serves is
 public under it on Kubernetes — `/lvs/v1/ready`, `/lvs/v1/summarize`,
 `/lvs/models`, `/lvs/metrics` — where the previous Exact-path Ingress published
 only readiness and summarize. For deployment, restart, teardown, backend
-selection, or service logs, prefer `vss-deploy-profile` and use the deployment
+selection, or service logs, prefer `vss-build-vision-ai` and use the deployment
 reference.
 
 ## Cross-reference
 
-- `vss-deploy-profile`: deploy the `lvs` profile.
+- `vss-build-vision-ai`: deploy the `lvs` profile.
 - `vss-manage-video-io-storage`: general VIOS administration outside this
   ordered workflow.
 - `vss-search-archive`: search archived video.

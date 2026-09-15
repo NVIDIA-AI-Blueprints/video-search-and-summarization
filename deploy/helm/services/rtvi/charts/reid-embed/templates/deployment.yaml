@@ -1,0 +1,258 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# ReID embedding service. The DeepStream tracker queries it over
+# ReIDService.serviceAddress/servicePort for appearance-based re-association,
+# and it republishes compressed embeddings onto its producer topic.
+
+{{- if .Values.enabled }}
+{{- $name := include "vss-reid-embed.fullname" . }}
+{{- $reidDir := include "vss-reid-embed.reidDir" . }}
+{{/* Secondary embedding is the only GPU workload in this service, and its CUDA
+     context is created lazily inside the worker process. Losing that race is
+     invisible from the outside: the worker dies, the container keeps running,
+     and /health/ready answers 503 forever while DeepStream waits behind it.
+     Refuse the combination here instead, where the message can say why. */}}
+{{- if .Values.secondaryEmbedding.enabled }}
+{{- $limits := (.Values.resources | default dict).limits | default dict }}
+{{- $gpu := 0 }}
+{{- range $k, $v := $limits }}
+{{- if contains "nvidia.com/gpu" $k }}{{ $gpu = add $gpu (int $v) }}{{ end }}
+{{- end }}
+{{- if eq $gpu 0 }}
+{{- fail "vss-reid-embed: secondaryEmbedding.enabled is true but resources requests no GPU. The SigLIP2 worker needs one, and without it the service stays unready (503) instead of failing. Either give it a GPU claim, or set secondaryEmbedding.enabled=false (which empties the compressed-embeddings topic)." }}
+{{- end }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "vss-reid-embed.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "vss-reid-embed.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vss-reid-embed.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $ips := .Values.imagePullSecrets | default (index (.Values.global | default dict) "imagePullSecrets") }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.runtimeClassName }}
+      runtimeClassName: {{ .Values.runtimeClassName | quote }}
+      {{- end }}
+      initContainers:
+        {{- if .Values.init.enabled }}
+        # Compose gates this service on reid-embed-init completing; here the
+        # staging Job writes a marker onto the shared models claim and we wait
+        # for it, which also covers a Job that ran in an earlier release.
+        - name: wait-for-reid-models
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              marker={{ include "vss-reid-embed.readyMarker" . | quote }}
+              expected={{ include "vss-reid-embed.initJobRevision" . | quote }}
+              echo "Waiting for staged ReID models (${marker}, generation ${expected}) ..."
+              elapsed=0
+              timeout={{ .Values.init.waitSeconds }}
+              until test -f "${marker}" && test "$(tr -d ' \n' < "${marker}")" = "${expected}"; do
+                if test "${elapsed}" -ge "${timeout}"; then
+                  echo "[ERROR] Timeout waiting for ReID model staging (${timeout}s)"
+                  exit 1
+                fi
+                echo "... still waiting (${elapsed}s)"
+                sleep 10
+                elapsed=$((elapsed + 10))
+              done
+              echo "ReID models are staged."
+          volumeMounts:
+            - name: models
+              mountPath: {{ .Values.models.mountPath }}
+        {{- end }}
+        - name: wait-for-milvus
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Milvus at {{ include "vss-reid-embed.milvusFullname" . }}:{{ .Values.milvus.port }} ..."
+              until nc -z {{ include "vss-reid-embed.milvusFullname" . }} {{ .Values.milvus.port }}; do sleep 5; done
+              echo "Milvus is reachable."
+        {{- if eq .Values.streamType "kafka" }}
+        - name: wait-for-kafka
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              bootstrap={{ include "vss-reid-embed.kafkaBootstrap" . | quote }}
+              bootstrap="${bootstrap%%,*}"
+              host="${bootstrap%%:*}"
+              port="${bootstrap##*:}"
+              if [ "${host}" = "${port}" ]; then port=9092; fi
+              echo "Waiting for Kafka at ${host}:${port}..."
+              until nc -z "${host}" "${port}"; do sleep 5; done
+              echo "Kafka is ready."
+        {{- else }}
+        - name: wait-for-redis
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Redis at {{ include "vss-reid-embed.redisHost" . }}:{{ .Values.redis.port }} ..."
+              until nc -z {{ include "vss-reid-embed.redisHost" . }} {{ .Values.redis.port }}; do sleep 5; done
+              echo "Redis is ready."
+        {{- end }}
+      containers:
+        - name: reid-embed
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: REID_SERVICE_PORT
+              value: {{ .Values.port | quote }}
+            - name: MESSAGE_BROKER
+              value: {{ .Values.streamType | quote }}
+            - name: KAFKA_CONSUMER_SERVER
+              value: {{ include "vss-reid-embed.kafkaBootstrap" . | quote }}
+            - name: KAFKA_CONSUMER_TOPIC
+              value: {{ .Values.kafka.consumerTopic | quote }}
+            - name: KAFKA_PRODUCER_SERVER
+              value: {{ include "vss-reid-embed.kafkaBootstrap" . | quote }}
+            - name: KAFKA_PRODUCER_TOPIC
+              value: {{ .Values.kafka.producerTopic | quote }}
+            - name: REDIS_CONSUMER_SERVER
+              value: "{{ include "vss-reid-embed.redisHost" . }}:{{ .Values.redis.port }}"
+            - name: REDIS_CONSUMER_TOPIC
+              value: {{ .Values.redis.consumerTopic | quote }}
+            - name: REDIS_CONSUMER_PAYLOAD_KEY
+              value: {{ .Values.redis.consumerPayloadKey | quote }}
+            - name: REDIS_PRODUCER_SERVER
+              value: "{{ include "vss-reid-embed.redisHost" . }}:{{ .Values.redis.port }}"
+            - name: REDIS_PRODUCER_TOPIC
+              value: {{ .Values.redis.producerTopic | quote }}
+            - name: REDIS_PRODUCER_PAYLOAD_KEY
+              value: {{ .Values.redis.producerPayloadKey | quote }}
+            - name: MILVUS_HOST
+              value: {{ include "vss-reid-embed.milvusFullname" . | quote }}
+            - name: ENABLE_COMPRESSION
+              value: {{ .Values.compression.enabled | ternary "True" "False" | quote }}
+            - name: COMPRESSION_INTERVAL_SEC
+              value: {{ .Values.compression.intervalSec | quote }}
+            - name: ENABLE_SECONDARY_EMBEDDING
+              value: {{ .Values.secondaryEmbedding.enabled | ternary "True" "False" | quote }}
+            - name: SECONDARY_EMBEDDING_MODEL
+              value: {{ .Values.secondaryEmbedding.model | quote }}
+            - name: SECONDARY_EMBEDDING_ONNX_MODEL_PATH
+              value: {{ include "vss-reid-embed.siglipOnnxPath" . | quote }}
+            - name: VIOS_SERVER
+              value: {{ include "vss-reid-embed.viosServer" . | quote }}
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            # Read-write, matching the Docker mount, which defaults to rw
+            # (MOUNT_OPTS in warehouse-mv3dt-app.yml). The service does not only
+            # read SigLIP2 from here: on first start it builds a TensorRT engine
+            # and caches it next to the ONNX as siglip2_v1.0_fp16.engine. A
+            # read-only mount fails that write with EROFS, which kills the
+            # secondary embedding generator and leaves /health/ready at 503
+            # forever while every other subsystem reports ok.
+            - name: models
+              mountPath: {{ .Values.models.mountPath }}
+            {{- if .Values.dshm.enabled }}
+            - name: dshm
+              mountPath: /dev/shm
+            {{- end }}
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: {{ include "vss-reid-embed.modelsClaim" . }}
+        {{- if .Values.dshm.enabled }}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.dshm.sizeLimit }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "vss-reid-embed.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "vss-reid-embed.selectorLabels" . | nindent 4 }}
+{{- end }}
