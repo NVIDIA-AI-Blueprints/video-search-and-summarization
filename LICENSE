@@ -7,8 +7,9 @@ This project is dual-licensed:
     derived from upstream projects (see MIT appendix below).
 
 File-level exceptions:
-  - A file whose SPDX-License-Identifier header states a license other than
-    Apache-2.0 is licensed as stated in that header, which prevails over this
+  - A file that carries its own license notice - an SPDX-License-Identifier
+    header or an explicit license text - stating a license other than
+    Apache-2.0 is licensed as stated in that file, which prevails over this
     notice for that file. In particular, vendored NVIDIA SDK headers under
     services/vios/src/framework/webrtc_streamer/inc/nvmultimedia/ and the
     DeepStream schema services/vios/src/framework/notification/ds_schema_2d.proto
