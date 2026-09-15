@@ -373,7 +373,8 @@ RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 ALERT_AGENT_ALWAYS_ON=true
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```
 </Tab>
@@ -387,6 +388,8 @@ RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 ALERT_AGENT_ALWAYS_ON=true
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -440,10 +443,6 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 </Tabs>
 </Tab>
 <Tab title="RTXPRO4500BW">
-
-<Note>
-On NVIDIA driver 580.105.08, `nvidia-smi` may not identify RTX PRO 4500 Blackwell GPUs, when automatic detection is used. With native Docker Compose, set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`. NVIDIA driver 580.126.09 or later is recommended.
-</Note>
 
 <Tabs>
 <Tab title="Remote LLM">
@@ -507,7 +506,7 @@ RT_VLM_DEVICE_ID=0
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -531,6 +530,7 @@ VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -554,6 +554,7 @@ VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -720,8 +721,6 @@ The Jaeger UI is present only when the `jaeger` Compose profile is enabled; see 
 * It is recommended to clear chat and refresh the VSS UI page after deployment to clear any data from a previous deployment.
 
 * VSS-RTVI-VLM logs may repeatedly show a "Generated text is empty" warning and result in incomplete/unreliable alert verdicts
-
-* On RTX PRO 4500 Blackwell systems with NVIDIA driver 580.105.08, `nvidia-smi` may not identify the GPU model. Set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`; native Docker Compose does not perform the script hardware check. Upgrade to NVIDIA driver 580.126.09 or later when possible.
 
 * VLM verdict verification can fail in the UI even when VLM requests are processed successfully. Alert Bridge response parsing accepts only raw verdicts such as `A/B` or `Yes/No` before serializing them to `confirmed` or `rejected`. As a result, a semantically valid `rejected` verdict from Cosmos Reason can fail schema validation and be persisted as `verification-failed`.
 

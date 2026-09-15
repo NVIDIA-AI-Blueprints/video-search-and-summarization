@@ -87,7 +87,7 @@ class ViaBaseModel(BaseModel):
 
 
 class LvsError(ViaBaseModel):
-    """LVS Error Information."""
+    """Video Summarization MS Error Information."""
 
     code: str = Field(
         description="Error code", examples=["ErrorCode"], max_length=128, pattern=ERROR_CODE_PATTERN
@@ -1305,7 +1305,7 @@ class RecommendedConfig(ViaBaseModel):
         examples=[5, 10, 60, 300],
         ge=1,
         le=86400,
-        description="The target response time of LVS in seconds.",
+        description="The target response time of the Video Summarization MS in seconds.",
         json_schema_extra={"format": "int32"},
     )
     usecase_event_duration: int = Field(

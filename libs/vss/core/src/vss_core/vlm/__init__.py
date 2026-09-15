@@ -3,6 +3,7 @@
 """Reusable VLM analyzers and protocols."""
 
 from .openai import OpenAIVLMAnalyzer
+from .openai import bound_rt_vlm_fps_sampling
 from .protocols import VLMAnalyzer
 
-__all__ = ["OpenAIVLMAnalyzer", "VLMAnalyzer"]
+__all__ = ["OpenAIVLMAnalyzer", "VLMAnalyzer", "bound_rt_vlm_fps_sampling"]
