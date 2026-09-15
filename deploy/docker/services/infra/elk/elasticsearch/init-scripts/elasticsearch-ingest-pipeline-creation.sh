@@ -17,25 +17,19 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=elasticsearch-connection-init.sh
+source "${SCRIPT_DIR}/elasticsearch-connection-init.sh"
+
 # ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
-ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS="${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS:-0}"
 ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS="${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}"
+ELASTICSEARCH_CONNECTION_RETRY_INTERVAL="${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL:-5}"
 ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-http://elasticsearch:9200}"
 
-#################################
-## function: check_ES_status
-#################################
-check_ES_status(){
-    echo "Attempting to connect to the Elasticsearch server for ingest pipeline creation."
-    until curl --output /dev/null --silent --head --fail -XGET "$ELASTICSEARCH_URL"; do
-        if [ ${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS} -eq ${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS} ];then
-            exit_with_msg "Max attempts to connect to ES reached."
-        fi
-        ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS=$(($ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS+1))
-        echo "Unable to connect to ES. Trying to reconnect - (attempt $ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS/$ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS)"
-        sleep 5
-    done
-}
+# Retry parameters for ingest pipeline creation (kept separate from the connection
+# wait above, and from ILM's/templates' own knobs, for consistency and independent tuning)
+ELASTICSEARCH_INGEST_PIPELINE_CREATE_MAX_ATTEMPTS="${ELASTICSEARCH_INGEST_PIPELINE_CREATE_MAX_ATTEMPTS:-12}"
+ELASTICSEARCH_INGEST_PIPELINE_CREATE_RETRY_INTERVAL="${ELASTICSEARCH_INGEST_PIPELINE_CREATE_RETRY_INTERVAL:-10}"
 
 ####################################
 ## function: create_ingest_pipeline
@@ -44,22 +38,8 @@ create_ingest_pipeline() {
     local pipeline_id="$1"
     local pipeline_config="$2"
     echo "Creating ingest pipeline: ${pipeline_id}"
-    response=$(curl -s -w "\\n%{http_code}" "${ELASTICSEARCH_URL}/_ingest/pipeline/${pipeline_id}" \
-      -X 'PUT' \
-      -H 'Content-Type: application/json' \
-      --data-raw "${pipeline_config}" \
-      --compressed \
-      --insecure)
-
-    http_code=$(echo "$response" | tail -n1)
-    response_body=$(echo "$response" | sed '$d')
-    echo "HTTP code: ${http_code}"
-    if [ "${http_code}" -ne 200 ] && [ "${http_code}" -ne 201 ]; then
-        echo "Error response from Elasticsearch:" >&2
-        echo "${response_body}" >&2
-        exit_with_msg "Curl command to create ${pipeline_id} in Elasticsearch failed with HTTP status ${http_code}."
-    fi
-    echo "Successfully created ${pipeline_id}."
+    put_json_with_retry "ingest pipeline ${pipeline_id}" "/_ingest/pipeline/${pipeline_id}" "${pipeline_config}" \
+      "200 201" "${ELASTICSEARCH_INGEST_PIPELINE_CREATE_MAX_ATTEMPTS}" "${ELASTICSEARCH_INGEST_PIPELINE_CREATE_RETRY_INTERVAL}"
 }
 
 ####################################
@@ -110,19 +90,11 @@ EOF
     create_ingest_pipeline "${pipeline_id}" "${pipeline_config}"
 }
 
-############################
-## function: exit_with_msg
-############################
-exit_with_msg(){
-    echo -e "$1 \nExiting Script."
-    exit 1
-}
-
 ######################
 ## Main
 ######################
 main(){
-    check_ES_status
+    check_ES_status "ingest pipeline creation"
     create_insertion_timestamp_ingest_pipeline
 }
 main "$@"
