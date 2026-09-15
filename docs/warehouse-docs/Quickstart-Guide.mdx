@@ -405,7 +405,7 @@ Set the common deployment variables in `industry-profiles/warehouse-operations/o
 
 Container image coordinates are centralized in `containers.env` and loaded by the deployment command. In your hardware tab:
 
-1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For DGX-SPARK, also set the SBSA image-tag suffix in `containers.env` as described in its hardware tab.
+1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For DGX-SPARK, also export the SBSA image-tag suffix as described in its hardware tab.
 2. Choose exactly one deployment path and copy its settings into the same file.
 
 <Tabs>
@@ -659,13 +659,11 @@ VLM_MODE=none
 | 3D | 7 | 15 FPS |
 | MV3DT | 4 | 30 FPS |
 
-In `deploy/docker/containers.env`, set the SBSA image-tag suffix:
+Before deployment, run the following command to export the SBSA image-tag suffix:
 
-```ini
-VSS_CONTAINER_TAG_SUFFIX="-sbsa"
+```bash
+export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
 ```
-
-This setting applies the SBSA suffix to all supported runtime images. Reset it to `VSS_CONTAINER_TAG_SUFFIX=""` before deploying on non-SBSA hardware.
 
 In `industry-profiles/warehouse-operations/overrides.env`, set:
 
