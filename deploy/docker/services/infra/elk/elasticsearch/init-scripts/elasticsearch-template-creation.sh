@@ -18,8 +18,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/es-retry.sh
-source "${SCRIPT_DIR}/lib/es-retry.sh"
+# shellcheck source=elasticsearch-retry-lib.sh
+source "${SCRIPT_DIR}/elasticsearch-retry-lib.sh"
 
 # ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
 ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS="${ELASTICSEARCH_CONNECTION_RETRY_ATTEMPTS:-0}"
