@@ -524,7 +524,7 @@ def _is_attribution(base_low: str) -> bool:
     The repository's own `LICENSE` is excluded for the same reason — it is our
     license, not a third party's.
     """
-    if base_low == "license.3rdparty":
+    if base_low.startswith("license.3rdparty"):
         return True
     if base_low.startswith("license-3rd-party") and base_low.endswith(".txt"):
         return True

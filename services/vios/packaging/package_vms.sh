@@ -295,7 +295,6 @@ create_rel_package() {
 	mappings+=("tools/deploy_vst.sh=${PACKAGE_DIR}/deploy_vst.sh")
 	mappings+=("LICENSE.3rdparty=${PACKAGE_DIR}/LICENSE.3rdparty")
 	mappings+=("LICENSE.3rdparty.part2=${PACKAGE_DIR}/LICENSE.3rdparty.part2")
-	mappings+=("LICENSE.3rdparty.part2=${PACKAGE_DIR}/LICENSE.3rdparty.part2")
 	mappings+=("LICENSE_libnvjpeg=${PACKAGE_DIR}/LICENSE_libnvjpeg")
 	echo "vst_package: ${vst_package}"
 	mappings+=("${OUT_REL}/${vst_package}"=${PACKAGE_DIR}/${vst_package})
@@ -307,6 +306,7 @@ create_dev_package() {
 	PACKAGE_DIR="vst_release"
 	mappings+=("launch_vst=${PACKAGE_DIR}/launch_vst")
 	mappings+=("LICENSE.3rdparty=${PACKAGE_DIR}/LICENSE.3rdparty")
+	mappings+=("LICENSE.3rdparty.part2=${PACKAGE_DIR}/LICENSE.3rdparty.part2")
 	vst_package="${PACKAGE_DIR}.tbz2"
 	add_common_files
 	create_package "${vst_package}"

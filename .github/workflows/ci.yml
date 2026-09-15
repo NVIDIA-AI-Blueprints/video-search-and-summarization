@@ -199,20 +199,10 @@ jobs:
           # checkout-side conversion (ident, then smudge/process), so it fetches
           # the repo's entire ~989 MB of LFS payload on every run. 414 MB of that
           # is services/vios. Skip those binaries via lfs.fetchexclude.
-          #
-          # fetchexclude is a path filter: matching files stay LFS pointers even
-          # when already pulled. LICENSE.3rdparty lives under services/vios, so
-          # archive would pack the pointer. Pull the notices above, then replace
-          # that one tar member after archive. Scoped to this command with -c,
-          # so analytics fixtures are still smudged normally.
+          # LICENSE.3rdparty(+.part2) are plain text now, so the archive packs
+          # them directly; no tar member surgery needed.
           git -c lfs.fetchexclude='services/vios/**' \
             archive --format=tar --prefix=repo/ -o source.tar HEAD
-          license_member='repo/services/vios/LICENSE.3rdparty'
-          tar --delete -f source.tar "$license_member"
-          mkdir -p .archive-license/repo/services/vios
-          cp services/vios/LICENSE.3rdparty .archive-license/repo/services/vios/LICENSE.3rdparty
-          tar --append -C .archive-license -f source.tar "$license_member"
-          rm -rf .archive-license
           gzip -n source.tar
           git ls-files > tracked-files.txt
           ls -lh source.tar.gz
@@ -234,14 +224,17 @@ jobs:
             echo "::error::$vios is not an LFS pointer; lfs.fetchexclude is not taking effect"
             exit 1
           fi
-          if tar -xzOf source.tar.gz "$license" | head -c 64 | grep -q '^version https://git-lfs'; then
-            echo "::error::$license is an LFS pointer; the required license notices are missing"
-            exit 1
-          fi
-          if ! tar -xzOf source.tar.gz "$license" | cmp -s - services/vios/LICENSE.3rdparty; then
-            echo "::error::$license does not match the materialized license notices"
-            exit 1
-          fi
+          for member in "$license" "$license.part2"; do
+            src="services/vios/${member#repo/services/vios/}"
+            if tar -xzOf source.tar.gz "$member" | head -c 64 | grep -q '^version https://git-lfs'; then
+              echo "::error::$member is an LFS pointer; the required license notices are missing"
+              exit 1
+            fi
+            if ! tar -xzOf source.tar.gz "$member" | cmp -s - "$src"; then
+              echo "::error::$member does not match the license notices in the tree"
+              exit 1
+            fi
+          done
           if tar -xzOf source.tar.gz "$keep" | head -c 64 | grep -q '^version https://git-lfs'; then
             echo "::error::$keep is a pointer; the exclusion over-matched and analytics fixtures would break"
             exit 1
