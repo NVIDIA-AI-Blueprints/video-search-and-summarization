@@ -2387,9 +2387,9 @@ nvcr.io/nvidia/deepstream,9.1-triton-sbsa-dgx-spark,UNKNOWN,services/rtvi/rt-emb
 nvcr.io/nvidia/deepstream,9.1-triton-sbsa-dgx-spark@sha256:6a25ce5964424a2fc18a67212b08fc3a844734e757e8cc2a989f033e3306b1af,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-sbsa-255,UNKNOWN,services/rtvi/rt-cv,container,container,services/rtvi/rt-cv/docker/sbsa.Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/deepstream,rtvi_ds9.1.1-triton-dev111,UNKNOWN,services/rtvi/rt-cv,container,container,services/rtvi/rt-cv/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
-nvcr.io/nvidia/distroless/node,22-v4.1.2,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.2,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/node,22-v4.1.2-dev,UNKNOWN,services/ui,container,container,services/ui/Dockerfile,runtime,no,no,yes,container-base,Unknown
+nvcr.io/nvidia/distroless/node,22-v4.1.4,UNKNOWN,services/analytics/video-analytics-api,container,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-bev-fusion,container,container,services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/distroless/python,3.13-v4.0.5,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-config-init,container,container,services/rtvi/rt-cv-3d/rt-cv-config-init/Dockerfiles/mv3dt-config-init.Dockerfile,runtime,no,no,yes,container-base,Unknown
