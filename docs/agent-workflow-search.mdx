@@ -152,7 +152,6 @@ docker compose -f compose.yml \
 - `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
 - `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
-
 Set these required placeholder values in the existing assignments:
 
 ```ini
@@ -179,7 +178,6 @@ mkdir -p \
 chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```
 
-
 <Note>
 `HARDWARE_PROFILE` accepts `IGX-THOR`, but search is not supported there. The profile's edge handling covers DGX Spark and AGX Thor only. Use one of the layouts below.
 </Note>
@@ -193,6 +191,7 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```ini
 HARDWARE_PROFILE=H100
 ```
+
 </Tab>
 <Tab title="Dedicated GPU">
 4 GPUs. Both LLM and VLM get dedicated GPUs. The memory fraction rises to `0.7` because RTVI-VLM no longer shares GPU 0. To use the default 2-GPU layout, omit these overrides.
@@ -206,6 +205,7 @@ LLM_MODE=local
 VLM_MODE=local
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 ```
+
 </Tab>
 <Tab title="Remote LLM">
 2 GPUs. GPU 1 runs RTVI-Embed alone; the LLM is offloaded.
@@ -218,6 +218,7 @@ LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
 ```
+
 </Tab>
 <Tab title="Remote VLM">
 2 GPUs. GPU 0 runs RTVI-CV alone; the critic VLM is offloaded and RTVI-VLM proxies to it.
@@ -234,6 +235,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 <Tab title="Remote LLM + VLM">
 2 GPUs, running the retrieval services only.
@@ -255,6 +257,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 </Tabs>
 </Tab>
@@ -276,6 +279,7 @@ VSS_RT_VLM_TAG=develop-latest-sbsa
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.3
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
+
 </Tab>
 <Tab title="Remote LLM">
 The VLM uses the GB300 GPU; the LLM is offloaded.
@@ -297,6 +301,7 @@ LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
 ```
+
 </Tab>
 <Tab title="Remote VLM">
 The LLM uses the GB300 GPU; the VLM is offloaded.
@@ -320,6 +325,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 <Tab title="Remote LLM + VLM">
 2 GPUs.
@@ -347,6 +353,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 </Tabs>
 </Tab>
@@ -358,6 +365,7 @@ RTVI_VLM_MODEL_PATH=none
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 ```
+
 </Tab>
 <Tab title="Dedicated GPU">
 4 GPUs. Both LLM and VLM get dedicated GPUs. The memory fraction rises to `0.7` because RTVI-VLM no longer shares GPU 0. To use the default 2-GPU layout, omit these overrides.
@@ -371,6 +379,7 @@ LLM_MODE=local
 VLM_MODE=local
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 ```
+
 </Tab>
 <Tab title="Remote LLM">
 2 GPUs. GPU 1 runs RTVI-Embed alone; the LLM is offloaded.
@@ -383,6 +392,7 @@ LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
 ```
+
 </Tab>
 <Tab title="Remote VLM">
 2 GPUs. GPU 0 runs RTVI-CV alone; the critic VLM is offloaded and RTVI-VLM proxies to it.
@@ -399,6 +409,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 <Tab title="Remote LLM + VLM">
 2 GPUs.
@@ -420,6 +431,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 </Tabs>
 </Tab>
@@ -437,6 +449,7 @@ LLM_MODE=local
 VLM_MODE=local
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
 ```
+
 </Tab>
 <Tab title="Remote LLM">
 3 GPUs. VLM gets a dedicated GPU; LLM is offloaded.
@@ -453,6 +466,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 VLM_MODE=local
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8
 ```
+
 </Tab>
 <Tab title="Remote VLM">
 3 GPUs. LLM gets a dedicated GPU; VLM is offloaded.
@@ -471,6 +485,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 <Tab title="Remote LLM + VLM">
 2 GPUs.
@@ -492,6 +507,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 </Tabs>
 </Tab>
@@ -521,6 +537,7 @@ VLM_MODEL_TYPE=nim
 VLM_PORT=30082
 VLM_AGENT_MEDIA_MODE=remote
 ```
+
 </Tab>
 </Tabs>
 </Tab>
@@ -548,6 +565,7 @@ VLM_MODEL_TYPE=nim
 VLM_PORT=30082
 VLM_AGENT_MEDIA_MODE=remote
 ```
+
 </Tab>
 </Tabs>
 </Tab>
@@ -562,6 +580,7 @@ See [Local LLM and VLM deployments on OTHER hardware](/vss/appendix/faq) for kno
 HARDWARE_PROFILE=OTHER
 LLM_ENV_FILE=/path/to/llm.env
 ```
+
 </Tab>
 <Tab title="Dedicated GPU">
 4 GPUs. Both LLM and VLM get dedicated GPUs. On unrecognized hardware the memory fraction is `0.7` whether or not RTVI-VLM shares a GPU. To use the default 2-GPU layout, omit these overrides.
@@ -576,6 +595,7 @@ VLM_MODE=local
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 LLM_ENV_FILE=/path/to/llm.env
 ```
+
 </Tab>
 <Tab title="Remote LLM">
 2 GPUs. GPU 1 runs RTVI-Embed alone; the LLM is offloaded.
@@ -588,6 +608,7 @@ LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
 ```
+
 </Tab>
 <Tab title="Remote VLM">
 2 GPUs. GPU 0 runs RTVI-CV alone; the critic VLM is offloaded and RTVI-VLM proxies to it.
@@ -604,6 +625,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 <Tab title="Remote LLM + VLM">
 2 GPUs.
@@ -625,6 +647,7 @@ RTVI_VLM_ENDPOINT=https://<vlm-endpoint-without-v1>/v1
 RTVI_VLM_MODEL_TO_USE=openai-compat
 RTVI_VLM_MODEL_PATH=none
 ```
+
 </Tab>
 </Tabs>
 </Tab>
@@ -642,7 +665,6 @@ docker ps
 You can now access the agent UI at `http://<HOST_IP>:7777/`.
 
 **This deployment uses the following defaults:**
-
 
 - LLM model: nvidia/nemotron-3.5-lightning-30b-a3b, served locally and sharing GPU 1 with RTVI-Embed
 - VLM model: nvidia/cosmos3-nano-reasoner, FP8 (`ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix`), served by RTVI-VLM on GPU 0 at a memory fraction of `0.4`
@@ -771,11 +793,11 @@ Navigate to the Search tab to find the following options:
 
 - **Source Type**: Select the type of media source to search within. Choose between 'Video' and 'RTSP'.
 - Click the **Filter** button to open the filter panel with the following options:
-   - **From**: Filter results by the start date and time of the video clips
-   - **To**: Filter results by the start date and time of the video clips
-   - **Video sources**: Select specific videos to search within
-   - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
-   - **Show top K Results**: Set the maximum number of results to display
+  - **From**: Filter results by the start date and time of the video clips
+  - **To**: Filter results by the start date and time of the video clips
+  - **Video sources**: Select specific videos to search within
+  - **Min Cosine Similarity**: Set a minimum similarity threshold (-1.00 to 1.00) to filter results based on how closely they match your query. Set a lower threshold for broader results, or raise it for high-confidence matches. Optimal values vary depending on the video content.
+  - **Show top K Results**: Set the maximum number of results to display
 
 Enter your search query in the Search box, configure the desired filters, and click **Apply**.
 
@@ -867,31 +889,35 @@ Follow up questions related to the search results (e.g., `What are the durations
 The Vision Agent uses four search methods to find relevant video clips and objects. It automatically selects the best method based on the decomposed query:
 
 **Embed Search**
-   - Searches for events, actions, and activities in videos (e.g., "carrying boxes", "walking", "driving")
-   - Uses semantic embeddings to understand the context and meaning of actions
-   - Used for queries that describe what is happening in the video
-   - **Note**: Searching from input text box will only perform embed search.
+
+- Searches for events, actions, and activities in videos (e.g., "carrying boxes", "walking", "driving")
+- Uses semantic embeddings to understand the context and meaning of actions
+- Used for queries that describe what is happening in the video
+- **Note**: Searching from input text box will only perform embed search.
 
 **Attribute Search**
-   - Searches for visual descriptors and object attributes (e.g., "person with green jacket", "person in a hard hat")
-   - Uses behavior embeddings to find specific visual characteristics
-   - Used for queries that describe how objects or people look
-   - **Note**: Results with the same object (same sensor_id and object_id) are automatically merged together, combining their time ranges into a single longer clip. Clips shorter than 1 second are extended to at least 1 second. This means attribute search results can have variable durations depending on how many times the same object appears in the top results.
-   - **Multiple Attributes**: When multiple attributes are recognized in an attribute-only search, the system uses "append mode" - each attribute is searched independently with the requested top_k, and results from all attributes are combined.
+
+- Searches for visual descriptors and object attributes (e.g., "person with green jacket", "person in a hard hat")
+- Uses behavior embeddings to find specific visual characteristics
+- Used for queries that describe how objects or people look
+- **Note**: Results with the same object (same sensor_id and object_id) are automatically merged together, combining their time ranges into a single longer clip. Clips shorter than 1 second are extended to at least 1 second. This means attribute search results can have variable durations depending on how many times the same object appears in the top results.
+- **Multiple Attributes**: When multiple attributes are recognized in an attribute-only search, the system uses "append mode" - each attribute is searched independently with the requested top_k, and results from all attributes are combined.
 
 **Fusion Search**
-   - Combines both Embed and Attribute search for queries that include both actions and visual descriptors
-   - First finds relevant events using embed search, then reranks the embed results based on attributes to search for
-   - Automatically falls back to attribute-only search if the embed search confidence is low
-   - Used for complex queries like "a person with a green jacket carrying boxes"
-   - **Multiple Attributes in Fusion**: When multiple attributes are recognized in fusion search, the system uses "fuse mode" - each attribute is searched with top_k=1 in the same video, and object IDs from all matching attributes are combined into a single result with one screenshot. This ensures that fusion results show objects that match all specified attributes together.
+
+- Combines both Embed and Attribute search for queries that include both actions and visual descriptors
+- First finds relevant events using embed search, then reranks the embed results based on attributes to search for
+- Automatically falls back to attribute-only search if the embed search confidence is low
+- Used for complex queries like "a person with a green jacket carrying boxes"
+- **Multiple Attributes in Fusion**: When multiple attributes are recognized in fusion search, the system uses "fuse mode" - each attribute is searched with top_k=1 in the same video, and object IDs from all matching attributes are combined into a single result with one screenshot. This ensures that fusion results show objects that match all specified attributes together.
 
 **Search by Image**
-   - Searches for objects visually similar to a selected object bounding box on a paused video frame
-   - Fetches the selected object's embedding from the behavior index and runs object-level KNN search
-   - Bypasses embed search and fusion reranking
-   - Used after the user pauses on a video clip from one of the search results (using one of the above search methods) and selects a bounding box on the paused video frame
-   - Using Search by Image:
+
+- Searches for objects visually similar to a selected object bounding box on a paused video frame
+- Fetches the selected object's embedding from the behavior index and runs object-level KNN search
+- Bypasses embed search and fusion reranking
+- Used after the user pauses on a video clip from one of the search results (using one of the above search methods) and selects a bounding box on the paused video frame
+- Using Search by Image:
 
      1. Click on one of the video clips in the search results and pause the video.
 
@@ -981,27 +1007,30 @@ The Vision Agent automatically selects the best search method based on your quer
 **Example 1: Embed Search Only**
 
 **Query: "a person moving cones"**
-   - **Search Type**: Embed Search
-   - **Why**: The query describes an action/event with no descriptive visual attributes
-   - **Process**: Searches event embeddings to find clips showing the action
+
+- **Search Type**: Embed Search
+- **Why**: The query describes an action/event with no descriptive visual attributes
+- **Process**: Searches event embeddings to find clips showing the action
 
 ![Embed search only example](/assets/images/agent-workflows/search_embed_only.png)
 
 **Example 2: Attribute Search Only**
 
 **Query: "person in green jacket"**
-   - **Search Type**: Attribute Search
-   - **Why**: The query contains only visual descriptors (attributes), no actions
-   - **Process**: Searches behavior embeddings to find objects matching the visual description
+
+- **Search Type**: Attribute Search
+- **Why**: The query contains only visual descriptors (attributes), no actions
+- **Process**: Searches behavior embeddings to find objects matching the visual description
 
 ![Attribute search only example](/assets/images/agent-workflows/search_attribute_only.png)
 
 **Example 3: Fusion Search**
 
 **Query: "a person carrying boxes in green jacket"**
-   - **Search Type**: Fusion Search
-   - **Why**: The query contains both visual attributes ("green jacket") and an action ("carrying boxes")
-   - **Process**:
+
+- **Search Type**: Fusion Search
+- **Why**: The query contains both visual attributes ("green jacket") and an action ("carrying boxes")
+- **Process**:
      1. First performs Embed Search to find clips showing "carrying boxes"
      2. Then reranks the embed results based on attributes to search for (e.g., "green jacket")
      3. Combines scores from both searches for more accurate results
@@ -1011,18 +1040,20 @@ The Vision Agent automatically selects the best search method based on your quer
 **Example 4: Fallback to Attribute Search**
 
 **Query: "person running in green jacket"**
-   - **Search Type**: Attribute Search (fallback from Fusion)
-   - **Why**: The query contains both attributes and action, but the embed search confidence is too low (below `embed_confidence_threshold`)
-   - **Process**: Falls back to Attribute Search only when embed search confidence is insufficient for fusion
+
+- **Search Type**: Attribute Search (fallback from Fusion)
+- **Why**: The query contains both attributes and action, but the embed search confidence is too low (below `embed_confidence_threshold`)
+- **Process**: Falls back to Attribute Search only when embed search confidence is insufficient for fusion
 
 ![Fallback to attribute search example](/assets/images/agent-workflows/search_fallback.png)
 
 **Example 5: Search by Image**
 
 **Action: Select an image from a previous result and start Search by Image**
-   - **Search Type**: Search by Image
-   - **Why**: The query starts from a visual example selected in the UI.
-   - **Process**:
+
+- **Search Type**: Search by Image
+- **Why**: The query starts from a visual example selected in the UI.
+- **Process**:
      1. Looks up the selected object's embedding in the behavior index.
      2. Uses that embedding as the query vector.
      3. Returns similar objects with timestamps, screenshot URLs, and object IDs.
@@ -1261,10 +1292,12 @@ appears in VIOS's sensor list when done.
 
 What the agent does:
 
+
 1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. A build without the VSS Agent has no chunked-upload handshake to call, so ingestion is a direct REST path.
 2. Reads the consumer host ports from the build's `resolved.yml` and registers the source with VIOS.
 3. Fans the source out to RTVI-CV and RTVI-Embed, which generates the searchable embeddings that Logstash indexes into Elasticsearch.
-4. Verifies the sensor is registered and online in VIOS.
+
+1. Verifies the sensor is registered and online in VIOS.
 
 It may take up to a few minutes depending on the size of the video(s).
 
@@ -1331,6 +1364,8 @@ To search with additional filters:
 ```text
 I have a video sample-warehouse-ladder.mp4. I need to find instances of a person climbing a ladder with source type video_file, video source sample-warehouse-ladder.mp4, and top 5 results.
 ```
+
+- **VLM tag search:** trigger tag/fusion search over RT-VLM-generated tags with a prompt like `Find clips tagged "forklift loading a pallet" using fusion search.`
 
 ### Step 5: Ask a Follow-up Question
 
