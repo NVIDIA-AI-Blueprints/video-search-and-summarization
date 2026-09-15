@@ -258,6 +258,27 @@ RUN case "$(uname -m)" in \
         /tmp/rtpmanager-plugins/libgstnvunixfd.so "$plugin_dir/" \
     && rm -rf /tmp/rtpmanager-plugins
 
+# Confirm the final image actually loads and resolves nvunixfdsrc to the
+# plugin file installed above, rather than only checking that the source
+# copy was nonempty. GST_PLUGIN_PATH also exposes
+# /opt/nvidia/deepstream/deepstream/lib/gst-plugins, so this guards against
+# an unrelated or empty libgstnvunixfd.so there shadowing the real plugin.
+RUN gst-inspect-1.0 nvunixfdsrc > /tmp/nvunixfdsrc-inspect.log 2>&1 \
+    && grep -q '^Plugin Details:' /tmp/nvunixfdsrc-inspect.log \
+    && resolved_path="$(sed -n 's/^ *Filename *//p' /tmp/nvunixfdsrc-inspect.log)" \
+    && test -n "$resolved_path" \
+    && case "$(uname -m)" in \
+           aarch64) expected_dir=/usr/lib/aarch64-linux-gnu/gstreamer-1.0 ;; \
+           x86_64) expected_dir=/usr/lib/x86_64-linux-gnu/gstreamer-1.0 ;; \
+           *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+       esac \
+    && case "$resolved_path" in \
+           "$expected_dir"/*) : ;; \
+           *) echo "nvunixfdsrc resolved outside $expected_dir: $resolved_path" >&2; \
+              cat /tmp/nvunixfdsrc-inspect.log >&2; exit 1 ;; \
+       esac \
+    && rm -f /tmp/nvunixfdsrc-inspect.log
+
 RUN apt remove libslurm40t64 libpmi2-0t64 -y --purge && apt autoremove --purge -y
 
 # Register the x86 DeepStream libv4l CUVID plugin after the final apt layer has
