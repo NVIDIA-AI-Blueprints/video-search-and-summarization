@@ -762,9 +762,35 @@ For this profile, use the `sample-warehouse-ladder.mp4` stream.
 <Note>
 By default, this profile only supports up to one stream being processed at a time.
 
-This can be increased by modifying the `NUM_SENSORS` environment variable in the `deploy/docker/developer-profiles/dev-profile-alerts/.env` file before deployment. On RTX PRO 6000, up to 4 streams at 10fps have been tested to work.
+This can be increased by modifying the `NUM_SENSORS` environment variable in the `deploy/docker/developer-profiles/dev-profile-alerts/.env` file before deployment. On RTX PRO 6000, up to 4 streams at 30 FPS have been tested to work.
 
-On edge platforms like DGX Spark, IGX Thor, and AGX Thor, up to 1 stream at 10fps has been tested to work due to GPU requirements.
+On edge platforms like DGX Spark, IGX Thor, and AGX Thor, up to 1 stream at 30fps has been tested to work due to GPU requirements.
+
+RTVI CV supports input streams at up to 30 FPS by default. On dGPU systems,
+`interval=0` in the `[primary-gie]` group runs inference on every frame. On edge
+systems, the deployment sets `interval=1`, which runs inference on every other
+frame. This inference load limits how many streams a single GPU can process in
+parallel.
+
+Increasing RTVI CV stream capacity also increases the potential alert load.
+Verify that RTVI VLM can keep up with the resulting alerts and monitor
+end-to-end alert latency. Depending on stream count and stream content, RTVI CV may generate alerts faster than the RTVI VLM container can verify them, causing the verification backlog and latency to increase drastically. On single-GPU systems, including edge devices, the additional RTVI VLM load can also saturate shared GPU resources and reduce RTVI CV processing FPS.
+
+To reduce the perception workload and run more streams on one GPU, use one or
+more of the following options:
+
+- Supply lower-FPS input streams such as 10 FPS streams.
+- Use RT-DETR instead of the default Grounding DINO model. RT-DETR is lighter
+  weight, but supports only the classes in `deploy/docker/developer-profiles/dev-profile-alerts/deepstream/configs/rtdetr-960x544-labels.txt`.
+
+  To do so, set `MODEL_NAME_2D=RTDETR` in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env` before deployment.
+- Increase `interval` in the `[primary-gie]` group of
+  `deploy/docker/developer-profiles/dev-profile-alerts/deepstream/configs/run_config-api-rtdetr-protobuf.txt`.
+  An interval of `1` runs inference on every other frame; `2` runs inference on
+  every third frame. The tracker continues to track objects between inference
+  frames.
+
+  Note that on edge systems, `deploy/docker/services/rtvi/rtvi-cv/ds-start.sh` overrides the DeepStream configuration and sets `interval=1` during startup. To use another value, modify the edge-platform `interval` assignment in that script as well.
 </Note>
 
 ### Step 3: Verify pipeline components
