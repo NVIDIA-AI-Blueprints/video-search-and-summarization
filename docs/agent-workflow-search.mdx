@@ -1186,7 +1186,7 @@ What the agent does:
 
 1. Reads the skill `vss-search-archive` to determine the agent-backend ingestion flow (not bare VIOS).
 2. Gets the upload URL from the agent (`POST /api/v1/videos`) and POSTs the video file to that URL (chunked-upload).
-3. Calls `/api/v1/videos/{sensorId}/complete` which fans out to RTVI-CV + RTVI-Embed, generating searchable embeddings in Elasticsearch.
+3. Calls `/api/v1/videos/{sensorId}/complete` which fans out to RTVI-CV + RTVI-Embed (and RT-VLM tagging when enabled), generating searchable embeddings and VLM tags in Elasticsearch.
 4. Verifies the sensor is registered and online in VIOS.
 
 It may take up to a few minutes depending on the size of the video(s).
@@ -1227,6 +1227,8 @@ To search with additional filters:
 ```text
 I have a video sample-warehouse-ladder.mp4. I need to find instances of a person climbing a ladder with source type video_file, video source sample-warehouse-ladder.mp4, and top 5 results.
 ```
+
+- **VLM tag search:** trigger tag/fusion search over RT-VLM-generated tags with a prompt like `Find clips tagged "forklift loading a pallet" using fusion search.`
 
 ### Step 5: Ask a Follow-up Question
 
