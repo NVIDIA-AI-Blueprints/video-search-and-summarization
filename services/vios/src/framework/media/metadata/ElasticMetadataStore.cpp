@@ -46,8 +46,10 @@ namespace
     // Bounded blocking wait in getMetadata (download path only). getMetadata
     // wakes on the m_dataReady signal as soon as a fetch delivers data; this is
     // only the backstop timeout so a slow/unavailable Elasticsearch degrades to
-    // occasional flicker, never a hung download.
-    constexpr int      GET_WAIT_BUDGET_MS = 300;
+    // occasional flicker, never a hung download. Configured via
+    // overlay.video_metadata_wait_timeout_ms; this constant is the fallback
+    // when the config value is not positive.
+    constexpr int      GET_WAIT_BUDGET_MS = 1000;
 }
 
 ElasticMetadataStore::ElasticMetadataStore(MetadataParams& params, bool use_frameid)
@@ -140,8 +142,13 @@ Json::Value ElasticMetadataStore::getMetadata(const int64_t frameTS)
     // incremental refill when they push/complete, so we wake as soon as data
     // lands - no polling. The deadline is only a backstop so a slow/unavailable
     // Elasticsearch degrades to occasional flicker instead of a hung download.
+    int waitBudgetMs = GET_CONFIG().video_metadata_wait_timeout_ms;
+    if (waitBudgetMs <= 0)
+    {
+        waitBudgetMs = GET_WAIT_BUDGET_MS;
+    }
     const auto deadline = std::chrono::steady_clock::now()
-                        + std::chrono::milliseconds(GET_WAIT_BUDGET_MS);
+                        + std::chrono::milliseconds(waitBudgetMs);
     while (true)
     {
         // The prefetch turns blocking off if Elasticsearch came back empty /
@@ -351,46 +358,70 @@ void ElasticMetadataStore::prefetchRange()
                                     convertEpocToISO8601_2(endBoundMs * 1000));
             }
 
-            // Fetch all slices in parallel, then wait for them (same idiom as
-            // streamrecorder's parallel duration retrieval).
-            std::vector<async::task<std::pair<bool, std::vector<Json::Value>>>> tasks;
-            tasks.reserve(slices.size());
-            for (const auto& sl : slices)
-            {
-                const std::string sStart = sl.first;
-                const std::string sEnd   = sl.second;
-                tasks.push_back(async::spawn([sensor, sStart, sEnd]
-                {
-                    return elasticSearch::fetchRangeHits(sensor, sStart, sEnd,
-                                                         PREFETCH_SLICE_MAX_HITS);
-                }));
-            }
+            // Fetch the slices in parallel, at most maxParallel at a time (same
+            // idiom as streamrecorder's parallel duration retrieval). The cap
+            // (overlay.video_metadata_query_max_threads, clamped 1..10 by the
+            // config parser) keeps concurrent full-source fetches under the
+            // Elasticsearch request circuit breaker.
+            const size_t maxParallel = static_cast<size_t>(
+                std::max(1, GET_CONFIG().video_metadata_query_max_threads));
 
             std::vector<Json::Value> all;
             bool anyReachable = false;
-            for (auto& t : tasks)
+            for (size_t base = 0; base < slices.size(); base += maxParallel)
             {
-                std::pair<bool, std::vector<Json::Value>> part = t.get();
-                anyReachable = anyReachable || part.first;
-                all.insert(all.end(),
-                           std::make_move_iterator(part.second.begin()),
-                           std::make_move_iterator(part.second.end()));
-            }
-
-            // Parallel slices arrive out of order; the consumer needs ascending
-            // timestamps.
-            std::sort(all.begin(), all.end(),
-                      [](const Json::Value& a, const Json::Value& b)
-                      {
-                          return a["epocTime"].asUInt64() < b["epocTime"].asUInt64();
-                      });
-
-            {
-                std::lock_guard<std::mutex> guard(metadataQueueMutex());
-                for (auto& h : all)
+                const size_t batchEnd = std::min(slices.size(), base + maxParallel);
+                std::vector<async::task<std::pair<bool, std::vector<Json::Value>>>> tasks;
+                tasks.reserve(batchEnd - base);
+                for (size_t i = base; i < batchEnd; ++i)
                 {
-                    metadataQueue().push(h);
+                    const std::string sStart = slices[i].first;
+                    const std::string sEnd   = slices[i].second;
+                    tasks.push_back(async::spawn([sensor, sStart, sEnd]
+                    {
+                        return elasticSearch::fetchRangeHits(sensor, sStart, sEnd,
+                                                             PREFETCH_SLICE_MAX_HITS);
+                    }));
                 }
+
+                std::vector<Json::Value> batch;
+                for (auto& t : tasks)
+                {
+                    std::pair<bool, std::vector<Json::Value>> part = t.get();
+                    anyReachable = anyReachable || part.first;
+                    batch.insert(batch.end(),
+                                 std::make_move_iterator(part.second.begin()),
+                                 std::make_move_iterator(part.second.end()));
+                }
+
+                // Slices within a batch arrive out of order; the consumer needs
+                // ascending timestamps. Batches are dispatched in time order, so
+                // sorting each batch and pushing it keeps the queue globally
+                // ascending.
+                std::sort(batch.begin(), batch.end(),
+                          [](const Json::Value& a, const Json::Value& b)
+                          {
+                              return a["epocTime"].asUInt64() < b["epocTime"].asUInt64();
+                          });
+
+                // Publish this batch now so frames blocked in getMetadata can
+                // start drawing while later batches are still being fetched.
+                // The queue mutex is the only lock taken here and is released
+                // before signaling (SyncObject has its own internal mutex).
+                {
+                    std::lock_guard<std::mutex> guard(metadataQueueMutex());
+                    for (auto& h : batch)
+                    {
+                        metadataQueue().push(h);
+                    }
+                }
+                m_dataReady.signal();
+
+                // Keep the full, ordered record list for the bookkeeping below
+                // (size, search_after seed, empty-range handling).
+                all.insert(all.end(),
+                           std::make_move_iterator(batch.begin()),
+                           std::make_move_iterator(batch.end()));
             }
 
             if (!all.empty())
@@ -445,7 +476,8 @@ void ElasticMetadataStore::prefetchRange()
             }
 
             LOG(info) << "prefetchRange: loaded " << all.size() << " records over "
-                      << slices.size() << " slice(s), fullRange=" << coversWholeRange
+                      << slices.size() << " slice(s), maxParallel=" << maxParallel
+                      << ", fullRange=" << coversWholeRange
                       << ", camera=" << sensor << endl;
         }
     }
