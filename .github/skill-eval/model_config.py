@@ -12,6 +12,13 @@ from dataclasses import dataclass, field
 
 RUNTIMES = ("claude-code", "codex", "nemoclaw")
 REQUESTED_PROVIDERS = ("default", "nvidia-inference", "nvidia-build", "custom")
+ENDPOINT_MANAGED_PROVIDERS = {
+    "nvidia-build",
+    "build",
+    "install-vllm",
+    "ollama",
+    "nim-local",
+}
 
 
 def _first(*values: object) -> str:
@@ -97,10 +104,14 @@ def resolve_model_config(
             if requested_provider == "default"
             else requested_provider
         )
-        model = requested_model or _first(
-            env.get("CODEX_MODEL") if runtime == "codex" else "",
-            env.get("ANTHROPIC_MODEL"),
-        )
+        if runtime == "codex":
+            model = requested_model or _first(env.get("CODEX_MODEL"))
+            if not model:
+                raise ValueError(
+                    "SKILLS_EVAL_MODEL or CODEX_MODEL is required for codex"
+                )
+        else:
+            model = requested_model or _first(env.get("ANTHROPIC_MODEL"))
         endpoint_url = requested_endpoint or _first(env.get("ANTHROPIC_BASE_URL"))
         api_key = _first(env.get("ANTHROPIC_API_KEY"))
         if requested_provider == "custom" and not requested_endpoint:
@@ -117,6 +128,11 @@ def resolve_model_config(
             env.get("ANTHROPIC_MODEL"),
             env.get("LLM_REMOTE_MODEL"),
         )
+        if requested_endpoint and provider in ENDPOINT_MANAGED_PROVIDERS:
+            raise ValueError(
+                "SKILLS_EVAL_ENDPOINT_URL is incompatible with "
+                f"provider={provider}; that provider manages its own endpoint"
+            )
         if provider == "nvidia-build" or provider == "build":
             endpoint_url = ""
             api_key = _first(env.get("NVIDIA_API_KEY"))
@@ -149,14 +165,7 @@ def resolve_model_config(
             "SKILLS_EVAL_MODEL is required because the selected harness has "
             "no configured default model"
         )
-    endpoint_optional = {
-        "nvidia-build",
-        "build",
-        "install-vllm",
-        "ollama",
-        "nim-local",
-    }
-    if provider not in endpoint_optional and not endpoint_url:
+    if provider not in ENDPOINT_MANAGED_PROVIDERS and not endpoint_url:
         raise ValueError(
             "SKILLS_EVAL_ENDPOINT_URL is required because the selected route "
             "has no configured default endpoint"
