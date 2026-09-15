@@ -99,7 +99,8 @@ _TOOL_FAILURE_STATUSES = {"aborted", "error", "failed", "failure"}
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 _CONTEXT_BLOCK_PREFIX = "[Context:"
 _NULL_ARG_SENTINELS = {"none", "null"}
-# Original invocation plus this many identical retries. A further exact duplicate is skipped.
+# Original invocation plus this many retries, only while identical calls keep failing.
+# A recorded success is reused; further exact duplicates are skipped.
 MAX_IDENTICAL_TOOL_CALL_RETRIES = 2
 MAX_IDENTICAL_TOOL_CALL_ATTEMPTS = 1 + MAX_IDENTICAL_TOOL_CALL_RETRIES
 DUPLICATE_TOOL_CALL_SKIP_PREFIX = "Identical tool call skipped:"
@@ -319,10 +320,19 @@ def identical_tool_call_key(name: str, args: dict[str, Any] | None) -> str:
 
 
 def reserve_identical_tool_call(state: "TopAgentState", name: str, args: dict[str, Any] | None) -> bool:
-    """Count an identical call and return True when it is still within the retry cap."""
+    """Allow the original call, then retries only after recorded failures, up to the cap.
+
+    A recorded success is reused and not executed again. Parallel extras in the same
+    turn are skipped until a failure is stored, so a success cannot consume the retry budget.
+    """
     key = identical_tool_call_key(name, args)
+    outcome = state.identical_tool_call_last_outcome.get(key, {})
+    if outcome.get("status") == "success":
+        return False
     attempts = state.identical_tool_call_attempts.get(key, 0)
     if attempts >= MAX_IDENTICAL_TOOL_CALL_ATTEMPTS:
+        return False
+    if attempts > 0 and outcome.get("status") != "error":
         return False
     state.identical_tool_call_attempts[key] = attempts + 1
     return True
@@ -336,25 +346,27 @@ def _is_duplicate_tool_call_skip(response: Any) -> bool:
 
 def duplicate_tool_call_skip_payload(state: "TopAgentState", name: str, args: dict[str, Any] | None) -> tuple[str, str]:
     """Return (content, status) for a skipped identical call from the recorded outcome."""
-    outcome = state.identical_tool_call_last_outcome.get(identical_tool_call_key(name, args), {})
+    key = identical_tool_call_key(name, args)
+    outcome = state.identical_tool_call_last_outcome.get(key, {})
+    attempts = state.identical_tool_call_attempts.get(key, 0) or MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
     last_status = str(outcome.get("status", ""))
     last_content = str(outcome.get("content", "")).strip()
     if last_status == "success":
         return (
-            DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(name=name, attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS),
+            DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(name=name, attempts=attempts),
             "success",
         )
     if last_status == "error" or last_content.startswith(_TOOL_FAILURE_PREFIX):
         last_error = last_content or "unknown error"
         return (
             DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE.format(
-                attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+                attempts=attempts,
                 last_error=last_error,
             ),
             "error",
         )
     return (
-        DUPLICATE_TOOL_CALL_SKIP_NO_RESULT_MESSAGE.format(name=name, attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS),
+        DUPLICATE_TOOL_CALL_SKIP_NO_RESULT_MESSAGE.format(name=name, attempts=attempts),
         "success",
     )
 
@@ -1213,7 +1225,9 @@ class TopAgent(AsyncMixin):
                         logger.warning(
                             "Skipping duplicate %s after %d identical attempts",
                             tool_name,
-                            MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+                            state.identical_tool_call_attempts.get(
+                                identical_tool_call_key(tool_name, tool_call.get("args")), 0
+                            ),
                         )
                         writer(
                             AgentMessageChunk(

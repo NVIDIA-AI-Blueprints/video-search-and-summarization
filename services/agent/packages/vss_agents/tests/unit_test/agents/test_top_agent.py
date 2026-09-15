@@ -14,7 +14,6 @@
 # limitations under the License.
 """Unit tests for top_agent module."""
 
-import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -1265,7 +1264,7 @@ IDENTICAL_TOOL_CALL_ARGS = {
 
 
 class TestIdenticalToolCallCap:
-    """Cap exact duplicate tool calls (same name + args) at 2 retries."""
+    """Cap exact duplicate tool calls: reuse a success; retry failures up to 2 times."""
 
     def test_fingerprint_ignores_key_order_and_null_sentinels(self):
         left = identical_tool_call_key("video_understanding_iso", IDENTICAL_TOOL_CALL_ARGS)
@@ -1292,6 +1291,33 @@ class TestIdenticalToolCallCap:
 
         return CountingTool()
 
+    @staticmethod
+    def _failing_tool():
+        class FailingTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                raise RuntimeError("backend unavailable")
+                yield "unreachable"
+
+        return FailingTool()
+
+    @staticmethod
+    def _fail_once_then_succeed_tool():
+        class FailOnceThenSucceedTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                if type(self).call_count == 1:
+                    raise RuntimeError("transient failure")
+                yield "video understanding ok"
+
+        return FailOnceThenSucceedTool()
+
     def _agent_with_tool(self, tool, name="video_understanding_iso"):
         agent = TopAgent.__new__(TopAgent)
         agent.tools_dict = {name: tool}
@@ -1308,56 +1334,51 @@ class TestIdenticalToolCallCap:
         ]
 
     @pytest.mark.asyncio
-    async def test_tool_node_allows_original_plus_two_retries(self, monkeypatch):
+    async def test_success_then_skip_executes_once(self, monkeypatch):
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
         tool = self._counting_tool()
         agent = self._agent_with_tool(tool)
         state = TopAgentState(options=AgentRequestOptions())
 
-        for index in range(MAX_IDENTICAL_TOOL_CALL_ATTEMPTS):
-            state.agent_scratchpad = self._scratchpad_call(f"call_{index}")
-            await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call("first")
+        await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call("skip")
+        await agent.tool_or_subagent_node(state)
 
-        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
-        assert not str(state.agent_scratchpad[-1].content).startswith("Identical tool call skipped")
-
-    @pytest.mark.asyncio
-    async def test_tool_node_skips_identical_call_after_two_retries(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
-        tool = self._counting_tool()
-        agent = self._agent_with_tool(tool)
-        state = TopAgentState(options=AgentRequestOptions())
-
-        for index in range(MAX_IDENTICAL_TOOL_CALL_ATTEMPTS + 1):
-            state.agent_scratchpad = self._scratchpad_call(f"call_{index}")
-            await agent.tool_or_subagent_node(state)
-
-        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        assert tool.call_count == 1
         skip_message = state.agent_scratchpad[-1]
-        assert isinstance(skip_message, ToolMessage)
-        expected = DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
+        assert skip_message.content == DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
             name="video_understanding_iso",
-            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+            attempts=1,
         )
-        assert skip_message.content == expected
         assert getattr(skip_message, "status", None) == "success"
         assert not state.tool_failure
 
-    @staticmethod
-    def _failing_tool():
-        class FailingTool:
-            args_schema = None
-            call_count = 0
+    @pytest.mark.asyncio
+    async def test_failure_then_success_then_skip_executes_twice(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._fail_once_then_succeed_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
 
-            async def astream(self, input, config=None):
-                type(self).call_count += 1
-                raise RuntimeError("backend unavailable")
-                yield "unreachable"
+        state.agent_scratchpad = self._scratchpad_call("fail")
+        await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call("succeed")
+        await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call("skip")
+        await agent.tool_or_subagent_node(state)
 
-        return FailingTool()
+        assert tool.call_count == 2
+        skip_message = state.agent_scratchpad[-1]
+        assert skip_message.content == DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
+            name="video_understanding_iso",
+            attempts=2,
+        )
+        assert getattr(skip_message, "status", None) == "success"
+        assert not state.tool_failure
 
     @pytest.mark.asyncio
-    async def test_tool_node_preserves_failure_when_skipping_after_failed_attempts(self, monkeypatch):
+    async def test_three_failures_then_stop(self, monkeypatch):
         monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
         tool = self._failing_tool()
         agent = self._agent_with_tool(tool)
@@ -1437,20 +1458,18 @@ class TestIdenticalToolCallCap:
         agent = self._agent_with_tool(tool)
         state = TopAgentState(options=AgentRequestOptions())
 
-        for index in range(MAX_IDENTICAL_TOOL_CALL_ATTEMPTS):
-            state.agent_scratchpad = self._scratchpad_call(
-                f"dup_{index}",
-                args={"sensor_id": "warehouse_safety_001", "prompt": "what happened"},
-            )
-            await agent.tool_or_subagent_node(state)
-
+        state.agent_scratchpad = self._scratchpad_call(
+            "first",
+            args={"sensor_id": "warehouse_safety_001", "prompt": "what happened"},
+        )
+        await agent.tool_or_subagent_node(state)
         state.agent_scratchpad = self._scratchpad_call(
             "other",
             args={"sensor_id": "warehouse_safety_002", "prompt": "what happened"},
         )
         await agent.tool_or_subagent_node(state)
 
-        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS + 1
+        assert tool.call_count == 2
 
     @pytest.mark.asyncio
     async def test_tool_node_caps_parallel_identical_calls_in_one_turn(self, monkeypatch):
@@ -1477,13 +1496,13 @@ class TestIdenticalToolCallCap:
 
         await agent.tool_or_subagent_node(state)
 
-        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        assert tool.call_count == 1
         skip_count = sum(
             1
             for msg in state.agent_scratchpad
             if isinstance(msg, ToolMessage) and str(msg.content).startswith("Identical tool call skipped")
         )
-        assert skip_count == extra_calls - MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        assert skip_count == extra_calls - 1
 
     def test_store_keeps_success_when_a_later_failure_arrives(self):
         state = TopAgentState(options=AgentRequestOptions())
@@ -1494,64 +1513,6 @@ class TestIdenticalToolCallCap:
         outcome = state.identical_tool_call_last_outcome[identical_tool_call_key("video_understanding_iso", args)]
         assert outcome["status"] == "success"
         assert outcome["content"] == "ok"
-
-    @pytest.mark.asyncio
-    async def test_mixed_parallel_outcomes_keep_success_for_later_skip(self, monkeypatch):
-        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
-
-        class MixedTool:
-            args_schema = None
-            call_count = 0
-
-            async def astream(self, input, config=None):
-                type(self).call_count += 1
-                if type(self).call_count == 1:
-                    await asyncio.sleep(0.05)
-                    raise RuntimeError("late failure")
-                yield "video understanding ok"
-
-        tool = MixedTool()
-        agent = self._agent_with_tool(tool)
-        state = TopAgentState(
-            agent_scratchpad=[
-                AIMessage(
-                    content="calling video understanding",
-                    tool_calls=[
-                        {
-                            "name": "video_understanding_iso",
-                            "args": IDENTICAL_TOOL_CALL_ARGS,
-                            "id": "fail_last",
-                        },
-                        {
-                            "name": "video_understanding_iso",
-                            "args": IDENTICAL_TOOL_CALL_ARGS,
-                            "id": "succeed_first",
-                        },
-                    ],
-                )
-            ],
-            options=AgentRequestOptions(),
-        )
-
-        await agent.tool_or_subagent_node(state)
-
-        outcome = state.identical_tool_call_last_outcome[
-            identical_tool_call_key("video_understanding_iso", IDENTICAL_TOOL_CALL_ARGS)
-        ]
-        assert outcome["status"] == "success"
-        assert not state.tool_failure
-
-        state.agent_scratchpad = self._scratchpad_call("third")
-        await agent.tool_or_subagent_node(state)
-        state.agent_scratchpad = self._scratchpad_call("skip")
-        await agent.tool_or_subagent_node(state)
-
-        skip_message = state.agent_scratchpad[-1]
-        assert skip_message.content == DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
-            name="video_understanding_iso",
-            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
-        )
-        assert getattr(skip_message, "status", None) == "success"
 
 
 class TestTopAgentRequestUseCritic:
