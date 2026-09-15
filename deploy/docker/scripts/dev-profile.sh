@@ -35,6 +35,9 @@ nvidia_api_key="${NVIDIA_API_KEY:-}"
 openai_api_key="${OPENAI_API_KEY:-}"
 dry_run="false"
 use_sbsa_images="false"
+# Last resort only, for Brev instances that publish no environment context
+# file. Brev migrated secure links here; BREV_LINK_DOMAIN always wins.
+brev_fallback_link_domain="gobrev.dev"
 # Build the VIOS runtime-media packages into a local image instead of installing
 # them on every container start. Env var so CI can set it without a flag.
 prebake_vios_packages="${VSS_VIOS_PREBAKE_PACKAGES:-false}"
@@ -372,6 +375,27 @@ function get_remote_model_name() {
   fi
 
   echo "${_model_name}"
+  return 0
+}
+
+# Derive the Brev secure-link base domain from a published port FQDN in the
+# environment context file Brev writes on its instances. Echoes the domain, or
+# nothing when the file, jq, or a matching FQDN is unavailable.
+function get_brev_link_domain_from_context() {
+  local _context_path="${1}"
+  local _env_id _marker _fqdn
+  [[ -r "${_context_path}" ]] || return 0
+  command -v jq &> /dev/null || return 0
+  _env_id="$(jq -r '.environment_id // empty' "${_context_path}" 2>/dev/null)"
+  [[ -n "${_env_id}" ]] || return 0
+  _marker="-${_env_id,,}."
+  while IFS= read -r _fqdn; do
+    _fqdn="${_fqdn,,}"
+    if [[ -n "${_fqdn}" && "${_fqdn}" == *"${_marker}"* ]]; then
+      echo "${_fqdn#*"${_marker}"}"
+      return 0
+    fi
+  done < <(jq -r '.ports[]?.fqdn // empty' "${_context_path}" 2>/dev/null)
   return 0
 }
 
@@ -1636,22 +1660,24 @@ function state_up() {
   fi
 
   # ===== Brev secure links =====
-  # Brev secure links use <prefix>-<env>.<domain>. During the phased tunnel
-  # migration, Brev-managed NetBird details identify Skybridge; a generic
-  # healthy NetBird client is insufficient. An explicit domain always wins.
+  # Brev secure links use <prefix>-<env>.<domain>. The domain comes from the
+  # environment context file Brev publishes, so a future domain migration needs
+  # no change here. An explicit BREV_LINK_DOMAIN always wins.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
     local _link_prefix="${BREV_LINK_PREFIX:-${_proxy_port}}"
-    local _link_domain _netbird_status=""
+    local _brev_context="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
+    local _link_domain=""
     if [[ -n "${BREV_LINK_DOMAIN:-}" ]]; then
       _link_domain="${BREV_LINK_DOMAIN}"
-    elif _netbird_status="$(netbird status -d 2>&1)" &&
-         [[ "${_netbird_status,,}" == *"skybridge"* ||
-            "${_netbird_status,,}" == *"brev.nvidia.com"* ||
-            "${_netbird_status,,}" == *"brev.dev"* ]]; then
-      _link_domain="apps.run.brev.nvidia.com"
     else
-      _link_domain="brevlab.com"
+      _link_domain="$(get_brev_link_domain_from_context "${_brev_context}")"
+      if [[ -n "${_link_domain}" ]]; then
+        echo "[INFO] Brev secure-link domain ${_link_domain} resolved from ${_brev_context}."
+      else
+        _link_domain="${brev_fallback_link_domain}"
+        echo "[WARNING] No Brev secure-link domain in ${_brev_context}; falling back to ${_link_domain}. Set BREV_LINK_DOMAIN to override."
+      fi
     fi
     local _secure_link_host="${_link_prefix}-${BREV_ENV_ID}.${_link_domain}"
     echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to ${_secure_link_host}..."
