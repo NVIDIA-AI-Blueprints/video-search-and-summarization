@@ -114,7 +114,8 @@ class AlertRequestEntity(BaseModel):
     Complete alert request entity for processing.
     
     Represents a validated alert request with all required fields and applied defaults.
-    Used for processing through VLM/VSS pipelines with comprehensive validation.
+    Used for processing through the VLM verification pipeline with
+    comprehensive validation.
     """
     
     # Core identification
