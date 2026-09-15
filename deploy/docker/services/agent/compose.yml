@@ -198,6 +198,10 @@ services:
       rtvi-vlm:
         condition: service_healthy
         required: false
+      # Only the search profile gives this optional service a healthcheck.
+      perception-2d-fusion:
+        condition: service_healthy
+        required: false
       rtvi-embed:
         condition: service_healthy
         required: false

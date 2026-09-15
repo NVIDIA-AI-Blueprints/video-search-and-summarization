@@ -20,6 +20,7 @@ behavior changes. The original had no env reads.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 from typing import override
@@ -37,6 +38,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _TEXT_EMBEDDING_CACHE_MAXSIZE = 1024
+
+_EMPTY_DATA_RETRIES = 3
+_EMPTY_DATA_BACKOFF_S = 2.0
+
+
+class _EmbedderWarmingUpError(RuntimeError):
+    """RTVI CV is listening but its embedding engine is not ready."""
 
 
 class RTVICVEmbedClient(EmbedClient):
@@ -83,6 +91,30 @@ class RTVICVEmbedClient(EmbedClient):
             return embedding
 
     async def _fetch_text_embedding(self, text: str) -> list[float]:
+        warming: _EmbedderWarmingUpError | None = None
+        for attempt in range(1, _EMPTY_DATA_RETRIES + 1):
+            try:
+                return await self._fetch_text_embedding_once(text)
+            except _EmbedderWarmingUpError as exc:
+                warming = exc
+                if attempt < _EMPTY_DATA_RETRIES:
+                    delay = _EMPTY_DATA_BACKOFF_S * attempt
+                    logger.warning(
+                        f"RTVI CV has no text embedding yet ({exc}); attempt "
+                        f"{attempt}/{_EMPTY_DATA_RETRIES}, retrying in {delay:.0f}s"
+                    )
+                    await asyncio.sleep(delay)
+
+        logger.error(f"Failed to parse RTVI CV response: {warming}")
+        raise BackendUnreachableError(
+            "rtvi_cv",
+            f"Invalid RTVI CV response format: {warming} (unchanged over "
+            f"{_EMPTY_DATA_RETRIES} attempts, so the text-embedder engine is "
+            f"not merely warming up)",
+            warming,
+        ) from warming
+
+    async def _fetch_text_embedding_once(self, text: str) -> list[float]:
         payload = {"text_input": text, "model": ""}
         try:
             response = await self._get_client().post(self.text_embeddings_url, json=payload)
@@ -94,7 +126,7 @@ class RTVICVEmbedClient(EmbedClient):
             if not isinstance(result, dict):
                 raise ValueError(f"Unexpected RTVI CV response shape: {type(result).__name__}")
             if not result.get("data") or not isinstance(result["data"], list) or len(result["data"]) == 0:
-                raise ValueError("RTVI CV response missing or empty 'data' field")
+                raise _EmbedderWarmingUpError("RTVI CV response missing or empty 'data' field")
 
             embedding_data = result["data"][0]
             if isinstance(embedding_data, list):
