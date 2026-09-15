@@ -267,6 +267,11 @@ Ask in **one** message, not three, and **not through `AskUserQuestion`** — the
 | **Model id** (`NEMOCLAW_MODEL`) | `aws/anthropic/bedrock-claude-opus-4-8` | Claude Opus 4-8 as the Inference Hub routes it — its full model list is at <https://inference.nvidia.com/?new=0>. The id belongs to **the endpoint**, not the model, so replace it whenever the endpoint changes; another provider's own documentation gives the ids it serves. |
 | **API key** (`COMPATIBLE_API_KEY`) | none — **required** for a public endpoint | Issued by whoever runs that endpoint: for the default, create one at <https://inference.nvidia.com/key-management?action=new-key>; otherwise refer the user to that provider's documentation. `references/agent-harness.md` covers the routes that need no key. Take it from the environment or a secret store. |
 
+**Tell the user how to hand the key over**, rather than having them paste it into chat where the transcript keeps it. Two ways, both fine:
+
+- **A `nemoclaw.env` file** at the checkout root (gitignored) holding `COMPATIBLE_API_KEY="<key>"`. Read it in before bring-up: `set -a; . nemoclaw.env; set +a`.
+- **An `export COMPATIBLE_API_KEY=<key>`** in the shell they start this session from, so the agent's own shells inherit it. An export in a separate terminal, after the fact, is not visible here.
+
 **Never let the key become an artifact.** It is exported into the environment for the notebook and nowhere else: not into `_builds/<name>/override.env`, not into a command the transcript keeps, not echoed back in a summary or a confirmation. Report it as set or missing, and nothing more.
 
 **No key is the Step 3 blocker, not a smaller default.** Name what is missing and offer the three ways out — supply the key, take the local-NIM or build.nvidia.com route above, or drop the harness (Q3 no, with the `vss` CLI driving the build). Deploy nothing until that is answered, and never quietly substitute a provider: the harness would come up on a model nobody chose and nothing downstream could tell.

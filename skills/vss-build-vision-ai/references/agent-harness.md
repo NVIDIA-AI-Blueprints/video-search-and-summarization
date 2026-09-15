@@ -194,13 +194,15 @@ with no harness, or name the in-stack agent instead, and deploy nothing until
 that is answered. Discovering it after the readiness gate means a deployed build
 with no way to drive it.
 
-- **Python 3.11+ to run the notebook**, plus `docker`, `python3`, and `curl` on
-  `PATH`, and outbound reach to the installer. **Do not require the NemoClaw CLI
-  here**: section 3.1 installs it at the pinned `NEMOCLAW_INSTALL_REF` whenever
-  that ref is not already present, so a fresh host is a supported starting point
-  and preflighting the post-install CLI would reject one. The notebook's own
-  preflight (section 2) re-checks the host commands, but it runs too late to
-  inform the harness choice.
+- **`uv`, `docker`, `python3`, and `curl` on `PATH`**, and outbound reach to the
+  installer. The host's own Python version is not a requirement here — the
+  bring-up below pins its interpreter with `uv run --python 3.12`. **Do not
+  require the NemoClaw CLI here**: section 3.1 installs it at the pinned
+  `NEMOCLAW_INSTALL_REF` whenever that ref is not already present, so a fresh
+  host is a supported starting point and preflighting the post-install CLI would
+  reject one. The notebook's own preflight (section 2) reports on `docker`,
+  `python3`, and `curl` without failing the run, so it neither informs the
+  harness choice nor stops a host that is short one of them.
 - **An agent model provider**, and only the credential that provider needs. This
   is the harness's *own* LLM, unrelated to the build's `LLM_*` and `VLM_*` knobs.
   The notebook offers three — (a) an OpenAI-compatible endpoint, (b) a
@@ -395,7 +397,8 @@ export NEMOCLAW_RECREATE_SANDBOX=0
 export NEMOCLAW_PROVIDER=custom
 export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-aws/anthropic/bedrock-claude-opus-4-8}"
 export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://inference-api.nvidia.com/v1}"
-# From the environment or the secret store; never a literal here.
+# From the environment or the secret store; never a literal here. A key the user
+# dropped in a file is read in first: set -a; . "$REPO/nemoclaw.env"; set +a
 : "${COMPATIBLE_API_KEY:?bearer token for NEMOCLAW_ENDPOINT_URL is required}"
 export COMPATIBLE_API_KEY
 
