@@ -7,20 +7,20 @@
       "destPath": "rtdetr_warehouse_v1.0.2.fp16.onnx"
     },
     {
-      "model": "nvidia/tao/${VISION_ENCODER_MODEL}:deployable_${VISION_ENCODER_VERSION}",
-      "org": "nvidia",
+      "model": "nvstaging/tao/${VISION_ENCODER_MODEL}:deployable_${VISION_ENCODER_VERSION}",
+      "org": "nvstaging",
       "sourcePath": "${VISION_ENCODER_MODEL}_vdeployable_${VISION_ENCODER_VERSION}/${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}.onnx",
       "destPath": "${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}.onnx"
     },
     {
-      "model": "nvidia/tao/${VISION_ENCODER_MODEL}:deployable_${VISION_ENCODER_VERSION}",
-      "org": "nvidia",
+      "model": "nvstaging/tao/${VISION_ENCODER_MODEL}:deployable_${VISION_ENCODER_VERSION}",
+      "org": "nvstaging",
       "sourcePath": "${VISION_ENCODER_MODEL}_vdeployable_${VISION_ENCODER_VERSION}/${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}_weights.bin",
       "destPath": "${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}_weights.bin"
     },
     {
-      "model": "nvidia/tao/${VISION_ENCODER_MODEL}:deployable_${VISION_ENCODER_VERSION}",
-      "org": "nvidia",
+      "model": "nvstaging/tao/${VISION_ENCODER_MODEL}:deployable_${VISION_ENCODER_VERSION}",
+      "org": "nvstaging",
       "sourcePath": "${VISION_ENCODER_MODEL}_vdeployable_${VISION_ENCODER_VERSION}/${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}_tokenizer",
       "destPath": "${VISION_ENCODER_MODEL}_${VISION_ENCODER_VERSION}_tokenizer"
     }
