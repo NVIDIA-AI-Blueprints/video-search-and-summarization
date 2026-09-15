@@ -560,6 +560,16 @@ End with `DONE: 1/1 specs passed` when it passed, `DONE: 0/1 specs passed;
             if manual else "post ONE PR comment for this spec"
         )
         local_gpu = os.environ.get("SKILL_EVAL_LOCAL_GPU_INSTANCE", "").strip()
+        # An OpenShell leg is placed by fleet labels and GPU count, so the
+        # planner sends no platform and the adapter reads the SKU off this
+        # guest's own card. "(read from spec)" would be a lie there — the
+        # spec no longer decides — and a hand-picked platform is how an
+        # H200 KV-cache fraction ends up deployed on a 96 GB card.
+        platform_display = eval_platform or (
+            "(unset — the adapter reads this guest's GPU; pass "
+            "--platform \"$EVAL_PLATFORM\" verbatim and do not substitute one)"
+            if local_gpu else "(read from spec)"
+        )
         if local_gpu:
             harbor_step = (
                 f"this job is already on OpenShell GHA runner `{local_gpu}` "
@@ -590,7 +600,7 @@ Context:
   workflow run = {run_id}
   working dir  = {REPO_ROOT}
   spec         = {eval_spec_path}
-  platform     = {eval_platform or "(read from spec)"}
+  platform     = {platform_display}
   leg slug     = {os.environ.get("EVAL_SLUG", "")}   (scratch scope; see § Per-leg scratch isolation)
 
 Per AGENTS.md § "Single-spec mode": SKIP step 1's diff — the `plan` job

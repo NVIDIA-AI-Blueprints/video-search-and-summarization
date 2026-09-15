@@ -3,25 +3,32 @@
 # SPDX-License-Identifier: Apache-2.0
 """Generate Harbor tasks for VSS vss-deploy-test-openshell skill evaluation.
 
-One task per (profile × platform). The adapter does **not** pick LLM/VLM
-placement — the `/vss-deploy-test-openshell` skill reads `LLM_REMOTE_URL`/`VLM_REMOTE_URL`
+One task per profile, for **this host's** GPU. These legs are placed on
+the OpenShell fleet by label and GPU count alone — no SKU — so the spec
+does not decide which card runs the trial and cannot: the adapter reads
+the card from `nvidia-smi` and generates for it. A card it does not
+recognise has no measured `hw-<profile>.env` sizing, so it exits 2 naming
+the card instead of guessing. `--platform` overrides detection for local
+runs.
+
+The adapter does **not** pick LLM/VLM placement — the
+`/vss-deploy-test-openshell` skill reads `LLM_REMOTE_URL`/`VLM_REMOTE_URL`
 (forwarded by `brev_env.py`) plus what's locally available and decides at
-runtime. Specs declare `gpu_count` per platform; that's the only
-trial-level resource hint.
+runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
     Profiles : base, lvs, warehouse, search, ask-video
-    Platforms: H100, L40S, RTXPRO6000BW, H200, A40, DGX-SPARK, IGX-THOR
-               (each spec declares which platforms it runs on; warehouse
-               and search are two-GPU H200 or RTX PRO 6000 jobs; ask-video
-               deploys base then chains to vss-ask-video)
+    Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
+               DGX-SPARK, IGX-THOR this guest has (warehouse and search
+               are two-GPU jobs; ask-video deploys base then chains to
+               vss-ask-video)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
         instruction.md, task.toml, tests/, solution/, skills/, environment/
 
 Usage from the repository root:
-    # Generate every (profile, platform) the specs declare
+    # Every profile, sized for this host's GPU
     python3 .github/skill-eval/adapters/vss-deploy-test-openshell/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-test-openshell \\
         --skill-dir skills/vss-deploy-test-openshell
@@ -31,7 +38,7 @@ Usage from the repository root:
         --output-dir .github/skill-eval/datasets/vss-deploy-test-openshell \\
         --skill-dir skills/vss-deploy-test-openshell --profile base
 
-    # One platform
+    # Override the detected card (local runs only; CI passes none)
     python3 .github/skill-eval/adapters/vss-deploy-test-openshell/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-test-openshell \\
         --skill-dir skills/vss-deploy-test-openshell --platform RTXPRO6000BW
@@ -48,6 +55,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -66,6 +74,85 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 # (defaulting to NVIDIA-AI-Blueprints/video-search-and-summarization
 # when PR_REPO is unset).
 VSS_BRANCH_FALLBACK = "develop"
+
+# nvidia-smi name tokens → PLATFORMS keys.
+#
+# An OpenShell leg carries no SKU: placement is fleet labels plus a GPU
+# count, so the guest that claims the job owns its own hardware. Sizing
+# cannot be guessed from the spec, because `hw-<profile>.env` values are
+# per-card — `hw-H200-shared.env` sets NIM_KVCACHE_PERCENT=0.5, the value
+# measured to leave 1682 MiB free on an RTX PRO 6000. So the sizing
+# profile is read off the live card, and an unrecognised card blocks
+# rather than deploying sizing that was never measured for it.
+_LIVE_GPU_TOKENS: tuple[tuple[str, str], ...] = (
+    ("H200", "H200"),
+    ("RTX PRO 6000", "RTXPRO6000BW"),
+    ("RTX PRO SERVER 6000", "RTXPRO6000BW"),
+    ("H100", "H100"),
+    ("L40S", "L40S"),
+    ("A40", "A40"),
+    ("A16", "A16"),
+    ("GB10", "DGX-SPARK"),
+    ("THOR", "IGX-THOR"),
+)
+
+
+def live_gpu_names() -> list[str]:
+    """Names `nvidia-smi` reports for this host, or [] when unreadable."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+
+
+def detect_live_platform(names: list[str] | None = None) -> str | None:
+    """Platform key for this host's GPU, or None when it isn't recognised."""
+    blob = " | ".join(names if names is not None else live_gpu_names()).upper()
+    if not blob:
+        return None
+    for token, platform in _LIVE_GPU_TOKENS:
+        if token in blob:
+            return platform
+    return None
+
+
+def resolve_sizing_platform(requested: str | None) -> tuple[str | None, str | None]:
+    """Sizing platform for this host, or a reason the leg cannot size.
+
+    `requested` is an operator override (`--platform`) and wins, for local
+    runs on a box whose card the tokens above do not cover. CI passes no
+    platform — the planner deliberately emits none — so the live card
+    decides, and an unknown card is a blocker, not a fallback.
+    """
+    if requested:
+        return requested, None
+    names = live_gpu_names()
+    platform = detect_live_platform(names)
+    if platform:
+        return platform, None
+    if not names:
+        return None, (
+            "cannot read this host's GPU: `nvidia-smi --query-gpu=name` "
+            "returned nothing. An OpenShell leg sizes NIM from the live "
+            "card, so there is no safe profile to generate for. Pass "
+            "--platform explicitly to override."
+        )
+    return None, (
+        "unrecognised GPU on this host: "
+        + ", ".join(sorted(set(names)))
+        + ". No hw-<profile>.env sizing has been measured for it; add it to "
+        "_LIVE_GPU_TOKENS and ship the profile files, or pass --platform "
+        "explicitly to override."
+    )
 
 # ---------------------------------------------------------------------------
 # Platform specs
@@ -405,10 +492,11 @@ def generate_solve_script(profile: str, platform: str) -> str:
 
     is_warehouse = (env_profile == "warehouse")
 
-    # Hardware profiles are exact identities used by NIM compose files.
-    # OpenShell does not gate the trial on SKU; the skill still writes
-    # HARDWARE_PROFILE from the host when it deploys.
-    nim_profile = os.environ.get("HARDWARE_PROFILE") or platform
+    # `platform` is this host's own card, resolved by main(); it selects
+    # `nim/<slug>/hw-<profile>(-shared).env`, whose values are measured
+    # per SKU. The planner sends no platform for these legs precisely so
+    # this cannot be inherited from a scheduling guess.
+    nim_profile = platform
 
     if is_warehouse:
         env_file_line = 'ENV_FILE=$REPO/deploy/docker/industry-profiles/warehouse-operations/.env'
@@ -686,6 +774,17 @@ def generate_task(
 # Spec → matrix
 # ---------------------------------------------------------------------------
 
+def _spec_path_for(profile: str, skill_dir: Path | None) -> Path | None:
+    """`evals/<profile>.json`, accepting the legacy `eval/` directory."""
+    if skill_dir is None:
+        return None
+    for sub in ("evals", "eval"):
+        candidate = skill_dir / sub / f"{profile}.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, int] | None:
     """Read `evals/<profile>.json` (legacy `eval/<profile>.json` accepted)
     and return `{platform: gpu_count}`.
@@ -696,14 +795,8 @@ def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, int] 
     Legacy specs that still carry a `modes` array are accepted: the
     array is ignored and a one-shot trial runs per declared platform.
     A warning is printed so authors notice the dead field."""
-    if skill_dir is None:
-        return None
-    spec_path = skill_dir / "evals" / f"{profile}.json"
-    if not spec_path.exists():
-        legacy = skill_dir / "eval" / f"{profile}.json"
-        if legacy.exists():
-            spec_path = legacy
-    if not spec_path.exists():
+    spec_path = _spec_path_for(profile, skill_dir)
+    if spec_path is None:
         return None
     try:
         spec = json.loads(spec_path.read_text())
@@ -735,32 +828,69 @@ def _spec_platforms_for(profile: str, skill_dir: Path | None) -> dict[str, int] 
     return out
 
 
+def _spec_gpu_count(
+    profile: str, skill_dir: Path | None
+) -> tuple[int | None, str | None]:
+    """The trial's GPU demand, which is all an OpenShell spec decides.
+
+    `openshell.gpu_count` is the contract the planner places on. The
+    per-platform counts are only a fallback for a spec that predates it,
+    and they must agree — a spec asking for 1 GPU on one card and 2 on
+    another has no single demand to place, and says so instead of
+    picking one.
+    """
+    spec_path = _spec_path_for(profile, skill_dir)
+    if spec_path is None:
+        return None, (
+            "no spec at skills/vss-deploy-test-openshell/evals/"
+            f"{profile}.json"
+        )
+    try:
+        spec = json.loads(spec_path.read_text())
+    except Exception as exc:  # noqa: BLE001
+        return None, f"failed to parse {spec_path.name}: {exc}"
+    declared = ((spec.get("openshell") or {}) if isinstance(spec, dict) else {}).get(
+        "gpu_count"
+    )
+    if isinstance(declared, int) and not isinstance(declared, bool) and declared > 0:
+        return declared, None
+    counts = set((_spec_platforms_for(profile, skill_dir) or {}).values())
+    if len(counts) == 1:
+        return counts.pop(), None
+    if not counts:
+        return None, f"{spec_path.name} declares no openshell.gpu_count"
+    return None, (
+        f"{spec_path.name} has conflicting GPU demand "
+        + "/".join(str(c) for c in sorted(counts))
+        + "; declare one openshell.gpu_count"
+    )
+
+
 def expand_matrix(
     profile_filter: str | None,
-    platform_filter: str | None,
+    platform: str,
     skill_dir: Path | None = None,
 ) -> tuple[list[tuple[str, str, int]], list[tuple[str, str, str]]]:
     """Return (included, skipped) where:
         included = list of (profile, platform, gpu_count) tuples
         skipped  = list of (profile, platform, reason) tuples
+
+    One task per profile, for the single `platform` this host sizes for.
+    The spec's `resources.platforms` keys do not gate generation: an
+    OpenShell leg runs on whatever guest claimed its labels, and refusing
+    to generate for that guest's card would only turn a supported
+    deployment into a phantom failure.
     """
     included: list[tuple[str, str, int]] = []
     skipped: list[tuple[str, str, str]] = []
-    for profile, profile_def in PROFILES.items():
+    for profile in PROFILES:
         if profile_filter and profile != profile_filter:
             continue
-        spec_matrix = _spec_platforms_for(profile, skill_dir)
-        if spec_matrix is None:
-            skipped.append((profile, "-", "no spec at skills/vss-deploy-test-openshell/evals/"
-                                          f"{profile}.json with resources.platforms"))
+        gpu_count, reason = _spec_gpu_count(profile, skill_dir)
+        if gpu_count is None:
+            skipped.append((profile, platform, reason or "no GPU demand declared"))
             continue
-        for platform, spec_gpu_count in spec_matrix.items():
-            if platform_filter and platform != platform_filter:
-                continue
-            if platform not in PLATFORMS:
-                skipped.append((profile, platform, f"unknown platform {platform!r}"))
-                continue
-            included.append((profile, platform, spec_gpu_count))
+        included.append((profile, platform, gpu_count))
     return included, skipped
 
 
@@ -780,7 +910,12 @@ def main() -> None:
         default=None,
         help="Eval spec path; its filename stem selects the profile",
     )
-    parser.add_argument("--platform", default=None, choices=list(PLATFORMS.keys()))
+    # "" is accepted because the planner emits an empty `matrix.platform`
+    # for OpenShell legs and the workflow forwards it verbatim; it means
+    # "the guest decides", same as omitting the flag.
+    parser.add_argument(
+        "--platform", default=None, choices=[*PLATFORMS, ""],
+    )
     args = parser.parse_args()
 
     output_root = Path(args.output_dir)
@@ -795,15 +930,22 @@ def main() -> None:
                 + ", ".join(PROFILES)
             )
 
+    platform, sizing_error = resolve_sizing_platform(args.platform or None)
+    if platform is None:
+        parser.exit(2, f"ERROR: {sizing_error}\n")
+    if not args.platform:
+        print(f"=== Sizing profile from live GPU: {platform} ===")
+    os.environ["HARDWARE_PROFILE"] = platform
+
     print("=== Inputs ===")
     print(f"  output_dir       : {output_root}")
     print(f"  skill_dir        : {skill_dir or '(none)'}")
     print(f"  filter profile   : {profile or '(all)'}")
-    print(f"  filter platform  : {args.platform or '(all)'}")
+    print(f"  sizing platform  : {platform}")
     print()
 
     included, skipped = expand_matrix(
-        profile, args.platform, skill_dir=skill_dir,
+        profile, platform, skill_dir=skill_dir,
     )
 
     if skipped:
