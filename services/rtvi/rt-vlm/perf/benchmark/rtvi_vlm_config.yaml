@@ -1,0 +1,146 @@
+######################################################################################################
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+######################################################################################################
+
+# RTVI Sample Performance Test Configuration
+# This file demonstrates all benchmark modes using videos available in the RTVI container
+
+# Global test settings
+global:
+  # RTVI backend URL for the API (can be overridden by RTVI_BACKEND env var)
+  rtvi_backend: "http://localhost:8000/v1"
+
+  # Output directory for test results
+  output_dir: "rtvi-vlm-perf-report"
+
+  # GPU configuration
+  vlm_gpus: [0]  # Adjust based on your system
+
+  # GPU monitoring settings
+  gpu_monitoring:
+    enabled: true
+    interval_seconds: 1
+
+  # /generate_captions API parameters
+  generate_captions_params:
+    temperature: 0.7
+    max_tokens: 100
+    enable_audio: false
+
+  # Default prompts
+  prompt: "Describe the key events in this video with timestamps."
+
+# Test scenarios
+test_scenarios:
+
+  # Single Live Stream Test with rtvi_embed backend
+  single_live_stream_test_100_token:
+    description: "Test single live stream VLM generation with iterations"
+    benchmark_mode: "single_live_stream"
+    iterations: 2
+    # Duration in seconds to monitor the stream
+    duration_seconds: 100
+
+    videos:
+      - name: "video_stream"
+        rtsp_url: "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/concat_wh_52.mp4"
+        chunk_sizes: [10]
+
+  # Single Live Stream Test with rtvi_embed backend
+  single_live_stream_test_1_token:
+    description: "Test single live stream VLM generation with iteratio"
+    benchmark_mode: "single_live_stream"
+    iterations: 2
+    generate_captions_params:
+      vlm_input_width: 448   # 4K VLM input width
+      vlm_input_height: 448  # 4K VLM input height
+      temperature: 0.5
+      max_tokens: 1
+      prompt: "You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle license plate details. Don't add any details which are not present in the video frames. Just answer Yes for anomaly or No if there is none"
+    # Duration in seconds to monitor the stream
+    duration_seconds: 100
+
+    videos:
+      - name: "video_stream"
+        rtsp_url: "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/concat_wh_52.mp4"
+        chunk_sizes: [10]
+  # Mode 3: Max Live Streams Mode - Testing stream capacity
+  # Note: These use hypothetical RTSP URLs for demonstration
+  # In production, replace with actual RTSP stream URLs and corresponding captions
+  max_live_streams_test_1_token:
+    description: "Demo maximum concurrent live streams capacity"
+    benchmark_mode: "max_live_streams"
+    generate_captions_params:
+      vlm_input_width: 448   # 4K VLM input width
+      vlm_input_height: 448  # 4K VLM input height
+    videos:
+      - name: "warehouse_cam_1_single_token"
+        #rtsp_url: "rtsp://10.78.14.129:8554/traffic/cam1"  # Replace with actual RTSP URL
+        rtsp_url: "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/concat_wh_52.mp4"
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        initial_stream_count: 3
+        chunk_overlap_duration: 0
+        stability_check_interval: 45 # Seconds between stability checks (default: 60)
+        add_stream_count: 1
+        generate_captions_params:
+          temperature: 0.5
+          max_tokens: 1
+        prompt: "Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area  and answer in Yes or No Followed by Brief Description if Yes"
+
+
+  max_live_streams_test_100_token:
+    description: "Demo maximum concurrent live streams capacity"
+    benchmark_mode: "max_live_streams"
+    generate_captions_params:
+      vlm_input_width: 448   # 4K VLM input width
+      vlm_input_height: 448  # 4K VLM input height
+    videos:
+      - name: "warehouse_cam_1_100_token"
+        #rtsp_url: "rtsp://10.78.14.129:8554/traffic/cam1"  # Replace with actual RTSP URL
+        rtsp_url: "rtsp://nv-wowza-pdc.nvidia.com:1935/vod/concat_wh_52.mp4"
+        chunk_sizes: [10]
+        latency_threshold_seconds: 10
+        initial_stream_count: 3
+        chunk_overlap_duration: 0
+        stability_check_interval: 45  # Seconds between stability checks (default: 60)
+        add_stream_count: 1
+        generate_captions_params:
+          temperature: 0.5
+          max_tokens: 100
+        prompt: "Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area  and answer in Yes or No Followed by Brief Description if Yes"
+
+
+  # Mode 1: Single File Mode - Testing each video type
+  single_file_test:
+    description: "Demo single file processing with RTVI sample videos"
+    benchmark_mode: "single_file"
+    iterations: 1
+    videos:
+      # Traffic monitoring video
+      - filepath: "/opt/nvidia/rtvi/streams/its.mp4"
+        chunk_sizes: [10]
+        prompt: "You are an advanced intelligent traffic monitoring system. You must monitor and take note of all traffic related events like collision, unsafe maneuver, traffic violation, normal traffic flow, obstructed traffic flow etc. with relevant details. Note down all vehicles details in video like vehicle type. Make sure to capture details of emergency responder vehicles like police, ambulance, fire-truck, etc. Don't add vehicle license plate details. Don't add any details which are not present in the video frames. Start each event description with a start and end time stamp of the event."
+
+      # Bridge inspection video
+      - filepath: "/opt/nvidia/rtvi/streams/bridge.mp4"
+        chunk_sizes: [10]
+        prompt: "You are a bridge inspection system. Describe the condition of the bridge in the provided video. Start each event description with a start and end time stamp of the event"
+
+      # Warehouse monitoring video
+      - filepath: "/opt/nvidia/rtvi/streams/warehouse.mp4"
+        chunk_sizes: [10]
+        prompt: "You are a warehouse monitoring system. Describe the events in this warehouse and look for any anomalies. Start each sentence with start and end timestamp of the event."
