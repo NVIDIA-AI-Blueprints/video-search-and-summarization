@@ -91,7 +91,7 @@ bash perf/setup_perf_env.sh -h
 
 Important defaults and requirements:
 
-- `RTVI_IMAGE` is required for the RTVI VLM service image.
+- `RTVI_IMAGE` defaults to `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`; override it for pinned or custom images and record the resolved digest for benchmark provenance.
 - `NGC_API_KEY` is required for NVIDIA container registry access.
 - `NVIDIA_VISIBLE_DEVICES` selects GPUs for the stack and benchmark.
 - `VLM_MODEL_PRESET=cr3-nano-reasoner-fp8` selects CR3 Nano Reasoner FP8 and fills `VLM_MODEL_TO_USE=cosmos-reason3` plus `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` unless those variables are explicitly exported. `VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4` selects the Blackwell-oriented CR3 Nano Reasoner NVFP4 path `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` with the same model key.

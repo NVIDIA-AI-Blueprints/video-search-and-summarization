@@ -98,11 +98,11 @@ exports those variables in the shell for a non-standard experiment.
 # ── Required ─────────────────────────────────────────────────────────────────
 export ARTIFACTORY_USER=your_username          # Artifactory username
 export ARTIFACTORY_TOKEN=your_token            # Artifactory API token
-export RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.1.0-26.02.3   # RTVI VLM Docker image
 export NGC_API_KEY=nvapi-XXXXXX                # NGC API key for model download
 export NVIDIA_VISIBLE_DEVICES=0                # GPU index
 
 # ── Optional (override defaults if needed) ───────────────────────────────────
+export RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 export BACKEND_PORT=8010          # RTVI VLM host port          (default: 8010)
 export REDIS_PORT=6379            # VST Redis port               (default: 6379)
 export VLM_MODEL_TO_USE=cosmos-reason2
@@ -237,7 +237,7 @@ For detailed deployment instructions, refer to the release documentation:
 
 | Image | Registry |
 |-------|----------|
-| **RTVI VLM Microservice** | `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.1.0-26.02.3` |
+| **RTVI VLM Microservice** | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest` |
 
 ### VLM Deployment (Recommended: compose.perf.yaml)
 
@@ -268,7 +268,7 @@ For **manual** creation:
 cat > .env.perf << 'EOF'
 # Service Configuration
 BACKEND_PORT=8010
-RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.1.0-26.02.3
+RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
 NVIDIA_VISIBLE_DEVICES=0
 
 # Model Configuration

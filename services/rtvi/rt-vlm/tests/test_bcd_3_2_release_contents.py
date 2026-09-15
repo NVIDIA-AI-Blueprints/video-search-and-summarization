@@ -60,7 +60,13 @@ def test_bcd_3_2_vlm_release_is_complete():
 
 def test_perf_compose_tracks_github_runtime_controls():
     compose = yaml.safe_load((SERVICE_ROOT / "docker/compose.perf.yaml").read_text())
+    image = compose["services"]["rtvi-server"]["image"]
     environment = compose["services"]["rtvi-server"]["environment"]
+
+    assert image == (
+        "${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/"
+        "vss-rt-vlm:develop-latest}"
+    )
 
     expected = {
         "MAX_ASSET_STORAGE_SIZE_GB": "${MAX_ASSET_STORAGE_SIZE_GB:-}",
@@ -80,6 +86,11 @@ def test_perf_compose_tracks_github_runtime_controls():
     assert {key: environment.get(key) for key in expected} == expected
 
     setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    assert (
+        'RTVI_IMAGE="${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/'
+        'vss-rt-vlm:develop-latest}"' in setup
+    )
+    assert '[[ -n "${RTVI_IMAGE:-}" ]]' not in setup
     setup_keys = (
         "MAX_ASSET_STORAGE_SIZE_GB",
         "ASSET_MAX_AGE_HOURS",
