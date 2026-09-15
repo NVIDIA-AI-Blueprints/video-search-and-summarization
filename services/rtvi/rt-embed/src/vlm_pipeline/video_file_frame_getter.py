@@ -1809,6 +1809,75 @@ class VideoFileFrameGetter:
             )
             pipeline.add(self._audio_capsfilter2)
 
+        def update_live_buffer_from_sei(buffer):
+            # Read SEI metadata (IPC standard meta or legacy nvds meta) off the buffer,
+            # override buffer.pts from sim_time if present, and record the SEI base_time
+            # used to derive NTP timestamps for chunks. Called both from a dedicated probe
+            # attached directly to nvunixfdsrc's src pad (so the IPC decoded-frame path
+            # reads the metadata before any downstream element can drop it) and again from
+            # the general buffer_probe below, which also covers the non-IPC live path.
+            if not self._is_live:
+                return None
+
+            try:
+                sei_data, _ = _get_buffer_sei_data(buffer)
+            except json.JSONDecodeError as exc:
+                logger.warning("Failed to parse SEI metadata JSON: %s", exc)
+                return None
+
+            if not sei_data:
+                return None
+
+            if "sim_time" in sei_data:
+                sim_time = sei_data["sim_time"]
+                if isinstance(sim_time, (int, float)):
+                    original_pts = buffer.pts
+                    new_pts = sim_time * 1e9
+                    logger.debug(
+                        f"SEI timestamp override: original_pts={original_pts} ns, "
+                        f"sim_time={sim_time} s, new_pts={new_pts} ns"
+                    )
+                    buffer.pts = new_pts
+                else:
+                    logger.warning(
+                        f"SEI sim_time is not numeric (type={type(sim_time).__name__}, "
+                        f"value={sim_time}), skipping timestamp override"
+                    )
+
+            with self._live_stream_frame_selectors_lock:
+                self._sei_data = sei_data
+
+                if self._sei_data and self._sei_base_time is None:
+                    if "timestamp" in self._sei_data:
+                        timestamp = self._sei_data["timestamp"]
+                        if isinstance(timestamp, (int, float)):
+                            self._sei_base_time = timestamp - buffer.pts
+                            logger.debug(
+                                f"SEI base_time initialized: timestamp={timestamp} ns, "
+                                f"buffer.pts={buffer.pts} ns, base_time={self._sei_base_time} ns"
+                            )
+                        else:
+                            logger.warning(
+                                f"SEI timestamp is not numeric (type={type(timestamp).__name__}, "
+                                f"value={timestamp}), skipping base_time calculation"
+                            )
+                    else:
+                        logger.warning(
+                            "SEI data missing 'timestamp' key, skipping base_time calculation"
+                        )
+
+            return sei_data
+
+        def ipc_source_buffer_probe(pad, info, data):
+            # Dedicated probe on nvunixfdsrc's own src pad: reads SEI metadata the
+            # instant a decoded-frame IPC buffer arrives, before any downstream element
+            # (queue, nvvideoconvert, ...) has a chance to copy/reallocate the buffer and
+            # silently drop the attached GstMeta.
+            buffer = info.get_buffer()
+            if buffer and buffer.pts != Gst.CLOCK_TIME_NONE:
+                update_live_buffer_from_sei(buffer)
+            return Gst.PadProbeReturn.OK
+
         def buffer_probe(pad, info, data):
             # Probe callback function to pass chosen frames and drop other frames
             buffer = info.get_buffer()
@@ -1818,27 +1887,7 @@ class VideoFileFrameGetter:
             self._last_frame_pts = buffer.pts
 
             if self._is_live:
-                try:
-                    sei_data, _ = _get_buffer_sei_data(buffer)
-                except json.JSONDecodeError as exc:
-                    logger.warning("Failed to parse SEI metadata JSON: %s", exc)
-                    sei_data = None
-                if sei_data:
-                    if "sim_time" in sei_data:
-                        sim_time = sei_data["sim_time"]
-                        if isinstance(sim_time, (int, float)):
-                            original_pts = buffer.pts
-                            new_pts = sim_time * 1e9
-                            logger.debug(
-                                f"SEI timestamp override: original_pts={original_pts} ns, "
-                                f"sim_time={sim_time} s, new_pts={new_pts} ns"
-                            )
-                            buffer.pts = new_pts
-                        else:
-                            logger.warning(
-                                f"SEI sim_time is not numeric (type={type(sim_time).__name__}, "
-                                f"value={sim_time}), skipping timestamp override"
-                            )
+                update_live_buffer_from_sei(buffer)
 
                 new_chunk = False
                 if buffer.pts >= self._live_stream_next_chunk_start_pts:
@@ -1859,28 +1908,6 @@ class VideoFileFrameGetter:
                             self._audio_end_cv.wait(1)
 
                 with self._live_stream_frame_selectors_lock:
-                    if sei_data:
-                        self._sei_data = sei_data
-
-                        if self._sei_data and self._sei_base_time is None:
-                            if "timestamp" in self._sei_data:
-                                timestamp = self._sei_data["timestamp"]
-                                if isinstance(timestamp, (int, float)):
-                                    self._sei_base_time = timestamp - buffer.pts
-                                    logger.debug(
-                                        f"SEI base_time initialized: timestamp={timestamp} ns, "
-                                        f"buffer.pts={buffer.pts} ns, base_time={self._sei_base_time} ns"
-                                    )
-                                else:
-                                    logger.warning(
-                                        f"SEI timestamp is not numeric (type={type(timestamp).__name__}, "
-                                        f"value={timestamp}), skipping base_time calculation"
-                                    )
-                            else:
-                                logger.warning(
-                                    "SEI data missing 'timestamp' key, skipping base_time calculation"
-                                )
-
                     if buffer.pts >= self._live_stream_next_chunk_start_pts:
                         fs = DefaultFrameSelector(
                             num_frames_per_second_or_fixed_frames=(
@@ -2275,6 +2302,12 @@ class VideoFileFrameGetter:
             self._is_live or self._frame_selector.selects_all_frames or not self._timestamp_filter
         )
         self._pipeline_has_file_buffer_probe = bool(not self._is_live and use_python_buffer_probe)
+        if self._is_live and nvunixfdsrc:
+            ipc_src_pad = nvunixfdsrc.get_static_pad("src")
+            if ipc_src_pad:
+                self._add_gst_pad_probe(
+                    ipc_src_pad, Gst.PadProbeType.BUFFER, ipc_source_buffer_probe, self
+                )
         if use_python_buffer_probe:
             self._add_gst_pad_probe(pad, Gst.PadProbeType.BUFFER, buffer_probe, self)
         if self._audio_convert:
@@ -3047,6 +3080,8 @@ class VideoFileFrameGetter:
         live_stream_id="",
         live_stream_identity="",
         ipc_frame_copy_enabled: bool | None = None,
+        ipc_socket_dir: str | None = None,
+        ipc_socket_template: str | None = None,
         on_stream_error_callback: Optional[Callable[[str, str, int], None]] = None,
     ):
         if self._pipeline:
@@ -3079,7 +3114,11 @@ class VideoFileFrameGetter:
             else ipc_frame_copy_enabled
         )
         self._ipc_socket_path = (
-            resolve_ipc_socket_path(self._ipc_stream_identity)
+            resolve_ipc_socket_path(
+                self._ipc_stream_identity,
+                socket_dir=ipc_socket_dir,
+                socket_template=ipc_socket_template,
+            )
             if self._ipc_frame_copy_enabled
             else ""
         )
