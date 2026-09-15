@@ -73,14 +73,16 @@ Hand off to `/vss-manage-video-io-storage` to:
    # window the CLI resolved (the whole recorded segment when none was given).
    CLIP_START=$(printf '%s' "${CLIP}" | jq -r '.start_time // empty'); CLIP_END=$(printf '%s' "${CLIP}" | jq -r '.end_time // empty')
    [ -n "${CLIP_START}" ] && [ -n "${CLIP_END}" ] || { echo "vss vios clip returned no start_time / end_time for <sensor-name>" >&2; printf '%s\n' "${CLIP}" >&2; exit 1; }
-   # Duration in whole seconds from the resolved window (GNU date -d or BSD date -j; fractions and +00:00 dropped).
-   # It feeds the Long-video rule and Step 3's frame sampling — never leave it to a default.
-   _iso2s() { _t=$(printf '%s' "$1" | sed -E 's/(\.[0-9]+)?(Z|\+00:00)$/Z/'); date -u -d "$_t" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$_t" +%s 2>/dev/null; }
+   # Duration in seconds (fraction kept, ms precision) from the resolved window: epoch integer via GNU date -d or
+   # BSD date -j, the ISO fraction re-attached. It feeds the Long-video rule and Step 3's frame sampling (Step 3
+   # truncates for num_frames only) — never leave it to a default.
+   _iso2s() { _f=$(printf '%s' "$1" | sed -nE 's/^[^.]*T[0-9:]+(\.[0-9]+).*$/\1/p'); _t=$(printf '%s' "$1" | sed -E 's/(\.[0-9]+)?(Z|\+00:00)$/Z/'); _i=$(date -u -d "$_t" +%s 2>/dev/null || date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$_t" +%s 2>/dev/null) && printf '%s%s' "$_i" "$_f"; }
    _s=$(_iso2s "${CLIP_START}"); _e=$(_iso2s "${CLIP_END}")
-   for _v in "${_s:-x}" "${_e:-x}"; do case "$_v" in *[!0-9]*) echo "ERROR: could not parse the resolved window ${CLIP_START} / ${CLIP_END} as ISO-8601 UTC" >&2; exit 1 ;; esac; done
-   CLIP_SECONDS=$(( _e - _s ))
-   [ "${CLIP_SECONDS}" -ge 1 ] || { echo "ERROR: resolved window is empty or reversed (${CLIP_START} -> ${CLIP_END})" >&2; exit 1; }
-   [ "${CLIP_SECONDS}" -lt 120 ] || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): the direct VLM path is not allowed — Long-video rule, use the LVS path" >&2; exit 1; }
+   for _v in "${_s:-x}" "${_e:-x}"; do printf '%s' "$_v" | grep -Eq '^[0-9]+(\.[0-9]+)?$' || { echo "ERROR: could not parse the resolved window ${CLIP_START} / ${CLIP_END} as ISO-8601 UTC" >&2; exit 1; }; done
+   # LC_ALL=C: awk formats and parses numbers per locale; a decimal comma would break the checks below and Step 3.
+   CLIP_SECONDS=$(LC_ALL=C awk -v s="$_s" -v e="$_e" 'BEGIN{d=sprintf("%.3f", e-s); if (d ~ /\./) { sub(/0+$/,"",d); sub(/\.$/,"",d) }; print d}')
+   case "$CLIP_SECONDS" in -*|0) echo "ERROR: resolved window is empty or reversed (${CLIP_START} -> ${CLIP_END})" >&2; exit 1 ;; esac
+   LC_ALL=C awk -v d="$CLIP_SECONDS" 'BEGIN{exit !(d+0 < 120)}' || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): the direct VLM path is not allowed — Long-video rule, use the LVS path" >&2; exit 1; }
    printf 'VIDEO_URL=%q\nCLIP_START=%q\nCLIP_END=%q\nCLIP_SECONDS=%q\n' "${VIDEO_URL}" "${CLIP_START}" "${CLIP_END}" "${CLIP_SECONDS}"
    ```
 
@@ -290,8 +292,9 @@ MAX_PIXELS="${VIDEO_UNDERSTANDING_MAX_PIXELS:-$MAX_PIXELS}"
 # and drives num_frames = min(int(clip_seconds) * max_fps, max_frames), min 1 — matches video_understanding.py.
 : "${CLIP_SECONDS:?paste CLIP_SECONDS from the Step 1 hand-off (A1) or set the measured duration in seconds (A2)}"
 case "$CLIP_SECONDS" in ''|.*|*[!0-9.]*) echo "ERROR: CLIP_SECONDS must be a number of seconds, got '${CLIP_SECONDS}'" >&2; exit 1 ;; esac
-CLIP_SECONDS=$(awk -v s="$CLIP_SECONDS" 'BEGIN{printf "%d", s}')   # fractional seconds truncated (bash arithmetic is integer-only)
-[ "$CLIP_SECONDS" -lt 120 ] || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): the direct VLM path is not allowed — Long-video rule, use the LVS path" >&2; exit 1; }
+LC_ALL=C awk -v d="$CLIP_SECONDS" 'BEGIN{exit !(d+0 > 0)}' || { echo "ERROR: CLIP_SECONDS must be greater than 0 s, got '${CLIP_SECONDS}' — re-measure the clip" >&2; exit 1; }
+LC_ALL=C awk -v d="$CLIP_SECONDS" 'BEGIN{exit !(d+0 < 120)}' || { echo "Clip is ${CLIP_SECONDS} s (120 s or longer): the direct VLM path is not allowed — Long-video rule, use the LVS path" >&2; exit 1; }
+CLIP_SECONDS=$(LC_ALL=C awk -v s="$CLIP_SECONDS" 'BEGIN{printf "%d", s}')   # truncated here only, for num_frames (bash arithmetic is integer-only); both gates above ran on the precise value
 NUM_FRAMES=$(( CLIP_SECONDS * MAX_FPS ))
 [ "$NUM_FRAMES" -gt "$MAX_FRAMES" ] && NUM_FRAMES=$MAX_FRAMES
 [ "$NUM_FRAMES" -lt 1 ] && NUM_FRAMES=1
