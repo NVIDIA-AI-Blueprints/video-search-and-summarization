@@ -1,0 +1,143 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Milvus standalone backing the ReID appearance gallery. Compose waits on
+# healthy etcd and MinIO before starting it; here the init containers below
+# reproduce that ordering.
+
+{{- if .Values.enabled }}
+{{- $name := include "vss-reid-embed.milvusFullname" . }}
+{{- $etcd := include "vss-reid-embed.etcdFullname" . }}
+{{- $minio := include "vss-reid-embed.minioFullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "vss-reid-embed.milvusLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "vss-reid-embed.milvusSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vss-reid-embed.milvusSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- $ips := .Values.imagePullSecrets | default (index (.Values.global | default dict) "imagePullSecrets") }}
+      {{- with $ips }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      initContainers:
+        - name: wait-for-backends
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for etcd at {{ $etcd }}:{{ .Values.etcd.port }} ..."
+              until nc -z {{ $etcd }} {{ .Values.etcd.port }}; do sleep 3; done
+              echo "Waiting for MinIO at {{ $minio }}:{{ .Values.minio.port }} ..."
+              until nc -z {{ $minio }} {{ .Values.minio.port }}; do sleep 3; done
+              echo "Gallery backends are reachable."
+      containers:
+        - name: milvus
+          image: "{{ .Values.milvus.image.repository }}:{{ .Values.milvus.image.tag }}"
+          imagePullPolicy: {{ .Values.milvus.image.pullPolicy }}
+          env:
+            - name: ETCD_ENDPOINTS
+              value: "{{ $etcd }}:{{ .Values.etcd.port }}"
+            - name: MINIO_ADDRESS
+              value: "{{ $minio }}:{{ .Values.minio.port }}"
+          command:
+            - milvus
+            - run
+            - standalone
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.milvus.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.milvus.metricsPort }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: {{ .Values.milvus.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.milvus.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.milvus.startupProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Values.milvus.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/milvus
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "vss-reid-embed.milvusLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: {{ .Values.milvus.port }}
+      targetPort: grpc
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.milvus.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "vss-reid-embed.milvusSelectorLabels" . | nindent 4 }}
+{{- end }}
