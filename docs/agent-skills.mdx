@@ -85,6 +85,10 @@ on GitHub, and mirrored to the public NVIDIA Skills catalog at
 | `vss-setup-video-analytics-api` | Deploy the `vss-video-analytics-api` REST service standalone against custom Elasticsearch and Kafka infrastructure. |
 | `vss-summarize-video` | Summarize a video by routing short clips to the VLM NIM and longer videos to the Video Summarization microservice. |
 
+> `vss-deploy-profile` was removed in VSS 3.3.0. Use
+> [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) instead — the VSS
+> 3.3.0 Release Notes map its `-p` / `-m` flags to the equivalent workflows.
+
 ## Report Skill Error Handling
 
 The `vss-generate-video-report` skill applies the following fail-fast handling:

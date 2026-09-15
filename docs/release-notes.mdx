@@ -5,6 +5,26 @@ position: 1
 ---
 These Release Notes describe the key features, software enhancements and improvements, and known issues for the VSS release product package.
 
+## VSS 3.3.0
+
+### Key Features and Enhancements
+
+- Removed the `vss-deploy-profile` Agent Skill and replaced it with
+  **`vss-build-vision-ai`**, which deploys the same `base`, `search`, `lvs` and
+  `alerts` developer profiles plus the `warehouse` industry profile, and can
+  additionally extend a running deployment with a delta overlay.
+
+  `vss-build-vision-ai` takes no `-p` / `-m` flags — describe the profile in the
+  request instead:
+
+  | `vss-deploy-profile` | `vss-build-vision-ai` |
+  |---|---|
+  | `-p base` / `-p search` / `-p lvs` | the matching stock developer workflow |
+  | `-p alerts -m verification` / `-p alerts -m real-time` | the stock Alerts workflow in `2d_cv` / `2d_vlm` mode |
+  | `-p warehouse` | the warehouse industry profile (variant selected during intake) |
+
+  The `/deploy` pre-GA alias now resolves to `/vss-build-vision-ai`.
+
 ## VSS 3.2.1
 
 VSS 3.2.1 is a bug fix release for the VSS 3.2.0 release.
