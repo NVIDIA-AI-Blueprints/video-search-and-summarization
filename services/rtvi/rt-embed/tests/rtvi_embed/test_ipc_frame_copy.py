@@ -45,10 +45,29 @@ def test_resolve_ipc_socket_path_accepts_uuid_identity():
     )
 
 
-def test_resolve_ipc_socket_path_ignores_socket_override_environment(monkeypatch):
+def test_resolve_ipc_socket_path_honors_socket_override_environment(monkeypatch):
     monkeypatch.setenv("RTVI_IPC_SOCKET_DIR", "/elsewhere")
     monkeypatch.setenv("RTVI_IPC_SOCKET_TEMPLATE", "other_{camera_id}.sock")
-    assert ipc_frame_source.resolve_ipc_socket_path("camera-1") == "/run/rtvi-ipc/nvds_ipc_camera-1.sock"
+    assert ipc_frame_source.resolve_ipc_socket_path("camera-1") == "/elsewhere/other_camera-1.sock"
+
+
+def test_resolve_ipc_socket_path_honors_explicit_overrides():
+    assert (
+        ipc_frame_source.resolve_ipc_socket_path(
+            "camera-1", socket_dir="/custom", socket_template="frame_{sensor_id}.sock"
+        )
+        == "/custom/frame_camera-1.sock"
+    )
+
+
+def test_validate_ipc_socket_template_rejects_path_separators():
+    with pytest.raises(ValueError, match="path separators"):
+        ipc_frame_source.resolve_ipc_socket_path("camera-1", socket_template="../{camera_id}.sock")
+
+
+def test_validate_ipc_socket_template_rejects_unsupported_placeholders():
+    with pytest.raises(ValueError, match="unsupported placeholder"):
+        ipc_frame_source.resolve_ipc_socket_path("camera-1", socket_template="{camera_id}_{bogus}.sock")
 
 
 def test_select_ipc_stream_identity_prefers_camera_then_sensor_then_asset():
