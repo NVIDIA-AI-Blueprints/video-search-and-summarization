@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Reads compose/config.yml (mounted at /config.yml), writes /env/wdm.env for sdr-envoy-proxy
 # and wait-for-redis (WDM_WL_REDIS_* from first enable:true workload), and
 # /env/docker-workload-containers.txt lists all docker-type workloads.
