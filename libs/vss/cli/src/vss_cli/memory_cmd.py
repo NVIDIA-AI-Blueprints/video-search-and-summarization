@@ -135,19 +135,25 @@ async def _execute_introspection(request: IntrospectionRequest) -> tuple[Introsp
             return result, Exit.BACKEND_UNREACHABLE
         return result, Exit.NOT_FOUND if result.status == "no_memory" else Exit.SUCCESS
 
-    from vss_cli.memory_policy import effective_persist
-    from vss_cli.vlm.runner import IntrospectionVLMJobRunner
-    from vss_core.introspection import IntrospectionSettings
-    from vss_core.introspection import OpenAIIntrospectionClient
-    from vss_core.introspection import introspect
-
     deployment = config_mod.load()
     memory_config = deployment.memory
     if memory_config is None or memory_config.introspection is None:
         raise config_mod.ConfigError(
             "memory introspection judge is not configured; run `vss configure memory introspection`"
         )
-    judge_config = memory_config.introspection.judge
+    introspection_config = memory_config.introspection
+    if not introspection_config.enabled:
+        raise config_mod.ConfigError(
+            "memory introspection is disabled; run `vss configure memory introspection --enable`"
+        )
+
+    from vss_cli.memory_policy import effective_persist
+    from vss_cli.vlm.runner import IntrospectionVLMJobRunner
+    from vss_core.introspection import IntrospectionSettings
+    from vss_core.introspection import OpenAIIntrospectionClient
+    from vss_core.introspection import introspect
+
+    judge_config = introspection_config.judge
     api_key: str | None = None
     if judge_config.api_key_env is not None:
         api_key = os.environ.get(judge_config.api_key_env, "")
@@ -368,6 +374,7 @@ def backfill_embeddings(
 @click.option("--record-id")
 @click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
 @click.option("--group", type=click.Choice(("summary", "search", "alert")))
+@click.option("--fps", type=click.FloatRange(min=0, max=256, min_open=True), help="RT-VLM frames per second.")
 @_output_options
 def introspect_memory(
     query: str,
@@ -378,6 +385,7 @@ def introspect_memory(
     record_id: str | None,
     record_type: str | None,
     group: str | None,
+    fps: float | None,
     pretty: bool,
 ) -> None:
     """Answer via the configured text judge and bounded RT-VLM follow-ups."""
@@ -393,6 +401,7 @@ def introspect_memory(
             record_id=record_id,
             record_type=cast("RecordType | None", record_type),
             group=cast("MemoryGroup | None", group),
+            fps=fps,
         )
         has_time_range = request.start_time is not None and request.end_time is not None
         if not (request.sensor or request.job_id or has_time_range):
