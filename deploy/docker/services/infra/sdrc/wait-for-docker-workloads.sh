@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Wait until every container name in docker-workload-containers.txt is running (docker inspect).
 # File is produced by wdm-env-from-config from config.yml (WDM_CLUSTER_CONTAINER_NAMES per docker workload).
 set -e

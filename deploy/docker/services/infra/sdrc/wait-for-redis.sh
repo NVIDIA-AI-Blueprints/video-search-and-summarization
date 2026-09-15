@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Poll Redis until PONG. Host/port come from /wdm-env/wdm.env (written from config.yml).
 set -e
 if [ -f /wdm-env/wdm.env ]; then

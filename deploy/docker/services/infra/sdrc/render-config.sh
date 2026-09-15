@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Render configs/config.yml from configs/config.yml.tmpl by substituting an
 # allowlist of environment variables. Any other literal $... in the template
 # is preserved as-is.
