@@ -33,7 +33,6 @@ DATASETS = {
     "nv-warehouse-4cams": 4,
     "warehouse-loading-dock-3cams-synthetic": 3,
     "warehouse-4cams-20mx20m-synthetic": 4,
-    "warehouse-loading-dock-3cams-degraded-synthetic": 3,
 }
 
 # (dataset -> DATASET_TYPE). MODE=3d only: blueprint_config.yml scopes every
@@ -50,7 +49,6 @@ DATASET_FAMILY = {
     "nv-warehouse-4cams": "real",
     "warehouse-loading-dock-3cams-synthetic": "synthetic",
     "warehouse-4cams-20mx20m-synthetic": "synthetic",
-    "warehouse-loading-dock-3cams-degraded-synthetic": "synthetic",
 }
 
 MODES = {"2d", "3d", "mv3dt", "auto-calibration"}

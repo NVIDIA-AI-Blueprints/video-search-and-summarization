@@ -103,7 +103,7 @@ function warehouse_sample_video_dataset() {
 
 function warehouse_num_streams() {
   case "${1}" in
-    warehouse-loading-dock-3cams-synthetic | warehouse-loading-dock-3cams-degraded-synthetic)
+    warehouse-loading-dock-3cams-synthetic)
       echo "3"
       ;;
     *)
@@ -124,7 +124,7 @@ function warehouse_dataset_type() {
     nv-warehouse-4cams)
       _inferred="real"
       ;;
-    warehouse-loading-dock-3cams-synthetic | warehouse-loading-dock-3cams-degraded-synthetic | warehouse-4cams-20mx20m-synthetic)
+    warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
       _inferred="synthetic"
       ;;
   esac
@@ -1409,7 +1409,7 @@ function state_up() {
     if [[ -n "${sample_video_dataset}" ]]; then
       _sample_dataset="${sample_video_dataset}"
       case "${_sample_dataset}" in
-        nv-warehouse-4cams | warehouse-loading-dock-3cams-synthetic | warehouse-loading-dock-3cams-degraded-synthetic | warehouse-4cams-20mx20m-synthetic)
+        nv-warehouse-4cams | warehouse-loading-dock-3cams-synthetic | warehouse-4cams-20mx20m-synthetic)
           _num_streams="$(warehouse_num_streams "${_sample_dataset}")"
           ;;
         *)
