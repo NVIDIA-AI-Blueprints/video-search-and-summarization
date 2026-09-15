@@ -166,7 +166,7 @@ All license and notice files retained in this repository:
 | [deploy/docker/scripts/nemoclaw/LICENSE-3rd-party.txt](deploy/docker/scripts/nemoclaw/LICENSE-3rd-party.txt) | Third-party attributions for nemoclaw scripts |
 | [libs/analytics/spatialai-data-utils/NOTICE](libs/analytics/spatialai-data-utils/NOTICE) | Notices for spatialai-data-utils |
 | [libs/analytics/spatialai-data-utils/release/NOTICE](libs/analytics/spatialai-data-utils/release/NOTICE) | Notices bundled with the spatialai-data-utils release artifact |
-| [services/agent/LICENSE.md](services/agent/LICENSE.md) | Component-scoped copy of the Apache-2.0 license (ships in the agent container) |
+| [services/agent/LICENSE.md](services/agent/LICENSE.md) | Component-scoped copy of the Apache-2.0 license (source tree only; retained so the license accompanies the directory wherever it is consumed) |
 | [services/agent/LICENSE-3rd-party.txt](services/agent/LICENSE-3rd-party.txt) | Third-party attributions for the agent service |
 | [services/alert/LICENSE-3rd-party.txt](services/alert/LICENSE-3rd-party.txt) | Third-party attributions for the alert service |
 | [services/rtvi/rt-cv/LICENSE.3rdparty](services/rtvi/rt-cv/LICENSE.3rdparty) | Third-party attributions for rt-cv |
@@ -176,12 +176,30 @@ All license and notice files retained in this repository:
 | [services/rtvi/rt-vlm/LICENSE.3rdparty](services/rtvi/rt-vlm/LICENSE.3rdparty) | Third-party attributions for rt-vlm |
 | [services/ui/LICENSE](services/ui/LICENSE) | MIT license for the UI (upstream-derived code) |
 | [services/ui/LICENSE-3rd-party.txt](services/ui/LICENSE-3rd-party.txt) | Third-party attributions for the UI |
-| [services/video-summarization/LICENSE](services/video-summarization/LICENSE) | Component-scoped copy of the Apache-2.0 license (ships in the video-summarization container) |
+| [services/video-summarization/LICENSE](services/video-summarization/LICENSE) | Component-scoped copy of the Apache-2.0 license (source tree only; retained so the license accompanies the directory wherever it is consumed) |
 | [services/video-summarization/LICENSE.3rdparty](services/video-summarization/LICENSE.3rdparty) | Third-party attributions for video-summarization |
-| [services/vios/LICENSE.md](services/vios/LICENSE.md) | Component-scoped copy of the Apache-2.0 license (ships in the vios packages) |
+| [services/vios/LICENSE.md](services/vios/LICENSE.md) | Component-scoped copy of the Apache-2.0 license (source tree only; retained so the license accompanies the directory wherever it is consumed) |
 | [services/vios/LICENSE.3rdparty](services/vios/LICENSE.3rdparty) | Third-party attributions for vios, part 1 of 2 |
 | [services/vios/LICENSE.3rdparty.part2](services/vios/LICENSE.3rdparty.part2) | Third-party attributions for vios, part 2 of 2 |
 | [services/vios/LICENSE_libnvjpeg](services/vios/LICENSE_libnvjpeg) | NVIDIA license for the bundled libnvjpeg |
+| [deploy/docker/services/infra/3rdParty_Licenses](deploy/docker/services/infra/3rdParty_Licenses) | Third-party attributions for docker infra services |
+| [deploy/helm/services/monitoring/3rdParty_Licenses.md](deploy/helm/services/monitoring/3rdParty_Licenses.md) | Third-party attributions for the monitoring helm chart |
+| [libs/analytics/spatialai-data-utils/3rdParty_Licenses.md](libs/analytics/spatialai-data-utils/3rdParty_Licenses.md) | Third-party attributions for spatialai-data-utils |
+| [libs/analytics/spatialai-data-utils/release/3rdParty_Licenses.md](libs/analytics/spatialai-data-utils/release/3rdParty_Licenses.md) | Third-party attributions for the spatialai-data-utils release artifact |
+| [services/analytics/behavior-analytics/3rdParty_Licenses.md](services/analytics/behavior-analytics/3rdParty_Licenses.md) | Third-party attributions for behavior-analytics |
+| [services/analytics/video-analytics-api/3rdParty_Licenses.md](services/analytics/video-analytics-api/3rdParty_Licenses.md) | Third-party attributions for video-analytics-api |
+| [services/configurators/vss-configurator/3rdParty_Licenses.md](services/configurators/vss-configurator/3rdParty_Licenses.md) | Third-party attributions for vss-configurator |
+| [services/configurators/vss-rt-config-adaptor/3rdParty_Licenses.md](services/configurators/vss-rt-config-adaptor/3rdParty_Licenses.md) | Third-party attributions for vss-rt-config-adaptor |
+| [services/rtvi/rt-cv/3rdParty_Licenses.md](services/rtvi/rt-cv/3rdParty_Licenses.md) | Third-party attributions for rt-cv (Python deps) |
+| [services/rtvi/rt-cv-3d/rt-cv-bev-fusion/3rdParty_Licenses.md](services/rtvi/rt-cv-3d/rt-cv-bev-fusion/3rdParty_Licenses.md) | Third-party attributions for rt-cv-bev-fusion |
+| [services/rtvi/rt-cv-3d/rt-cv-config-init/3rdParty_Licenses.md](services/rtvi/rt-cv-3d/rt-cv-config-init/3rdParty_Licenses.md) | Third-party attributions for rt-cv-config-init |
+| [services/rtvi/rt-cv-3d/rt-cv-mv3dt/3rdParty_Licenses.md](services/rtvi/rt-cv-3d/rt-cv-mv3dt/3rdParty_Licenses.md) | Third-party attributions for rt-cv-mv3dt |
+| [services/sdrc/3rdParty_Licenses.md](services/sdrc/3rdParty_Licenses.md) | Third-party attributions for sdrc |
+| [services/vios/ui/vios-ui/oss-licenses.txt](services/vios/ui/vios-ui/oss-licenses.txt) | Third-party attributions for the vios UI |
+| [tools/logstash-plugins/input/redis-stream/THIRD_PARTY_LICENSES.md](tools/logstash-plugins/input/redis-stream/THIRD_PARTY_LICENSES.md) | Third-party attributions for the redis-stream logstash plugin |
+| [tools/message-broker-consumers/3rdParty_Licenses.md](tools/message-broker-consumers/3rdParty_Licenses.md) | Third-party attributions for message-broker-consumers |
+| [tools/sdg-postprocessing/3rdParty_Licenses.md](tools/sdg-postprocessing/3rdParty_Licenses.md) | Third-party attributions for sdg-postprocessing |
 
-The component-scoped Apache-2.0 copies are intentional: each service ships as a
-separate container or package, and its license file travels with that artifact.
+The component-scoped Apache-2.0 copies are retained deliberately so each service
+directory carries its license wherever the directory is consumed on its own;
+removing them is an OSRB call, not a cleanup.
