@@ -107,7 +107,7 @@ compression:
 secondaryEmbedding:
   enabled: true
   model: siglip2
-  # Defaults to <models.mountPath>/<models.subDir>/siglip_v2_vdeployable_v1.0/siglip2_v1.0.onnx
+  # Defaults to <models.mountPath>/<models.subDir>/siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
   onnxModelPath: ""
 
 extraEnv: []
@@ -183,7 +183,7 @@ etcd:
 
 minio:
   image:
-    repository: minio/minio
+    repository: quay.io/minio/minio
     tag: RELEASE.2023-03-20T20-16-18Z
     pullPolicy: IfNotPresent
   port: 9000

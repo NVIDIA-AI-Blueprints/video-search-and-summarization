@@ -219,7 +219,7 @@ spec:
             # Read-write, matching the Docker mount, which defaults to rw
             # (MOUNT_OPTS in warehouse-mv3dt-app.yml). The service does not only
             # read SigLIP2 from here: on first start it builds a TensorRT engine
-            # and caches it next to the ONNX as siglip2_v1.0_fp16.engine. A
+            # and caches it next to the ONNX as siglip_v2_v1.1_fp16.engine. A
             # read-only mount fails that write with EROFS, which kills the
             # secondary embedding generator and leaves /health/ready at 503
             # forever while every other subsystem reports ok.

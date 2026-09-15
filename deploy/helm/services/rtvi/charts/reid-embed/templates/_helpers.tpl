@@ -213,7 +213,7 @@ app.kubernetes.io/component: reid-milvus
 {{- if .Values.secondaryEmbedding.onnxModelPath }}
 {{- .Values.secondaryEmbedding.onnxModelPath }}
 {{- else }}
-{{- printf "%s/siglip_v2_vdeployable_v1.0/siglip2_v1.0.onnx" (include "vss-reid-embed.reidDir" .) }}
+{{- printf "%s/siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx" (include "vss-reid-embed.reidDir" .) }}
 {{- end }}
 {{- end }}
 
