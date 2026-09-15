@@ -15,6 +15,10 @@ global:
   useReleaseNamePrefix: false
   externalHost: ""
   externalPort: ""
+  # Branch/tag for calibration-import source URLs. Empty falls back to "develop".
+  gitRef: ""
+  # Dataset dir under calibration/sample-data/, shared by calibration-import's source URLs.
+  sampleVideoDataset: warehouse-4cams-20mx20m-synthetic
   # Comma-separated static TURN URLs (username:password@host:port). See
   # deploy/helm/industry-profiles/warehouse-operations/TURN-SERVER.md.
   turnServerUrl: ""
@@ -127,9 +131,9 @@ calibration-import:
   enabled: true
   name: import-calibration-output-3d
   apiUrl: http://vss-video-analytics-api:8081
-  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
-  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
-  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images
   requireCalibration: true
   requireImages: true
 
@@ -231,7 +235,7 @@ vios:
         # hostPath: /opt/vss/customer-videos   # node-local customer videos
     ngcVideoSeed:
       enabled: true
-      dataset: warehouse-4cams-20mx20m-synthetic
+      # dataset unset: falls back to global.sampleVideoDataset.
       # Reuses the bundle the rtvi-cv NGC job already extracted, so it is not
       # downloaded twice. Needs nvstreamer and rtvi-cv on the same node (RWO).
       # Clear this and set resourceVersion to download independently.
@@ -321,6 +325,7 @@ analytics:
       calibration:
         enabled: true
         mountPath: /resources/calibration.json
+        apiUrl: "http://vss-video-analytics-api:8081/config/calibration"
     config:
       kafkaConfigJson: |
         {
