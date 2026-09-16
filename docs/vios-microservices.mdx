@@ -17,7 +17,7 @@ VIOS auto-discovers ONVIF-S compliant IP cameras, and allows use of custom IP st
 2. Manage devices manually by IP address and/or RTSP URLs.
 3. Video storage and recording with aging policy.
 4. RTSP proxy URL in pass-through and multi-cast mode.
-5. Media streaming using hardware-accelerated WebRTC protocol for live and recorded videos.
+5. Media streaming using hardware-accelerated WebRTC and DASH protocols for live and recorded videos.
 6. Recorded playback supported with 2x,4x,8x FF, overlay & snapshot support.
 7. Supports both H.264 and H.265 video formats.
 8. Video wall feature which provides composite view of multiple webrtc streams.
@@ -35,12 +35,12 @@ We included binary for a web-based client that allows to view live and recorded 
 
 ### VIOS Modular Diagram
 
-VIOS is built as a collection of cooperating microservices that together provide a unified platform for video streaming and processing. It integrates RTSP proxying, WebRTC streaming, recording, and storage into a single solution capable of real-time video ingestion, low-latency playback, and long-term archival.
+VIOS is built as a collection of cooperating microservices that together provide a unified platform for video streaming and processing. It integrates RTSP proxying, WebRTC and DASH streaming, recording, and storage into a single solution capable of real-time video ingestion, low-latency playback, and long-term archival.
 
 The following diagram illustrates the high-level architecture of VIOS. Each service is responsible for a specific aspect of the system, and the list that follows describes the role of each component.
 
 * **Sensor Management Service**: A comprehensive system designed to facilitate the administration and control of sensor-related functionalities. It handles sensor discovery, configuration, and stream management through dedicated sensor services and adaptors, and provides efficient management of sensors across the network. This service exclusively owns the sensor REST API surface — [Sensor Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-sensor-management-api) (prefixed with `/v1/sensor`).
-* **Unified Stream Processing MS**: A unified microservice that consolidates RTSP proxying, live and replay (recorded) WebRTC streaming, recording, and media storage into a single service. It handles video stream transformation, file ingestion, content download from ingested files, routing, and protocol conversion for real-time video ingestion, low-latency playback, and long-term archival. It exposes every stream- and media-related REST API in VIOS — [Proxy Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api) (`/v1/proxy`), [Live Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api) (`/v1/live`), [Record Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api) (`/v1/record`), [Replay Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api) (`/v1/replay`), and [Storage Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api) (`/v1/storage`) — covering the entire VIOS API surface except the sensor APIs, which are owned by the Sensor Management Service.
+* **Unified Stream Processing MS**: A unified microservice that consolidates RTSP proxying, live and replay (recorded) WebRTC/DASH streaming, recording, and media storage into a single service. It handles video stream transformation, file ingestion, content download from ingested files, routing, and protocol conversion for real-time video ingestion, low-latency playback, and long-term archival. It exposes every stream- and media-related REST API in VIOS — [Proxy Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-proxy-stream-management-api) (`/v1/proxy`), [Live Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-live-stream-management-api) (`/v1/live`), [Record Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-record-stream-management-api) (`/v1/record`), [Replay Stream Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-replay-stream-management-api) (`/v1/replay`), and [Storage Management API](/vss/system-components/middleware/video-io-storage-vios/vst-api-reference/vst-storage-management-api) (`/v1/storage`) — covering the entire VIOS API surface except the sensor APIs, which are owned by the Sensor Management Service.
 * **Storage Layer**: Multi-tier storage system supporting Redis for caching, PostgreSQL for metadata, and local filesystem object storage for video content.
 * **Client Interfaces**: Support for various client types including web applications, perception services, computer vision applications, and the VSS UI.
 * **Ingress**: A service that handles the ingress of the HTTP requests to the VIOS microservices.
@@ -572,6 +572,14 @@ Following table describes the parameters in VIOS config file, which should be pr
 | enable_websocket_pingpong | Enable/Disable websocket ping pong messages | FALSE |
 | websocket_keep_alive_ms | Timeout for websocket to keep alive | 5000 |
 | ai_bridge_endpoint | AI Bridge endpoint URL | `''http://<ai-bridge-domain>:<port>/api/bridge/graphql''` |
+| dash | Section to define all DASH streaming parameters, nested under `network` |   |
+| max_live_sessions | Maximum number of concurrent DASH sessions, live and replay combined | 8 |
+| segment_duration_sec | Target media segment length in seconds, which is also the manifest update period, i.e. how often a player re-fetches the MPD | 2 |
+| playlist_length | Number of entries the muxer keeps in its playlist | 8 |
+| idle_timeout_sec | Inactivity timeout after which a session is closed and its segments deleted. Refreshed by every manifest or segment request. | 45 |
+| output_root | Output directory for manifests and segments, relative to the webroot | dash |
+| bitrate_kbps | Encoder target bitrate. 0 derives it from picture height (2000/5000/10000/20000 kbps for below 1080p/1080p/1440p/2160p). | 0 |
+| always_encode | Encode every session instead of republishing the source bitstream, so VIOS controls the segment length rather than inheriting the camera's keyframe interval | TRUE |
 | **onvif** | **Section to define all ONVIF related parameters** |   |
 | device_discovery_timeout_secs | Device discovery timeout to receive probe match message from device | 10 |
 | onvif_request_timeout_secs | Timeout to receive ONVIF command response from device | 10 |

@@ -6,6 +6,7 @@ import { ChatHeader } from './ChatHeader';
 import { ChatInput } from './ChatInput';
 import { ChatMessageView } from './ChatMessage';
 import { createRandomId } from './id';
+import type { InteractionRequest } from './sse';
 import { useChatStream } from './useChatStream';
 import { useConversations } from './useConversations';
 import type {
@@ -33,6 +34,17 @@ const DEFAULT_FEATURES: Required<ChatFeatureFlags> = {
   themeToggle: false,
   headerMenu: true,
 };
+
+/**
+ * A pending human-in-the-loop prompt, tagged with the conversation whose turn
+ * asked for it. The panel is shared by every conversation, so an untagged
+ * prompt would render over — and be answered by — whichever one is selected
+ * when it arrives.
+ */
+interface PendingInteraction {
+  request: InteractionRequest;
+  conversationId: string;
+}
 
 /** Stable per-mount id so the backend maps this panel to one agent thread. */
 function useFallbackConversationId(supplied?: string): string {
@@ -105,12 +117,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [uploadFlowActive, setUploadFlowActive] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [pendingInteraction, setPendingInteraction] = useState<PendingInteraction | null>(null);
+  const [interactionText, setInteractionText] = useState('');
+  const interactionResolveRef = useRef<((value: string) => void) | null>(null);
+  const pendingInteractionRef = useRef<PendingInteraction | null>(null);
+  pendingInteractionRef.current = pendingInteraction;
 
   const messages = selected?.messages ?? [];
   const logRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | undefined>(selected?.id);
   selectedIdRef.current = selected?.id;
+
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
 
   const config = useMemo(
     () => ({ ...endpoint, conversationId }),
@@ -129,6 +149,23 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     [],
   );
 
+  const requestInteraction = useCallback(
+    (request: InteractionRequest) =>
+      new Promise<string>((resolve) => {
+        setPendingInteraction({ request, conversationId: conversationIdRef.current });
+        setInteractionText('');
+        interactionResolveRef.current = resolve;
+      }),
+    [],
+  );
+
+  const resolveInteraction = useCallback((answer: string) => {
+    const resolve = interactionResolveRef.current;
+    interactionResolveRef.current = null;
+    setPendingInteraction(null);
+    resolve?.(answer);
+  }, []);
+
   const { busy, send, abort } = useChatStream(config, {
     messages,
     setMessages,
@@ -137,7 +174,38 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     onAnswerComplete,
     onBusyChange,
     isConversationStale,
+    onInteraction: requestInteraction,
   });
+
+  // Only the conversation that asked may answer: the prompt is hidden while
+  // another one is selected, and re-checked here so a stale render cannot
+  // route the reply to the wrong execution.
+  const interaction =
+    pendingInteraction?.conversationId === conversationId ? pendingInteraction.request : null;
+
+  const submitInteraction = useCallback(() => {
+    if (!interaction || (interaction.prompt.required && !interactionText.trim())) return;
+    resolveInteraction(interactionText);
+  }, [interaction, interactionText, resolveInteraction]);
+
+  const stopTurn = useCallback(() => {
+    resolveInteraction('/cancel');
+    abort();
+  }, [abort, resolveInteraction]);
+
+  // Switching away leaves the prompt waiting: the turn is still running and the
+  // modal returns with its conversation. Discarding the conversation is
+  // different — nobody can answer for it any more, so decline the prompt
+  // instead of leaving the agent blocked on a reply that will never arrive.
+  const declineInteractionFor = useCallback(
+    (discardedId?: string) => {
+      const pending = pendingInteractionRef.current;
+      if (!pending) return;
+      if (discardedId && pending.conversationId !== discardedId) return;
+      resolveInteraction('/cancel');
+    },
+    [resolveInteraction],
+  );
 
   const notify = useCallback((message: string) => {
     setNotice(message);
@@ -228,14 +296,28 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       },
       onRenameConversation: (id: string, name: string) =>
         controlsRef.current.rename(id, name),
-      onDeleteConversation: (id: string) => controlsRef.current.remove(id),
-      onClearConversations: () => controlsRef.current.clearAll(),
+      onDeleteConversation: (id: string) => {
+        declineInteractionFor(id);
+        controlsRef.current.remove(id);
+      },
+      onClearConversations: () => {
+        declineInteractionFor();
+        controlsRef.current.clearAll();
+      },
       onExportData: () => controlsRef.current.exportData(),
       onImportConversations: handleImport,
       busy,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listSignature, conversations.searchTerm, selected?.id, busy, createConversation, handleImport],
+    [
+      listSignature,
+      conversations.searchTerm,
+      selected?.id,
+      busy,
+      createConversation,
+      declineInteractionFor,
+      handleImport,
+    ],
   );
 
   useEffect(() => {
@@ -333,7 +415,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       <ChatInput
         onSend={submitText}
         onRegenerate={handleRegenerate}
-        onStop={abort}
+        onStop={stopTurn}
         onScrollDown={scrollDown}
         showScrollDownButton={!autoScroll}
         busy={busy}
@@ -362,6 +444,51 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           className="pointer-events-none absolute left-1/2 top-14 z-[120] -translate-x-1/2 rounded-md bg-black/80 px-3 py-1.5 text-sm text-white shadow-lg"
         >
           {notice}
+        </div>
+      ) : null}
+
+      {interaction ? (
+        <div
+          data-testid="hitl-modal"
+          className="absolute inset-0 z-[130] flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="hitl-prompt"
+        >
+          <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
+            <p
+              id="hitl-prompt"
+              data-testid="hitl-modal-prompt"
+              className="mb-4 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100"
+            >
+              {interaction.prompt.text}
+            </p>
+            <textarea
+              data-testid="hitl-modal-textarea"
+              className="min-h-28 w-full rounded border border-gray-400 bg-white p-2 text-gray-900 dark:bg-black dark:text-gray-100"
+              placeholder={interaction.prompt.placeholder ?? undefined}
+              required={interaction.prompt.required}
+              value={interactionText}
+              onChange={(event) => setInteractionText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  submitInteraction();
+                }
+              }}
+            />
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                data-testid="hitl-modal-submit"
+                className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                disabled={interaction.prompt.required && !interactionText.trim()}
+                onClick={submitInteraction}
+              >
+                Submit
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </section>

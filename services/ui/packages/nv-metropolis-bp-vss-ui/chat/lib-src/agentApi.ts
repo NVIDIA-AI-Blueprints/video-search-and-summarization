@@ -143,7 +143,13 @@ const proxyArtifactMedia = (value: unknown, mediaProxyUrl?: string, key = ''): u
   return value;
 };
 
-const artifactEnvelope = (data: JsonObject, mediaProxyUrl?: string): string | null => {
+/**
+ * Wrap a `{version, kind, payload}` frame as the envelope the tab parsers read.
+ *
+ * Shared with the chat-SSE parser: both transports carry the same artifact
+ * contract, and a second copy of this validation would let them drift.
+ */
+export const artifactEnvelope = (data: JsonObject, mediaProxyUrl?: string): string | null => {
   const version = asString(data.version);
   const kind = asString(data.kind);
   const payload = data.payload;

@@ -258,13 +258,29 @@ def _get_num_preprocess_workers() -> int:
     return num_workers
 
 
-def _get_vllm_compilation_config(model_architecture: str) -> dict[str, object] | None:
+def _get_vllm_compilation_config(
+    model_architecture: str,
+    vlm_model_type: str = "",
+    enforce_eager: bool = False,
+) -> dict[str, object] | None:
     raw_mode = (_get_rtvi_vllm_env("VLLM_CUDAGRAPH_MODE", "") or "").strip()
+    stabilize_cr3 = (
+        not enforce_eager
+        and vlm_model_type == "cosmos-reason3"
+        and model_architecture in _QWEN3VL_ARCHS
+    )
     if not raw_mode:
         if _is_cosmos3_edge_arch(model_architecture):
             return {
                 "mode": "VLLM_COMPILE",
                 "cudagraph_mode": "PIECEWISE",
+            }
+        if stabilize_cr3:
+            return {
+                "inductor_compile_config": {
+                    "combo_kernels": True,
+                    "benchmark_combo_kernel": False,
+                },
             }
         return None
     cudagraph_mode = raw_mode.upper()
@@ -277,6 +293,11 @@ def _get_vllm_compilation_config(model_architecture: str) -> dict[str, object] |
         "mode": "VLLM_COMPILE",
         "cudagraph_mode": cudagraph_mode,
     }
+    if stabilize_cr3:
+        config["inductor_compile_config"] = {
+            "combo_kernels": True,
+            "benchmark_combo_kernel": False,
+        }
     return config
 
 
@@ -1571,7 +1592,11 @@ class VllmCompatible(BaseVlmModel):
                     if enforce_eager:
                         logger.info("VLLM enforce_eager enabled via VLLM_ENFORCE_EAGER")
 
-                compilation_config = _get_vllm_compilation_config(self._model_architecture)
+                compilation_config = _get_vllm_compilation_config(
+                    self._model_architecture,
+                    self._vlm_model_type,
+                    enforce_eager,
+                )
                 if compilation_config:
                     if enforce_eager:
                         raise ValueError(

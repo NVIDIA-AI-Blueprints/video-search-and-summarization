@@ -204,3 +204,7 @@ When adding an LFS-tracked file:
 
 1. Ensure `services/vios/.gitattributes` covers its path or pattern.
 2. If CI source-artifact consumers need the real content, add its path to the `git lfs pull --include=` list in `.github/workflows/ci.yml` (the **Fetch required LFS source notices** step). Other `services/vios/**` LFS objects intentionally remain pointer stubs in the source artifact.
+
+## CI build cache
+
+The three C++ VIOS images (sensor, streamprocessing, nvstreamer) build from this one Dockerfile and differ only by `--build-arg MODULE`, so their base + grpc/toolchain layers are identical. CI shares a single per-arch GHCR registry buildcache across the three so those expensive layers are built once and reused, rather than rebuilt per image. See `registry_buildcache` in `deploy/docker/container-inventory.json` and the `Select buildcache backend` step in `.github/workflows/build-dev-images.yml`.

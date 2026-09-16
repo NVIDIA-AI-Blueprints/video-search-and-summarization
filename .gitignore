@@ -23,6 +23,7 @@ deploy/docker/rag-secret.override.yml
 # paths for the machine it ran on. It was once committed carrying a developer
 # path and an internal IP; untracking it removes that failure mode.
 services/analytics/behavior-analytics/tests/integration/docker_compose/infra/.env
+services/analytics/video-analytics-api/test/integration-test/docker_compose/infra/.env
 
 *.log
 *checkpoint.*
@@ -40,3 +41,9 @@ _builds/
 # Packaged Helm dependencies produced by `helm dependency update` (subchart
 # sources under charts/ are tracked; the .tgz artifacts are not).
 deploy/helm/**/charts/*.tgz
+
+# Working-tree snapshots staged into the harness build contexts by
+# skills/vss-build-vision-ai/scripts/stage_vss_src.py (dev-loop override of
+# the Dockerfiles' pinned VSS_REF fetch).
+.openclaw/.vss-src/
+.hermes/.vss-src/

@@ -18,6 +18,7 @@ from collections.abc import Hashable
 import copy
 from datetime import UTC
 from datetime import datetime
+from html import escape
 import json
 import logging
 import re
@@ -97,6 +98,33 @@ _TOOL_FAILURE_PREFIX = "Tool call failed:"
 _TOOL_FAILURE_STATUSES = {"aborted", "error", "failed", "failure"}
 _REQUEST_OPTIONS_CONTEXT_MARKERS = ("current_request_options", "previous_request_options")
 _CONTEXT_BLOCK_PREFIX = "[Context:"
+_NULL_ARG_SENTINELS = {"none", "null"}
+# Original invocation plus this many retries, only while identical calls keep failing.
+# A recorded success is reused; further exact duplicates are skipped.
+MAX_IDENTICAL_TOOL_CALL_RETRIES = 2
+MAX_IDENTICAL_TOOL_CALL_ATTEMPTS = 1 + MAX_IDENTICAL_TOOL_CALL_RETRIES
+DUPLICATE_TOOL_CALL_SKIP_PREFIX = "Identical tool call skipped:"
+DUPLICATE_TOOL_CALL_SKIP_MESSAGE = (
+    DUPLICATE_TOOL_CALL_SKIP_PREFIX + " `{name}` was already executed {attempts} time(s) with the same "
+    "arguments. Do not call it again with these arguments. Use the previous result and continue."
+)
+DUPLICATE_TOOL_CALL_SKIP_NO_RESULT_MESSAGE = (
+    DUPLICATE_TOOL_CALL_SKIP_PREFIX + " `{name}` already reached the retry limit ({attempts} attempts) "
+    "with the same arguments. Do not call it again with these arguments."
+)
+DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE = (
+    "This tool failed {attempts} times: {last_error}. Retry limit reached; no successful result is available."
+)
+_TRACE_TOOL_NAME = re.compile(r"^(?:Tool|Calling sub-agent):\s*([^\r\n]+)", re.IGNORECASE)
+
+
+def trace_step_title(step_number: int, step_type: str, content: str) -> str:
+    """Build a trace heading that exposes the called tool when one is present."""
+    tool_name = _TRACE_TOOL_NAME.match(content.strip())
+    if not tool_name:
+        return f"{step_number} - {step_type}"
+    # This becomes an HTML attribute in the legacy chat response.
+    return f"{step_number} - {step_type}: {escape(tool_name.group(1).strip(), quote=True)}"
 
 
 class TopAgentRequest(ChatRequestOrMessage):
@@ -275,6 +303,92 @@ async def _augment_context_clip_offsets(message_text: str) -> str:
     return message_text[:prefix_idx] + augmented_block + message_text[wrapper_close + 1 :]
 
 
+def _llm_tool_args(args: dict[str, Any] | None) -> dict[str, Any]:
+    """Drop nulls and LLM-rendered null sentinels from a tool-call argument dict."""
+    if not args:
+        return {}
+    return {
+        key: value
+        for key, value in args.items()
+        if value is not None and not (isinstance(value, str) and value.strip().lower() in _NULL_ARG_SENTINELS)
+    }
+
+
+def identical_tool_call_key(name: str, args: dict[str, Any] | None) -> str:
+    """Stable fingerprint for an exact tool name + argument duplicate."""
+    return json.dumps({"name": name, "args": _llm_tool_args(args)}, sort_keys=True, default=str)
+
+
+def reserve_identical_tool_call(state: "TopAgentState", name: str, args: dict[str, Any] | None) -> bool:
+    """Allow the original call, then retries only after recorded failures, up to the cap.
+
+    A recorded success is reused and not executed again. Parallel extras in the same
+    turn are skipped until a failure is stored, so a success cannot consume the retry budget.
+    """
+    key = identical_tool_call_key(name, args)
+    outcome = state.identical_tool_call_last_outcome.get(key, {})
+    if outcome.get("status") == "success":
+        return False
+    attempts = state.identical_tool_call_attempts.get(key, 0)
+    if attempts >= MAX_IDENTICAL_TOOL_CALL_ATTEMPTS:
+        return False
+    if attempts > 0 and outcome.get("status") != "error":
+        return False
+    state.identical_tool_call_attempts[key] = attempts + 1
+    return True
+
+
+def _is_duplicate_tool_call_skip(response: Any) -> bool:
+    """Return whether a ToolMessage is a retry-cap skip, not a fresh execution."""
+    text = _get_content_text(response)
+    return text.startswith(DUPLICATE_TOOL_CALL_SKIP_PREFIX) or text.startswith("This tool failed ")
+
+
+def duplicate_tool_call_skip_payload(state: "TopAgentState", name: str, args: dict[str, Any] | None) -> tuple[str, str]:
+    """Return (content, status) for a skipped identical call from the recorded outcome."""
+    key = identical_tool_call_key(name, args)
+    outcome = state.identical_tool_call_last_outcome.get(key, {})
+    attempts = state.identical_tool_call_attempts.get(key, 0) or MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+    last_status = str(outcome.get("status", ""))
+    last_content = str(outcome.get("content", "")).strip()
+    if last_status == "success":
+        return (
+            DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(name=name, attempts=attempts),
+            "success",
+        )
+    if last_status == "error" or last_content.startswith(_TOOL_FAILURE_PREFIX):
+        last_error = last_content or "unknown error"
+        return (
+            DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE.format(
+                attempts=attempts,
+                last_error=last_error,
+            ),
+            "error",
+        )
+    return (
+        DUPLICATE_TOOL_CALL_SKIP_NO_RESULT_MESSAGE.format(name=name, attempts=attempts),
+        "success",
+    )
+
+
+def _store_identical_tool_call_outcome(
+    state: "TopAgentState",
+    name: str,
+    args: dict[str, Any] | None,
+    status: str,
+    content: Any,
+) -> None:
+    """Keep any executed success. A later failure must not hide it."""
+    key = identical_tool_call_key(name, args)
+    previous = state.identical_tool_call_last_outcome.get(key, {})
+    if previous.get("status") == "success" and status != "success":
+        return
+    state.identical_tool_call_last_outcome[key] = {
+        "status": status,
+        "content": str(content),
+    }
+
+
 class TopAgentState(BaseModel):
     """State for the Top Agent conversation tracking"""
 
@@ -300,6 +414,14 @@ class TopAgentState(BaseModel):
     previous_options: AgentRequestOptions | None = Field(
         default=None,
         description="Per-request options from the previous conversation turn.",
+    )
+    identical_tool_call_attempts: dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-request counts of exact tool name + argument invocations.",
+    )
+    identical_tool_call_last_outcome: dict[str, dict[str, str]] = Field(
+        default_factory=dict,
+        description="Last status and content for each exact tool name + argument fingerprint.",
     )
 
 
@@ -478,6 +600,7 @@ class TopAgent(AsyncMixin):
         # tool_results_lines → exact results appended programmatically
         scratchpad_lines: list[str] = []
         tool_results_lines: list[str] = []
+        completed_tools: list[str] = []
         has_tool_failure = False
         pending_calls: dict[str, dict[str, Any]] = {}  # tool_call_id -> {name, args}
         for msg in state.agent_scratchpad:
@@ -490,10 +613,12 @@ class TopAgent(AsyncMixin):
                 tool_name = (call_info["name"] if call_info else None) or getattr(msg, "name", None) or "tool"
                 result_text = _get_content_text(msg)
                 tool_failed = _tool_response_failed(msg) or result_text.lstrip().startswith(_TOOL_FAILURE_PREFIX)
+                skipped_duplicate = _is_duplicate_tool_call_skip(msg)
                 has_tool_failure = has_tool_failure or tool_failed
                 # Full result for programmatic appendix
                 tool_results_lines.append(f"`{tool_name}` result:\n{result_text}")
-                if not tool_failed:
+                if not tool_failed and not skipped_duplicate:
+                    completed_tools.append(tool_name)
                     if call_info:
                         scratchpad_lines.append(f"Called tool `{tool_name}` with args: {call_info['args']}")
                     # Failed results are deliberately excluded from the plan-tracking
@@ -557,7 +682,30 @@ class TopAgent(AsyncMixin):
             result = await llm_to_use.ainvoke(messages, config=RunnableConfig(callbacks=self.callbacks))
 
             _, parsed_plan = parse_reasoning_content(result)
-            updated_plan = parsed_plan or (str(result.content) if hasattr(result, "content") else clean_plan)
+            # parse_reasoning_content already returns plain content as `parsed_plan`,
+            # so it is empty only when the model produced reasoning and nothing else.
+            # Falling back to the raw `result.content` there is actively harmful: it is
+            # either "" (wiping the plan) or the unparsed "<think>...</think>" blob (making
+            # the reasoning *become* the plan). Both strand the agent, which then re-derives
+            # the same tool call every cycle until it exhausts the recursion limit. Keep the
+            # previous plan instead, matching the has_tool_failure branch above.
+            updated_plan = (parsed_plan or "").strip()
+            if not updated_plan:
+                logger.warning("Plan update produced no usable plan; preserving the current plan")
+                updated_plan = clean_plan
+                if completed_tools:
+                    # The preserved plan still shows the just-run step as `[ ]`, because the
+                    # LLM that marks `[x]` is the one that returned nothing. Say so explicitly
+                    # instead: the scratchpad is cleared below, so the plan is the only state
+                    # carried forward, and a stale `[ ]` next to a fresh result invites the
+                    # agent to repeat the call.
+                    names = ", ".join(f"`{name}`" for name in dict.fromkeys(completed_tools))
+                    updated_plan += (
+                        f"\n\nNOTE: the plan above could not be refreshed this cycle. "
+                        f"{names} already completed successfully and the result appears below. "
+                        f"Treat those steps as done and continue with the next pending step; "
+                        f"do not repeat a call whose result is already present."
+                    )
 
         # Programmatically append exact tool results so the agent has them,
         # combining previous results with new ones from this cycle.
@@ -837,7 +985,11 @@ class TopAgent(AsyncMixin):
 
         plan_reasoning, plan_text = parse_reasoning_content(result)
         if not plan_text:
-            plan_text = str(result.content) if hasattr(result, "content") else ""
+            # Same hazard as plan_update: the raw content here is the unparsed reasoning
+            # blob. An empty initial plan is recoverable (plan_update builds one from the
+            # first tool result); a plan that is really a think-blob poisons every later turn.
+            plan_text = ""
+            logger.warning("Plan node produced no usable plan; continuing with an empty plan")
 
         logger.debug("Plan node produced plan:\n%s", plan_text)
         if plan_reasoning:
@@ -859,31 +1011,6 @@ class TopAgent(AsyncMixin):
                 "`user_query`, then present the generated report."
             )
             logger.warning("Corrected LVS report plan that omitted lvs_video_understanding")
-
-        # `report_agent` is the only tool that writes the PDF and Markdown artifacts, so a report
-        # plan that stops at the analysis step answers with prose and no downloads. The profile
-        # prompts already declare that a report request routes to `report_agent`; re-assert it here
-        # rather than trusting the planner to keep the step it was told to plan.
-        if (
-            "report" in lowered_question
-            and "report_agent" in self.tools_dict
-            and "report_agent" not in plan_text
-            and not plan_text.strip().startswith(PLAN_CLARIFY_PREFIX)
-        ):
-            report_step = (
-                "Call `report_agent` with every media name from the user's request (as a single list when the "
-                "request names more than one) and the original request as `user_query`, then present the "
-                "generated report."
-            )
-            planned_steps = [int(match.group(1)) for match in re.finditer(r"(?:^|\s)(\d+)\.\s", plan_text)]
-            if planned_steps:
-                plan_text = f"{plan_text.rstrip()}\n{max(planned_steps) + 1}. {report_step}"
-            else:
-                # No numbered step at all means the planner returned prose rather than a plan, and
-                # prose such as "route to the appropriate tools" steers the execution agent into a
-                # summary tool. Replace it instead of appending the report step underneath it.
-                plan_text = f"1. {report_step}"
-            logger.warning("Added the missing `report_agent` step to a report plan")
 
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
@@ -1068,6 +1195,14 @@ class TopAgent(AsyncMixin):
                 state.agent_scratchpad.append(error_message)
                 return state
 
+            # Reserve identical (name, args) slots sequentially so parallel calls cannot exceed the cap.
+            skipped_tool_call_ids: set[str] = set()
+            for tool, tool_call in zip(requested_tools, tool_calls, strict=False):
+                if tool is None:
+                    continue
+                if not reserve_identical_tool_call(state, tool_call["name"], tool_call.get("args")):
+                    skipped_tool_call_ids.add(tool_call["id"])
+
             # Run the tool/sub-agent
             async def run_tool(tool: BaseTool | None, tool_call: dict[str, Any]) -> ToolMessage:
                 try:
@@ -1083,6 +1218,33 @@ class TopAgent(AsyncMixin):
                     # Check if this is a sub-agent that we should call natively for streaming
                     tool_name = tool_call["name"]
                     is_subagent = tool_name in self.subagent_names
+                    if tool_call["id"] in skipped_tool_call_ids:
+                        skip_content, skip_status = duplicate_tool_call_skip_payload(
+                            state, tool_name, tool_call.get("args")
+                        )
+                        logger.warning(
+                            "Skipping duplicate %s after %d identical attempts",
+                            tool_name,
+                            state.identical_tool_call_attempts.get(
+                                identical_tool_call_key(tool_name, tool_call.get("args")), 0
+                            ),
+                        )
+                        writer(
+                            AgentMessageChunk(
+                                type=AgentMessageChunkType.TOOL_CALL,
+                                content=(
+                                    f"Tool: {tool_name}\n"
+                                    f"Args: {_llm_tool_args(tool_call.get('args'))}\n"
+                                    f"Result: {skip_content}"
+                                ),
+                            )
+                        )
+                        return ToolMessage(
+                            name=tool_name,
+                            tool_call_id=tool_call["id"],
+                            content=skip_content,
+                            status=skip_status,
+                        )
 
                     # Caption HITL (lvs_config_media) is allowed only on an explicit user
                     # request. Summarize/report not_configured must stop in chat instead.
@@ -1106,12 +1268,7 @@ class TopAgent(AsyncMixin):
                     logger.info(f"Executing tool/sub-agent: {tool_name}")
 
                     # Build tool args once, filtering actual nulls and common LLM-rendered null sentinels.
-                    tool_args = {
-                        key: value
-                        for key, value in tool_call["args"].items()
-                        if value is not None
-                        and not (isinstance(value, str) and value.strip().lower() in {"none", "null"})
-                    }
+                    tool_args = _llm_tool_args(tool_call.get("args"))
                     if self._tool_accepts_param(tool_name, "request_options"):
                         tool_args["request_options"] = state.options.model_dump(mode="json")
                         logger.info("Passing request_options to %s", tool_name)
@@ -1324,11 +1481,15 @@ class TopAgent(AsyncMixin):
                         logger.warning(f"Tool {tool_call['name']} returned empty content, using placeholder")
                         tool_content = "Tool returned empty content"
 
+                    status = "error" if _tool_response_failed(tool_response) else "success"
+                    _store_identical_tool_call_outcome(
+                        state, tool_call["name"], tool_call.get("args"), status, tool_content
+                    )
                     return ToolMessage(
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
                         content=tool_content,
-                        status="error" if _tool_response_failed(tool_response) else "success",
+                        status=status,
                     )
 
                 except Exception as ex:
@@ -1339,6 +1500,9 @@ class TopAgent(AsyncMixin):
                     # cannot resolve) then never reaches the step that writes the report. The agent node
                     # surfaces this instead of an answer it wrote without the tool.
                     state.tool_failure = error_response
+                    _store_identical_tool_call_outcome(
+                        state, tool_call["name"], tool_call.get("args"), "error", error_response
+                    )
                     return ToolMessage(
                         name=tool_call["name"],
                         tool_call_id=tool_call["id"],
@@ -1351,7 +1515,10 @@ class TopAgent(AsyncMixin):
             any_tool_succeeded = False
             for task in asyncio.as_completed(tasks):
                 tool_response = await task
-                any_tool_succeeded = any_tool_succeeded or getattr(tool_response, "status", None) == "success"
+                executed_successfully = getattr(
+                    tool_response, "status", None
+                ) == "success" and not _is_duplicate_tool_call_skip(tool_response)
+                any_tool_succeeded = any_tool_succeeded or executed_successfully
                 state.agent_scratchpad.append(tool_response)
 
             # A sibling tool that answered grounds this turn, so a failure beside it is not the answer.
@@ -1828,13 +1995,13 @@ async def top_agent(config: TopAgentConfig, builder: Builder) -> AsyncGenerator[
                 elif chunk.type == AgentMessageChunkType.TOOL_CALL:
                     step_num += 1
                     clean_content = chunk.content.replace("\\n", " ").replace("\n", " ")
-                    steps.append(f'<agent-think-step title="{step_num} - Tool Call">{clean_content}</agent-think-step>')
+                    title = trace_step_title(step_num, "Tool Call", chunk.content)
+                    steps.append(f'<agent-think-step title="{title}">{clean_content}</agent-think-step>')
                 elif chunk.type == AgentMessageChunkType.SUBAGENT_CALL:
                     step_num += 1
                     clean_content = chunk.content.replace("\\n", " ").replace("\n", " ")
-                    steps.append(
-                        f'<agent-think-step title="{step_num} - Sub-Agent Call">{clean_content}</agent-think-step>'
-                    )
+                    title = trace_step_title(step_num, "Sub-Agent Call", chunk.content)
+                    steps.append(f'<agent-think-step title="{title}">{clean_content}</agent-think-step>')
                 elif chunk.type == AgentMessageChunkType.FINAL:
                     final_content.append(chunk.content)
                 elif chunk.type == AgentMessageChunkType.ERROR:

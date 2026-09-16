@@ -679,6 +679,48 @@ def test_vllm_compilation_config_defaults_edge_to_compiled_execution(monkeypatch
     }
 
 
+@pytest.mark.parametrize("cudagraph_mode", (None, "FULL"))
+def test_vllm_compilation_config_stabilizes_cosmos_reason3_qwen3vl(
+    monkeypatch, cudagraph_mode
+):
+    monkeypatch.delenv("VLLM_CUDAGRAPH_MODE", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
+    if cudagraph_mode:
+        monkeypatch.setenv("VLLM_CUDAGRAPH_MODE", cudagraph_mode)
+
+    expected = {
+        "inductor_compile_config": {
+            "combo_kernels": True,
+            "benchmark_combo_kernel": False,
+        }
+    }
+    if cudagraph_mode:
+        expected.update(
+            {
+                "mode": "VLLM_COMPILE",
+                "cudagraph_mode": cudagraph_mode,
+            }
+        )
+
+    assert vllm_compatible_model._get_vllm_compilation_config(
+        "Qwen3VLForConditionalGeneration", "cosmos-reason3"
+    ) == expected
+
+
+def test_vllm_compilation_config_honors_explicit_eager_mode(monkeypatch):
+    monkeypatch.delenv("VLLM_CUDAGRAPH_MODE", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
+
+    assert (
+        vllm_compatible_model._get_vllm_compilation_config(
+            "Qwen3VLForConditionalGeneration",
+            "cosmos-reason3",
+            enforce_eager=True,
+        )
+        is None
+    )
+
+
 def test_vllm_compilation_config_rejects_unknown_cudagraph_mode(monkeypatch):
     monkeypatch.delenv("RTVI_VLLM_CUDAGRAPH_MODE", raising=False)
     monkeypatch.setenv("VLLM_CUDAGRAPH_MODE", "invalid")

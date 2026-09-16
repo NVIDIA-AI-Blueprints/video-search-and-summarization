@@ -106,7 +106,7 @@ There's no drift detection; `helm upgrade` will happily keep serving the old cap
 
 Canonical source: `deploy/docker/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml`
 (`max_streams_supported` per profile × mode) and
-[`vss-deploy-profile`'s warehouse reference §Supported Hardware](../../vss-deploy-profile/references/warehouse.md#supported-hardware)
+[`vss-build-vision-ai`'s warehouse reference §Supported Hardware](../../../vss-build-vision-ai/references/sizing.md)
 for the `nvidia-smi` name → `HARDWARE_PROFILE` table. `compute_stream_cap.py` reads the YAML file
 directly rather than duplicating the table, so it can't drift from what Compose enforces.
 

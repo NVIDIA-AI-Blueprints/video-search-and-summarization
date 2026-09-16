@@ -216,8 +216,11 @@ with no way to drive it.
   it, which will strand the build's own models. Reconcile that against
   [`sizing.md`](sizing.md) before choosing it, not after.
 - **The checkout's own assets**: `assets/vss_nemoclaw_policy.yaml`, `skills/`,
-  and `.openclaw/workspace/`. The notebook resolves all three from
-  `VSS_REPO_DIR`.
+  and `.openclaw/` (the sandbox `Dockerfile`, the VSS OpenClaw
+  plugin and the `workspace/` docs). The notebook resolves them from
+  `VSS_REPO_DIR`; for OpenClaw, onboard builds the sandbox image from that
+  Dockerfile (`--from`), so the skills and docs arrive baked rather than
+  installed. Do not build a sandbox image of your own for this.
 
 Preflight the selected provider's row below and no other — a credential check
 that fires for every build rejects the supported paths that need no key:
@@ -225,9 +228,15 @@ that fires for every build rejects the supported paths that need no key:
 | Provider | Required at Q3 | Not required |
 |---|---|---|
 | (a) public OpenAI-compatible endpoint — the skill default | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `COMPATIBLE_API_KEY` | `NVIDIA_API_KEY` |
-| (a) self-hosted endpoint, or one on a private address | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL` | a key — 3.1 sends the `EMPTY` placeholder for a blank one and the server ignores it |
+| (a) self-hosted endpoint, or one on a private address — including the build's own LLM NIM | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `COMPATIBLE_API_KEY=EMPTY`, `NEMOCLAW_INFERENCE_PROXY=0` | a real bearer token — the server ignores the value |
 | (b) NemoClaw-managed local model | `NEMOCLAW_PROVIDER` (`install-vllm`, `ollama`, `nim-local`, …) | any API key; `HF_TOKEN` only for a gated `install-vllm` model |
 | (c) build.nvidia.com hosted model | `NVIDIA_API_KEY` | `COMPATIBLE_API_KEY`, `NEMOCLAW_ENDPOINT_URL` |
+
+`NEMOCLAW_INFERENCE_PROXY` follows the upstream's transport rather than the row
+above. Leave the default `1` when the endpoint is HTTPS on 443: it is inert for a
+public address, and it is what rescues a public name that corp or DGX DNS
+resolves to a private one — the case the proxy was built for. Set `0` when the
+upstream is plain HTTP or on another port, which the proxy cannot represent.
 
 Egress from the sandbox to the build is already allowed: the shipped policy's
 `vss-backend` entries cover the HAProxy origin (`7777`) along with each
@@ -235,6 +244,15 @@ backend's own host port. **A build that moves `HAPROXY_HOST_PORT` off `7777`
 has no matching policy entry**, so every call from the sandbox returns
 `CONNECT tunnel failed, response 403`. Report that as a blocker naming the port;
 the policy is a checked-in asset, not something to rewrite per build.
+
+The LLM NIM's published port is in the same position. `vss-backend` allowlists
+literal `host` + `port` pairs and interpolates nothing, and neither NIM port is
+among them — `30081`, which `LLM_PORT` resolves to, nor `30082` for a VLM NIM.
+A harness pointed at the build's NIM therefore relies on NemoClaw authorizing
+the inference endpoint it was onboarded with. A `403 CONNECT tunnel failed` on
+the harness's first turn is that missing entry rather than a deployment fault —
+report it naming the port, and do not fall back to a remote provider to get a
+working chat.
 
 ## Default provider
 
@@ -251,8 +269,40 @@ to the notebook's own (c) build.nvidia.com path:
 
 Override the default **only on an explicit request** for a local or different
 model. "Use a local model", "air-gapped", "use Nemotron", or a named endpoint of
-their own each move the build to (b) or (c) per section 1.2 — the choice is the
-user's, so carry it through rather than reasoning about which is better.
+their own each move the build off the remote default — the choice is the user's,
+so carry it through rather than reasoning about which is better. A local request
+has **two** destinations, not one:
+
+| Request | Route | Where the model runs |
+|---|---|---|
+| "reuse the deployment's LLM", "one model for both", "point it at the LLM NIM" | (a) `custom` against the build's own NIM | the build's `llm_local*` container — no additional GPU |
+| "use a local model", "air-gapped", with no server named | (b) a NemoClaw-managed server (`install-vllm`, `ollama`, `nim-local`) | a second server NemoClaw starts and owns, on its own GPU |
+| a named endpoint of their own | (a) `custom` against that endpoint | wherever they run it |
+
+**(a) against the build's own LLM NIM** is the cheapest local harness and the
+least obvious route, so it is spelled out here. It applies only to a build whose
+`LLM_MODE` resolved to `local` or `local_shared`; one resolved to a remote LLM
+has no local NIM to point at.
+
+| Variable | Value |
+|---|---|
+| `NEMOCLAW_PROVIDER` | `custom` |
+| `NEMOCLAW_ENDPOINT_URL` | `http://host.openshell.internal:<LLM_PORT>/v1`, with `LLM_PORT` read from the build's `resolved.yml` (`30081` on every current profile). Use that hostname rather than `HOST_IP` — the egress policy's entries are keyed on it |
+| `NEMOCLAW_MODEL` | the NIM's `NIM_SERVED_MODEL_NAME` from `resolved.yml`, e.g. `nvidia/nemotron-3.5-lightning-30b-a3b`; never assume the slug |
+| `COMPATIBLE_API_KEY` | `EMPTY` — set it explicitly, per the self-hosted failure mode below |
+| `NEMOCLAW_INFERENCE_PROXY` | `0` — required, per that same failure mode |
+
+Say what the route costs **before** taking it, so the user can pick (b) or the
+remote default instead: the harness adds no GPU but shares one NIM instance with
+the build's own LLM work, at `NIM_KVCACHE_PERCENT=0.3` and
+`NIM_MAX_MODEL_LEN=65536` on the shared-GPU profiles. On a build whose
+capabilities drive that NIM — `lvs` summarization, `search` critique — agent
+turns and the build's own requests contend for KV cache.
+
+[Ordering](#ordering) already covers the timing, and it matters more here: the
+NIM is the slowest service in the build on a cold cache, and it has to answer on
+that port before the notebook runs. Onboard is the only step that applies the
+endpoint, so changing it afterwards needs the sandbox recreated.
 
 Two failure modes to handle rather than paper over:
 
@@ -262,15 +312,26 @@ Two failure modes to handle rather than paper over:
   downstream could tell. Switching providers is the user's call to make on that
   report, not a fallback to take for them.
 - **A private or self-hosted endpoint.** Section 3.1 picks the transport from the
-  endpoint's address, not from the provider name, and a host resolving to a
-  private address gets the bundled proxy with a blank key sent as `EMPTY`. A
-  loopback-only server must be rebound to `0.0.0.0`, because the sandbox reaches
-  this host as `host.openshell.internal`.
+  endpoint's address, not from the provider name: a host resolving to a private
+  address gets the bundled proxy, and a blank key is sent as `EMPTY`. That proxy
+  reaches its upstream as `https://<host>` on 443 and drops the port, so it is
+  **wrong for an endpoint served over plain HTTP or on another port** — a local
+  NIM, vLLM, or Ollama. Export `NEMOCLAW_INFERENCE_PROXY=0` for those, and pass
+  `COMPATIBLE_API_KEY=EMPTY` yourself, since the placeholder is applied only on
+  the branch that export turns off. Disabling the proxy leaves NemoClaw's own
+  SSRF guard to accept the endpoint; an onboard that rejects it is the case the
+  proxy exists for — report it rather than re-aiming the harness at another
+  provider. A loopback-only server must be rebound to `0.0.0.0`, because the
+  sandbox reaches this host as `host.openshell.internal`.
 
 These four variables are exactly the parameter contract
 `run_setup_notebook.py` already carries for this notebook, so exporting them is
 sufficient — the injection re-reads them after the section 1.2 cells have run,
 which is what lets the export win over whichever provider cell executed last.
+`NEMOCLAW_INFERENCE_PROXY` is not in that table and must not be added to it:
+the injection assigns the raw environment string and section 3.1 accepts only a
+real bool. Section 1.3 reads it from the environment itself, so exporting `0`
+works the same way.
 
 ## Bring-up
 
@@ -288,7 +349,8 @@ Set the environment, then run the notebook:
 | `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
 | `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
-| `NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, `NEMOCLAW_ENDPOINT_URL`, `COMPATIBLE_API_KEY` | per [Default provider](#default-provider) | remote Claude Opus unless the user asked for local or another model |
+| `NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, `NEMOCLAW_ENDPOINT_URL`, `COMPATIBLE_API_KEY` | per [Default provider](#default-provider) | remote Claude Opus unless the user asked for local or another model. The block below spells out that remote route alone; every other route **replaces** these values rather than defaulting through them |
+| `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
 
 ```bash
@@ -300,13 +362,23 @@ export VSS_REPO_DIR="$REPO"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
 export NEMOCLAW_RECREATE_SANDBOX=0
 
-# Default harness LLM: notebook option (a), remote Claude Opus.
+# Default harness LLM: notebook option (a), remote Claude Opus. The `:-` form
+# lets an already-exported value win — right for a caller-supplied remote
+# endpoint, and exactly why these four lines must not be copied as-is for the
+# NIM route, where a stale remote endpoint and model would survive.
 export NEMOCLAW_PROVIDER=custom
 export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-claude-opus-4-6}"
 export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://api.anthropic.com/v1/}"
 # From the environment or the secret store; never a literal here.
 : "${COMPATIBLE_API_KEY:?bearer token for NEMOCLAW_ENDPOINT_URL is required}"
 export COMPATIBLE_API_KEY
+
+# Against the build's own LLM NIM, replace all four outright — plain
+# assignment, and never an inherited bearer token:
+#   export NEMOCLAW_ENDPOINT_URL="http://host.openshell.internal:<LLM_PORT>/v1"
+#   export NEMOCLAW_MODEL="<NIM_SERVED_MODEL_NAME from resolved.yml>"
+#   export COMPATIBLE_API_KEY=EMPTY
+#   export NEMOCLAW_INFERENCE_PROXY=0
 
 uv run --isolated --no-project --python 3.12 \
   --with nbformat --with nbclient --with ipykernel -- \
@@ -322,7 +394,7 @@ blocker: report it with the log path and stop, rather than going on to the UI
 link.
 
 **Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
-`| tail`, `| head`, or a dropped stream loses section 3.7's `Agent UI:` line and
+`| tail`, `| head`, or a dropped stream loses section 3.5's `Agent UI:` line and
 the `WARNING:` that cell prints — without failing — when the dashboard forward
 does not come up. A clean exit does not mean the link is usable. Read the link
 from the `tee`d log.
@@ -367,10 +439,13 @@ itself — work this skill has already done by the time the harness comes up.
 Add it as a second `--notebook` only when the user explicitly wants the agent to
 own the deployment lifecycle too.
 
-Because the notebook installs every `SKILL.md` under `skills/`, the sandbox receives
-this skill as well, and can compose further builds from chat. It operates the
-build it was given; it is not expected to manage the `_builds/` tree this run
-produced.
+The OpenClaw sandbox image ships only the **operation** skills — the ones whose
+`SKILL.md` declares `vss-requires` — and activates those the recorded deployment
+can serve (`vss-openclaw-sync` — or `vss-hermes-sync` on Hermes — inside the sandbox re-selects after
+`vss configure`). It does **not** receive this skill: the sandbox operates the
+build it was given and is not expected to compose further builds or manage the
+`_builds/` tree this run produced. A Hermes sandbox (`.hermes/`) ships the same operation skills and
+does not receive it either.
 
 ## Verification
 
@@ -378,7 +453,7 @@ The notebook runs with errors fatal and asserts each step itself, so a clean
 exit already means onboarding, policy, skills, and workspace docs all landed.
 Confirm the two things that exit code cannot cover:
 
-1. **The harness is reachable.** Section 3.7 prints `Agent UI: <url>`. Put it in
+1. **The harness is reachable.** Section 3.5 prints `Agent UI: <url>`. Put it in
    the final summary as a **markdown link** — `[Open the NemoClaw Agent UI](<url>)`
    — not as a bare URL in prose, so the user can click straight through to the
    harness they just deployed. The target is the printed URL character for
@@ -402,7 +477,7 @@ Confirm the two things that exit code cannot cover:
    policy (see Prerequisites), not a deployment fault — the distinction matters
    because the two have opposite fixes.
 
-Section 3.8 is an optional deeper pass over the live sandbox, active policy
+Section 3.6 is an optional deeper pass over the live sandbox, active policy
 metadata, webhooks, and the installed workspace docs. Run it when onboarding
 behaved unexpectedly.
 
@@ -427,4 +502,4 @@ reports as a skill failure rather than a missing deployment.
 - `deploy/docker/scripts/run_setup_notebook.py`
 - `deploy/docker/scripts/nemoclaw/README.md`
 - `assets/vss_nemoclaw_policy.yaml`
-- `.openclaw/workspace/` (and its `_nemoclaw` overlay)
+- `.openclaw/` — `Dockerfile`, `plugin/`, `workspace/` (and its `_nemoclaw` overlay)

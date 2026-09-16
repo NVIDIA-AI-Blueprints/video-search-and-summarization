@@ -70,11 +70,8 @@ from .docker_compose_util import parse_env_file
 from .docker_compose_util import parse_env_overrides
 from .docker_compose_util import resolve_and_apply_profile_mode
 from .prereqs_check import run_prereqs_checks
-from .storage import ArtifactKind
-from .storage import ModelArtifact
 from .storage import ensure_alerts_engine_directories
 from .storage import ensure_data_directories
-from .storage import ensure_model_artifacts
 from .storage import resolve_config_path
 
 _COMPOSE_OPS_LOCK = threading.Lock()
@@ -374,21 +371,6 @@ class DockerPrereqsInput(BaseModel):
     pass
 
 
-class ModelArtifactEntry(BaseModel):
-    """One artifact extracted from a downloaded NGC package."""
-
-    src: str  # Path within the downloaded package (relative to the unpacked dir).
-    out: str  # Destination filename/path under <mdx_data_dir>/models/.
-    kind: Literal["file", "dir"]
-
-
-class ModelPackageConfig(BaseModel):
-    """An NGC package and the artifacts to extract from it."""
-
-    package_ref: str
-    artifacts: tuple[ModelArtifactEntry, ...]
-
-
 class HardwareResolutionConfig(BaseModel):
     """Hardware resolution rules for profile validation/device mapping."""
 
@@ -458,13 +440,6 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         ...,
         description="Relative subdirectories created under VSS_DATA_DIR for all profiles by docker_generate.",
     )
-    model_artifacts: dict[str, tuple[ModelPackageConfig, ...]] = Field(
-        ...,
-        description=(
-            "Profile-keyed NGC package definitions used by pre-compose download checks. "
-            "Each entry groups one package_ref with the artifacts to extract from it."
-        ),
-    )
     model_resolution: ModelResolutionConfig = Field(
         ...,
         description="Hardware/model resolution rules used during docker_generate validation.",
@@ -491,20 +466,6 @@ class OrchestratorToolConfig(FunctionGroupBaseConfig, name="vss_orchestrator"):
         ],
         description="Subset of tools to expose. All tools are included by default.",
     )
-
-    @field_validator("model_artifacts")
-    @classmethod
-    def _validate_model_artifact_profiles(
-        cls,
-        value: dict[str, tuple[ModelPackageConfig, ...]],
-    ) -> dict[str, tuple[ModelPackageConfig, ...]]:
-        unknown_profiles = set(value) - SUPPORTED_PROFILES
-        if unknown_profiles:
-            raise ValueError(
-                "model_artifacts contains unsupported profile key(s): "
-                f"{sorted(unknown_profiles)}. Supported profiles: {sorted(SUPPORTED_PROFILES)}."
-            )
-        return value
 
 
 class ComposeOperationInput(BaseModel):
@@ -633,19 +594,6 @@ async def vss_orchestrator(
     configured_output_dir = resolve_config_path(_config.output_dir)
     mdx_data_dir = resolve_config_path(_config.mdx_data_dir)
     configured_mdx_data_directories = tuple(_config.mdx_data_directories)
-    configured_model_artifacts_by_profile: dict[str, tuple[ModelArtifact, ...]] = {
-        profile: tuple(
-            ModelArtifact(
-                package_ref=package.package_ref,
-                downloaded_relative_path=entry.src,
-                output_name=entry.out,
-                artifact_kind=ArtifactKind(entry.kind),
-            )
-            for package in packages
-            for entry in package.artifacts
-        )
-        for profile, packages in _config.model_artifacts.items()
-    }
     configured_model_resolution = _config.model_resolution
 
     # Bootstrap required data directories as soon as config is loaded, so MCP
@@ -829,20 +777,6 @@ async def vss_orchestrator(
                     ),
                 )
             )
-            profile_artifacts = configured_model_artifacts_by_profile.get(profile)
-            if profile_artifacts:
-                ngc_cli_api_key = resolved_env.get("NGC_CLI_API_KEY", "").strip()
-                pre_compose_checks.append(
-                    PreComposeCheck(
-                        name="ensure_model_artifacts",
-                        profile=profile,
-                        run=lambda: ensure_model_artifacts(
-                            mdx_data_dir,
-                            ngc_cli_api_key,
-                            artifacts=profile_artifacts,
-                        ),
-                    )
-                )
             if profile == "alerts":
                 pre_compose_checks.append(
                     PreComposeCheck(

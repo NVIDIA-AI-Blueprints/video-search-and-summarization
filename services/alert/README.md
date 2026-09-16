@@ -461,6 +461,35 @@ sink (`event_bridge.sinkType: kafka`). Consumers receive alerts by subscribing
 to the configured sink topic, and can also query stored alerts/incidents over
 the REST API (e.g. `GET /api/v1/realtime`, `GET /api/v1/realtime/incidents`).
 
+### Consolidated incident query
+
+RT-VLM can emit one confirmed incident per video chunk while a single event
+stays visible. `GET /api/v1/realtime/incidents` can group consecutive confirmed
+chunks from the same camera and alert category into one event at read time.
+Pass `consolidate=true` together with a bounded `start_time`/`end_time` window
+(both required, otherwise HTTP 400); omit the parameter for the raw documents.
+Raw documents are never modified.
+
+```bash
+curl -sfG "http://localhost:9080/api/v1/realtime/incidents" \
+  --data-urlencode "sensor_id=warehouse_sample" \
+  --data-urlencode "category=intrusion" \
+  --data-urlencode "start_time=2026-09-04T10:00:00Z" \
+  --data-urlencode "end_time=2026-09-04T10:30:00Z" \
+  --data-urlencode "consolidate=true"
+```
+
+In the consolidated view `count` and `total` count events, each event carries
+`chunk_ids`, `info.isConsolidated`, `info.chunkCount` and `info.chunkIdxRange`,
+and `truncated=true` means the window exceeded the 10,000-chunk scan cap.
+Grouping is tuned by `rtvi_vlm.consolidation` in the service configuration
+(`config.yaml` here, `config.yml` in the deploy profiles)
+(`max_inter_alert_gap_seconds`, `max_event_duration_seconds`,
+`representative`). This is an API-only capability; the VSS UI does not use it.
+The full guide, including a response example and limitations, is the
+"Realtime incident consolidation" section of
+[docs/alert-verification-api.mdx](../../docs/alert-verification-api.mdx#realtime-incident-consolidation).
+
 ## Testing
 
 Unit tests run with `pytest`:

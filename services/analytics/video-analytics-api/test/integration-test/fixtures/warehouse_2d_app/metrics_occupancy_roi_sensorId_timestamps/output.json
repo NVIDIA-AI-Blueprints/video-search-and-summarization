@@ -1,0 +1,24 @@
+{
+  "roiOccupancy": [
+    {
+      "roiId": "roi-id-1",
+      "objects": [
+        {
+          "type": "Pallet",
+          "averageCount": 2,
+          "uniqueObjectCount": 3
+        },
+        {
+          "type": "Person",
+          "averageCount": 1,
+          "uniqueObjectCount": 3
+        },
+        {
+          "type": "Forklift",
+          "averageCount": 1,
+          "uniqueObjectCount": 1
+        }
+      ]
+    }
+  ]
+}

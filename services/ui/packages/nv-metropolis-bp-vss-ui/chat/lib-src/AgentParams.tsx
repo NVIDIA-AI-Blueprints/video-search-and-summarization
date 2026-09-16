@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { getAgentParamsPosition } from './agentParamsPosition';
 import { createRandomId } from './id';
 import type { CustomAgentParamsValues, ParamField, ParamFieldConfig } from './types';
 
@@ -230,8 +231,14 @@ export const AgentParams: React.FC<AgentParamsProps> = ({
     }
   };
 
-  const top = anchorRect ? anchorRect.bottom + 8 : 80;
-  const right = anchorRect ? Math.max(8, window.innerWidth - anchorRect.right) : 16;
+  // The trigger lives in the chat input at the bottom of the panel, so the
+  // space below it is a few pixels of gradient — open upwards, and only flip
+  // down when the room above cannot hold the panel at all.
+  const position = getAgentParamsPosition({
+    anchorRect,
+    viewportHeight: window.innerHeight,
+    viewportWidth: window.innerWidth,
+  });
 
   return createPortal(
     <>
@@ -240,9 +247,9 @@ export const AgentParams: React.FC<AgentParamsProps> = ({
         role="dialog"
         aria-label="Agent parameters"
         className="fixed z-[100] w-72 rounded-md border border-gray-200 bg-white p-3 shadow-lg dark:border-gray-700 dark:bg-black"
-        style={{ top, right, maxHeight: '60vh', overflowY: 'auto' }}
+        style={{ overflowY: 'auto', ...position }}
       >
-        <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+        <p className="mb-2 text-center text-sm font-medium text-gray-700 dark:text-gray-200">
           Agent parameters
         </p>
         <div className="flex flex-col gap-3">

@@ -68,6 +68,19 @@ Optional: You can enable notifications by setting `webhook.openclaw.enabled` to 
 Deploy the VSS alerts profile in real-time mode.
 ```
 
+The deploy skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
+which VLM models are available during the deployment process, or request a different model
+directly in your deployment prompt:
+
+```text title="VLM model prompts"
+Which VLM models are available for the alerts profile?
+Deploy the VSS alerts profile in real-time mode with the Cosmos3 Super Reasoner FP8 VLM.
+```
+
+The agent sets `VLM_NAME` and `RTVI_VLM_MODEL_PATH` in `overrides.env` to the model
+you request. The same options and hardware constraints listed in
+[Available VLM Models](#rt-alert-available-vlm-models) apply.
+
 #### Step 2: Add a Video Stream
 
 To manage real-time alerts from your agent, install the `vss-manage-alerts` skill as described in [Agent Skills](/vss/vision-agent/agent-skills).
@@ -246,6 +259,32 @@ docker compose -f compose.yml \
 - `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
 - `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
+<Note>
+The default deployed model is Cosmos3 Nano Reasoner with BF16 precision.
+You can change this model by selecting an option from the following table and
+setting `VLM_NAME` to the Name value and `RTVI_VLM_MODEL_PATH` to the Path value
+in `overrides.env`.
+</Note>
+
+<a id="rt-alert-available-vlm-models"></a>
+
+**Available VLM Models**
+
+| Model | Name | Path |
+| --- | --- | --- |
+| CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
+| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_hf` |
+| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_modelopt-bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-bf16-final` |
+| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_hf` |
+| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+
+<Note>
+Super models have only been tested on RTX PRO 6000 and H100 with a single GPU dedicated to the VLM.
+
+NVFP4 models only work on Blackwell platforms.
+</Note>
+
 
 Set these required placeholder values in the existing assignments:
 
@@ -334,7 +373,8 @@ RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 ALERT_AGENT_ALWAYS_ON=true
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```
 </Tab>
@@ -348,6 +388,8 @@ RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 ALERT_AGENT_ALWAYS_ON=true
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -401,10 +443,6 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 </Tabs>
 </Tab>
 <Tab title="RTXPRO4500BW">
-
-<Note>
-On NVIDIA driver 580.105.08, `nvidia-smi` may not identify RTX PRO 4500 Blackwell GPUs, when automatic detection is used. With native Docker Compose, set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`. NVIDIA driver 580.126.09 or later is recommended.
-</Note>
 
 <Tabs>
 <Tab title="Remote LLM">
@@ -468,7 +506,7 @@ RT_VLM_DEVICE_ID=0
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -492,6 +530,7 @@ VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -515,6 +554,7 @@ VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -672,14 +712,15 @@ Once deployed, the following services are available:
 | NVStreamer UI | `http://<HOST_IP>:31000/#/dashboard` |
 | VST UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
 | Phoenix UI | `http://<HOST_IP>:7777/phoenix/projects` |
+| Jaeger UI | `http://<HOST_IP>:16686` |
+
+The Jaeger UI is present only when the `jaeger` Compose profile is enabled; see [OpenTelemetry Tracing](/vss/system-components/analytics-microservices/alerts-microservice#opentelemetry-tracing) in the Alerts Microservice page.
 
 ### Known Issues
 
 * It is recommended to clear chat and refresh the VSS UI page after deployment to clear any data from a previous deployment.
 
 * VSS-RTVI-VLM logs may repeatedly show a "Generated text is empty" warning and result in incomplete/unreliable alert verdicts
-
-* On RTX PRO 4500 Blackwell systems with NVIDIA driver 580.105.08, `nvidia-smi` may not identify the GPU model. Set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`; native Docker Compose does not perform the script hardware check. Upgrade to NVIDIA driver 580.126.09 or later when possible.
 
 * VLM verdict verification can fail in the UI even when VLM requests are processed successfully. Alert Bridge response parsing accepts only raw verdicts such as `A/B` or `Yes/No` before serializing them to `confirmed` or `rejected`. As a result, a semantically valid `rejected` verdict from Cosmos Reason can fail schema validation and be persisted as `verification-failed`.
 

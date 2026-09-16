@@ -7,6 +7,11 @@ metadata:
   version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "search"
 ---
 
 ## Purpose
@@ -39,23 +44,23 @@ an agent `/api` route**; on a build without one, they belong to
 
 - A running VSS `search` profile and its host-reachable Compose or Ingress
   origin.
-- A checkout containing `services/agent`, host `uv`, `curl`, and `jq`.
+- A checkout containing `libs/vss`, host `uv`, `curl`, and `jq`.
 - `vss vios list` for source listing and inspection (same CLI, same recorded origin).
 
 Resolve and validate the checkout once:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
+test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
   echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
   exit 1
 }
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
 cd "${VSS_REPO_ROOT}" && "${VSS[@]}" search run --help >/dev/null || exit 1
 ```
 
-`--extra cli` is mandatory because the base distribution contains the core
-libraries, while `nvidia-vss-cli` declares the `vss` executable.
+`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
+needed — the agent stack is not in it.
 
 Resolve the deployment through its one public/host origin:
 
@@ -94,7 +99,7 @@ independent of the index inventory.
 
 1. Confirm the selected deployment is the `search` profile. If required routes
    are unavailable, ask whether to reconnect or deploy it with
-   `vss-deploy-profile -p search`; do not target another profile.
+   `the `/vss-build-vision-ai` stock Search workflow`; do not target another profile.
 
 2. When the user names a file, camera, or sensor, list registered sources with
    `"${VSS[@]}" vios list` before invoking the search CLI — it reads the origin
@@ -242,7 +247,7 @@ or verification parsing against that response or invent structured hit rows.
 
 ## Troubleshooting
 
-- CLI unavailable: retain `--extra cli`, verify `VSS_REPO_ROOT`, and stop.
+- CLI unavailable: verify `VSS_REPO_ROOT` points at the checkout, and stop.
 - Exit 2: read the selected path's `--help`; do not guess flags.
 - Exit 3: a recorded backend is unreachable; repair routing and reconfigure.
 - Exit 4: run `vss configure --base-url <origin>` or choose a path whose

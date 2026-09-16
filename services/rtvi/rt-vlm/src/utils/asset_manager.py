@@ -39,7 +39,7 @@ from api_models.common import (
     AWS_S3_URL_PATTERN,
     BLOCKED_IP_RANGES,
 )
-from common.logger import TimeMeasure, logger
+from common.logger import TimeMeasure, logger, sanitize_url_for_logging
 from common.service_exception import ServiceException
 
 AGE_OUT_THRESHOLD = 0.9  # Start aging out when usage is within this threshold of the max
@@ -731,7 +731,10 @@ class AssetManager:
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key,
             )
-            logger.info(f"Using custom S3 endpoint: {endpoint_url}")
+            logger.info(
+                "Using custom S3 endpoint: %s",
+                sanitize_url_for_logging(endpoint_url),
+            )
         else:
             s3_client = boto3.client(
                 "s3",
@@ -741,7 +744,10 @@ class AssetManager:
             logger.debug("Using default S3 endpoint")
 
         logger.info(
-            f"Downloading file from S3 - url: {url} bucket_name: {bucket_name} object_key: {object_key}"
+            "Downloading file from S3 - url: %s bucket_name: %s object_key: %s",
+            sanitize_url_for_logging(url),
+            bucket_name,
+            object_key,
         )
 
         async with tempfile.NamedTemporaryFile(mode="wb+", delete=True) as temp_file:
@@ -807,7 +813,11 @@ class AssetManager:
                 bytes_written += len(chunk)
                 download_tracker.add_bytes(len(chunk))
                 chunk_count += 1
-            logger.info(f"Downloaded file from S3 - url: {url} bytes: {bytes_written}")
+            logger.info(
+                "Downloaded file from S3 - url: %s bytes: %d",
+                sanitize_url_for_logging(url),
+                bytes_written,
+            )
 
             # Flush and seek to beginning so save_file can read it
             await temp_file.flush()
@@ -908,11 +918,16 @@ class AssetManager:
             # VST download URL may not have an extension, so use the file_name extension
             extension = os.path.splitext(file_name)[-1].lower()
             logger.warning(
-                f"Could not determine extension from URL - url: {url}, trying with default name: {file_name}"
+                "Could not determine extension from URL - url: %s, trying with default name: %s",
+                sanitize_url_for_logging(url),
+                file_name,
             )
 
         logger.info(
-            f"Downloading file from URL - url: {url} file_name: {file_name} extension: {extension}"
+            "Downloading file from URL - url: %s file_name: %s extension: %s",
+            sanitize_url_for_logging(url),
+            file_name,
+            extension,
         )
 
         async with tempfile.NamedTemporaryFile(mode="wb+", delete=True) as temp_file:
@@ -1052,7 +1067,7 @@ class AssetManager:
                     response = await session.get(current_url, allow_redirects=False)
                     logger.info(
                         "Downloading file from URL - url: %s response: %d (hop %d)",
-                        current_url,
+                        sanitize_url_for_logging(current_url),
                         response.status,
                         hop,
                     )
@@ -1079,7 +1094,11 @@ class AssetManager:
 
                         # Resolve relative redirect URLs
                         current_url = urljoin(current_url, location)
-                        logger.info("Redirect hop %d -> %s", hop + 1, current_url)
+                        logger.info(
+                            "Redirect hop %d -> %s",
+                            hop + 1,
+                            sanitize_url_for_logging(current_url),
+                        )
 
                         # SSRF-validate each intermediate redirect target
                         await validate_url_ssrf_runtime_async(current_url)
@@ -1124,7 +1143,7 @@ class AssetManager:
 
                 logger.info(
                     "Downloaded file from URL - url: %s bytes: %d",
-                    current_url,
+                    sanitize_url_for_logging(current_url),
                     total_size,
                 )
             finally:
@@ -1530,7 +1549,11 @@ class AssetManager:
             self._release_asset_slot(asset_id, camera_id)
             raise
 
-        logger.info(f"[AssetManager] Added live stream - asset-id: {asset_id} URL: {url}")
+        logger.info(
+            "[AssetManager] Added live stream - asset-id: %s URL: %s",
+            asset_id,
+            sanitize_url_for_logging(url),
+        )
         return asset_id
 
     def cleanup_asset(self, asset_id: str, executor: Optional[ThreadPoolExecutor] = None):

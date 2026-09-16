@@ -7,6 +7,11 @@ metadata:
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "alerts"
 ---
 ## Purpose
 
@@ -36,13 +41,13 @@ Requires the matching VSS profile/microservice deployed and reachable. NGC-hoste
 
 ## Troubleshooting
 
-- **Connection refused** → microservice not running: probe `/docs` or `/health`, redeploy via `vss-deploy-profile`.
+- **Connection refused** → microservice not running: probe `/docs` or `/health`, redeploy via `vss-build-vision-ai`.
 - **HTTP 401/403 on NGC pulls** → missing/expired `NGC_CLI_API_KEY`: `docker login nvcr.io` and re-export the key.
 - **OOM / model load failure** → insufficient GPU memory: use a smaller variant or `docker compose down` to free GPUs.
 
 # VSS Alert Management
 
-The alerts profile runs in one of two modes (chosen at `/vss-deploy-profile -p alerts -m {verification,real-time}`) — see **The Two Modes** table below. This skill routes by **deployed mode + user intent** (monitoring vs subscription CRUD vs Slack webhook), driving the **Alert Bridge REST API directly** (no VSS Agent `/generate`).
+The alerts profile runs in one of two modes (chosen at the `/vss-build-vision-ai` stock Alerts workflow in verification or real-time mode) — see **The Two Modes** table below. This skill routes by **deployed mode + user intent** (monitoring vs subscription CRUD vs Slack webhook), driving the **Alert Bridge REST API directly** (no VSS Agent `/generate`).
 
 ## When to Use
 
@@ -104,7 +109,7 @@ fi
 ```
 
 If the Alert Bridge probe fails, ask which mode to deploy and hand off to
-`/vss-deploy-profile -p alerts -m <mode>` (decline → stop; pre-authorized
+`the `/vss-build-vision-ai` stock Alerts workflow in the matching mode` (decline → stop; pre-authorized
 autonomous deploy → run directly with `verification` by default). If it
 passes, detect the mode per Step 1.
 
@@ -117,7 +122,7 @@ passes, detect the mode per Step 1.
 | **CV (verification)** | `-m verification` | `MODE=2d_cv` | RT-CV (Grounding DINO) + Behavior Analytics + `alert-bridge` VLM verifier + **`rtvi-vlm`** | Static CV pipeline (**Workflow A**) + verification results & verdicts (**Workflow B**) + on-demand verification (**Workflow F**). VIOS webhooks register streams with RT-CV. Realtime rule CRUD (**D**) and Slack (**E**) are gated to real-time mode (skill refuses on CV). |
 | **VLM (real-time)** | `-m real-time` | `MODE=2d_vlm` | `alert-bridge` + `rtvi-vlm` | Dynamic VLM real-time alerts (**Workflow D**), Slack (**E**), incident queries (**C**), and always-on operation (**Workflow G** — `ALERT_AGENT_ALWAYS_ON=true` / `alert_agent.always_on: true` when deployed with `-m real-time`). No static CV pipeline. |
 
-**Switching modes** uses the `vss-deploy-profile` teardown + deploy flow with the other `-m` flag. Both modes use the same agent `config.yml`; VIOS webhooks follow `notification_config_${MODE}.json`. `rtvi-vlm` runs in both modes.
+**Switching modes** uses the `vss-build-vision-ai` teardown + deploy flow, asking for the other mode. Both modes use the same agent `config.yml`; VIOS webhooks follow `notification_config_${MODE}.json`. `rtvi-vlm` runs in both modes.
 
 **`RTVI_VLM_KAFKA_ENABLED` is mode-specific.** `overrides.env` ships `RTVI_VLM_KAFKA_ENABLED=false` for verification (`2d_cv`), where nothing consumes RT-VLM's Kafka output and leaving it on makes RT-VLM publish duplicate incidents that Logstash indexes under `mdx-vlm-incidents-1970-01-01`. Real-time (`2d_vlm`) alerts depend on RT-VLM publishing to Kafka, so the line must be commented out in that mode — `dev-profile.sh` does this automatically for `-m real-time`. If a real-time deployment produces no alerts, check that this override is not still active in `generated.env`.
 
@@ -162,7 +167,7 @@ fi
 
 If `vss-behavior-analytics` is present → **CV mode** (which also has `vss-rtvi-vlm`).
 If only `vss-rtvi-vlm` is present (and no CV pipeline) → **VLM mode**.
-If neither matches on Docker, the alerts profile is not deployed — direct the user to the `vss-deploy-profile` skill.
+If neither matches on Docker, the alerts profile is not deployed — direct the user to the `vss-build-vision-ai` skill.
 
 Alternative Docker signal (preferred when `docker ps` isn't accessible): check the deployed `generated.env`, falling back to `overrides.env` before a deployment has generated one:
 
@@ -192,7 +197,7 @@ fi
 | **CV** | one-shot "verify **this** clip/image" with a media URL, or the literal "on-demand" | **Workflow F (On-demand)** — `references/on-demand-verification.md` |
 | **CV** | static CV alert onboarding | **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage`; VIOS webhook registers it with RT-CV |
 | **VLM** | verification results / verdict inspection, verifier-prompt config, or on-demand verification (CV-only capabilities) | *Explain-only* asks → answer from **Workflow B/F** background, no calls needed. *Execution* asks → VLM-mode refusal text below (redeploy hint `-m verification`) |
-| **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — confirm first, then `vss-deploy-profile -m verification` |
+| **VLM** | a CV / behavior-analytics / PPE-rule alert needing the static CV pipeline | **Redeployment required** — confirm first, then `the `/vss-build-vision-ai` stock Alerts workflow in verification mode` |
 | **any** | video summarization, highlight reels, reports, non-alert analytics | **Out of scope** — hand off to `vss-generate-video-report` / `vss-query-analytics` (Cross-Skill Links); do **not** answer it via incidents or rules, even when incidents are empty |
 
 **Always confirm before triggering a redeploy.** A mode switch stops all currently-running monitoring and restarts services.
@@ -229,7 +234,7 @@ If a prompt mixes workflows ("start monitoring and send to Slack"), ask one clar
 
 When the deployed mode is CV verification and the user asks for an alert-subscription, always-on, or Slack/notification intent, refuse with this message verbatim:
 
-> "Alert subscriptions, always-on operation, and Slack notifications are only supported in VLM real-time mode. Your current deployment is `<CV verification | not deployed>`. To use these features, redeploy with `/vss-deploy-profile -p alerts -m real-time` (note: switching tears down current CV monitoring)."
+> "Alert subscriptions, always-on operation, and Slack notifications are only supported in VLM real-time mode. Your current deployment is `<CV verification | not deployed>`. To use these features, redeploy with `the `/vss-build-vision-ai` stock Alerts workflow in real-time mode` (note: switching tears down current CV monitoring)."
 
 No auto-redeploy. The user decides whether to switch modes.
 
@@ -237,7 +242,7 @@ No auto-redeploy. The user decides whether to switch modes.
 
 Verification verdicts and on-demand verification exist only on a CV (verification) deployment. On VLM real-time, *explain-only* asks ("how does verification work?") are always answerable from Workflow B/F background — no calls, no refusal. For *execution* asks (inspect verdicts, customize verifier prompts, verify a clip on demand), reply with this message verbatim:
 
-> "Verification workflows (verdict inspection, verifier-prompt configuration, on-demand verification) require the verification (CV) deployment. Your current deployment is VLM real-time. To use them, redeploy with `/vss-deploy-profile -p alerts -m verification` (note: switching stops currently-running realtime monitoring)."
+> "Verification workflows (verdict inspection, verifier-prompt configuration, on-demand verification) require the verification (CV) deployment. Your current deployment is VLM real-time. To use them, redeploy with `the `/vss-build-vision-ai` stock Alerts workflow in verification mode` (note: switching stops currently-running realtime monitoring)."
 
 No auto-redeploy here either.
 
@@ -294,7 +299,7 @@ Bootstrap the CLI once (see [AGENTS.md](../../../AGENTS.md) for the contract):
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
 "${VSS[@]}" configure --base-url "${VSS_PUBLIC_URL:-http://${HOST_IP:-localhost}:7777}"   # once per deployment
 ```
 
@@ -303,7 +308,7 @@ VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss
 3. Confirm online — assert it, do not just print it:
    ```bash
    # Each block is its own shell; define what it uses.
-   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
+   VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss" vss)
    set -o pipefail   # else a failed `vss` hides behind jq and reads as "absent"
    ROWS=$("${VSS[@]}" vios list --type stream --sensor <name>) || {
      echo "vss vios list failed for <name>" >&2; exit 1; }
@@ -482,7 +487,7 @@ does not exist — which returns `count: 0`, not an error.
 #    different camera or errors out and reads back as "no such sensor".
 # Keep the two failures apart: a dead VIOS and an unknown sensor both leave you with no
 # name, but one means "use the fallback below" and the other means "tell the user".
-VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss" vss)
 LIST=$("${VSS[@]}" vios list --type stream) || { echo "VIOS unreachable — exit 2 means: continue with the unfiltered /incidents fallback below (do NOT report an error)"; exit 2; }
 # sort -u: one sensor registered twice is one name, not an ambiguous choice between two.
 # No separate parse guard: the CLI exits non-zero on a backend failure rather than
@@ -531,7 +536,7 @@ against VIOS.
 
 ```bash
 # Each block is its own shell; define what it uses.
-VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss" vss)
 # 2. query — run ONE ANSWERING query of these three, never more: the unscoped call answers a
 #    different question, and its count is the one that gets misreported as a single sensor's;
 #    the consolidated call counts events, the raw calls count chunks. ((c)'s category lookup
@@ -701,7 +706,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 
 | Task | Skill |
 |---|---|
-| Deploy, redeploy, or switch alert mode | **`vss-deploy-profile`** — `-p alerts -m {verification,real-time}` |
+| Deploy, redeploy, or switch alert mode | **`vss-build-vision-ai`** — the stock Alerts workflow in verification or real-time mode |
 | Add an RTSP/IP camera, list sensors, snapshots, clips | **`vss-manage-video-io-storage`** (Section 6 for Add Sensor) |
 | Occupancy / PPE / CV behaviour-alert metrics from Elasticsearch (not real-time incident counts — those are Workflow C) | **`vss-query-analytics`** (VA-MCP :9901) |
 | Detailed incident report from an alert | **`vss-generate-video-report`** |
@@ -726,7 +731,7 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
   registration) per `references/always-on.md`.
 - **To describe how always-on is turned on or off**, say what applies to the
   deployment in front of you. On Docker it is a **deploy-mode choice** —
-  redeploy with `/vss-deploy-profile -p alerts -m real-time` (or
+  redeploy with `the `/vss-build-vision-ai` stock Alerts workflow in real-time mode` (or
   `-m verification` to turn it off); never hand-edit config and restart. On
   **Kubernetes the chart exposes no switch for it**: `services/alert/configs/config.yml`
   pins `always_on: false` as a literal, carrying an explicit "Helm keeps this

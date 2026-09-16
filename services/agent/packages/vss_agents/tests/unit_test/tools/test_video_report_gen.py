@@ -26,9 +26,11 @@ from vss_agents.tools.video_report_gen import VideoReportGenInput
 from vss_agents.tools.video_report_gen import VideoReportGenOutput
 from vss_agents.tools.video_report_gen import _convert_markdown_to_pdf
 from vss_agents.tools.video_report_gen import _divide_video_into_chunks
+from vss_agents.tools.video_report_gen import _inject_snapshots
 from vss_agents.tools.video_report_gen import _inject_video_clips
 from vss_agents.tools.video_report_gen import _normalize_chunk_timestamps
 from vss_agents.tools.video_report_gen import _parse_timestamps
+from vss_agents.tools.video_report_gen import _snapshot_image_src
 from vss_agents.tools.video_understanding import VideoUnderstandingInput
 from vss_agents.tools.video_understanding import VideoUnderstandingOffsetInput
 
@@ -435,3 +437,28 @@ class TestResourcesSectionFormatting:
                 # PDF was generated successfully - the CSS is valid
                 assert os.path.exists(pdf_path), "PDF file should be created"
                 assert os.path.getsize(pdf_path) > 0, "PDF file should not be empty"
+
+
+class TestInjectSnapshots:
+    """Failed snapshot fetches must not abort the rest of the report."""
+
+    @pytest.mark.asyncio
+    async def test_inject_snapshots_skips_missing_urls(self):
+        class Ok:
+            image_url = "http://example/ok.jpg"
+
+        tool = AsyncMock()
+        tool.ainvoke = AsyncMock(side_effect=[None, Ok()])
+        content = "[0.0s-2.0s] First event. [10.0s-12.0s] Second event."
+        result = await _inject_snapshots(content, "warehouse_safety_0001", tool)
+        assert tool.ainvoke.await_count == 2
+        assert "http://example/ok.jpg" in result
+        assert result.count("<img") == 1
+
+    def test_snapshot_image_src_handles_none_and_blank(self):
+        class Empty:
+            image_url = "  "
+
+        assert _snapshot_image_src(None) is None
+        assert _snapshot_image_src(Empty()) is None
+        assert _snapshot_image_src({"image_url": "http://example/a.jpg"}) == "http://example/a.jpg"

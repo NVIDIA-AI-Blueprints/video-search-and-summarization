@@ -1,0 +1,37 @@
+{
+  "tripwireMetrics": [
+    {
+      "id": "tripwire-id-1",
+      "events": [
+        {
+          "type": "IN",
+          "count": 0,
+          "actualCount": 4,
+          "objectType": "Forklift"
+        },
+        {
+          "type": "OUT",
+          "count": 0,
+          "actualCount": 4,
+          "objectType": "Forklift"
+        }
+      ]
+    }
+  ],
+  "aggregatedMetrics": {
+    "events": [
+      {
+        "type": "IN",
+        "count": 0,
+        "actualCount": 4,
+        "objectType": "Forklift"
+      },
+      {
+        "type": "OUT",
+        "count": 0,
+        "actualCount": 4,
+        "objectType": "Forklift"
+      }
+    ]
+  }
+}
