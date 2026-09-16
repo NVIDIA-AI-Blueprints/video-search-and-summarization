@@ -95,15 +95,19 @@ class _AbortRecordingLLM:
 
 class _IdleReleaseLLM:
     def __init__(self):
-        self.encoder_cache_reset = False
+        self.calls = []
         self.collective_method = None
 
-    async def reset_encoder_cache(self):
-        self.encoder_cache_reset = True
+    async def pause_generation(self, mode, clear_cache):
+        self.calls.append(("pause_generation", mode, clear_cache))
 
     async def collective_rpc(self, method, timeout=None):
+        self.calls.append(("collective_rpc", timeout))
         self.collective_method = method
         return [{"free_mib": 1024, "total_mib": 2048}]
+
+    async def resume_generation(self):
+        self.calls.append(("resume_generation",))
 
 
 class _RecordingProcessor:
@@ -857,7 +861,8 @@ def test_enforced_adaptive_preprocess_honors_cuda_mm_residency_limit():
     assert model.can_enqueue_requests() is False
 
 
-def test_release_idle_resources_clears_frontend_and_engine_caches(monkeypatch):
+@pytest.mark.test_in_ci
+def test_release_idle_resources_drains_engine_before_clearing_caches(monkeypatch):
     model = VllmCompatible.__new__(VllmCompatible)
     model._cuda_mm_residency_lock = threading.Lock()
     model._adaptive_preprocess_pending_submission_ids = set()
@@ -886,7 +891,11 @@ def test_release_idle_resources_clears_frontend_and_engine_caches(monkeypatch):
         loop_thread.join()
         loop.close()
 
-    assert model._llm.encoder_cache_reset is True
+    assert model._llm.calls == [
+        ("pause_generation", "wait", True),
+        ("collective_rpc", 60.0),
+        ("resume_generation",),
+    ]
     import cloudpickle
 
     assert isinstance(model._llm.collective_method, bytes)

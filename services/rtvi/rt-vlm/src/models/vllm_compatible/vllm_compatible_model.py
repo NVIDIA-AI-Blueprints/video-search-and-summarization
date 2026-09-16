@@ -2626,9 +2626,12 @@ class VllmCompatible(BaseVlmModel):
         async def _release_engine_resources():
             import cloudpickle
 
-            await self._llm.reset_encoder_cache()
-            worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
-            return await self._llm.collective_rpc(worker_method, timeout=60.0)
+            await self._llm.pause_generation(mode="wait", clear_cache=True)
+            try:
+                worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
+                return await self._llm.collective_rpc(worker_method, timeout=60.0)
+            finally:
+                await self._llm.resume_generation()
 
         worker_memory = asyncio.run_coroutine_threadsafe(
             _release_engine_resources(), self._event_loop
