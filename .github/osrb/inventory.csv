@@ -1,4 +1,6 @@
 package,version,license,module,language,source_kind,source_file,dep_scope,vendored_in_repo,copied_adapted,container_only,usage_evidence,risk
+${ngc_zip},UNKNOWN,UNKNOWN,.hermes,source,container,.hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
+${ngc_zip},UNKNOWN,UNKNOWN,.openclaw,source,container,.openclaw/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 ${NGINX_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 ${NVSTREAMER_IMAGE},UNKNOWN,UNKNOWN,services/vios,container,compose,services/vios/deployment/stream-processing/docker-compose/nvstreamer/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
 ${POSTGRES_IMAGE},UNKNOWN,UNKNOWN,deploy,container,compose,deploy/docker/services/vios/foundational/docker-compose.yaml,runtime,no,no,yes,container-image,Unknown
@@ -1197,6 +1199,8 @@ cupy-cuda12x,13.3.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,se
 curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/behavior-analytics,deb,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/video-analytics-api,deb,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,apk,container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile,runtime,no,no,yes,container-apt,Unknown
+curl,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+curl,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,deb,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/sdrc,deb,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-apt,Unknown
@@ -3856,6 +3860,8 @@ universalify,2.0.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/pack
 unpipe,1.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 unpipe,1.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 unrs-resolver,1.12.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+unzip,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+unzip,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 unzipper,0.12.5,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 update-browserslist-db,1.2.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 update-browserslist-db,1.3.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
