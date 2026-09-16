@@ -22,8 +22,9 @@
 #     on an image that exists only locally
 #   - the image name must stay off the first-party registry, or release-set
 #     assembly sees two tags for one image name and fails
-#   - `vios-apt-cache-init` stays enabled: NVStreamer shares that cache and is
-#     not prebaked here
+#   - `vios-apt-cache-init` stays enabled: it also serves deployments that run
+#     only one of the two prebake overlays, and is a no-op when nothing needs
+#     the cache
 #
 # The derived image is local only and never pushed.
 
@@ -34,7 +35,7 @@ services:
       context: ./services/vios
       dockerfile: streamprocessing/Dockerfile.prebaked
       args:
-        VSS_VIOS_STREAMPROCESSING_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+        VSS_VIOS_PREBAKE_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
 
   streamprocessing-ms-2d:
     image: vss-vios-streamprocessing-prebaked:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
@@ -42,7 +43,7 @@ services:
       context: ./services/vios
       dockerfile: streamprocessing/Dockerfile.prebaked
       args:
-        VSS_VIOS_STREAMPROCESSING_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+        VSS_VIOS_PREBAKE_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
 
   streamprocessing-ms-3d:
     image: vss-vios-streamprocessing-prebaked:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
@@ -50,7 +51,7 @@ services:
       context: ./services/vios
       dockerfile: streamprocessing/Dockerfile.prebaked
       args:
-        VSS_VIOS_STREAMPROCESSING_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+        VSS_VIOS_PREBAKE_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
 
   streamprocessing-ms-mv3dt:
     image: vss-vios-streamprocessing-prebaked:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
@@ -58,4 +59,4 @@ services:
       context: ./services/vios
       dockerfile: streamprocessing/Dockerfile.prebaked
       args:
-        VSS_VIOS_STREAMPROCESSING_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
+        VSS_VIOS_PREBAKE_BASE: ${VSS_VIOS_STREAMPROCESSING_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-vios-streamprocessing}:${VSS_VIOS_STREAMPROCESSING_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
