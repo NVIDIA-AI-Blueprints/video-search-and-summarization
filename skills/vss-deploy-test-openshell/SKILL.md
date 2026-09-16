@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-test-openshell
-description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, or two-GPU warehouse agents profile on OpenShell, then chain to operations skills (vss-ask-video, vss-search-archive, vss-summarize-video, vss-manage-video-io-storage, vss-query-analytics, vss-manage-alerts, vss-generate-video-report, vss-generate-video-report-rag). OpenShell evals also bundle vss-build-vision-ai and skills/deployment runbooks (vss-deploy-profile, vss-deploy-dense-captioning, vss-deploy-detection-tracking-2d, vss-deploy-detection-tracking-3d, vss-deploy-video-embedding, vss-setup-behavior-analytics, vss-setup-video-analytics-api). For other warehouse variants or standalone microservices, use vss-deploy-profile or the matching vss-deploy-* skill.
+description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, alerts, or two-GPU warehouse agents profile on OpenShell, then chain to operations skills (vss-ask-video, vss-search-archive, vss-summarize-video, vss-manage-video-io-storage, vss-query-analytics, vss-manage-alerts, vss-generate-video-report, vss-generate-video-report-rag). OpenShell evals also bundle vss-build-vision-ai and skills/deployment runbooks (vss-deploy-profile, vss-deploy-dense-captioning, vss-deploy-detection-tracking-2d, vss-deploy-detection-tracking-3d, vss-deploy-video-embedding, vss-setup-behavior-analytics, vss-setup-video-analytics-api). For other warehouse variants or standalone microservices, use vss-deploy-profile or the matching vss-deploy-* skill.
 license: Apache-2.0
 metadata:
   version: "3.2.2"
@@ -8,27 +8,28 @@ metadata:
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint deployment"
 ---
-# VSS Deploy on OpenShell (base, lvs, search, and warehouse agents)
+# VSS Deploy on OpenShell (base, lvs, search, alerts, and warehouse agents)
 
 This skill is a subset of `vss-deploy-profile`. It deploys the **base**,
-**lvs**, and **search** compose profiles, plus the two-GPU **warehouse agents**
-variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM, local RT-CV and RTVI VLM).
-After the matching profile is up, chain to the operations skill rather than
-hand-rolling HTTP:
+**lvs**, **search**, and **alerts** compose profiles, plus the two-GPU
+**warehouse agents** variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM, local
+RT-CV and RTVI VLM). After the matching profile is up, chain to the operations
+skill rather than hand-rolling HTTP:
 
 | After this deploy | Then use |
 |---|---|
 | `base` | `vss-ask-video`, `vss-manage-video-io-storage`, `vss-generate-video-report` |
 | `lvs` | `vss-summarize-video`, `vss-generate-video-report-rag` |
 | `search` | `vss-search-archive` |
+| `alerts` | `vss-manage-alerts`, `vss-query-analytics` |
 | warehouse agents | `vss-query-analytics`, `vss-manage-alerts` |
 
 Do not use this skill for:
 
-- Other warehouse variants (Kafka/Redis-only, 3D, MV3DT, auto-calibration) or
-  the full alerts *profile* catalog — use `vss-deploy-profile`. Warehouse
-  agents on OpenShell still chain to `vss-manage-alerts` for the alert-bridge
-  already in `bp_wh`.
+- Other warehouse variants (Kafka/Redis-only, 3D, MV3DT, auto-calibration) —
+  use `vss-deploy-profile`. Warehouse agents on OpenShell still chain to
+  `vss-manage-alerts` for the alert-bridge already in `bp_wh`. The developer
+  **alerts** profile (verification / real-time) is in this skill.
 - Standalone microservice deployment outside a compose profile — use the matching skill from [§ Bundled build and deployment skills](#bundled-build-and-deployment-skills): `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, `vss-deploy-video-embedding`, `vss-setup-behavior-analytics`, or `vss-setup-video-analytics-api`.
 - Composing a stack from capabilities rather than picking a stock profile — use `vss-build-vision-ai`, also bundled.
 - NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or this skill will run it as part of the credential gate.
@@ -54,9 +55,10 @@ Match the user's request to a profile, then load that profile's reference for si
 | "deploy lvs" / "video summarization" / `vss-summarize-video` | `lvs`, then `vss-summarize-video` | [`references/lvs-profile.md`](references/lvs-profile.md) then `skills/operations/vss-summarize-video/SKILL.md` |
 | "RAG / HITL report" / `vss-generate-video-report-rag` | `lvs`, then `vss-generate-video-report-rag` | [`references/lvs-profile.md`](references/lvs-profile.md) then `skills/operations/vss-generate-video-report-rag/SKILL.md` |
 | "deploy search" / "search the archive" / `vss-search-archive` | `search`, then `vss-search-archive` | [`references/search.md`](references/search.md) then `skills/operations/vss-search-archive/SKILL.md` |
+| "deploy alerts" / "alert verification" / "real-time alerts" | `alerts`, then `vss-manage-alerts` | [`references/alerts.md`](references/alerts.md) then `skills/operations/vss-manage-alerts/SKILL.md` |
 | "deploy warehouse agents" / "`BP_PROFILE=bp_wh`, `MODE=2d`" | `warehouse` | [`references/warehouse.md`](references/warehouse.md) |
-| "query incidents / sensors" / `vss-query-analytics` | warehouse agents, then `vss-query-analytics` | [`references/warehouse.md`](references/warehouse.md) then `skills/operations/vss-query-analytics/SKILL.md` |
-| "operate alerts" / `vss-manage-alerts` | warehouse agents, then `vss-manage-alerts` | [`references/warehouse.md`](references/warehouse.md) then `skills/operations/vss-manage-alerts/SKILL.md` |
+| "query incidents / sensors" / `vss-query-analytics` | warehouse agents or `alerts`, then `vss-query-analytics` | [`references/warehouse.md`](references/warehouse.md) or [`references/alerts.md`](references/alerts.md), then `skills/operations/vss-query-analytics/SKILL.md` |
+| "operate alerts" / `vss-manage-alerts` | `alerts` or warehouse agents, then `vss-manage-alerts` | [`references/alerts.md`](references/alerts.md) or [`references/warehouse.md`](references/warehouse.md), then `skills/operations/vss-manage-alerts/SKILL.md` |
 
 The search path is two-GPU: RT-CV plus the RT-VLM proxy on GPU 0, RT-Embed
 plus the LLM on GPU 1, with a remote VLM behind the local proxy. Follow
@@ -68,6 +70,12 @@ places RT-CV on GPU 0 and the always-local RTVI VLM on GPU 1, and uses a
 remote LLM so no third GPU is required. Follow `references/warehouse.md`
 instead of the generic developer-profile commands below because warehouse
 uses the industry-profile directory, three env files, and two compose files.
+
+The alerts path is the developer `dev-profile-alerts` compose profile, not
+warehouse. Verification (`MODE=2d_cv`) is two-GPU with local RT-CV and
+RT-VLM and a remote LLM. Real-time (`MODE=2d_vlm`) is one GPU: local RT-VLM,
+no RT-CV, remote LLM. Follow [`references/alerts.md`](references/alerts.md).
+After readiness, load `vss-manage-alerts`.
 
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the Spark Nano 9B standalone local LLM on port `30081`; AGX/IGX Thor uses the Edge 4B standalone vLLM fallback.
 
@@ -83,7 +91,7 @@ into a stock profile.
 | User says | Load |
 |---|---|
 | "compose a stack for these capabilities" / "build a vision agent" | `skills/vss-build-vision-ai/SKILL.md` |
-| an `alerts` / `edge` profile, a non-agents warehouse variant, or the full catalog | `skills/deployment/vss-deploy-profile/SKILL.md` |
+| an `edge` profile, a non-agents warehouse variant, or the rest of the catalog | `skills/deployment/vss-deploy-profile/SKILL.md` |
 | "just RT-VLM" / "dense captioning standalone" | `skills/deployment/vss-deploy-dense-captioning/SKILL.md` |
 | "just RT-CV" / "2D detection and tracking standalone" | `skills/deployment/vss-deploy-detection-tracking-2d/SKILL.md` |
 | "MV3DT" / "3D detection standalone" | `skills/deployment/vss-deploy-detection-tracking-3d/SKILL.md` |
@@ -274,7 +282,7 @@ reference has worked examples for that profile's common scenarios.
 **Warehouse exception:** use the three warehouse env files and compose file
 pair documented in [`references/warehouse.md`](references/warehouse.md) for
 both `config` and `up`. The two-file developer-profile command below applies
-only to base, lvs, and search.
+only to base, lvs, search, and alerts.
 
 > **Reminder (see Step 1c):** apply all overrides (Step 2 dict + Brev `EXTERNAL_IP`) to `generated.env`; Compose gets `.env` first and `generated.env` second, and post-deploy verifiers read `generated.env` for the actually-deployed override values.
 
@@ -395,10 +403,11 @@ selected `*_BASE_URL/v1/models` via `scripts/probe_remote_models.sh` — are in
 
 ## Limitations
 
-- This skill deploys `base`, `lvs`, `search`, and the two-GPU warehouse agents
-  variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM). Other warehouse variants
-  and standalone microservices belong to other skills. Post-deploy operations
-  chain to the skills under `skills/operations/`.
+- This skill deploys `base`, `lvs`, `search`, `alerts` (verification and
+  real-time), and the two-GPU warehouse agents variant (`BP_PROFILE=bp_wh`,
+  `MODE=2d`, remote LLM). Other warehouse variants and standalone
+  microservices belong to other skills. Post-deploy operations chain to the
+  skills under `skills/operations/`.
 - Hardware sizing, model placement, and profile-specific readiness are owned by profile references; do not infer them from memory.
 - Privileged host remediation requires user approval when passwordless sudo is unavailable.
 

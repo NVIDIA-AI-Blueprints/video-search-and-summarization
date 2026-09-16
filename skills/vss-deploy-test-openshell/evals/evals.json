@@ -127,6 +127,31 @@
     ]
   },
   {
+    "id": "alerts-cv-openshell-deploy",
+    "question": "Deploy the VSS alerts profile in verification mode on OpenShell.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, routes to references/alerts.md, deploys MODE=2d_cv with local RT-CV and RT-VLM and a remote LLM on two GPUs, then chains to vss-manage-alerts without authoring rules.",
+    "expected_behavior": [
+      "Loads references/alerts.md rather than warehouse.md or vss-deploy-profile.",
+      "Sets MODE=2d_cv, starts vss-rtvi-cv, vss-behavior-analytics, vss-alert-bridge, and vss-rtvi-vlm.",
+      "Uses a remote LLM and does not start a local LLM NIM.",
+      "After deploy, follows vss-manage-alerts without authoring a new always-on rule.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "alerts-vlm-openshell-deploy",
+    "question": "Deploy the VSS alerts profile in real-time mode on OpenShell.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "Loads vss-deploy-test-openshell, routes to references/alerts.md, deploys MODE=2d_vlm with local RT-VLM and a remote LLM and without RT-CV, then chains to vss-manage-alerts without authoring rules.",
+    "expected_behavior": [
+      "Loads references/alerts.md rather than warehouse.md.",
+      "Sets MODE=2d_vlm, starts vss-rtvi-vlm and vss-alert-bridge, and does not start vss-rtvi-cv.",
+      "After deploy, follows vss-manage-alerts without authoring a new always-on rule.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
     "id": "report-openshell-after-base",
     "question": "Deploy VSS base on OpenShell and then prepare a video report.",
     "expected_skill": "vss-deploy-test-openshell",

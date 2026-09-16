@@ -1,14 +1,14 @@
 ## Description: <br>
 Use when the user asks to select, configure, deploy, verify, debug, or tear
-down the VSS **base**, **lvs**, **search**, or two-GPU **warehouse agents**
-profile on OpenShell, then chain to operations skills (`vss-ask-video`,
+down the VSS **base**, **lvs**, **search**, **alerts**, or two-GPU **warehouse
+agents** profile on OpenShell, then chain to operations skills (`vss-ask-video`,
 `vss-search-archive`, `vss-summarize-video`, `vss-manage-video-io-storage`,
 `vss-query-analytics`, `vss-manage-alerts`, `vss-generate-video-report`,
 `vss-generate-video-report-rag`). OpenShell evals also bundle
 `vss-build-vision-ai` and `skills/deployment/` runbooks (`vss-deploy-profile`,
 dense captioning, 2D/3D detection, video embedding, behavior-analytics,
-video-analytics-api). For other warehouse variants or the full catalog, use
-vss-deploy-profile. <br>
+video-analytics-api). For other warehouse variants or the rest of the catalog,
+use vss-deploy-profile. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -21,7 +21,8 @@ Apache-2.0 <br>
 Developers and engineers deploying NVIDIA Video Search and Summarization
 (VSS) **base** (quickstart, plus operations skills such as `vss-ask-video`
 and `vss-manage-video-io-storage`), **lvs** (plus `vss-summarize-video`),
-**search** (plus `vss-search-archive`), or the two-GPU warehouse agents
+**search** (plus `vss-search-archive`), **alerts** (verification / real-time,
+plus `vss-manage-alerts`), or the two-GPU warehouse agents
 variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM; plus `vss-query-analytics`
 and `vss-manage-alerts`) on OpenShell GPU hosts. <br>
 
