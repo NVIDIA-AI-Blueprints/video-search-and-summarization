@@ -61,7 +61,7 @@ EXCLUDE_PATTERNS = (
     # Vendored upstream trees — third-party headers, not ours to stamp
     "services/vios/src/framework/webrtc_streamer/inc/webrtc_headers/**",
     "services/vios/include/opentelemetry/**",
-    "services/vios/src/framework/live555/inc/**",
+    "services/vios/src/framework/live555/inc/live/**",
     "libs/nvschema/protobuf/struct.proto",
     # Protobuf generated files
     "**/schema_pb.js",
@@ -130,6 +130,11 @@ def header_problem(filepath: str) -> str | None:
                 value = value.removesuffix(terminator).strip()
             licence = value
         if "SPDX-FileCopyrightText" in line:
+            value = line.split("SPDX-FileCopyrightText:", 1)[-1].strip()
+            for terminator in ("*/", "-->"):
+                value = value.removesuffix(terminator).strip()
+            if "copyright" not in value.lower():
+                return "SPDX-FileCopyrightText carries no copyright text"
             holder = True
             if "NVIDIA" in line.upper() and NVIDIA_ENTITY not in line:
                 return f"copyright entity is not '{NVIDIA_ENTITY}'"
