@@ -1,6 +1,7 @@
 # Agent Harness
 
 - [Model](#model)
+- [Connecting the Web UI to NemoClaw](#connecting-the-web-ui-to-nemoclaw)
 - [`nemoclaw` is never a service key](#nemoclaw-is-never-a-service-key)
 - [What removing the agent implies](#what-removing-the-agent-implies)
 - [Ordering](#ordering)
@@ -49,6 +50,48 @@ A build that reaches no interactive surface still has **no harness at all** — 
 correct outcome for one that only ingests, indexes, or serves an API. Defaulting
 to NemoClaw never means adding a harness to a headless build.
 
+## Connecting the Web UI to NemoClaw
+
+When a NemoClaw build uses the default OpenClaw runtime and includes `vss-ui`,
+connect its chat sidebar and Chat tab through the embedded adapter. This
+requires a bridge-aware `deploy_nemoclaw.ipynb`: with
+`VSS_AGENT_ADAPTER_ENABLED=true` and no Brev secure link, its dashboard forward
+must bind to Docker's private bridge gateway so `host.docker.internal` can
+reach it. If the checked-out notebook lacks that behavior, stop and report the
+checkout as incompatible; a loopback-only forward cannot serve the
+containerized UI.
+
+Before onboarding, select the dashboard port (default `18789`) and export both
+it and the adapter flag. The notebook derives `AGENT_DASHBOARD_PORT` from this
+same value:
+
+```bash
+export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+export VSS_AGENT_ADAPTER_ENABLED=true
+```
+
+After onboarding, add these values to `_builds/<name>/override.env`, resolving
+`<dashboard-port>` to the selected `NEMOCLAW_DASHBOARD_PORT` rather than writing
+the placeholder or assuming the default:
+
+| Variable | Value |
+|---|---|
+| `VSS_AGENT_ADAPTER_ENABLED` | `true` |
+| `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
+| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<dashboard-port>` |
+| `VSS_AGENT_BACKEND_TOKEN` | output of `nemoclaw <sandbox> gateway-token --quiet` |
+
+Leave `VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default. The
+token does not exist until onboarding. Capture it without printing it, keep it
+only in the ignored build artifacts, then repeat Step 8 and recreate `vss-ui`
+from the regenerated `resolved.yml`. Confirm the container has the four
+corresponding `AGENT_*` values without printing the token.
+
+This restores the chat sidebar and Chat tab. It does not restore the Search tab
+or the ingress `/api`, `/chat`, `/websocket` routes, which address the in-stack
+agent directly. `openclaw-ws` is specific to OpenClaw; do not apply this block
+to an explicit Hermes build.
+
 ## `nemoclaw` is never a service key
 
 `nemoclaw` is **not** a Compose service and **must not** enter
@@ -87,9 +130,9 @@ Report every one of these that the build has, whenever the agent is removed:
 
 | Surface | Effect |
 |---|---|
-| Web UI chat sidebar, Chat tab, Search tab | stop answering — they address `/chat/stream`, `/websocket`, and `/api/v1/search`. The Alerts, Dashboard, and Video Management tabs keep working, because they address Alert Bridge, Kibana, and VST directly — including Video Management's upload and delete, which never went through the agent |
+| Web UI chat sidebar, Chat tab, Search tab | the sidebar and Chat tab answer through NemoClaw when the adapter is wired ([Connecting the Web UI to NemoClaw](#connecting-the-web-ui-to-nemoclaw)); with no harness they stop. The Search tab stays dead either way because it addresses `/api/v1/search`, which the adapter does not replace. The Alerts, Dashboard, and Video Management tabs keep working, because they address Alert Bridge, Kibana, and VST directly — including Video Management's upload and delete, which never went through the agent |
 | Alerts tab, *Generate Report* | goes with the sidebar it drives. The incident list and rule CRUD stay, on `video-analytics-api` and Alert Bridge |
-| Web UI summarization on `lvs` | gone: the UI ships no LVS client and reaches summarization only through the agent's chat. On a build with no harness, the capability is `vss summarize` from the host and the UI is a dashboard |
+| Web UI summarization on `lvs` | with no harness, gone: the UI ships no LVS client, so the capability is `vss summarize` from the host and the UI is a dashboard |
 | Ingress `/api`, `/chat`, `/websocket` | `503`. HAProxy still starts — `bk_vss_agent` is declared `init-addr none` — and the origin's root still serves the UI |
 | Search **ingestion and deletion** | no `vss` verb covers the RT-CV/RT-Embed fan-out the agent's `/complete` performs. Use the headless recipe below |
 | `vss-generate-video-report-rag` | unavailable: it drives the agent's `/v1/chat` and `/executions`. Route reports through `vss-generate-video-report`, which never calls the agent |
@@ -156,12 +199,10 @@ Two things the user should hear up front rather than discover:
   build against [`sizing.md`](sizing.md) plus the harness's own model provider —
   and note that a NemoClaw-managed local model claims every visible GPU unless
   pinned (see [Prerequisites](#prerequisites)).
-- **At most one chat surface, plus a dashboard.** The build's Web UI remains
-  either way, with its chat and Search tabs dead and the rest live. On a `yes`
-  the sandbox chat UI is the only conversational surface: report **both as
-  markdown links** — the build's browse origin next to the Agent UI — and name
-  NemoClaw as the driver. On a `no` report the browse origin alone, and name the
-  `vss` CLI as the driver. The build's
+- **One harness, two entry points.** On a default OpenClaw `yes`, the build UI
+  chat and Agent UI both reach NemoClaw. Report **both as markdown links** and
+  name NemoClaw as the driver. On a `no`, report the browse origin alone and
+  name the `vss` CLI as the driver. The build's
   origin is `VSS_PUBLIC_HOST`; on Brev that is the FQDN the context file
   publishes for the ingress port, resolved rather than constructed
   ([`brev.md`](brev.md)). Never `EXTERNAL_IP`, which on a NemoClaw build holds
@@ -386,18 +427,23 @@ Set the environment, then run the notebook:
 | `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
 | `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
+| `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | the notebook forward and the UI adapter backend URL must use the same value |
+| `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | makes a compatible notebook expose the forward on Docker's private bridge when no Brev secure link exists |
 | `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 when the user accepts the default; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
 
 ```bash
 set -o pipefail   # report the notebook's status, not `tee`'s
+umask 077         # the setup log contains the authenticated Agent UI URL
 
 REPO="$(git rev-parse --show-toplevel)"
 
 export VSS_REPO_DIR="$REPO"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
 export NEMOCLAW_RECREATE_SANDBOX=0
+export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+export VSS_AGENT_ADAPTER_ENABLED=true
 
 # Harness LLM: notebook option (a), Claude Opus 5 through the NVIDIA
 # Inference Hub. Substitute the Q3a answers whenever the user replaced a
@@ -511,8 +557,10 @@ Confirm the two things that exit code cannot cover:
    ```
 
    On Brev it must read `0.0.0.0`; a `127.0.0.1` bind answers a local health
-   probe and still `503`s behind the secure link. On loopback, re-run the
-   notebook and take the new link — do not publish the localhost URL instead.
+   probe and still `503`s behind the secure link. Without a Brev secure link,
+   an adapter-enabled run must bind to Docker's private bridge gateway, not
+   `127.0.0.1` or `0.0.0.0`. If the bind is wrong, stop and use a compatible
+   notebook rather than recreating the UI against an unreachable backend.
 2. **The sandbox can reach the build.** From the sandbox, one call against the
    origin recorded in `ENV.md`. A `403 CONNECT tunnel failed` is the egress
    policy (see Prerequisites), not a deployment fault — the distinction matters
@@ -553,5 +601,7 @@ reports as a skill failure rather than a missing deployment.
 - `deploy/docker/scripts/deploy_nemoclaw.ipynb`
 - `deploy/docker/scripts/run_setup_notebook.py`
 - `deploy/docker/scripts/nemoclaw/README.md`
+- `deploy/docker/services/ui/compose.yml`
+- `services/ui/DOCKER-README.md`
 - `assets/vss_nemoclaw_policy.yaml`
 - `.openclaw/` — `Dockerfile`, `plugin/`, `workspace/` (and its `_nemoclaw` overlay)
