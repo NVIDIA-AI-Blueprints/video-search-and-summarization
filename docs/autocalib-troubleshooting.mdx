@@ -179,38 +179,6 @@ ambiguity:
    the completion state alone. Automatic frame selection, when available, may
    not resolve ambiguity present throughout the footage.
 
-### Compare Camera Subsets
-
-Use subset comparisons to investigate which views make the result sensitive to
-the camera group:
-
-1. Create a **separate project** for a smaller group with clear shared scene
-   context. Keep at least two cameras for VGGT and preserve the mapping from
-   project camera IDs to physical cameras.
-2. Complete rectification and prepare correct alignment for that project's
-   first two reference cameras (**Camera 0** and **Camera 1**) and layout.
-   Reuse alignment only if its camera identities, point correspondences, and
-   coordinate space remain correct for the new project.
-3. Verify, run VGGT, complete layout post-processing, and validate every included
-   camera using the same physical locations and application accuracy criteria.
-4. Compare separate projects that add candidate cameras **one at a time**. Keep
-   source clips, capture window, scale, and calibration settings consistent
-   where possible, and record the camera order and any reference-camera or
-   alignment changes. Run calibration for each group and validate the entire
-   result; this is a comparison of independent runs.
-5. If accuracy deteriorates, inspect the added view's shared structure,
-   distinguishing context, and occlusions. Improvement after removing cameras
-   indicates group sensitivity; it does not establish a universal camera-count
-   limit or a single root cause.
-
-A validated subset covers only its included cameras. It does not calibrate
-excluded views, and these comparisons do not provide automatic merging of
-separate outputs. For unresolved views, revise the capture or camera setup and
-retest, or use another supported calibration method and validate its results.
-AMC can be run independently when its moving-person requirements are met; use
-the same [metrics and visual checks](/vss/system-components/calibration/auto-calibration/workflow-steps#how-to-interpret-calibration-outputs)
-to compare methods.
-
 ## Results and Export Issues
 
 **No results available** — Results is available when AMC **or** VGGT completes successfully. For multi-camera trajectory / virtual-GT overlays, also run **Layout Post-processing** on Execute.
