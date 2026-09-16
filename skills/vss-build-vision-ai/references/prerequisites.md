@@ -128,10 +128,12 @@ action.
 
 **Branch — `sudo` denied to the agent:** the probe above can be refused
 *before it executes*, by the agent's own permission policy rather than by
-`sudoers` (`blocked by administrator policy`). Treat it as `SUDO_NOPASSWD=0`
-and hand off, with one correction to the wording: the host's sudo state was
-never determined, so report that **this agent** may not run `sudo` — not that
-the host requires a password.
+`sudoers` (`blocked by administrator policy`). It inherits the previous branch's
+rule against attempting `sudo -n` installs and nothing else — in particular, not
+its handoff: **offer the approved run below before handing anything over.** One
+correction to the wording, too. The host's sudo state was never determined, so
+report that **this agent** may not run `sudo`, not that the host requires a
+password.
 
 **Take this branch only on a refusal you actually saw.** Run the probe and
 quote what came back; never predict the refusal from the environment, the
@@ -141,10 +143,17 @@ to specific commands (`NOPASSWD: /usr/bin/apt-get`) can still admit the
 operation the step actually needs — so report the probe as what failed, and
 say which command was never attempted rather than implying it would fail.
 
-**Do not route around a denied `sudo` on the agent's own authority.** Invoking
-a script that sudoes internally, or reaching the same package or file state
-through `docker run` with a bind mount and the daemon's capabilities, defeats
-the policy rather than satisfying it.
+**What the denial forbids is acting unilaterally, not the mechanism.** Running a
+script that sudoes internally, or reading host state through `docker run` with a
+bind mount and the daemon's capabilities, is circumvention on the agent's own
+authority and a granted override once the user approves it. The mechanism is the
+same; who decided is the whole difference.
+
+One thing stays out of reach either way: **never author a wrapper whose purpose
+is to carry `sudo` past the denial.** A script the repository already ships is
+part of the documented flow, which is what makes an approved run of it
+legitimate; one written to launder a refused command is what the policy exists to
+stop, and that refusal says only a user can run it.
 
 **Offer the run under an explicit approval before falling back to a handoff.**
 Where the harness can prompt — an approval card naming the command and what it
@@ -341,15 +350,17 @@ discredits the real blockers reported alongside it.
 |---|---|---|
 | `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`, with no `/dev/nvidia*` | the device nodes are not exposed to the sandbox, while `lsmod` still lists `nvidia` and the GPUs are on the PCI bus | re-run `nvidia-smi` unconfined before touching the driver table in check 1 |
 | `Permission denied` on a root-owned path that `ls -ld` reports as `nobody:nogroup` | a user namespace leaves host `root` unmapped | re-read it unconfined, and compare the ownership the two probes print |
-| `Permission denied` as uid 0 on a path whose mode already grants its owner access | the process holds no capabilities — `grep CapEff /proc/self/status` is all zeros | none. The host is fine and this agent cannot read it |
+| `Permission denied` as uid 0 on a path whose mode already grants its owner access | the process holds no capabilities — `grep CapEff /proc/self/status` is all zeros | none from this process. Read it through a privileged peer the user approves, or ask for the value |
 
 That last row is the one to state precisely, because it is the one that invites a
 wrong conclusion. The path is readable **on the host** and unreadable **from
 here**, so the finding is *"I need this value from you"* — never *"this file is
 unreadable"*, and never an inference about what a notebook, script, or service
 running outside the agent will manage to read. `/etc/brev/environment-context.json`
-is the usual instance of it ([`brev.md`](brev.md)): ask for the secure link rather
-than concluding the deployment cannot resolve one.
+is the usual instance of it, and it has a working path rather than a dead end:
+[`brev.md`](brev.md#confined-read) reads it through `dockerd`'s capabilities under
+an approval the user gives. Take that before concluding the deployment cannot
+resolve a secure link.
 
 ## Checks
 
@@ -415,7 +426,11 @@ build after it. The Step 9 image pulls are also what trigger the
 nothing. `deploy_nemoclaw.ipynb` section 2.1 runs the same script at Step 10, so
 a host pinned here only re-applies the holds when the harness comes up.
 
-Needs `sudo` and `apt` — Ubuntu/Debian only.
+Needs `sudo` and `apt` — Ubuntu/Debian only. It sudoes internally, so an agent
+that may not run `sudo` should **offer to run this script under an approval**
+rather than hand it over; it is checked in, which is what makes that run
+legitimate ([Sudo Access](#sudo-access)). Only a declined or unavailable prompt
+makes it a handoff.
 
 If `docker ps` requires sudo → add user to docker group:
 ```bash
