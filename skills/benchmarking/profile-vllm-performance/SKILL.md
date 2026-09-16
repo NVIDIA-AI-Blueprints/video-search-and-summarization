@@ -39,6 +39,11 @@ the declared variable.
 
 Define a performance bubble as GPU-idle or low-occupancy time while eligible work is
 queued. Idle time caused by insufficient offered load is not a runtime bubble.
+If the scheduler queue is empty throughout every observed idle interval, stop runtime
+attribution: classify the result as insufficient offered load and make the first
+experiment a higher-fixed-concurrency replay with every other workload dimension
+unchanged. Do not recommend scheduler, kernel, batching, cache, prefill, or decode
+optimization until that replay shows GPU idle while eligible work remains queued.
 
 ## Correlate The Timeline
 
@@ -69,6 +74,11 @@ in one trace.
 
 Do not infer a decode bottleneck from an OSL capacity gap alone. Compare matched
 fixed-concurrency prefill and decode timelines plus tokens per scheduler step.
+
+For serialized vision, first compare an existing batched preprocessing or vision-
+encoding path using the same fixed visual shapes and request set. State its acceptance
+criteria explicitly: require output parity and multimodal visual-token count, order,
+and position parity before attributing any performance improvement to the change.
 
 ## Fix And Validate
 
