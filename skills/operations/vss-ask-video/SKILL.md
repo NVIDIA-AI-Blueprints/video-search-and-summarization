@@ -209,11 +209,17 @@ VSS=(uv run \
 VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
 RC=0
-# Scope by the Markdown pointer when there is one, else by sensor.
+# Build the scope from whichever grounded selector you actually have. Never
+# pass an unset one: an empty --sensor is rejected for lacking useful scope.
 if [ -n "${JOB_ID:-}" ]; then
   SCOPE=(--job-id "${JOB_ID}")
-else
+elif [ -n "${SENSOR_NAME:-}" ]; then
   SCOPE=(--sensor "${SENSOR_NAME}")
+elif [ -n "${START_TIME:-}" ] && [ -n "${END_TIME:-}" ]; then
+  SCOPE=(--start-time "${START_TIME}" --end-time "${END_TIME}")
+else
+  echo "no grounded scope: need a job id, a sensor, or a complete time range" >&2
+  exit 2
 fi
 
 RESULT=$("${VSS[@]}" memory introspect \
