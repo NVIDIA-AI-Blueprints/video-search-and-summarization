@@ -468,7 +468,8 @@ docker info --format '{{.CgroupDriver}}'   # must print cgroupfs
 
 On anything else, **run the pin script above** — it merges
 `exec-opts: ["native.cgroupdriver=cgroupfs"]` into `daemon.json`, keeping the
-file's other keys, and restarts `dockerd`. It is the same approved run as the
+file's other keys (installing `jq` first if the host lacks it), and restarts
+`dockerd`. It is the same approved run as the
 version pin, so try it before writing a `daemon.json` edit out to the user, and
 re-run the probe above rather than the whole preflight afterwards.
 
@@ -477,6 +478,7 @@ Hand over this block only once that run is declined or unavailable, per
 `daemon.json` empty if `jq` rejects the file, so prefer the script:
 
 ```bash
+command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
 sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak
 sudo jq '.["exec-opts"] = ["native.cgroupdriver=cgroupfs"]' \
   /etc/docker/daemon.json.bak | sudo tee /etc/docker/daemon.json >/dev/null

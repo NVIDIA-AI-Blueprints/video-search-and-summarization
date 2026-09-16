@@ -44,12 +44,41 @@ MAX_DOCKER_VERSION="29.5.0"
 
 # Packages frozen with `apt-mark hold` so unattended-upgrades / later
 # `apt-get install` calls can't drift the box afterwards.
-HOLD_PKGS="docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin containerd.io"
+HOLD_PKGS=(docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin containerd.io)
+IN_RANGE_HOLD_PKGS=(
+  "${HOLD_PKGS[@]}"
+  docker.io docker-buildx docker-compose-v2 containerd runc
+  moby-engine moby-cli moby-buildx moby-compose moby-containerd moby-runc
+)
 
 DAEMON_JSON="/etc/docker/daemon.json"
 
 version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
 version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+
+hold_installed_packages() {
+  local installed_pkgs=()
+  local pkg
+  for pkg in "$@"; do
+    if [ "$(dpkg-query -W -f='${db:Status-Status}' "$pkg" 2>/dev/null || true)" = "installed" ]; then
+      installed_pkgs+=("$pkg")
+    fi
+  done
+
+  if [ "${#installed_pkgs[@]}" -gt 0 ]; then
+    sudo apt-mark hold "${installed_pkgs[@]}"
+  fi
+}
+
+# Minimal Ubuntu/Debian images don't ship jq, and the merge below is the only
+# thing here that needs it.
+ensure_jq() {
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required to merge $DAEMON_JSON; installing it."
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y jq
+  fi
+}
 
 # VSS needs Docker's cgroupfs driver: under the systemd driver long-running
 # containers stop responding after hours (docs/prerequisites.mdx).
@@ -64,6 +93,7 @@ configure_cgroup_driver() {
   local merged
   merged="$(mktemp)"
   if [ -f "$DAEMON_JSON" ]; then
+    ensure_jq
     # Keep the file's other keys (default-runtime, runtimes, address pools) and
     # any unrelated exec-opt. Staged through a temp file because a
     # `jq | sudo tee $DAEMON_JSON` pipeline truncates the live config even when
@@ -91,7 +121,7 @@ if [ -n "$DOCKER_VERSION" ] \
   # No downgrade needed, but still hold the in-range packages at their
   # current versions so unattended-upgrades / later apt-get calls can't drift
   # the box past the tested range.
-  sudo apt-mark hold $HOLD_PKGS
+  hold_installed_packages "${IN_RANGE_HOLD_PKGS[@]}"
   configure_cgroup_driver
   exit 0
 fi
@@ -133,7 +163,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
 
 # Hold so unattended-upgrades / later `apt-get install` calls don't drift
 # the box back to newer versions.
-sudo apt-mark hold $HOLD_PKGS
+hold_installed_packages "${HOLD_PKGS[@]}"
 
 # After the packages settle, so the daemon restarts once.
 configure_cgroup_driver
