@@ -588,14 +588,15 @@ confirms it succeeded.
 
 ## Canonical version matrix
 
-Single source of truth for **every** dependency the deploy assumes. Sourced from the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html); update this table when the upstream blueprint docs change.
+Single source of truth for **every** dependency the deploy assumes. Sourced from the [VSS prerequisites page](https://docs.nvidia.com/vss/3.4.0/prerequisites.html); update this table when the upstream blueprint docs change.
 
 | Component | Required version | Notes |
 |---|---|---|
-| OS — x86 host | Ubuntu 22.04 or 24.04 | |
-| OS — DGX-SPARK | DGX OS 7.4.0 | |
-| OS — IGX-THOR | Jetson Linux BSP Rel 38.5 | |
-| OS — AGX-THOR | Jetson Linux BSP Rel 38.4 | |
+| OS — x86 host | Ubuntu 24.04 | |
+| OS — DGX Station GB300 | DGX OS 7.6.0 | |
+| OS — DGX-SPARK | DGX OS 7.5.0 | |
+| OS — IGX-THOR | IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04) | |
+| OS — AGX-THOR | JetPack 7.2 (Jetson Linux/L4T r39.2) | |
 | NVIDIA Driver | per platform — [GPU Detection](#1-gpu-detection) owns the table | a minimum, not an exact pin. `595.58.03` on x86 dGPU, Kubernetes and DGX Station GB300; `595.91.07` on Brev Cloud; `595.78` on Jetson; `580.173.02` on DGX-SPARK; `580.00` on IGX Thor |
 | NVIDIA Fabric Manager | `580.105.08` | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX) |
 | NVIDIA Container Toolkit | `1.17.8+` | |
