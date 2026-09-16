@@ -6,7 +6,7 @@
 # benchmark and place a curated set into the media-server videos directory.
 #
 # Usage:
-#   ./scripts/fetch-videos.sh [version]        # version defaults to v3.3.0-09152026
+#   ./scripts/fetch-videos.sh [version]        # version defaults to 3.2.0
 #   FORCE=1 ./scripts/fetch-videos.sh          # re-fetch even if videos already exist
 #
 # Environment:
@@ -20,8 +20,8 @@
 
 set -euo pipefail
 
-VERSION="${1:-v3.3.0-09152026}"
-RESOURCE="nvstaging/vss-warehouse/vss-warehouse-app-data"
+VERSION="${1:-3.2.0}"
+RESOURCE="nvidia/vss-warehouse/vss-warehouse-app-data"
 DATA_DIR="${VSS_BENCHMARK_DATA_DIR:-${HOME}/vss-benchmark-data}"
 VIDEOS_DIR="${DATA_DIR}/videos"
 STAGING="${DATA_DIR}/ngc-warehouse"
