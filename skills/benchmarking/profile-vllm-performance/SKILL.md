@@ -39,11 +39,14 @@ the declared variable.
 
 Define a performance bubble as GPU-idle or low-occupancy time while eligible work is
 queued. Idle time caused by insufficient offered load is not a runtime bubble.
-If the scheduler queue is empty throughout every observed idle interval, stop runtime
-attribution: classify the result as insufficient offered load and make the first
-experiment a higher-fixed-concurrency replay with every other workload dimension
-unchanged. Do not recommend scheduler, kernel, batching, cache, prefill, or decode
-optimization until that replay shows GPU idle while eligible work remains queued.
+If the scheduler queue is empty throughout every observed idle interval, first check
+whether eligible work is waiting upstream in media arrival, decode, preprocessing, or
+engine submission. Upstream waiting work is frontend or media starvation, not an
+offered-load gap. When neither the scheduler nor upstream stages have eligible work
+waiting, classify the result as insufficient offered load and make the first experiment
+a higher-fixed-concurrency replay with every other workload dimension unchanged. Do
+not recommend scheduler, kernel, batching, cache, prefill, or decode optimization until
+that replay shows GPU idle while eligible work remains queued.
 
 ## Correlate The Timeline
 
