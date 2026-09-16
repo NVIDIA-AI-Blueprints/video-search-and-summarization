@@ -1,0 +1,34 @@
+{
+  "skills": [
+    "vss-build-vision-ai",
+    "vss-query-analytics"
+  ],
+  "expects": [
+    {
+      "query": "Build the smallest VSS deployment for NemoClaw to query existing incidents, analytics sensors and occupancy metrics through the VSS CLI. Do not include the in-stack VSS Agent or legacy analytics MCP.",
+      "expected_services": {
+        "included": [
+          "vss-video-analytics-api"
+        ],
+        "excluded": [
+          "vss-va-mcp",
+          "vss-agent"
+        ]
+      },
+      "checks": [
+        "The resolved capability owner for read-only analytics is `video-analytics-api.md`.",
+        "The effective service set includes `vss-video-analytics-api` and its Elasticsearch peers.",
+        "The effective service set excludes `vss-va-mcp`.",
+        "The effective service set excludes `vss-agent`.",
+        "The analytics skill requirement is satisfied by the available `analytics` CLI command group."
+      ]
+    },
+    {
+      "query": "Build a deployment that explicitly exposes the legacy video-analytics MCP service.",
+      "checks": [
+        "The explicit legacy request can still select the existing `vss-va-mcp` service key.",
+        "No new validation, readiness, or restart-loop behavior is required for the legacy service."
+      ]
+    }
+  ]
+}

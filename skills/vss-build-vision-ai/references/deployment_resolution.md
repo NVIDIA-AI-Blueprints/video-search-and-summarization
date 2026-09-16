@@ -227,7 +227,8 @@ Alerts operate skills for the docs walkthrough (real-time mode):
 
 - `vss-manage-video-io-storage` — VIOS via `${VST_API_BASE}`
 - `vss-manage-alerts` — Alert Bridge via `${ALERT_BRIDGE_URL}` (Workflows C/D; never Agent `/generate` for rules)
-- `vss-query-analytics` / report Mode B — probe `${VA_MCP_URL}/health`, then MCP via `${VA_MCP_URL}/mcp`
+- `vss-query-analytics` — `vss configure check`, then the read-only
+  `vss analytics` commands through the recorded `/video-analytics-api` route
 
 ## Docker Compose
 
@@ -280,8 +281,9 @@ The two runtime paths resolve endpoints by **different** mechanisms, and the
 asymmetry is deliberate — each matches the vantage it runs from:
 
 - **Read / query → `vss configure`** against the build origin (the block above).
-  The search CLI takes no endpoints, so ingress-routed URLs for VST, Elasticsearch,
-  RT-Embed, and RT-CV all come from the recorded config. There is **no
+  The CLI takes no per-command endpoints, so ingress-routed URLs for VST,
+  Elasticsearch, Video Analytics API, RT-Embed, and RT-CV all come from the
+  recorded config. There is **no
   ingress-less read path**: a build must front the operate route-set (see
   `services/ingress.md`) to be queryable from the host CLI.
 - **Write / provision → loopback host ports**, *not* `vss configure`. The caller
@@ -319,9 +321,11 @@ ALERT_BRIDGE_URL="${VSS_PUBLIC_URL}/alert-bridge"
 VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 ```
 
-The public Agent, VIOS (`/vst`), and — when the profile deploys them — RT-VLM
-(`/rtvi-vlm`), LVS (`/lvs`), Alert Bridge (`/alert-bridge`), and VA-MCP
-(`/va-mcp`) routes are the supported operate interfaces. Operate skills do not read
+The public Agent, VIOS (`/vst`), Video Analytics API
+(`/video-analytics-api`), and — when the profile deploys them — RT-VLM
+(`/rtvi-vlm`), LVS (`/lvs`), Alert Bridge (`/alert-bridge`), and explicitly
+selected legacy VA-MCP (`/va-mcp`) routes are supported operate interfaces.
+Operate skills do not read
 Deployments, ConfigMaps, Services, Secrets, or Helm values, and do not use
 Service DNS, NodePorts, guessed release names, `kubectl port-forward`, or
 `kubectl`/`docker exec` into pods.
@@ -332,9 +336,10 @@ forward them merely to satisfy host-side operate checks. Where a backend *is*
 deployed it is on the public origin at its canonical mount, the same on every
 profile: `${VSS_PUBLIC_URL}/rtvi-vlm/v1` is the supported public operate path for
 `vss-ask-video` and `vss-generate-video-report` Mode A, and
-`${VSS_PUBLIC_URL}/lvs/v1/ready` / `/lvs/v1/summarize` for `vss-summarize-video`. On the alerts profile, `${VSS_PUBLIC_URL}/alert-bridge`
-and `${VSS_PUBLIC_URL}/va-mcp` are the supported public operate paths for
-`vss-manage-alerts` and `vss-query-analytics`.
+`${VSS_PUBLIC_URL}/lvs/v1/ready` / `/lvs/v1/summarize` for
+`vss-summarize-video`. On the alerts profile, Alert Bridge serves
+`vss-manage-alerts`, while the configured `/video-analytics-api` route serves
+`vss-query-analytics` through `vss analytics`.
 
 ## Authentication boundary
 

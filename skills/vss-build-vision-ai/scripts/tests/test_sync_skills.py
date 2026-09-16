@@ -62,6 +62,12 @@ def test_read_skill_specs_sorted_and_skillmd_only(tmp_path):
     assert [(s.name, s.needs) for s in specs] == [("a-skill", []), ("b-skill", ["vlm"])]
 
 
+def test_query_analytics_declares_cli_capability() -> None:
+    skills_root = Path(__file__).resolve().parents[3]
+    skill = skills_root / "operations" / "vss-query-analytics" / "SKILL.md"
+    assert sync_skills.skill_requires(skill) == ["analytics"]
+
+
 # --- `vss configure check` parsing -------------------------------------------
 
 CHECK_OUT = """checking against http://vss.example:31000
@@ -129,6 +135,7 @@ def specs():
         sync_skills.SkillSpec("vss-ask-video", ["vlm"]),
         sync_skills.SkillSpec("vss-manage-alerts", ["alerts"]),
         sync_skills.SkillSpec("vss-manage-video-io-storage", []),
+        sync_skills.SkillSpec("vss-query-analytics", ["analytics"]),
         sync_skills.SkillSpec("vss-search-archive", ["search"]),
     ]
 
@@ -137,13 +144,13 @@ def test_select_all_forced_never_probes():
     def run(cmd, timeout):
         raise AssertionError("must not invoke vss or curl under --all")
     sel = sync_skills.select(specs(), all_skills=True, run=run)
-    assert len(sel.active) == 4 and sel.reason == "all shipped skills (forced)"
+    assert len(sel.active) == 5 and sel.reason == "all shipped skills (forced)"
 
 
 def test_select_unconfigured_activates_everything():
     sel = sync_skills.select(
         specs(), run=lambda c, timeout: completed(stderr="no deployment configured"))
-    assert len(sel.active) == 4 and "all shipped skills active" in sel.reason
+    assert len(sel.active) == 5 and "all shipped skills active" in sel.reason
 
 
 def test_select_matches_groups_and_reports_missing():
@@ -152,7 +159,12 @@ def test_select_matches_groups_and_reports_missing():
             return completed(stdout="200")
         return completed(stdout=CHECK_OUT)
     sel = sync_skills.select(specs(), run=run)
-    assert sel.active == ["vss-ask-video", "vss-manage-alerts", "vss-manage-video-io-storage"]
+    assert sel.active == [
+        "vss-ask-video",
+        "vss-manage-alerts",
+        "vss-manage-video-io-storage",
+        "vss-query-analytics",
+    ]
     assert sel.inactive == {"vss-search-archive": "vss command group 'search' unavailable"}
     assert "commands available = analytics, vlm" in sel.reason
 
