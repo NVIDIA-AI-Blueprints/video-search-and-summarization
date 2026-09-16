@@ -261,11 +261,11 @@ working chat.
 ## Default provider
 
 **Default to notebook option (a) — the remote OpenAI-compatible endpoint —
-serving Claude Opus 5 through the NVIDIA Inference Hub.** Do not ask *which
-provider* to use, and do not fall through to the notebook's own (c)
-build.nvidia.com path. **Do put the values in front of the user**, per [Harness
-model — Q3a](../SKILL.md#harness-model--q3a): the endpoint and model have
-defaults to confirm or replace, and the token has none to offer at all.
+serving Claude Opus 5 through the NVIDIA Inference Hub.** First ask the user to
+accept or reject that default, per [Harness model —
+Q3a](../SKILL.md#harness-model--q3a). If they reject it, show the notebook's
+three provider options (a), (b), and (c), then collect only the selected
+provider's settings.
 
 | Variable | Default | Note |
 |---|---|---|
@@ -276,9 +276,8 @@ defaults to confirm or replace, and the token has none to offer at all.
 
 ### Where the user gets each value
 
-What to tell a user at Q3a who cannot use a default or does not have the key.
-Guidance, not a second provider menu — the answer is still one endpoint, one
-model id, one token.
+What to tell a user who selects option (a) but cannot use its defaults or does
+not have the key.
 
 | Value | Where it comes from |
 |---|---|
@@ -287,20 +286,20 @@ model id, one token.
 | A provider's public API key | That provider's own documentation, for both the key and the model ids it serves. Point the user there rather than describing a key format or a console layout this skill does not own |
 | No key at all | The build's own LLM NIM, per *(a) against the build's own LLM NIM* below (`NIM_SERVED_MODEL_NAME` and `COMPATIBLE_API_KEY=EMPTY`) on a build that resolved `LLM_MODE=local` or `local_shared`; or option (c) with an `nvapi-…` key from <https://build.nvidia.com>, which replaces this route and serves Nemotron rather than Opus |
 
-Two cases need no question at all. **Values already in the environment are the
-answer**: `NEMOCLAW_MODEL`, `NEMOCLAW_ENDPOINT_URL`, and
-`COMPATIBLE_API_KEY` exported by the caller, by CI, or by a platform secret
-store win over anything Q3a collects, so read them first and confirm what was
-found instead of re-asking. And in **autonomous mode**
+Two cases need no question at all. **A provider explicitly configured in the
+environment with all of its required values is the answer**: values exported
+by the caller, by CI, or by a platform secret store win over anything Q3a
+collects, so read them first and confirm what was found instead of re-asking.
+And in **autonomous mode**
 ([`SKILL.md`](../SKILL.md#exception--autonomous-mode)) the caller's instruction
 plus that environment answer Q3a; a token missing from both is still a blocker
 to report, never grounds to substitute a provider.
 
-Override the default **only on an explicit request** for a local or different
-model. "Use a local model", "air-gapped", "use Nemotron", or a named endpoint of
-their own each move the build off the remote default — the choice is the user's,
-so carry it through rather than reasoning about which is better. A local request
-has **two** destinations, not one:
+Rejecting the default or explicitly requesting a local or different model moves
+the build to the provider-selection question. "Use a local model", "air-gapped",
+"use Nemotron", or a named endpoint of their own already answers that question,
+so carry it through rather than re-asking. A local request has **two**
+destinations, not one:
 
 | Request | Route | Where the model runs |
 |---|---|---|
@@ -386,7 +385,7 @@ Set the environment, then run the notebook:
 | `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
 | `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
-| `NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, `NEMOCLAW_ENDPOINT_URL`, `COMPATIBLE_API_KEY` | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 unless the user named another endpoint, model, or a local one. The block below spells out that remote route alone; every other route **replaces** these values rather than defaulting through them |
+| `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 when the user accepts the default; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
 
