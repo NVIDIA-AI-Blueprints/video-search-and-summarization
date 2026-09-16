@@ -416,6 +416,9 @@ rtvi:
         nvidia.com/gpu: 1
       requests:
         nvidia.com/gpu: 1
+  vss-rtvi-vlm:
+    envOverrides:
+      VLLM_GPU_MEMORY_UTILIZATION: "0.8"
 
 # Alerts stack, off by default. Enable vss-alert-bridge, agent, and
 # rtvi.vss-rtvi-vlm together to run alerts.
