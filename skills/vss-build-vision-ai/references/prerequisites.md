@@ -421,19 +421,21 @@ If Docker needs to be installed: https://docs.docker.com/engine/install/ubuntu/
 bash "$REPO/deploy/docker/scripts/pin_docker_version.sh"
 ```
 
-The script owns the pinned versions, the tested range, and the `apt-mark hold`
-that keeps unattended-upgrades from undoing them. It skips the downgrade when
-the installed engine is already in range, which is what makes it safe on DGX
-Spark / DGX-OS arm64 — that apt repo may not carry the exact epoch-versioned
+The script owns the pinned versions, the tested range, the `apt-mark hold`
+that keeps unattended-upgrades from undoing them, and the
+[cgroupfs driver](#cgroup-driver) the deploy requires. It skips the downgrade
+when the installed engine is already in range, which is what makes it safe on
+DGX Spark / DGX-OS arm64 — that apt repo may not carry the exact epoch-versioned
 packages, and re-pinning there fails with *version not found*. Run it on every
 host rather than only one that failed the check above; it is idempotent.
 
-**Run it here, at Step 3, and not later.** A downgrade restarts `dockerd`,
-which costs nothing before Step 9 and costs every container in the deployed
-build after it. The Step 9 image pulls are also what trigger the
-`Incorrect Repository Format` failure, so a pin that lands after them prevents
-nothing. `deploy_nemoclaw.ipynb` section 2.1 runs the same script at Step 10, so
-a host pinned here only re-applies the holds when the harness comes up.
+**Run it here, at Step 3, and not later.** A downgrade or a cgroup-driver
+change restarts `dockerd`, which costs nothing before Step 9 and costs every
+container in the deployed build after it. The Step 9 image pulls are also what
+trigger the `Incorrect Repository Format` failure, so a pin that lands after
+them prevents nothing. `deploy_nemoclaw.ipynb` section 2.1 runs the same script
+at Step 10, so a host pinned here only re-applies the holds and finds the driver
+already set when the harness comes up.
 
 Needs `sudo` and `apt` — Ubuntu/Debian only. It sudoes internally, so an agent
 that may not run `sudo` should **offer to run this script under an approval**
@@ -453,10 +455,32 @@ If `docker ps` requires sudo → add user to docker group:
 sudo usermod -aG docker $USER && newgrp docker
 ```
 
-Also verify cgroupfs driver:
+#### Cgroup driver — `cgroupfs`
+<a id="cgroup-driver"></a>
+
+Required: under the `systemd` driver, long-running containers stop responding
+after hours. Read the live driver rather than the file — a `daemon.json` edit
+that never reached a `dockerd` restart still greps clean:
+
 ```bash
-cat /etc/docker/daemon.json | grep cgroupfs
-# Should contain: "exec-opts": ["native.cgroupdriver=cgroupfs"]
+docker info --format '{{.CgroupDriver}}'   # must print cgroupfs
+```
+
+On anything else, **run the pin script above** — it merges
+`exec-opts: ["native.cgroupdriver=cgroupfs"]` into `daemon.json`, keeping the
+file's other keys, and restarts `dockerd`. It is the same approved run as the
+version pin, so try it before writing a `daemon.json` edit out to the user, and
+re-run the probe above rather than the whole preflight afterwards.
+
+Hand over this block only once that run is declined or unavailable, per
+[Handoff form](#handoff). It replaces every `exec-opts` entry and leaves
+`daemon.json` empty if `jq` rejects the file, so prefer the script:
+
+```bash
+sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak
+sudo jq '.["exec-opts"] = ["native.cgroupdriver=cgroupfs"]' \
+  /etc/docker/daemon.json.bak | sudo tee /etc/docker/daemon.json >/dev/null
+sudo systemctl restart docker
 ```
 
 #### Docker 29.5.0+ workaround

@@ -27,6 +27,10 @@
 # fails with "version not found" for no benefit. The in-range packages are
 # still held so the box can't drift past the tested range.
 #
+# It also sets the cgroupfs cgroup driver the deploy requires, since that is
+# the other daemon-level change a host needs before bring-up and it costs the
+# same dockerd restart.
+#
 # Run this BEFORE anything the host is meant to keep running: a docker-ce
 # downgrade restarts dockerd, which disrupts live containers.
 #
@@ -42,8 +46,42 @@ MAX_DOCKER_VERSION="29.5.0"
 # `apt-get install` calls can't drift the box afterwards.
 HOLD_PKGS="docker-ce docker-ce-cli docker-buildx-plugin docker-compose-plugin containerd.io"
 
+DAEMON_JSON="/etc/docker/daemon.json"
+
 version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]; }
 version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ]; }
+
+# VSS needs Docker's cgroupfs driver: under the systemd driver long-running
+# containers stop responding after hours (docs/prerequisites.mdx).
+configure_cgroup_driver() {
+  # Read the running daemon, not the file: this runs again from
+  # deploy_nemoclaw.ipynb with a build up, where a needless restart is costly.
+  if [ "$(docker info --format '{{.CgroupDriver}}' 2>/dev/null || true)" = "cgroupfs" ]; then
+    echo "Docker already uses the cgroupfs cgroup driver; leaving $DAEMON_JSON unchanged."
+    return 0
+  fi
+
+  local merged
+  merged="$(mktemp)"
+  if [ -f "$DAEMON_JSON" ]; then
+    # Keep the file's other keys (default-runtime, runtimes, address pools) and
+    # any unrelated exec-opt. Staged through a temp file because a
+    # `jq | sudo tee $DAEMON_JSON` pipeline truncates the live config even when
+    # jq fails, and dockerd will not start on an empty one.
+    jq '.["exec-opts"] = ((.["exec-opts"] // []
+         | map(select(startswith("native.cgroupdriver=") | not)))
+         + ["native.cgroupdriver=cgroupfs"])' "$DAEMON_JSON" > "$merged"
+    sudo cp "$DAEMON_JSON" "$DAEMON_JSON.bak"
+  else
+    echo '{"exec-opts": ["native.cgroupdriver=cgroupfs"]}' > "$merged"
+    sudo mkdir -p "$(dirname "$DAEMON_JSON")"
+  fi
+  sudo cp "$merged" "$DAEMON_JSON"
+  rm -f "$merged"
+
+  echo "Set exec-opts native.cgroupdriver=cgroupfs in $DAEMON_JSON; restarting Docker."
+  sudo systemctl restart docker
+}
 
 DOCKER_VERSION="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
 if [ -n "$DOCKER_VERSION" ] \
@@ -54,6 +92,7 @@ if [ -n "$DOCKER_VERSION" ] \
   # current versions so unattended-upgrades / later apt-get calls can't drift
   # the box past the tested range.
   sudo apt-mark hold $HOLD_PKGS
+  configure_cgroup_driver
   exit 0
 fi
 
@@ -95,3 +134,6 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
 # Hold so unattended-upgrades / later `apt-get install` calls don't drift
 # the box back to newer versions.
 sudo apt-mark hold $HOLD_PKGS
+
+# After the packages settle, so the daemon restarts once.
+configure_cgroup_driver
