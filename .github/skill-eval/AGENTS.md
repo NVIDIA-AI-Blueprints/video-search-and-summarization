@@ -142,6 +142,13 @@ The canonical harbor command is in § Harbor invocation.
          non-zero, or finishes but the resulting dataset is missing
          `tests/`, `instruction.md`, `task.toml`, `solution/solve.sh`,
          or any platform listed in `spec.resources.platforms`.
+         `vss-deploy-test-openshell` is exempt from that last clause: its
+         legs are placed by label and GPU count, so it generates exactly
+         one platform — this guest's card — and a dataset with one
+         platform directory is correct, not stale. A non-zero exit
+         naming an unrecognised GPU there is the guest's problem, not the
+         adapter's: `BLOCKED:` with the detected card, do not patch the
+         adapter to force a platform.
        - **Spec drift**: the rendered `instruction.md` references an
          old skill name, the `[metadata]` profile is hardcoded
          instead of read from the spec, or the spec needs a placeholder
@@ -307,8 +314,18 @@ The canonical harbor command is in § Harbor invocation.
    mirror sync. If every changed skill is parked, you exit BLOCKED
    without reaching step 5.
 
-5. **Run harbor trials via the leg wrapper — it picks and locks the
-   fleet box itself.** For each target platform:
+5. **Run harbor trials via the leg wrapper.**
+
+   **OpenShell GHA guests (A16, A40, H200, RTX PRO 6000).** When
+   `SKILL_EVAL_LOCAL_GPU_INSTANCE` is set, this process is already on the
+   GPU VM GitHub assigned. Harbor must run in this guest's Docker. Do not
+   call `brev`, do not SSH to a coordinator, and do not wait on a
+   `vss-eval-*` pool lock. `run_leg.py` pins that instance and skips pool
+   selection. `brev` is not on the guest PATH; treating this job as a
+   coordinator is how H200 legs burned 21000s and exited 75.
+
+   **Coordinator path (no local-GPU pin).** The wrapper picks and locks
+   the fleet box itself. For each target platform:
 
    a. **Do NOT select an instance and do NOT export `BREV_INSTANCE`.**
       `run_leg.py` owns fleet selection: it reads the leg's hardware
@@ -489,10 +506,77 @@ The canonical harbor command is in § Harbor invocation.
 
 | Platform | Fleet prefix in `brev ls` | Notes |
 |---|---|---|
+| `a16` | Direct OpenShell GHA cohort (`openshell-a16-active`) | 8 VMs × 1 NVIDIA A16 16 GB. Codec capability is available. |
+| `a40` | Direct OpenShell GHA cohort (`openshell-a40-active`) | 4 VMs × 1 A40 plus 2 VMs × 2 A40, measured 46068 MiB/GPU (`vram-46gb`). `gpus-1` and `gpus-2` are distinct demands; two cards are not one 96 GB address space. |
+| `h200` | Direct OpenShell GHA cohort (`openshell-h200-active`) | 8 VMs × 1 H200 141 GB plus 4 VMs × 2 H200. `gpus-1` and `gpus-2` are distinct demands. Labels `gpu-h200` + `openshell-h200-active` only — never `gpu-rtxpro6000bw`, and these boxes do not carry `gpu-h200-nvl`. No NVENC. |
 | `l40s` | `vss-eval-l40s*` (e.g. `vss-eval-l40s`, `vss-eval-l40s-1g`, `vss-eval-l40s-2`) | 2× L40S 48 GB. No `shared` mode — LLM+VLM don't fit on one 48 GB GPU. |
 | `h100` | `vss-eval-h100*` | 2× H100 80 GB. Full matrix incl. `shared`. |
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
+
+The normal PR workflow sends only `vss-deploy-test-openshell` down the
+direct OpenShell path. **Skills Eval Daily** (scheduled or manually
+dispatched through `.github/workflows/skills-eval-daily.yml`) sets
+`EVAL_FLEET=openshell`, which sweeps the daily corpus as
+`vss-deploy-test-openshell` legs: `plan_matrix.openshell_sweep_specs()`
+enumerates the jobs ported under
+`skills/vss-deploy-test-openshell/evals/<source-skill>/<stem>.json`, skipping
+`evals/openshell/` (the carrier's own deploy profiles, which stay on
+skills-eval.yml as the PR canary). One leg per job, named
+`vss-deploy-test-openshell · <stem> · gpus-N`, and the trial still asks for
+the job's own skill — the ported spec keeps its queries and checks.
+
+The corpus runs through the carrier rather than its own adapters because
+this fleet is A16, A40, H200 and RTX PRO 6000, and a corpus adapter accepts
+only the Brev pool's H100 / L40S / RTXPRO6000BW: generating for the card an
+OpenShell guest actually has exits 2 on three of the four cohorts. The
+carrier's adapter generates for whichever card `nvidia-smi` reports, so the
+port is what makes a daily job runnable here at all. Routing a corpus skill
+onto the fleet directly (`EVAL_FLEET=openshell` for that skill) keeps SKU
+placement and blocks when the fleet has no matching cohort, which is the
+truthful answer rather than sizing an H200 guest as L40S.
+
+Every carrier leg — PR canary and swept daily job alike — leaves platform
+and sizing empty in the matrix. Its legs are independent of the GPU spec,
+and placement and sizing are decided in different places, by different
+things:
+
+- **Placement** is GitHub labels plus GPU count, and nothing else.
+  `openshell_job_labels()` emits `vss-skill-eval-gpu` +
+  `openshell-runner` + `openshell` + `gpus-N` and no SKU;
+  `openshell_requirements()` reads `openshell.gpu_count` and ignores the
+  rest; `brev_env` gates the guest on live `gpu_count` only — no
+  `gpu_type`, no VRAM floor. The matrix leg therefore carries an **empty**
+  `platform` and `hardware_profile`, and its `cohort` is the flat tag
+  `openshell`. Any OpenShell guest with that many GPUs may claim the job,
+  and none of them is the wrong one. Every cohort carries those fleet
+  tags, so a `gpus-1` leg can land on a 15 GB A16 as easily as on a
+  141 GB H200. A profile that does not fit the card it got fails as a
+  deployment failure on a real guest — that is a result, not a
+  misroute. Do not "fix" it by reintroducing a SKU label.
+- **Sizing** is read off the guest, never guessed. `HARDWARE_PROFILE`
+  selects `nim/<slug>/hw-<profile>(-shared).env`, and those files are
+  per-card: `hw-H200-shared.env` sets `NIM_KVCACHE_PERCENT=0.5`, the
+  value measured to leave 1682 MiB free on an RTX PRO 6000. So the
+  adapter resolves the platform from live `nvidia-smi` at
+  dataset-generation time and generates exactly one task, for that card.
+  The spec's `resources.platforms` keys do not restrict it — refusing to
+  generate for the guest that claimed the labels would only invent a
+  failure.
+
+Pass `--platform "$EVAL_PLATFORM"` through verbatim (it is empty for
+these legs, which means "the guest decides") and never substitute a
+platform by hand: a hand-picked one is how an `lvs` leg deploys H200
+KV-cache fractions onto a 96 GB card. A card the adapter does not
+recognise has no measured sizing, so generation **blocks** with the
+detected GPU name rather than falling back to a profile.
+
+The other `openshell` keys — `min_vram_gb_per_gpu`, `requires_video_codec`,
+`multi_gpu_capable`, `requires_blackwell`, `supported_hardware_profiles` —
+remain in the specs as a record of what each was authored and measured
+against. They are type-checked when present so a typo is visible, but
+they do not place, block, or size anything. A missing or non-`1`/`2`
+`gpu_count` is still a visible `BLOCKED_NO_COMPATIBLE_COHORT` leg.
 
 Pool naming is operator-managed; the actual fleet is the union of managed
 instances from `brev ls --json` and connected registered nodes from
@@ -940,14 +1024,15 @@ the PR-driven path.
 - **Mandatory final marker.** Your last printed line MUST start with
   either `DONE:` or `BLOCKED:`. A `DONE:` marker MUST report a positive
   complete count as `DONE: N/N specs passed; ...`. The Python wrapper fails
-  malformed markers with exit code 4 and completed partial/zero-pass outcomes
-  with exit code 5. Neither a missing verdict nor a reported eval failure can
-  produce a green check.
+  malformed markers with exit code 4, completed partial/zero-pass outcomes
+  with exit code 5, and a well-formed `BLOCKED:` with exit code 7 so the
+  GitHub Actions job is red (capacity, missing docker/uvx, or adapter
+  reruns must not look like success).
   Examples:
     - `DONE: 3/3 specs passed; 0 blockers`
     - `DONE: 0/1 specs passed; timeout` (valid syntax, failing exit code 5)
-    - `BLOCKED: anthropic rate limit after 3 retries`
-    - `BLOCKED: lock timeout on vss-eval-l40s`
+    - `BLOCKED: anthropic rate limit after 3 retries` (exit 7)
+    - `BLOCKED: lock timeout on vss-eval-l40s` (exit 7)
   If you ran trials, you MUST also have posted the per-spec result before
   printing `DONE:` — via `gh pr comment $PR_NUMBER` on a PR run, or, on a
   manual sweep (`PR_NUMBER` empty), appended to `$GITHUB_STEP_SUMMARY`
