@@ -1,0 +1,22 @@
+{
+  "skills": [
+    "profile-vllm-performance"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Our RT-VLM GPU averages 42% utilization, but the vLLM scheduler queue is empty during every idle interval. Identify the performance bubble and tell me what to optimize.",
+      "checks": [
+        "The response defines a runtime bubble as idle or low-occupancy GPU time while eligible work is queued.",
+        "The response does not diagnose a scheduler, kernel, prefill, or decode bug from average GPU utilization alone.",
+        "The response classifies the observation as insufficient offered load and recommends a controlled higher-concurrency replay with unchanged workload shape before optimization."
+      ]
+    }
+  ]
+}
