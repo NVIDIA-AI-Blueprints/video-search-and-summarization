@@ -973,9 +973,26 @@ class TestContainerTagSuffix:
         'VSS_RT_CV_TAG="${VSS_RT_CV_TAG:-${VSS_CONTAINER_TAG:-develop-latest}${VSS_CONTAINER_TAG_SUFFIX:-}}"',
     )
 
+    _SUFFIXED_TAG_KEYS = (
+        "VSS_RT_CV_TAG",
+        "VSS_RT_EMBED_TAG",
+        "VSS_RT_VLM_TAG",
+        "VSS_VIDEO_SUMMARIZATION_TAG",
+    )
+    _CHECKED_IN_CONTAINERS_ENV = (
+        Path(__file__).resolve().parents[7] / "deploy" / "docker" / "containers.env"
+    ).read_text()
+
     @staticmethod
     def _clear_shell_tags(monkeypatch: pytest.MonkeyPatch) -> None:
-        for key in ("VSS_CONTAINER_TAG", "VSS_CONTAINER_TAG_SUFFIX", "VSS_RT_VLM_TAG", "VSS_RT_CV_TAG"):
+        for key in (
+            "VSS_CONTAINER_TAG",
+            "VSS_CONTAINER_TAG_SUFFIX",
+            "VSS_RT_CV_TAG",
+            "VSS_RT_EMBED_TAG",
+            "VSS_RT_VLM_TAG",
+            "VSS_VIDEO_SUMMARIZATION_TAG",
+        ):
             monkeypatch.delenv(key, raising=False)
 
     def test_hardware_profile_suffix_reaches_the_derived_tags(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -1057,6 +1074,70 @@ class TestContainerTagSuffix:
 
         assert compose_env["VSS_RT_VLM_TAG"] == "develop-latest-sbsa"
         assert compose_env["VSS_RT_CV_TAG"] == "develop-latest-sbsa"
+
+    def test_checked_in_containers_env_suffixes_all_four_sbsa_tags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        self._clear_shell_tags(monkeypatch)
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("spark")),
+            env_overrides={"VSS_CONTAINER_TAG": "3.3.0"},
+            hardware_profile="spark",
+            supported_hardware_profiles=frozenset({"spark"}),
+            hardware_profile_env_overrides={"spark": {"VSS_CONTAINER_TAG_SUFFIX": "-sbsa"}},
+            containers_env_text=self._CHECKED_IN_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        for key in self._SUFFIXED_TAG_KEYS:
+            assert resolved[key] == "3.3.0-sbsa", key
+
+    def test_checked_in_containers_env_amd64_keeps_unsuffixed_selected_tag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        self._clear_shell_tags(monkeypatch)
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("thor")),
+            env_overrides={"VSS_CONTAINER_TAG": "3.3.0"},
+            hardware_profile="thor",
+            containers_env_text=self._CHECKED_IN_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        for key in self._SUFFIXED_TAG_KEYS:
+            assert resolved[key] == "3.3.0", key
+        assert resolved.get("VSS_CONTAINER_TAG_SUFFIX", "") == ""
+
+    def test_checked_in_containers_env_explicit_per_image_tag_overrides_still_win(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        self._clear_shell_tags(monkeypatch)
+        recipe = _make_recipe(
+            tmp_path,
+            _env_text(*_base_env("spark")),
+            env_overrides={
+                "VSS_CONTAINER_TAG": "3.3.0",
+                "VSS_RT_VLM_TAG": "pinned-by-caller",
+            },
+            hardware_profile="spark",
+            supported_hardware_profiles=frozenset({"spark"}),
+            hardware_profile_env_overrides={"spark": {"VSS_CONTAINER_TAG_SUFFIX": "-sbsa"}},
+            containers_env_text=self._CHECKED_IN_CONTAINERS_ENV,
+        )
+        _patch_network(monkeypatch)
+
+        resolved = dcu.build_resolved_env(recipe)
+
+        assert resolved["VSS_RT_VLM_TAG"] == "pinned-by-caller"
+        assert resolved["VSS_RT_CV_TAG"] == "3.3.0-sbsa"
+        assert resolved["VSS_RT_EMBED_TAG"] == "3.3.0-sbsa"
+        assert resolved["VSS_VIDEO_SUMMARIZATION_TAG"] == "3.3.0-sbsa"
 
 
 class TestCreateDryRunRecipeContainersEnv:

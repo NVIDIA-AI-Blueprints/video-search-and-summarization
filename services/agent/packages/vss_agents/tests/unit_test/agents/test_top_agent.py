@@ -46,6 +46,8 @@ from vss_agents.agents.top_agent import _store_identical_tool_call_outcome
 from vss_agents.agents.top_agent import identical_tool_call_key
 from vss_agents.agents.top_agent import strip_frontend_tags
 from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
+from vss_agents.tools.lvs_video_understanding import LVSStatus
+from vss_agents.tools.lvs_video_understanding import LVSVideoUnderstandingOutput
 
 
 class TestTopAgentConstants:
@@ -560,6 +562,33 @@ class TestIdenticalToolCallCap:
 
         return FailOnceThenSucceedTool()
 
+    @staticmethod
+    def _success_false_tool():
+        class SuccessFalseTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                yield SimpleNamespace(success=False, summary="looks like a final answer")
+
+        return SuccessFalseTool()
+
+    @staticmethod
+    def _lvs_abort_tool():
+        class LvsAbortTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                yield LVSVideoUnderstandingOutput(
+                    status=LVSStatus.ABORTED,
+                    message="Video analysis was cancelled by user.",
+                )
+
+        return LvsAbortTool()
+
     def _agent_with_tool(self, tool, name="video_understanding_iso"):
         agent = TopAgent.__new__(TopAgent)
         agent.tools_dict = {name: tool}
@@ -647,6 +676,105 @@ class TestIdenticalToolCallCap:
         assert skip_message.content == expected
         assert getattr(skip_message, "status", None) == "error"
         assert state.tool_failure == recorded_failure
+
+    @pytest.mark.asyncio
+    async def test_structured_success_false_sets_unrecovered_failure(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._success_false_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        state.agent_scratchpad = self._scratchpad_call("structured_fail")
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == 1
+        assert state.tool_failure.startswith("Tool call failed:")
+        assert "looks like a final answer" not in (state.final_answer or "")
+        result = state.agent_scratchpad[-1]
+        assert isinstance(result, ToolMessage)
+        assert getattr(result, "status", None) == "error"
+
+    @pytest.mark.asyncio
+    async def test_mixed_parallel_batch_retains_failure_beside_success(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        success_tool = self._counting_tool()
+        failing_tool = self._failing_tool()
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {
+            "video_understanding_iso": success_tool,
+            "video_report_gen": failing_tool,
+        }
+        agent.subagent_names = set()
+        agent.callbacks = []
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling tools",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding_iso",
+                            "args": IDENTICAL_TOOL_CALL_ARGS,
+                            "id": "ok_call",
+                        },
+                        {
+                            "name": "video_report_gen",
+                            "args": {"sensor_id": "warehouse_safety_001"},
+                            "id": "fail_call",
+                        },
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert success_tool.call_count == 1
+        assert failing_tool.call_count == 1
+        assert state.tool_failure.startswith("Tool call failed: backend unavailable")
+        statuses = {
+            message.name: getattr(message, "status", None)
+            for message in state.agent_scratchpad
+            if isinstance(message, ToolMessage)
+        }
+        assert statuses["video_understanding_iso"] == "success"
+        assert statuses["video_report_gen"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_failed_then_successful_retry_clears_tool_failure(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._fail_once_then_succeed_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        state.agent_scratchpad = self._scratchpad_call("fail")
+        await agent.tool_or_subagent_node(state)
+        assert state.tool_failure.startswith("Tool call failed: transient failure")
+
+        state.agent_scratchpad = self._scratchpad_call("succeed")
+        await agent.tool_or_subagent_node(state)
+        assert tool.call_count == 2
+        assert not state.tool_failure
+
+    @pytest.mark.asyncio
+    async def test_lvs_user_cancellation_summary_is_terminal(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._lvs_abort_tool()
+        agent = self._agent_with_tool(tool, name="lvs_video_understanding")
+        state = TopAgentState(options=AgentRequestOptions())
+
+        state.agent_scratchpad = self._scratchpad_call(
+            "cancel",
+            args={"sensor_id": "warehouse_safety_001"},
+            name="lvs_video_understanding",
+        )
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == 1
+        assert not state.tool_failure
+        assert state.final_answer == "Video analysis was cancelled by user."
+        result = next(message for message in state.agent_scratchpad if isinstance(message, ToolMessage))
+        assert getattr(result, "status", None) == "success"
 
     @pytest.mark.asyncio
     async def test_plan_update_does_not_claim_success_after_failed_then_skip(self, monkeypatch):

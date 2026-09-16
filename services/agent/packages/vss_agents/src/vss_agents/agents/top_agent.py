@@ -78,6 +78,7 @@ from vss_agents.agents.postprocessing import PostprocessingNode
 from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
 from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_TOOL_NAME
 from vss_agents.tools.lvs_config_media import user_requested_caption_generation
+from vss_agents.tools.lvs_video_understanding import LVSStatus
 from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_name_to_stream_id_map
 from vss_agents.utils.asyncmixin import AsyncMixin
@@ -199,6 +200,30 @@ def _tool_response_failed(response: Any) -> bool:
 
     status_value = getattr(status, "value", status)
     return isinstance(status_value, str) and status_value.lower() in _TOOL_FAILURE_STATUSES
+
+
+def _is_lvs_user_cancellation(response: Any) -> bool:
+    """Return whether a structured LVS response is an intentional user cancellation."""
+    status = getattr(response, "status", None)
+    status_value = getattr(status, "value", status)
+    if str(status_value).lower() != LVSStatus.ABORTED.value:
+        return False
+    return bool(getattr(response, "summary", None))
+
+
+def _unrecovered_tool_failure_message(response: Any) -> str:
+    """Normalize a structured or raised tool failure into the unrecovered-failure text."""
+    if isinstance(response, str) and response.lstrip().startswith(_TOOL_FAILURE_PREFIX):
+        return response
+    detail = getattr(response, "message", None) or getattr(response, "note", None)
+    if not detail:
+        detail = response
+    return f"{_TOOL_FAILURE_PREFIX} {detail}"
+
+
+def _is_executed_tool_success(response: Any) -> bool:
+    """A real execution success, not a duplicate-call reuse or skip."""
+    return getattr(response, "status", None) == "success" and not _is_duplicate_tool_call_skip(response)
 
 
 def strip_frontend_tags(content: str) -> str:
@@ -1401,13 +1426,18 @@ class TopAgent(AsyncMixin):
                     # Convert tool response to string for scratchpad and check for summary field
                     tool_response_str = str(tool_response)
 
+                    lvs_user_cancellation = _is_lvs_user_cancellation(tool_response)
+                    structured_failed = _tool_response_failed(tool_response) and not lvs_user_cancellation
+
                     if (
                         not is_subagent
                         and not state.final_answer
+                        and not structured_failed
                         and hasattr(tool_response, "summary")
                         and tool_response.summary
                     ):
-                        # Extract summary but defer FINAL chunk until postprocessing validates it
+                        # Extract summary but defer FINAL chunk until postprocessing validates it.
+                        # LVSStatus.ABORTED user-cancellation summaries are valid terminal responses.
                         final_content = tool_response.summary
                         state.final_answer = final_content
                         logger.info(f"Extracted summary from {tool_call['name']} (pending postprocessing validation)")
@@ -1427,11 +1457,15 @@ class TopAgent(AsyncMixin):
 
                     # Convert empty tool response to placeholder
                     tool_content = tool_response
-                    if not tool_content or (isinstance(tool_content, str) and tool_content.strip() == ""):
+                    if structured_failed:
+                        failure_text = _unrecovered_tool_failure_message(tool_response)
+                        state.tool_failure = failure_text
+                        tool_content = failure_text
+                    elif not tool_content or (isinstance(tool_content, str) and tool_content.strip() == ""):
                         logger.warning(f"Tool {tool_call['name']} returned empty content, using placeholder")
                         tool_content = "Tool returned empty content"
 
-                    status = "error" if _tool_response_failed(tool_response) else "success"
+                    status = "error" if structured_failed else "success"
                     _store_identical_tool_call_outcome(
                         state, tool_call["name"], tool_call.get("args"), status, tool_content
                     )
@@ -1462,17 +1496,21 @@ class TopAgent(AsyncMixin):
 
             # Execute all tool calls
             tasks = [run_tool(tool, tool_call) for tool, tool_call in zip(requested_tools, tool_calls, strict=False)]
-            any_tool_succeeded = False
+            batch_responses: list[ToolMessage] = []
             for task in asyncio.as_completed(tasks):
                 tool_response = await task
-                executed_successfully = getattr(
-                    tool_response, "status", None
-                ) == "success" and not _is_duplicate_tool_call_skip(tool_response)
-                any_tool_succeeded = any_tool_succeeded or executed_successfully
+                batch_responses.append(tool_response)
                 state.agent_scratchpad.append(tool_response)
 
-            # A sibling tool that answered grounds this turn, so a failure beside it is not the answer.
-            if any_tool_succeeded:
+            failed_messages = [response for response in batch_responses if getattr(response, "status", None) == "error"]
+            executed_retry_succeeded = any(_is_executed_tool_success(response) for response in batch_responses)
+            if failed_messages:
+                # A sibling success does not recover this batch. Keep or record the failure.
+                if not state.tool_failure:
+                    state.tool_failure = _unrecovered_tool_failure_message(failed_messages[-1].content)
+            elif executed_retry_succeeded:
+                # Clear a prior failure only when a real executed retry succeeded and
+                # this batch had no failures. Duplicate-call reuse/skip is not recovery.
                 state.tool_failure = ""
 
             # Add final answer to scratchpad for conversation history summary and postprocessing retries
