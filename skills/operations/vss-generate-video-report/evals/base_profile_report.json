@@ -46,19 +46,19 @@
       ]
     },
     {
-      "query": "Before generating an incident report, use `/vss-query-analytics` to verify VA-MCP incident analytics is ready. If analytics is unavailable, deploy `alerts` via the `/vss-build-vision-ai` stock Alerts workflow, then re-check until it initializes successfully.",
+      "query": "Before generating an incident report, use `/vss-query-analytics` to verify the `vss analytics` incident path is ready. If analytics is unavailable, use `/vss-build-vision-ai` to deploy the smallest read-only analytics composition, then reconfigure and check again.",
       "checks": [
-        "The run used `/vss-query-analytics` (or equivalent VA-MCP calls) to verify incident analytics is ready on localhost:9901",
-        "If analytics was unavailable, the run deployed alerts and re-checked until ready",
+        "The run used `/vss-query-analytics` and project-local `vss configure check` or `vss analytics incidents` to verify the Video Analytics API path",
+        "If analytics was unavailable, the run selected `vss-video-analytics-api` without `vss-va-mcp` or `vss-agent`, then reconfigured and checked again",
         "The run did NOT generate a video/incident report via VLM or POST /generate during this readiness step"
       ]
     },
     {
-      "query": "Insert one VLM-verified incident into Elasticsearch index mdx-vlm-incidents (include Id, id, timestamp, end, sensorId, category, type, objectIds, and info.verdict=confirmed), refresh the index, and verify video_analytics__get_incidents(max_count=1) returns it. Assume the alerts deployment is already up.",
+      "query": "Insert one VLM-verified incident into Elasticsearch index mdx-vlm-incidents (include Id, id, timestamp, end, sensorId, category, type, objectIds, and info.verdict=confirmed), refresh the index, and verify `vss analytics incidents --limit 1 --vlm-verdict confirmed` returns it. Assume the analytics deployment is already up and configured.",
       "checks": [
         "Elasticsearch is reachable on localhost:9200",
         "The run inserted an incident document into mdx-vlm-incidents (not only mdx-incidents), including a confirmed verdict",
-        "video_analytics__get_incidents (or equivalent VA-MCP lookup) returned the inserted incident — success was not claimed from the Elasticsearch insert alone",
+        "The project-local `vss analytics incidents --limit 1 --vlm-verdict confirmed` command returned the inserted incident — success was not claimed from the Elasticsearch insert alone",
         "The run did NOT redeploy the alerts profile for this step"
       ]
     },

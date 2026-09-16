@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 SKILLS_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY = SKILLS_ROOT.parent
 BUILD_SKILL = SKILLS_ROOT / "vss-build-vision-ai"
 QUERY_SKILL = SKILLS_ROOT / "operations" / "vss-query-analytics"
 
@@ -47,3 +48,28 @@ def test_query_skill_uses_cli_without_legacy_endpoint_commands() -> None:
     assert "vss vios list" in skill
     for forbidden in ("9901", "/va-mcp", "VA_MCP_URL", "method=initialize"):
         assert forbidden not in skill
+
+
+def test_nemoclaw_workspace_and_eval_adapter_route_to_cli() -> None:
+    paths = [
+        REPOSITORY / ".openclaw/workspace/AGENTS.md",
+        REPOSITORY / ".openclaw/workspace/_nemoclaw/AGENTS.md",
+        REPOSITORY / ".github/skill-eval/adapters/vss-query-analytics/generate.py",
+    ]
+    for path in paths:
+        content = path.read_text()
+        assert "vss-query-analytics" in content
+        assert "vss analytics" in content
+        for forbidden in ("http://${HOST_IP:-localhost}:9901/mcp", "method=initialize"):
+            assert forbidden not in content
+
+
+def test_incident_report_mode_b_uses_cli_and_mode_c_keeps_legacy_mcp() -> None:
+    report = SKILLS_ROOT / "operations/vss-generate-video-report"
+    mode_b = (report / "references/report-types/incident-range.md").read_text()
+    mode_c = (report / "references/report-types/sop-compliance.md").read_text()
+
+    assert "vss analytics incidents" in mode_b
+    assert "video_analytics__get_incidents" not in mode_b
+    assert "video_analytics__get_sop_report" in mode_c
+    assert "VA_MCP_URL" in mode_c

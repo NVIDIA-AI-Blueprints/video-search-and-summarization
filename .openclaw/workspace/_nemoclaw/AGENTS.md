@@ -208,9 +208,10 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` using the cadence the server returns in `recommended_poll_interval_s` (currently 10s for `down`). Print the same 1-line chat update after every poll. **When `status` becomes terminal, in the same turn**, send a clear final message: `success` → `"✅ Teardown complete (elapsed Ms)."` | `error` → `"❌ Teardown failed (exit_code=X)"` plus a log snippet | `cancelled` → `"⚠️ Teardown was cancelled."` Do not end the turn before this message is sent.
 
 - When the user asks about **incidents, alerts, PPE violations, occupancy, object counts, speeds, or "what happened"** in video:
-  - Use the **`vss-va-mcp` skill** — query the VA-MCP server at **port 9901** directly.
-  - **Do NOT use the VSS agent on port 8000 or any `rtvi_vlm_alert` tool for this.**
-  - VA-MCP requires a 2-step session handshake — run the `initialize` curl first to get a session ID from the response header, then call the tool. See the `vss-va-mcp` skill for exact commands.
+  - Use the **`vss-query-analytics` skill**, which runs the project-local `vss analytics` CLI against the configured Video Analytics API.
+  - Use `vss analytics sensors` for sensors represented in analytics data and `vss vios list` for sensors registered in VIOS.
+  - **Do NOT initialize an MCP session, call port 9901 or `/va-mcp`, or use the VSS agent on port 8000 for read-only analytics.**
+  - VA-MCP remains only for requests that explicitly require its legacy MCP or SOP tool surface.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 
