@@ -104,6 +104,11 @@ sudo -n true 2>/dev/null && SUDO_NOPASSWD=1 || SUDO_NOPASSWD=0
 echo "SUDO_NOPASSWD=${SUDO_NOPASSWD}"
 ```
 
+**Run that probe on its own.** Batched with the GPU, Docker, and addressing
+checks it takes all of them down whenever an agent's `sudo` token is refused,
+and a preflight that came back empty reads as a broken host rather than as one
+unasked question.
+
 **Branch — passwordless sudo (`SUDO_NOPASSWD=1`):** the skill can run
 the install snippets in this document directly (`sudo modprobe`,
 `sudo apt-get install`, `sudo tee`, `sudo -b`, etc.).
@@ -431,6 +436,13 @@ that may not run `sudo` should **offer to run this script under an approval**
 rather than hand it over; it is checked in, which is what makes that run
 legitimate ([Sudo Access](#sudo-access)). Only a declined or unavailable prompt
 makes it a handoff.
+
+**A refused `sudo` probe is not a refusal of this script.** The refusal matches
+a `sudo` token on the submitted command line, and the line above carries none —
+the calls are inside the script — so its "only a user can run it" wording
+governs the probe rather than this step. Submit the line above for approval
+first, and reach for the handoff only once that approval comes back declined or
+the harness cannot prompt for one.
 
 If `docker ps` requires sudo → add user to docker group:
 ```bash
