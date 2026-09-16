@@ -51,6 +51,16 @@ RUN test -s /tmp99/libgstrtpmanager.so \
 FROM --platform=linux/amd64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111 AS nvunixfd-amd64
 FROM --platform=linux/arm64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255 AS nvunixfd-arm64
 FROM nvunixfd-${TARGETARCH} AS nvunixfd-prebuilt
+ARG TARGETARCH
+# LOCAL PATCH (not upstream): rtvi_ds9.1.1-sbsa-255 ships libgstnvunixfd.so under
+# the arch gstreamer plugin dir, not the DeepStream gst-plugins path used by the
+# amd64 source image. Normalize it to the common path expected below.
+RUN if [ "$TARGETARCH" = "arm64" ] && [ ! -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so ]; then \
+        test -s /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvunixfd.so && \
+        mkdir -p /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins && \
+        cp /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvunixfd.so \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so; \
+    fi
 RUN test -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so
 ###############################
 
@@ -258,26 +268,51 @@ RUN case "$(uname -m)" in \
         /tmp/rtpmanager-plugins/libgstnvunixfd.so "$plugin_dir/" \
     && rm -rf /tmp/rtpmanager-plugins
 
-# Confirm the final image actually loads and resolves nvunixfdsrc to the
-# plugin file installed above, rather than only checking that the source
-# copy was nonempty. GST_PLUGIN_PATH also exposes
-# /opt/nvidia/deepstream/deepstream/lib/gst-plugins, so this guards against
-# an unrelated or empty libgstnvunixfd.so there shadowing the real plugin.
-RUN gst-inspect-1.0 nvunixfdsrc > /tmp/nvunixfdsrc-inspect.log 2>&1 \
-    && grep -q '^Plugin Details:' /tmp/nvunixfdsrc-inspect.log \
-    && resolved_path="$(sed -n 's/^ *Filename *//p' /tmp/nvunixfdsrc-inspect.log)" \
-    && test -n "$resolved_path" \
-    && case "$(uname -m)" in \
-           aarch64) expected_dir=/usr/lib/aarch64-linux-gnu/gstreamer-1.0 ;; \
-           x86_64) expected_dir=/usr/lib/x86_64-linux-gnu/gstreamer-1.0 ;; \
-           *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
-       esac \
-    && case "$resolved_path" in \
-           "$expected_dir"/*) : ;; \
-           *) echo "nvunixfdsrc resolved outside $expected_dir: $resolved_path" >&2; \
-              cat /tmp/nvunixfdsrc-inspect.log >&2; exit 1 ;; \
-       esac \
-    && rm -f /tmp/nvunixfdsrc-inspect.log
+# Also install the SEI-aware plugin at the canonical DeepStream gst-plugins
+# directory (exposed via GST_PLUGIN_PATH), not just the OS system GStreamer
+# path above. On Tegra/Jetson hosts, nvidia-container-runtime's CSV
+# host-file injection bind-mounts the host's own (non-SEI-aware) stock
+# libgstnvunixfd.so over the OS system path in every --runtime=nvidia
+# container, silently shadowing whatever this image ships there; the
+# canonical DeepStream path is not covered by any CSV rule, so it is the
+# only location where the correct plugin reliably takes effect.
+RUN case "$(uname -m)" in \
+        aarch64) plugin_dir=/usr/lib/aarch64-linux-gnu/gstreamer-1.0 ;; \
+        x86_64) plugin_dir=/usr/lib/x86_64-linux-gnu/gstreamer-1.0 ;; \
+        *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && install -m 0644 "$plugin_dir/libgstnvunixfd.so" \
+        /opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so
+
+# Confirm no other libgstnvunixfd.so on the image's GStreamer scan path could
+# shadow the SEI-aware plugin just installed above. GStreamer resolves
+# duplicate-named plugins by scan order, not by path priority, and
+# GST_PLUGIN_PATH also exposes /opt/nvidia/deepstream/deepstream/lib/gst-plugins,
+# so an unrelated or stale libgstnvunixfd.so left there by the base image
+# would otherwise load instead of this one with no build-time signal.
+# gst-inspect-1.0 isn't available in this runtime image and DeepStream
+# plugins require GPU access that isn't available during `docker build`
+# RUN steps, so this is a static filesystem check instead of a live
+# GStreamer registry/element-load check.
+RUN case "$(uname -m)" in \
+        aarch64) plugin_dir=/usr/lib/aarch64-linux-gnu/gstreamer-1.0 ;; \
+        x86_64) plugin_dir=/usr/lib/x86_64-linux-gnu/gstreamer-1.0 ;; \
+        *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && installed="$plugin_dir/libgstnvunixfd.so" \
+    && test -s "$installed" \
+    && installed_sum="$(sha256sum "$installed" | cut -d' ' -f1)" \
+    && find / -xdev -iname 'libgstnvunixfd.so' 2>/dev/null | grep -Fxv "$installed" | ( \
+           shadow_found=0; \
+           while IFS= read -r other; do \
+               other_sum="$(sha256sum "$other" | cut -d' ' -f1)"; \
+               if [ "$other_sum" != "$installed_sum" ]; then \
+                   echo "libgstnvunixfd.so at $other (sha256 $other_sum) differs from the SEI-aware plugin installed at $installed (sha256 $installed_sum) and could shadow it" >&2; \
+                   shadow_found=1; \
+               fi; \
+           done; \
+           exit "$shadow_found" \
+       )
 
 RUN apt remove libslurm40t64 libpmi2-0t64 -y --purge && apt autoremove --purge -y
 
