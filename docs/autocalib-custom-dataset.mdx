@@ -64,6 +64,37 @@ AMC filters and matches tracklets before multi-view calibration:
 If videos lack enough moving people or are too short, calibration may fail during
 detection, tracking, or tracklet matching. See [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting).
 
+## VGGT Camera-Group Suitability
+
+VGGT estimates camera geometry from the visual content of multiple views. It
+does not require AMC's moving-person trajectories. In VSS, use a multi-camera
+project with the [common input preparation](#input-requirements). VSS uses
+[alignment data](#alignment-data-alignment_datajson) during layout post-processing
+to place VGGT results on the floor map; this file is not an input to the VGGT model.
+
+To improve the conditions for calibration, choose views with clear shared scene
+context:
+
+- **Recognizable shared structure**: Prefer views of distinctive structures,
+  corners, equipment, and surrounding geometry. Confirm that shared features
+  refer to the same physical locations across views.
+- **Connections throughout the group**: Inspect how every camera relates to the
+  other views. Little recognizable shared content, or content visible only
+  through heavy occlusion, can make placement ambiguous. The group need not share
+  a single point visible in every camera. For VSS's [floor-map alignment](#alignment-data-alignment_datajson),
+  the first two reference views need shared points that can also be located on the map.
+- **Distinguishing context**: Take extra care with repeated aisles, identical
+  racks or boxes, repeated floor markings, and visually similar zones. Include
+  context that distinguishes these regions.
+- **Clear footage**: Use sharp, well-exposed, rectified footage with fixed cameras.
+  Preserve the synchronization requirements and favor footage in which shared
+  scene structure is visible.
+
+For example, two warehouse zones may contain identical sets of parallel
+rectangular floor markings and similar boxes. Views showing only those features
+may be difficult to place in the correct zone. Include distinctive shared context
+or compare smaller groups using the [geometry troubleshooting workflow](/vss/system-components/calibration/auto-calibration/troubleshooting#vggt-completes-but-camera-placement-or-roi-projection-is-incorrect).
+
 ## Lens Distortion Output (`distortion.yaml`)
 
 Auto Calibration supports input videos with lens distortion. Distortion handling is a
