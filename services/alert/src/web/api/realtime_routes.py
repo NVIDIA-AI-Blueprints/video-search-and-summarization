@@ -253,6 +253,13 @@ def get_rule_store() -> Optional[RuleStore]:
 # docstring and RealtimeAlertService.__init__'s stream_teardown_locks
 # param for why two instances exist and need to share this.
 _SHARED_STREAM_TEARDOWN_LOCKS: Dict[str, asyncio.Lock] = {}
+# get_always_on_service()'s instance uses this as its own _rules dict
+# (its normal in-memory bookkeeping, not a copy); get_realtime_service()
+# reads it read-only via extra_in_memory_rules so the persistent
+# instance's ref-counting isn't blind to always-on rules sharing its
+# stream — the mirror of _SHARED_STREAM_TEARDOWN_LOCKS/extra_rule_store
+# in the other direction. See get_always_on_service's docstring.
+_SHARED_ALWAYS_ON_RULES: Dict[str, Dict[str, Any]] = {}
 
 
 @lru_cache()
@@ -260,6 +267,7 @@ def get_realtime_service() -> RealtimeAlertService:
     return RealtimeAlertService(
         rule_store=get_rule_store(),
         stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS,
+        extra_in_memory_rules=_SHARED_ALWAYS_ON_RULES,
     )
 
 
@@ -306,11 +314,22 @@ def get_always_on_service() -> AlwaysOnService:
     concurrent RTVI calls — reproducing the 409/orphan collision this
     lock exists to prevent, just across instances instead of within
     one.
+
+    ``rules_registry=_SHARED_ALWAYS_ON_RULES`` makes this instance's
+    own ``_rules`` dict — its normal in-memory bookkeeping — the same
+    object :func:`get_realtime_service` reads via
+    ``extra_in_memory_rules``. Always-on rules are never written to ES
+    (see above), so without this the persistent instance's ref-count
+    has no way to see them at all: deleting a regular rule that reuses
+    a camera's ``sensor_id`` would see zero ES readers and tear the
+    stream down under a live always-on rule — the same collision
+    ``extra_rule_store`` prevents, just in the other direction.
     """
     return AlwaysOnService(
         realtime_service=RealtimeAlertService(
             extra_rule_store=get_rule_store(),
             stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS,
+            rules_registry=_SHARED_ALWAYS_ON_RULES,
         )
     )
 

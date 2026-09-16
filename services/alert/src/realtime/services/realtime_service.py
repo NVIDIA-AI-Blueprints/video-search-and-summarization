@@ -218,6 +218,8 @@ class RealtimeAlertService:
         rule_store: Optional["RuleStore"] = None,
         extra_rule_store: Optional["RuleStore"] = None,
         stream_teardown_locks: Optional[Dict[str, asyncio.Lock]] = None,
+        rules_registry: Optional[Dict[str, Dict[str, Any]]] = None,
+        extra_in_memory_rules: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
         self._config = load_config(config_file)
 
@@ -259,9 +261,24 @@ class RealtimeAlertService:
         # own start_alert/stop_alert dispatch is governed solely by
         # self._rule_store above.
         self._extra_rule_store = extra_rule_store
+        # Mirror of the above in the other direction: a read-only handle
+        # to the always-on instance's in-memory _rules dict, so *this*
+        # instance's ref-counting isn't blind to always-on rules sharing
+        # its stream (always-on rules are never in ES at all — see
+        # get_always_on_service's docstring — so extra_rule_store alone
+        # can't see them). Best-effort like the rest of ref-counting:
+        # read without a shared lock, since sharing the whole lock would
+        # add unrelated cross-instance contention for no benefit here.
+        self._extra_in_memory_rules = extra_in_memory_rules
 
         self._lock = threading.Lock()
-        self._rules: Dict[str, Dict[str, Any]] = {}
+        # ``rules_registry`` lets a caller inject this dict so another
+        # instance can read it via extra_in_memory_rules above — see
+        # get_always_on_service, whose instance's _rules *is* the shared
+        # dict, not a copy. Defaults to a private dict otherwise.
+        self._rules: Dict[str, Dict[str, Any]] = (
+            rules_registry if rules_registry is not None else {}
+        )
         self._caption_tasks: Set[asyncio.Task] = set()
         self._readiness_cleaned_streams: Set[str] = set()
         # alert_rule_ids for which readiness cleanup has fired but start_alert
@@ -2273,6 +2290,22 @@ class RealtimeAlertService:
             seen |= await self._rule_ids_referencing_stream(
                 self._extra_rule_store, rtvi_stream_id, exclude_rule_id, statuses,
             )
+
+        # Mirror of the block above in the other direction: this
+        # instance (e.g. the persistent singleton) can't see an
+        # always-on rule sharing this stream either, since always-on
+        # rules only ever live in the other instance's in-memory
+        # _rules dict — never in ES. Without this, deleting a regular
+        # rule that reuses a camera's sensor_id as rtvi_stream_id would
+        # see zero ES readers and tear the stream down under a live
+        # always-on rule.
+        if self._extra_in_memory_rules is not None:
+            for rule_id, rule in self._extra_in_memory_rules.items():
+                if (
+                    rule_id != exclude_rule_id
+                    and rule.get("rtvi_stream_id") == rtvi_stream_id
+                ):
+                    seen.add(rule_id)
 
         if include_pending_refs:
             with self._lock:
