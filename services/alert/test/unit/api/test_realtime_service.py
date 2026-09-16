@@ -3053,7 +3053,14 @@ class TestCrossInstanceStreamTeardownLock:
     instances instead of within one.
     """
 
-    def _build_instance(self, rule_store, extra_rule_store, shared_locks):
+    def _build_instance(
+        self,
+        rule_store,
+        extra_rule_store,
+        shared_locks,
+        rules_registry=None,
+        extra_in_memory_rules=None,
+    ):
         with patch(
             "realtime.services.realtime_service.load_config",
             return_value={
@@ -3071,6 +3078,8 @@ class TestCrossInstanceStreamTeardownLock:
                 rule_store=rule_store,
                 extra_rule_store=extra_rule_store,
                 stream_teardown_locks=shared_locks,
+                rules_registry=rules_registry,
+                extra_in_memory_rules=extra_in_memory_rules,
             )
 
     @pytest.mark.asyncio
@@ -3154,3 +3163,49 @@ class TestCrossInstanceStreamTeardownLock:
             "RTVI calls from two separate RealtimeAlertService "
             "instances overlapped for the same shared stream"
         )
+
+    @pytest.mark.asyncio
+    async def test_persistent_instance_sees_always_on_rule_via_extra_in_memory_rules(
+        self, fake_rule_store,
+    ):
+        """Regression test for the reverse direction of the
+        cross-instance ref-count gap: get_realtime_service()'s
+        persistent instance must not be blind to an always-on rule
+        (in-memory only, never written to ES) sharing its stream.
+
+        Deterministic, no timing needed: without extra_in_memory_rules,
+        deleting a regular rule that reuses a camera's sensor_id as
+        rtvi_stream_id sees zero ES readers and tears the stream down
+        under a live always-on rule — the mirror of the collision
+        extra_rule_store prevents in the other direction.
+        """
+        shared_always_on_rules = {}
+        svc_persistent = self._build_instance(
+            fake_rule_store, None, {},
+            extra_in_memory_rules=shared_always_on_rules,
+        )
+        client_persistent = AsyncMock()
+        client_persistent.start_stream.return_value = {
+            "results": [{"id": "stream-abc-123"}]
+        }
+        client_persistent.get_stream_info.return_value = []
+        client_persistent.generate_captions.return_value = {"status": "started"}
+        svc_persistent._client = client_persistent
+
+        create_data, _ = await svc_persistent.start_alert(make_config())
+        rule_id = create_data["id"]
+
+        # Simulate a live always-on rule sharing the same stream — the
+        # same shape get_always_on_service()'s RealtimeAlertService
+        # writes into its own _rules dict, which rules_registry makes
+        # the same object as shared_always_on_rules here.
+        shared_always_on_rules["always-on-rule-1"] = {
+            "rtvi_stream_id": "stream-abc-123",
+            "status": "active",
+        }
+
+        data, code = await svc_persistent.stop_alert(rule_id)
+
+        assert code == 200
+        client_persistent.stop_captions.assert_awaited_once()
+        client_persistent.stop_stream.assert_not_awaited()
