@@ -216,6 +216,8 @@ class RealtimeAlertService:
         self,
         config_file: str = "config.yaml",
         rule_store: Optional["RuleStore"] = None,
+        extra_rule_store: Optional["RuleStore"] = None,
+        stream_teardown_locks: Optional[Dict[str, asyncio.Lock]] = None,
     ):
         self._config = load_config(config_file)
 
@@ -249,6 +251,14 @@ class RealtimeAlertService:
 
         self._client = RTVIVLMClient(base_url=base_url, timeout=timeout)
         self._rule_store = rule_store
+        # Read-only handle to another instance's rule store, used only by
+        # _count_other_rules_for_stream — see that method for why this
+        # exists (the always-on RealtimeAlertService is deliberately
+        # in-memory-only and would otherwise be blind to ES-persisted
+        # rules sharing its stream). Never used for writes: this instance's
+        # own start_alert/stop_alert dispatch is governed solely by
+        # self._rule_store above.
+        self._extra_rule_store = extra_rule_store
 
         self._lock = threading.Lock()
         self._rules: Dict[str, Dict[str, Any]] = {}
@@ -282,15 +292,31 @@ class RealtimeAlertService:
         # protected by ``self._lock`` because Python dict mutation isn't
         # async-safe even though each lookup is O(1).
         self._sensor_locks: Dict[str, asyncio.Lock] = {}
-        # Per-``rtvi_stream_id`` locks serialise the "remove my reference,
-        # then count remaining readers" critical section on the delete
-        # path, so two rules sharing a stream that are stopped at the
-        # same time can't both observe zero remaining readers and both
-        # issue ``/streams/delete``. Only the fast (ES/in-memory) part of
-        # teardown runs under the lock; the RTVI HTTP calls themselves
-        # run after it's released so a slow/hung RTVI can't block an
-        # unrelated stream's delete. See :meth:`_get_stream_teardown_lock`.
-        self._stream_teardown_locks: Dict[str, asyncio.Lock] = {}
+        # Per-``rtvi_stream_id`` locks serialise the *entire* teardown
+        # (remove my reference, count remaining readers, then the RTVI
+        # HTTP calls themselves) for a given stream, so two rules
+        # sharing a stream that are stopped at the same time — or a
+        # sibling's stop_alert racing reconcile_orphaned_stream — can't
+        # both observe zero remaining readers, and can't have one
+        # caller's stop_captions in flight while another's stop_stream
+        # fires: RTVI's own per-stream mutex 409s any second concurrent
+        # call for that stream regardless of which RTVI endpoint either
+        # side is calling. Keyed per stream, so this never blocks an
+        # unrelated stream's teardown. See :meth:`_get_stream_teardown_lock`.
+        #
+        # ``stream_teardown_locks`` lets a caller inject a dict shared
+        # with another RealtimeAlertService instance in the same
+        # process — e.g. get_always_on_service()'s deliberately separate
+        # in-memory instance (see its docstring) can share a stream with
+        # a rule on the persistent singleton (extra_rule_store exists
+        # for the same reason). Without sharing this dict too, each
+        # instance would serialise teardown only against itself, and two
+        # instances could still race the exact RTVI 409/orphan collision
+        # this lock exists to prevent. Defaults to a private dict when
+        # not given, preserving the original single-instance behaviour.
+        self._stream_teardown_locks: Dict[str, asyncio.Lock] = (
+            stream_teardown_locks if stream_teardown_locks is not None else {}
+        )
 
         logger.info(
             "RealtimeAlertService initialized",
@@ -1286,16 +1312,21 @@ class RealtimeAlertService:
         ctx["rtvi_stream_id"] = rtvi_stream_id
         ctx["owns_stream"] = owns_stream
 
-        # Step 1: delete the durable record so the rule is gone from the
-        # user's perspective regardless of what happens with RTVI, and
-        # (when rtvi_stream_id is set) compute the last-reader decision
-        # in the same per-stream-locked section so a sibling rule being
-        # stopped at the same moment can't also see zero remaining
-        # readers (see :meth:`_get_stream_teardown_lock`). Only the fast
-        # ES/count work runs under the lock — the actual RTVI HTTP calls
-        # run after it's released below, so a slow/hung RTVI still can't
-        # block this or any other stream's ES delete.
-        stop_stream = False
+        # Delete the durable record so the rule is gone from the user's
+        # perspective regardless of what happens with RTVI, then (when
+        # rtvi_stream_id is set) decide *and execute* the RTVI teardown
+        # in the same per-stream-locked section — not just the decision.
+        # The lock is keyed per rtvi_stream_id, so this only serialises
+        # against another caller touching the *same* stream (a sibling
+        # rule's stop_alert, or reconcile_orphaned_stream); it never
+        # blocks unrelated streams. Locking the decision alone isn't
+        # enough: RTVI's own per-stream mutex rejects any second
+        # concurrent call for that stream — including a sibling's
+        # unlocked stop_captions racing this rule's stop_stream — with
+        # a 409 that can abort /streams/delete before it cleans up the
+        # RTVI-side record. Holding the lock through the RTVI calls
+        # closes that gap. See :meth:`_get_stream_teardown_lock`.
+        rtvi_outcome = "n/a"
         async with self._get_stream_teardown_lock(rtvi_stream_id or alert_rule_id):
             try:
                 deleted = await asyncio.to_thread(self._rule_store.delete, alert_rule_id)
@@ -1347,22 +1378,17 @@ class RealtimeAlertService:
             # if this is the last reader, also call ``/streams/delete`` so
             # the RTVI stream is removed too. Otherwise leave it running
             # for the remaining sharers and only stop captions for this
-            # rule's session.
+            # rule's session. Best-effort; outcome tracked so the summary
+            # log line distinguishes "full" delete (ES + RTVI both clean)
+            # from "partial" (ES gone, RTVI orphaned).
             if rtvi_stream_id:
                 other_count = await self._count_other_rules_for_stream(
                     rtvi_stream_id, alert_rule_id,
                 )
                 ctx["other_active_rules"] = other_count
-                stop_stream = other_count == 0
-
-        # Step 2: best-effort RTVI teardown. Track outcome so the summary
-        # log line distinguishes "full" delete (ES + RTVI both clean)
-        # from "partial" (ES gone, RTVI orphaned).
-        rtvi_outcome = "n/a"
-        if rtvi_stream_id:
-            rtvi_outcome = await self._safe_teardown_rtvi_with_outcome(
-                rtvi_stream_id, ctx, stop_stream=stop_stream,
-            )
+                rtvi_outcome = await self._safe_teardown_rtvi_with_outcome(
+                    rtvi_stream_id, ctx, stop_stream=(other_count == 0),
+                )
 
         delete_outcome = "success" if rtvi_outcome in ("success", "n/a") else "partial"
         logger.info(
@@ -1474,12 +1500,15 @@ class RealtimeAlertService:
             "owns_stream": owns_stream,
         }
 
-        # Pop the rule and compute the last-reader decision atomically
-        # per rtvi_stream_id so a sibling rule being stopped at the same
-        # moment can't also see zero remaining readers (see
-        # :meth:`_get_stream_teardown_lock`). The actual RTVI calls run
-        # after the lock is released.
-        stop_stream = False
+        # Pop the rule and run its RTVI teardown atomically per
+        # rtvi_stream_id, not just the last-reader decision: RTVI's own
+        # per-stream mutex 409s a second concurrent call for that
+        # stream, including a sibling's unlocked stop_captions racing
+        # this rule's stop_stream, which can abort /streams/delete
+        # before it cleans up the RTVI-side record. Holding the lock
+        # through the RTVI calls (not just the count) closes that gap.
+        # The lock is per-stream, so this never blocks unrelated
+        # streams. See :meth:`_get_stream_teardown_lock`.
         async with self._get_stream_teardown_lock(rtvi_stream_id or alert_rule_id):
             with self._lock:
                 self._rules.pop(alert_rule_id, None)
@@ -1488,12 +1517,9 @@ class RealtimeAlertService:
                     rtvi_stream_id, alert_rule_id,
                 )
                 ctx["other_active_rules"] = other_count
-                stop_stream = other_count == 0
-
-        if rtvi_stream_id:
-            await self._safe_teardown_rtvi(
-                rtvi_stream_id, ctx, stop_stream=stop_stream,
-            )
+                await self._safe_teardown_rtvi(
+                    rtvi_stream_id, ctx, stop_stream=(other_count == 0),
+                )
 
         if REALTIME_RULES_DELETED is not None:
             REALTIME_RULES_DELETED.inc()
@@ -2117,6 +2143,66 @@ class RealtimeAlertService:
             if not refs:
                 self._pending_stream_refs.pop(rtvi_stream_id, None)
 
+    async def _rule_ids_referencing_stream(
+        self,
+        store: "RuleStore",
+        rtvi_stream_id: str,
+        exclude_rule_id: str,
+        statuses: List[str],
+    ) -> Set[str]:
+        """Query an ES-backed ``RuleStore`` for rule ids (excluding
+        ``exclude_rule_id``) referencing ``rtvi_stream_id``.
+
+        Shared by :meth:`_count_other_rules_for_stream` for both
+        ``self._rule_store`` and ``self._extra_rule_store`` — the query
+        logic is identical, only which store it targets differs.
+        Degrades to an empty set on failure so a transient ES blip
+        can't leave the user unable to delete a rule.
+        """
+        seen: Set[str] = set()
+        try:
+            # The ES list helper accepts a single status filter; query
+            # each status separately and de-dupe by alert rule id so we
+            # count each rule once even if it appears in multiple
+            # buckets (shouldn't, but belt-and-braces against schema
+            # drift).
+            for status in statuses:
+                try:
+                    result = await asyncio.to_thread(
+                        store.list,
+                        filters={
+                            "rtvi_stream_id": rtvi_stream_id,
+                            "status": status,
+                        },
+                        size=200,
+                        from_=0,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to count rules for stream — assuming 0",
+                        extra={
+                            "rtvi_stream_id": rtvi_stream_id,
+                            "exclude_rule_id": exclude_rule_id,
+                            "status": status,
+                            "error": str(exc),
+                        },
+                    )
+                    continue
+                for item in result.get("items", []):
+                    item_id = item.get("_id") or item.get("id")
+                    if item_id and item_id != exclude_rule_id:
+                        seen.add(item_id)
+        except Exception:
+            logger.exception(
+                "Unexpected error counting rules for stream — assuming 0",
+                extra={
+                    "rtvi_stream_id": rtvi_stream_id,
+                    "exclude_rule_id": exclude_rule_id,
+                },
+            )
+            return set()
+        return seen
+
     async def _count_other_rules_for_stream(
         self,
         rtvi_stream_id: str,
@@ -2163,47 +2249,9 @@ class RealtimeAlertService:
         seen: Set[str] = set()
 
         if self._rule_store is not None:
-            try:
-                # The ES list helper accepts a single status filter;
-                # query each status separately and de-dupe by alert
-                # rule id so we count each rule once even if it
-                # appears in multiple buckets (shouldn't, but
-                # belt-and-braces against schema drift).
-                for status in statuses:
-                    try:
-                        result = await asyncio.to_thread(
-                            self._rule_store.list,
-                            filters={
-                                "rtvi_stream_id": rtvi_stream_id,
-                                "status": status,
-                            },
-                            size=200,
-                            from_=0,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "Failed to count rules for stream — assuming 0",
-                            extra={
-                                "rtvi_stream_id": rtvi_stream_id,
-                                "exclude_rule_id": exclude_rule_id,
-                                "status": status,
-                                "error": str(exc),
-                            },
-                        )
-                        continue
-                    for item in result.get("items", []):
-                        item_id = item.get("_id") or item.get("id")
-                        if item_id and item_id != exclude_rule_id:
-                            seen.add(item_id)
-            except Exception:
-                logger.exception(
-                    "Unexpected error counting rules for stream — assuming 0",
-                    extra={
-                        "rtvi_stream_id": rtvi_stream_id,
-                        "exclude_rule_id": exclude_rule_id,
-                    },
-                )
-                seen.clear()
+            seen |= await self._rule_ids_referencing_stream(
+                self._rule_store, rtvi_stream_id, exclude_rule_id, statuses,
+            )
         else:
             with self._lock:
                 for rule_id, rule in self._rules.items():
@@ -2212,6 +2260,19 @@ class RealtimeAlertService:
                         and rule.get("rtvi_stream_id") == rtvi_stream_id
                     ):
                         seen.add(rule_id)
+
+        # The always-on RealtimeAlertService instance is deliberately
+        # in-memory-only (see get_always_on_service's docstring — this
+        # avoids duplicating ES rows after a restart), so the branch
+        # above can never see a "regular" (direct-API, ES-persisted)
+        # rule sharing this stream. _extra_rule_store is a read-only
+        # handle to that same ES store wired in for exactly this query,
+        # so ref-counting still sees those rules instead of tearing
+        # down a stream one of them depends on.
+        if self._extra_rule_store is not None:
+            seen |= await self._rule_ids_referencing_stream(
+                self._extra_rule_store, rtvi_stream_id, exclude_rule_id, statuses,
+            )
 
         if include_pending_refs:
             with self._lock:
@@ -2514,28 +2575,56 @@ class RealtimeAlertService:
         so a caller retrying its own delete/remove after finding "no
         rule here" would otherwise report success on a stream RTVI
         still lists as live. Returns True if a live stream was found
-        and a delete was attempted.
+        with no active referencing rule and a delete was attempted.
+
+        Ref-counts via :meth:`_count_other_rules_for_stream` before
+        deleting: a regular (non-always-on) rule can be created with
+        ``sensor_id`` equal to this same id and reuse this stream (see
+        :meth:`_resolve_or_add_stream`), so "nothing is tracking this
+        id under the caller's own registry" doesn't mean no rule
+        anywhere still depends on the stream.
         """
+        # Same per-stream lock as stop_alert's RTVI teardown: without it,
+        # two concurrent reconcile calls (or a reconcile racing a
+        # sibling's stop_alert) can both pass the "still live" check and
+        # both tear the stream down — the exact collision this method
+        # exists to clean up after, reintroduced between callers of this
+        # method itself.
         ctx = {"rtvi_stream_id": rtvi_stream_id}
-        try:
-            streams = await self._client.get_stream_info()
-        except httpx.HTTPError as exc:
-            logger.warning(
-                "Reconciliation check against RTVI failed — skipping",
-                extra={**ctx, "error": str(exc), "error_type": type(exc).__name__},
+        async with self._get_stream_teardown_lock(rtvi_stream_id):
+            try:
+                streams = await self._client.get_stream_info()
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "Reconciliation check against RTVI failed — skipping",
+                    extra={**ctx, "error": str(exc), "error_type": type(exc).__name__},
+                )
+                return False
+
+            if not any(s.get("id") == rtvi_stream_id for s in streams):
+                return False
+
+            # "" never matches a real alert_rule_id (always a uuid4 hex
+            # string), so this counts every currently-active rule
+            # referencing the stream, not "every rule but one".
+            other_count = await self._count_other_rules_for_stream(
+                rtvi_stream_id, "",
             )
-            return False
+            if other_count > 0:
+                logger.info(
+                    "RTVI stream still referenced by an active rule — "
+                    "not reconciling",
+                    extra={**ctx, "other_active_rules": other_count},
+                )
+                return False
 
-        if not any(s.get("id") == rtvi_stream_id for s in streams):
-            return False
-
-        logger.warning(
-            "Found RTVI stream with no owning rule — reconciling",
-            extra=ctx,
-        )
-        await self._safe_stop_captions(rtvi_stream_id, ctx)
-        await self._safe_stop_stream_with_ctx(rtvi_stream_id, ctx)
-        return True
+            logger.warning(
+                "Found RTVI stream with no owning rule — reconciling",
+                extra=ctx,
+            )
+            await self._safe_stop_captions(rtvi_stream_id, ctx)
+            await self._safe_stop_stream_with_ctx(rtvi_stream_id, ctx)
+            return True
 
     async def _cleanup_failed_rule(
         self, rtvi_stream_id: str, alert_rule_id: Optional[str] = None

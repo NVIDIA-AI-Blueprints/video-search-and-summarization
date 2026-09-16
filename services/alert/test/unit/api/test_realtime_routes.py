@@ -2221,11 +2221,19 @@ class TestAlwaysOnCameraRemove:
             "orphaned-camera"
         )
 
-    def test_remove_tracked_camera_does_not_reconcile(
+    def test_remove_tracked_camera_also_reconciles(
         self, client, mocks, always_on
     ):
-        """When a rule was actually tracked and stopped, no reconciliation
-        call is needed — the normal stop_alert path already ran."""
+        """Regression test: reconciliation must run even when a rule
+        *was* tracked and stop_alert reported success.
+
+        stop_alert can report 200 while its own RTVI teardown silently
+        failed (best-effort by design — see
+        :meth:`RealtimeAlertService._stop_alert_persistent`). Skipping
+        reconciliation whenever something was tracked would leave that
+        failure uncaught on this request, deferring recovery to a
+        camera_remove retry that may never come.
+        """
         always_on([_sample_rule("r1")])
         mocks["realtime"].start_alert.return_value = (
             {"status": "success", "id": "rule-1", "created_at": "T", "message": "ok"},
@@ -2235,7 +2243,7 @@ class TestAlwaysOnCameraRemove:
 
         client.post("/api/v1/realtime/always-on", json=_remove_event())
 
-        mocks["realtime"].reconcile_orphaned_stream.assert_not_awaited()
+        mocks["realtime"].reconcile_orphaned_stream.assert_awaited_once_with("cam-1")
 
     def test_remove_details_include_per_rule_outcomes(
         self, client, mocks, always_on
