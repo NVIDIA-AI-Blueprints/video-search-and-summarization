@@ -1,0 +1,36 @@
+[
+  {
+    "id": "reject-offered-load-gap",
+    "question": "Our RT-VLM GPU averages 42% utilization, but the vLLM scheduler queue is empty during every idle interval. Identify the performance bubble and tell me what to optimize.",
+    "expected_skill": "profile-vllm-performance",
+    "ground_truth": "Load profile-vllm-performance, reject runtime bubble attribution because no eligible work is queued, classify the observation as insufficient offered load, and propose a matched higher-concurrency replay before changing runtime code.",
+    "expected_behavior": [
+      "Defines a runtime bubble as idle or low-occupancy GPU time while eligible work is queued.",
+      "Does not diagnose a scheduler, kernel, prefill, or decode bug from average GPU utilization alone.",
+      "Recommends a controlled higher-load experiment with unchanged workload shape before optimization."
+    ]
+  },
+  {
+    "id": "identify-serialized-vision",
+    "question": "At fixed concurrency, requests remain queued while the multimodal trace runs one vision encoder invocation at a time with visual batch size one. Decode batches are healthy. Diagnose the dominant bubble and propose the first experiment.",
+    "expected_skill": "profile-vllm-performance",
+    "ground_truth": "Load profile-vllm-performance, identify serialized vision as the evidence-backed candidate, rule out decode underbatching, and compare an existing batched vision path using the same fixed visual shapes and request set before changing kernels.",
+    "expected_behavior": [
+      "Uses the queued eligible work and visual batch-size evidence to identify serialized vision.",
+      "Rules out decode underbatching using the supplied healthy decode evidence.",
+      "Proposes the shortest matched experiment that enables an existing batched preprocessing or vision-encoding path.",
+      "Requires output and multimodal token-position parity in the A/B result."
+    ]
+  },
+  {
+    "id": "reject-early-eos-osl-comparison",
+    "question": "Backend A is configured for max_tokens=100 but stops naturally after 18 tokens. Backend B generates exactly 100 tokens. A reports more streams. Can I conclude A has better OSL-100 capacity?",
+    "expected_skill": "profile-vllm-performance",
+    "ground_truth": "Load profile-vllm-performance and classify the comparison as invalid because actual output work differs. Require matched generated-token counts or an explicit fixed-length EOS policy before attributing a performance advantage.",
+    "expected_behavior": [
+      "Classifies the comparison as invalid rather than a confirmed capacity improvement.",
+      "Distinguishes max_tokens configuration from actual generated output tokens.",
+      "Requires a matched token budget and EOS policy before profiling or capacity comparison."
+    ]
+  }
+]
