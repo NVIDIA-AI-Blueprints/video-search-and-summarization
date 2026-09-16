@@ -141,10 +141,21 @@ to specific commands (`NOPASSWD: /usr/bin/apt-get`) can still admit the
 operation the step actually needs — so report the probe as what failed, and
 say which command was never attempted rather than implying it would fail.
 
-**Do not route around a denied `sudo`.** Invoking a script that sudoes
-internally, or reaching the same package or file state through `docker run`
-with a bind mount and the daemon's capabilities, defeats the policy instead
-of satisfying it. Hand the command over and let the user choose to override.
+**Do not route around a denied `sudo` on the agent's own authority.** Invoking
+a script that sudoes internally, or reaching the same package or file state
+through `docker run` with a bind mount and the daemon's capabilities, defeats
+the policy rather than satisfying it.
+
+**Offer the run under an explicit approval before falling back to a handoff.**
+Where the harness can prompt — an approval card naming the command and what it
+mutates — an approved run is the user exercising the same override as typing it
+themselves, minus the transcription. The denial above is on acting unilaterally,
+not on asking. Two things to say when offering: what the command changes on the
+host, and that it needs passwordless `sudo` to succeed, since a password prompt
+has no terminal to appear on and fails immediately. Use
+[Handoff form](#handoff) when the prompt is declined, unavailable, or fails that
+way — and note that a refused `sudo` probe left the host's own sudo state
+unknown, so an approved run is also how that gets settled.
 
 ### Handoff form
 <a id="handoff"></a>
