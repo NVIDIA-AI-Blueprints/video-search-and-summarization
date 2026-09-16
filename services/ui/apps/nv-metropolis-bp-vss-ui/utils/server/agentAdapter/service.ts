@@ -66,7 +66,11 @@ export class AgentAdapterService {
           "agent-tool-output",
           "agent-text-envelope",
         ],
-        kinds: ["vss.search.results", "vss.alert.incidents"],
+        kinds: [
+          "vss.search.results",
+          "vss.alert.incidents",
+          "vss.media.image",
+        ],
       },
       connector: this.connector.capabilities,
       event_types: [
@@ -118,14 +122,16 @@ export class AgentAdapterService {
       }
       if (type === "tool.completed") {
         const data = { ...rawData };
-        const artifactSource = data._artifact_source;
+        let artifactSource = data._artifact_source;
+        if (artifactSource === undefined) artifactSource = data.output;
+        if (artifactSource === undefined) artifactSource = data.payload;
         delete data._artifact_source;
         const output = data.output;
-        const artifacts = parser.inspectComplete(
-          artifactSource === undefined ? output : artifactSource
-        );
+        const artifacts = parser.inspectComplete(artifactSource);
         if (output !== undefined) {
           data.output = stripArtifactsFromValue(output);
+        } else if (data.payload !== undefined) {
+          data.payload = stripArtifactsFromValue(data.payload);
         }
         record.append(type, data);
         for (const artifact of artifacts) {

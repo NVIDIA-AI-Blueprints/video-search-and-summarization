@@ -406,6 +406,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               onEdit={handleEdit}
               onDelete={handleDelete}
               onNotify={notify}
+              mediaProxyUrl={endpoint.mediaProxyUrl}
             />
           ))
         )}

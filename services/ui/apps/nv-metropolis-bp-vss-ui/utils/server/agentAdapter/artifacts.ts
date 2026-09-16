@@ -15,6 +15,7 @@ export const ARTIFACT_PROTOCOL_VERSION = "1.0";
 const MAX_ARTIFACT_LENGTH = 1_000_000;
 const MAX_TRACKED_ARTIFACTS = 10_000;
 const MAX_JSON_DOCUMENTS = 100;
+const MAX_MEDIA_METADATA_LENGTH = 256;
 const KIND_PATTERN = /^vss\.[a-z0-9]+(?:[._-][a-z0-9]+)*$/u;
 
 export interface VssUiArtifact {
@@ -119,6 +120,54 @@ const jsonDocuments = (value: string): unknown[] => {
   return documents;
 };
 
+const safeMediaMetadata = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  if (
+    !normalized ||
+    normalized.length > MAX_MEDIA_METADATA_LENGTH ||
+    /\p{Cc}/u.test(normalized)
+  ) {
+    return undefined;
+  }
+  return normalized;
+};
+
+/** Convert a VIOS URL into the VSS UI's browser-reachable media path. */
+const normalizedVssMediaPath = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  let remainder = value.trim();
+  if (!remainder || remainder.length > MAX_ARTIFACT_LENGTH) return undefined;
+
+  // VIOS 3.2 can return a doubled scheme. Strip schemes until the remainder
+  // is a host/path pair, then discard the container-only host.
+  while (/^https?:\/\//iu.test(remainder)) {
+    remainder = remainder.replace(/^https?:\/\//iu, "");
+    if (!/^https?:\/\//iu.test(remainder)) {
+      const slash = remainder.indexOf("/");
+      remainder = slash >= 0 ? remainder.slice(slash) : "/";
+      break;
+    }
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(remainder, "https://vss-ui.invalid");
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return undefined;
+  }
+
+  let path = parsed.pathname;
+  if (path === "/storage" || path.startsWith("/storage/")) {
+    path = `/vst${path}`;
+  }
+  if (!path.startsWith("/vst/")) return undefined;
+  return `${path}${parsed.search}`;
+};
+
 export class ArtifactStreamParser {
   private buffer = "";
   private readonly seen = new Map<string, true>();
@@ -185,6 +234,54 @@ export class ArtifactStreamParser {
     return events;
   }
 
+  private inspectVssSnapshot(candidate: JsonObject): ConnectorEvent[] {
+    const urls: unknown[] = [];
+    if (candidate.kind === "snapshot") urls.push(candidate.media_url);
+    if (candidate.image_url !== undefined) urls.push(candidate.image_url);
+    if (Array.isArray(candidate.snapshot_urls)) {
+      urls.push(...candidate.snapshot_urls);
+    }
+
+    const name = safeMediaMetadata(candidate.name ?? candidate.sensor);
+    const at = safeMediaMetadata(candidate.at ?? candidate.timestamp);
+    const source = safeMediaMetadata(candidate.source);
+    const streamId = safeMediaMetadata(candidate.stream_id);
+    const sensorId = safeMediaMetadata(candidate.sensor_id);
+    const events: ConnectorEvent[] = [];
+    const emittedUrls = new Set<string>();
+
+    for (const rawUrl of urls) {
+      const mediaUrl = normalizedVssMediaPath(rawUrl);
+      if (!mediaUrl || emittedUrls.has(mediaUrl)) continue;
+      emittedUrls.add(mediaUrl);
+
+      const payload: JsonObject = {
+        media_url: mediaUrl,
+        mime_type: "image/jpeg",
+        alt: name
+          ? `Snapshot of ${name}${at ? ` at ${at}` : ""}`
+          : "VSS snapshot",
+      };
+      if (name) payload.sensor = name;
+      if (at) payload.at = at;
+      if (source) payload.source = source;
+      if (streamId) payload.stream_id = streamId;
+      if (sensorId) payload.sensor_id = sensorId;
+
+      const artifact = parseArtifact(
+        JSON.stringify({
+          version: ARTIFACT_PROTOCOL_VERSION,
+          kind: "vss.media.image",
+          payload,
+        })
+      );
+      if (!artifact) continue;
+      const event = this.deduplicatedEvent(artifact);
+      if (event) events.push(event);
+    }
+    return events;
+  }
+
   inspectComplete(value: unknown): ConnectorEvent[] {
     const events: ConnectorEvent[] = [];
     const stack: Array<[unknown, number]> = [[value, 0]];
@@ -217,6 +314,7 @@ export class ArtifactStreamParser {
           cursor = closing + ARTIFACT_CLOSE.length;
         }
       } else if (depth < 4 && isJsonObject(candidate)) {
+        events.push(...this.inspectVssSnapshot(candidate));
         for (const nested of Object.values(candidate)) {
           stack.push([nested, depth + 1]);
         }

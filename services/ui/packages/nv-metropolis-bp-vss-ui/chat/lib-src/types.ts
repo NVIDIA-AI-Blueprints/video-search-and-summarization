@@ -48,6 +48,8 @@ export interface ChatMessage {
   id: string;
   role: ChatRole;
   content: string;
+  /** Validated UI artifacts rendered separately and excluded from agent history. */
+  artifacts?: string[];
   /** Populated for assistant messages that reported tool activity. */
   steps?: ChatStep[];
   /** True while tokens are still arriving. */

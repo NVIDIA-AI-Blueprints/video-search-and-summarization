@@ -17,7 +17,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 
 import { ChatSteps } from './ChatSteps';
-import { getMarkdownComponents } from './markdown/components';
+import { getMarkdownComponents, VssUiArtifact } from './markdown/components';
 import { fixMalformedHtml } from './markdown/streaming';
 import type { ChatFeatureFlags, ChatMessage as ChatMessageType } from './types';
 
@@ -34,6 +34,7 @@ export interface ChatMessageProps {
   onEdit?: (message: ChatMessageType) => void;
   onDelete?: (messageId: string) => void;
   onNotify?: (message: string) => void;
+  mediaProxyUrl?: string;
 }
 
 /**
@@ -68,7 +69,7 @@ const BotAvatar: React.FC = () => {
 };
 
 export const ChatMessageView: React.FC<ChatMessageProps> = memo(
-  ({ message, features, onEdit, onDelete, onNotify }) => {
+  ({ message, features, onEdit, onDelete, onNotify, mediaProxyUrl }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [draft, setDraft] = useState(message.content);
@@ -83,9 +84,14 @@ export const ChatMessageView: React.FC<ChatMessageProps> = memo(
     // rebuilds the whole component map the moment a stream ends, unmounting
     // every image and code block in the answer at once.
     const markdownComponents = useMemo(
-      () => getMarkdownComponents({ messageIsStreaming: isStreaming, onDownloadError: onNotify }),
+      () =>
+        getMarkdownComponents({
+          messageIsStreaming: isStreaming,
+          mediaProxyUrl,
+          onDownloadError: onNotify,
+        }),
       // eslint-disable-next-line react-hooks/exhaustive-deps
-      [message.id, onNotify],
+      [mediaProxyUrl, message.id, onNotify],
     );
 
     // callerInfo is HTML supplied by the embedding app, not by the model, but
@@ -263,6 +269,14 @@ export const ChatMessageView: React.FC<ChatMessageProps> = memo(
                   >
                     {content}
                   </ReactMarkdown>
+                  {message.artifacts?.map((artifact, index) => (
+                    <VssUiArtifact
+                      key={`${message.id}-artifact-${index}`}
+                      value={artifact}
+                      mediaProxyUrl={mediaProxyUrl}
+                      onDownloadError={onNotify}
+                    />
+                  ))}
                   {isStreaming && !content ? (
                     // Matches the toolkit's ChatLoader: a caret alone reads as
                     // a rendering glitch, the word is what says "it heard you".

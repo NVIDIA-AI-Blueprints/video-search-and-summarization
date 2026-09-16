@@ -8,6 +8,7 @@ import { OpenClawConnector } from "../../../utils/server/agentAdapter/connectors
 import { ResponsesConnector } from "../../../utils/server/agentAdapter/connectors/responses";
 import type { WebSocketLike } from "../../../utils/server/agentAdapter/connectors/websocket";
 import { parseCreateRunRequest } from "../../../utils/server/agentAdapter/contract";
+import { AgentAdapterService } from "../../../utils/server/agentAdapter/service";
 
 const config = (
   overrides: Partial<AgentAdapterConfig> = {}
@@ -234,10 +235,74 @@ describe("embedded adapter connectors", () => {
         model: "agent",
         stream: true,
         store: true,
-        tools: [expect.objectContaining({ name: "vss_ui_publish_artifact" })],
+        tools: [
+          expect.objectContaining({
+            name: "vss_ui_publish_artifact",
+            parameters: expect.objectContaining({
+              properties: expect.objectContaining({
+                kind: expect.objectContaining({
+                  enum: expect.arrayContaining(["vss.media.image"]),
+                }),
+              }),
+            }),
+          }),
+        ],
         instructions: expect.stringContaining(
           'VSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}'
         ),
+      })
+    );
+  });
+
+  it("extracts snapshot artifacts from legacy agent tool payloads", async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response(
+        `intermediate_data: ${JSON.stringify({
+          id: "snapshot-1",
+          name: "snapshot",
+          status: "completed",
+          payload: {
+            kind: "snapshot",
+            media_url: "http://vios:30888/storage/temp/snapshot.jpg",
+            name: "warehouse_safety_0001",
+            at: "2026-09-15T00:00:05Z",
+          },
+        })}\ndata: [DONE]\n`,
+        { headers: { "Content-Type": "text/event-stream" } }
+      )
+    );
+    const service = new AgentAdapterService(
+      config({
+        backendProtocol: "legacy-chat",
+        backendPath: "/chat/completions",
+      })
+    );
+    const { record } = service.createRun(requestWithInstructions);
+
+    for (let attempt = 0; attempt < 20 && !record.terminal; attempt += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+
+    expect(record.terminal).toBe(true);
+    expect(record.eventsAfter(0)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "artifact.created",
+          data: expect.objectContaining({
+            kind: "vss.media.image",
+            payload: expect.objectContaining({
+              media_url: "/vst/storage/temp/snapshot.jpg",
+              sensor: "warehouse_safety_0001",
+            }),
+          }),
+        }),
+      ])
+    );
+    expect(service.capabilities()).toEqual(
+      expect.objectContaining({
+        artifact_protocol: expect.objectContaining({
+          kinds: expect.arrayContaining(["vss.media.image"]),
+        }),
       })
     );
   });

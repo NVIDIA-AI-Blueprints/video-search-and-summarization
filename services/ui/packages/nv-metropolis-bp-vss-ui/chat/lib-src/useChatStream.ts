@@ -198,6 +198,7 @@ export function useChatStream(
             patchReply((m) => ({ ...m, steps: [...steps] }));
           } else if (ev.kind === 'artifact') {
             artifactEnvelopes.push(ev.envelope);
+            patchReply((m) => ({ ...m, artifacts: [...artifactEnvelopes] }));
           } else if (ev.kind === 'interaction') {
             if (ev.interaction.prompt.input_type !== 'text') {
               throw new Error(`Unsupported interaction type: ${ev.interaction.prompt.input_type}`);

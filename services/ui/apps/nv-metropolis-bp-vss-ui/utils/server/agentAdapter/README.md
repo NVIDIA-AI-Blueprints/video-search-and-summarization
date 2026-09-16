@@ -62,3 +62,16 @@ explicitly enabled its structured interaction tools.
 Run creation accepts an optional `Idempotency-Key`. Event streams support
 `Last-Event-ID` replay while retained. Interaction responses remain
 unsupported and return a conflict response.
+
+## Snapshot artifacts
+
+Snapshot tool results are normalized at the adapter boundary, independently of
+the selected harness protocol. The adapter recognizes the VSS CLI
+`kind: "snapshot"`/`media_url` result, native agent `snapshot_urls`, and
+`image_url` tool results. It emits a version 1.0 `vss.media.image` artifact,
+which the shared chat renderer displays with fullscreen and download controls.
+
+VIOS container hostnames and bare `/storage` paths are rewritten to the UI's
+same-origin `/vst/...` route. Sandbox-local paths such as `/tmp/image.jpg` are
+not browser-accessible and are rejected instead of being presented as a broken
+image.

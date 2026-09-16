@@ -112,6 +112,81 @@ describe("embedded agent adapter", () => {
     ]);
   });
 
+  it("derives same-origin image artifacts from snapshot tool results", () => {
+    const parser = new ArtifactStreamParser();
+    const cliSnapshot = JSON.stringify({
+      media_url:
+        "http://http://host.openshell.internal:30888/storage/temp/snapshot.jpg?token=one",
+      kind: "snapshot",
+      source: "replay",
+      at: "2026-09-15T00:00:05Z",
+      name: "warehouse_safety_0001",
+      sensor_id: "sensor-1",
+      stream_id: "stream-1",
+    });
+
+    expect(parser.inspectComplete(cliSnapshot)).toEqual([
+      expect.objectContaining({
+        type: "artifact.created",
+        data: expect.objectContaining({
+          kind: "vss.media.image",
+          payload: {
+            media_url: "/vst/storage/temp/snapshot.jpg?token=one",
+            mime_type: "image/jpeg",
+            alt: "Snapshot of warehouse_safety_0001 at 2026-09-15T00:00:05Z",
+            sensor: "warehouse_safety_0001",
+            at: "2026-09-15T00:00:05Z",
+            source: "replay",
+            stream_id: "stream-1",
+            sensor_id: "sensor-1",
+          },
+        }),
+      }),
+    ]);
+
+    expect(
+      parser.inspectComplete({
+        side_effects: {
+          snapshot_urls: [
+            "http://vios:30888/vst/storage/temp/native.jpg",
+            "/tmp/sandbox-only.jpg",
+          ],
+        },
+      })
+    ).toEqual([
+      expect.objectContaining({
+        type: "artifact.created",
+        data: expect.objectContaining({
+          kind: "vss.media.image",
+          payload: expect.objectContaining({
+            media_url: "/vst/storage/temp/native.jpg",
+            alt: "VSS snapshot",
+          }),
+        }),
+      }),
+    ]);
+
+    expect(
+      parser.inspectComplete({
+        image_url: "/vst/api/v1/replay/stream/stream-1/picture",
+        stream_id: "stream-1",
+      })
+    ).toEqual([
+      expect.objectContaining({
+        type: "artifact.created",
+        data: expect.objectContaining({
+          kind: "vss.media.image",
+          payload: expect.objectContaining({
+            media_url: "/vst/api/v1/replay/stream/stream-1/picture",
+            stream_id: "stream-1",
+          }),
+        }),
+      }),
+    ]);
+
+    expect(parser.inspectComplete(cliSnapshot)).toEqual([]);
+  });
+
   it("removes artifact envelopes from nested private tool output", () => {
     const artifact = `${ARTIFACT_OPEN}${JSON.stringify({
       version: "1.0",
