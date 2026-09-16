@@ -18,7 +18,8 @@ skills after a failure.
 The Base profile intentionally has no Elasticsearch or LVS. For Base smoke
 tests, add `--no-persist` to every `vss vlm run`; unified memory is not a VLM
 prerequisite. Generate a requested named-video report with the direct Mode A
-VLM path and `--no-persist`, including when the clip is 120 seconds or longer.
+VLM path and `--no-persist` only when the report skill permits the direct path.
+Do not override its long-video rule; if it requires LVS, report that dependency.
 The command shape is always:
 
 ```bash

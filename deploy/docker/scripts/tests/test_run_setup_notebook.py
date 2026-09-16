@@ -399,6 +399,19 @@ class HitlLaunchContractTests(unittest.TestCase):
         )
 
 
+class NemoClawNotebookContractTests(unittest.TestCase):
+    def test_blank_tool_disclosure_clears_a_previous_notebook_run(self) -> None:
+        notebook = json.loads(
+            (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
+        )
+        source = "\n".join(
+            "".join(cell.get("source", [])) for cell in notebook["cells"]
+        )
+        self.assertIn(
+            'os.environ.pop("NEMOCLAW_TOOL_DISCLOSURE", None)', source
+        )
+
+
 class NemoRelayNotebookContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
