@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video. Route through hot context, agent Markdown memory, structured VSS memory, bounded introspection, or an exact-window vss vlm run. Not for retrieval or metadata-answerable questions.
+description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video, or when reading stored VSS memory - a VSS job id such as sum-01JXYZ, structured VSS records for a sensor, or a bounded memory introspection. Route through hot context, agent Markdown memory, vss memory get/query/introspect, or an exact-window vss vlm run. Not for archive similarity search (vss-search-archive) or already-computed analytics incidents and metrics (vss-query-analytics).
 license: Apache-2.0
 metadata:
   version: "3.3.0"

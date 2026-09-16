@@ -48,7 +48,7 @@
       ]
     },
     {
-      "query": "Treat these as mocked prior tool results: native Markdown search found an incomplete note with pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue by retrieving that stored job with ordinary structured memory. Do not treat the pointer as informational only.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found an incomplete note with VSS job pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue the question verbatim by retrieving that stored VSS job with ordinary structured VSS memory: Was the worker wearing a safety helmet? Do not treat the pointer as informational only.",
       "checks": [
         "It uses memory get --job-id sum-01JXYZ for ordinary structured retrieval.",
         "It never calls memory introspect, never enables it, and never automatically runs VLM when records are insufficient."
@@ -97,7 +97,7 @@
       ]
     },
     {
-      "query": "Introspect child record event-17. No job id or record type is known. Show the safe next step, assuming each OpenClaw command runs in a fresh shell.",
+      "query": "Introspect VSS child record event-17 with vss memory introspect. No job id or record type is known. Show the safe next step, assuming each OpenClaw command runs in a fresh shell.",
       "checks": [
         "It never emits --record-id without both --job-id and --record-type and requests the missing identity or another valid scope.",
         "Any proposed VSS command defines VSS_REPO_ROOT and the uv run array in the same shell call against libs/vss.",
