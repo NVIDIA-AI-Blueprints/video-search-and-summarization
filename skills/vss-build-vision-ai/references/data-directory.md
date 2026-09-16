@@ -231,7 +231,7 @@ they explicitly choose it:
 |---|---|
 | Repo `data/` | `<repo>/data` |
 | Custom local path | user-provided |
-| NGC `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026` | `<extract>/vss-warehouse-app-data` — the **inner** directory, the one holding `videos/`, `playback/`, `models/`, `data_log/` |
+| NGC `nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0` | `<extract>/vss-warehouse-app-data` — the **inner** directory, the one holding `videos/`, `playback/`, `models/`, `data_log/` |
 
 Calibration is **not** part of `$VSS_DATA_DIR` and needs no staging here — see
 [`profiles/warehouse.md`](profiles/warehouse.md).
