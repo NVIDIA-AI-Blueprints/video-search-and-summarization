@@ -71,13 +71,14 @@ configure a private Gateway URL reachable from the CLI execution environment.
 
 ## Memory layers
 
-> **"Memory" here never means your own agent memory.** A coding agent has its
-> own persistent notes - `MEMORY.md`, a session memory directory, prior-turn
-> context. None of that is VSS memory. Every memory instruction in this skill
-> addresses **VSS unified memory**: a store inside the deployment, reachable
-> only through the project-local `vss memory ...` commands below. Listing or
-> grepping a local memory directory answers a different question and leaves the
-> VSS store unread.
+> **Two different stores share the word "memory".** Your own agent notes -
+> `MEMORY.md`, a session memory directory, prior-turn context - are the
+> Markdown layer below, and the skill does route to them: searching them with
+> the harness-native tools is a real step, not a mistake. What they are not is
+> **VSS unified memory**, a store inside the deployment reachable only through
+> the project-local `vss memory ...` commands. So when a request asks for a
+> stored VSS job, record or result, listing or grepping a local memory
+> directory answers a different question and leaves the VSS store unread.
 
 - **Hot conversation context** is evidence already present in this conversation.
 - **Agent Markdown memory** is searched with the harness-native memory tools.
