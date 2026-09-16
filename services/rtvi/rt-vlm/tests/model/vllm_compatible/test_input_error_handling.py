@@ -94,9 +94,10 @@ class _AbortRecordingLLM:
 
 
 class _IdleReleaseLLM:
-    def __init__(self):
+    def __init__(self, fail_collective=False):
         self.calls = []
         self.collective_method = None
+        self.fail_collective = fail_collective
 
     async def pause_generation(self, mode, clear_cache):
         self.calls.append(("pause_generation", mode, clear_cache))
@@ -104,6 +105,8 @@ class _IdleReleaseLLM:
     async def collective_rpc(self, method, timeout=None):
         self.calls.append(("collective_rpc", timeout))
         self.collective_method = method
+        if self.fail_collective:
+            raise RuntimeError("worker cache cleanup failed")
         return [{"free_mib": 1024, "total_mib": 2048}]
 
     async def resume_generation(self):
@@ -862,7 +865,10 @@ def test_enforced_adaptive_preprocess_honors_cuda_mm_residency_limit():
 
 
 @pytest.mark.test_in_ci
-def test_release_idle_resources_drains_engine_before_clearing_caches(monkeypatch):
+@pytest.mark.parametrize("fail_collective", [False, True])
+def test_release_idle_resources_drains_engine_and_always_resumes(
+    monkeypatch, fail_collective
+):
     model = VllmCompatible.__new__(VllmCompatible)
     model._cuda_mm_residency_lock = threading.Lock()
     model._adaptive_preprocess_pending_submission_ids = set()
@@ -872,7 +878,7 @@ def test_release_idle_resources_drains_engine_before_clearing_caches(monkeypatch
     model._live_request_ids = {}
     model._live_request_futures = {}
     model._inflight_req_ids = []
-    model._llm = _IdleReleaseLLM()
+    model._llm = _IdleReleaseLLM(fail_collective=fail_collective)
 
     calls = []
     monkeypatch.setattr(torch.cuda, "synchronize", lambda: calls.append("synchronize"))
@@ -885,7 +891,11 @@ def test_release_idle_resources_drains_engine_before_clearing_caches(monkeypatch
     loop_thread.start()
     model._event_loop = loop
     try:
-        assert model.release_idle_resources() is True
+        if fail_collective:
+            with pytest.raises(RuntimeError, match="worker cache cleanup failed"):
+                model.release_idle_resources()
+        else:
+            assert model.release_idle_resources() is True
     finally:
         loop.call_soon_threadsafe(loop.stop)
         loop_thread.join()
@@ -903,7 +913,7 @@ def test_release_idle_resources_drains_engine_before_clearing_caches(monkeypatch
         cloudpickle.loads(model._llm.collective_method)
         is vllm_compatible_model._empty_vllm_worker_cuda_cache
     )
-    assert calls == ["synchronize", "ipc_collect", "empty_cache"]
+    assert calls == ([] if fail_collective else ["synchronize", "ipc_collect", "empty_cache"])
 
 
 def test_release_idle_resources_skips_active_requests():
