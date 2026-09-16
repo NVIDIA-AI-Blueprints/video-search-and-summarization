@@ -151,6 +151,9 @@ navigation:
                           - page: "MV3DT Vision AI Profile"
                             slug: mv3dt-vision-ai-profile
                             path: ../docs/warehouse-docs/MV3DT-profile.mdx
+                          - page: "Helm Deployment"
+                            slug: helm-deployment
+                            path: ../docs/warehouse-docs/Helm-Deployment.mdx
                       - section: "Simulation and Synthetic Data Generation"
                         slug: simulation-and-synthetic-data-generation
                         path: ../docs/warehouse-docs/Simulation-and-Synthetic-Data-Generation.mdx
