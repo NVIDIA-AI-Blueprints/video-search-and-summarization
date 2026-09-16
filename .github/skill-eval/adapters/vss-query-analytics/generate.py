@@ -4,23 +4,18 @@
 """Generate Harbor tasks for the vss-query-analytics skill.
 
 The vss-query-analytics skill answers **read-only** analytics questions
-(incidents, metrics, sensor data) by routing through the VA-MCP server
-(port 9901), backed by Elasticsearch. It must NOT trigger deploys, call
-live VLM endpoints, or POST to ``/generate``.
+(incidents, metrics, sensor data) through the project-local ``vss analytics``
+CLI and the configured Video Analytics API. It must NOT initialize MCP,
+trigger deploys, call live VLM endpoints, or POST to ``/generate``.
 
 The spec (``skills/operations/vss-query-analytics/evals/query_analytics.json``)'s
-**first** ``expects[]`` query deploys the VSS alerts profile in real-time
-mode via ``/vss-build-vision-ai`` in the trial's own first turn; the
-remaining queries then read analytics over the VA-MCP server it brings
-up. The harness no longer pre-deploys anything (the
-``_ensure_prerequisite_deployed`` hook + ``active-deploy`` marker were
-removed), so no ``profile`` / ``requires_deployed_vss`` /
-``prerequisite_deploy_mode`` metadata is emitted.
+``expects[]`` entries verify CLI routing and read-only behavior. The harness
+does not pre-deploy anything, so no ``profile`` /
+``requires_deployed_vss`` / ``prerequisite_deploy_mode`` metadata is emitted.
 
-Because VA-MCP queries are HTTP/JSON-RPC against a running stack —
-GPU-independent at the skill level — the spec targets **ONE platform**
-(L40S — cheapest available host) via ``resources.platforms``. Override
-with ``--platform``.
+Because the CLI queries an already-running stack and is GPU-independent at
+the skill level, the spec targets **ONE platform** via
+``resources.platforms``. Override with ``--platform``.
 
 ## Directory layout
 
@@ -110,22 +105,17 @@ def generate_test_script(step: int, spec_name: str) -> str:
 
 
 def generate_solve_script(platform: str) -> str:
-    """Gold solution — assumes the VSS alerts profile is already deployed
-    and VA-MCP is reachable. The verifier drives the VA-MCP assertions; the
-    solution script just asserts the endpoint is live, then defers."""
+    """Gold solution verifies that the project-local analytics CLI is present."""
     return (
         "#!/bin/bash\n"
         f"# Gold solution: vss-query-analytics on {platform}\n"
-        "# The verifier drives the VA-MCP queries directly — the solution\n"
-        "# script simply asserts the VA-MCP endpoint is live, then defers.\n"
+        "# The verifier judges the requested analytics behavior; this script\n"
+        "# asserts that the project-local CLI surface is available.\n"
         "set -euo pipefail\n"
         "\n"
-        'code=$(curl -sf --max-time 5 -o /dev/null -w "%{http_code}" '
-        '"http://${HOST_IP:-localhost}:9901/mcp" || true)\n'
-        'case "$code" in\n'
-        "    2*|3*|405) echo \"VA-MCP is live (HTTP $code) — verifier will drive queries.\" ;;\n"
-        "    *) echo \"VA-MCP not reachable (HTTP ${code:-000}) — cannot solve analytics task\"; exit 1 ;;\n"
-        "esac\n"
+        'REPO="${VSS_REPO:-/workspace/video-search-and-summarization}"\n'
+        'uv run --project "$REPO/libs/vss" --no-sync vss analytics --help >/dev/null\n'
+        'echo "vss analytics is available — verifier will judge the requested query."\n'
     )
 
 
@@ -169,12 +159,13 @@ def generate_task(
         lines = [
             PREAMBLE,
             "",
-            f"Use the `/vss-query-analytics` skill on this `{platform}` host to "
-            "answer analytics questions over VA-MCP "
-            "(`http://${HOST_IP:-localhost}:9901/mcp`). If a step's query asks you "
-            "to deploy first, use `/vss-build-vision-ai`; the analytics queries "
-            "themselves are **read-only** over VA-MCP and must not trigger deploys "
-            "or call live VLM / report endpoints.",
+            (
+                f"Use the `/vss-query-analytics` skill on this `{platform}` host to "
+                "answer analytics questions through the project-local `vss analytics` "
+                "CLI and configured Video Analytics API. The queries are **read-only** "
+                "and must not initialize MCP, trigger deploys, or call live VLM, Agent, "
+                "or report endpoints."
+            ),
             "",
             f"## Query {idx} of {len(expects)}",
             "",
@@ -190,7 +181,7 @@ def generate_task(
             "[task]",
             f'name = "nvidia-vss/vss-query-analytics-{profile}-{platform_short}{step_suffix}"',
             f'description = "vss-query-analytics query {idx}/{len(expects)} on {platform}"',
-            f'keywords = ["vss-query-analytics", "analytics", "va-mcp", "{profile}", "{platform}"]',
+            f'keywords = ["vss-query-analytics", "analytics", "vss-cli", "{profile}", "{platform}"]',
             "",
             "[agent]",
             "timeout_sec = 600.0",
@@ -214,9 +205,7 @@ def generate_task(
             f'brev_search = "{pspec["brev_search"]}"',
             f'min_vram_gb_per_gpu = {pspec["min_vram_per_gpu"]}',
             # No profile / requires_deployed_vss / prerequisite_deploy_mode:
-            # nothing in the harness reads them (the _ensure_prerequisite_deployed
-            # pre-deploy hook is gone). The spec's first expects[] query deploys
-            # the alerts profile via /vss-build-vision-ai in the trial's first turn.
+            # nothing in the harness reads them and this spec does not pre-deploy.
             f"step_index = {idx}",
             f"step_count = {len(expects)}",
             f"check_count = {len(expect.get('checks') or [])}",
@@ -247,8 +236,7 @@ def generate_task(
         solution_dir.mkdir(exist_ok=True)
         (solution_dir / "solve.sh").write_text(generate_solve_script(platform))
 
-        # skills/ — vss-query-analytics + deploy (so the agent can diagnose
-        # / redeploy if VA-MCP is not live).
+        # skills/ — query skill plus build skill for an explicitly requested deploy.
         for src, name in ((skill_dir, "vss-query-analytics"),
                           (deploy_skill_dir, "vss-build-vision-ai")):
             if src and src.exists():
@@ -326,9 +314,8 @@ def main() -> None:
     print()
     print(f"Generated {len(platforms)} platform(s) under {output_root}/{profile}/")
     print()
-    print("Note: step-1's query deploys the alerts profile via /vss-build-vision-ai")
-    print("in the trial's first turn; steps 2+ query VA-MCP read-only. The harness")
-    print("does not pre-deploy (the _ensure_prerequisite_deployed hook is gone).")
+    print("Note: all steps verify read-only project-local vss analytics behavior.")
+    print("The harness does not pre-deploy a stack or initialize an MCP session.")
 
 
 if __name__ == "__main__":
