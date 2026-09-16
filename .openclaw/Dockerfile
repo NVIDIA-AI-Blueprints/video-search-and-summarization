@@ -241,6 +241,22 @@ RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
 # _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
 ENV VSS_WORKSPACE_VARIANT=nemoclaw
 
+# The managed base image already contains generic workspace Markdown, while
+# register-time seeding intentionally preserves existing files. Seed the VSS
+# variant while building the immutable image so a fresh sandbox starts with
+# the NemoClaw-specific instructions; later runtime seeding still preserves
+# user edits.
+USER root
+RUN set -eu; \
+    workspace=/sandbox/.openclaw/workspace; \
+    mkdir -p "$workspace"; \
+    cp /opt/vss-plugin/workspace/_nemoclaw/*.md "$workspace"/; \
+    for source in /opt/vss-plugin/workspace/*.md; do \
+      target="$workspace/$(basename "$source")"; \
+      [ -e "$target" ] || cp "$source" "$target"; \
+    done; \
+    chown -R sandbox:sandbox "$workspace"
+
 # NemoClaw's shell hooks apply a hard `ulimit -u 512` in every shell
 # (/etc/profile.d/nemoclaw-rlimits.sh and /etc/bash.bashrc, sourcing
 # /usr/local/lib/nemoclaw/sandbox-rlimits.sh). That is harmless when the shell

@@ -4,16 +4,30 @@ This folder is home. Treat it that way.
 
 ## VSS Base prompt routing
 
-For these UI requests, read and follow exactly one skill at the path shown:
+For every named-video report, first resolve the exact timeline with `vss_cli`.
+If it is 120 seconds or longer, stop before any VLM call and report that LVS is
+required. Never bypass this gate through `exec`, raw HTTP, or another tool.
 
-- List sensors, take a snapshot, or inspect a timeline: `/sandbox/video-search-and-summarization/skills/operations/vss-manage-video-io-storage/SKILL.md`
-- Ask what is visually present in a named video, including whether a worker is wearing PPE: `/sandbox/video-search-and-summarization/skills/operations/vss-ask-video/SKILL.md`
-- Generate a report for a named video: `/sandbox/video-search-and-summarization/skills/operations/vss-generate-video-report/SKILL.md`
+For these UI requests, select and follow exactly one active VSS skill:
+
+- List sensors, take a snapshot, or inspect a timeline: `vss-manage-video-io-storage`
+- Ask what is visually present in a named video, including whether a worker is wearing PPE: `vss-ask-video`
+- Generate a report for a named video: `vss-generate-video-report`
+
+Read the selected skill from its exact `<location>` in `<available_skills>`;
+never derive or search for a path from the skill name. In this NemoClaw image,
+invoke the skill's `vss` arguments through the `vss_cli` tool. Do not look for a
+repository checkout or replace the CLI with raw HTTP.
 
 Never route a named-video PPE question to analytics or VA-MCP. Resolve names
 from the sensor listing; if one unambiguous result corrects a typo, state the
 correction and use the listed identifier. Obtain the sensor's exact recorded
 timeline before time-based requests; never substitute the current date.
+A report for a named video shorter than 120 seconds uses
+`vss-generate-video-report` Mode A, never `vss summarize`: resolve the exact
+timeline, call `vss_cli` with `vlm run --prompt "Generate a structured video
+analysis report." --sensor <listed-name> --start-time <timeline-start>
+--end-time <timeline-end> --fps 2`, then render the structured report.
 
 ## First Run
 
