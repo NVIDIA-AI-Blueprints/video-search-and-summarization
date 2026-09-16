@@ -12,17 +12,6 @@
     ]
   },
   {
-    "id": "amc-vggt-hf-cli-bootstrap",
-    "question": "Set up AMC with VGGT on a fresh supported Ubuntu host where hf, uv, pipx, and pip are not installed.",
-    "expected_skill": "vss-generate-video-calibration",
-    "ground_truth": "Checks the Hugging Face CLI first, installs it through an isolated pipx environment when uv is unavailable, verifies the executable, and only then proceeds to hidden token entry and the gated VGGT download.",
-    "expected_behavior": [
-      "Checks both command -v hf and hf --help before deciding whether installation is needed.",
-      "When uv is unavailable, installs pipx through APT if needed, installs huggingface_hub with pipx, resolves the pipx binary directory for the current shell, and verifies hf --help without first asking the user to install pip.",
-      "Does not use a user-site pip install, --break-system-packages, sudo pip, or request the Hugging Face token in chat; model access and hidden token entry come only after the CLI verification succeeds."
-    ]
-  },
-  {
     "id": "amc-calibrate-videos",
     "question": "Calibrate these videos in ~/warehouse/videos.",
     "expected_skill": "vss-generate-video-calibration",
