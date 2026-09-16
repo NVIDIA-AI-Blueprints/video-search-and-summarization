@@ -203,7 +203,7 @@ vios:
     headlessServiceName: ""
     # No bind-mounts in Helm: download overlay assets from video-analytics-api.
     calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
-    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1%2Fregion%3DRegion-1&view=plan-view"
+    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1&view=plan-view"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
@@ -466,8 +466,10 @@ rtvi:
     resources:
       limits:
         nvidia.com/gpu: 1
+        cpu: 12
       requests:
         nvidia.com/gpu: 1
+        cpu: 8
 
 # Prometheus + Grafana (K8s port of deploy/docker/services/monitoring).
 # dcgmExporter stays off because the NVIDIA GPU operator already runs
