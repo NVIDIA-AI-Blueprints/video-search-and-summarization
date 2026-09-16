@@ -126,6 +126,43 @@ Resume only after the user confirms the command succeeded. Do not
 re-run `sudo -n` checks in a loop — they won't change without user
 action.
 
+**Branch — `sudo` denied to the agent:** the probe above can be refused
+*before it executes*, by the agent's own permission policy rather than by
+`sudoers` (`blocked by administrator policy`). Treat it as `SUDO_NOPASSWD=0`
+and hand off, with one correction to the wording: the host's sudo state was
+never determined, so report that **this agent** may not run `sudo` — not that
+the host requires a password.
+
+**Take this branch only on a refusal you actually saw.** Run the probe and
+quote what came back; never predict the refusal from the environment, the
+platform, or a previous session. The same rule applies one level down: a
+`sudo -n true` refusal is the *probe's* result, and a `sudoers` rule scoped
+to specific commands (`NOPASSWD: /usr/bin/apt-get`) can still admit the
+operation the step actually needs — so report the probe as what failed, and
+say which command was never attempted rather than implying it would fail.
+
+**Do not route around a denied `sudo`.** Invoking a script that sudoes
+internally, or reaching the same package or file state through `docker run`
+with a bind mount and the daemon's capabilities, defeats the policy instead
+of satisfying it. Hand the command over and let the user choose to override.
+
+### Handoff form
+<a id="handoff"></a>
+
+One block, one ask. A handoff competing with unrelated findings is the noise
+that gets it skipped.
+
+- Give **the command**, copy-pasteable, with paths already resolved — not a
+  description of it and not a pointer to this file.
+- Say in one line what it fixes and what breaks without it.
+- Keep what the user cannot act on out of that message. Batch several
+  commands only when they run in one sitting, and then as consecutive blocks
+  with nothing between them.
+- Do not re-diagnose, restate the version matrix, or recount what already
+  passed.
+- **Resume by re-running only the check that failed**, not the whole
+  preflight.
+
 ## Kernel Settings
 
 Required for Elasticsearch and Kafka. Apply before deploying:
@@ -281,6 +318,28 @@ sudo modprobe nvidia && sudo modprobe nvidia_uvm
 
 This works without a reboot on Brev and Colossus instances.
 
+## Confinement vs. host blocker
+<a id="confinement"></a>
+
+An agent sandbox produces failures indistinguishable from host faults. **Re-probe
+unconfined before reporting any of them, and report the unconfined result.** A
+false blocker sends the user to repair a host that was never broken, and it
+discredits the real blockers reported alongside it.
+
+| Symptom | Confinement cause | Real-host test |
+|---|---|---|
+| `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`, with no `/dev/nvidia*` | the device nodes are not exposed to the sandbox, while `lsmod` still lists `nvidia` and the GPUs are on the PCI bus | re-run `nvidia-smi` unconfined before touching the driver table in check 1 |
+| `Permission denied` on a root-owned path that `ls -ld` reports as `nobody:nogroup` | a user namespace leaves host `root` unmapped | re-read it unconfined, and compare the ownership the two probes print |
+| `Permission denied` as uid 0 on a path whose mode already grants its owner access | the process holds no capabilities — `grep CapEff /proc/self/status` is all zeros | none. The host is fine and this agent cannot read it |
+
+That last row is the one to state precisely, because it is the one that invites a
+wrong conclusion. The path is readable **on the host** and unreadable **from
+here**, so the finding is *"I need this value from you"* — never *"this file is
+unreadable"*, and never an inference about what a notebook, script, or service
+running outside the agent will manage to read. `/etc/brev/environment-context.json`
+is the usual instance of it ([`brev.md`](brev.md)): ask for the secure link rather
+than concluding the deployment cannot resolve one.
+
 ## Checks
 
 Run in order, report pass/fail for each.
@@ -293,7 +352,7 @@ nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv,nohea
 
 Expected for this machine: 2× RTX PRO 6000 Blackwell, devices 0 and 1.
 
-If `nvidia-smi` fails → driver not installed or not loaded. Pin the exact build for the OS / platform:
+If `nvidia-smi` fails, rule out [confinement](#confinement) first — inside a sandbox it fails on a perfectly healthy host. Once the unconfined probe fails too, the driver is not installed or not loaded. Pin the exact build for the OS / platform:
 
 | Platform | Required driver |
 |---|---|
