@@ -32,6 +32,8 @@ hfToken: ""
 vstMcpUrl: ""
 # Optional host IP (compose: HOST_IP). In K8s often left empty; set if app needs it.
 hostIp: ""
+# vlm_verified in the video_analytics function_group.
+vlmVerified: true
 
 service:
   port: 9901

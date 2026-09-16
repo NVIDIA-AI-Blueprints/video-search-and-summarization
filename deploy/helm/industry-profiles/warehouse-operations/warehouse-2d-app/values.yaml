@@ -18,6 +18,10 @@ global:
   useReleaseNamePrefix: false
   externalHost: ""
   externalPort: ""
+  # Branch/tag for calibration-import source URLs. Empty falls back to "develop".
+  gitRef: ""
+  # Dataset dir under calibration/sample-data/, shared by calibration-import's source URLs.
+  sampleVideoDataset: warehouse-4cams-20mx20m-synthetic
   # Comma-separated static TURN URLs (username:password@host:port). See
   # deploy/helm/industry-profiles/warehouse-operations/TURN-SERVER.md.
   turnServerUrl: ""
@@ -66,7 +70,7 @@ bp-configurator:
     - name: CALL_SENSOR_ADD_API
       value: "true"
     - name: NUM_STREAMS
-      value: "3"
+      value: "4"
     - name: MODE
       value: 2d
     - name: LOG_LEVEL
@@ -128,9 +132,9 @@ calibration-import:
   enabled: true
   name: import-calibration-output-2d
   apiUrl: http://vss-video-analytics-api:8081
-  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
-  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
-  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images
   requireCalibration: true
   requireImages: true
 
@@ -198,14 +202,14 @@ vios:
   vss-vios-nvstreamer:
     enabled: true
     # Keep in step with bp-configurator NUM_STREAMS.
-    syncFileCount: 3
+    syncFileCount: 4
     persistence:
       streamerVideos:
         enabled: true
         # hostPath: /opt/vss/customer-videos   # node-local customer videos
     ngcVideoSeed:
       enabled: true
-      dataset: warehouse-loading-dock-3cams-synthetic
+      # dataset unset: falls back to global.sampleVideoDataset.
       # Reuses the bundle the rtvi-cv NGC job already extracted, so it is not
       # downloaded twice. Needs nvstreamer and rtvi-cv on the same node (RWO).
       # Clear this and set resourceVersion to download independently.
@@ -298,6 +302,7 @@ analytics:
       calibration:
         enabled: true
         mountPath: /resources/calibration.json
+        apiUrl: "http://vss-video-analytics-api:8081/config/calibration"
     config:
       kafkaConfigJson: |
         {
@@ -434,7 +439,17 @@ agent:
   # va-mcp is off in the agent chart by default; alerts needs it.
   vss-va-mcp:
     enabled: true
+    vlmVerified: false
   vss-agent:
+    # Report-templates mount is gated on profile == alerts in the agent chart.
+    profile: alerts
+    reportTemplates:
+      enabled: true
+    extraEnv:
+      - name: VSS_AGENT_TEMPLATE_PATH
+        value: '{{- $rt := .Values.reportTemplates | default dict }}{{- if ($rt.enabled | default false) }}/etc/vss-agent/report-templates{{- end }}'
+      - name: VSS_AGENT_TEMPLATE_NAME
+        value: '{{- $rt := .Values.reportTemplates | default dict }}{{- if ($rt.enabled | default false) }}{{ $rt.configMapKey | default "incident_report_template.md" }}{{- end }}'
     waitForDependencies:
       enabled: true
       waitForMcp: true
