@@ -32,6 +32,7 @@ invoked from non-REST callers (agent flows, replay tools, integration
 tests) without going through HTTP.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -246,9 +247,20 @@ def get_rule_store() -> Optional[RuleStore]:
     return ESRuleStore(store, collection=collection)
 
 
+# Shared with get_always_on_service()'s separate RealtimeAlertService
+# instance so the two share one stream-teardown-lock namespace instead
+# of each serialising only against itself — see that function's
+# docstring and RealtimeAlertService.__init__'s stream_teardown_locks
+# param for why two instances exist and need to share this.
+_SHARED_STREAM_TEARDOWN_LOCKS: Dict[str, asyncio.Lock] = {}
+
+
 @lru_cache()
 def get_realtime_service() -> RealtimeAlertService:
-    return RealtimeAlertService(rule_store=get_rule_store())
+    return RealtimeAlertService(
+        rule_store=get_rule_store(),
+        stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS,
+    )
 
 
 @lru_cache()
@@ -271,8 +283,36 @@ def get_always_on_service() -> AlwaysOnService:
     ``camera_remove`` can never clean them up.  Keeping the always-on
     service on the in-memory path avoids this: rules live only in the
     sidecar's lifetime and are re-created cleanly on every restart.
+
+    ``extra_rule_store`` gives that in-memory instance read-only
+    visibility into the same ES store for ref-counting purposes only
+    (see :meth:`RealtimeAlertService._count_other_rules_for_stream`):
+    a "regular" rule created via ``POST /api/v1/realtime`` with
+    ``sensor_id`` equal to a camera id can reuse that camera's RTVI
+    stream, and without this, always-on's ref-count check would be
+    blind to it and could tear the stream down out from under it. It's
+    never used for writes, so it doesn't reintroduce the duplication
+    problem above — start_alert/stop_alert on this instance still
+    dispatch purely on ``rule_store`` (``None`` here).
+
+    ``stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS`` is the same
+    reasoning applied to the per-stream teardown lock
+    (:meth:`RealtimeAlertService._get_stream_teardown_lock`): that lock
+    only serialises RTVI teardown calls made through *this* instance.
+    Without sharing the dict with :func:`get_realtime_service`'s
+    instance too, a regular rule's ``stop_alert`` and an always-on
+    ``camera_remove`` racing on the same shared stream would each
+    acquire a different lock object and could still both fire
+    concurrent RTVI calls — reproducing the 409/orphan collision this
+    lock exists to prevent, just across instances instead of within
+    one.
     """
-    return AlwaysOnService(realtime_service=RealtimeAlertService())
+    return AlwaysOnService(
+        realtime_service=RealtimeAlertService(
+            extra_rule_store=get_rule_store(),
+            stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS,
+        )
+    )
 
 
 @lru_cache()
