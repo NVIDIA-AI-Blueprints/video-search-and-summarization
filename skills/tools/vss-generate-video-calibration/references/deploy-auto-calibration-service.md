@@ -144,26 +144,43 @@ If the model is missing, check the Hugging Face CLI:
 command -v hf && hf --help
 ```
 
-If `hf` is missing and `uv` is available, present only this installation action and wait for the user to reply `done`:
+If `hf` is missing or `hf --help` fails, install it immediately instead of asking the user to install `pip` or run an installation command. Prefer an isolated `uv` tool installation when `uv` is available:
 
 ```bash
-uv tool install huggingface_hub
-export PATH="$(uv tool dir --bin):$PATH"
-command -v hf
-hf --help
+HF_BIN_DIR="$(uv tool dir --bin)"
+export PATH="${HF_BIN_DIR}:$PATH"
+if ! command -v hf >/dev/null 2>&1 || ! hf --help >/dev/null 2>&1; then
+  uv tool install --force huggingface_hub
+fi
 ```
 
-If `uv` is unavailable, present only this fallback installation action and wait for `done`:
+If `uv` is unavailable, use `pipx`; do not depend on `pip` or a writable system/user Python environment. On the supported Ubuntu host, install `pipx` through APT when it is absent, then install the CLI in its isolated environment:
 
 ```bash
-python3 -m pip install --user --upgrade 'huggingface_hub[cli]'
-HF_USER_BIN="$(python3 -c 'import site; print(site.USER_BASE + "/bin")')"
-export PATH="$HF_USER_BIN:$PATH"
-command -v hf
-hf --help
+if ! command -v pipx >/dev/null 2>&1; then
+  sudo apt-get update
+  sudo apt-get install -y pipx
+fi
+pipx ensurepath
+HF_BIN_DIR="$(pipx environment --value PIPX_BIN_DIR 2>/dev/null || true)"
+HF_BIN_DIR="${HF_BIN_DIR:-${HOME}/.local/bin}"
+export PATH="${HF_BIN_DIR}:$PATH"
+if ! command -v hf >/dev/null 2>&1 || ! hf --help >/dev/null 2>&1; then
+  pipx install --force huggingface_hub --include-deps
+fi
 ```
 
-Do not continue until both `command -v hf` and `hf --help` succeed. Do not use `sudo pip`, show the token/download action with the CLI-install action, or assume a user-level installation updated `PATH`.
+Run the checks and installation commands yourself. Pause only when privilege elevation needs user action or an installer fails; in that case, report the failing command and wait for the user to resolve that one blocker. Do not use `python3 -m pip install --user`, `--break-system-packages`, or `sudo pip`: Ubuntu's externally managed Python can reject or be damaged by those paths.
+
+After either installation path, verify the installed executable in the current shell:
+
+```bash
+command -v hf
+hf --help >/dev/null
+echo "Hugging Face CLI is ready"
+```
+
+Do not continue until both checks succeed. Do not show the token/download action alongside CLI installation, and do not assume `pipx ensurepath` changed the current shell; explicitly prepend the resolved binary directory as shown above.
 
 Once the CLI works, direct the user to accept the model terms at https://huggingface.co/facebook/VGGT-1B-Commercial and create a read token at https://huggingface.co/settings/tokens. Then present only this action and wait for a successful download:
 
