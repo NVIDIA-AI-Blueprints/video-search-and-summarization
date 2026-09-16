@@ -57,7 +57,8 @@ gpuProfiles:
       NIM_KVCACHE_PERCENT: "0.3"
       NIM_GPU_MEM_FRACTION: "0.3"
       NIM_MAX_MODEL_LEN: "65536"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
+      MAX_JOBS: "4"
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
@@ -72,7 +73,8 @@ gpuProfiles:
       NIM_KVCACHE_PERCENT: "0.3"
       NIM_GPU_MEM_FRACTION: "0.3"
       NIM_MAX_MODEL_LEN: "65536"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
+      MAX_JOBS: "4"
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
@@ -113,18 +115,26 @@ gpuProfiles:
       NIM_KVCACHE_PERCENT: "0.3"
       NIM_GPU_MEM_FRACTION: "0.3"
       NIM_MAX_MODEL_LEN: "65536"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
+      MAX_JOBS: "4"
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
-  # Generic fallback for GPUs outside the validated list. Model-specific parser
-  # arguments are retained, but no GPU memory tuning is imposed.
+  # Generic fallback for GPUs outside the validated list. Sized identically to
+  # the shared/co-resident variants: LLM_MODE=local does not guarantee the GPU
+  # is exclusive (RT-VLM may be co-resident), and without a cap vLLM's default
+  # fraction (0.92) starves the neighbors. 0.3 comfortably holds the ~21 GB
+  # INT4 weights plus a KV pool serving 8 full-length 64k requests.
   OTHER:
     nemotron35:
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"
+      NIM_KVCACHE_PERCENT: "0.3"
+      NIM_GPU_MEM_FRACTION: "0.3"
+      NIM_MAX_MODEL_LEN: "65536"
+      MAX_JOBS: "4"
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3: {}
 
 
