@@ -49,7 +49,7 @@ bp-configurator:
   data:
     enabled: true
     mountPath: /opt/data
-    seedConfigMapName: vss-behavior-analytics-resources
+    seedConfigMapName: bp-configurator-mv3dt-calibration-seed
   image:
     repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
     tag: develop-latest
