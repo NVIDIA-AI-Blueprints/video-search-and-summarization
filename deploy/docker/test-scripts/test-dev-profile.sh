@@ -2243,23 +2243,35 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# The shipped joint notification configs address RT-CV by a port that must agree
-# in three places: the webhook URL, RTVI_CV_PORT (container side of the ports
+# The search notification config addresses RT-CV by a port that must agree in
+# three places: the webhook URL, RTVI_CV_PORT (container side of the ports
 # mapping), and http-port in the mounted DeepStream run config. Only the
-# checked-in artifacts are guarded here; a build that remaps the port forks the
-# joint file, as documented in the vios owner contract.
-_joint_cv_webhook="${REPO_ROOT}/deploy/docker/services/vios/configs/notification_config_search_alerts_2d_cv.json"
-_joint_vlm_webhook="${REPO_ROOT}/deploy/docker/services/vios/configs/notification_config_search_alerts_2d_vlm.json"
+# checked-in artifacts are guarded here; a build that remaps the port edits all
+# three in its own projection, as documented in the vios owner contract.
+_search_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/vios/configs/notification_config.json"
 _search_cv_port="$(sed -n 's/^RTVI_CV_PORT=//p' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" | tr -d "\"'" | tail -n1)"
 _search_ds_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-main-config.txt"
 if [[ -n "${_search_cv_port}" ]] \
-  && grep -q "vss-rtvi-cv:${_search_cv_port}/api/v1/stream/add" "${_joint_cv_webhook}" \
-  && grep -q "vss-rtvi-cv:${_search_cv_port}/api/v1/stream/add" "${_joint_vlm_webhook}" \
+  && grep -q "vss-rtvi-cv:${_search_cv_port}/api/v1/stream/add" "${_search_webhook}" \
+  && grep -q "vss-rtvi-cv:${_search_cv_port}/api/v1/stream/remove" "${_search_webhook}" \
   && grep -q "^http-port=${_search_cv_port}$" "${_search_ds_config}"; then
-  echo "PASS: joint notification configs, RTVI_CV_PORT, and DeepStream http-port agree on ${_search_cv_port}"
+  echo "PASS: search notification config, RTVI_CV_PORT, and DeepStream http-port agree on ${_search_cv_port}"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: joint notification config RT-CV port must match RTVI_CV_PORT and DeepStream http-port"
+  echo "FAIL: search notification config RT-CV port must match RTVI_CV_PORT and DeepStream http-port"
+  ((TESTS_FAILED++)) || true
+fi
+
+# A profile notification config carrying several stream-driven capabilities is a
+# projection superset: one item per capability per event, each with an id, so a
+# build resolves the fan-out by setting `enabled` and never by editing receivers.
+# Guard the item inventory and the stock enable vector an inheriting build gets.
+if python3 "${REPO_ROOT}/deploy/docker/test-scripts/check_notification_supersets.py" \
+  "${REPO_ROOT}/deploy/docker"; then
+  echo "PASS: notification configs carry the expected items and stock enable vector"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: notification config items or stock enable vector drifted"
   ((TESTS_FAILED++)) || true
 fi
 

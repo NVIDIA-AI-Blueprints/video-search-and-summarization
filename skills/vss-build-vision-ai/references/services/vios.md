@@ -52,52 +52,88 @@ re-expand values already read from the Foundation env files.
 The mounted `notification_config.json` **is** the fan-out policy: VIOS posts
 sensor lifecycle events (`camera_streaming`, `camera_remove`) to the webhook
 receivers it defines. It is a singleton config on a singleton service, so every
-build resolves it explicitly, exactly like the Behavior Analytics joint config.
+build decides it deliberately, exactly like the Behavior Analytics joint config
+— though only a build whose decision differs from the inherited default writes a
+file for it.
 
-- **The invariant: the mounted config's receiver set equals the build's deployed
-  consumer set.** Inheriting a Foundation's file breaks it both ways — a build
-  that *adds* a capability leaves the new consumer unprovisioned; one that drops
-  a capability leaves an orphaned receiver failing every delivery, and with no
-  webhook introspection that failure is log-identical to a real one, so the
-  noise costs the only signal there is. Resolve against the deployed set, never
-  against the profile the build started from — inheriting is the right answer
-  only when the build leaves that Foundation's consumer set unchanged.
-- **Selection is env-indirected; no Compose patch.** Point
-  `VST_NOTIFICATION_CONFIG_PATH` in the build `override.env` at the chosen file.
-  The file is bind-mounted into both `sensor-ms` and `streamprocessing-ms` at
-  the fixed container path `configs/notification_config.json` and read once at
-  process start — a change needs a container restart, and the two mount points
-  must resolve the same file.
-- **Match on the receiver set, not the file name.** The shipped configs all live
-  in `${VSS_APPS_DIR}/services/vios/configs/`; their names record the profile
-  pair they were introduced for, not who may mount them:
-  - **RT-CV + RT-Embed** → `notification_config_search_alerts_2d_cv.json`
-  - **RT-CV + RT-Embed + Alert Bridge** → `notification_config_search_alerts_2d_vlm.json`
-  - **no webhook fan-out** → `notification_config.json`, the shared default
-    (webhooks disabled)
+### Who belongs in it
 
-  Both joint configs target the converged RT-CV at `vss-rtvi-cv:9000` and keep
-  the `camera_remove` Elasticsearch cleanup receivers (detection, behavior, and
-  filtered-embedding indices) verbatim. Any other receiver set — one carrying
-  RT-VLM tagging, for instance — has no shipped match; author it below. Never
-  mount a config out of a Foundation's directory: it would tie this build's
-  fan-out to that profile's future edits.
-- **No shipped config matches the deployed set → author a pruned one.** Copy the
-  closest shipped file to `_builds/<name>/configs/notification_config.json`,
-  delete the `request[]` entries for consumers this build does not deploy (from
-  **both** the `camera_streaming` and `camera_remove` items), and point
-  `VST_NOTIFICATION_CONFIG_PATH` at it with an absolute `${BUILD_DIR}/configs/`
-  path. Prune only; do not retune `timeout_ms`, `retry`, headers, or
-  `user_defined_metadata`, which carry the tested values.
-- **The joint configs omit RT-VLM tagging on purpose.** When the single
-  `rtvi-vlm` is bridge-driven for alerting, continuous tagging on it is a
-  capacity decision, not an inherited default. Add it back only when the
-  always-on rules share the same decode settings (`chunk_duration` etc.) and the
-  instance has headroom — a second caption request with a different decode
-  signature is rejected `400 BadParameters`. That receiver is what feeds BM25
-  tag search, so a build owing both tag search and bridge-driven alerting must
-  reconcile the two decode signatures; it cannot have the receiver on any other
-  terms.
+**A service is a receiver if and only if it must act on every newly registered
+stream without being asked.** Detection, embeddings and continuous tagging are
+stream-driven: nothing else triggers them, so a stream they never saw is a
+stream they never process. A capability invoked per request — a VLM asked to
+critique a retrieved clip or answer a question about it — needs the service
+deployed and routed, not a receiver; a receiver would start work no one asked
+for. Deployed is not the same as receiving.
+
+**The invariant: the enabled receiver set equals the build's stream-driven
+consumer set.** Both directions cost real signal. A missing receiver leaves a
+consumer unprovisioned, so the stream is never processed. An extra one fails
+every delivery, and with no webhook introspection that failure is log-identical
+to a genuine one.
+
+### Items and the enable vector
+
+Each profile config splits its fan-out into items of one capability and one
+event, keyed `<capability>-<event>`. Resolving the config is choosing which ids
+are `enabled` — one decision per row, both events together:
+
+| Stream-driven capability | Item ids |
+|---|---|
+| Object detection and tracking (RT-CV) | `rtvi-cv-camera-streaming`, `rtvi-cv-camera-remove` |
+| Chunk and video embeddings (RT-Embed) | `rtvi-embed-camera-streaming`, `rtvi-embed-camera-remove` |
+| Continuous VLM tagging (RT-VLM) | `rtvi-vlm-tagging-camera-streaming`, `rtvi-vlm-tagging-camera-remove` |
+| Always-on real-time alerting (Alert Bridge) | `alert-bridge-camera-streaming`, `alert-bridge-camera-remove` |
+
+Teardown-only cleanup items follow the Elasticsearch index a build writes rather
+than a service; enable one only when the build runs the path that fills it:
+`es-raw-camera-remove` (`mdx-raw`, from DeepStream perception),
+`es-behavior-camera-remove` (`mdx-behavior`, from behavior analytics), and
+`es-embed-filtered-camera-remove` (`mdx-embed-filtered`, from the search
+analytics fusion of `mdx-embed`).
+
+### Resolving it
+
+1. Derive the enable vector from the build's stream-driven consumer set.
+2. Compare it with the config the build's inherited
+   `VST_NOTIFICATION_CONFIG_PATH` already resolves to. **Equal — inherit:**
+   change nothing and leave the variable out of the build `override.env`.
+3. **Different — project:** copy that config to
+   `_builds/<name>/patches/notification_config.json`, set each item's `enabled`
+   to the derived vector, and point `VST_NOTIFICATION_CONFIG_PATH` at it with an
+   absolute `${BUILD_DIR}/patches/` source. An **empty** vector needs no copy:
+   point the variable at the shared webhooks-disabled default instead.
+
+Project from a superset that carries every item the vector needs — normally the
+one the inherited path resolves to; where it lacks an item, project from the
+shipped superset that has it. Either way the mount points at the build-local
+copy, never at another Foundation's directory, which would tie this build's
+fan-out to that profile's future edits.
+
+A projection edits `enabled` and nothing else: URLs, `timeout_ms`, `retry`,
+headers, `body`, and `user_defined_metadata` carry tested values, and a build
+needing a different value there is changing a receiver rather than selecting one
+(the single sanctioned case is the RT-CV port coupling below). Adding, deleting,
+or reordering items is likewise out of bounds — a diff against the source config
+that touches any line but an `enabled` or that port is an error.
+
+### Mechanism and constraints
+
+- **Selection is env-indirected, so a projection needs no `.yml` patch** — it is
+  a payload in `patches/` that `VST_NOTIFICATION_CONFIG_PATH` points at
+  ([`../composition.md`](../composition.md)). The file is bind-mounted into both
+  `sensor-ms` and `streamprocessing-ms` at the fixed container path
+  `configs/notification_config.json` and read once at process start — a change
+  needs a container restart, and the two mount points must resolve the same
+  file. The shared `${VSS_APPS_DIR}/services/vios/configs/notification_config.json`
+  is the default and ships webhooks disabled: it is the right target for a build
+  with no stream-driven consumer at all.
+- **Tagging and always-on alerting are mutually exclusive.** One RT-VLM instance
+  publishes every caption to a single `MESSAGE_BUS_TOPIC` (`mdx-vlm-captions`),
+  so a static consumer cannot separate tagging output from alerting output.
+  Enabling both also collides on the live stream itself: a second caption
+  request with a different decode signature (`chunk_duration` and the rest) is
+  rejected `400 BadParameters`. Enable at most one of the two.
 - **Webhooks are independent of `message_broker.enable_notification`.** The
   factory gates only the Redis/Kafka publisher on that flag; the webhook
   notifier turns on the presence of enabled items alone.
@@ -108,11 +144,13 @@ build resolves it explicitly, exactly like the Behavior Analytics joint config.
   in the build rather than trusting the file.
   `enable_notification_consumer` has **no** env override and is live: it gates
   the `LiveMetadataStore` Kafka consumer feeding the live bbox overlay off
-  `mdx-raw`, so the joint configs keep it `true`.
+  `mdx-raw`. A projection carries the whole `message_broker` block through
+  unchanged, so this flag stays as the source config set it.
 - **RT-CV port is a three-place coupling**: the webhook URL, `RTVI_CV_PORT`
   (container side of the `ports:` mapping), and `http-port` in the mounted
   DeepStream run config must agree. A build that remaps the port changes all
-  three and forks the joint file.
+  three — the one receiver value a projection may edit, since the alternative is
+  a webhook aimed at a port nothing listens on.
 
 ## Sources
 
@@ -120,8 +158,8 @@ build resolves it explicitly, exactly like the Behavior Analytics joint config.
 - `deploy/docker/services/vios/foundational/docker-compose.yaml`
 - `deploy/docker/services/vios/initiator/docker-compose.yaml`
 - `deploy/docker/services/vios/streamprocessing/docker-compose.yaml`
-- `deploy/docker/services/vios/configs/notification_config_search_alerts_2d_cv.json`
-- `deploy/docker/services/vios/configs/notification_config_search_alerts_2d_vlm.json`
+- `deploy/docker/services/vios/configs/notification_config.json` (shared default)
+- `deploy/docker/developer-profiles/*/vios/configs/notification_config*.json` (the profile configs a build inherits or projects from)
 - `deploy/docker/services/infra/sdrc/docker-compose.yaml`
 - `skills/operations/vss-manage-video-io-storage/references/deploy-vios-service.md`
 - `skills/operations/vss-manage-video-io-storage/references/integrate-vios-service.md`

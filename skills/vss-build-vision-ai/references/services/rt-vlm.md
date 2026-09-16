@@ -108,47 +108,55 @@ the `http://rtvi-vlm:8000` endpoint (a consumer's `VLM_BASE_URL`) are invariant
 across BF16 and FP8; a consumer owns that URL but never inherits it from the
 variant profile.
 
-### Tagging vs. dense captioning (one deployment, two legs)
+### One deployment, three uses
 
-The single `rtvi-vlm` deployment serves two independent headless fan-out legs that
-differ only in the `POST /v1/generate_captions` prompt — no second service is
-deployed. **Dense captioning** uses a free-form prompt for captions/incidents and
-is skipped when an Alert Bridge owns verification (see
-`vss-manage-video-io-storage` `provision-vios-source.md`). **VLM tagging** uses a
-controlled JSON-tag prompt (`response_format={"type":"json_object"}`,
-`temperature=0`, 5s chunks) whose output feeds BM25 tag search: RT-VLM publishes
-to its existing `mdx-vlm-captions` topic, the existing LVS Logstash pipeline
-writes each chunk to `default_<streamId>`, and the read side
-(`vss_core.search_core` `TagSearch`/fusion, exposed via `vss search tag`/`fusion`)
-queries it. Tagging is independent of the Alert Bridge (it owns search indexing,
-not alert verification) and is provisioned for search builds. RT-VLM, Kafka,
-Logstash, and Elasticsearch are unchanged by design. See
-[`docs/designs/vlm-tagging-search.md`](../../../../docs/designs/vlm-tagging-search.md)
-for the contract.
+The single `rtvi-vlm` deployment covers three uses, and only one of them makes it
+a webhook receiver ([`vios.md`](vios.md)):
 
-### Lifecycle independence of the tagging leg
+- **VLM tagging** — stream-driven, and a receiver **only when the request asks
+  for tag search**; deploying RT-VLM never implies it. The `camera_streaming`
+  receiver carries the controlled JSON-tag prompt in `user_defined_metadata`
+  (`response_format_type` `json_object`, `temperature` 0, 5s chunks), and RT-VLM
+  starts inference on admission of any `stream/add` bearing a prompt, so no
+  caller drives it. The output feeds BM25 tag search: RT-VLM publishes to its
+  existing `mdx-vlm-captions` topic, the existing LVS Logstash pipeline writes
+  each chunk to `default_<streamId>`, and the read side
+  (`vss_core.search_core` `TagSearch`/fusion, exposed via `vss search tag` /
+  `fusion`) queries it. RT-VLM, Kafka, Logstash, and Elasticsearch are unchanged
+  by design; see
+  [`docs/designs/vlm-tagging-search.md`](../../../../docs/designs/vlm-tagging-search.md).
+- **Dense captioning** — the same leg with a free-form prompt for
+  captions/incidents. No shipped notification config carries a dense-captioning
+  receiver and a projection cannot add one, so it is driven by
+  `POST /v1/generate_captions` per the dense-captioning deployment skill.
+- **Critique and visual Q&A** — per request, not per stream:
+  `POST /v1/chat/completions` against the deployed service, reached through the
+  ingress route `/rtvi-vlm`. It needs RT-VLM deployed and routed, adds **no**
+  receiver, and needs no agent tier.
 
-The tagging leg is **not** lifecycle-independent of the Alert Bridge by default:
-both legs drive the same RT-VLM stream through `POST /v1/generate_captions`, and
+### Tearing down a hand-driven captioning session
+
+A build never enables tagging and always-on alerting together
+([`vios.md`](vios.md)), so a shared RT-VLM stream arises only where a caller
+drives `POST /v1/generate_captions` itself. Such a caller is **not**
+lifecycle-independent of other subscribers on that stream:
 RT-VLM only isolates a subscriber's teardown when `DELETE
 /v1/generate_captions/{stream_id}` carries that subscriber's `request_id`. That
 `request_id` is **not** caller-selected: RT-VLM generates a UUID for every
 `generate_captions` request and returns it as the top-level `id` in the JSON
-response (VOD) or in each SSE `data:` event (live). The tagging caller must:
+response (VOD) or in each SSE `data:` event (live). The caller must:
 
 1. parse the returned `id` from the admission response (VOD) or the first SSE
    `data:` event (live) — **do not** synthesize one;
-2. persist it alongside the tag session (e.g. keyed by the VIOS `sensorId`);
+2. persist it alongside its own session (e.g. keyed by the VIOS `sensorId`);
 3. tear down with `DELETE /v1/generate_captions/{stream_id}?request_id={returned_id}`
-   (then `DELETE /v1/streams/delete/{stream_id}`), so the Alert Bridge's shared
-   stream is not torn down with it.
+   (then `DELETE /v1/streams/delete/{stream_id}`), leaving any other
+   subscriber's stream intact.
 
 Streaming-admission caveat: the server does not emit an immediate ID-only event
-before captions begin, so for the live leg the `id` is captured from the first
-real SSE `data:` event, and the deliberate early-close sequence in
-`provision-vios-source.md` runs after that first event, not before. A caller
-that issues `DELETE` without the returned `request_id` tears down every
-subscriber on the stream, including the Alert Bridge.
+before captions begin, so on the live path the `id` is captured from the first
+real SSE `data:` event. A caller that issues `DELETE` without the returned
+`request_id` tears down every subscriber on the stream.
 
 ## Configuration knobs
 

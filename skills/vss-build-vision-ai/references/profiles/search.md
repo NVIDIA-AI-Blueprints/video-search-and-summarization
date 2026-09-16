@@ -39,21 +39,26 @@ compose tokens). Helm search keeps SDRC enabled for live multi-worker scale.
 
 ## Headless fan-out (no-agent builds)
 
-When the `vss-agent` tier is omitted, a registered VIOS source is fanned out by
-direct REST per `vss-manage-video-io-storage` `provision-vios-source.md`. The
-search profile's fan-out set is **three legs**: RT-CV (`/api/v1/stream/add`),
-RT-Embed (`/v1/generate_video_embeddings`), and RT-VLM tagging (a controlled
-JSON-tag `POST /v1/generate_captions`). The RT-VLM tagging leg is what makes
-`vss search tag` and `fusion` return hits against a freshly ingested source;
-without it the read side has nothing indexed. Dense captioning is a separate,
-optional RT-VLM leg governed by the Alert-Bridge carve-out, not a search
-requirement.
+When the `vss-agent` tier is omitted, fan-out is webhook-driven: this profile
+pins `VST_NOTIFICATION_CONFIG_PATH` at a webhooks-enabled
+`notification_config.json`, so the caller registers one VIOS source and verifies
+delivery instead of calling consumers (`vss-manage-video-io-storage`
+`provision-vios-source.md`, whose direct-REST appendix covers builds without it).
+
+That config ships RT-CV, RT-Embed and RT-VLM tagging enabled, plus the
+Elasticsearch teardown cleanups, but the set is not inherited by default: it must
+equal the build's own stream-driven consumer set, so a build never asked for
+tagging projects those items off ([`../services/vios.md`](../services/vios.md)).
+Tagging is what makes `vss search tag` and `fusion` return hits, so dropping it
+drops that read path. Dense captioning is a separate, optional RT-VLM leg
+governed by the Alert-Bridge carve-out, not a search requirement.
 
 ## Profile-specific environment knobs
 
 | Knob | Purpose |
 | --- | --- |
 | `VST_USE_SDRC`, `VST_NGINX_MODE`, `STREAM_PROCESSOR_MODULE_ENDPOINT` | Pin VIOS to direct routing (`false` / `vst` / `http://vss-vios-streamprocessing:30001`). All three move together — see `services/vios.md`. A build that reintroduces SDRC must flip all three and re-add the SDRC compose tokens plus `SDR_CONTROLLER_CONFIG_PATH` / `SDRC_*_HOST_PORT`. |
+| `VST_NOTIFICATION_CONFIG_PATH` | Selects the VIOS webhook fan-out config; this profile points it at its own `notification_config.json`. A build whose stream-driven consumer set differs from what that file enables points this at a projection of it instead — see [`../services/vios.md`](../services/vios.md). |
 | `VST_ENABLE_NOTIFICATION` | Independent publish toggle for `vst.event` (Redis/Kafka) — not a routing knob. VIOS composes default it to `${VST_USE_SDRC:-false}`, so it follows the routing mode unless pinned; this profile pins it `false` explicitly since nothing here consumes `vst.event`. See `services/vios.md`. |
 | `RT_CV_DEVICE_ID`, `RTVI_CV_HOST_PORT`, `DS_MODEL_FAMILY` | Configure the perception pipeline. |
 | `VISION_ENCODER_MODEL`, `VISION_ENCODER_VERSION` | Select the vision encoder NGC artifact downloaded by ds-start phase 0; the checked-in RT-CV config uses the fixed RT-DETR warehouse artifact. |
