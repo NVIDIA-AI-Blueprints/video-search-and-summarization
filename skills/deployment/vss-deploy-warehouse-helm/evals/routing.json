@@ -1,0 +1,49 @@
+{
+  "skills": [
+    "vss-deploy-warehouse-helm"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0,
+        "modes": [
+          "routing"
+        ]
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Deploy the warehouse blueprint on Kubernetes via Helm. I haven't decided between 2D, 3D, and MV3DT yet, I don't have an ingress controller on the cluster, and I haven't said whether I want Alerts. Do not run any commands against my cluster — just walk me through what you'd ask and check first.",
+      "checks": [
+        "The agent loads vss-deploy-warehouse-helm and runs through the precheck list (kubectl cluster-info, node readiness, a StorageClass, allocatable nvidia.com/gpu, helm version --short) before touching Helm, and says it will hand back the actual fix rather than just linking the README on any failure.",
+        "The agent asks which mode (2d, 3d, or mv3dt) rather than guessing, since the request doesn't name one.",
+        "The agent asks ingress vs. NodePort before proceeding further, explaining that this choice determines both what gets installed now and which install command is used later; it notes NodePort as the simpler option since no ingress controller is present yet.",
+        "The agent asks whether Alerts is wanted, but frames it as available only if the mode turns out to be 2d.",
+        "The agent asks for the target stream count, since it sizes the NUM_STREAMS cap.",
+        "No helm or kubectl mutating command is executed; this is a planning-only response."
+      ]
+    },
+    {
+      "query": "I already have a working `helm upgrade --install` command for the warehouse-mv3dt-app profile pinned to 6 streams on an H100 node, using a custom values.yaml with extra bp-configurator.env entries. Do not run anything — walk me through how you'd size NUM_STREAMS safely for the GPU and fold that into my existing command.",
+      "checks": [
+        "The agent explains that, unlike Docker Compose, the Helm charts do not cap NUM_STREAMS to the GPU automatically — bp-configurator.env ships a fixed count and ENABLE_PROFILE_CONFIGURATOR=false.",
+        "The agent asks about the existing custom values.yaml and states it must be passed to compute_stream_cap.py via -f so its bp-configurator.env entries aren't dropped from the generated output.",
+        "The agent describes running compute_stream_cap.py --mode mv3dt --num-streams 6 -o values-stream-cap.generated.yaml, noting it detects the GPU via nvidia-smi on index 0 unless --hardware-profile is passed explicitly (needed when running from a bastion or CI runner with no local nvidia-smi).",
+        "The agent states the generated file must be the last -f in the final helm upgrade --install command so it wins on bp-configurator.env, and that this ordering rule does not apply to --set, which Helm always applies after every -f regardless of command-line position.",
+        "The agent notes the mv3dt-specific requirement to also set rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.fusion.maxExpectedSensors to the effective stream count (the same value as syncFileCount), separate from NUM_STREAMS.",
+        "No helm or kubectl command is actually executed; this is a dry walkthrough only."
+      ]
+    },
+    {
+      "query": "My cluster has no StorageClass yet and I don't know if the GPU Operator is installed. I want to deploy the warehouse 2D profile via Helm. Don't run anything against my cluster; just tell me how you'd check and what you'd do if something's missing.",
+      "checks": [
+        "The agent lists the specific precheck commands (kubectl cluster-info, kubectl get nodes, kubectl get storageclass, the allocatable nvidia.com/gpu jsonpath query, helm version --short) before doing anything with Helm.",
+        "On a missing StorageClass, the agent offers the actual local-path-provisioner install plus kubectl patch storageclass snippet for a bare-metal/single-node cluster, or the nfs-subdir-external-provisioner alternative for a multi-node cluster, and explains local-path's node-affinity risk of stranding a pod's PVCs across different nodes on multi-node clusters.",
+        "On a missing nvidia.com/gpu allocatable, the agent offers to relay the GPU Operator install steps rather than only telling the user to 'install the GPU Operator.'",
+        "The agent asks whether the user already has an NGC API key, since that can't be checked from cluster state alone.",
+        "The agent does not proceed to the ingress-vs-NodePort decision until the cluster, StorageClass, GPU Operator, and Helm prechecks all pass and the NGC API key is confirmed."
+      ]
+    }
+  ]
+}
