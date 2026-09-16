@@ -26,7 +26,7 @@ function_groups:
     _type: video_analytics
     es_url: "{{ .Values.elasticsearchUrl | default $es }}"
     index_prefix: "mdx-"
-    vlm_verified: true
+    vlm_verified: {{ .Values.vlmVerified }}
     vst_sensor_list_tool: vst_sensor_list
     embedding_model_name: "sentence-transformers/all-MiniLM-L6-v2"
     include:
