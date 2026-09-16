@@ -214,6 +214,35 @@ def test_guest_marker_write_failure_does_not_raise(
     assert path is None
 
 
+def test_generate_task_copies_build_and_deployment_skills(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    skills_root = tmp_path / "skills"
+    skill_dir = skills_root / "vss-deploy-test-openshell"
+    (skill_dir / "evals").mkdir(parents=True)
+    (skill_dir / "evals" / "base.json").write_text(
+        json.dumps({"openshell": {"gpu_count": 1}, "expects": [{"query": "x", "checks": ["y"]}]})
+    )
+    (skill_dir / "SKILL.md").write_text("# openshell\n")
+    for name in adapter.ALWAYS_BUNDLED_SKILLS:
+        if name == "vss-build-vision-ai":
+            dest = skills_root / name
+        else:
+            dest = skills_root / "deployment" / name
+        dest.mkdir(parents=True)
+        (dest / "SKILL.md").write_text(f"# {name}\n")
+    adapter.generate_task(
+        "base",
+        "H200",
+        adapter.PROFILES["base"],
+        tmp_path / "out",
+        skill_dir=skill_dir,
+        gpu_count=1,
+    )
+    bundled = tmp_path / "out" / "base" / "h200" / "skills"
+    for name in adapter.ALWAYS_BUNDLED_SKILLS:
+        assert (bundled / name / "SKILL.md").is_file(), name
+
+
 def test_generate_task_does_not_write_a_guest_marker(tmp_path: Path) -> None:
     """Harbor task generation stays a dataset write; the marker is CI-only."""
     adapter = _load_adapter()

@@ -4,8 +4,11 @@ down the VSS **base**, **lvs**, **search**, or two-GPU **warehouse agents**
 profile on OpenShell, then chain to operations skills (`vss-ask-video`,
 `vss-search-archive`, `vss-summarize-video`, `vss-manage-video-io-storage`,
 `vss-query-analytics`, `vss-manage-alerts`, `vss-generate-video-report`,
-`vss-generate-video-report-rag`). For other warehouse variants or the full
-catalog, use vss-deploy-profile. <br>
+`vss-generate-video-report-rag`). OpenShell evals also bundle
+`vss-build-vision-ai` and `skills/deployment/` runbooks (`vss-deploy-profile`,
+dense captioning, 2D/3D detection, video embedding, behavior-analytics,
+video-analytics-api). For other warehouse variants or the full catalog, use
+vss-deploy-profile. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 

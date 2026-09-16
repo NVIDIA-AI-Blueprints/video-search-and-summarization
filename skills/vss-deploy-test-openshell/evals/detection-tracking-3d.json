@@ -1,0 +1,38 @@
+{
+  "skills": [
+    "vss-deploy-test-openshell",
+    "vss-deploy-detection-tracking-3d"
+  ],
+  "resources": {
+    "platforms": {
+      "H200": {
+        "gpu_count": 1
+      },
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Use the bundled `/vss-deploy-detection-tracking-3d` skill to deploy RTVI-CV-3D / MV3DT on the 4-camera sample dataset end-to-end on {{platform}}. Use the standalone app at `{{repo_root}}/services/rtvi/rt-cv-3d/rt-cv-mv3dt` and its compose file only. Do not use warehouse compose, `/vss-deploy-test-openshell`, `/vss-deploy-profile`, or VST.",
+      "checks": [
+        "The agent loaded `/vss-deploy-detection-tracking-3d` and did not invoke `/vss-deploy-test-openshell` or `/vss-deploy-profile`",
+        "The agent uses only the standalone RT-CV-3D path `services/rtvi/rt-cv-3d/rt-cv-mv3dt` and its docker/compose.yml",
+        "The agent performs a real deployment rather than a plan-only response",
+        "The final response does not contain plaintext API tokens"
+      ]
+    }
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "H200",
+      "RTXPRO6000BW"
+    ]
+  }
+}

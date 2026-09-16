@@ -17,7 +17,10 @@ The adapter does **not** pick LLM/VLM placement — the
 runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
-    Profiles : base, lvs, warehouse, search, ask-video
+    Profiles : base, lvs, warehouse, search, ask-video, plus chained
+               operations skills and standalone deployment / build skills
+               (vss-build-vision-ai, vss-deploy-profile, RT-VLM / RT-CV /
+               RT-Embed, behavior-analytics, video-analytics-api)
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
                DGX-SPARK, IGX-THOR this guest has (warehouse and search
                are two-GPU jobs; ask-video deploys base then chains to
@@ -349,7 +352,54 @@ PROFILES: dict[str, dict] = {
             "vss-summarize-video",
         ),
     },
+    "build-vision-ai": {
+        "description": "Compose a vision stack with vss-build-vision-ai (proposal-only smoke)",
+        "bundled_skills": ("vss-build-vision-ai",),
+    },
+    "deploy-profile": {
+        "description": "Full vss-deploy-profile catalog on OpenShell (base smoke)",
+        "profile": "base",
+        "bundled_skills": ("vss-deploy-profile",),
+    },
+    "dense-captioning": {
+        "description": "Standalone RT-VLM via vss-deploy-dense-captioning",
+        "bundled_skills": ("vss-deploy-dense-captioning",),
+    },
+    "detection-tracking-2d": {
+        "description": "Standalone RT-CV 2D via vss-deploy-detection-tracking-2d",
+        "bundled_skills": ("vss-deploy-detection-tracking-2d",),
+    },
+    "detection-tracking-3d": {
+        "description": "Standalone RT-CV 3D / MV3DT via vss-deploy-detection-tracking-3d",
+        "bundled_skills": ("vss-deploy-detection-tracking-3d",),
+    },
+    "video-embedding": {
+        "description": "Standalone RT-Embed via vss-deploy-video-embedding",
+        "bundled_skills": ("vss-deploy-video-embedding",),
+    },
+    "setup-behavior-analytics": {
+        "description": "Standalone behavior-analytics via vss-setup-behavior-analytics",
+        "bundled_skills": ("vss-setup-behavior-analytics",),
+    },
+    "setup-video-analytics-api": {
+        "description": "Standalone Video Analytics API via vss-setup-video-analytics-api",
+        "bundled_skills": ("vss-setup-video-analytics-api",),
+    },
 }
+
+# Always copied into every Harbor task so OpenShell trials can invoke
+# `/vss-build-vision-ai` and the listed `skills/deployment/` runbooks, not
+# only `skills/operations/*`.
+ALWAYS_BUNDLED_SKILLS: tuple[str, ...] = (
+    "vss-build-vision-ai",
+    "vss-deploy-dense-captioning",
+    "vss-deploy-detection-tracking-2d",
+    "vss-deploy-detection-tracking-3d",
+    "vss-deploy-profile",
+    "vss-deploy-video-embedding",
+    "vss-setup-behavior-analytics",
+    "vss-setup-video-analytics-api",
+)
 
 
 def _find_bundled_skill(skills_root: Path, name: str) -> Path | None:
@@ -815,7 +865,8 @@ def generate_task(
     )
 
     # -- skills/vss-deploy-test-openshell/ plus every skills/operations/*
-    # skill (ask-video, search, summarize, VIOS, alerts, reports, …).
+    # skill (ask-video, search, summarize, VIOS, alerts, reports, …) and
+    # the build / deployment skills OpenShell trials also exercise.
     if skill_dir and skill_dir.exists():
         skills_root = skill_dir.parent
         _copy_skill_dir(skill_dir, task_dir / "skills" / "vss-deploy-test-openshell")
@@ -823,7 +874,9 @@ def generate_task(
         for extra in _iter_operations_skills(skills_root):
             _copy_skill_dir(extra, task_dir / "skills" / extra.name)
             copied.add(extra.name)
-        for extra in profile_def.get("bundled_skills") or ():
+        extras = list(ALWAYS_BUNDLED_SKILLS)
+        extras.extend(name for name in (profile_def.get("bundled_skills") or ()) if name not in extras)
+        for extra in extras:
             if extra in copied:
                 continue
             src = _find_bundled_skill(skills_root, extra)
@@ -832,6 +885,7 @@ def generate_task(
                       file=sys.stderr)
                 continue
             _copy_skill_dir(src, task_dir / "skills" / extra)
+            copied.add(extra)
 
 
 # ---------------------------------------------------------------------------

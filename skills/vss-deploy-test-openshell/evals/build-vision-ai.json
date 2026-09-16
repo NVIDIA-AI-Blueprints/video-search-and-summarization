@@ -1,0 +1,38 @@
+{
+  "skills": [
+    "vss-deploy-test-openshell",
+    "vss-build-vision-ai"
+  ],
+  "resources": {
+    "platforms": {
+      "H200": {
+        "gpu_count": 1
+      },
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Use `/vss-build-vision-ai` to propose the architecture for: \"Provide VLM Q&A and dense captioning for streamed and uploaded video. Video must remain retrievable through VIOS. Publish streamed captions to Kafka topic `mdx-vlm-captions` and store them in Elasticsearch.\" Do not write files or deploy yet. Explain the selected current Foundation, the smallest delta, the canonical build location `_builds/in-1/`, and the validation/deployment path. Target {{platform}}. The `/vss-build-vision-ai` skill is bundled in this trial; do not invent a compose profile.",
+      "checks": [
+        "The agent loaded `/vss-build-vision-ai` rather than deploying a stock compose profile via `/vss-deploy-test-openshell` for this proposal-only request",
+        "The proposal selects exactly one current developer Foundation and treats `in-1` only as a filesystem label",
+        "No files are written under `_builds/` and no deployment is started during this proposal-only turn",
+        "The final response does not contain plaintext API tokens"
+      ]
+    }
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "H200",
+      "RTXPRO6000BW"
+    ]
+  }
+}
