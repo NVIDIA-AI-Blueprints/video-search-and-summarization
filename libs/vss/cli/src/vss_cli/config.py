@@ -734,6 +734,10 @@ INGRESS_SERVICES.update(
     {
         "agent": ServiceRoute(mount="/api", probe="/api/v1/videos"),
         "vst": ServiceRoute(mount="/vst", probe="/vst/api/v1/sensor/version"),
+        "video_analytics": ServiceRoute(
+            mount="/video-analytics-api",
+            probe="/video-analytics-api/livez",
+        ),
         "elasticsearch": ServiceRoute(
             mount="/elasticsearch",
             probe="/elasticsearch/_cat/indices?h=index&format=json",

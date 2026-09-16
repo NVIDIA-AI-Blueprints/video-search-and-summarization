@@ -74,6 +74,11 @@ def test_memory_is_registered_through_the_public_contract() -> None:
     assert "memory" in names
 
 
+def test_analytics_is_registered_through_the_public_contract() -> None:
+    names = {ref.name for ref in plugins.discover()}
+    assert "analytics" in names
+
+
 def test_summary_is_read_without_importing_the_group(monkeypatch: pytest.MonkeyPatch) -> None:
     """Summaries are raw entry-point values, so prose round-trips intact."""
     boom = _FakeEntryPoint("acme", "acme:GROUP", dist="acme-vss", payload=AssertionError("imported!"))
@@ -242,3 +247,9 @@ def test_root_help_does_not_import_the_search_runtime() -> None:
     code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'vss_cli.search.group' in sys.modules else 0)"
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert result.returncode == 0, f"vss --help imported the search runtime\n{result.stdout}{result.stderr}"
+
+
+def test_root_help_does_not_import_the_analytics_group() -> None:
+    code = "import sys; import vss_cli; vss_cli.main(['--help']); sys.exit(1 if 'vss_cli.analytics_group' in sys.modules else 0)"
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, f"vss --help imported analytics\n{result.stdout}{result.stderr}"
