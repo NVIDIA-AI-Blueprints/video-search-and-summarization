@@ -15,13 +15,13 @@ document is the equivalent command reference for running it by hand.
 - `docker`, `node`/`npm`, `nemoclaw`, and `openshell` on `PATH`.
 - Provider credentials in the environment (`NVIDIA_API_KEY`, or
   `NEMOCLAW_ENDPOINT_URL` + `NEMOCLAW_MODEL` + `COMPATIBLE_API_KEY` for a custom
-  OpenAI-compatible endpoint). The default agent model is **Claude Opus 4-8
+  OpenAI-compatible endpoint). The default agent model is **Claude Opus 5
   through the NVIDIA Inference Hub**, which is reachable from NVIDIA
   infrastructure and issues its own token:
 
   ```bash
   export NEMOCLAW_ENDPOINT_URL="https://inference-api.nvidia.com/v1"
-  export NEMOCLAW_MODEL="aws/anthropic/bedrock-claude-opus-4-8"
+  export NEMOCLAW_MODEL="aws/anthropic/bedrock-claude-opus-5"
   export COMPATIBLE_API_KEY="<token for that endpoint>"
   ```
 
