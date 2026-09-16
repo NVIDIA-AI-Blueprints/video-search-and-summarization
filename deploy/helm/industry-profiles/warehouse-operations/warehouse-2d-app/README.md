@@ -310,11 +310,14 @@ kubectl get ingressclass          # expect: haproxy
 ```bash
 helm dependency update deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app
 
+GIT_REF=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+
 helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
   -n <namespace> --create-namespace \
   --set global.vssIngress.enabled=true \
   --set global.externalHost=<NODE_IP> \
   --set global.storageClass=<STORAGE_CLASS> \
+  --set global.gitRef=$GIT_REF \
   --set monitoring.grafana.rootUrl=http://<NODE_IP>/grafana \
   --set infra.kibana.kibanaPublicUrl=http://<NODE_IP>/kibana
 ```
@@ -323,6 +326,21 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 are host-specific. Grafana and Kibana build absolute links, so without them Grafana
 points at `localhost` and Kibana at its in-cluster Service name. The rest works off
 the defaults.
+
+**`global.gitRef`** picks the branch/tag the calibration-import source links
+(`calibrationFileSource`, `imageMetadataFileSource`, `imageBaseSource`) point at.
+`GIT_REF` above resolves to the tag when installing from a tagged checkout, or the
+branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
+
+**`global.sampleVideoDataset`** picks the dataset directory under
+`calibration/sample-data/` those same three links point at. Default is
+`warehouse-4cams-20mx20m-synthetic`.
+
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
+`http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
+fetch calibration.json from that endpoint via an initContainer, retrying until
+it returns real data and validating it before the main container starts. Clear
+it to fall back to the bundled `files/behavior-analytics/calibration.json`.
 
 ### 4. Post-install validation
 

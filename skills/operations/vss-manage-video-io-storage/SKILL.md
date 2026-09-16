@@ -6,6 +6,11 @@ metadata:
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "always"
 ---
 ## Purpose
 
@@ -92,9 +97,9 @@ hands off to the full-stack `/vss-build-vision-ai` skill. Before doing any work:
    curl -sf --max-time 5 "${VSS_VIOS_URL}/api/v1/sensor/version" >/dev/null
    ```
 
-2. **If the probe fails, VIOS is not deployed.** Offer two paths forward:
+2. **If the probe fails, VIOS is not deployed.** Offer the standalone path:
 
-   > *"VIOS is not reachable at `${VSS_VIOS_URL}` — no deployment is currently up. You have two options:*
+   > *"VIOS is not reachable at `${VSS_VIOS_URL}` — no deployment is currently up.*
    > *(a) Bring up VIOS standalone using this skill's bundled [`references/deploy-vios-service.md`](references/deploy-vios-service.md) runbook — image tags, env vars (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true`), host directories, NGC login, bring-up command, healthcheck loop, and known deployment issues are all documented there. This is the right path if you only need VIOS itself (no RT-VLM / ELK / etc.) or if you're composing a custom profile.*
    > *(b) Deploy a full VSS profile that includes VIOS via the `/vss-build-vision-ai` skill — `base` (recommended), `lvs`, `search`, or `alerts` all bring VIOS up alongside other components. This is the right path if you want a complete VSS stack.*
    > *Which would you like?"*

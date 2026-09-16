@@ -322,7 +322,30 @@ docker ps               # verify runs without sudo
 
 If Docker needs to be installed: https://docs.docker.com/engine/install/ubuntu/
 
-> **Docker upper bound — `< 29.5.0`.** Docker Engine `29.5.0` and later fail to pull some NGC-hosted image tags after the layers download with `error from registry: Incorrect Repository Format`. Pin a supported version below `29.5.0` (canonical reference: `28.3.3`). If you must run `29.5.0`+, disable the containerd snapshotter daemon-side — see [Docker 29.5.0+ workaround](#docker-2950-workaround) below.
+> **Docker upper bound — `< 29.5.0`.** Docker Engine `29.5.0` and later fail to pull some NGC-hosted image tags after the layers download with `error from registry: Incorrect Repository Format`. Pin a supported version with the script below. If the host is locked above the bound and cannot be downgraded, disable the containerd snapshotter daemon-side — see [Docker 29.5.0+ workaround](#docker-2950-workaround) below.
+
+#### Pin the tested Docker versions
+<a id="docker-pin"></a>
+
+```bash
+bash "$REPO/deploy/docker/scripts/pin_docker_version.sh"
+```
+
+The script owns the pinned versions, the tested range, and the `apt-mark hold`
+that keeps unattended-upgrades from undoing them. It skips the downgrade when
+the installed engine is already in range, which is what makes it safe on DGX
+Spark / DGX-OS arm64 — that apt repo may not carry the exact epoch-versioned
+packages, and re-pinning there fails with *version not found*. Run it on every
+host rather than only one that failed the check above; it is idempotent.
+
+**Run it here, at Step 3, and not later.** A downgrade restarts `dockerd`,
+which costs nothing before Step 9 and costs every container in the deployed
+build after it. The Step 9 image pulls are also what trigger the
+`Incorrect Repository Format` failure, so a pin that lands after them prevents
+nothing. `deploy_nemoclaw.ipynb` section 2.1 runs the same script at Step 10, so
+a host pinned here only re-applies the holds when the harness comes up.
+
+Needs `sudo` and `apt` — Ubuntu/Debian only.
 
 If `docker ps` requires sudo → add user to docker group:
 ```bash
@@ -415,6 +438,27 @@ Re-run the `docker run` check to confirm before continuing.
 Required minimum: **`4.10.0+`**. Follow [`ngc.md`](ngc.md) to check NGC CLI
 and API-key access.
 
+**A NemoClaw build needs no host install.** Both harness images —
+[`.openclaw/Dockerfile`](../../../.openclaw/Dockerfile) and
+[`.hermes/Dockerfile`](../../../.hermes/Dockerfile) — ship the CLI
+unconditionally, and the sandbox is where the operation skills run. Verify it
+there if anything looks off (`ngc --version` in the sandbox), not here.
+
+**On every other harness, install it on this host**, since the `vss` CLI and the
+operation skills' sample-data and fixture bootstraps run here:
+
+```bash
+command -v ngc >/dev/null 2>&1 && ngc --version \
+  || echo "NGC CLI missing — install it per ngc.md before continuing"
+```
+
+Attempt [`ngc.md`](ngc.md)'s install when it is missing. That install needs
+`sudo`, so when this host's branch is `SUDO_NOPASSWD=0` (see
+[Sudo Access](#sudo-access)) or the agent's own permissions forbid `sudo`, do
+not retry it and do not improvise an install path: surface `ngc.md`'s block
+verbatim with the handoff wording from that section, and resume once the user
+confirms it succeeded.
+
 ---
 
 ## Canonical version matrix
@@ -433,7 +477,7 @@ Single source of truth for **every** dependency the deploy assumes. Sourced from
 | NVIDIA Driver — IGX-THOR / AGX-THOR | `580.00` | exact pin |
 | NVIDIA Fabric Manager | `580.105.08` | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX) |
 | NVIDIA Container Toolkit | `1.17.8+` | |
-| Docker | `28.3.3+` **and** `< 29.5.0` | upper bound: `29.5.0`+ breaks NGC image pulls — see [Docker 29.5.0+ workaround](#docker-2950-workaround) |
+| Docker | `28.3.3+` **and** `< 29.5.0` | pin with [`pin_docker_version.sh`](#docker-pin), which owns the exact versions. Upper bound: `29.5.0`+ breaks NGC image pulls — on a host that cannot be downgraded, see [Docker 29.5.0+ workaround](#docker-2950-workaround) |
 | Docker Compose | `v2.39.1+` | |
 | NGC CLI | `4.10.0+` | follow `ngc.md` |
 

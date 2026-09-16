@@ -45,3 +45,9 @@ _builds/
 # Packaged Helm dependencies produced by `helm dependency update` (subchart
 # sources under charts/ are tracked; the .tgz artifacts are not).
 deploy/helm/**/charts/*.tgz
+
+# Working-tree snapshots staged into the harness build contexts by
+# skills/vss-build-vision-ai/scripts/stage_vss_src.py (dev-loop override of
+# the Dockerfiles' pinned VSS_REF fetch).
+.openclaw/.vss-src/
+.hermes/.vss-src/

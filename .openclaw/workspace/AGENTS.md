@@ -122,6 +122,11 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 
 > **You have Docker access. Run all deploy and docker commands yourself — do NOT ask the user to run them in their terminal.**
 
+- Operation skills hand deployment off to `/vss-build-vision-ai`. That skill is
+  **not installed in this sandbox** — when a skill routes there, use the deploy
+  conventions in this section instead (or, when the deployment is not yours to
+  touch, report what it needs and stop).
+
 - Always load the NGC key before deploying, if  NGC_CLI_API_KEY is missing, ask user about it
   ```bash
   set -a && . ~/.ngc/.env && set +a
