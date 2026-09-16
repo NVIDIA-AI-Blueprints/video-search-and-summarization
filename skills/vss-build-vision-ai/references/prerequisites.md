@@ -350,7 +350,7 @@ discredits the real blockers reported alongside it.
 |---|---|---|
 | `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`, with no `/dev/nvidia*` | the device nodes are not exposed to the sandbox, while `lsmod` still lists `nvidia` and the GPUs are on the PCI bus | re-run `nvidia-smi` unconfined before touching the driver table in check 1 |
 | `Permission denied` on a root-owned path that `ls -ld` reports as `nobody:nogroup` | a user namespace leaves host `root` unmapped | re-read it unconfined, and compare the ownership the two probes print |
-| `Permission denied` as uid 0 on a path whose mode already grants its owner access | the process holds no capabilities — `grep CapEff /proc/self/status` is all zeros | none from this process. Read it through a privileged peer the user approves, or ask for the value |
+| `Permission denied` as uid 0 on a path whose mode already grants its owner access | the DAC-override capabilities are gone — `grep CapBnd /proc/self/status` has bits 1 and 2 clear (`…f9`). Cite the bounding set, not `CapEff`: a zero `CapEff` alone is regainable by a setuid exec, while a cleared bound is a ceiling `sudo` cannot lift | none from this process. Read it through a privileged peer the user approves, or ask for the value |
 
 That last row is the one to state precisely, because it is the one that invites a
 wrong conclusion. The path is readable **on the host** and unreadable **from

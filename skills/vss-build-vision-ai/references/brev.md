@@ -70,10 +70,14 @@ behind a port that has one. Do not fall back to constructing a hostname.
 <a id="confined-read"></a>
 
 `/etc/brev` is `0700 root:root`. An agent process holding no capabilities is
-denied it even as uid 0 ([`prerequisites.md`](prerequisites.md#confinement)), and
-`read_brev_environment_context` turns that `OSError` into `{}` — so the helpers
-above go quiet instead of failing. **That silence is not "no link is
-published".** Distinguish the two before reporting either.
+denied it even as uid 0 ([`prerequisites.md`](prerequisites.md#confinement)).
+`read_brev_environment_context` retries that denial as `sudo -n cat` before
+turning it into `{}` — which recovers the file for a host shell holding
+passwordless sudo, and not for an agent whose `sudo` is refused by policy. When
+the retry fails too, the helpers above return nothing instead of failing,
+logging `context ... is unreadable` at `WARNING` and carrying on. **An empty
+result is not "no link is published".** Distinguish the two before reporting
+either; the warning line tells you which one you have.
 
 `dockerd` holds the capabilities the agent lacks, so a read-only bind mount
 resolves the entry. It is a privileged read of host config: **ask the user to
