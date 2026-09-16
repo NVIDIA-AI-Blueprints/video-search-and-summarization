@@ -43,6 +43,30 @@ read the completion marker it prints as its final stdout line — do not poll.
 and produces no evidence, so it mints **no `job_id`**, writes no record, and has
 no `run`/`status`/`get` verbs. Its `list` lists *sensors*, not jobs.
 
+**Read-only analytics** — `analytics`. Reads incidents, calibration-backed
+sensor/place inventories, and metrics from the configured Video Analytics API.
+It likewise mints no `job_id`, writes no record, and has no job verbs.
+
+## `vss analytics` — incidents and metrics
+
+```bash
+vss analytics incidents [--source TEXT --source-type sensor|place] [--limit N]
+vss analytics incident --incident-id ID
+vss analytics sensors [--place TEXT]
+vss analytics places
+vss analytics fov-histogram --source TEXT --source-type sensor|place --start-time T --end-time T
+vss analytics average-speed --source TEXT --source-type sensor|place --start-time T --end-time T
+vss analytics analyze --source TEXT --source-type sensor|place --start-time T --end-time T --analysis-type TYPE
+```
+
+Every command requires the `video_analytics` service discovered by
+`vss configure`. Empty arrays/counts are successful answers. A missing incident
+exits 5.
+
+`vss analytics sensors` lists sensor IDs represented in analytics calibration
+data. It is not VIOS registration: use `vss vios list` for the sensors currently
+registered in the media plane.
+
 ## `vss vios` — media
 
 ```bash
