@@ -484,3 +484,47 @@ def test_search_get_status_list_parent_oriented(search_group: SearchGroup) -> No
     assert len(listed.body) == 1
     assert "record_id" not in listed.body[0]["job"]
     assert "children" not in listed.body[0]
+
+
+def test_search_get_preserves_zero_hit_critic_diagnostic(
+    search_group: SearchGroup,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A persisted empty search must retain why visual verification was disabled."""
+
+    reason = "no RT-VLM route is configured"
+
+    async def disabled_critic(_deployment: Any, *, eval_count: int | None = None) -> tuple[None, None, str]:
+        _ = eval_count
+        return None, None, reason
+
+    class _EmptyVSS:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *_args: Any) -> None:
+            return None
+
+        async def search(self, **_kwargs: Any) -> SearchOutput:
+            return SearchOutput(data=[])
+
+        @classmethod
+        def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
+            return cls()
+
+    monkeypatch.setattr("vss_cli.search.group._critic_from", disabled_critic)
+    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _EmptyVSS)
+    service = MemoryService(InMemoryStore())
+    ctx = Context(
+        deployment=_deployment(),
+        memory=Memory(service, index="vss-memory"),
+    )
+
+    run = search_group.run("embed", _inputs(), ctx)
+    got = search_group.get(run.job_id, ctx)
+
+    diagnostic = f"Visual verification disabled: {reason}."
+    assert run.body["data"] == []
+    assert run.body["search_messages"] == [diagnostic]
+    assert got.body["output"]["answer"] == "Found 0 matching video segments."
+    assert got.body["output"]["ext"]["search_messages"] == [diagnostic]

@@ -590,7 +590,7 @@ class SearchGroup(CommandGroup):
             # come back ``unverified`` with no distinction from "critic ran but
             # the VLM could not decide". Surface the reason so the caller (and the
             # vss-search-archive skill, which reads search_messages) can explain it.
-            if critic is None and disabled_reason and output.data:
+            if critic is None and disabled_reason:
                 output = output.model_copy(
                     update={
                         "search_messages": [
@@ -761,6 +761,13 @@ def _search_terminal_bundle(
             row["score"] = row["similarity"]
         rows.append(row)
     answer = f"Found {len(rows)} matching video segments."
+    search_messages = list(getattr(output, "search_messages", None) or [])
+    ext: dict[str, Any] = {"search_mode": search_mode, "result_count": len(rows)}
+    if search_messages:
+        # Diagnostics are part of the completed search result, not transient
+        # console output.  Persist them on the parent so a later `search get`
+        # can still explain, for example, why zero hits were not verified.
+        ext["search_messages"] = search_messages
     return SearchAdapter().terminal_bundle(
         job_id=job_id,
         created_at=created_at,
@@ -768,7 +775,7 @@ def _search_terminal_bundle(
         input_data=input_data,
         answer=answer,
         results=rows,
-        ext={"search_mode": search_mode, "result_count": len(rows)},
+        ext=ext,
     )
 
 

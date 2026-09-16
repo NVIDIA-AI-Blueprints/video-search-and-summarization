@@ -610,3 +610,49 @@ def test_search_run_surfaces_disabled_critic_reason(monkeypatch: pytest.MonkeyPa
     result = SEARCH.run("embed", EmbedInput(query="red forklift"), Context(deployment=deployment))
 
     assert result.body["search_messages"] == ["Visual verification disabled: no RT-VLM route is configured."]
+
+
+def test_search_run_surfaces_disabled_critic_reason_on_zero_hits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The disabled-critic reason must surface even when the search returns no hits.
+
+    ``search_messages`` is independent of result count; gating the reason on a
+    non-empty ``data`` set would hide why visual verification is off exactly
+    when the caller most wants to know (nothing came back).
+    """
+    from vss_cli.search.group import SEARCH
+    from vss_cli.search.group import EmbedInput
+    from vss_core.search_core import host as host_mod
+    from vss_core.search_core.models.search import SearchOutput
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.example",
+        services={
+            "elasticsearch": config_mod.Service(
+                url="https://vss.example/elasticsearch",
+                indices=["mdx-embed-filtered-2025-01-01"],
+            ),
+            "rt_embed": config_mod.Service(url="https://vss.example/rtvi-embed", models=["cosmos-embed"]),
+            "vst": config_mod.Service(url="https://vss.example/vst"),
+        },
+    )
+
+    class _FakeVSS:
+        @classmethod
+        def from_runtime(cls, runtime, *, critic=None):
+            _ = runtime, critic
+            return cls()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def search(self, **kw):
+            return SearchOutput(data=[])
+
+    monkeypatch.setattr(host_mod, "VSSSearch", _FakeVSS)
+
+    result = SEARCH.run("embed", EmbedInput(query="red forklift"), Context(deployment=deployment))
+
+    assert result.body["search_messages"] == ["Visual verification disabled: no RT-VLM route is configured."]
