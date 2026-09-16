@@ -12,10 +12,11 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS and a video-understanding VLM ready for the following vss-ask-video queries. Use the configured remote model endpoints and run autonomously.",
+      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS and a video-understanding VLM ready for the following vss-ask-video queries. Use the configured remote model endpoints and run autonomously.\n\n**Unified memory is a prerequisite for this spec.** The stock `base` profile ships no memory backend, so extend it with the `elasticsearch` and `elasticsearch-init-container` service keys, then configure memory and its introspection judge so the later steps can retrieve stored VSS results:\n\n```bash\nVSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"\nVSS=(uv run --project \"${VSS_REPO_ROOT}/libs/vss\" vss)\n\"${VSS[@]}\" configure memory --enable --backend elasticsearch --index vss-memory\n\"${VSS[@]}\" configure memory introspection\n```\n\nWithout this, every `vss memory get` / `memory query` / `memory introspect` call in the later steps exits 4 with \"memory is not configured\".",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
-        "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup)."
+        "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup).",
+        "`sh -c 'VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"; uv run --project \"${VSS_REPO_ROOT}/libs/vss\" vss configure memory show'` returns exit 0 (unified memory is configured, so the memory steps that follow can reach a backend rather than failing with \"memory is not configured\")."
       ]
     },
     {

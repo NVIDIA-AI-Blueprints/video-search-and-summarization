@@ -455,7 +455,10 @@ class CommandGroup(ABC):
             # Durations ("1h") read well but were never implemented; the help
             # promised them and the parser rejected them.
             click.Option(["--since"], callback=_instant, help="Only jobs at or after this ISO-8601 instant."),
-            click.Option(["--sensor-id"], help="Restrict to one sensor."),
+            click.Option(
+                ["--sensor-id", "--sensor"],
+                help="Restrict to one sensor by name (either spelling).",
+            ),
             click.Option(["--status"], help="Restrict to one job status."),
         )
 

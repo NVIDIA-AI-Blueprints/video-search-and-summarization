@@ -191,7 +191,10 @@ frame budget or a reproducibility workflow requires it. Never combine
 For a general memory-aware question that Markdown does not fully answer:
 - Preserve the user's question verbatim.
 - Pass only grounded selectors.
-- Prefer a known `job_id` from the Markdown pointer.
+- Prefer a known `job_id` from the Markdown pointer - pass it as
+  `memory introspect --job-id <id>`. A pointer is a reason to scope
+  introspection, never a reason to fall back to `vss memory get`; that
+  fallback belongs only to the disabled path below.
 - Otherwise use a grounded sensor or complete time range.
 - Do not run `vss memory query` immediately before introspection merely to
   duplicate its internal retrieval.
@@ -206,9 +209,16 @@ VSS=(uv run \
 VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
 RC=0
+# Scope by the Markdown pointer when there is one, else by sensor.
+if [ -n "${JOB_ID:-}" ]; then
+  SCOPE=(--job-id "${JOB_ID}")
+else
+  SCOPE=(--sensor "${SENSOR_NAME}")
+fi
+
 RESULT=$("${VSS[@]}" memory introspect \
   --query "${USER_QUESTION}" \
-  --sensor "${SENSOR_NAME}" \
+  "${SCOPE[@]}" \
   --fps "${VLM_FPS}") || RC=$?
 
 if [ -n "${RESULT}" ]; then
@@ -238,8 +248,11 @@ Handle the result fields `status`, `sufficient_from_memory`, `answer`,
 Do not call `vss memory introspect` while answering an ordinary video question,
 and do not enable it or rewrite static configuration automatically. Users and
 the agent may still configure and enable introspection when the user explicitly
-asks. If Markdown supplies a `job_id`, use `vss memory get`; otherwise use
-`vss memory query` with relevant text, sensor, and time filters. Answer from
+asks. This section applies only when introspection is disabled or
+unconfigured - when it is enabled, follow the enabled path above even if a
+pointer is present. Here, if Markdown supplies a `job_id`, use
+`vss memory get`; otherwise use `vss memory query` with relevant text, sensor,
+and time filters. Answer from
 the returned records when sufficient. If insufficient, report what is known and
 what is missing.
 
