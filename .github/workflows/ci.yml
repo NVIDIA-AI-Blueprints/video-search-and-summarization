@@ -924,11 +924,18 @@ jobs:
             torch \
             torchvision
           uv pip install --python .venv-rtvi/bin/python \
+            aiofiles \
+            boto3 \
             filelock \
+            grpcio \
             numpy \
+            nvtx \
+            opentelemetry-api \
             pillow \
             pydantic \
-            pytest
+            pytest \
+            pyyaml \
+            requests
 
       # --noconftest: tests/conftest.py imports prometheus_client,
       # sse_starlette, requests and sseclient for autouse fixtures that none
@@ -949,6 +956,7 @@ jobs:
         run: |
           PYTHONPATH=src "$GITHUB_WORKSPACE/.venv-rtvi/bin/pytest" \
             tests/model/vllm_compatible/test_mm_processor_cache_engine_args.py \
+            tests/rtvi_embed/test_decode_retry_telemetry.py \
             -v
 
   # ---------------------------------------------------------------------------

@@ -41,9 +41,10 @@ cached for the lifetime of the poller.
 
 Exit codes:
 
-* ``0`` - pipeline finished with no failures.
-* ``1`` - the finished pipeline had a failing / canceled job, or the
-  poller timed out (see ``MAX_POLL_DURATION_SECONDS``).
+* ``0`` - pipeline finished with no failures, or its only blocking
+  failures were classified as downstream infrastructure.
+* ``1`` - the finished pipeline had a product failure or a canceled
+  job, or the poller timed out (see ``MAX_POLL_DURATION_SECONDS``).
 
 Retried jobs are handled by de-duping on ``name`` and keeping only
 the latest attempt (highest ``id``).
@@ -206,6 +207,14 @@ def _job_exit_code(job: dict[str, Any]) -> int | None:
         return None
 
 
+def _job_id(job: dict[str, Any]) -> int | None:
+    raw = job.get("id")
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def fetch_job_detail(
     base_url: str,
     token: str,
@@ -234,6 +243,30 @@ def fetch_job_detail(
 _TRACE_EXIT_CODE_RE = re.compile(r"Job failed: exit code (\d+)")
 
 
+def fetch_job_trace(
+    base_url: str,
+    token: str,
+    project_id: int,
+    job_id: int,
+) -> str | None:
+    """Fetch a job's raw text trace, or ``None`` if it is unavailable."""
+    url = f"{base_url}/projects/{project_id}/jobs/{job_id}/trace"
+    request = Request(
+        url,
+        headers={
+            "PRIVATE-TOKEN": token,
+            "Accept": "text/plain",
+            "User-Agent": "poll-downstream-pipeline",
+        },
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except (HTTPError, URLError, ContentTooShortError) as exc:
+        emit_warning(f"Job trace lookup failed: {exc}")
+        return None
+
+
 def fetch_job_trace_exit_code(
     base_url: str,
     token: str,
@@ -248,20 +281,8 @@ def fetch_job_trace_exit_code(
     ``failed + allow_failure: true`` jobs and cache the result, so the
     extra request cost is bounded.
     """
-    url = f"{base_url}/projects/{project_id}/jobs/{job_id}/trace"
-    request = Request(
-        url,
-        headers={
-            "PRIVATE-TOKEN": token,
-            "Accept": "text/plain",
-            "User-Agent": "poll-downstream-pipeline",
-        },
-    )
-    try:
-        with urlopen(request, timeout=30) as response:
-            payload = response.read().decode("utf-8", errors="replace")
-    except (HTTPError, URLError, ContentTooShortError) as exc:
-        emit_warning(f"Job trace lookup failed: {exc}")
+    payload = fetch_job_trace(base_url, token, project_id, job_id)
+    if payload is None:
         return None
 
     # The runner always prints this near the end. Use the LAST match
@@ -298,11 +319,7 @@ def resolve_exit_code(
     if direct is not None:
         return direct
 
-    raw_id = job.get("id")
-    try:
-        job_id = int(raw_id) if raw_id is not None else None
-    except (TypeError, ValueError):
-        job_id = None
+    job_id = _job_id(job)
     if job_id is None:
         return None
 
@@ -355,6 +372,83 @@ def blocking_jobs(
         elif status == "canceled":
             canceled.append(job)
     return failed, canceled
+
+
+# Reasons explicitly attributed to the downstream runner.
+INFRA_FAILURE_REASONS = frozenset({"runner_system_failure", "stuck_or_timeout_failure"})
+
+_STEP_SCRIPT_SECTION_RE = re.compile(r"section_start:\d+:step_script")
+
+
+def failed_before_step_script(
+    job: dict[str, Any],
+    base_url: str,
+    token: str,
+    project_id: int,
+    cache: dict[int, bool],
+) -> bool:
+    """Return true only when a non-empty trace never entered ``step_script``."""
+    job_id = _job_id(job)
+    if job_id is None:
+        return False
+    if job_id in cache:
+        return cache[job_id]
+    trace = fetch_job_trace(base_url, token, project_id, job_id)
+    verdict = bool(trace) and not _STEP_SCRIPT_SECTION_RE.search(trace or "")
+    cache[job_id] = verdict
+    return verdict
+
+
+def infra_failure_cause(
+    job: dict[str, Any],
+    base_url: str,
+    token: str,
+    project_id: int,
+    cache: dict[int, bool],
+) -> str | None:
+    """Return a proven infrastructure cause, otherwise fail closed."""
+    reason = str(job.get("failure_reason") or "").strip().lower()
+    if reason in INFRA_FAILURE_REASONS:
+        return "reported by the downstream CI system, not by the job's script"
+    if reason != "script_failure":
+        return None
+
+    if failed_before_step_script(job, base_url, token, project_id, cache):
+        return "failed before step_script, so no product code ran"
+    return None
+
+
+def partition_infra_failures(
+    failed: list[dict[str, Any]],
+    base_url: str,
+    token: str,
+    project_id: int,
+    cache: dict[int, bool],
+) -> tuple[list[tuple[dict[str, Any], str]], list[dict[str, Any]]]:
+    """Split blocking failures into proven infrastructure and product failures."""
+    infra: list[tuple[dict[str, Any], str]] = []
+    product: list[dict[str, Any]] = []
+    for job in failed:
+        cause = infra_failure_cause(job, base_url, token, project_id, cache)
+        if cause:
+            infra.append((job, cause))
+        else:
+            product.append(job)
+    return infra, product
+
+
+def triage_handle(pipeline_id: int, pipeline: dict[str, Any]) -> str:
+    """Return identifiers usable even when downstream URLs are masked."""
+    iid = pipeline.get("iid") or pipeline_id
+    parts = [f"downstream pipeline IID {iid}"]
+    correlation = os.environ.get("VSS_TRIGGER_CORRELATION_ID", "").strip()
+    if not correlation:
+        run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+        attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1").strip() or "1"
+        correlation = f"gh-{run_id}-{attempt}-*" if run_id else ""
+    if correlation:
+        parts.append(f"VSS_TRIGGER_CORRELATION_ID {correlation}")
+    return ", ".join(parts)
 
 
 def describe_job(job: dict[str, Any]) -> str:
@@ -449,18 +543,27 @@ def report_terminal_pipeline(
     seen_success: set[str],
     seen_skipped: set[str],
     seen_allowed_failure: set[str],
+    pipeline: dict[str, Any],
+    base_url: str,
+    token: str,
+    project_id: int,
+    trace_cache: dict[int, bool],
 ) -> int:
     """Decide the check's verdict from a terminal pipeline snapshot."""
     failed, canceled = blocking_jobs(jobs)
+    infra, product = partition_infra_failures(failed, base_url, token, project_id, trace_cache)
+    handle = triage_handle(pipeline_id, pipeline)
 
-    if failed or canceled:
-        for job in failed:
+    if product or canceled:
+        for job in product:
             emit_error(f"Downstream job failed: {describe_job(job)}")
+        for job, cause in infra:
+            emit_warning(f"Downstream infrastructure failure (not a product failure): {describe_job(job)} - {cause}")
         for job in canceled:
             emit_error(f"Downstream job canceled: {describe_job(job)}")
         print(
             f"Downstream pipeline #{pipeline_id} finished '{pipeline_status}': "
-            f"{len(failed)} failed, {len(canceled)} canceled, "
+            f"{len(product)} failed, {len(infra)} infrastructure, {len(canceled)} canceled, "
             f"{len(seen_success)} succeeded, "
             f"{len(seen_skipped)} skipped, "
             f"{len(seen_allowed_failure)} allowed failures"
@@ -470,9 +573,12 @@ def report_terminal_pipeline(
             "",
             f"- **Outcome:** {pipeline_status}",
         ]
-        if failed:
-            summary.append(f"- **Failed jobs:** {len(failed)}")
-            summary.extend(f"  - `{describe_job(job)}`" for job in failed)
+        if product:
+            summary.append(f"- **Failed jobs:** {len(product)}")
+            summary.extend(f"  - `{describe_job(job)}`" for job in product)
+        if infra:
+            summary.append(f"- **Infrastructure failures (not product failures):** {len(infra)}")
+            summary.extend(f"  - `{describe_job(job)}` - {cause}" for job, cause in infra)
         if canceled:
             summary.append(f"- **Canceled jobs:** {len(canceled)}")
             summary.extend(f"  - `{describe_job(job)}`" for job in canceled)
@@ -481,8 +587,37 @@ def report_terminal_pipeline(
             summary.append(f"- **Skipped jobs (exit {GATE_SKIP_EXIT_CODE}):** {len(seen_skipped)}")
         if seen_allowed_failure:
             summary.append(f"- **Allowed failures:** {len(seen_allowed_failure)}")
+        summary.append(f"- **Triage handle:** {handle}")
         write_summary(summary)
         return 1
+
+    if infra:
+        print(f"DOWNSTREAM_INFRA: {len(infra)} job(s) could not be run by the downstream CI system.")
+        print(
+            "This is NOT a verdict on this pull request - no product code failed. "
+            "Any FAIL lines above are these infrastructure failures."
+        )
+        for job, cause in infra:
+            print(f"DOWNSTREAM_INFRA: {describe_job(job)} - {cause}")
+        print(f"Ask a CI maintainer to retry the downstream pipeline: {handle}")
+        emit_warning(
+            f"Downstream pipeline could not run {len(infra)} job(s) for infrastructure reasons; "
+            f"this is not a verdict on this pull request ({handle})"
+        )
+        write_summary(
+            [
+                "### Downstream pipeline result",
+                "",
+                "- **Outcome:** infrastructure failure, not a product failure",
+                "- The downstream CI system could not run the job(s) below. Nothing here says",
+                "  this pull request is broken; the work simply did not run.",
+                f"- **Jobs not run:** {len(infra)}",
+                *(f"  - `{describe_job(job)}` - {cause}" for job, cause in infra),
+                f"- **Succeeded jobs:** {len(seen_success)}",
+                f"- **Triage handle:** {handle}",
+            ]
+        )
+        return 0
 
     if pipeline_status == "success":
         print(
@@ -581,6 +716,9 @@ def main() -> int:
     # payload doesn't carry `exit_code` (the listing endpoint never
     # does, but the per-job endpoint does).
     exit_code_cache: dict[int, int | None] = {}
+    # Per-job "did it reach step_script" cache, populated only on the
+    # terminal snapshot when a blocking failure needs classifying.
+    trace_cache: dict[int, bool] = {}
     start = time.monotonic()
     tick = 0
 
@@ -653,6 +791,11 @@ def main() -> int:
                 seen_success,
                 seen_skipped,
                 seen_allowed_failure,
+                pipeline,
+                base_url,
+                token,
+                project_id,
+                trace_cache,
             )
 
         if time.monotonic() - start > max_duration:
