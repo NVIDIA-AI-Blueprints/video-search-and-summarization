@@ -845,10 +845,15 @@ documented defaults.
 
     skills_dir = task_dir / "skills"
     skills_dir.mkdir(exist_ok=True)
+    # Same exclusion the adapters apply when they mount a skill: never ship a
+    # skill's own eval specs to the agent, since they carry the checks this
+    # trial is graded on. `dirs_exist_ok` merges into the adapter's already
+    # filtered mount, so without the ignore this call would restore `eval/`.
     shutil.copytree(
         build_vision_skill,
         skills_dir / "vss-build-vision-ai",
         dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("evals", "eval"),
     )
 
 
