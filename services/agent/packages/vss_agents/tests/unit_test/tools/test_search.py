@@ -16,6 +16,7 @@
 
 from datetime import UTC
 from datetime import datetime
+import inspect
 import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -32,8 +33,10 @@ from vss_agents.tools.search import SearchConfig
 from vss_agents.tools.search import SearchInput
 from vss_agents.tools.search import SearchOutput
 from vss_agents.tools.search import SearchResult
+from vss_agents.tools.search import VSSESClient
 from vss_agents.tools.search import _resolve_video_sources_for_search
 from vss_agents.tools.search import decompose_query
+from vss_agents.tools.search import search
 
 
 class TestResolveVideoSourcesForSearch:
@@ -145,6 +148,32 @@ class TestSearchConfig:
         assert config.fusion_method == "rrf"
         assert config.rrf_k == 100
         assert config.rrf_w == 0.7
+
+
+@pytest.mark.asyncio
+async def test_search_cleanup_closes_es_clients_when_adapter_close_fails(monkeypatch):
+    from vss_agents.tools import search_adapter as search_adapter_module
+
+    adapter = MagicMock()
+    adapter.aclose = AsyncMock(side_effect=RuntimeError("adapter close failed"))
+    monkeypatch.setattr(search_adapter_module, "build_search_runtime", MagicMock(return_value=MagicMock()))
+    monkeypatch.setattr(search_adapter_module, "NATSearchAdapter", MagicMock(return_value=adapter))
+    close_all = AsyncMock()
+    monkeypatch.setattr(VSSESClient, "close_all", close_all)
+
+    config = SearchConfig(
+        embed_search_tool="embed_search",
+        agent_mode_llm="gpt-4o",
+        agent_mode_prompt="",
+        vst_internal_url="http://localhost:30888",
+    )
+    search_generator = inspect.unwrap(search)(config, MagicMock())
+
+    await anext(search_generator)
+    await search_generator.aclose()
+
+    adapter.aclose.assert_awaited_once()
+    close_all.assert_awaited_once()
 
 
 class TestSearchInput:
