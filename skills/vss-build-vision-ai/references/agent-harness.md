@@ -261,11 +261,12 @@ working chat.
 ## Default provider
 
 **Default to notebook option (a) — the remote OpenAI-compatible endpoint —
-serving Claude Opus 5 through the NVIDIA Inference Hub.** First ask the user to
-accept or reject that default, per [Harness model —
-Q3a](../SKILL.md#harness-model--q3a). If they reject it, show the notebook's
-three provider options (a), (b), and (c), then collect only the selected
-provider's settings.
+serving Claude Opus 5 through the NVIDIA Inference Hub.** First ask the user
+which model the sandbox runs on, per [Harness model —
+Q3a](../SKILL.md#harness-model--q3a). Another model on this same endpoint
+replaces `NEMOCLAW_MODEL` alone and keeps every other value below. Only a
+request for a different provider shows the notebook's three provider options
+(a), (b), and (c), whereupon collect only the selected provider's settings.
 
 | Variable | Default | Note |
 |---|---|---|
@@ -295,7 +296,7 @@ And in **autonomous mode**
 plus that environment answer Q3a; a token missing from both is still a blocker
 to report, never grounds to substitute a provider.
 
-Rejecting the default or explicitly requesting a local or different model moves
+Requesting a local model, or any model this endpoint does not serve, moves
 the build to the provider-selection question. "Use a local model", "air-gapped",
 "use Nemotron", or a named endpoint of their own already answers that question,
 so carry it through rather than re-asking. A local request has **two**
