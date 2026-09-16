@@ -12,7 +12,7 @@ live `/metrics` endpoint instead of assuming remembered names.
 | Frontend starvation | Eligible requests wait before engine submission; CPU/process pool saturated | Preprocess recorded inputs ahead of time or raise an existing worker limit once | Processor workers, CPU affinity, media pipeline |
 | Media/decode starvation | Chunk readiness gaps precede an empty engine queue; NVDEC or network cadence is limiting | Feed cached decoded tensors with identical timestamps and shapes | RTSP/NVDEC/frame handoff |
 | Host-device transfer | Long copies or synchronization intervals precede vision kernels | Compare the existing pinned/asynchronous tensor path against the pageable/copying path | Tensor IPC, pinned buffers, streams |
-| Serialized vision | Queue is nonempty but one request's vision encoder runs at a time; visual batch size stays one | Replay a fixed visual shape with batched preprocessing or encoding enabled | Multimodal processor/model runner |
+| Serialized vision | Queue is nonempty but one request's vision encoder runs at a time; visual batch size stays one | Replay the same fixed visual shapes and request set with batched preprocessing or encoding enabled; require output and multimodal token-position parity | Multimodal processor/model runner |
 | Dynamic shape or graph gap | CPU launch gaps and repeated graph capture or compilation surround shape changes | Bucket to one existing supported shape and compare graph reuse | Shape policy, CUDA graph configuration |
 | Scheduler underbatching | Queue is nonempty while active sequences, scheduled tokens, or batch size remain below limits | Raise one existing scheduler limit within memory headroom | Scheduler/configuration |
 | Prefill monopolization | Long multimodal prefill delays decode steps and ITL spikes | Compare chunked or interleaved prefill at the same request set | Chunked prefill/scheduler |
@@ -74,7 +74,7 @@ bursty kernels, and high utilization can still hide poor kernel efficiency.
 Accept a fix only when:
 
 1. the correlated target gap shrinks in the unprofiled A/B run;
-2. successful work and output parity remain unchanged;
+2. successful work and output parity remain unchanged, including multimodal visual-token count, ordering, and position assignments;
 3. TTFT, ITL, or throughput improves beyond the declared noise band;
 4. memory, preemption, errors, and cleanup do not regress beyond thresholds;
 5. the capacity boundary improves when capacity was the stated goal.
