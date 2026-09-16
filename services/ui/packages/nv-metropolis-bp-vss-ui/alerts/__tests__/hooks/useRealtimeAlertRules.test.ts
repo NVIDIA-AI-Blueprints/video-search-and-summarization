@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useRealtimeAlertRules } from '../../lib-src/hooks/useRealtimeAlertRules';

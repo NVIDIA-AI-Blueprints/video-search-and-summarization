@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 const { configureRuntimeEnv } = require('next-runtime-env/build/configure');
 const { i18n } = require('./next-i18next.config');

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 // Number of parallel file uploads
 export const NUM_PARALLEL_FILE_UPLOADS = 3;

@@ -21,7 +21,25 @@ from pathlib import Path
 REQUIRED_MARKER = "SPDX-License-Identifier"
 
 # File extensions to check
-CHECK_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx"}
+CHECK_EXTENSIONS = {
+    ".py", ".ts", ".tsx", ".js", ".jsx",
+    ".sh", ".c", ".cc", ".cpp", ".h", ".hpp", ".cu", ".cuh", ".proto",
+}
+
+# SPDX licence expressions a first-party header may declare. Anything else
+# (including a malformed value like "Apache-2.0/") fails the check.
+ALLOWED_LICENSES = {
+    "Apache-2.0",
+    "MIT",
+    "MIT AND Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "LicenseRef-NvidiaProprietary",
+}
+
+# The only NVIDIA copyright entity allowed in SPDX-FileCopyrightText lines.
+NVIDIA_ENTITY = "NVIDIA CORPORATION & AFFILIATES"
 
 # Glob patterns to skip (relative to repo root)
 EXCLUDE_PATTERNS = (
@@ -40,9 +58,11 @@ EXCLUDE_PATTERNS = (
     "**/package-lock.json",
     # Stubs (third-party type stubs)
     "**/stubs/**",
-    # UI — original MIT-licensed code; headers will be added incrementally
-    "ui/**",
-    "services/ui/**",
+    # Vendored upstream trees — third-party headers, not ours to stamp
+    "services/vios/src/framework/webrtc_streamer/inc/webrtc_headers/**",
+    "services/vios/include/opentelemetry/**",
+    "services/vios/src/framework/live555/inc/**",
+    "libs/nvschema/protobuf/struct.proto",
     # Protobuf generated files
     "**/schema_pb.js",
     "**/ext_pb.js",
@@ -87,18 +107,39 @@ def is_excluded(path: str) -> bool:
     return any(fnmatch.fnmatch(path, pat) for pat in EXCLUDE_PATTERNS)
 
 
-def has_spdx_header(filepath: str) -> bool:
-    """Check if the first 5 lines contain the SPDX marker."""
+def header_problem(filepath: str) -> str | None:
+    """Return a problem description for the file's header, or None if valid.
+
+    A valid header, within the first 5 lines, has:
+      - an SPDX-License-Identifier whose value is on ALLOWED_LICENSES
+      - an SPDX-FileCopyrightText line
+      - the canonical entity on any NVIDIA copyright line
+    """
     try:
         with open(filepath, encoding="utf-8", errors="ignore") as f:
-            for i, line in enumerate(f):
-                if i >= 5:
-                    break
-                if REQUIRED_MARKER in line:
-                    return True
+            head = [line for _, line in zip(range(5), f)]
     except (OSError, UnicodeDecodeError):
-        return True  # skip unreadable files
-    return False
+        return None  # skip unreadable files
+
+    licence = None
+    holder = False
+    for line in head:
+        if REQUIRED_MARKER in line:
+            value = line.split(REQUIRED_MARKER + ":", 1)[-1].strip()
+            for terminator in ("*/", "-->"):
+                value = value.removesuffix(terminator).strip()
+            licence = value
+        if "SPDX-FileCopyrightText" in line:
+            holder = True
+            if "NVIDIA" in line.upper() and NVIDIA_ENTITY not in line:
+                return f"copyright entity is not '{NVIDIA_ENTITY}'"
+    if licence is None:
+        return "missing SPDX-License-Identifier"
+    if licence not in ALLOWED_LICENSES:
+        return f"licence {licence!r} is not on the allowed list"
+    if not holder:
+        return "missing SPDX-FileCopyrightText"
+    return None
 
 
 def main() -> int:
@@ -112,14 +153,17 @@ def main() -> int:
             continue
         if is_excluded(filepath):
             continue
-        if not has_spdx_header(str(root / filepath)):
-            missing.append(filepath)
+        problem = header_problem(str(root / filepath))
+        if problem:
+            missing.append(f"{filepath}: {problem}")
 
     if missing:
-        print(f"ERROR: {len(missing)} file(s) missing SPDX copyright header:\n")
+        print(f"ERROR: {len(missing)} file(s) with SPDX header problems:\n")
         for f in sorted(missing):
             print(f"  {f}")
-        print(f"\nExpected '{REQUIRED_MARKER}' in the first 5 lines.")
+        print(f"\nExpected '{REQUIRED_MARKER}' and 'SPDX-FileCopyrightText' in "
+              "the first 5 lines, with an allowed licence and the canonical "
+              "NVIDIA entity.")
         print("See CONTRIBUTING.md for the required header format.")
         return 1
 

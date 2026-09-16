@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, TextInput } from '@nvidia/foundations-react-core';
