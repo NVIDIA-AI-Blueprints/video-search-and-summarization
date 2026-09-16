@@ -592,11 +592,17 @@ Q=(--data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 # live under the sensor's other identity (a rule created without sensor_name stores its chunks
 # under the VIOS UUID): resolve $UUID exactly as step 3 does and repeat this lookup with
 # sensor_id=$UUID; exactly one match there → NAME=$UUID, CATEGORY=<match>, and say the events
-# matched the UUID identity. Still none, or several matches under either identity → ask the
-# user. NAME= (no sensor named, or the VIOS-down fallback) → there is no other identity: ask.
+# matched the UUID identity. Still no match under either identity → both pages were checked, so
+# the answer is 0 events for that wording: report it and list the stored categories the window
+# does hold (the user may have meant one of them — offer, do not guess). That 0 is the checked
+# answer — no consolidated call, and do not run step 3. Several matches under either identity →
+# ask the user which one. NAME= (no sensor named, or the VIOS-down fallback) → there is no other
+# identity: no match → report 0 for that wording and list what exists (in the VIOS-down fallback
+# that list is store-wide — say the name was not confirmed against VIOS).
 # NAME already the UUID (step 3 sent you here, or this branch switched) → you are on the second
-# identity: no match → ask; EMPTY page → set CATEGORY= and run the call below, its 0 is the
-# checked answer; never resolve again and do not run step 3 again. EMPTY page under the NAME → the answer is 0 events whatever the
+# identity: no match → 0 for that wording, list what exists; EMPTY page → set CATEGORY= and run
+# the call below, its 0 is the checked answer; never resolve again and do not run step 3 again.
+# EMPTY page under the NAME → the answer is 0 events whatever the
 # category: set CATEGORY= and continue (step 3 still applies). No category in the ask →
 # CATEGORY= (empty).
 : "${CATEGORY?decide the category scope: the stored string, or CATEGORY= when the ask names none}"
@@ -611,7 +617,7 @@ Q=(--data-urlencode "start_time=$START" --data-urlencode "end_time=$END"
 # validation (a bound is not ISO-8601, limit outside 1..1000, offset < 0) — its body ALSO says
 # validation_failed, so branch on $CODE, never on the error token. 5xx = Elasticsearch down.
 RESP=$(curl -sG --max-time 30 -w '\n%{http_code}' "$AB/api/v1/realtime/incidents" "${Q[@]}") \
-  || { echo "Alert Bridge unreachable or timed out (curl exit $?) — cannot answer an event count; do NOT fall back to the raw list. On a timeout, split the window and retry"; exit 1; }
+  || { echo "Alert Bridge unreachable or timed out (curl exit $?) — cannot answer an event count; do NOT fall back to the raw list. On a timeout, say the window is too dense for one query and OFFER per-sub-window counts (each with its own bounds — never summed: a boundary-straddling event lands in both)"; exit 1; }
 CODE=${RESP##*$'\n'}; BODY=${RESP%$'\n'*}
 [ "$CODE" = 200 ] || { echo "HTTP $CODE — $BODY"; exit 1; }
 # `truncated` is only ever present in the consolidated view: a 200 without it means an Alert
@@ -620,7 +626,9 @@ printf '%s' "$BODY" | jq -e 'select((.total | type) == "number" and (.truncated 
   || { echo "not a consolidated response (raw view or malformed body) — this Alert Bridge cannot answer an event count"; exit 1; }
 # total = events in the window; exact whenever truncated=false. truncated=true → the window
 # held more chunks than the service's scan cap (the 10000 newest were kept, older dropped):
-# report total as "at least", say the window is too dense, offer to split it. Per event: the
+# report total as "at least", say the window is too dense, and offer per-sub-window counts
+# (each reported with its own bounds — never summed, since a boundary-straddling event lands
+# in both). Per event: the
 # timestamp..end span, info.chunkCount chunks (info values are STRINGS — `tonumber` before
 # summing), chunk_ids for the raw rows; info.chunkIdx is the representative chunk's,
 # info.chunkIdxRange the span.
@@ -686,7 +694,7 @@ TOTAL=$(curl -sfG "$AB/api/v1/realtime/incidents" \
 > tell you it was a typo. This is the opposite of Workflow D, where the rule-create payload's
 > `sensor_id` **must** be the VIOS UUID.
 
-Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }` (the schema also declares `truncated`, default `false`; raw responses omit it). In the raw view `total` is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and nothing in the raw response tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a zero scoped by the NAME means *not under this identity*, so run step 3 before reporting it; a zero already scoped by the UUID (step 3 or (c)'s category lookup switched you) is the checked answer — do not run step 3 again. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID that step 3 or (c)'s category lookup matched — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
+Response is an `IncidentListResponse`: `{ "status", "incidents": [...], "count", "total", "timestamp" }` (the schema also declares `truncated`, default `false`; raw responses omit it). In the raw view `total` is Elasticsearch's thresholded hit count: exact below 10000, saturating at it, and nothing in the raw response tells those two apart — so exactly 10000 is a lower bound, not a count. Summarize each incident's timestamp, sensor (report `sensorId` as returned — usually the name, no reverse lookup needed), and category. **Run the query — never answer from memory.** An **empty `incidents` list is a valid answer once it has been checked** — when the ask named a sensor, a zero scoped by the NAME means *not under this identity*, so run step 3 before reporting it; a zero already scoped by the UUID (step 3 or (c)'s category lookup switched you) is the checked answer — do not run step 3 again. Then report "none found / count 0" and STOP; do not fall back to listing rules. When the ask named a sensor, the count you report is the **scoped** one: quote **`total`** from the response you filtered by the identity you confirmed — the name, or the UUID that step 3 or (c)'s category lookup matched; or the 0 that (c)'s category lookup established under both identities — and say which sensor, and which identity, it belongs to. `total` is how many matched; `count` is how many came back in the page you asked for, and it stops at `limit` (100 by default), so quoting it turns 500 incidents into 100 without any sign that it did. A `0` read off the unfiltered query answers a different question — and it is also what a mistyped name returns, so neither you nor the reader can tell the two apart afterwards.
 
 With `consolidate=true` the same envelope carries `truncated`, and the numbers change meaning: `total` is the number of **events** in the window (exact whenever `truncated` is `false`), `count` the events on the page, and each event carries `info.isConsolidated: "true"`, `info.chunkCount` (a string), `chunk_ids`, and a `timestamp`..`end` span. Report it as events and name the window — "2 intrusion events on `warehouse_sample` between 10:00 and 10:30 UTC (4 chunks)" — never as a chunk count, and never mix the two views in one figure. `truncated: true` makes `total` a lower bound; say so.
 
