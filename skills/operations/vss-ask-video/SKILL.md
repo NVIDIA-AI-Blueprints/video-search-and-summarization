@@ -100,14 +100,19 @@ For a general question about previously analyzed video, use this exact order:
    information.
 9. An empty retrieval is an answer, not a failure of method. That covers
    `memory introspect` returning `"status": "no_memory"`, `memory get`
-   exiting with `job_id not found`, and `memory query` returning
-   `{"records": []}`, and `vlm run` reporting `no VIOS sensor named ...`
-   for a sensor the deployment has not registered. Report the negative and
-   stop. Do not go looking for the same thing through another surface - a raw
-   Elasticsearch query against `vss-memory`, VIOS/VST/RT-VLM endpoints,
-   filesystem search, or another skill. Those calls do not turn an empty
-   store into evidence; they replace a grounded negative with a guess, and
-   the CLI is the only sanctioned read path.
+   exiting with `job_id not found`, `memory query` returning
+   `{"records": []}`, and `vlm run` reporting `no VIOS sensor named ...` for
+   a sensor the deployment has not registered. Report the negative rather
+   than treating it as a sign you chose the wrong tool.
+
+   This does not cancel the one sanctioned continuation: on `no_memory` with
+   an exact sensor and exact UTC start/end already grounded, take the single
+   direct `vss vlm run` fallback described under *Interpreting introspection
+   results*. What is ruled out is re-asking the same question through an
+   unsanctioned surface - a raw Elasticsearch query against `vss-memory`,
+   VIOS/VST/RT-VLM endpoints, filesystem search, or another skill. Those do
+   not turn an empty store into evidence; they replace a grounded negative
+   with a guess.
 
 Do not force Markdown search when:
 - Hot context already answers.
