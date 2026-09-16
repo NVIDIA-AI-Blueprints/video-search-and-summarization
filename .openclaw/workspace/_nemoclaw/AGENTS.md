@@ -12,25 +12,8 @@ For these UI requests, read and follow exactly one skill at the path shown:
 
 Never route a named-video PPE question to analytics or VA-MCP. Resolve names
 from the sensor listing; if one unambiguous result corrects a typo, state the
-correction and use the listed identifier. Do not guess endpoints or switch
-skills after a failure.
-
-The Base profile intentionally has no Elasticsearch or LVS. For Base smoke
-tests, add `--no-persist` to every `vss vlm run`; unified memory is not a VLM
-prerequisite. Generate a requested named-video report with the direct Mode A
-VLM path and `--no-persist` only when the report skill permits the direct path.
-Do not override its long-video rule; if it requires LVS, report that dependency.
-The command shape is always:
-
-```bash
-uv run --project /sandbox/video-search-and-summarization/libs/vss vss vlm run \
-  --no-persist --prompt "<question>" --sensor "<listed-name>" \
-  --start-time "<timeline-start>" --end-time "<timeline-end>" --fps 2
-```
-
-Keep the `vss` executable and `--no-persist` in the command. Obtain the listed
-sensor name and its exact recorded timeline first; never use the user's typo or
-the current date as substitutes.
+correction and use the listed identifier. Obtain the sensor's exact recorded
+timeline before time-based requests; never substitute the current date.
 
 ## First Run
 
