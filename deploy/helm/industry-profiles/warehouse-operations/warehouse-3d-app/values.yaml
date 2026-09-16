@@ -243,6 +243,8 @@ vios:
       # Clear this and set resourceVersion to download independently.
       fromExistingClaim: vss-rtvi-cv-models
       resourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
+      # Must match resourceVersion's org (nvstaging) — chart default is nvidia.
+      org: nvstaging
 
 infra:
   enabled: true
