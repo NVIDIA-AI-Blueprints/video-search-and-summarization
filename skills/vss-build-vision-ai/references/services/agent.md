@@ -5,7 +5,7 @@
 | Capability | Canonical service profile keys |
 |---|---|
 | Agentic (natural-language) orchestration and agent REST API | `vss-agent` |
-| Video-analytics MCP | `vss-va-mcp` |
+| Explicit legacy video-analytics MCP surface | `vss-va-mcp` |
 | Web UI | `vss-ui` |
 | Tracing UI | `phoenix` |
 
@@ -38,7 +38,9 @@ are independently gated: each is reached only by an explicit request for that
 surface, carries no capability another owner needs, and is never retained merely
 because `vss-agent` — or a Foundation that ships it — is present. Prune each
 unless itself requested. The video-analytics MCP is an agent-tier tool surface;
-browsing or operating analytics is served elsewhere and does not reach it.
+browsing or operating analytics is served by the host-side `vss analytics` CLI
+through `vss-video-analytics-api` and does not reach it. A request for read-only
+incidents, analytics sensors or metrics is not an MCP or Agent request.
 
 ## Required peers
 
