@@ -38,10 +38,10 @@ The Warehouse Blueprint offers flexible deployment options with the following pr
 
 | Profile Type | Features | Constraints |
 | --- | --- | --- |
-| 2D Vision AI Profile | 2D single-camera detection, tracking, and analytics | Model trained on real-world data |
+| 2D Vision AI Profile | 2D single-camera detection, tracking, and analytics | Model trained on real and synthetic data |
 | 2D Vision AI with Agents Profile | 2D single-camera detection, tracking, analytics, and VSS agent integration | Model trained on real and synthetic data |
-| 3D Vision AI Profile | 3D multi-camera detection, tracking, and analytics | Model trained on synthetic data, recommended for simulated environments |
-| MV3DT Vision AI Profile | 3D multi-camera detection, tracking, and analytics using RT-DETR + MV3DT | RT-DETR model trained on real-world data, MV3DT distributed 3D tracking via camera projection matrices |
+| 3D Vision AI Profile | 3D multi-camera detection, tracking, and analytics | Uses Sparse4D v2.3 for synthetic data or Sparse4D v3.0 for real data, selected by `DATASET_TYPE` |
+| MV3DT Vision AI Profile | 3D multi-camera detection and tracking using RT-DETR + MV3DT | Uses the same RT-DETR Warehouse detector as the 2D profiles, with MV3DT distributed tracking based on camera projection matrices |
 
 ## Supported GPU Hardware
 
@@ -70,7 +70,7 @@ Perform this on the machine where you intend to deploy the blueprint.
 </Note>
 
 ```bash
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone --branch develop https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
 git lfs install
 git lfs pull
@@ -964,7 +964,7 @@ Follow these steps to install and deploy the Warehouse Blueprint using the Skill
 1. Clone the VSS Blueprint repository and open it in your coding agent.
 
    ```bash
-   git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+   git clone --branch develop https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
    cd video-search-and-summarization
    ```
 

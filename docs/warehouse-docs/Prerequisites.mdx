@@ -10,6 +10,7 @@ This section covers the prerequisites for deploying and using the Warehouse Blue
 The Warehouse Blueprint has been validated and tested on the following NVIDIA GPUs:
 
 - NVIDIA RTX PRO 6000 Blackwell
+- NVIDIA RTX PRO 4500 Blackwell
 - NVIDIA GB300
 - NVIDIA H100 (NVL, SXM HBM3)
 - NVIDIA L40S
@@ -146,6 +147,12 @@ echo performance > /sys/class/devfreq/8188050000.vic/governor
 If `vss-rtvi-cv` fails when streams are added and kernel logs show `tegra-vic` power-up failures, see [FAQ](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq) for the IGX Thor `NvBufSurfTransform error -2` workaround. Lower FPS may be observed when using this workaround.
 </Note>
 
+### Host Firewall and Docker Bridge Subnets
+
+If a default-deny firewall is enabled on the host, allow inbound traffic from the Docker bridge subnets used by VSS. Otherwise, bridge-networked containers cannot reach host-networked services and the affected workflow might produce no output. See
+[Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host)
+for diagnostics and configuration guidance.
+
 ## Minimum System Requirements
 
 The following requirements ensure reliable performance for real-time video analytics workloads, including GPU-accelerated inference, video decoding, and data streaming. These specifications support processing multiple camera streams simultaneously while maintaining low latency for analytics and alerting.
@@ -154,6 +161,21 @@ The following requirements ensure reliable performance for real-time video analy
 - 128 GB RAM
 - 1 TB SSD
 - 1 × 1 Gbps network interface
+
+## Network and Browser Access
+
+The machine running the web browser must be able to reach the ports required by the selected Warehouse profile:
+
+| Port | Service |
+| ---: | --- |
+| `7777` | VSS UI, Kibana, and Phoenix |
+| `30888` | VST UI |
+| `31000` | NvStreamer UI |
+| `5000` | Auto Calibration UI |
+
+External API clients might also require access to port `8081` for the Video Analytics API or port `9901` for VA-MCP. Expose port `30081` only when a remote client must access the locally deployed LLM NIM. For cloud deployments, configure the instance firewall or security group to allow inbound traffic only from trusted clients and only on the ports required by the selected profile. See
+[Service Access Points](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#service-access-points)
+for the complete profile-specific list.
 
 ## NGC API Key Access
 
@@ -370,7 +392,7 @@ ngc --version
 ngc config set
 ```
 
-When prompted, enter your NGC API key. For information on obtaining an NGC API key, see the [NGC API Key Access](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#minimum-system-requirements) section.
+When prompted, enter your NGC API key. For information on obtaining an NGC API key, see the [NGC API Key Access](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#ngc-api-key-access) section.
 
 <Note>
 For the latest version of NGC CLI, visit the NGC CLI downloads page: https://ngc.nvidia.com/setup/installers/cli
