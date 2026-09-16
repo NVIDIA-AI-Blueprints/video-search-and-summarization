@@ -131,6 +131,8 @@ bp-configurator:
 calibration-import:
   enabled: true
   name: import-calibration-output-2d
+  restartPolicy: OnFailure
+  backoffLimit: 5
   apiUrl: http://vss-video-analytics-api:8081
   calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/calibration.json
   imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images/imageMetadata.json
