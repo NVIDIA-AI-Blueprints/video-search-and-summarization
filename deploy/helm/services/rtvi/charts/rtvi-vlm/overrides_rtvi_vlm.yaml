@@ -145,7 +145,7 @@ env:
   - name: RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS
     value: "10"
   - name: VLLM_GPU_MEMORY_UTILIZATION
-    value: "0.8"
+    value: ""
   # GB300 uses TRITON_ATTN; an empty value preserves the default on other platforms.
   - name: VLLM_ATTENTION_BACKEND
     value: ""

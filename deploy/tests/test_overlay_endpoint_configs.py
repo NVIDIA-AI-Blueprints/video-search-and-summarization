@@ -31,8 +31,10 @@ FLOOR_2D = (
     "http://vss-video-analytics-api:8081/config/calibration/image"
     "?place=building%3DWarehouse%2Froom%3DRoom-1&view=plan-view"
 )
-FLOOR_3D = FLOOR_2D
-
+FLOOR_3D = (
+    "http://vss-video-analytics-api:8081/config/calibration/image"
+    "?place=building%3DWarehouse%2Froom%3DRoom-1&view=plan-view"
+)
 
 def _overlay(path: Path) -> dict:
     data = json.loads(path.read_text())
