@@ -238,6 +238,21 @@ async def test_sole_unflagged_stream_is_used_but_reported(vios_http) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_honors_environment_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """VIOS calls honor standard proxy variables in proxy-only environments."""
+    session_options: dict[str, Any] = {}
+
+    def client_session(**kwargs: Any) -> _Session:
+        session_options.update(kwargs)
+        return _Session({"/sensor/list": []}, [])
+
+    monkeypatch.setattr(vios.aiohttp, "ClientSession", client_session)
+
+    assert await vios.list_media(VST) == []
+    assert session_options["trust_env"] is True
+
+
+@pytest.mark.asyncio
 async def test_list_joins_streams_and_filters_by_provenance(vios_http) -> None:
     configure, _, _ = vios_http
     configure(
