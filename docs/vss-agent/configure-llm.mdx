@@ -74,7 +74,7 @@ the profile with the native Docker Compose command in [Quickstart](/vss/getting-
       LLM_MODE=remote
       LLM_NAME_SLUG=none
       LLM_BASE_URL=https://integrate.api.nvidia.com
-      LLM_NAME=nvidia/llama-3.3-nemotron-super-49b-v1.5
+      LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
       LLM_MODEL_TYPE=nim
       NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
       VLM_MODE=local
@@ -84,30 +84,19 @@ the profile with the native Docker Compose command in [Quickstart](/vss/getting-
 
    Examples of hosted NIM containers:
 
+   - [nvidia/nemotron-3.5-lightning-30b-a3b](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b) (the blueprint default)
    - [nvidia/nemotron-3-nano-30b-a3b](https://build.nvidia.com/nvidia/nemotron-3-nano-30b-a3b)
    - [openai/gpt-oss-120b](https://build.nvidia.com/openai/gpt-oss-120b)
-   - [z-ai/glm-5.1](https://build.nvidia.com/z-ai/glm-5.1)
 
-   For instance, to configure both the LLM and VLM in remote mode, you can use a combined command like the following:
-
-   ```ini
-   # developer-profiles/dev-profile-base/user-overrides.env
-   LLM_MODE=remote
-   LLM_NAME_SLUG=none
-   LLM_BASE_URL=https://integrate.api.nvidia.com
-   LLM_NAME=nvidia/llama-3.3-nemotron-super-49b-v1.5
-   LLM_MODEL_TYPE=nim
-   VLM_MODE=remote
-   VLM_NAME_SLUG=none
-   VLM_BASE_URL=https://integrate.api.nvidia.com
-   VLM_NAME=nvidia/cosmos3-nano-reasoner
-   VLM_MODEL_TYPE=nim
-   VLM_PORT=30082
-   RTVI_VLM_ENDPOINT=https://integrate.api.nvidia.com/v1
-   RTVI_VLM_MODEL_TO_USE=openai-compat
-   RTVI_VLM_MODEL_PATH=none
-   NVIDIA_API_KEY=<PASTE_NIM_CATALOG_API_KEY_HERE>
-   ```
+<Note>
+Remote VLM endpoints are supported too — see
+[Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
+— but `https://integrate.api.nvidia.com` does not serve the blueprint's VLMs:
+[`nvidia/cosmos3-nano-reasoner`](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner)
+is **downloadable** from the API Catalog, not hosted there. Point a remote VLM at a
+self-hosted or third-party endpoint, or keep the VLM local (`VLM_MODE=local`, the
+blueprint default) as shown above.
+</Note>
 
 You can adapt these instructions and combinations as shown in the following sections.
 
