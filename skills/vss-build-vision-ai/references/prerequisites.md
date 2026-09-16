@@ -379,14 +379,18 @@ nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv,nohea
 
 Expected for this machine: 2× RTX PRO 6000 Blackwell, devices 0 and 1.
 
-If `nvidia-smi` fails, rule out [confinement](#confinement) first — inside a sandbox it fails on a perfectly healthy host. Once the unconfined probe fails too, the driver is not installed or not loaded. Pin the exact build for the OS / platform:
+If `nvidia-smi` fails, rule out [confinement](#confinement) first — inside a sandbox it fails on a perfectly healthy host. Once the unconfined probe fails too, the driver is not installed or not loaded. Each platform has its own minimum — a floor, not an exact pin, so a newer build passes:
 
-| Platform | Required driver |
-|---|---|
-| x86 — Ubuntu 24.04 | **`580.105.08`** (https://www.nvidia.com/en-us/drivers/) |
-| x86 — Ubuntu 22.04 | **`580.65.06`** |
-| DGX-SPARK | **`580.95.05`** (ships with DGX OS 7.4.0) |
-| IGX-THOR / AGX-THOR | **`580.00`** (ships with Jetson Linux BSP Rel 38.5 / 38.4) |
+| Platform | Minimum driver | Where it comes from |
+|---|---|---|
+| x86 dGPU — RTX PRO 4500, RTX PRO 6000 SE | **`595.58.03`** | https://www.nvidia.com/en-us/drivers/ |
+| x86 Brev Cloud — NemoClaw, RTX 6000 launchables | **`595.91.07`** | the instance image |
+| Kubernetes — RTX 6000, H200 | **`595.58.03`** | the GPU Operator's driver setting |
+| ARM SBSA — DGX Station GB300 | **`595.58.03`** | the bundled DGX OS driver |
+| ARM SBSA — GH200 / GB200 | **`580.159.03`** | bundled in the container, not installed on the host |
+| DGX-SPARK | **`580.173.02`** | the bundled DGX OS driver |
+| Jetson AGX Orin / AGX Thor / Orin NX | **`595.78`** | JetPack 7.2 / L4T r39.2 |
+| IGX Thor T7000 / T5000 | **`580.00`** | IGX-SW / IGX OS 2.0 |
 
 After install, load the kernel modules instead of rebooting:
 
@@ -568,10 +572,7 @@ Single source of truth for **every** dependency the deploy assumes. Sourced from
 | OS — DGX-SPARK | DGX OS 7.4.0 | |
 | OS — IGX-THOR | Jetson Linux BSP Rel 38.5 | |
 | OS — AGX-THOR | Jetson Linux BSP Rel 38.4 | |
-| NVIDIA Driver — Ubuntu 24.04 | `580.105.08` | exact pin |
-| NVIDIA Driver — Ubuntu 22.04 | `580.65.06` | exact pin |
-| NVIDIA Driver — DGX-SPARK | `580.95.05` | exact pin |
-| NVIDIA Driver — IGX-THOR / AGX-THOR | `580.00` | exact pin |
+| NVIDIA Driver | per platform — [GPU Detection](#1-gpu-detection) owns the table | a minimum, not an exact pin. `595.58.03` on x86 dGPU, Kubernetes and DGX Station GB300; `595.91.07` on Brev Cloud; `595.78` on Jetson; `580.173.02` on DGX-SPARK; `580.00` on IGX Thor |
 | NVIDIA Fabric Manager | `580.105.08` | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX) |
 | NVIDIA Container Toolkit | `1.17.8+` | |
 | Docker | `28.3.3+` **and** `< 29.5.0` | pin with [`pin_docker_version.sh`](#docker-pin), which owns the exact versions. Upper bound: `29.5.0`+ breaks NGC image pulls — on a host that cannot be downgraded, see [Docker 29.5.0+ workaround](#docker-2950-workaround) |
