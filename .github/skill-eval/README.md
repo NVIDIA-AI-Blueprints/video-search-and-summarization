@@ -36,28 +36,28 @@ The runner has no GPU. Eval trials run on a long-lived pool of `vss-eval-*` Brev
 
 Per-CI-run hygiene is the trial's own responsibility: each spec's first agent turn invokes `/vss-build-vision-ai` (or a standalone deploy runbook) to bring up whatever it needs, including `docker compose down` of any prior leftover containers on the box. The harness no longer pre-deploys profiles or maintains an `active-deploy.txt` marker — that machinery was removed in favour of putting deploy steps inside the trial trajectory where they're visible in the reward, judge, and `claude-code.txt`. Fleet-selection scoring + the wait-for-pool path on exhaustion live in [`AGENTS.md § Platform topology`](AGENTS.md).
 
-For `EVAL_AGENT=nemoclaw`, that same first `expects[]` task runs with the coding
-agent and `/vss-build-vision-ai`; its query supplies the deployment intent and
-its checks supply the readiness verdict. Build Vision AI attaches NemoClaw in
-the same task, then the remaining entries run through the ready sandbox. Specs
-that need a deployment prerequisite declare it as a setup query at
-`expects[0]`; specs that do not need setup add nothing harness-specific.
+Operational specs use two independent routes. Their first `expects[]` task
+runs with the coding route and `/vss-build-vision-ai`; its query supplies the
+deployment intent and its checks supply the readiness verdict. Remaining tasks
+run with the operational route. When that route uses NemoClaw, Build Vision AI
+also attaches NemoClaw during the first task and the remaining entries run
+through the ready sandbox. Build Vision AI and other non-operational specs use
+the coding route throughout.
 
-Manual runs can select the evaluated agent's route without changing the
-coordinator or judge:
+Manual runs configure both routes without changing the coordinator or judge:
 
 | Workflow input | Meaning |
 |---|---|
-| `runner` | Evaluated runtime: `claude-code` or `nemoclaw` |
-| `provider` | `default`, `nvidia-inference`, `nvidia-build` (NemoClaw only), or `custom` |
-| `model` | Evaluated-agent model ID, for example `nvidia/nemotron-3.5-lightning-30b-a3b`; blank is allowed only with `provider=default` |
-| `endpoint_url` | Optional API base for either runtime; required with `custom` |
+| `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
+| `coding_provider`, `coding_model`, `coding_endpoint_url` | Independent coding route; blank model preserves its configured default |
+| `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
+| `operational_provider`, `operational_model`, `operational_endpoint_url` | Independent operational route; blank model preserves its configured default |
 
-The runner owns credentials. `default` preserves today's configured route.
-For NemoClaw, the resolved values are passed to the existing Build Vision AI
-setup task as `NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, and
-`NEMOCLAW_ENDPOINT_URL`; the setup coding agent itself keeps the coordinator's
-normal Claude route.
+The runner owns credentials. `default` preserves the configured route for that
+harness. Neither route inherits model, provider, or endpoint overrides from the
+other. For NemoClaw, the operational values are passed to Build Vision AI as
+`NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, and `NEMOCLAW_ENDPOINT_URL`; the setup
+task itself uses the independently selected coding route.
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 
@@ -66,6 +66,8 @@ normal Claude route.
 | `ANTHROPIC_API_KEY` | Claude Code authentication (NVIDIA inference API key works) |
 | `ANTHROPIC_BASE_URL` | Custom API base (e.g. `https://inference-api.nvidia.com`) |
 | `ANTHROPIC_MODEL` | Model ID (e.g. `aws/anthropic/bedrock-claude-sonnet-4-6`) |
+| `SKILLS_EVAL_CODING_API_KEY` | Optional coding-route credential override |
+| `SKILLS_EVAL_OPERATIONAL_API_KEY` | Optional operational-route credential override |
 | `NGC_CLI_API_KEY` | Pull VSS NIM containers from `nvcr.io` |
 | `LLM_REMOTE_URL` / `LLM_REMOTE_MODEL` | Remote-LLM endpoint used by `remote-*` deploy modes |
 | `VLM_REMOTE_URL` / `VLM_REMOTE_MODEL` | Remote-VLM endpoint used by `remote-*` deploy modes |

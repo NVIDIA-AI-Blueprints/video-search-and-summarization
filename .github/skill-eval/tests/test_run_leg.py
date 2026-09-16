@@ -739,7 +739,7 @@ class RunInvocations(unittest.TestCase):
     }
 
     def config(self, env=None):
-        return run_leg.resolve_model_config(env or self.ENV)
+        return run_leg.resolve_model_routes(env or self.ENV)
 
     def test_timeout_stops_all_single_step_invocations(self):
         invocations = [
@@ -810,9 +810,9 @@ class RunInvocations(unittest.TestCase):
         env = {
             **self.ENV,
             "EVAL_AGENT": "claude-code",
-            "SKILLS_EVAL_PROVIDER": "custom",
-            "SKILLS_EVAL_MODEL": "selected/model",
-            "SKILLS_EVAL_ENDPOINT_URL": "https://selected.example.test/v1",
+            "SKILLS_EVAL_CODING_PROVIDER": "custom",
+            "SKILLS_EVAL_CODING_MODEL": "selected/model",
+            "SKILLS_EVAL_CODING_ENDPOINT_URL": "https://selected.example.test/v1",
         }
         seen_env = []
 
@@ -873,6 +873,7 @@ class RunInvocations(unittest.TestCase):
                 **self.ENV,
                 "EVAL_AGENT": "nemoclaw",
                 "EVAL_SKILL": "vss-manage-alerts",
+                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
             }
             seen_env = []
 
@@ -925,7 +926,56 @@ class RunInvocations(unittest.TestCase):
         self.assertNotIn(run_leg.DEFER_AGENT_REAP_ENV, seen_env[1])
         cleanup.assert_called_once_with("vss-eval-box", marker)
 
-    def test_nemoclaw_selection_does_not_change_setup_coding_agent(self):
+    def test_operational_claude_uses_independent_models(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invocations = [
+                run_leg.HarborInvocation(
+                    harbor_root=root / "dataset",
+                    include_task_name=f"step-{index}",
+                    chain_key="alerts",
+                    step_index=index,
+                    step_count=2,
+                )
+                for index in (1, 2)
+            ]
+            env = {
+                **self.ENV,
+                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
+                "SKILLS_EVAL_CODING_PROVIDER": "custom",
+                "SKILLS_EVAL_CODING_MODEL": "coding/model",
+                "SKILLS_EVAL_CODING_ENDPOINT_URL": "https://coding.example.test/v1",
+                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "custom",
+                "SKILLS_EVAL_OPERATIONAL_MODEL": "operational/model",
+                "SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL": "https://ops.example.test/v1",
+            }
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ) as command,
+                mock.patch.object(run_leg, "run_command", return_value=0),
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    invocations, "vss-eval-box", root / "results", root / "scratch",
+                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            command.call_args_list[0].args[2:5],
+            ("coding/model", "https://coding.example.test/v1", "claude-code"),
+        )
+        self.assertEqual(
+            command.call_args_list[1].args[2:5],
+            ("operational/model", "https://ops.example.test/v1", "claude-code"),
+        )
+
+    def test_coding_and_operational_routes_are_independent(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             invocations = [
@@ -942,10 +992,16 @@ class RunInvocations(unittest.TestCase):
                 **self.ENV,
                 "EVAL_AGENT": "nemoclaw",
                 "EVAL_SKILL": "vss-manage-alerts",
-                "SKILLS_EVAL_PROVIDER": "custom",
-                "SKILLS_EVAL_MODEL": "selected/nemotron",
-                "SKILLS_EVAL_ENDPOINT_URL": "https://models.example.test/v1",
-                "SKILLS_EVAL_API_KEY": "compatible-secret",
+                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
+                "SKILLS_EVAL_CODING_HARNESS": "codex",
+                "SKILLS_EVAL_CODING_PROVIDER": "custom",
+                "SKILLS_EVAL_CODING_MODEL": "selected/codex",
+                "SKILLS_EVAL_CODING_ENDPOINT_URL": "https://coding.example.test/v1",
+                "SKILLS_EVAL_CODING_API_KEY": "coding-secret",
+                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "custom",
+                "SKILLS_EVAL_OPERATIONAL_MODEL": "selected/nemotron",
+                "SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL": "https://models.example.test/v1",
+                "SKILLS_EVAL_OPERATIONAL_API_KEY": "compatible-secret",
             }
             seen_env = []
 
@@ -979,14 +1035,15 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 0)
         setup_args = command.call_args_list[0].args
         eval_args = command.call_args_list[1].args
-        self.assertEqual(setup_args[2], self.ENV["ANTHROPIC_MODEL"])
-        self.assertEqual(setup_args[3], self.ENV["ANTHROPIC_BASE_URL"])
-        self.assertEqual(setup_args[4], "claude-code")
+        self.assertEqual(setup_args[2], "selected/codex")
+        self.assertEqual(setup_args[3], "https://coding.example.test/v1")
+        self.assertEqual(setup_args[4], "codex")
         self.assertEqual(eval_args[2], "selected/nemotron")
         self.assertEqual(eval_args[3], "https://models.example.test/v1")
         self.assertEqual(eval_args[4], "nemoclaw")
+        self.assertEqual(seen_env[0]["OPENAI_API_KEY"], "coding-secret")
         self.assertEqual(
-            seen_env[0]["ANTHROPIC_BASE_URL"], self.ENV["ANTHROPIC_BASE_URL"]
+            seen_env[0]["OPENAI_BASE_URL"], "https://coding.example.test/v1"
         )
         self.assertEqual(seen_env[0]["NEMOCLAW_PROVIDER"], "custom")
         self.assertEqual(seen_env[0]["NEMOCLAW_MODEL"], "selected/nemotron")
@@ -1009,6 +1066,7 @@ class RunInvocations(unittest.TestCase):
                 **self.ENV,
                 "EVAL_AGENT": "nemoclaw",
                 "EVAL_SKILL": "vss-manage-alerts",
+                "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
             }
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
@@ -1677,7 +1735,9 @@ class ModelConfigPreflight(unittest.TestCase):
             ]
             invalid_env = {
                 "EVAL_AGENT": "claude-code",
-                "SKILLS_EVAL_PROVIDER": "custom",
+                "ANTHROPIC_MODEL": "configured/model",
+                "ANTHROPIC_BASE_URL": "https://configured.example.test/v1",
+                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "custom",
                 "ANTHROPIC_API_KEY": "secret",
             }
             with (

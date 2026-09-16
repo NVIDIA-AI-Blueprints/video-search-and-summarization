@@ -48,7 +48,7 @@ import urllib.parse
 # leg_timing.current_phase(); importing the global copies it once.
 import leg_timing
 from leg_timing import HEARTBEAT_SEC, leg_log, phase
-from model_config import SkillEvalModelConfig, resolve_model_config
+from model_config import SkillEvalModelRoutes, resolve_model_routes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_EVAL_PYTHON_VERSION = (3, 12)
@@ -1562,16 +1562,10 @@ def run_invocations(
     spec_stem: str,
     platform: str,
     harbor_timeout_sec: int,
-    model_config: SkillEvalModelConfig,
+    model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
 ) -> int:
     env = harbor_env(instance)
-    agent = model_config.runtime
-    model = model_config.model
-    base_url = model_config.endpoint_url
-    if agent == "codex":
-        env["OPENAI_API_KEY"] = model_config.api_key
-        env["OPENAI_BASE_URL"] = _api_base_v1(base_url)
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
@@ -1582,29 +1576,22 @@ def run_invocations(
     # leg that dies inside BrevEnvironment.start() (e.g. a disk-full box) still
     # leaves a trail pointing at the machine to inspect.
     record_machine(results_root, instance, leg_slug, run_id)
-    # Build Vision AI's own specs are coding-agent evaluations. For an
-    # operational spec, its first normal Harbor task is the setup contract:
-    # the coding agent follows Build Vision AI, deploys from expects[0], and
-    # attaches NemoClaw. The remaining normal tasks run through that sandbox.
+    # Skill location is the phase contract: coding/deployment/tool specs use
+    # the coding route throughout. Operational specs use expects[0] as their
+    # coding-agent deployment contract, then switch to the operational route.
+    spec_path = os.environ.get("EVAL_SPEC_PATH", "")
+    operational_eval = spec_path.startswith("skills/operations/")
+    coding_setup = invocations[0] if operational_eval and invocations else None
+    if operational_eval and not invocations:
+        print("FATAL: no operational Harbor invocation to run", file=sys.stderr)
+        return 1
+
     nemoclaw_setup: HarborInvocation | None = None
     deferred_agent_marker: str | None = None
-    if agent == "nemoclaw" and os.environ.get("EVAL_SKILL") == "vss-build-vision-ai":
-        print("[run-leg] Build Vision AI specs use the coding-agent runtime", flush=True)
-        agent = "claude-code"
-        model = os.environ.get("ANTHROPIC_MODEL", "")
-        base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-        if not model or not base_url:
-            print(
-                "FATAL: ANTHROPIC_MODEL and ANTHROPIC_BASE_URL are required "
-                "for Build Vision AI evaluation",
-                file=sys.stderr,
-            )
-            return 1
-    elif agent == "nemoclaw":
-        if not invocations:
-            print("FATAL: no operational Harbor invocation to run", file=sys.stderr)
-            return 1
-        nemoclaw_setup = invocations[0]
+    operational_config = model_routes.operational
+    if operational_eval and operational_config.runtime == "nemoclaw":
+        nemoclaw_setup = coding_setup
+        assert nemoclaw_setup is not None
         operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
         try:
             prepare_nemoclaw_setup_task(nemoclaw_setup, operational_skill)
@@ -1621,10 +1608,10 @@ def run_invocations(
         env.update(
             {
                 "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
-                "NEMOCLAW_PROVIDER": model_config.nemoclaw_provider,
-                "NEMOCLAW_ENDPOINT_URL": base_url,
-                "NEMOCLAW_MODEL": model,
-                "COMPATIBLE_API_KEY": model_config.api_key,
+                "NEMOCLAW_PROVIDER": operational_config.nemoclaw_provider,
+                "NEMOCLAW_ENDPOINT_URL": operational_config.endpoint_url,
+                "NEMOCLAW_MODEL": operational_config.model,
+                "COMPATIBLE_API_KEY": operational_config.api_key,
             }
         )
         env["BREV_EXEC_TIMEOUT"] = str(
@@ -1681,8 +1668,14 @@ def run_invocations(
                     )
                 return finish(124)
 
+        is_coding_setup = invocation is coding_setup
         is_nemoclaw_setup = invocation is nemoclaw_setup
-        invocation_agent = "claude-code" if is_nemoclaw_setup else agent
+        invocation_config = (
+            model_routes.coding
+            if not operational_eval or is_coding_setup
+            else model_routes.operational
+        )
+        invocation_agent = invocation_config.runtime
         command_kwargs = {}
         if is_nemoclaw_setup:
             command_kwargs["agent_timeout_multiplier"] = (
@@ -1693,21 +1686,8 @@ def run_invocations(
                 "VSS and NemoClaw",
                 flush=True,
             )
-        invocation_model = model
-        invocation_base_url = base_url
-        if is_nemoclaw_setup:
-            # Model selection targets the agent being evaluated. The coding
-            # agent that provisions Build Vision AI is orchestration, like the
-            # coordinator and judge, and keeps the runner's normal route.
-            invocation_model = os.environ.get("ANTHROPIC_MODEL", "")
-            invocation_base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
-            if not invocation_model or not invocation_base_url:
-                print(
-                    "FATAL: ANTHROPIC_MODEL and ANTHROPIC_BASE_URL are required "
-                    "for NemoClaw setup",
-                    file=sys.stderr,
-                )
-                return finish(1)
+        invocation_model = invocation_config.model
+        invocation_base_url = invocation_config.endpoint_url
         cmd = build_harbor_command(
             invocation,
             results_root,
@@ -1724,6 +1704,10 @@ def run_invocations(
             # route while a directly evaluated Claude agent gets its selected
             # endpoint.
             invocation_env["ANTHROPIC_BASE_URL"] = invocation_base_url
+            invocation_env["ANTHROPIC_API_KEY"] = invocation_config.api_key
+        elif invocation_agent == "codex":
+            invocation_env["OPENAI_API_KEY"] = invocation_config.api_key
+            invocation_env["OPENAI_BASE_URL"] = _api_base_v1(invocation_base_url)
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
             rc = run_command(cmd, invocation_env, harbor_timeout_sec)
@@ -1739,7 +1723,7 @@ def run_invocations(
             overall_rc = rc
 
         reward: str | None = None
-        if is_nemoclaw_setup or (
+        if is_coding_setup or (
             invocation.step_index is not None and invocation.step_count is not None
         ):
             reward = latest_reward(results_root, invocation.include_task_name, started_at)
@@ -1764,11 +1748,11 @@ def run_invocations(
                 )
                 skipped_after[invocation.chain_key] = invocation.step_index
 
-        if is_nemoclaw_setup:
+        if is_coding_setup:
             if rc != 0 or _reward_value(reward) < 1.0:
                 print(
                     "[run-leg] expects[0] deployment/setup failed; "
-                    "NemoClaw scenarios were not started",
+                    "operational scenarios were not started",
                     file=sys.stderr,
                 )
                 return finish(rc or 1)
@@ -1853,10 +1837,10 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGTERM, _terminate)
     args = parse_args(argv or sys.argv[1:])
     try:
-        model_config = resolve_model_config(os.environ)
+        model_routes = resolve_model_routes(os.environ)
     except ValueError as exc:
         print(
-            f"FATAL: invalid evaluated-agent model configuration: {exc}",
+            f"FATAL: invalid skill-eval model route: {exc}",
             file=sys.stderr,
         )
         return 1
@@ -1956,7 +1940,7 @@ def main(argv: list[str] | None = None) -> int:
                         args.spec_stem,
                         args.platform,
                         args.harbor_timeout_sec,
-                        model_config,
+                        model_routes,
                         work_deadline,
                     )
                     if rc == 0:
