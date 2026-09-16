@@ -190,6 +190,7 @@ class HitlLaunchContractTests(unittest.TestCase):
         namespace: dict[str, object] = {}
         environment = {
             "VSS_AGENT_ADAPTER_ENABLED": "true",
+            "VSS_AGENT_BACKEND_URL": "ws://agent.internal:18789",
             "VSS_AGENT_BACKEND_TOKEN": "test-token",
             "HITL_ENABLED": "true",
         }
@@ -210,6 +211,63 @@ class HitlLaunchContractTests(unittest.TestCase):
         self.assertIs(namespace["VSS_AGENT_ADAPTER_ENABLED"], True)
         self.assertIs(namespace["HITL_ENABLED"], False)
         self.assertEqual(namespace["VSS_AGENT_BACKEND_TOKEN"], "test-token")
+
+    def test_external_adapter_requires_an_explicit_backend_url(self) -> None:
+        sources = self._sources("deploy_vss_orchestrator.ipynb")
+        namespace: dict[str, object] = {}
+
+        with (
+            mock.patch.dict(
+                os.environ, {"VSS_AGENT_ADAPTER_ENABLED": "true"}, clear=True
+            ),
+            mock.patch("subprocess.check_output", return_value="192.0.2.10\n"),
+            mock.patch("builtins.print"),
+            self.assertRaisesRegex(
+                ValueError,
+                "VSS_AGENT_BACKEND_URL is required.*reachable from the VSS UI containers",
+            ),
+        ):
+            for cell_id in ("7db6e569", "20b35654"):
+                exec(  # noqa: S102 - executes checked-in notebook settings cells.
+                    compile(
+                        sources[cell_id], f"deploy_vss_orchestrator:{cell_id}", "exec"
+                    ),
+                    namespace,
+                )
+
+    def test_external_adapter_preserves_environment_backend_settings(self) -> None:
+        sources = self._sources("deploy_vss_orchestrator.ipynb")
+        namespace: dict[str, object] = {}
+        environment = {
+            "VSS_AGENT_ADAPTER_ENABLED": "true",
+            "VSS_AGENT_BACKEND_PROTOCOL": "responses",
+            "VSS_AGENT_BACKEND_URL": "http://agent.local:8642",
+            "VSS_AGENT_BACKEND_PATH": "/v1/responses",
+            "VSS_AGENT_BACKEND_TOKEN": "test-token",
+        }
+
+        with (
+            mock.patch.dict(os.environ, environment, clear=True),
+            mock.patch("subprocess.check_output", return_value="192.0.2.10\n"),
+            mock.patch("builtins.print"),
+        ):
+            for cell_id in ("7db6e569", "20b35654"):
+                exec(  # noqa: S102 - executes checked-in notebook settings cells.
+                    compile(
+                        sources[cell_id], f"deploy_vss_orchestrator:{cell_id}", "exec"
+                    ),
+                    namespace,
+                )
+
+        self.assertEqual(namespace["VSS_AGENT_BACKEND_PROTOCOL"], "responses")
+        self.assertEqual(namespace["VSS_AGENT_BACKEND_URL"], "http://agent.local:8642")
+        self.assertEqual(namespace["VSS_AGENT_BACKEND_PATH"], "/v1/responses")
+        self.assertEqual(namespace["VSS_AGENT_BACKEND_TOKEN"], "test-token")
+        self.assertIn(
+            'env["VSS_AGENT_BACKEND_PATH"] = VSS_AGENT_BACKEND_PATH',
+            sources["042eabd1"],
+        )
+        self.assertNotIn('env["VSS_AGENT_BACKEND_PATH"] = "/"', sources["042eabd1"])
 
     def test_vss_agent_can_explicitly_opt_in_to_structured_hitl(self) -> None:
         sources = self._sources("deploy_vss_orchestrator.ipynb")
@@ -243,16 +301,9 @@ class HitlLaunchContractTests(unittest.TestCase):
         instructions = (
             repo / ".openclaw" / "workspace" / "_nemoclaw" / "AGENTS.md"
         ).read_text(encoding="utf-8")
-        build_skill = (repo / "skills" / "vss-build-vision-ai" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-
         self.assertIn("export HITL_ENABLED=false", environment)
         self.assertIn("never invoke `AskUserQuestion`", instructions)
         self.assertIn("ordinary assistant text", instructions)
-        self.assertIn("Question transport", build_skill)
-        self.assertIn("ordinary assistant chat text", build_skill)
-        self.assertIn("Unless it is explicitly\n`true`", build_skill)
 
     def test_every_shipped_hitl_tool_config_is_opt_in(self) -> None:
         repo = runner.repo_root()

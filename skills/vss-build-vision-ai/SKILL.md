@@ -64,20 +64,6 @@ metadata:
 
 ## Entry Mode (Step 0)
 
-### Question transport
-
-Obey the harness environment's `HITL_ENABLED` setting. Unless it is explicitly
-`true`, every instruction below to use `AskUserQuestion` means: render the same
-question and choices as ordinary assistant chat text, end the turn, and
-continue from the user's next message. Do not call a structured interaction
-tool. The question remains a gate; never interpret using normal chat as
-permission to continue before the user answers. Only an explicit `true`
-permits the interaction mechanism supported by the active harness.
-
-In the shipped deployment, this same variable also configures the VSS agent's
-`hitl_enabled` function fields and the UI response modal. Do not try to infer
-HITL from a browser-only `NEXT_PUBLIC_*` value.
-
 Before routing, detect the **entry mode** — one of three: **Prompt-driven**, **Pre-built workflow**, or **Custom build**. All three share the same downstream machinery (profile catalog, Foundation selection, delta composition, resolution, and deployment); the mode only determines where the flow enters. **Pre-built workflow** is a fast path — it deploys a validated developer profile's authoritative service set unchanged in Stock mode (**no capability delta**), still producing a minimal stock `_builds/<name>/` for the shared validate -> deploy -> readiness -> teardown lifecycle — while **Custom build** is a guided front door onto Delta mode.
 
 ### Exception — autonomous mode
