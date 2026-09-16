@@ -17,14 +17,14 @@ The adapter does **not** pick LLM/VLM placement — the
 runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
-    Profiles : base, lvs, warehouse, search, ask-video, plus chained
-               operations skills and standalone deployment / build skills
-               (vss-build-vision-ai, vss-deploy-profile, RT-VLM / RT-CV /
-               RT-Embed, behavior-analytics, video-analytics-api)
+    Profiles : base, lvs, warehouse, search, alerts-cv, alerts-vlm, ask-video,
+               plus chained operations skills and standalone deployment /
+               build skills (vss-build-vision-ai, vss-deploy-profile, RT-VLM /
+               RT-CV / RT-Embed, behavior-analytics, video-analytics-api)
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
-               DGX-SPARK, IGX-THOR this guest has (warehouse and search
-               are two-GPU jobs; ask-video deploys base then chains to
-               vss-ask-video)
+               DGX-SPARK, IGX-THOR this guest has (warehouse, search, and
+               alerts-cv are two-GPU jobs; alerts-vlm is one GPU; ask-video
+               deploys base then chains to vss-ask-video)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
@@ -334,6 +334,18 @@ PROFILES: dict[str, dict] = {
         "description": "Warehouse agents plus vss-manage-alerts (alert-bridge already in bp_wh)",
         "profile": "warehouse",
         "bundled_skills": ("vss-manage-alerts", "vss-query-analytics"),
+    },
+    "alerts-cv": {
+        "description": "VSS alerts profile verification mode (`MODE=2d_cv`) with remote LLM",
+        "profile": "alerts",
+        "deploy_mode": "verification",
+        "bundled_skills": ("vss-manage-alerts",),
+    },
+    "alerts-vlm": {
+        "description": "VSS alerts profile real-time mode (`MODE=2d_vlm`) with remote LLM",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts",),
     },
     "report": {
         "description": "VSS base profile plus vss-generate-video-report",
