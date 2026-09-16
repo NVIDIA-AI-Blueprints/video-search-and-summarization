@@ -1444,7 +1444,7 @@ standalone Helm override.
 | `RTVI_DISABLE_LIVESTREAM_PREVIEW` | Disable live stream preview frames | `true` |
 | `VSS_SKIP_INPUT_MEDIA_VERIFICATION` | Skip input media validation | Empty |
 | `SKIP_PIPELINE_WARMUP` | Skip pipeline warmup on startup | `0` |
-| `VLLM_GPU_MEMORY_UTILIZATION` | vLLM GPU memory utilization fraction | Empty |
+| `VLLM_GPU_MEMORY_UTILIZATION` | Fraction of total GPU memory reserved by vLLM | `0.7` when unset |
 | `VLM_MAX_MODEL_LEN` | Maximum vLLM context length | `32768` |
 | `VLLM_MAX_NUM_SEQS` | Maximum number of sequences in the vLLM batch | `1024` |
 | `VLLM_MAX_NUM_BATCHED_TOKENS` | Maximum number of batched tokens in vLLM | `16384` |
@@ -1498,6 +1498,33 @@ standalone Helm override.
 | `OTEL_TRACES_EXPORTER` | OpenTelemetry traces exporter | `otlp` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry OTLP endpoint | `http://otel-collector:4318` |
 | `OTEL_METRIC_EXPORT_INTERVAL` | OpenTelemetry metric export interval in milliseconds | `60000` |
+
+### Recommended GPU Memory Utilization
+
+`VLLM_GPU_MEMORY_UTILIZATION` is the fraction of total GPU memory that vLLM
+reserves for RTVI-VLM. For example, `0.7` reserves 70 percent. The standalone
+service uses `0.7` when the variable is unset.
+
+For VSS deployments, use these starting values for the default Cosmos3 Nano
+Reasoner model and service placement:
+
+| Hardware profile | Dedicated GPU | GPU shared with other VSS services |
+| --- | --- | --- |
+| H100 | `0.7` | `0.4` |
+| RTX PRO 6000 Blackwell | `0.7` | `0.4` |
+| L40S | `0.8` | `0.8` |
+| RTX PRO 4500 Blackwell | `0.8` | `0.8` |
+| GB300 | Not applicable | `0.2` |
+| DGX Spark | Not applicable | `0.35` |
+| IGX Thor / AGX Thor | Not applicable | `0.35` |
+| Other | `0.7` | `0.7` |
+
+The VSS deployment scripts expose this setting as
+`RTVI_VLLM_GPU_MEMORY_UTILIZATION` and pass it to the RTVI-VLM container as
+`VLLM_GPU_MEMORY_UTILIZATION`. Treat the table as deployment starting points:
+lower the value if model startup reports insufficient free memory or other
+services need more headroom. Changing this value requires restarting RTVI-VLM
+because vLLM reserves memory during engine initialization.
 
 ### Additional Helm Chart Values
 
