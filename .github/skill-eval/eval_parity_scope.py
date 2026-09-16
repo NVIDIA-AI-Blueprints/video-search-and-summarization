@@ -25,15 +25,17 @@ Treat them as a triage hint for finding checks worth reading, never as a
 measurement of what needs the deploy host -- that needs per-check metadata,
 which this does not attempt.
 
-Counts also cannot detect a check MOVING between cells, and reward is per cell
+``--manifest`` is what makes this a baseline rather than a headcount. Counts
+cannot detect a check MOVING between cells, and reward is per cell
 (``passed / len(checks)``, verifiers/generic_judge.py), so a move changes scores
-with every total unchanged. Pinning ordered identities is the follow-up change;
-until it lands this is scaffolding, not a parity baseline.
+while every total stays identical. The manifest records ordered check identities
+per cell, so that move is a diff.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -133,16 +135,17 @@ def scan_spec(rel_path: str) -> dict:
         if not isinstance(checks, list):
             raise SpecError(f"{rel_path}[{idx}]: 'checks' must be a list")
 
-        n, has_host = 0, False
+        hashes, has_host = [], False
         for cidx, check in enumerate(checks):
             if not isinstance(check, str):
                 raise SpecError(f"{rel_path}[{idx}].checks[{cidx}]: must be a string")
             scope = classify_check(check)
             per_scope[scope] += 1
             has_host = has_host or scope == "HOST"
-            n += 1
+            hashes.append(hashlib.sha256(check.encode("utf-8")).hexdigest()[:16])
 
-        cells.append({"index": idx, "check_count": n, "has_host": has_host})
+        cells.append({"index": idx, "check_count": len(hashes), "checks": hashes,
+                      "has_host": has_host})
 
     return {
         "spec": rel_path,
@@ -178,6 +181,29 @@ def scan() -> dict:
     }
 
 
+def manifest(result: dict) -> dict:
+    """The pinnable record: ordered check identities per cell.
+
+    Deliberately excludes the scope buckets. Scope is a lexical hint that will
+    change as the classifier improves; pinning it here would produce noisy diffs
+    that have nothing to do with the corpus actually changing.
+    """
+    return {
+        "version": 1,
+        "totals": {k: result[k] for k in ("specs", "cells", "checks")},
+        "specs": [
+            {
+                "spec": r["spec"],
+                "cells": [
+                    {k: c[k] for k in ("index", "check_count", "checks")}
+                    for c in r["cell_detail"]
+                ],
+            }
+            for r in result["by_spec"]
+        ],
+    }
+
+
 def format_summary(result: dict) -> str:
     hint = " ".join(f"{s}={result['scopes'][s]}" for s in SCOPES)
     return (
@@ -190,6 +216,8 @@ def format_summary(result: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Inventory the skill-eval corpus.")
     ap.add_argument("--json", action="store_true", help="aggregate counts as JSON")
+    ap.add_argument("--manifest", action="store_true",
+                    help="ordered per-cell check identities (the pinnable baseline)")
     args = ap.parse_args()
 
     try:
@@ -198,7 +226,9 @@ def main() -> int:
         print(f"FATAL: {exc}", file=sys.stderr)
         return 2
 
-    if args.json:
+    if args.manifest:
+        print(json.dumps(manifest(result), indent=2, sort_keys=True))
+    elif args.json:
         print(json.dumps({k: v for k, v in result.items() if k != "by_spec"},
                          indent=2, sort_keys=True))
     else:
