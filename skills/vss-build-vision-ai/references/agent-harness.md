@@ -216,8 +216,11 @@ with no way to drive it.
   it, which will strand the build's own models. Reconcile that against
   [`sizing.md`](sizing.md) before choosing it, not after.
 - **The checkout's own assets**: `assets/vss_nemoclaw_policy.yaml`, `skills/`,
-  and `.openclaw/workspace/`. The notebook resolves all three from
-  `VSS_REPO_DIR`.
+  and `.openclaw/` (the sandbox `Dockerfile`, the VSS OpenClaw
+  plugin and the `workspace/` docs). The notebook resolves them from
+  `VSS_REPO_DIR`; for OpenClaw, onboard builds the sandbox image from that
+  Dockerfile (`--from`), so the skills and docs arrive baked rather than
+  installed. Do not build a sandbox image of your own for this.
 
 Preflight the selected provider's row below and no other — a credential check
 that fires for every build rejects the supported paths that need no key:
@@ -391,7 +394,7 @@ blocker: report it with the log path and stop, rather than going on to the UI
 link.
 
 **Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
-`| tail`, `| head`, or a dropped stream loses section 3.7's `Agent UI:` line and
+`| tail`, `| head`, or a dropped stream loses section 3.5's `Agent UI:` line and
 the `WARNING:` that cell prints — without failing — when the dashboard forward
 does not come up. A clean exit does not mean the link is usable. Read the link
 from the `tee`d log.
@@ -436,10 +439,13 @@ itself — work this skill has already done by the time the harness comes up.
 Add it as a second `--notebook` only when the user explicitly wants the agent to
 own the deployment lifecycle too.
 
-Because the notebook installs every `SKILL.md` under `skills/`, the sandbox receives
-this skill as well, and can compose further builds from chat. It operates the
-build it was given; it is not expected to manage the `_builds/` tree this run
-produced.
+The OpenClaw sandbox image ships only the **operation** skills — the ones whose
+`SKILL.md` declares `vss-requires` — and activates those the recorded deployment
+can serve (`vss-openclaw-sync` — or `vss-hermes-sync` on Hermes — inside the sandbox re-selects after
+`vss configure`). It does **not** receive this skill: the sandbox operates the
+build it was given and is not expected to compose further builds or manage the
+`_builds/` tree this run produced. A Hermes sandbox (`.hermes/`) ships the same operation skills and
+does not receive it either.
 
 ## Verification
 
@@ -447,7 +453,7 @@ The notebook runs with errors fatal and asserts each step itself, so a clean
 exit already means onboarding, policy, skills, and workspace docs all landed.
 Confirm the two things that exit code cannot cover:
 
-1. **The harness is reachable.** Section 3.7 prints `Agent UI: <url>`. Put it in
+1. **The harness is reachable.** Section 3.5 prints `Agent UI: <url>`. Put it in
    the final summary as a **markdown link** — `[Open the NemoClaw Agent UI](<url>)`
    — not as a bare URL in prose, so the user can click straight through to the
    harness they just deployed. The target is the printed URL character for
@@ -471,7 +477,7 @@ Confirm the two things that exit code cannot cover:
    policy (see Prerequisites), not a deployment fault — the distinction matters
    because the two have opposite fixes.
 
-Section 3.8 is an optional deeper pass over the live sandbox, active policy
+Section 3.6 is an optional deeper pass over the live sandbox, active policy
 metadata, webhooks, and the installed workspace docs. Run it when onboarding
 behaved unexpectedly.
 
@@ -496,4 +502,4 @@ reports as a skill failure rather than a missing deployment.
 - `deploy/docker/scripts/run_setup_notebook.py`
 - `deploy/docker/scripts/nemoclaw/README.md`
 - `assets/vss_nemoclaw_policy.yaml`
-- `.openclaw/workspace/` (and its `_nemoclaw` overlay)
+- `.openclaw/` — `Dockerfile`, `plugin/`, `workspace/` (and its `_nemoclaw` overlay)

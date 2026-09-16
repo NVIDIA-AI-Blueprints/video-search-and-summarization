@@ -7,6 +7,11 @@ metadata:
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "summarize"
 ---
 
 # VSS Summarize Video
@@ -194,7 +199,7 @@ not inspect the body.
 | LVS result | Action |
 |---|---|
 | HTTP 200 | Use LVS for every video duration. |
-| Anything else | Ask to deploy LVS or ask before using VLM fallback. |
+| Anything else | Report that LVS must be deployed, or ask before using VLM fallback. |
 
 If LVS is unavailable, ask:
 
