@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { DocumentProps, Head, Html, Main, NextScript } from 'next/document';
 import Script from 'next/script';

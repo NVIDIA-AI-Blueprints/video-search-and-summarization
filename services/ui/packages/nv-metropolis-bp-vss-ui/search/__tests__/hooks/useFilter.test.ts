@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { useFilter, DEFAULT_TOP_K } from '../../lib-src/hooks/useFilter';

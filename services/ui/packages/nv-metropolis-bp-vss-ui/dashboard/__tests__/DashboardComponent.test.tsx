@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { render, screen, act } from '@testing-library/react';
 import { DashboardComponent } from '../lib-src/DashboardComponent';

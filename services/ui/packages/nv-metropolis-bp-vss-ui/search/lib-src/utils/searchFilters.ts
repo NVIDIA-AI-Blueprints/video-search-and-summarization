@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import type { SearchData, SearchParams, StreamInfo } from '../types';
 import { parseDateAsLocal } from './Formatter';
