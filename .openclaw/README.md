@@ -85,8 +85,9 @@ from the image that Dockerfile produces, which NemoClaw publishes to
 `ghcr.io/nvidia/nemoclaw/openclaw-sandbox`.
 
 Skills and the `vss` CLI come from one pinned commit of this repo (`VSS_REF`),
-so they always match. `vss` is installed from source because `nvidia-vss` is on
-no reachable index. The workspace files come from this directory.
+so they always match. `nvidia-vss` is on no reachable index, so the checkout
+stage builds it as wheels and the runtime installs those by name — no VSS
+source ships in the image. The workspace files come from this directory.
 
 ```
 docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
