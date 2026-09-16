@@ -76,7 +76,7 @@ If `apply()` is defined, the runner calls it before the probe. If the function d
 Any bash script that:
 
 1. Reads its parameters from env vars (set by the runner from `PROBE_ENV_*`)
-2. Does whatever it needs (ES query, HTTP scrape, redis-cli, log grep, etc.)
+2. Does whatever it needs (ES query, HTTP scrape, metrics scrape, log grep, etc.)
 3. Calls `pass "$NAME" "$DETAIL"` or `fail "$NAME" "$DETAIL"` from `lib/common.sh`
 4. Exits 0 (PASS) or 1 (FAIL)
 

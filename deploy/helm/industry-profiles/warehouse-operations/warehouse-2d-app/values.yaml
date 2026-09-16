@@ -131,6 +131,8 @@ bp-configurator:
 calibration-import:
   enabled: true
   name: import-calibration-output-2d
+  restartPolicy: OnFailure
+  backoffLimit: 5
   apiUrl: http://vss-video-analytics-api:8081
   calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/calibration.json
   imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images/imageMetadata.json
@@ -175,7 +177,7 @@ vios:
     headlessServiceName: ""
     # No bind-mounts in Helm: download overlay assets from video-analytics-api.
     calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
-    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1&view=plan-view"
+    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building=Warehouse/room=Room-1&view=plan-view"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
@@ -419,6 +421,9 @@ rtvi:
         nvidia.com/gpu: 1
       requests:
         nvidia.com/gpu: 1
+  vss-rtvi-vlm:
+    envOverrides:
+      VLLM_GPU_MEMORY_UTILIZATION: "0.8"
 
 # Alerts stack, off by default. Enable vss-alert-bridge, agent, and
 # rtvi.vss-rtvi-vlm together to run alerts.

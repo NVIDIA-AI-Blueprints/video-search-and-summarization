@@ -1,47 +1,38 @@
-# VSS Exception Tests
+# Exception and retry-policy tests
 
-## Exception Types and Trigger Conditions
+`test_error_handler.py` pins the behaviour of `ErrorHandler`, the retry policy
+applied around VLM calls: how many attempts `with_retry` makes, the backoff it
+computes between them, which exception types are retried versus propagated
+immediately, and which ones are logged without a stack trace.
 
-### 1. VSSConnectionError
-- **Trigger**: Failed to establish connection to VSS service
-- **Common Causes**: Wrong host/port, service down, network issues
+## Running
 
-### 2. VSSMediaUploadError  
-- **Trigger**: Failed to upload media file to VSS
-- **Common Causes**: File not found, invalid file path, unsupported format
-- **Test**: Uses non-existent file path `/media/nonexistent/wrong_file.mp4`
+The tests are pure unit tests — no broker, no Elasticsearch, no VLM. `time.sleep`
+is patched, so they assert on the computed backoff instead of waiting for it.
 
-### 3. VSSAPIError
-- **Trigger**: VSS API call failures
-- **Common Causes**: Invalid model ID, timeout, HTTP errors, empty response
-
-### 4. VSSPromptError
-- **Trigger**: No suitable prompt found for entity
-- **Common Causes**: Missing prompts in payload, unknown alert type, no matching template
-- **Test**: Removes prompts and uses unknown alert type `unknown_alert_type_xyz`
-
-### 5. VSSResponseError
-- **Trigger**: No valid evaluations returned from VSS
-- **Common Causes**: All prompts failed, empty results, parsing failures
-
-### 6. VSSRetryExhaustedError
-- **Trigger**: Operation failed after max retry attempts
-- **Note**: Only raised for retriable errors (not for VSSMediaUploadError or VSSPromptError)
-
-## Running the Tests
-
-### Prerequisites
 ```bash
-pip install redis pyyaml
+cd services/alert
+python -m pytest test/unit/exceptions/ -v
 ```
 
-### Run Tests
-```bash
-cd /home/user/alert_agent/test/exception_test
-python3 test_exceptions.py
-```
+## Exception types
 
-### Test Flow
-1. **Valid Payload**: Sends correct payload as control test
-2. **VSSMediaUploadError**: Tests with invalid media file path
-3. **VSSPromptError**: Tests with missing prompts and unknown alert type
+The exception hierarchy lives in `src/handlers/exception_handler/vss_exceptions.py`.
+The `VSS` prefix is historical: these are the errors raised around VLM calls, not
+anything to do with the VSS service, which the Alerts microservice no longer
+talks to. All of them derive from `VSSException`.
+
+| Exception | Raised when |
+| --- | --- |
+| `VSSConnectionError` | The VLM endpoint cannot be reached. |
+| `VSSModelError` | A model operation is rejected, for example an unknown model ID. |
+| `VSSMediaUploadError` | Media upload fails — missing path, unreadable or unsupported file. |
+| `VSSAPIError` | The API call itself fails: HTTP error, timeout, or empty response. |
+| `VSSPromptError` | No prompt can be resolved for the alert type. |
+| `VSSResponseError` | The response cannot be parsed into a verdict. |
+| `VSSRetryExhaustedError` | Every retry attempt was used up. Chained to the last underlying error, so a caller can tell "gave up" apart from "failed once". |
+
+`VSSRetryExhaustedError` is only reached for the types passed in `ErrorHandler`'s
+`exceptions` argument. A non-retriable failure such as `VSSMediaUploadError` or
+`VSSPromptError` propagates on the first attempt rather than consuming the retry
+budget.

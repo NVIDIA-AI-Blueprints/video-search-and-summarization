@@ -20,7 +20,6 @@ and CV-compatible models (/v1/stream/*) for cross-service interoperability.
 
 from datetime import datetime
 from typing import Annotated, Any, Optional, Union
-from uuid import UUID
 
 from pydantic import ConfigDict, Field, field_validator
 
@@ -42,6 +41,9 @@ from .common import (
     CommonBaseModel,
 )
 
+# Stream IDs are used as URL path segments and filesystem path components.
+# Must start with alphanumeric and contain only safe characters (matches PR 2095 VLM fix).
+STREAM_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$"
 LIVE_STREAM_URL_PATTERN = r"^rtsp://"
 # CV-compatible URL pattern: accepts rtsp://, file://, http://, https://.
 # Empty VIOS camera_add registration URLs are handled by the VIOS-specific pattern.
@@ -138,10 +140,14 @@ class AddLiveStream(CommonBaseModel):
         ge=-1000000,
         le=1000000,
     )
-    id: Optional[UUID] = Field(
+    id: Optional[str] = Field(
         default=None,
-        description="The UUID of the live stream. If not provided, a new ID will be generated.",
-        examples=["cc06804c-7f11-4865-bb00-6b2db072086f"],
+        description=(
+            "The identifier of the live stream. If not provided, a new ID will be generated."
+        ),
+        max_length=256,
+        pattern=STREAM_ID_PATTERN,
+        examples=["cc06804c-7f11-4865-bb00-6b2db072086f", "camera-01"],
     )
     sensor_name: str = Field(
         default="",
@@ -155,8 +161,10 @@ class AddLiveStream(CommonBaseModel):
 class AddLiveStreamResponse(CommonBaseModel):
     """Response schema for the add live stream API."""
 
-    id: UUID = Field(
-        description="The stream identifier, which can be referenced in the API endpoints."
+    id: str = Field(
+        description="The stream identifier, which can be referenced in the API endpoints.",
+        max_length=256,
+        pattern=STREAM_ID_PATTERN,
     )
 
 
@@ -235,7 +243,11 @@ class DeleteLiveStreamsResponse(CommonBaseModel):
 class LiveStreamInfo(CommonBaseModel):
     """Live Stream Information."""
 
-    id: UUID = Field(description="Unique identifier for the live stream")
+    id: str = Field(
+        description="Unique identifier for the live stream",
+        max_length=256,
+        pattern=ANY_CHAR_PATTERN,
+    )
     liveStreamUrl: str = Field(
         description="Live stream RTSP URL",
         max_length=256,
