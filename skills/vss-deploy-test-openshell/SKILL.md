@@ -29,7 +29,8 @@ Do not use this skill for:
   the full alerts *profile* catalog — use `vss-deploy-profile`. Warehouse
   agents on OpenShell still chain to `vss-manage-alerts` for the alert-bridge
   already in `bp_wh`.
-- Standalone microservice deployment outside a compose profile — use the matching skill: `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, or `vss-deploy-video-embedding`.
+- Standalone microservice deployment outside a compose profile — use the matching skill from [§ Bundled build and deployment skills](#bundled-build-and-deployment-skills): `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, `vss-deploy-video-embedding`, `vss-setup-behavior-analytics`, or `vss-setup-video-analytics-api`.
+- Composing a stack from capabilities rather than picking a stock profile — use `vss-build-vision-ai`, also bundled.
 - NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or this skill will run it as part of the credential gate.
 
 ## Available Scripts
@@ -71,6 +72,27 @@ uses the industry-profile directory, three env files, and two compose files.
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the Spark Nano 9B standalone local LLM on port `30081`; AGX/IGX Thor uses the Edge 4B standalone vLLM fallback.
 
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
+
+## Bundled build and deployment skills
+
+The profiles above are this skill's own scope. A request outside them routes to
+one of these, which are installed alongside this skill rather than only
+referenced by name — load the listed `SKILL.md` instead of forcing the request
+into a stock profile.
+
+| User says | Load |
+|---|---|
+| "compose a stack for these capabilities" / "build a vision agent" | `skills/vss-build-vision-ai/SKILL.md` |
+| an `alerts` / `edge` profile, a non-agents warehouse variant, or the full catalog | `skills/deployment/vss-deploy-profile/SKILL.md` |
+| "just RT-VLM" / "dense captioning standalone" | `skills/deployment/vss-deploy-dense-captioning/SKILL.md` |
+| "just RT-CV" / "2D detection and tracking standalone" | `skills/deployment/vss-deploy-detection-tracking-2d/SKILL.md` |
+| "MV3DT" / "3D detection standalone" | `skills/deployment/vss-deploy-detection-tracking-3d/SKILL.md` |
+| "just RT-Embed" / "video embeddings standalone" | `skills/deployment/vss-deploy-video-embedding/SKILL.md` |
+| "behavior analytics standalone" | `skills/deployment/vss-setup-behavior-analytics/SKILL.md` |
+| "Video Analytics API standalone" | `skills/deployment/vss-setup-video-analytics-api/SKILL.md` |
+
+Each deploys a single microservice, or a composed delta, and does **not** use
+the `generated.env` profile flow below. Follow the loaded skill's own runbook.
 
 ## Instructions
 
