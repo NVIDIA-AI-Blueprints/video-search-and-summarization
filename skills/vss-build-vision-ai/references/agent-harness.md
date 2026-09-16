@@ -362,9 +362,17 @@ works the same way.
 ## Bring-up
 
 Do not reimplement any of this. `deploy_nemoclaw.ipynb` is the single source of
-host-side harness logic — Docker pinning, sandbox onboarding, policy, skill
-install, workspace docs, webhooks, UI link — and
+host-side harness logic — sandbox onboarding, policy, skill install, workspace
+docs, webhooks, UI link — and
 `deploy/docker/scripts/run_setup_notebook.py` executes it non-interactively.
+
+Its section 2.1 also runs `deploy/docker/scripts/pin_docker_version.sh`, which
+the Docker gate in [`prerequisites.md`](prerequisites.md#docker-pin) already ran
+at Step 3. That is deliberate: the script is idempotent and only re-applies the
+`apt-mark hold`s on a host already pinned. **A host that skipped Step 3 gets its
+Docker downgrade here, with the build running** — dockerd restarts under it. The
+pin belongs at Step 3 for that reason; reaching this step unpinned is a
+prerequisite that was missed, not a step the harness owns.
 
 Set the environment, then run the notebook:
 
