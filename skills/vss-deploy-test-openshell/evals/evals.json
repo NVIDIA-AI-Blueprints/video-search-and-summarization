@@ -151,6 +151,94 @@
     ]
   },
   {
+    "id": "build-vision-ai-openshell-proposal",
+    "question": "Propose a dense-captioning plus VIOS architecture without writing files.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "The OpenShell eval bundles vss-build-vision-ai. The agent loads /vss-build-vision-ai for a proposal-only architecture, does not write _builds/, and does not deploy a stock compose profile.",
+    "expected_behavior": [
+      "Loads the bundled vss-build-vision-ai skill.",
+      "Does not deploy via vss-deploy-test-openshell or write _builds/ in the proposal-only step.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "deploy-profile-openshell-base",
+    "question": "Deploy the VSS base profile using vss-deploy-profile on OpenShell.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "The OpenShell eval bundles vss-deploy-profile. The agent loads /vss-deploy-profile for the full catalog path rather than the OpenShell subset skill.",
+    "expected_behavior": [
+      "Loads the bundled vss-deploy-profile skill.",
+      "Deploys the base profile and waits for agent, UI, and redis readiness.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "dense-captioning-openshell-standalone",
+    "question": "Stand up just the RT-VLM microservice on this OpenShell host.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "The OpenShell eval bundles vss-deploy-dense-captioning. The agent uses that standalone skill, not a compose profile.",
+    "expected_behavior": [
+      "Loads the bundled vss-deploy-dense-captioning skill.",
+      "Starts standalone rtvi-vlm on port 8018.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "detection-tracking-2d-openshell-standalone",
+    "question": "Deploy RT-CV 2D standalone on this OpenShell host.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "The OpenShell eval bundles vss-deploy-detection-tracking-2d. The agent uses that standalone skill for warehouse-2d.",
+    "expected_behavior": [
+      "Loads the bundled vss-deploy-detection-tracking-2d skill.",
+      "Does not deploy a full VSS compose profile.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "detection-tracking-3d-openshell-standalone",
+    "question": "Deploy RT-CV 3D / MV3DT standalone on this OpenShell host.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "The OpenShell eval bundles vss-deploy-detection-tracking-3d. The agent uses the standalone RT-CV-3D compose path.",
+    "expected_behavior": [
+      "Loads the bundled vss-deploy-detection-tracking-3d skill.",
+      "Does not use warehouse compose or vss-deploy-profile.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "video-embedding-openshell-standalone",
+    "question": "Stand up just the RT-Embed microservice on this OpenShell host.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "The OpenShell eval bundles vss-deploy-video-embedding. The agent uses that standalone skill on port 8017.",
+    "expected_behavior": [
+      "Loads the bundled vss-deploy-video-embedding skill.",
+      "Starts standalone rtvi-embed and waits for /v1/ready.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "setup-behavior-analytics-openshell-standalone",
+    "question": "Deploy behavior-analytics standalone on this OpenShell host.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "The OpenShell eval bundles vss-setup-behavior-analytics. The agent uses that skill's default Analytics 2D entrypoint without a full warehouse stack.",
+    "expected_behavior": [
+      "Loads the bundled vss-setup-behavior-analytics skill.",
+      "Does not deploy a full VSS compose profile.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
+    "id": "setup-video-analytics-api-openshell-standalone",
+    "question": "Deploy the Video Analytics API standalone on this OpenShell host.",
+    "expected_skill": "vss-deploy-test-openshell",
+    "ground_truth": "The OpenShell eval bundles vss-setup-video-analytics-api. The agent uses that skill against Elasticsearch/Kafka, not a full profile.",
+    "expected_behavior": [
+      "Loads the bundled vss-setup-video-analytics-api skill.",
+      "Brings the API to /livez without a full VSS profile.",
+      "Does not print plaintext API tokens (NGC_CLI_API_KEY / NVIDIA_API_KEY)."
+    ]
+  },
+  {
     "id": "deploy-profile-negative-standalone-microservice",
     "question": "Stand up just the RT-VLM microservice on this host, outside of any compose profile.",
     "expected_skill": null,

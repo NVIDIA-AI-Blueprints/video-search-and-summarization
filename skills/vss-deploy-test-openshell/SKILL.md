@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-test-openshell
-description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, or two-GPU warehouse agents profile on OpenShell, then chain to operations skills (vss-ask-video, vss-search-archive, vss-summarize-video, vss-manage-video-io-storage, vss-query-analytics, vss-manage-alerts, vss-generate-video-report, vss-generate-video-report-rag). For other warehouse variants or standalone microservices, use vss-deploy-profile or the matching vss-deploy-* skill.
+description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, or two-GPU warehouse agents profile on OpenShell, then chain to operations skills (vss-ask-video, vss-search-archive, vss-summarize-video, vss-manage-video-io-storage, vss-query-analytics, vss-manage-alerts, vss-generate-video-report, vss-generate-video-report-rag). OpenShell evals also bundle vss-build-vision-ai and skills/deployment runbooks (vss-deploy-profile, vss-deploy-dense-captioning, vss-deploy-detection-tracking-2d, vss-deploy-detection-tracking-3d, vss-deploy-video-embedding, vss-setup-behavior-analytics, vss-setup-video-analytics-api). For other warehouse variants or standalone microservices, use vss-deploy-profile or the matching vss-deploy-* skill.
 license: Apache-2.0
 metadata:
   version: "3.2.2"
