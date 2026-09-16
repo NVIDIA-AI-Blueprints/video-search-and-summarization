@@ -50,11 +50,11 @@ re-expand values already read from the Foundation env files.
 ## Notification config — a converged singleton
 
 The mounted `notification_config.json` **is** the fan-out policy: VIOS posts
-sensor lifecycle events (`camera_streaming`, `camera_remove`) to the webhook
-receivers it defines. It is a singleton config on a singleton service, so every
-build decides it deliberately, exactly like the Behavior Analytics joint config
-— though only a build whose decision differs from the inherited default writes a
-file for it.
+sensor lifecycle events (`camera_add`, `camera_streaming`, `camera_remove`) to
+the webhook receivers it defines. It is a singleton config on a singleton
+service, so every build decides it deliberately, exactly like the Behavior
+Analytics joint config — though only a build whose decision differs from the
+inherited default writes a file for it.
 
 ### Who belongs in it
 
@@ -74,9 +74,10 @@ to a genuine one.
 
 ### Items and the enable vector
 
-Each profile config splits its fan-out into items of one capability and one
-event, keyed `<capability>-<event>`. Resolving the config is choosing which ids
-are `enabled` — one decision per row, both events together:
+A profile config carrying several stream-driven capabilities splits its fan-out
+into items of one capability and one event, keyed `<capability>-<event>`.
+Resolving such a config is choosing which ids are `enabled` — one decision per
+row, both events together:
 
 | Stream-driven capability | Item ids |
 |---|---|
@@ -109,6 +110,15 @@ one the inherited path resolves to; where it lacks an item, project from the
 shipped superset that has it. Either way the mount points at the build-local
 copy, never at another Foundation's directory, which would tie this build's
 fan-out to that profile's future edits.
+
+Not every profile config is decomposed. The summarization profile's carries no
+ids and one consumer: a prompt-less RT-VLM `stream/add` that admits each new
+stream without inferring ([`rt-vlm.md`](rt-vlm.md)). Inherit it where that
+registration is the build's whole stream-driven set. Pairing it with detection,
+embeddings or tagging has no shipped superset to project from — the tagging
+items carry a prompt, a different capability — so take that combination to the
+clarification gate in [`../composition.md`](../composition.md) rather than
+assembling one.
 
 A projection edits `enabled` and nothing else: URLs, `timeout_ms`, `retry`,
 headers, `body`, and `user_defined_metadata` carry tested values, and a build

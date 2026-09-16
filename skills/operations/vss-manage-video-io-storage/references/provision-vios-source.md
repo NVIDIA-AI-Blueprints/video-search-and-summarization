@@ -242,32 +242,42 @@ placeholder item — some shipped configs carry one (`dummy-camera-add`,
 `enabled: false`, empty `request[]`). No matching entries → the fallback
 appendix.
 
-**Record the enabled ids; they are the expected set.** Each item is one
-capability on one event and carries an `id` naming both —
-`rtvi-cv-camera-streaming`, `rtvi-embed-camera-streaming`,
-`rtvi-vlm-tagging-camera-streaming`, `alert-bridge-camera-streaming`, and their
-`*-camera-remove` counterparts, plus the `es-*-camera-remove` index cleanups.
-The id is what makes verification exact: VIOS prefixes every log line for that
-item with `Webhook camera_status_change/<event> (<id>)`, and stamps the same id
-into each delivered body as `webhook_id`, so a Step-3 post-check and the log
-line it corresponds to agree by name rather than by position.
+An enabled `camera_add` item sits outside that set: VIOS always sends it with an
+empty `camera_url`, so there is nothing to register — RT-VLM answers `200` with
+`asset_id: ""` and `inference: false`. Expect the delivery in the logs and verify
+nothing against it; registration arrives with `camera_streaming`.
+
+**Record the enabled items; they are the expected set.** Where a config is
+decomposed by capability, each item is one capability on one event and carries an
+`id` naming both — `rtvi-cv-camera-streaming`, `rtvi-embed-camera-streaming`,
+`rtvi-vlm-tagging-camera-streaming`, `alert-bridge-camera-streaming`, their
+`*-camera-remove` counterparts, and the `es-*-camera-remove` index cleanups. VIOS
+prefixes that item's log lines with `Webhook camera_status_change/<event> (<id>)`
+and stamps the id into each delivered body as `webhook_id`, so a post-check and
+its log line agree by name rather than position.
+
+`id` is optional and not every shipped config uses one. An item without one logs
+its event alone and delivers an empty `webhook_id`; verification is unaffected,
+since Step 3 keys off the consumer an item names, not its id.
 
 The enabled set is authoritative — do **not** re-derive it by intersecting with
 the deployed services. Every build resolves this config against its own consumer
 set (`vss-build-vision-ai` `references/services/vios.md`), so an enabled item
-whose service is absent is a build defect: report it by id against the mounted
+whose service is absent is a build defect: report that item against the mounted
 config, and do not silence it as expected noise. With no introspection API, a
 genuine delivery failure to a deployed service is log-identical to it.
 
 ## Step 3 — verify the fan-out
 
-One bounded, read-only post-check per enabled item, keyed by its id:
+One bounded, read-only post-check per enabled item, keyed by the consumer its
+`request[]` URL names; the ids below are what a decomposed config calls them.
 
 | Enabled item | Post-check (read-only) |
 |---|---|
 | `rtvi-cv-camera-streaming` | `GET ${RTVI_CV_URL}/api/v1/stream/get-stream-info` lists the `sensorId`; detections land in `mdx-raw-*` |
 | `rtvi-embed-camera-streaming` | `GET ${RTVI_EMBED_URL}/v1/streams/get-stream-info`; embeddings in `mdx-embed` → `mdx-embed-filtered-*` |
 | `rtvi-vlm-tagging-camera-streaming` | `GET ${RTVI_VLM_URL}/v1/streams/get-stream-info`; captions on `mdx-vlm-captions`, which Logstash writes to `default_<streamId>` (there is no `mdx-vlm-tags` or `mdx-vlm-captions-*` index). Incidents (`mdx-vlm-incidents-*`) appear only when the model emits a trigger token — not a valid liveness check for tagging |
+| An RT-VLM `stream/add` item with no prompt (the LVS profile's config) | `GET ${RTVI_VLM_URL}/v1/stream/get-stream-info` lists the `camera_id` with `inference_active: false`. RT-VLM starts inference only when the add carries a prompt, so registration is the whole contract — do not poll for captions or index writes; nothing produces them until a caller drives one (`vss-build-vision-ai` `references/services/rt-vlm.md`) |
 | `alert-bridge-camera-streaming` | `GET ${ALERT_BRIDGE_URL}/api/v1/realtime/incidents` scoped to the camera; the bridge log shows the always-on POST (see `vss-manage-alerts` `always-on.md`). A repeat delivery returns `STREAM_ADD_ALREADY_ACTIVE` — success, not failure |
 | `*-camera-remove` (teardown) | The consumer no longer lists the `sensorId`; for the `es-*` items, counts drain to zero **for upload-anchored data only** (`*-2025-01-01`). Live-stream documents in `*-<today>` are not cleaned by these webhooks — report the residue as a known limitation, not a failure |
 
@@ -323,9 +333,9 @@ container-log grep, run against **both** VIOS containers (`vss-vios-sensor`,
 - `Webhook .*retrying in`
 - `skipped, camera_type '`
 
-Each line names its item as `camera_status_change/<event> (<id>)`, so grep the
-id to isolate one capability; receivers within an item are identified by
-1-based position, not by URL.
+Each line names its item as `camera_status_change/<event>`, plus ` (<id>)` where
+the item has one — grep whichever it carries to isolate a capability. Receivers
+within an item are identified by 1-based position, not by URL.
 
 ## The shared-id rule
 
@@ -512,4 +522,4 @@ VIOS leaves the consumers provisioned.
 - `skills/deployment/vss-deploy-dense-captioning/references/integrate-rt-vlm.md`
 - `skills/operations/vss-manage-alerts/references/always-on.md` (Alert Bridge always-on contract)
 - Endpoint contract (read-vs-write resolution split): `skills/vss-build-vision-ai/references/deployment_resolution.md`
-- Shipped notification configs: `deploy/docker/developer-profiles/dev-profile-{search,alerts}/vios/configs/` and the webhooks-disabled default `deploy/docker/services/vios/configs/notification_config.json`
+- Shipped notification configs: `deploy/docker/developer-profiles/dev-profile-{search,alerts,lvs}/vios/configs/` and the webhooks-disabled default `deploy/docker/services/vios/configs/notification_config.json`

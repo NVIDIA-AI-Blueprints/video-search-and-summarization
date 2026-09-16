@@ -28,10 +28,25 @@ kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elastic
 | Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 
+## Headless fan-out (no-agent builds)
+
+This profile pins `VST_NOTIFICATION_CONFIG_PATH` at a webhooks-enabled
+`notification_config.json`, so a registered VIOS source reaches RT-VLM with no
+caller: `stream/add` on `camera_add` and `camera_streaming`, `stream/remove` on
+`camera_remove`. Register the source and verify delivery
+(`vss-manage-video-io-storage` `provision-vios-source.md`).
+
+The adds carry no prompt, so RT-VLM admits the stream and starts no inference —
+summaries still come from a caller driving `/v1/summarize`. Verify registration,
+never captions ([`../services/rt-vlm.md`](../services/rt-vlm.md)). The file
+carries a single consumer and no item ids, which constrains what a delta can
+project from it ([`../services/vios.md`](../services/vios.md)).
+
 ## Profile-specific environment knobs
 
 | Knob | Purpose |
 |---|---|
+| `VST_NOTIFICATION_CONFIG_PATH` | Selects the VIOS webhook fan-out config; this profile points it at its own `notification_config.json`. A build whose stream-driven consumer set differs from what that file enables points this elsewhere — see [`../services/vios.md`](../services/vios.md). |
 | `LVS_TAG`, `BACKEND_HOST_PORT`, `LVS_MCP_HOST_PORT`, `LVS_ENABLE_MCP` | Select the image and exposed LVS APIs. |
 | `LVS_DATABASE_BACKEND`, `LVS_EMB_*` | Configure the supported summary database and optional text-embedding endpoint. |
 | `KAFKA_ENABLED`, `KAFKA_STRUCTURED_SUMMARY_TOPIC`, `LVS_ENABLE_LLM_MERGING` | Configure summary event flow. |
@@ -71,6 +86,7 @@ and `/v1/generate_captions` are not the output path for stored/uploaded media.
 - `deploy/docker/developer-profiles/dev-profile-lvs/.env`
 - `deploy/docker/developer-profiles/dev-profile-lvs/overrides.env`
 - `deploy/docker/developer-profiles/dev-profile-lvs/compose.yml`
+- `deploy/docker/developer-profiles/dev-profile-lvs/vios/configs/notification_config.json`
 - `deploy/docker/services/video-summarization/compose.yml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
 - `skills/operations/vss-summarize-video/references/video-summarization-environment-variables.md`

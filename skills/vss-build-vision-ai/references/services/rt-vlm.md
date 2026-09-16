@@ -110,8 +110,8 @@ variant profile.
 
 ### One deployment, three uses
 
-The single `rtvi-vlm` deployment covers three uses, and only one of them makes it
-a webhook receiver ([`vios.md`](vios.md)):
+The single `rtvi-vlm` deployment covers three uses, only one of which makes it a
+webhook receiver that runs the model ([`vios.md`](vios.md)):
 
 - **VLM tagging** — stream-driven, and a receiver **only when the request asks
   for tag search**; deploying RT-VLM never implies it. The `camera_streaming`
@@ -133,6 +133,13 @@ a webhook receiver ([`vios.md`](vios.md)):
   `POST /v1/chat/completions` against the deployed service, reached through the
   ingress route `/rtvi-vlm`. It needs RT-VLM deployed and routed, adds **no**
   receiver, and needs no agent tier.
+
+A config can also make RT-VLM a receiver that does not run the model: a
+`stream/add` receiver carrying no prompt admits each new stream and starts
+nothing, answering `status: "added"`, `inference: false`. That is a receiver
+under the same test — it acts on every new stream unasked — but it yields no
+captions, so never count it as tagging
+([`../profiles/lvs.md`](../profiles/lvs.md) ships the one example).
 
 ### Tearing down a hand-driven captioning session
 
