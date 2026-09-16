@@ -145,6 +145,72 @@ This section provides solutions to common issues and error messages.
 4. **View VGGT results** — after VGGT completes, run layout post-processing (multi-camera) for overlays; open **Results** and use the **VGGT** tab
 5. **Check server logs**: `docker compose logs | grep -i vggt`
 
+## VGGT Completes but Camera Placement or ROI Projection Is Incorrect
+
+**Symptom**: Verification succeeds and VGGT reaches **COMPLETED**, but cameras
+appear in the wrong positions or directions, or ROI/tripwire projections land in
+the wrong physical region.
+
+Completion confirms that the run finished; it does not confirm geometric
+accuracy. Check preparation and result generation before diagnosing scene
+ambiguity:
+
+1. **Check camera identities and inputs** — confirm each video corresponds to
+   the intended physical camera, preserve upload/stream order, and use footage
+   covering the same time window. Check that staged media is correctly rectified.
+2. **Check layout scale and floor-map alignment** — VSS uses alignment data to
+   place VGGT results on the floor map. Verify **Layout Pixels Per Meter** and
+   that each alignment point set identifies the same ground-plane location in
+   Camera 0, Camera 1, and the layout. Follow the [alignment coordinate-space rules](/vss/system-components/calibration/auto-calibration/custom-dataset#alignment-data-alignment_datajson):
+   UI file uploads use original camera coordinates; interactive draw/save uses
+   rectified coordinates. After re-rectification, verify again and relaunch
+   calibration.
+3. **Complete layout post-processing** — rerun it after calibration, alignment,
+   scale, or rectification changes. Compare overlays for the intended result
+   type (AMC or VGGT) and use rectified frames when checking projections.
+4. **Validate the full group** — inspect every camera's position and viewing
+   direction against the installation. Check known physical locations and
+   ROI/tripwire projections, especially in repeated regions. Use [virtual-object overlays and ground-truth evaluation](/vss/system-components/calibration/auto-calibration/workflow-steps#how-to-interpret-calibration-outputs)
+   when available. Correct reference-camera alignment alone does not validate
+   the other cameras.
+5. **Inspect scene suitability** — if geometry is still inconsistent, review
+   [shared scene content, weak connections, repeated structures, and occlusion](/vss/system-components/calibration/auto-calibration/custom-dataset#vggt-camera-group-suitability)
+   in the affected views. These are possible contributors, not a diagnosis from
+   the completion state alone. Automatic frame selection, when available, may
+   not resolve ambiguity present throughout the footage.
+
+### Compare Camera Subsets
+
+Use subset comparisons to investigate which views make the result sensitive to
+the camera group:
+
+1. Create a **separate project** for a smaller group with clear shared scene
+   context. Keep at least two cameras for VGGT and preserve the mapping from
+   project camera IDs to physical cameras.
+2. Complete rectification and prepare correct alignment for that project's
+   first two reference cameras (**Camera 0** and **Camera 1**) and layout.
+   Reuse alignment only if its camera identities, point correspondences, and
+   coordinate space remain correct for the new project.
+3. Verify, run VGGT, complete layout post-processing, and validate every included
+   camera using the same physical locations and application accuracy criteria.
+4. Compare separate projects that add candidate cameras **one at a time**. Keep
+   source clips, capture window, scale, and calibration settings consistent
+   where possible, and record the camera order and any reference-camera or
+   alignment changes. Run calibration for each group and validate the entire
+   result; this is a comparison of independent runs.
+5. If accuracy deteriorates, inspect the added view's shared structure,
+   distinguishing context, and occlusions. Improvement after removing cameras
+   indicates group sensitivity; it does not establish a universal camera-count
+   limit or a single root cause.
+
+A validated subset covers only its included cameras. It does not calibrate
+excluded views, and these comparisons do not provide automatic merging of
+separate outputs. For unresolved views, revise the capture or camera setup and
+retest, or use another supported calibration method and validate its results.
+AMC can be run independently when its moving-person requirements are met; use
+the same [metrics and visual checks](/vss/system-components/calibration/auto-calibration/workflow-steps#how-to-interpret-calibration-outputs)
+to compare methods.
+
 ## Results and Export Issues
 
 **No results available** — Results is available when AMC **or** VGGT completes successfully. For multi-camera trajectory / virtual-GT overlays, also run **Layout Post-processing** on Execute.
