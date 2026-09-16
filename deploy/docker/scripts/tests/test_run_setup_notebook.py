@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import importlib.util
+import io
 import json
 import os
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -404,12 +406,31 @@ class NemoClawNotebookContractTests(unittest.TestCase):
         notebook = json.loads(
             (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
         )
-        source = "\n".join(
-            "".join(cell.get("source", [])) for cell in notebook["cells"]
+        settings = next(
+            "".join(cell.get("source", []))
+            for cell in notebook["cells"]
+            if "NEMOCLAW_TOOL_DISCLOSURE = SHELL_ENV.get" in "".join(
+                cell.get("source", [])
+            )
         )
-        self.assertIn(
-            'os.environ.pop("NEMOCLAW_TOOL_DISCLOSURE", None)', source
-        )
+        namespace = {
+            "_NOTEBOOK_SHELL_ENV": {},
+            "NVIDIA_API_KEY": "",
+            "NEMOCLAW_PROVIDER": "",
+            "NEMOCLAW_ENDPOINT_URL": "",
+            "NEMOCLAW_MODEL": "anthropic/claude-opus",
+            "COMPATIBLE_API_KEY": "",
+        }
+        with (
+            mock.patch.dict(
+                os.environ, {"NEMOCLAW_TOOL_DISCLOSURE": "direct"}, clear=True
+            ),
+            mock.patch("subprocess.check_output", return_value="test-token"),
+            redirect_stdout(io.StringIO()),
+        ):
+            exec(compile(settings, "deploy_nemoclaw.ipynb:settings", "exec"), namespace)
+            self.assertNotIn("NEMOCLAW_TOOL_DISCLOSURE", os.environ)
+        self.assertEqual(namespace["NEMOCLAW_TOOL_DISCLOSURE"], "")
 
 
 class NemoRelayNotebookContractTests(unittest.TestCase):
