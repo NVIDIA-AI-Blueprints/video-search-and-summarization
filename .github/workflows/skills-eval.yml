@@ -9,8 +9,9 @@
 #            in single-spec mode (foreground agent, one synchronous harbor
 #            run), posts its own PR comment per AGENTS.md.
 # workflow_dispatch:
-#   plan -> computes the same (skill, spec, platform) rows for both runtimes
-#   eval -> dispatches one matrix job per row for either runtime
+#   plan -> computes the same (skill, spec, platform) rows
+#   eval -> dispatches one matrix job per row with independent coding and
+#           operational runtime/model routes
 
 name: Skills Eval
 
@@ -25,8 +26,8 @@ on:
     branches:
       - "pull-request/[0-9]+"
   # Manual full-sweep trigger. The `plan` job enumerates the picked skill's
-  # specs (or all skills) instead of diffing, then both runtimes use the same
-  # per-(spec, platform) matrix dispatch.
+  # specs (or all skills) instead of diffing, then both configured routes use
+  # the same per-(spec, platform) matrix dispatch.
   workflow_dispatch:
     inputs:
       skills:
@@ -37,8 +38,35 @@ on:
         required: false
         default: "*"
         type: string
-      runner:
-        description: "Execution runtime. Both options use the same per-spec matrix dispatch."
+      coding_harness:
+        description: "CODING · Harness for Build Vision AI deployment/setup."
+        required: false
+        default: "claude-code"
+        type: choice
+        options:
+          - claude-code
+          - codex
+      coding_provider:
+        description: "CODING · Provider; `default` preserves the runner configuration."
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - nvidia-inference
+          - custom
+      coding_model:
+        description: "CODING · Model ID. Blank preserves the configured default."
+        required: false
+        default: ""
+        type: string
+      coding_endpoint_url:
+        description: "CODING · Optional API base URL; required for provider=custom."
+        required: false
+        default: ""
+        type: string
+      operational_harness:
+        description: "OPERATIONAL · Harness for operational skill queries after setup."
         required: false
         default: "claude-code"
         type: choice
@@ -46,8 +74,8 @@ on:
           - claude-code
           - codex
           - nemoclaw
-      provider:
-        description: "Evaluated-agent provider. `default` preserves the runner configuration."
+      operational_provider:
+        description: "OPERATIONAL · Provider; `default` preserves the runner configuration."
         required: false
         default: "default"
         type: choice
@@ -56,13 +84,13 @@ on:
           - nvidia-inference
           - nvidia-build
           - custom
-      model:
-        description: "Evaluated-agent model ID, e.g. `nvidia/nemotron-3.5-lightning-30b-a3b`. Blank is allowed only with provider=default."
+      operational_model:
+        description: "OPERATIONAL · Model ID, e.g. `nvidia/nemotron-3-ultra`. Blank preserves the configured default."
         required: false
         default: ""
         type: string
-      endpoint_url:
-        description: "Optional evaluated-agent API base URL; required for provider=custom."
+      operational_endpoint_url:
+        description: "OPERATIONAL · Optional API base URL; required for provider=custom."
         required: false
         default: ""
         type: string
@@ -238,10 +266,15 @@ jobs:
           # GitHub Actions secret.
           CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
-          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
-          SKILLS_EVAL_PROVIDER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.provider || 'default' }}
-          SKILLS_EVAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
-          SKILLS_EVAL_ENDPOINT_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.endpoint_url || '' }}
+          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
+          CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
+          CODING_PROVIDER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_provider || 'default' }}
+          CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
+          CODING_ENDPOINT_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_endpoint_url || '' }}
+          OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
+          OPERATIONAL_PROVIDER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_provider || 'default' }}
+          OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
+          OPERATIONAL_ENDPOINT_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_endpoint_url || '' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
           # host can't reauthor bot comments. Same fix helm-sync.yml uses.
@@ -263,10 +296,14 @@ jobs:
           mkdir -p "$GH_CONFIG_DIR"
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
-          skills_eval_harness="$EVAL_AGENT"
-          skills_eval_provider="$SKILLS_EVAL_PROVIDER_INPUT"
-          skills_eval_model="$SKILLS_EVAL_MODEL_INPUT"
-          skills_eval_endpoint="$SKILLS_EVAL_ENDPOINT_INPUT"
+          coding_harness="$CODING_HARNESS_INPUT"
+          coding_provider="$CODING_PROVIDER_INPUT"
+          coding_model="$CODING_MODEL_INPUT"
+          coding_endpoint="$CODING_ENDPOINT_INPUT"
+          operational_harness="$OPERATIONAL_HARNESS_INPUT"
+          operational_provider="$OPERATIONAL_PROVIDER_INPUT"
+          operational_model="$OPERATIONAL_MODEL_INPUT"
+          operational_endpoint="$OPERATIONAL_ENDPOINT_INPUT"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
           set +a
@@ -277,18 +314,30 @@ jobs:
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
           export PATH="$skill_eval_venv_dir/bin:$PATH"
-          export EVAL_AGENT="$skills_eval_harness"
-          export SKILLS_EVAL_HARNESS="$skills_eval_harness"
-          export SKILLS_EVAL_PROVIDER="$skills_eval_provider"
-          if [ -n "$skills_eval_model" ]; then
-            export SKILLS_EVAL_MODEL="$skills_eval_model"
+          export EVAL_AGENT="$operational_harness"
+          export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
+          export SKILLS_EVAL_CODING_PROVIDER="$coding_provider"
+          if [ -n "$coding_model" ]; then
+            export SKILLS_EVAL_CODING_MODEL="$coding_model"
           else
-            unset SKILLS_EVAL_MODEL
+            unset SKILLS_EVAL_CODING_MODEL
           fi
-          if [ -n "$skills_eval_endpoint" ]; then
-            export SKILLS_EVAL_ENDPOINT_URL="$skills_eval_endpoint"
+          if [ -n "$coding_endpoint" ]; then
+            export SKILLS_EVAL_CODING_ENDPOINT_URL="$coding_endpoint"
           else
-            unset SKILLS_EVAL_ENDPOINT_URL
+            unset SKILLS_EVAL_CODING_ENDPOINT_URL
+          fi
+          export SKILLS_EVAL_OPERATIONAL_HARNESS="$operational_harness"
+          export SKILLS_EVAL_OPERATIONAL_PROVIDER="$operational_provider"
+          if [ -n "$operational_model" ]; then
+            export SKILLS_EVAL_OPERATIONAL_MODEL="$operational_model"
+          else
+            unset SKILLS_EVAL_OPERATIONAL_MODEL
+          fi
+          if [ -n "$operational_endpoint" ]; then
+            export SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL="$operational_endpoint"
+          else
+            unset SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL
           fi
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'

@@ -588,26 +588,19 @@ single-step task or ordered `step-1..N` tasks; dispatches one Harbor
 task at a time with the fixed flags below; writes multi-step skip
 markers; and releases the lock when it exits.
 
-`EVAL_AGENT` selects the Harbor runtime (`claude-code` by default,
-`codex`, or `nemoclaw`). NemoClaw still uses this exact wrapper and task
-dispatch. For an operational skill, `run_leg.py` first uses the coding-agent
-runtime with `/vss-build-vision-ai` for the spec's first `expects[]` task. That
-query is the deployment/setup intent and its existing checks are the readiness
-contract; Build Vision AI also attaches NemoClaw in the same task. Harbor sends
-the remaining `expects[]` tasks to that sandbox. Specs that need deployment
-declare that setup query as their first entry; no setup entry is added when it
-is not required. A `vss-build-vision-ai`
-spec itself stays on the coding-agent runtime. Like every other runtime, worker
-selection and locking stay in `run_leg.py`; the harness does not infer a deploy
-profile from extra spec metadata.
+`run_leg.py` resolves independent coding and operational routes. For a spec
+under `skills/operations/`, the coding route runs the first `expects[]` task as
+the deployment/readiness contract and the operational route runs the remaining
+tasks. If the operational route is NemoClaw, Build Vision AI also attaches its
+sandbox during that first task. Specs outside `skills/operations/`, including
+`vss-build-vision-ai`, use the coding route throughout. Worker selection and
+locking remain route-independent.
 
-Manual dispatch may set `SKILLS_EVAL_PROVIDER`, `SKILLS_EVAL_MODEL`, and
-`SKILLS_EVAL_ENDPOINT_URL`. These select only the agent under evaluation and
-apply to both Claude Code and NemoClaw. The coordinator, judge, and the coding
-agent used for NemoClaw's first Build Vision AI setup task keep their existing
-runner configuration. `model_config.py` validates and normalizes the route
-before `run_leg.py` waits for a worker; do not infer or rewrite it in an
-adapter, skill, or notebook.
+Manual dispatch exposes matching `coding_*` and `operational_*` harness,
+provider, model, and endpoint inputs. `model_config.py` validates both routes
+before `run_leg.py` waits for a worker. One route must never inherit an override
+from the other. Coordinator and judge routing stays runner-managed; do not
+infer or rewrite any route in an adapter, skill, or notebook.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`
