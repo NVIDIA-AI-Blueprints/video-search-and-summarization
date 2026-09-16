@@ -100,7 +100,7 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/calibration.json:/opt/vss/calibration.json
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
     command: bash /opt/vss/init-scripts/calibration-import.sh
-    restart: on-failure
+    restart: on-failure:5
 
   # One-shot: populates $VSS_DATA_DIR/models/reid with the SigLIP secondary
   # embedding model (NGC) and the CLIP-ReID tracker ONNX.

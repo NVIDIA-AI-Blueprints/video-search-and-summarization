@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -92,7 +94,7 @@ EOF
 ## Main
 ######################
 main(){
-    check_ES_status "ingest pipeline creation"
+    check_ES_status "Ingest pipeline creation"
     create_insertion_timestamp_ingest_pipeline
 }
 main "$@"

@@ -94,7 +94,7 @@ EOF
 ## Main
 ######################
 main(){
-    check_ES_status "ingest pipeline creation"
+    check_ES_status "Ingest pipeline creation"
     create_insertion_timestamp_ingest_pipeline
 }
 main "$@"
