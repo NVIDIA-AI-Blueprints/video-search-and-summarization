@@ -2526,7 +2526,7 @@ networkx,3.6.1,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfil
 next,16.3.3,MIT,services/ui,node,lockfile;manifest,services/ui/apps/nv-metropolis-bp-vss-ui/package.json;services/ui/apps/vss-chat/package.json;services/ui/package-lock.json;services/ui/package.json,runtime,no,no,no,declared-manifest,None
 next-i18next,16.0.11,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 next-runtime-env,1.8.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
-ngc_cli,4.10.0,UNKNOWN,.hermes,source,container,.hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
+ngc_cli,${NGC_CLI_VERSION},UNKNOWN,.hermes,source,container,.hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 ngc_cli,4.10.0,UNKNOWN,.openclaw,source,container,.openclaw/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 ngcsdk,3.64.2,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 ngcsdk,3.64.2,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
