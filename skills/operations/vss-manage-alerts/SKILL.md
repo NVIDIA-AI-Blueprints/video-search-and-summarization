@@ -456,10 +456,11 @@ sensor) before it can tell the user what exists.
 is several rows. `GET /api/v1/realtime/incidents` has two views — pick one before you query:
 
 - **Raw** (default) → **chunks**. Lists, counts with no period, counts phrased as *incidents /
-  alerts*, forensics (`chunk_ids`, on-demand results), and every ask on a CV deployment. Report
-  the number as chunks.
+  alerts*, forensics (`chunk_ids`, on-demand results), and every ask on a CV deployment. On VLM
+  real-time report the number as chunks; on CV the rows are verifier / on-demand results —
+  report them as incident records, never as chunks or events.
 - **Consolidated** (`consolidate=true`; needs `start_time` + `end_time`, else 400) → **events**:
-  confirmed RT-VLM chunks with the same `sensorId` + `category` folded together
+  *consecutive* confirmed RT-VLM chunks with the same `sensorId` + `category` folded together
   (`info.isConsolidated`, `info.chunkCount`, `chunk_ids`). Only for *how many events / times* in
   a **stated** period on VLM real-time. Report the number as events; never invent a window.
 
