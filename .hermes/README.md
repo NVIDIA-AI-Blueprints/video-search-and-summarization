@@ -26,11 +26,11 @@ from `/sandbox`. The image puts each in place:
   `nemohermes <sb> skill install` places there. Unlike the OpenClaw image, all
   of them are active; each skill begins with `vss configure check` and reports
   what the deployment cannot serve.
-- **Workspace docs** — `.openclaw/workspace/*.md` with the
-  `_nemoclaw/` overlay applied, flattened into `/sandbox/`, exactly where
-  `deploy_nemoclaw.ipynb` used to upload them for Hermes. The docs are shared
-  with the OpenClaw harness and come from the pinned checkout, not from this
-  directory, so there is one copy to maintain.
+- **Workspace docs** — `.openclaw/workspace/*.md` with the `_nemoclaw/`
+  environment/runtime overlay applied and the Base-routing prefix replaced by
+  `_hermes/VSS_ROUTING.md`, flattened into `/sandbox/`. This keeps the shared
+  session instructions in one place while routing Hermes through its standalone
+  `vss` executable instead of OpenClaw's unavailable `vss_cli` tool.
 - **`vss` CLI** — from the same pinned commit, in its own venv
   (`/usr/local/vss`), never touching `/opt/hermes/.venv`.
 

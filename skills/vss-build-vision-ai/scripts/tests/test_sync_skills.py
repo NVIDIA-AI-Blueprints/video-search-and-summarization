@@ -247,3 +247,16 @@ def test_vss_ref_pins_are_in_lockstep():
         refs[df.parent.name] = m.group(1)
     assert refs[".openclaw"] == refs[".hermes"], f"VSS_REF pins drifted: {refs}"
 
+
+def test_hermes_workspace_routes_through_standalone_vss():
+    repo = Path(__file__).resolve().parents[4]
+    dockerfile = (repo / ".hermes" / "Dockerfile").read_text()
+    routing = (
+        repo / ".openclaw" / "workspace" / "_hermes" / "VSS_ROUTING.md"
+    ).read_text()
+
+    assert "vss_cli" not in routing
+    assert "vss vlm run" in routing
+    assert "_hermes/VSS_ROUTING.md" in dockerfile
+    assert "sed -n '/^## First Run$/,$p'" in dockerfile
+    assert "! grep -q 'vss_cli'" in dockerfile
