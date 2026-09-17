@@ -124,27 +124,28 @@ commons:
 
 H100:
   3d:
-    max_streams_supported: 12   # H100's limit
-    # Uses commons formula → final_stream_count = min(NUM_STREAMS, 12)
+    max_streams_supported: 19   # H100's limit
+    # Uses commons formula → final_stream_count = min(NUM_STREAMS, 19)
 
 L4:
   3d:
-    max_streams_supported: 2   # L4's limit
-    # Uses commons formula → final_stream_count = min(NUM_STREAMS, 2)
+    max_streams_supported: 3   # L4's limit
+    # Uses commons formula → final_stream_count = min(NUM_STREAMS, 3)
 ```
 
 The same formula produces different results based on each GPU's capabilities.
 
-#### 2D vs 3D Modes
+#### Deployment Modes
 
-Every configuration has separate rules for 2D and 3D deployment modes:
+The warehouse configuration has separate rules for each deployment mode:
 
 | Mode | Use Case | Resource Usage |
 | --- | --- | --- |
 | `2d` | 2D Warehouse Blueprint (tracking, detection) | Lower GPU load → more streams |
 | `3d` | 3D Warehouse Blueprint (depth, positioning) | Higher GPU load → fewer streams |
+| `mv3dt` | Multi-view 3D tracking with BEV fusion | Capacity is defined independently per hardware profile |
 
-**Example:** An L4 GPU might support 4 streams in 2D mode but only 2 in 3D mode.
+**Example:** The shipped L4 profile supports 9 streams in 2D mode but only 3 in 3D mode.
 
 #### Inheritance Model
 
@@ -164,7 +165,7 @@ The following environment variables **must** be set to use the Profile Configura
 | --- | --- | --- | --- |
 | `ENABLE_PROFILE_CONFIGURATOR` | `false` | `true`, `false` | \| **Must be set to** `true` **to activate the Profile Configurator.** \| **true**: Run profile configurator before starting API server, adjusts config files based on detected GPU \| **false**: Skip profile configuration entirely (default) |
 | `HARDWARE_PROFILE` | `default` | Warehouse: `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`. Developer NIM env files also use `OTHER`. There is no `L40` profile. | GPU slug matching a `blueprint_config.yml` hardware block (warehouse) or `hw-<HARDWARE_PROFILE>.env` (developer NIMs). Unknown slugs do not load those files. |
-| `MODE` | `3d` | `2d`, `3d` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D Warehouse Blueprint (tracking, detection) - typically allows more streams \| **3d**: 3D Warehouse Blueprint (depth, positioning) - typically allows fewer streams |
+| `MODE` | `3d` | `2d`, `3d`, `mv3dt` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D tracking and detection \| **3d**: depth-aware tracking and positioning \| **mv3dt**: multi-view 3D tracking with BEV fusion |
 | `NUM_STREAMS` | (user-defined) | Non-negative integer | \| Desired number of video streams for profile formulas such as `final_stream_count = min(${NUM_STREAMS}, ${max_streams_supported})`. \| The Sensor Configuration Manager also reads this value when `SENSOR_INFO_SOURCE=nvstreamer`: it is the expected camera count to wait for before VST registration (`0` = wait for a stable non-empty list instead). |
 
 #### Optional Environment Variables
@@ -193,7 +194,7 @@ commons:
         num_sensors: ${final_stream_count}
 
 H100:
-  max_streams_supported: 26
+  max_streams_supported: 77
 ```
 
 `MODE` is ignored in this layout. Warehouse blueprints keep `DEPLOYMENT_MODES_ENABLED=true`.
@@ -898,12 +899,12 @@ Just specify stream limits; inherit everything else:
 ```yaml
 H100:
   2d:
-    max_streams_supported: 26
+    max_streams_supported: 77
   3d:
-    max_streams_supported: 12
+    max_streams_supported: 19
 ```
 
-"I'm an H100. I can handle 26 streams in 2D and 12 in 3D. Use all standard rules from commons."
+"I'm an H100. I can handle 77 streams in 2D and 19 in 3D. Use all standard rules from commons."
 
 ##### Example 2: Profile with Extra Operations
 
@@ -1042,9 +1043,9 @@ commons:
 
 H100:
   2d:
-    max_streams_supported: 26
+    max_streams_supported: 77
   3d:
-    max_streams_supported: 12
+    max_streams_supported: 19
 ```
 
 "Count available videos first, then limit streams to the minimum of: user request, available videos, and GPU capacity."
@@ -1100,21 +1101,21 @@ commons:
 # Hardware profiles
 H100:
   2d:
-    max_streams_supported: 26
+    max_streams_supported: 77
   3d:
-    max_streams_supported: 12
+    max_streams_supported: 19
 
 L40S:
   2d:
-    max_streams_supported: 12
+    max_streams_supported: 29
   3d:
-    max_streams_supported: 7
+    max_streams_supported: 10
 
 L4:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 9
   3d:
-    max_streams_supported: 2
+    max_streams_supported: 3
     variables:
       - timeout_multiplier: "2"
       - adjusted_timeout: "${timeout_multiplier} * 25000"
@@ -1298,9 +1299,9 @@ Here the profile inherits commons and adds longer timeouts and extra file update
    ```yaml
    H100:
      2d:
-       max_streams_supported: 26
+       max_streams_supported: 77
      3d:
-       max_streams_supported: 12
+       max_streams_supported: 19
    ```
 
 3. **Use Variables for Computed Values**
@@ -1600,7 +1601,7 @@ This reference lists environment variables read by the VSS Configurator service 
 | `ENABLE_SENSOR_CONFIGURATOR` | `true` | `true`, `false` | \| Starts the Sensor Configuration Manager API server after the optional profile configuration step. \| When false, the container exits after profile configuration. |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` | \| Logging verbosity level. \| **DEBUG**: Detailed diagnostic information \| **INFO**: General operational messages \| **WARN**: Warning messages for potential issues \| **ERROR**: Error messages only |
 | `PORT` | `5000` | Any valid port number | HTTP port for the Flask API server |
-| `MODE` | `3d` | `2d`, `3d` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D Warehouse Blueprint (tracking, detection) - lower GPU load \| **3d**: 3D Warehouse Blueprint (depth, positioning) - higher GPU load |
+| `MODE` | `3d` | `2d`, `3d`, `mv3dt` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D tracking and detection \| **3d**: depth-aware tracking and positioning \| **mv3dt**: multi-view 3D tracking with BEV fusion |
 
 #### Calibration Settings
 

@@ -199,13 +199,16 @@ VST_ENDPOINT=<vst-host>:<vst-port>
 
 VST_PUBLIC_URL_BASE=https://<your-public-vst-or-tunnel-base>
 
-OPENCLAW_GATEWAY_URL=ws://<openclaw-gateway-host>:<port>
+OPENCLAW_GATEWAY_URL=wss://<openclaw-gateway-host>:<port>
 ```
 
 `NOTIFY_BACKENDS`, `VST_ENDPOINT`, `VST_PUBLIC_URL_BASE`, and `OPENCLAW_GATEWAY_URL` are
 relay process environment variables. `VST_PUBLIC_URL_BASE` is the URL clients use to play
 clips (for example a reverse-proxy or Brev tunnel). Infer `OPENCLAW_GATEWAY_URL` from your
-OpenClaw deployment; `host.openshell.internal` is only reachable from inside that sandbox.
+OpenClaw deployment. Use `wss://` whenever the gateway crosses a network boundary because
+the connection carries the gateway token and alert contents. Use `ws://` only for loopback
+(for example `ws://127.0.0.1:18789`) or another trusted internal connection.
+`host.openshell.internal` is only reachable from inside that sandbox.
 </Note>
 
 ### Manually
