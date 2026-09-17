@@ -3,7 +3,7 @@ name: vss-manage-alerts
 description: Use this skill when operating VSS alert workflows — real-time monitoring, Alert-Bridge subscriptions, verification verdicts, on-demand verification, always-on operation, Slack notifications, incident queries, or camera onboarding. Not for non-alert analytics.
 license: Apache-2.0
 metadata:
-  version: "3.3.4"
+  version: "3.3.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -452,29 +452,19 @@ empty, for scope) and run the block again; they are not a message for the user. 
 blocks in `set -e`, which (with `pipefail`) would abort the `grep`-no-match branch (an unknown
 sensor) before it can tell the user what exists.
 
-**Chunks are not events — pick the view before you query.** RT-VLM writes one incident
-document (a *chunk*) per positive video chunk, so one intruder who stays in frame for two
-minutes is several chunks. `GET /api/v1/realtime/incidents` reads them two ways:
+**Chunks are not events.** RT-VLM writes one document per positive chunk, so one long incident
+is several rows. `GET /api/v1/realtime/incidents` has two views — pick one before you query:
 
-- **Raw** (default; `consolidate` omitted): one row per document. Use it for lists ("what
-  happened", "show incidents"), for any count with **no period named** (all-time totals), for
-  a period-bounded count the user phrased as *incidents / alerts* rather than *events / times*
-  (raw with the window — then offer, do not run, the event count), for forensics (individual
-  chunks, an event's `chunk_ids`, on-demand results — Workflow F), and for everything on a CV
-  deployment. On VLM real-time a raw count is a count of *chunks*; say so. On CV the raw rows
-  are incident-kind verifier results and on-demand results, not chunks — CV behaviour alerts
-  live in `mdx-vlm-alerts-*` and never appear here (see Scope below).
-- **Consolidated** (`consolidate=true`): consecutive **confirmed** RT-VLM chunks with the same
-  `sensorId` and `category` are folded into one *event* (`info.isConsolidated: "true"`,
-  `info.chunkCount`, `chunk_ids`), and `count`/`total` count **events**. Only documents carrying
-  `info.chunkIdx` take part — verifier-path and on-demand documents never do — and two rules on
-  the same camera with the same category merge into one event. It **requires both
-  `start_time` and `end_time`** (otherwise HTTP 400), so use it only when the user **stated a
-  period** — absolute ("between 10:00 and 10:30") or relative ("today", "the last 24 hours") —
-  and asked *how many events / times / occurrences*. No period → not this view; never invent
-  one. Grouping is tuned by the `rtvi_vlm.consolidation` block of the Alert Bridge config
-  (shipped defaults: 60 s gap, 300 s event cap); it is opt-in per request and API-only —
-  nothing is deduplicated in the store or the UI — and an event is not a persisted record.
+- **Raw** (default) → **chunks**. Lists, counts with no period, counts phrased as *incidents /
+  alerts*, forensics (`chunk_ids`, on-demand results), and every ask on a CV deployment. Report
+  the number as chunks.
+- **Consolidated** (`consolidate=true`; needs `start_time` + `end_time`, else 400) → **events**:
+  confirmed RT-VLM chunks with the same `sensorId` + `category` folded together
+  (`info.isConsolidated`, `info.chunkCount`, `chunk_ids`). Only for *how many events / times* in
+  a **stated** period on VLM real-time. Report the number as events; never invent a window.
+
+Grouping is tuned in `rtvi_vlm.consolidation` (60 s gap / 300 s cap by default); nothing is
+deduplicated in the store or the UI.
 
 **If the ask names a sensor, resolve its exact stored name FIRST.** Never derive the value
 from the user's phrasing: "the warehouse sample sensor" is English, not an identifier, and
