@@ -410,6 +410,16 @@ def test_cli_unreachable_is_indeterminate() -> None:
     assert "not reachable" in result.stderr
 
 
+def test_cli_urlopen_valueerror_is_indeterminate_without_traceback() -> None:
+    """urlopen(ValueError) — empty host — must not dump a traceback to the operator."""
+    result = run_cli("http://[", "--require", ">=3.2.0,<4.0.0")
+    assert result.returncode == EXIT_INDETERMINATE
+    assert "cannot determine compatibility" in result.stderr
+    assert "could not be requested" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert "Traceback" not in result.stdout
+
+
 def test_cli_non_json_is_indeterminate(server: type[_VersionHandler]) -> None:
     server.body = b"<html>not json</html>"
     result = run_cli(server.origin, "--require", ">=3.2.0,<4.0.0")

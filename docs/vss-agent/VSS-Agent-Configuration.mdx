@@ -300,7 +300,7 @@ general:
       phoenix:
         _type: phoenix
         endpoint: ${PHOENIX_ENDPOINT}/v1/traces
-        project: WH-vss-agent-${VSS_AGENT_VERSION}
+        project: WH-vss-agent-${VSS_DEPLOYMENT_VERSION:-${VSS_AGENT_VERSION:-unknown}}
 ```
 
 For details on enabling telemetry and navigating traces in the Phoenix UI, see [vss-agent-Observability](/vss/vision-agent/vss-agents/observability).
