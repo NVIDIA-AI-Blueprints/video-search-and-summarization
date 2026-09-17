@@ -201,6 +201,7 @@ def test_explicit_headless_capability_removals_remain_allowed() -> None:
 
 def test_active_build_flow_guards_harness_only_deltas() -> None:
     skill = (BUILD_SKILL / "SKILL.md").read_text()
+    agent_owner = (BUILD_SKILL / "references/services/agent.md").read_text()
     step_five = skill[skill.index("5. Determine the effective service set.") :]
     step_five = step_five[: step_five.index("6. Before writing delta artifacts")]
 
@@ -209,6 +210,8 @@ def test_active_build_flow_guards_harness_only_deltas() -> None:
     assert "REMOVED_PROFILES" in step_five
     assert "validate_harness_only_delta" in step_five
     assert "bypass generic forward-closure/unused-service pruning" in step_five
+    assert "harness-only delta bypasses owner pruning" in agent_owner
+    assert "preserve `vss-ui` and `phoenix`" in agent_owner
 
 
 @requires_docker_compose

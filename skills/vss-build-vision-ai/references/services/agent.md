@@ -31,13 +31,18 @@ surfaces. The agent may also be pulled in as another owner's declared Required
 peer (for example `lvs-server` lists it). Absent both an agentic request and such
 a peer, nothing else reaches the agent, so the whole owner (and the LLM peer only
 `vss-agent` required) is pruned as unreachable. "Headless" is just the explicit
-name for that pruning, not a separate trigger.
+name for that pruning, not a separate trigger. This is ordinary capability
+pruning only. It does not apply when Q3 is the sole customization: that
+harness-only delta bypasses owner pruning and removes only the harness-owned
+keys defined in `SKILL.md` Step 5.
 
 Video-analytics MCP (`vss-va-mcp`), Web UI (`vss-ui`), and tracing (`phoenix`)
-are independently gated: each is reached only by an explicit request for that
-surface, carries no capability another owner needs, and is never retained merely
-because `vss-agent` — or a Foundation that ships it — is present. Prune each
-unless itself requested. The video-analytics MCP is an agent-tier tool surface;
+are independently gated during an ordinary capability-removal build: each is
+reached only by an explicit request for that surface and carries no capability
+another owner needs. Prune each unless itself requested. In a harness-only
+delta, preserve `vss-ui` and `phoenix` with the rest of the Foundation;
+`vss-va-mcp` follows the narrower legacy-MCP rule in `SKILL.md` Step 5. The
+video-analytics MCP is an agent-tier tool surface;
 browsing or operating analytics is served by the host-side `vss analytics` CLI
 through `vss-video-analytics-api` and does not reach it. A request for read-only
 incidents, analytics sensors or metrics is not an MCP or Agent request.
