@@ -547,15 +547,17 @@ exit already means onboarding, policy, skills, and workspace docs all landed.
 Confirm the two things that exit code cannot cover:
 
 1. **The harness is reachable.** Section 3.5 prints `Sandbox: <name>` and
-   `Agent UI: <url>`. Put the link in the final summary as a **markdown link**
-   — `[Open the NemoClaw Agent UI](<url>)` — not as a bare URL in prose, so the
-   user can click straight through to the harness they just deployed. The
-   target is the printed URL character for character: do not shorten it,
-   re-host it, or drop the fragment, because the OpenClaw URL carries the
-   gateway token in `#token=` and a link without it lands on an unauthenticated
-   page. On Brev the host is the secure-link FQDN. A `127.0.0.1` URL only
-   resolves on the deployment host, so pair the link with the SSH tunnel the
-   same section prints rather than offering it alone.
+   `Agent UI: <url>`. The OpenClaw URL carries the gateway token in `#token=`;
+   treat the complete URL as a secret. In the final summary, remove the
+   fragment and report only the token-free origin as a markdown link, then
+   point the user to `_builds/<name>/nemoclaw-setup.log` on the deployment host
+   for the complete authenticated URL. Never copy the token or the
+   secret-bearing URL into the response. Hand over the recipe rather than the
+   value: on the deployment host `nemoclaw <name> gateway-token --quiet` prints
+   a fresh token, and the UI URL is the reported origin plus `/#token=<token>`.
+   On Brev the host is the secure-link FQDN. A `127.0.0.1` origin only resolves
+   on the deployment host, so pair it with the SSH tunnel the same section
+   prints.
 
    Confirm the forward behind it is bound as that origin requires:
 
