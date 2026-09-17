@@ -383,7 +383,7 @@ After install, load the kernel modules instead of rebooting:
 sudo modprobe nvidia && sudo modprobe nvidia_uvm
 ```
 
-> **Multi-GPU H100 SXM HBM3 only — NVIDIA Fabric Manager `580.105.08`** is also required to host a local LLM. Single-GPU and multi-GPU PCIe-only systems do **not** need Fabric Manager — installing it will conflict with the standard `nvidia-driver-580` package.
+> **Multi-GPU H100 SXM HBM3 only — NVIDIA Fabric Manager matching the installed driver** is also required to host a local LLM. Unlike the driver table above, this is an exact match and not a floor: install `nvidia-fabricmanager-<branch>` at the running driver's version (`nvidia-fabricmanager-595=595.58.03-1ubuntu1` against `595.58.03`), because the service refuses to initialize the fabric against a driver it does not match. Single-GPU and multi-GPU PCIe-only systems do **not** need Fabric Manager — installing it will conflict with the standard driver package.
 
 > **Workaround:** If GPU is present but detection fails during a deploy, prepend `SKIP_HARDWARE_CHECK=true` — but investigate root cause.
 
@@ -589,7 +589,7 @@ Single source of truth for **every** dependency the deploy assumes. Sourced from
 | OS — IGX-THOR | IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04) | |
 | OS — AGX-THOR | JetPack 7.2 (Jetson Linux/L4T r39.2) | |
 | NVIDIA Driver | per platform — [GPU Detection](#1-gpu-detection) owns the table | a minimum, not an exact pin. `595.58.03` on x86 dGPU, Kubernetes and DGX Station GB300; `595.91.07` on Brev Cloud; `595.78` on Jetson; `580.173.02` on DGX-SPARK; `580.00` on IGX Thor |
-| NVIDIA Fabric Manager | `580.105.08` | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX) |
+| NVIDIA Fabric Manager | exact match to the installed driver | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX). Not a floor like the driver row — the service will not initialize the fabric on a mismatch, so it moves with whatever [GPU Detection](#1-gpu-detection) selected |
 | NVIDIA Container Toolkit | `1.17.8+` | |
 | Docker | `28.3.3+` **and** `< 29.5.0` | pin with [`pin_docker_version.sh`](#docker-pin), which owns the exact versions. Upper bound: `29.5.0`+ breaks NGC image pulls — on a host that cannot be downgraded, see [Docker 29.5.0+ workaround](#docker-2950-workaround) |
 | Docker Compose | `v2.39.1+` | |
