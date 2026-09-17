@@ -51,11 +51,11 @@ For instructions on downloading sample data and the deployment package, see [Dow
 #### Step 1: Deploy the Agent
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and manage the real-time alerts workflow.
-First, install the `deploy` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
+First, install the [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
-The deploy skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The `vss-build-vision-ai` skill composes the stack from the capabilities you name and selects the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 <Note>
@@ -68,7 +68,7 @@ Optional: You can enable notifications by setting `webhook.openclaw.enabled` to 
 Deploy the VSS alerts profile in real-time mode.
 ```
 
-The deploy skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
+The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:
 
