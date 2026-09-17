@@ -38,7 +38,7 @@ ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
 FROM ${BUILDER_IMAGE} AS vss-src
 ARG VSS_REPO
 ARG VSS_REF
-ARG NGC_CLI_VERSION
+ARG NGC_CLI_VERSION=4.10.0
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/*
