@@ -2004,6 +2004,7 @@ class VlmPipeline:
                 audio_frames=[],
                 audio_transcript=[],
                 error=None,
+                decode_retry_count=0,
                 is_live_stream=False,
             )
 
@@ -2033,6 +2034,7 @@ class VlmPipeline:
                 audio_frames=[],
                 audio_transcript=[],
                 error=None,
+                decode_retry_count=0,
                 is_live_stream=False,
             )
 
