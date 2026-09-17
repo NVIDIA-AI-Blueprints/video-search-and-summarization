@@ -32,8 +32,8 @@ FROM ${SBSA_MEDIA_IMAGE} AS sbsa-media-runtime
 # Use the SEI-capable nvunixfd plugin published by the RTVI DeepStream images.
 # Pin each source stage to its architecture so multi-platform builds resolve
 # the correct image even when the build host has a different architecture.
-FROM --platform=linux/amd64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111 AS nvunixfd-amd64
-FROM --platform=linux/arm64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255 AS nvunixfd-arm64
+FROM --platform=linux/amd64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111@sha256:de434d6dc97158b64bb6ee04fcc79796b0321932548742d0299c2b61541f063f AS nvunixfd-amd64
+FROM --platform=linux/arm64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255@sha256:a1bb05d3fa6259c56fcf0a009cda1ece566749c413a4e3ea110c64e2e9f0df58 AS nvunixfd-arm64
 FROM nvunixfd-${TARGETARCH} AS nvunixfd-prebuilt
 ARG TARGETARCH
 # The arm64 image installs the plugin in the system GStreamer directory while
@@ -320,7 +320,10 @@ RUN --mount=from=media-runtime,source=/tmp99,target=/tmp/ds-gst,readonly \
 
 # GStreamer resolves duplicate plugin names by scan order. Fail the build if a
 # different libgstnvunixfd.so on GST_PLUGIN_PATH could shadow the SEI-capable
-# plugin installed above.
+# plugin installed above. This runtime does not install gst-inspect-1.0, and
+# DeepStream plugins require GPU-mounted driver libraries that are unavailable
+# during docker build, so live element loading is validated at runtime rather
+# than in this static image-construction step.
 RUN installed=/opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so \
     && test -s "$installed" \
     && installed_sum="$(sha256sum "$installed" | cut -d' ' -f1)" \
