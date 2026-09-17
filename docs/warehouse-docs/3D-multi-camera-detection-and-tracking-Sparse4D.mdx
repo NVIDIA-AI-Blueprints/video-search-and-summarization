@@ -41,8 +41,8 @@ volumes:
   - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
 
   # Model related mountings
-  - $VSS_DATA_DIR/models/sparse4d/ov/sparse4d_warehouse_v2.2.onnx:/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.2.onnx
-  - $VSS_DATA_DIR/models/sparse4d/ov/_ov_kmeans900_v2.2.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy
+  - $VSS_DATA_DIR/models/sparse4d/ov/sparse4d_warehouse_v2.3.onnx:/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.3.onnx
+  - $VSS_DATA_DIR/models/sparse4d/ov/_ov_kmeans900_v2.3.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.3.npy
 ```
 
 The `perception-3d` named volume at `/opt/storage` persists TensorRT engine files across container restarts. Sparse4D ONNX and anchor files are mounted from `$VSS_DATA_DIR/models/sparse4d/ov/`. DeepStream pipeline configs (`ds-main-config.txt`, `ds-mtmc-preprocess-config.txt`, and related files) live on the host under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/` and appear in the container under `metropolis_perception_app/configs/`. The Sparse4D inference file `config.yaml` and calibration file are supplied to the DeepStream Configurator at `/opt/data/ds-configurator/`.
@@ -55,7 +55,7 @@ The main configuration file for Sparse4D, `config.yaml`, handles properties rela
 
 | Parameter | Description | Default Value |
 | --- | --- | --- |
-| `onnx_file` | Path to the ONNX model file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.2.onnx` |
+| `onnx_file` | Path to the ONNX model file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.3.onnx` |
 | `engine_file` | Path to the TensorRT engine file (stored in the `perception-3d` volume) | `/opt/storage/model.engine` |
 | `labels_file` | Path to the object class labels file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt` |
 | `gpu_id` | GPU ID to use for tensor operations | `0` |
@@ -103,7 +103,7 @@ aug_configs:
 | --- | --- | --- |
 | `num_anchor` | Number of anchors | `900` |
 | `embed_dims` | Embedding dimensions | `256` |
-| `anchor` | Path to anchor file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy` |
+| `anchor` | Path to anchor file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.3.npy` |
 | `anchor_handler` | Anchor handler implementation | `SparseBox3DKeyPointsGenerator` |
 | `num_temp_instances` | Number of temporal instances to track | `600` |
 | `default_time_interval` | Default time interval for temporal anchor projection | `0.05` |
@@ -200,7 +200,7 @@ These class labels represent common objects in industrial and warehouse environm
 
 ### Anchor File
 
-The `/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy` file contains the anchor parameters for the Sparse4D model. This file configures the initial anchor parameters for the Sparse4D model.
+The `/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.3.npy` file contains the anchor parameters for the Sparse4D model. This file configures the initial anchor parameters for the Sparse4D model.
 
 ## Runtime Configuration Adjustments
 
