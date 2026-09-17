@@ -3,7 +3,6 @@
 
 import importlib.util
 import io
-import ipaddress
 import json
 import os
 import subprocess
@@ -487,7 +486,9 @@ class NemoClawForwardContractTests(unittest.TestCase):
             command: list[str], **_kwargs: object
         ) -> subprocess.CompletedProcess[str]:
             calls.append(tuple(command))
-            if command[:3] == ["docker", "exec", "vss-agent-ui"]:
+            if command[:3] == ["docker", "inspect", "--format"]:
+                return completed(command, stdout="sha256:gateway-image\n")
+            if command[:2] == ["docker", "run"]:
                 if gateway_lookup_fails:
                     return completed(command, 1, stderr="host alias unavailable")
                 return completed(command, stdout=f"{self.HOST_GATEWAY}\n")
@@ -534,7 +535,6 @@ class NemoClawForwardContractTests(unittest.TestCase):
             "_start_forward": start_forward,
             "brev_environment_id": lambda: brev_env_id,
             "brev_secure_link_fqdn": lambda _port: chat_fqdn,
-            "ipaddress": ipaddress,
             "resolve_openshell_gateway_container": lambda _sandbox: "gateway",
         }
         with (
@@ -578,7 +578,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertEqual(starts, [])
         self.assertFalse(any(command[0] == "docker" for command in calls))
 
-    def test_non_brev_adapter_uses_vss_ui_host_gateway(self) -> None:
+    def test_non_brev_adapter_uses_docker_host_gateway(self) -> None:
         namespace, starts, calls = self._run_ui_cell(
             adapter_enabled=True, chat_fqdn=None, existing_bind=self.HOST_GATEWAY
         )
@@ -587,15 +587,24 @@ class NemoClawForwardContractTests(unittest.TestCase):
             namespace["_health"], f"http://{self.HOST_GATEWAY}:{self.PORT}/health"
         )
         self.assertEqual(starts, [])
-        self.assertTrue(
-            any(command[:3] == ("docker", "exec", "vss-agent-ui") for command in calls)
+        inspect = next(
+            command for command in calls if command[:3] == ("docker", "inspect", "--format")
         )
+        probe = next(
+            command for command in calls if command[:2] == ("docker", "run")
+        )
+        self.assertEqual(inspect[-1], "gateway")
+        self.assertIn("host.docker.internal:host-gateway", probe)
+        self.assertIn("sh", probe)
+        self.assertIn("sha256:gateway-image", probe)
+        self.assertIn("--rm", probe)
+        self.assertFalse(any("vss-agent-ui" in command for command in calls))
+        self.assertFalse(any(command[:2] == ("docker", "exec") for command in calls))
 
     def test_host_gateway_discovery_failure_stops_the_cell(self) -> None:
         with self.assertRaisesRegex(
             RuntimeError,
-            "Could not resolve host.docker.internal inside vss-agent-ui: "
-            "host alias unavailable",
+            "Could not resolve Docker's host-gateway mapping: host alias unavailable",
         ):
             self._run_ui_cell(
                 adapter_enabled=True,
@@ -604,7 +613,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 gateway_lookup_fails=True,
             )
 
-    def test_wrong_bind_is_replaced_with_vss_ui_host_gateway(self) -> None:
+    def test_wrong_bind_is_replaced_with_docker_host_gateway(self) -> None:
         namespace, starts, calls = self._run_ui_cell(
             adapter_enabled=True, chat_fqdn=None, existing_bind="127.0.0.1"
         )
