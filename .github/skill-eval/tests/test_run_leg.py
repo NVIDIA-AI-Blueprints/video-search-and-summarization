@@ -127,6 +127,13 @@ class HarborCommand(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
         self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference.nvidia.com/v1")
+        agent_env = [cmd[index + 1] for index, part in enumerate(cmd) if part == "--ae"]
+        self.assertIn(
+            "ANTHROPIC_API_KEY=${SKILL_EVAL_AGENT_ROUTE_API_KEY}", agent_env
+        )
+        self.assertIn(
+            "ANTHROPIC_BASE_URL=${SKILL_EVAL_AGENT_ROUTE_BASE_URL}", agent_env
+        )
         self.assertEqual(cmd[cmd.index("-o") + 1], "/tmp/results")
         self.assertEqual(
             cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
@@ -156,13 +163,21 @@ class HarborCommand(unittest.TestCase):
             "codex",
         )
 
-        # codex runs through the NvCodex subclass (keeps the full model id);
-        # endpoint via --ak api_base, key from the env (not on the CLI).
+        # Codex runs through the NvCodex subclass (keeps the full model id).
+        # Harbor resolves the route templates from its process environment and
+        # passes the values only to the agent; no credential value lands here.
         self.assertEqual(cmd[cmd.index("-a") + 1], "agents.nv_codex:NvCodex")
         self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
         self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference.nvidia.com/v1")
-        # The key must never be passed on the command line.
-        self.assertFalse(any("OPENAI_API_KEY" in part for part in cmd))
+        agent_env = [cmd[index + 1] for index, part in enumerate(cmd) if part == "--ae"]
+        self.assertEqual(
+            agent_env,
+            [
+                "OPENAI_API_KEY=${SKILL_EVAL_AGENT_ROUTE_API_KEY}",
+                "OPENAI_BASE_URL=${SKILL_EVAL_AGENT_ROUTE_BASE_URL}",
+            ],
+        )
+        self.assertFalse(any("coding-secret" in part for part in cmd))
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
 
     def test_build_command_nemoclaw_reuses_standard_dispatch(self):
@@ -802,7 +817,7 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(command.call_args.args[4], "claude-code")
         run.assert_called_once()
 
-    def test_claude_uses_fixed_nvidia_inference_endpoint(self):
+    def test_claude_scopes_fixed_route_to_agent_and_preserves_judge_env(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/spec"),
             include_task_name="l40s",
@@ -813,6 +828,7 @@ class RunInvocations(unittest.TestCase):
             "EVAL_AGENT": "claude-code",
             "SKILLS_EVAL_CODING_PROVIDER": "nvidia-inference",
             "SKILLS_EVAL_CODING_MODEL": "selected/model",
+            "SKILLS_EVAL_CODING_API_KEY": "route-secret",
             "SKILLS_EVAL_CODING_ENDPOINT_URL": "https://attacker.example.test/v1",
         }
         seen_env = []
@@ -829,12 +845,13 @@ class RunInvocations(unittest.TestCase):
                     run_leg,
                     "harbor_env",
                     return_value={
-                        "ANTHROPIC_BASE_URL": self.ENV["ANTHROPIC_BASE_URL"]
+                        "ANTHROPIC_BASE_URL": "https://judge.example.test/v1",
+                        "ANTHROPIC_API_KEY": "judge-secret",
                     },
                 ),
                 mock.patch.object(
                     run_leg, "build_harbor_command", return_value=["harbor"]
-                ),
+                ) as command,
                 mock.patch.object(
                     run_leg, "run_command", side_effect=run_command
                 ),
@@ -854,7 +871,18 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(
             seen_env[0]["ANTHROPIC_BASE_URL"],
+            "https://judge.example.test/v1",
+        )
+        self.assertEqual(seen_env[0]["ANTHROPIC_API_KEY"], "judge-secret")
+        self.assertEqual(
+            seen_env[0][run_leg.AGENT_ROUTE_BASE_URL_ENV],
             model_config.NVIDIA_INFERENCE_API_BASE_URL,
+        )
+        self.assertEqual(
+            seen_env[0][run_leg.AGENT_ROUTE_API_KEY_ENV], "route-secret"
+        )
+        self.assertEqual(
+            command.call_args.args[3], model_config.NVIDIA_INFERENCE_API_BASE_URL
         )
 
     def test_operational_nemoclaw_leg_uses_first_expect_for_setup(self):
@@ -926,6 +954,162 @@ class RunInvocations(unittest.TestCase):
         self.assertNotIn(run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV, seen_env[1])
         self.assertNotIn(run_leg.DEFER_AGENT_REAP_ENV, seen_env[1])
         cleanup.assert_called_once_with("vss-eval-box", marker)
+
+    def test_operational_nemoclaw_runs_setup_for_each_chain(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invocations = [
+                run_leg.HarborInvocation(
+                    harbor_root=root / chain,
+                    include_task_name=f"step-{index}",
+                    chain_key=chain,
+                    step_index=index,
+                    step_count=2,
+                )
+                for chain in ("remote-all", "standalone")
+                for index in (1, 2)
+            ]
+            env = {
+                **self.ENV,
+                "EVAL_AGENT": "nemoclaw",
+                "EVAL_SKILL": "vss-manage-alerts",
+                "EVAL_SPEC_PATH": (
+                    "skills/operations/vss-manage-alerts/evals/alerts.json"
+                ),
+                "SKILLS_EVAL_CODING_MODEL": "coding/model",
+                "SKILLS_EVAL_OPERATIONAL_MODEL": "operational/model",
+            }
+            seen_env = []
+
+            def run_command(_cmd, child_env, _timeout):
+                seen_env.append(child_env.copy())
+                return 0
+
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "prepare_nemoclaw_setup_task"
+                ) as prepare,
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ) as command,
+                mock.patch.object(
+                    run_leg, "run_command", side_effect=run_command
+                ),
+                mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+                mock.patch.object(
+                    run_leg, "cleanup_deferred_agent_run"
+                ) as cleanup,
+            ):
+                rc = run_leg.run_invocations(
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "alerts",
+                    "L40S",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            prepare.call_args_list,
+            [
+                mock.call(invocations[0], "vss-manage-alerts"),
+                mock.call(invocations[2], "vss-manage-alerts"),
+            ],
+        )
+        self.assertEqual(
+            [call.args[2] for call in command.call_args_list],
+            ["coding/model", "operational/model", "coding/model", "operational/model"],
+        )
+        self.assertEqual(
+            [call.args[4] for call in command.call_args_list],
+            ["claude-code", "nemoclaw", "claude-code", "nemoclaw"],
+        )
+        self.assertEqual(
+            [item.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") for item in seen_env],
+            [None, "1", None, "1"],
+        )
+        self.assertEqual(
+            [run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV in item for item in seen_env],
+            [True, False, True, False],
+        )
+        marker = seen_env[0][run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV]
+        self.assertEqual(seen_env[2][run_leg.AGENT_RUN_MARKER_OVERRIDE_ENV], marker)
+        cleanup.assert_called_once_with("vss-eval-box", marker)
+
+    def test_failed_setup_skips_only_its_chain(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            invocations = [
+                run_leg.HarborInvocation(
+                    harbor_root=root / chain,
+                    include_task_name=f"step-{index}",
+                    chain_key=chain,
+                    step_index=index,
+                    step_count=2,
+                )
+                for chain in ("remote-all", "standalone")
+                for index in (1, 2)
+            ]
+            env = {
+                **self.ENV,
+                "EVAL_SPEC_PATH": (
+                    "skills/operations/vss-manage-alerts/evals/alerts.json"
+                ),
+                "SKILLS_EVAL_CODING_MODEL": "coding/model",
+                "SKILLS_EVAL_OPERATIONAL_MODEL": "operational/model",
+            }
+            seen_env = []
+            return_codes = iter((1, 0, 0))
+
+            def run_command(_cmd, child_env, _timeout):
+                seen_env.append(child_env.copy())
+                return next(return_codes)
+
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ) as command,
+                mock.patch.object(
+                    run_leg, "run_command", side_effect=run_command
+                ) as run,
+                mock.patch.object(
+                    run_leg, "latest_reward", side_effect=["1.0", "1.0", "1.0"]
+                ),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "alerts",
+                    "L40S",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+
+        self.assertEqual(rc, 1)
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(
+            [call.args[0] for call in command.call_args_list],
+            [invocations[0], invocations[2], invocations[3]],
+        )
+        self.assertEqual(
+            [call.args[2] for call in command.call_args_list],
+            ["coding/model", "coding/model", "operational/model"],
+        )
+        self.assertEqual(
+            [item.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") for item in seen_env],
+            [None, None, "1"],
+        )
 
     def test_nemoclaw_build_route_exports_resolved_nvidia_key(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1107,9 +1291,11 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(eval_args[2], "selected/nemotron")
         self.assertEqual(eval_args[3], model_config.NVIDIA_INFERENCE_API_BASE_URL)
         self.assertEqual(eval_args[4], "nemoclaw")
-        self.assertEqual(seen_env[0]["OPENAI_API_KEY"], "coding-secret")
         self.assertEqual(
-            seen_env[0]["OPENAI_BASE_URL"],
+            seen_env[0][run_leg.AGENT_ROUTE_API_KEY_ENV], "coding-secret"
+        )
+        self.assertEqual(
+            seen_env[0][run_leg.AGENT_ROUTE_BASE_URL_ENV],
             model_config.NVIDIA_INFERENCE_API_BASE_URL,
         )
         self.assertEqual(seen_env[0]["NEMOCLAW_PROVIDER"], "custom")
