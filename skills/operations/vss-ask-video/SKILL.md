@@ -288,21 +288,26 @@ Do not silently substitute ordinary VLM inspection.
 
 ## Direct fresh inspection
 
-One grounded scope is one `vss vlm run`. If it exits nonzero other than exit 6,
-report the exit code and stop. Exit 6 means the answer exists but persistence
-failed; retain the answer and report that limitation. Do not run the inspection
-again with a different `--fps`, a widened or shifted window, another spelling
-of the sensor, `--num-frames`, or a different media selector: a failing call
-means the deployment could not serve that scope, which is the result to report.
-Re-running it is not a retry of the same question, it is a second inspection
-the user did not ask for.
+One grounded scope is one `vss vlm run` - one, counted across the whole
+request. If it exits nonzero other than exit 6, report the exit code and stop.
+Exit 6 means the answer exists but persistence failed; retain the answer and
+report that limitation. Do not run the inspection a second time: not with a
+different `--fps`, a widened or shifted window, another spelling of the sensor,
+`--num-frames`, or a different media selector, and not with the very same
+arguments because something was adjusted in between. A failing call means the
+deployment could not serve that scope, which is the result to report. The
+second call is not a retry of the same question, it is a second inspection the
+user did not ask for.
 
 A failed call is also not a licence to repair the deployment. An unreachable
 Elasticsearch, an unregistered sensor, a missing recorded window, an expired
 key, a 403 or a 404 from the model backend are all findings to report, with the
 exit code, to whoever asked. Do not disable memory, register a sensor to stand
-in for the requested one, edit a compose file, restart a container, or swap the
-configured model. Above all, do not answer the question by another route:
+in for the requested one, re-run `vss configure` to refresh the state, edit a
+compose file, restart a container, or swap the configured model. A deployment
+that cannot serve the request when asked is the finding; a deployment coaxed
+into serving it answers a different question. Above all, do not answer by
+another route:
 extracting frames and POSTing them to a cloud API is not a fallback, it is the
 hand-built HTTP call the hard rule forbids, and an answer obtained that way did
 not come from the deployment under test.
