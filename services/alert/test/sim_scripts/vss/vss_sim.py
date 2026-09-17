@@ -13,6 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Simulated OpenAI-compatible VLM backend for the functional tests.
+
+Serves /models, /files and /v1/chat/completions and always answers "Yes", so a
+verification run reaches SUCCESS without a real model. The vss name is
+historical and kept because the functional scripts start it by path; this is
+not the removed Alert-side VSS integration.
+"""
+
 from flask import Flask, jsonify, request
 import uuid
 import time
@@ -44,7 +52,7 @@ MODELS_RESPONSE = {
     ]
 }
 
-# VSS Simulator - Always returns positive verification results
+# Always returns positive verification results
 
 def generate_mock_response(prompt, media_type="image"):
     """Generate a mock positive response for all prompts"""
@@ -133,8 +141,6 @@ def chat_completions():
         print(f"  - top_p: {data.get('top_p', 'not set')}")
         print(f"  - top_k: {data.get('top_k', 'not set')}")
         print(f"  - seed: {data.get('seed', 'not set')}")
-        print(f"  - chunk_duration: {data.get('chunk_duration', 'not set')}")
-        print(f"  - highlight: {data.get('highlight', 'not set')}")
         
         print(f"[VSS SIM] POST /v1/chat/completions - Media ID: {media_id}, Model: {model}")
         print(f"[VSS SIM] Prompt: {prompt[:100]}...")
@@ -203,15 +209,6 @@ def summarize():
         print(f"  - top_p: {data.get('top_p', 'not set')}")
         print(f"  - top_k: {data.get('top_k', 'not set')}")
         print(f"  - seed: {data.get('seed', 'not set')}")
-        print(f"  - chunk_duration: {data.get('chunk_duration', 'not set')}")
-        print(f"  - chunk_overlap_duration: {data.get('chunk_overlap_duration', 'not set')}")
-        print(f"  - num_frames_per_chunk: {data.get('num_frames_per_chunk', 'not set')}")
-        print(f"  - cv_metadata_overlay: {data.get('cv_metadata_overlay', 'not set')}")
-        print(f"  - enable_caption: {data.get('enable_caption', 'not set')}")
-        print(f"  - debug: {data.get('debug', 'not set')}")
-        print(f"  - summarize_temperature: {data.get('summarize_temperature', 'not set')}")
-        print(f"  - summarize_max_tokens: {data.get('summarize_max_tokens', 'not set')}")
-        print(f"  - enable_chat: {data.get('enable_chat', 'not set')}")
         
         print(f"[VSS SIM] POST /v1/summarize - Media IDs: {media_ids}, Model: {model}")
         print(f"[VSS SIM] Prompt: {prompt[:100]}...")

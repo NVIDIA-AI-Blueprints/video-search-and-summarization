@@ -157,9 +157,11 @@ def test_cancelled_live_future_preserves_stream_routing(monkeypatch):
     proc._output_queue = _RecordingQueue()
     proc._final_output_queue = _RecordingQueue()
     monkeypatch.setattr(process_base_module, "_safe_cuda_empty_cache", lambda **kwargs: None)
+    error_logs = []
+    monkeypatch.setattr(process_base_module.logger, "error", error_logs.append)
 
     cancelled_future = concurrent.futures.Future()
-    cancelled_future.set_exception(concurrent.futures.CancelledError())
+    cancelled_future.cancel()
     chunk = object()
 
     proc._handle_result(
@@ -176,6 +178,8 @@ def test_cancelled_live_future_preserves_stream_routing(monkeypatch):
     assert error_item["chunk"] is chunk
     assert error_item["is_live_stream"] is True
     assert error_item["request_id"] == "request-1"
+    assert "error" not in error_item
+    assert error_logs == []
 
 
 def test_async_callback_preserves_live_stream_routing(monkeypatch):
@@ -183,6 +187,8 @@ def test_async_callback_preserves_live_stream_routing(monkeypatch):
     proc._output_queue = _RecordingQueue()
     proc._final_output_queue = _RecordingQueue()
     monkeypatch.setattr(process_base_module, "_safe_cuda_empty_cache", lambda **kwargs: None)
+    error_logs = []
+    monkeypatch.setattr(process_base_module.logger, "error", error_logs.append)
 
     future = concurrent.futures.Future()
     proc._process = lambda **kwargs: future
@@ -202,6 +208,8 @@ def test_async_callback_preserves_live_stream_routing(monkeypatch):
     assert error_item["chunk"] is chunk
     assert error_item["is_live_stream"] is True
     assert error_item["request_id"] == "request-1"
+    assert "error" not in error_item
+    assert error_logs == []
 
 
 def test_move_cuda_frames_to_cpu_keeps_tensor_type_with_gpu_queue(monkeypatch):

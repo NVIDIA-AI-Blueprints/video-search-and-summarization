@@ -104,6 +104,11 @@ sudo -n true 2>/dev/null && SUDO_NOPASSWD=1 || SUDO_NOPASSWD=0
 echo "SUDO_NOPASSWD=${SUDO_NOPASSWD}"
 ```
 
+**Run that probe on its own.** Batched with the GPU, Docker, and addressing
+checks it takes all of them down whenever an agent's `sudo` token is refused,
+and a preflight that came back empty reads as a broken host rather than as one
+unasked question.
+
 **Branch — passwordless sudo (`SUDO_NOPASSWD=1`):** the skill can run
 the install snippets in this document directly (`sudo modprobe`,
 `sudo apt-get install`, `sudo tee`, `sudo -b`, etc.).
@@ -125,6 +130,48 @@ a handoff like:
 Resume only after the user confirms the command succeeded. Do not
 re-run `sudo -n` checks in a loop — they won't change without user
 action.
+
+**Branch — `sudo` denied to the agent:** the probe above can be refused
+*before it executes*, by the agent's own permission policy rather than by
+`sudoers` (`blocked by administrator policy`). It inherits the previous branch's
+rule against attempting `sudo -n` installs and nothing else — in particular, not
+its handoff: **offer the approved run below before handing anything over.** And
+since the host's sudo state was never determined, report that **this agent** may
+not run `sudo`, not that the host requires a password.
+
+**Take this branch only on a refusal you actually saw.** Run the probe and
+quote what came back; never predict the refusal from the environment, the
+platform, or a previous session. The same rule applies one level down: a
+`sudo -n true` refusal is the *probe's* result, and a `sudoers` rule scoped
+to specific commands (`NOPASSWD: /usr/bin/apt-get`) can still admit the
+operation the step actually needs — so report the probe as what failed, and
+say which command was never attempted rather than implying it would fail.
+
+**Offer the run under an explicit approval.** Where the harness can prompt, say
+what the command changes on the host and that it needs passwordless `sudo` to
+succeed — a password prompt has no terminal to appear on and fails immediately.
+
+When the prompt is declined or unavailable, give the user the exact command to
+run in their terminal, in the [Handoff form](#handoff) below. Resume after they
+confirm success, then repeat only the failed check. Do not work around the
+restriction through scripts or containers.
+
+### Handoff form
+<a id="handoff"></a>
+
+One block, one ask. A handoff competing with unrelated findings is the noise
+that gets it skipped.
+
+- Give **the command**, copy-pasteable, with paths already resolved — not a
+  description of it and not a pointer to this file.
+- Say in one line what it fixes and what breaks without it.
+- Keep what the user cannot act on out of that message. Batch several
+  commands only when they run in one sitting, and then as consecutive blocks
+  with nothing between them.
+- Do not re-diagnose, restate the version matrix, or recount what already
+  passed.
+- **Resume by re-running only the check that failed**, not the whole
+  preflight.
 
 ## Kernel Settings
 
@@ -281,6 +328,30 @@ sudo modprobe nvidia && sudo modprobe nvidia_uvm
 
 This works without a reboot on Brev and Colossus instances.
 
+## Confinement vs. host blocker
+<a id="confinement"></a>
+
+An agent sandbox produces failures indistinguishable from host faults. **Re-probe
+unconfined before reporting any of them, and report the unconfined result.** A
+false blocker sends the user to repair a host that was never broken, and it
+discredits the real blockers reported alongside it.
+
+| Symptom | Confinement cause | Real-host test |
+|---|---|---|
+| `NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver`, with no `/dev/nvidia*` | the device nodes are not exposed to the sandbox, while `lsmod` still lists `nvidia` and the GPUs are on the PCI bus | re-run `nvidia-smi` unconfined before touching the driver table in check 1 |
+| `Permission denied` on a root-owned path that `ls -ld` reports as `nobody:nogroup` | a user namespace leaves host `root` unmapped | re-read it unconfined, and compare the ownership the two probes print |
+| `Permission denied` as uid 0 on a path whose mode already grants its owner access | the DAC-override capabilities are gone — `grep CapBnd /proc/self/status` has bits 1 and 2 clear (`…f9`). Cite the bounding set, not `CapEff`: a zero `CapEff` alone is regainable by a setuid exec, while a cleared bound is a ceiling `sudo` cannot lift | none from this process. Read it through a privileged peer the user approves, or ask for the value |
+
+That last row is the one to state precisely, because it is the one that invites a
+wrong conclusion. The path is readable **on the host** and unreadable **from
+here**, so the finding is *"I need this value from you"* — never *"this file is
+unreadable"*, and never an inference about what a notebook, script, or service
+running outside the agent will manage to read. `/etc/brev/environment-context.json`
+is the usual instance of it, and it has a working path rather than a dead end:
+[`brev.md`](brev.md#confined-read) reads it through `dockerd`'s capabilities under
+an approval the user gives. Take that before concluding the deployment cannot
+resolve a secure link.
+
 ## Checks
 
 Run in order, report pass/fail for each.
@@ -293,14 +364,18 @@ nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv,nohea
 
 Expected for this machine: 2× RTX PRO 6000 Blackwell, devices 0 and 1.
 
-If `nvidia-smi` fails → driver not installed or not loaded. Pin the exact build for the OS / platform:
+If `nvidia-smi` fails, rule out [confinement](#confinement) first — inside a sandbox it fails on a perfectly healthy host. Once the unconfined probe fails too, the driver is not installed or not loaded. Each platform has its own minimum — a floor, not an exact pin, so a newer build passes:
 
-| Platform | Required driver |
-|---|---|
-| x86 — Ubuntu 24.04 | **`580.105.08`** (https://www.nvidia.com/en-us/drivers/) |
-| x86 — Ubuntu 22.04 | **`580.65.06`** |
-| DGX-SPARK | **`580.95.05`** (ships with DGX OS 7.4.0) |
-| IGX-THOR / AGX-THOR | **`580.00`** (ships with Jetson Linux BSP Rel 38.5 / 38.4) |
+| Platform | Minimum driver | Where it comes from |
+|---|---|---|
+| x86 dGPU — RTX PRO 4500, RTX PRO 6000 SE | **`595.58.03`** | https://www.nvidia.com/en-us/drivers/ |
+| x86 Brev Cloud — NemoClaw, RTX 6000 launchables | **`595.91.07`** | the instance image |
+| Kubernetes — RTX 6000, H200 | **`595.58.03`** | the GPU Operator's driver setting |
+| ARM SBSA — DGX Station GB300 | **`595.58.03`** | the bundled DGX OS driver |
+| ARM SBSA — GH200 / GB200 | **`580.159.03`** | bundled in the container, not installed on the host |
+| DGX-SPARK | **`580.173.02`** | the bundled DGX OS driver |
+| Jetson AGX Orin / AGX Thor / Orin NX | **`595.78`** | JetPack 7.2 / L4T r39.2 |
+| IGX Thor T7000 / T5000 | **`580.00`** | IGX-SW / IGX OS 2.0 |
 
 After install, load the kernel modules instead of rebooting:
 
@@ -308,7 +383,7 @@ After install, load the kernel modules instead of rebooting:
 sudo modprobe nvidia && sudo modprobe nvidia_uvm
 ```
 
-> **Multi-GPU H100 SXM HBM3 only — NVIDIA Fabric Manager `580.105.08`** is also required to host a local LLM. Single-GPU and multi-GPU PCIe-only systems do **not** need Fabric Manager — installing it will conflict with the standard `nvidia-driver-580` package.
+> **Multi-GPU H100 SXM HBM3 only — NVIDIA Fabric Manager matching the installed driver** is also required to host a local LLM. Unlike the driver table above, this is an exact match and not a floor: install `nvidia-fabricmanager-<branch>` at the running driver's version (`nvidia-fabricmanager-595=595.58.03-1ubuntu1` against `595.58.03`), because the service refuses to initialize the fabric against a driver it does not match. Single-GPU and multi-GPU PCIe-only systems do **not** need Fabric Manager — installing it will conflict with the standard driver package.
 
 > **Workaround:** If GPU is present but detection fails during a deploy, prepend `SKIP_HARDWARE_CHECK=true` — but investigate root cause.
 
@@ -322,17 +397,81 @@ docker ps               # verify runs without sudo
 
 If Docker needs to be installed: https://docs.docker.com/engine/install/ubuntu/
 
-> **Docker upper bound — `< 29.5.0`.** Docker Engine `29.5.0` and later fail to pull some NGC-hosted image tags after the layers download with `error from registry: Incorrect Repository Format`. Pin a supported version below `29.5.0` (canonical reference: `28.3.3`). If you must run `29.5.0`+, disable the containerd snapshotter daemon-side — see [Docker 29.5.0+ workaround](#docker-2950-workaround) below.
+> **Docker upper bound — `< 29.5.0`.** Docker Engine `29.5.0` and later fail to pull some NGC-hosted image tags after the layers download with `error from registry: Incorrect Repository Format`. Pin a supported version with the script below. If the host is locked above the bound and cannot be downgraded, disable the containerd snapshotter daemon-side — see [Docker 29.5.0+ workaround](#docker-2950-workaround) below.
+
+#### Pin the tested Docker versions
+<a id="docker-pin"></a>
+
+```bash
+bash "$REPO/deploy/docker/scripts/pin_docker_version.sh"
+```
+
+The script owns the pinned versions, the tested range, the `apt-mark hold`
+that keeps unattended-upgrades from undoing them, and the
+[cgroupfs driver](#cgroup-driver) the deploy requires. It skips the downgrade
+when the installed engine is already in range, which is what makes it safe on
+DGX Spark / DGX-OS arm64 — that apt repo may not carry the exact epoch-versioned
+packages, and re-pinning there fails with *version not found*. Run it on every
+host rather than only one that failed the check above; it is idempotent.
+
+**Run it here, at Step 3, and not later.** A downgrade or a cgroup-driver
+change restarts `dockerd`, which costs nothing before Step 9 and costs every
+container in the deployed build after it. The Step 9 image pulls are also what
+trigger the `Incorrect Repository Format` failure, so a pin that lands after
+them prevents nothing. `deploy_nemoclaw.ipynb` section 2.1 runs the same script
+at Step 10, so a host pinned here only re-applies the holds and finds the driver
+already set when the harness comes up.
+
+Needs `sudo` and `apt` — Ubuntu/Debian only. It sudoes internally, so an agent
+that may not run `sudo` should **offer to run this script under an approval**
+rather than hand it over; it is checked in, which is what makes that run
+legitimate ([Sudo Access](#sudo-access)). Only a declined or unavailable prompt
+makes it a handoff.
+
+**A refused `sudo` probe is not a refusal of this script.** The refusal matches
+a `sudo` token on the submitted command line, and the line above carries none —
+the calls are inside the script — so its "only a user can run it" wording
+governs the probe rather than this step. Submit the line above for approval
+first, and reach for the handoff only once that approval comes back declined or
+the harness cannot prompt for one.
 
 If `docker ps` requires sudo → add user to docker group:
 ```bash
 sudo usermod -aG docker $USER && newgrp docker
 ```
 
-Also verify cgroupfs driver:
+#### Cgroup driver — `cgroupfs`
+<a id="cgroup-driver"></a>
+
+Required: under the `systemd` driver, long-running containers stop responding
+after hours. Read the live driver rather than the file — a `daemon.json` edit
+that never reached a `dockerd` restart still greps clean:
+
 ```bash
-cat /etc/docker/daemon.json | grep cgroupfs
-# Should contain: "exec-opts": ["native.cgroupdriver=cgroupfs"]
+docker info --format '{{.CgroupDriver}}'   # must print cgroupfs
+```
+
+On anything else, **run the pin script above** — it merges
+`exec-opts: ["native.cgroupdriver=cgroupfs"]` into `daemon.json`, keeping the
+file's other keys (installing `jq` first if the host lacks it), and restarts
+`dockerd`. It is the same approved run as the
+version pin, so try it before writing a `daemon.json` edit out to the user, and
+re-run the probe above rather than the whole preflight afterwards.
+
+Hand over this block only once that run is declined or unavailable, per
+[Handoff form](#handoff). It replaces every `exec-opts` entry rather than
+merging into it, so prefer the script:
+
+```bash
+command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
+test -f /etc/docker/daemon.json || echo '{}' | sudo tee /etc/docker/daemon.json >/dev/null
+sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak
+# Stage the merge: jq's exit status is the gate, so a rejected file leaves the
+# live config as it was instead of truncating it to empty.
+sudo jq '.["exec-opts"] = ["native.cgroupdriver=cgroupfs"]' \
+  /etc/docker/daemon.json.bak > /tmp/daemon.json.new \
+  && sudo install -m 0644 /tmp/daemon.json.new /etc/docker/daemon.json \
+  && sudo systemctl restart docker
 ```
 
 #### Docker 29.5.0+ workaround
@@ -344,8 +483,9 @@ If the host is locked to Docker `29.5.0` or later (e.g. distro-managed), add or 
 **Inspect first, then back up:**
 
 ```bash
-# Inspect any existing config
-test -f /etc/docker/daemon.json && cat /etc/docker/daemon.json || echo "no existing daemon.json"
+# Inspect any existing config (root-owned 0600 on many hosts, so read it as root:
+# an unprivileged cat reports "no existing daemon.json" over a file that has keys)
+sudo test -f /etc/docker/daemon.json && sudo cat /etc/docker/daemon.json || echo "no existing daemon.json"
 
 # Backup (safe no-op if the file doesn't exist)
 sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak 2>/dev/null || true
@@ -415,25 +555,44 @@ Re-run the `docker run` check to confirm before continuing.
 Required minimum: **`4.10.0+`**. Follow [`ngc.md`](ngc.md) to check NGC CLI
 and API-key access.
 
+**A NemoClaw build needs no host install.** Both harness images —
+[`.openclaw/Dockerfile`](../../../.openclaw/Dockerfile) and
+[`.hermes/Dockerfile`](../../../.hermes/Dockerfile) — ship the CLI
+unconditionally, and the sandbox is where the operation skills run. Verify it
+there if anything looks off (`ngc --version` in the sandbox), not here.
+
+**On every other harness, install it on this host**, since the `vss` CLI and the
+operation skills' sample-data and fixture bootstraps run here:
+
+```bash
+command -v ngc >/dev/null 2>&1 && ngc --version \
+  || echo "NGC CLI missing — install it per ngc.md before continuing"
+```
+
+Attempt [`ngc.md`](ngc.md)'s install when it is missing. That install needs
+`sudo`, so when this host's branch is `SUDO_NOPASSWD=0` (see
+[Sudo Access](#sudo-access)) or the agent's own permissions forbid `sudo`, do
+not retry it and do not improvise an install path: surface `ngc.md`'s block
+verbatim with the handoff wording from that section, and resume once the user
+confirms it succeeded.
+
 ---
 
 ## Canonical version matrix
 
-Single source of truth for **every** dependency the deploy assumes. Sourced from the [VSS prerequisites page](https://docs.nvidia.com/vss/3.2.0/prerequisites.html); update this table when the upstream blueprint docs change.
+Single source of truth for **every** dependency the deploy assumes. Sourced from the [VSS prerequisites page](https://docs.nvidia.com/vss/3.4.0/prerequisites.html); update this table when the upstream blueprint docs change.
 
 | Component | Required version | Notes |
 |---|---|---|
-| OS — x86 host | Ubuntu 22.04 or 24.04 | |
-| OS — DGX-SPARK | DGX OS 7.4.0 | |
-| OS — IGX-THOR | Jetson Linux BSP Rel 38.5 | |
-| OS — AGX-THOR | Jetson Linux BSP Rel 38.4 | |
-| NVIDIA Driver — Ubuntu 24.04 | `580.105.08` | exact pin |
-| NVIDIA Driver — Ubuntu 22.04 | `580.65.06` | exact pin |
-| NVIDIA Driver — DGX-SPARK | `580.95.05` | exact pin |
-| NVIDIA Driver — IGX-THOR / AGX-THOR | `580.00` | exact pin |
-| NVIDIA Fabric Manager | `580.105.08` | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX) |
+| OS — x86 host | Ubuntu 24.04 | |
+| OS — DGX Station GB300 | DGX OS 7.6.0 | |
+| OS — DGX-SPARK | DGX OS 7.5.0 | |
+| OS — IGX-THOR | IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04) | |
+| OS — AGX-THOR | JetPack 7.2 (Jetson Linux/L4T r39.2) | |
+| NVIDIA Driver | per platform — [GPU Detection](#1-gpu-detection) owns the table | a minimum, not an exact pin. `595.58.03` on x86 dGPU, Kubernetes and DGX Station GB300; `595.91.07` on Brev Cloud; `595.78` on Jetson; `580.173.02` on DGX-SPARK; `580.00` on IGX Thor |
+| NVIDIA Fabric Manager | exact match to the installed driver | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX). Not a floor like the driver row — the service will not initialize the fabric on a mismatch, so it moves with whatever [GPU Detection](#1-gpu-detection) selected |
 | NVIDIA Container Toolkit | `1.17.8+` | |
-| Docker | `28.3.3+` **and** `< 29.5.0` | upper bound: `29.5.0`+ breaks NGC image pulls — see [Docker 29.5.0+ workaround](#docker-2950-workaround) |
+| Docker | `28.3.3+` **and** `< 29.5.0` | pin with [`pin_docker_version.sh`](#docker-pin), which owns the exact versions. Upper bound: `29.5.0`+ breaks NGC image pulls — on a host that cannot be downgraded, see [Docker 29.5.0+ workaround](#docker-2950-workaround) |
 | Docker Compose | `v2.39.1+` | |
 | NGC CLI | `4.10.0+` | follow `ngc.md` |
 

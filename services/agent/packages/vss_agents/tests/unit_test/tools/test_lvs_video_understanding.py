@@ -46,18 +46,18 @@ class TestLVSVideoUnderstandingConfig:
         assert config.read_timeout_ms == 600000
         assert config.model == "gpt-4o"
         assert config.video_url_tool == "vst_video_url"
-        assert config.hitl_enabled is True
+        assert config.hitl_enabled is False
 
-    def test_hitl_can_be_disabled_for_http_workflows(self):
+    def test_hitl_can_be_explicitly_enabled(self):
         config = LVSVideoUnderstandingConfig(
             lvs_backend_url="http://localhost:38111",
             hitl_scenario_template="Scenario: {scenario}",
             hitl_events_template="Events: {events}",
             hitl_objects_template="Objects: {objects}",
-            hitl_enabled=False,
+            hitl_enabled=True,
         )
 
-        assert config.hitl_enabled is False
+        assert config.hitl_enabled is True
 
     def test_url_translation_fields_are_not_exposed(self):
         assert "vlm_mode" not in LVSVideoUnderstandingConfig.model_fields
@@ -157,6 +157,7 @@ class TestLVSVideoUnderstandingInner:
     async def test_hitl_enabled_uses_callback_when_available_and_defaults_when_not(self, interactive_callback: bool):
         config = LVSVideoUnderstandingConfig(
             lvs_backend_url="http://localhost:38111",
+            hitl_enabled=True,
             hitl_scenario_template="Scenario",
             hitl_events_template="Events",
             hitl_objects_template="Objects",

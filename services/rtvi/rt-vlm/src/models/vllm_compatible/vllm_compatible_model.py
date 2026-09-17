@@ -258,13 +258,29 @@ def _get_num_preprocess_workers() -> int:
     return num_workers
 
 
-def _get_vllm_compilation_config(model_architecture: str) -> dict[str, object] | None:
+def _get_vllm_compilation_config(
+    model_architecture: str,
+    vlm_model_type: str = "",
+    enforce_eager: bool = False,
+) -> dict[str, object] | None:
     raw_mode = (_get_rtvi_vllm_env("VLLM_CUDAGRAPH_MODE", "") or "").strip()
+    stabilize_cr3 = (
+        not enforce_eager
+        and vlm_model_type == "cosmos-reason3"
+        and model_architecture in _QWEN3VL_ARCHS
+    )
     if not raw_mode:
         if _is_cosmos3_edge_arch(model_architecture):
             return {
                 "mode": "VLLM_COMPILE",
                 "cudagraph_mode": "PIECEWISE",
+            }
+        if stabilize_cr3:
+            return {
+                "inductor_compile_config": {
+                    "combo_kernels": True,
+                    "benchmark_combo_kernel": False,
+                },
             }
         return None
     cudagraph_mode = raw_mode.upper()
@@ -277,6 +293,11 @@ def _get_vllm_compilation_config(model_architecture: str) -> dict[str, object] |
         "mode": "VLLM_COMPILE",
         "cudagraph_mode": cudagraph_mode,
     }
+    if stabilize_cr3:
+        config["inductor_compile_config"] = {
+            "combo_kernels": True,
+            "benchmark_combo_kernel": False,
+        }
     return config
 
 
@@ -710,7 +731,7 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
         kwargs["min_tokens"] = config.min_tokens
     response_format = config.response_format or {}
     response_type = response_format.get("type")
-    is_structured_output = response_type in {"json_object", "json_schema"}
+    is_structured_output = response_type in {"choice", "json_object", "json_schema"}
     env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
     if is_structured_output:
         kwargs["ignore_eos"] = False
@@ -726,6 +747,12 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
         json_schema = response_format["json_schema"]
         kwargs["structured_outputs"] = StructuredOutputsParams(
             json=json_schema["schema"],
+        )
+    elif response_type == "choice":
+        from vllm.sampling_params import StructuredOutputsParams
+
+        kwargs["structured_outputs"] = StructuredOutputsParams(
+            choice=response_format["choices"],
         )
     return kwargs
 
@@ -1571,7 +1598,11 @@ class VllmCompatible(BaseVlmModel):
                     if enforce_eager:
                         logger.info("VLLM enforce_eager enabled via VLLM_ENFORCE_EAGER")
 
-                compilation_config = _get_vllm_compilation_config(self._model_architecture)
+                compilation_config = _get_vllm_compilation_config(
+                    self._model_architecture,
+                    self._vlm_model_type,
+                    enforce_eager,
+                )
                 if compilation_config:
                     if enforce_eager:
                         raise ValueError(
@@ -2601,9 +2632,12 @@ class VllmCompatible(BaseVlmModel):
         async def _release_engine_resources():
             import cloudpickle
 
-            await self._llm.reset_encoder_cache()
-            worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
-            return await self._llm.collective_rpc(worker_method, timeout=60.0)
+            try:
+                await self._llm.pause_generation(mode="wait", clear_cache=True)
+                worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
+                return await self._llm.collective_rpc(worker_method, timeout=60.0)
+            finally:
+                await self._llm.resume_generation()
 
         worker_memory = asyncio.run_coroutine_threadsafe(
             _release_engine_resources(), self._event_loop

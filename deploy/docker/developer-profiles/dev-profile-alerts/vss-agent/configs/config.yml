@@ -114,6 +114,7 @@ functions:
 
   video_report_gen:
     _type: video_report_gen
+    hitl_enabled: ${HITL_ENABLED:-false}
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
@@ -250,7 +251,11 @@ llms:
     _type: ${LLM_MODEL_TYPE:-nim}
     model_name: ${LLM_NAME}
     base_url: ${LLM_BASE_URL}/v1
-    max_tokens: 256
+    # 256 was the only sub-1024 budget in any profile. rtvi_prompt_gen binds
+    # thinking off, so the budget is no longer spent on reasoning, but the merge
+    # path concatenates two prompts and a truncated answer is indistinguishable
+    # from a refusal to the caller.
+    max_tokens: 1024
     temperature: 0.0
 
 workflow:

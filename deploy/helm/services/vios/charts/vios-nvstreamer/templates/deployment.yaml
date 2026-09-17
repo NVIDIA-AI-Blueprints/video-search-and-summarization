@@ -61,7 +61,7 @@ spec:
             - |
               set -e
               DEST=/streamer-videos
-              DATASET={{ $seed.dataset | default "" | quote }}
+              DATASET={{ $seed.dataset | default ((.Values.global | default dict).sampleVideoDataset | default "") | quote }}
               if [ -n "$(find "${DEST}" -name '*.mp4' -print -quit 2>/dev/null)" ]; then
                 echo "[prepare-streamer-videos] videos already present, skipping"
                 exit 0

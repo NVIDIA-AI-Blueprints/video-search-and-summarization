@@ -48,15 +48,13 @@ class TestLVSConfigMediaModels:
         assert config.lvs_backend_url == "http://localhost:38111"
         assert config.vst_internal_url == "http://localhost:30888"
         assert config.chunk_duration == 10
-        # Interactive by default, so the shipped profiles keep prompting without
-        # having to name the key; the HTTP path opts out per request instead.
-        assert config.hitl_enabled is True
+        # Structured interaction is opt-in for every request path.
+        assert config.hitl_enabled is False
 
-    def test_hitl_can_be_disabled_in_configuration(self):
+    def test_hitl_can_be_explicitly_enabled_in_configuration(self):
         """`extra="forbid"` means the key has to exist for a profile to set it.
 
-        The other two LVS tools take `hitl_enabled`; without it here, turning HITL
-        off for this tool alone is a hard config error rather than a setting.
+        All HITL-capable tools accept the same explicit deployment opt-in.
         """
         config = LVSConfigMediaConfig(
             lvs_backend_url="http://localhost:38111",
@@ -64,9 +62,9 @@ class TestLVSConfigMediaModels:
             hitl_scenario_template="Scenario",
             hitl_events_template="Events",
             hitl_objects_template="Objects",
-            hitl_enabled=False,
+            hitl_enabled=True,
         )
-        assert config.hitl_enabled is False
+        assert config.hitl_enabled is True
 
     def test_missing_required_fields_raises(self):
         with pytest.raises(ValidationError):

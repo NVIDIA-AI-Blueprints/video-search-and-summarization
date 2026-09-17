@@ -29,7 +29,7 @@ A defining feature of the Video Summarization microservice is its high degree of
 
 The integrity and accessibility of the processed data are managed through a configurable database layer.
 
-* **Configurable Database**: Processed summaries, extracted events, captions, and associated metadata are stored in a dedicated database. Elasticsearch is the default database for search and analytics.
+* **Configurable Database**: Processed summaries, extracted events, captions, and associated metadata are stored in a dedicated database. Four backends are selectable — Elasticsearch (the default), Milvus, ArangoDB, and Neo4j. Only Elasticsearch is provisioned inside the compose stack; the others are selected by pointing the microservice at an instance you run. See [Database Backends](/vss/system-components/vision-microservices/video-summarization#database-backends) for the selectors and connection variables.
 * **Stream Caption Retrieval**: Stored captions and events can be retrieved by stream name and time range so agents can answer later questions about configured streams. Stream retrieval and stream summaries based on stored captions are experimental.
 
 ### Access and Integration Methods
@@ -68,7 +68,7 @@ The Video Summarization microservice consists of the following core components:
 * **RTVI-VLM**: [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) service used for per-chunk and live-stream video inferencing.
 * **CA-RAG Pipeline**: Context-aware retrieval and generation system that orchestrates event aggregation and summarization.
 * **LLM NIM**: NVIDIA Inference Microservice for the summarization LLM.
-* **Vector Store**: Elasticsearch for storing extracted events, captions, and aggregated summaries. Stored captions and events can be retrieved by stream name and time range so agents can answer later questions about configured streams.
+* **Data Store**: Elasticsearch by default for storing extracted events, captions, and aggregated summaries, with Milvus, ArangoDB, and Neo4j available as alternative backends. Stored captions and events can be retrieved by stream name and time range so agents can answer later questions about configured streams.
 * **Kafka Message Queue** (Summarization with Streaming and Message Bus profile only): Carries raw VLM events on the `mdx-vlm-captions` topic and aggregated summaries on the `mdx-structured-events-summary` topic.
 * **Logstash Consumer Service** (Summarization with Streaming and Message Bus profile only): Subscribes to the Kafka topics, decodes the `nv.VisionLLM` protobuf payloads, normalizes field types, and indexes the documents into Elasticsearch.
 
@@ -80,6 +80,92 @@ The Video Summarization microservice consists of the following core components:
 * NVIDIA GPU(s) with appropriate drivers
 * NGC API Key (for NVIDIA NIMs)
 
+## Migrating from 3.2.x to 3.3.0
+
+Review the following changes before you reuse a 3.2.x deployment configuration
+with Video Summarization 3.3.0.
+
+### Update Required
+
+* Replace `KAFKA_TOPIC` with `MESSAGE_BUS_TOPIC` in your `.env` file when you use
+  the streaming profile. The default topic remains `mdx-vlm-captions`.
+  `MESSAGE_BUS_TOPIC` configures the Logstash and RTVI-VLM services; the Video
+  Summarization server does not read either variable.
+* Update `LVS_LLM_MODEL_NAME` from the removed `openai/gpt-oss-20b` model to
+  `nvidia/nemotron-3.5-lightning-30b-a3b`, or to another LLM that your
+  deployment provides. The 3.3.0 deployment rejects the removed model name.
+* If you use `services/video-summarization/docker/deploy/compose.yaml` with the
+  `rtvi` profile, set `VLM_MODEL_TO_USE` explicitly. For a local model, also
+  set `MODEL_PATH`. For an OpenAI-compatible endpoint, set `VIA_VLM_ENDPOINT`
+  and its required API key. This standalone service Compose profile now rejects
+  missing RTVI-VLM configuration at startup. The top-level blueprint profile
+  under `deploy/docker` retains its `openai-compat` default.
+* Replace `LVS_ENABLE_LLM_MERGE` with `LVS_ENABLE_LLM_MERGING`. The former name
+  appeared in earlier documentation but is not read by the service.
+
+### New Environment Variables
+
+* `LVS_AGGREGATION_EMPTY_RETRIES` sets the number of additional CA-RAG
+  aggregation attempts when a response contains neither events nor a video
+  summary. The default is `2`. Set it to `0` to retain the 3.2.x
+  single-attempt behavior.
+* `MESSAGE_BUS` selects the RTVI-VLM message bus, and `ERROR_BUS` selects its
+  error bus. Both default to `kafka` in the streaming profile.
+* `MESSAGE_BUS_TOPIC` replaces `KAFKA_TOPIC` for the raw VLM event topic and
+  defaults to `mdx-vlm-captions`.
+
+The in-stack RTVI-VLM profile also forwards the new EVS++ settings
+`VIA_EVS_SESSION`, `VLM_VIDEO_PRUNING_RATE`,
+`VLLM_EVS_SIMILARITY_THRESHOLD`, `VIA_EVS_TOKEN_BUDGET`, and
+`VIA_EVS_MAX_SESSIONS`. For supported models, defaults, and behavior, refer to
+*Efficient Video Sampling (EVS and EVS++)* in the
+[Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm)
+documentation.
+
+### Removed Environment Variables
+
+* `KAFKA_TOPIC` is no longer read by the 3.3.0 stack. Use
+  `MESSAGE_BUS_TOPIC`.
+* `VSS_DISABLE_DECODER_REUSE` is no longer read by the Video Summarization
+  service. Remove it from carried-over configurations.
+
+### API Changes
+
+* `POST /v1/chat/completions` adds question answering for assets that were
+  summarized with `enable_qa=true`.
+* `DELETE /assets/{asset_id}/index` adds an idempotent way to reclaim a
+  retained per-asset Elasticsearch index. For automatic and manual cleanup
+  behavior, refer to the
+  [Asset Management API](/vss/system-components/vision-microservices/video-summarization/api-reference#asset-management).
+* `POST /summarize` and `POST /v1/summarize` now return HTTP 422 when
+  `media_info.start_offset` is greater than or equal to
+  `media_info.end_offset`, or when `min_tokens` is greater than `max_tokens`.
+  In 3.2.x, these requests could return HTTP 200 with an empty result.
+* The development-only `GET /files` endpoint now returns HTTP 422 for an
+  unsupported `purpose` value instead of HTTP 200 with an empty list.
+* Responses omit `media_info.start_offset` and `media_info.end_offset` when
+  either value is unavailable, nonnumeric, or not a strictly increasing
+  range. Update clients that assume both keys are always present.
+* `POST /summarize` and `POST /v1/stream_summarize` accept an inbound
+  `traceparent` header and link the request to the caller's distributed trace.
+
+### Functionality Changes
+
+* Video Summarization now uses CA-RAG 3.1.0 instead of CA-RAG 3.0.1.
+* Aggregation retries only when CA-RAG returns neither events nor a video
+  summary. A response that has no events but has a summary is not retried.
+* The service always forwards `scenario` and `events` to CA-RAG, including when
+  `enable_vlm_structured_output` is enabled.
+* The 3.3.0 RTVI-VLM profile supports optional EVS++ video token pruning to
+  reduce redundant visual input and per-chunk inference time.
+* The Elasticsearch index retention default is unchanged. The Compose
+  configuration retains per-asset indices by default, and the service drops
+  them after file summarization when
+  `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=false`. The new asset-management API
+  provides explicit cleanup for retained indices.
+* The RTVI-VLM client closes the caption-stream HTTP response after processing
+  to prevent a long-running file descriptor and memory leak.
+
 ## Deployment
 
 ### Clone the Repository
@@ -87,7 +173,7 @@ The Video Summarization microservice consists of the following core components:
 ```bash
 git clone https://github.com/NVIDIA/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.2.1
+git checkout tags/v3.3.0
 cd services/video-summarization
 ```
 
@@ -125,15 +211,15 @@ ARM_PLATFORM=igpu make -C docker build
 
 <Note>
 The container image tag must match the host CPU platform. Pre-built images
-are published as `nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1`
+are published as `ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0`
 for x86 and Jetson Thor, and
-`nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1-sbsa` for DGX Spark
+`ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-sbsa` for DGX Spark
 / SBSA / Grace. When building from source, select the matching
 `ARM_PLATFORM` value: `sbsa` for DGX Spark / Grace, `igpu` for Jetson /
 Thor.
 </Note>
 
-For the full developer workflow, deploy the Video Summarization profile as described in [agent-workflow-lvs](/vss/vision-agent/agent-workflows/video-summarization).
+For the full developer workflow, deploy the Video Summarization profile as described in [Video Summarization agent workflow](/vss/vision-agent/agent-workflows/video-summarization).
 Video Summarization microservice is deployed via the docker-compose stack at `docker/deploy/compose.yaml`. Two deployment profiles are supported:
 
 * [Summarization Base Profile](/vss/system-components/vision-microservices/video-summarization#summarization-base-profile) — file summarization without a Kafka message queue.
@@ -186,10 +272,10 @@ LVS_DATABASE_BACKEND=elasticsearch_db
 
 # RTVI-VLM Integration
 COMPOSE_PROFILES=rtvi
-# For x86 and Jetson Thor platforms, use the 3.2.1 tag:
-RTVI_VLM_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1
+# Multi-arch tag, covering x86 and Jetson Thor (iGPU) platforms:
+RTVI_VLM_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:3.3.0
 # For DGX Spark / SBSA / Grace (server-class ARM) platforms, use the -sbsa tag:
-#RTVI_VLM_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.2.1-sbsa
+#RTVI_VLM_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:3.3.0-sbsa
 RTVI_VLM_PORT=8420
 RTVI_VLM_GPU=1
 # RTVI_VLM_URL=http://<external-rtvi-host>:8083  # set only when pointing at an external RTVI-VLM
@@ -258,7 +344,7 @@ Source the values from `.env` for this profile. The diff from the base profile i
 # Enable the Kafka message queue
 KAFKA_ENABLED=true
 KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-KAFKA_TOPIC=mdx-vlm-captions
+MESSAGE_BUS_TOPIC=mdx-vlm-captions
 KAFKA_STRUCTURED_SUMMARY_TOPIC=mdx-structured-events-summary
 
 # Host-side broker ports — the compose defaults are 9092/9094.
@@ -374,10 +460,10 @@ touch .env
 # Copy this file to .env and fill in the values
 
 # Container Configuration
-# For x86 and Jetson Thor platforms, use the 3.2.1 tag:
-CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1
+# Multi-arch tag, covering x86 and Jetson Thor (iGPU) platforms:
+CONTAINER_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0
 # For DGX Spark / SBSA / Grace (server-class ARM) platforms, use the -sbsa tag:
-#CONTAINER_IMAGE=nvcr.io/nvidia/vss-core/vss-video-summarization:3.2.1-sbsa
+#CONTAINER_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-video-summarization:3.3.0-sbsa
 
 # API Keys and Authentication
 NGC_API_KEY=<your-ngc-api-key>
@@ -442,7 +528,7 @@ KAFKA_ENABLED=false
 
 **Run Script**
 
-Create a file named `run-lvs-server.sh` with the following content:
+Create a file named `run-video-summarization-server.sh` with the following content:
 
 ```bash
 #!/bin/bash
@@ -451,7 +537,7 @@ Create a file named `run-lvs-server.sh` with the following content:
 # This script runs only the Video Summarization server container, assuming other services are running separately
 
 # Configuration
-CONTAINER_NAME="lvs-server"
+CONTAINER_NAME="video-summarization-server"
 ENV_FILE="${ENV_FILE:-.env}"
 
 # Check if .env file exists
@@ -540,19 +626,19 @@ echo "To remove: docker rm $CONTAINER_NAME"
 1. Make the script executable:
 
 ```bash
-chmod +x run-lvs-server.sh
+chmod +x run-video-summarization-server.sh
 ```
 
 2. Run the script:
 
 ```bash
-./run-lvs-server.sh
+./run-video-summarization-server.sh
 ```
 
 3. Check the container status:
 
 ```bash
-docker logs -f lvs-server
+docker logs -f video-summarization-server
 ```
 
 4. Verify service health:
@@ -583,10 +669,10 @@ curl --location 'http://localhost:38111/v1/summarize' \
 
 ```bash
 # Stop the container
-docker stop lvs-server
+docker stop video-summarization-server
 
 # Remove the container
-docker rm lvs-server
+docker rm video-summarization-server
 ```
 
 **Configuration Updates**
@@ -596,7 +682,7 @@ To update environment variables:
 1. Stop and remove the container:
 
 ```bash
-docker stop lvs-server && docker rm lvs-server
+docker stop video-summarization-server && docker rm video-summarization-server
 ```
 
 2. Edit your `.env` file with the new values
@@ -604,7 +690,7 @@ docker stop lvs-server && docker rm lvs-server
 3. Restart the container:
 
 ```bash
-./run-lvs-server.sh
+./run-video-summarization-server.sh
 ```
 
 **Network Configuration**
@@ -613,7 +699,7 @@ By default, the script uses Docker's host network so the container can resolve s
 
 **Troubleshooting**
 
-* **Container fails to start**: Check `docker logs lvs-server` for error messages
+* **Container fails to start**: Check `docker logs video-summarization-server` for error messages
 * **Cannot connect to external services**: Verify `RTVI_VLM_URL`, `ES_HOST`/`ES_PORT`, and `LVS_LLM_BASE_URL` in your `.env` file and confirm network connectivity
 * **Port conflicts**: Change port numbers in `.env` file
 * **GPU not detected**: Ensure NVIDIA Container Toolkit is properly installed
@@ -693,10 +779,11 @@ context_manager:
 
 ### Key Configuration Options
 
-**Vector Database**
+**Database**
 
-* `type`: `elasticsearch` (default)
+* `type`: `elasticsearch` (default), `milvus`, `arango`, or `neo4j` — see [Database Backends](/vss/system-components/vision-microservices/video-summarization#database-backends)
 * `params.host`, `params.port`: Connection parameters
+* `params.username`, `params.password`: Credentials, for the `arango` and `neo4j` types
 * `tools.embedding`: Embedding model to use (reference to tool)
 
 **Summarization LLM**
@@ -770,7 +857,7 @@ This extracts structured events with timestamps. You can customize this for spec
 
 ### Event Merging
 
-When the same real-world event spans multiple video chunks, it can appear as several adjacent entries of the same type with overlapping or contiguous timestamps. The `LVS_ENABLE_LLM_MERGE` flag controls how these are combined.
+When the same real-world event spans multiple video chunks, it can appear as several adjacent entries of the same type with overlapping or contiguous timestamps. The `LVS_ENABLE_LLM_MERGING` flag controls how these are combined.
 
 **Without LLM merge (default)**
 
@@ -786,7 +873,7 @@ Adjacent events of the same type are concatenated with a `|` separator. Each chu
 }
 ```
 
-**With LLM merge** (`LVS_ENABLE_LLM_MERGE=true`)
+**With LLM merge** (`LVS_ENABLE_LLM_MERGING=true`)
 
 The LLM reads all adjacent descriptions and produces a single, coherent natural-language summary:
 
@@ -802,32 +889,46 @@ The LLM reads all adjacent descriptions and produces a single, coherent natural-
 
 Use LLM merge when clean, human-readable event descriptions are more important than preserving the raw per-chunk output. Note that it adds one LLM inference call per merged group, which slightly increases end-to-end latency.
 
+### Database Backends
+
+The configuration defines four database tools. Any of them can be selected as
+the store for captions, events, and aggregated summaries.
+
+| Tool name | Database | Connection variables |
+| --- | --- | --- |
+| `elasticsearch_db` | Elasticsearch (default) | `ES_HOST`, `ES_PORT` |
+| `vector_db` | Milvus | `MILVUS_DB_HOST`, `MILVUS_DB_GRPC_PORT` |
+| `graph_db_arango` | ArangoDB | `ARANGO_DB_HOST`, `ARANGO_DB_PORT`, `ARANGO_DB_USERNAME`, `ARANGO_DB_PASSWORD` |
+| `graph_db` | Neo4j | `GRAPH_DB_HOST`, `GRAPH_DB_BOLT_PORT`, `GRAPH_DB_USERNAME`, `GRAPH_DB_PASSWORD` |
+
+Two independent selectors choose between them:
+
+* `LVS_DATABASE_BACKEND` (default `elasticsearch_db`) selects the store used by
+  the `summarization` and `summarization_online` functions — the file and
+  live-stream summarization paths.
+* `LVS_QA_DATABASE_BACKEND` (default `graph_db`) selects the store used by
+  `ingestion_function` for the question-answering path, together with
+  `LVS_INGESTION_FUNCTION` (default `graph_ingestion`) and
+  `LVS_RETRIEVER_FUNCTION`.
+
+<Note>
+Only Elasticsearch is provisioned inside the compose stack. Milvus, ArangoDB,
+and Neo4j are selected by pointing the microservice at an instance you deploy
+and operate yourself, so set the matching connection variables before switching
+`LVS_DATABASE_BACKEND` or `LVS_QA_DATABASE_BACKEND` away from their defaults.
+</Note>
+
+Every database tool references the `nvidia_embedding` tool, which is disabled by
+default (`LVS_EMB_ENABLE=false`). The Milvus, ArangoDB, and Neo4j backends
+depend on embeddings, so enable `LVS_EMB_ENABLE` and set `LVS_EMB_MODEL_NAME`
+and `LVS_EMB_BASE_URL` when you select one of them.
+
 ### Environment Variables
 
-Configuration supports environment variable substitution using `!ENV ${VAR_NAME}`:
-
-**Database Configuration**
-
-* `ES_HOST`, `ES_PORT`: Elasticsearch connection
-* `LVS_DATABASE_BACKEND`: Database backend to use (`elasticsearch_db` (default))
-* `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`: Preserve stored events and captions after a request completes
-
-**LLM Configuration**
-
-* `LVS_LLM_MODEL_NAME`: LLM model name
-* `LVS_LLM_BASE_URL`: LLM API endpoint
-
-**RTVI and Stream Configuration**
-
-* `RTVI_VLM_URL`: RTVI-VLM service URL used by the Video Summarization microservice for caption generation
-* `RTVI_VLM_URL_PASSTHROUGH`: Route VLM calls through RTVI-VLM when set to `true`
-* `KAFKA_ENABLED`: Enable Kafka integration for stream captions and summaries
-* `KAFKA_BOOTSTRAP_SERVERS`: Kafka bootstrap server list
-* `KAFKA_STRUCTURED_SUMMARY_TOPIC`: Topic for structured stream summaries
-
-**API Keys**
-
-* `NVIDIA_API_KEY`: API key for NVIDIA services
+Configuration supports environment variable substitution using `!ENV ${VAR_NAME}`.
+For the complete list, see the
+[Environment Variables Reference](/vss/system-components/vision-microservices/video-summarization#environment-variables-reference)
+in the appendix.
 
 ## Kafka Integration
 
@@ -842,11 +943,12 @@ The streaming and message bus profile uses two Kafka topics:
 
 **Configuration:**
 
-Kafka integration is controlled by the following environment variables on the Video Summarization MS server:
+Kafka integration is controlled by the following environment variables across
+the Video Summarization stack:
 
 * **KAFKA_ENABLED**: Enable or disable Kafka integration (`true` / `false`). Default: `false`
 * **KAFKA_BOOTSTRAP_SERVERS**: Comma-separated list of Kafka broker addresses (e.g., `localhost:9092` or `kafka:9092` for the in-stack broker)
-* **KAFKA_TOPIC**: Topic for raw VLM events. Default: `mdx-vlm-captions`
+* **MESSAGE_BUS_TOPIC**: Topic for raw VLM events produced by RTVI-VLM and consumed by Logstash. Default: `mdx-vlm-captions`
 * **KAFKA_STRUCTURED_SUMMARY_TOPIC**: Topic for structured events and aggregated summaries. Default: `mdx-structured-events-summary`
 * **KAFKA_PORT**: Host port mapping for the in-stack Kafka broker's internal listener. Default: `9092`
 * **KAFKA_EXTERNAL_PORT**: Host port mapping for the broker's external listener; also embedded in `KAFKA_ADVERTISED_LISTENERS`. Default: `9094`
@@ -855,7 +957,10 @@ Kafka integration is controlled by the following environment variables on the Vi
 The same `KAFKA_ENABLED=true` and `KAFKA_BOOTSTRAP_SERVERS` values must also be set on the RTVI-VLM service so it publishes raw events to the same broker. See [RTVI-VLM Kafka Integration](/vss/system-components/vision-microservices/real-time-vlm#kafka-integration) for the producer-side configuration.
 
 <Note>
-`KAFKA_TOPIC` and `KAFKA_STRUCTURED_SUMMARY_TOPIC` are forwarded to the Logstash consumer service as well, so all three components (Video Summarization MS, RTVI-VLM, and Logstash) use the same configurable topic names. Override both variables in `.env` when the default topic names conflict with an existing Kafka deployment.
+`MESSAGE_BUS_TOPIC` configures RTVI-VLM and the Logstash consumer service.
+`KAFKA_STRUCTURED_SUMMARY_TOPIC` configures the Video Summarization MS and
+Logstash. Override both variables in `.env` when the default topic names
+conflict with an existing Kafka deployment.
 </Note>
 
 **ctx-rag function configuration:**
@@ -886,7 +991,7 @@ functions:
 
 Under the streaming and message bus profile, the publishing flow depends on the API path:
 
-1. **File path** (`POST /v1/summarize`): RTVI-VLM publishes per-chunk raw events to `KAFKA_TOPIC` as it processes the file. The `LVS_CAPTION_SOURCE` environment variable controls where the Video Summarization microservice reads captions for aggregation: `sse` (default) uses captions received in-process via the RTVI SSE response, while `db` retrieves them from the Elasticsearch index populated by the Kafka → Logstash → ES pipeline. In `db` mode, the Video Summarization microservice waits `kafka_consumer_settle_secs` (default 5 seconds) so the Logstash consumer service can flush the last chunk. In both modes, the Video Summarization microservice aggregates captions via CA-RAG and publishes the structured events and aggregated summary to `KAFKA_STRUCTURED_SUMMARY_TOPIC`.
+1. **File path** (`POST /v1/summarize`): RTVI-VLM publishes per-chunk raw events to `MESSAGE_BUS_TOPIC` as it processes the file. The `LVS_CAPTION_SOURCE` environment variable controls where the Video Summarization microservice reads captions for aggregation: `sse` (default) uses captions received in-process via the RTVI SSE response, while `db` retrieves them from the Elasticsearch index populated by the Kafka → Logstash → ES pipeline. In `db` mode, the Video Summarization microservice waits `kafka_consumer_settle_secs` (default 5 seconds) so the Logstash consumer service can flush the last chunk. In both modes, the Video Summarization microservice aggregates captions via CA-RAG and publishes the structured events and aggregated summary to `KAFKA_STRUCTURED_SUMMARY_TOPIC`.
 2. **Live-stream path** (`POST /v1/generate_captions` + `POST /v1/stream_summarize`): The client first calls `/v1/generate_captions` to start VLM captioning (fire-and-forget). RTVI-VLM publishes raw events to the Kafka topic, and Logstash indexes them into Elasticsearch. The client then calls `/v1/stream_summarize` with an optional `[start_time, end_time]` window. The Video Summarization microservice reads captions from Elasticsearch, aggregates them via CA-RAG, and publishes the structured events and summary to `KAFKA_STRUCTURED_SUMMARY_TOPIC` with a per-call upsert ID so repeated calls overwrite the latest result for that stream.
 3. **Message keys**: All messages are published with the key `{request_id}:{chunk_idx|batch_i|doc_i}` (UTF-8 encoded) for partitioning and ordering.
 4. **Requirement**: Set `KAFKA_ENABLED=true` on both the Video Summarization MS and RTVI-VLM, and configure `KAFKA_BOOTSTRAP_SERVERS` on both services. Without these, `/v1/summarize` silently falls back to the legacy in-process aggregation flow. `POST /v1/summarize` now rejects `source_type=stream` with HTTP 422, directing clients to use the dedicated live-stream APIs instead.
@@ -999,7 +1104,7 @@ Add to your Claude Desktop configuration:
       "args": [
         "exec",
         "-i",
-        "lvs-server",
+        "video-summarization-server",
         "python",
         "/opt/nvidia/via/src/lvs_mcp.py"
       ]
@@ -1037,6 +1142,7 @@ When running with `LVS_MCP_PORT` set, connect to:
 2. **RTVI-VLM Tuning**: Configure batch size, frame counts, and per-process GPU allocation on the RTVI-VLM service. See [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) for guidance.
 3. **Live-Stream Sessions**: Set `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE=true` to keep context-manager state intact across consecutive `/v1/stream_summarize` calls on the same stream.
 4. **Logstash Settle Window**: Tune `tools.elasticsearch_db.params.kafka_consumer_settle_secs` (default 5 seconds) to balance ingest latency against the file-path summarize wall time when using the streaming profile.
+5. **Video Token Pruning**: Enable EVS++ on the RTVI-VLM service to prune redundant video tokens and reduce per-chunk inference time on long videos. See *Efficient Video Sampling (EVS and EVS++)* in the [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) documentation.
 
 ### Error Handling
 
@@ -1098,7 +1204,7 @@ type
 
 * Check `LVS_ENABLE_MCP=true`
 * Verify `LVS_MCP_PORT` is accessible
-* Check container logs: `docker logs lvs-server`
+* Check container logs: `docker logs video-summarization-server`
 
 ### Logs and Debugging
 
@@ -1118,7 +1224,7 @@ grep "MCP" /var/log/via/via-server.log
 * **400 Bad Request**: Invalid input syntax
 * **401 Unauthorized**: Missing or invalid authentication token
 * **409 Conflict**: File is in use and cannot be deleted
-* **422 Unprocessable Entity**: Failed to process request (validation error). `POST /v1/summarize` returns this status when called with `source_type=stream` — use `POST /v1/generate_captions` and `POST /v1/stream_summarize` for live-stream workflows instead.
+* **422 Unprocessable Entity**: Failed to process request (validation error). `POST /v1/summarize` returns this status when called with `source_type=stream` — use `POST /v1/generate_captions` and `POST /v1/stream_summarize` for live-stream workflows instead. It also returns 422 when the media offsets are reversed (`start` later than `end`) or when `min_tokens` is greater than `max_tokens`.
 * **429 Rate Limit Exceeded**: Too many requests
 * **500 Internal Server Error**: Server-side error
 * **503 Service Unavailable**: Server is busy processing another file
@@ -1135,22 +1241,33 @@ Complete list of available environment variables:
 * `LVS_MCP_PORT`: MCP server port (default: 38112)
 * `VSS_API_ENABLE_VERSIONING`: Enable /v1 prefix
 
+**Client CLI**
+
+Read by the `via_client_cli.py` client rather than by the server.
+
+* `VIA_BACKEND`: Default server address for the client's `--backend` option (default: `http://localhost:8000`)
+
 **API Keys**
 
 * `NGC_API_KEY`: NVIDIA NGC API key
 * `NVIDIA_API_KEY`: NVIDIA AI API key
 * `OPENAI_API_KEY`: OpenAI API key
-* `AZURE_OPENAI_API_KEY`: Azure OpenAI API key
 
 **S3 Configuration**
+
+Media download runs inside RTVI-VLM, so set these on the RTVI-VLM container
+rather than on the Video Summarization MS container. They are read by the AWS
+SDK when a request supplies an `s3://` URL.
 
 * `AWS_ACCESS_KEY_ID`: AWS access key ID (required for S3 URL support)
 * `AWS_SECRET_ACCESS_KEY`: AWS secret access key (required for S3 URL support)
 * `AWS_ENDPOINT_URL_S3`: AWS S3 endpoint URL (required for S3 URL support)
+* `AZURE_OPENAI_API_KEY`: Azure OpenAI API key, used by the RTVI-VLM `openai-compat` backend
 
 **VLM Configuration**
 
 * `VLM_MODEL_TO_USE`: VLM backend selector — set to `openai-compat` when delegating inference to RTVI-VLM in proxy mode
+* `VLM_SYSTEM_PROMPT`: Default VLM system prompt applied when a request does not supply one (default: empty)
 
 **RTVI-VLM Configuration**
 
@@ -1158,48 +1275,84 @@ Complete list of available environment variables:
 * `RTVI_VLM_IMAGE`: Container image for the in-stack RTVI-VLM service
 * `RTVI_VLM_PORT`: Host port for the in-stack RTVI-VLM service (default: 8420; the container always listens on 8000)
 * `RTVI_VLM_GPU`: GPU device ID assigned to the RTVI-VLM container (separate from the Video Summarization MS GPU)
+* `RTVI_VLM_URL_PASSTHROUGH`: Route VLM calls through RTVI-VLM when set to `true`
+* `RTVI_HEALTH_RETRIES`: Attempts to make while waiting for RTVI-VLM to report healthy at startup (default: 30)
+* `RTVI_HEALTH_RETRY_INTERVAL`: Seconds between those attempts (default: 5)
+
+EVS++ video token pruning is a feature of RTVI-VLM, so it is configured on that
+service rather than on the Video Summarization MS server. Compose passes
+`VIA_EVS_SESSION`, `VLM_VIDEO_PRUNING_RATE`, `VLLM_EVS_SIMILARITY_THRESHOLD`,
+`VIA_EVS_TOKEN_BUDGET`, and `VIA_EVS_MAX_SESSIONS` from your `.env` file through
+to the in-stack `rtvi-vlm` service. For descriptions, defaults, and supported
+models, see *Efficient Video Sampling (EVS and EVS++)* in the
+[Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm)
+documentation.
 
 **Kafka Configuration**
 
 * `KAFKA_ENABLED`: `true` enables the streaming profile end to end on the Video Summarization MS server; `false` for the base profile (default: `false`)
 * `KAFKA_BOOTSTRAP_SERVERS`: Kafka broker bootstrap address used by the Video Summarization MS and RTVI-VLM (default: `kafka:9092` inside the docker network)
-* `KAFKA_TOPIC`: Kafka topic for raw VLM events (default: `mdx-vlm-captions`)
+* `MESSAGE_BUS`: Message bus used by RTVI-VLM for raw VLM events (default: `kafka`)
+* `MESSAGE_BUS_TOPIC`: Topic for raw VLM events produced by RTVI-VLM and consumed by Logstash (default: `mdx-vlm-captions`)
+* `ERROR_BUS`: Message bus used by RTVI-VLM for error events (default: `kafka`)
 * `KAFKA_STRUCTURED_SUMMARY_TOPIC`: Kafka topic for structured events and aggregated summaries (default: `mdx-structured-events-summary`)
 * `KAFKA_PORT`: Host port mapping for the in-stack Kafka broker's internal listener (default: `9092`)
 * `KAFKA_EXTERNAL_PORT`: Host port mapping for the broker's external listener; also embedded in `KAFKA_ADVERTISED_LISTENERS` (default: `9094`)
 * `KAFKA_ADVERTISED_HOST`: Hostname or IP that host-side or cross-host clients use to reconnect (default: `localhost`)
 * `LVS_CAPTION_SOURCE`: Controls where file-path Kafka aggregation reads captions: `sse` (default) uses captions received in-process via the RTVI SSE response, `db` retrieves captions from Elasticsearch populated by the Kafka → Logstash → ES pipeline
-* `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`: `true` keeps the per-stream context-manager state across consecutive `/v1/stream_summarize` calls — recommended for live-stream sessions
+* `LVS_KAFKA_CONSUMER_SETTLE_SECS`: Seconds to wait after the RTVI-VLM SSE stream completes so Logstash can flush the final chunk, used when the YAML key is absent (default: `5.0`)
 
 **Database Configuration**
 
+Backend selection is covered in [Database Backends](/vss/system-components/vision-microservices/video-summarization#database-backends).
+
+* `LVS_DATABASE_BACKEND`: Store used by the summarization functions — `elasticsearch_db` (default), `vector_db`, `graph_db_arango`, or `graph_db`
+* `LVS_QA_DATABASE_BACKEND`: Store used by the question-answering ingestion function (default: `graph_db`)
+* `LVS_INGESTION_FUNCTION`: Ingestion function type (default: `graph_ingestion`)
+* `LVS_RETRIEVER_FUNCTION`: Retriever function type
+* `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`: `true` preserves request data and the per-asset Elasticsearch index after processing; `false` resets request data and automatically drops the index after file summarization completes. The Compose configuration defaults to `true`, while the service code defaults to `false` when the variable is unset. Live-stream summarization retains its index with either value because consecutive `/v1/stream_summarize` calls reuse the same asset ID.
 * `ES_HOST`, `ES_PORT`: Elasticsearch connection
 * `ES_TRANSPORT_PORT`: Elasticsearch transport port (default: 9302)
-* `ES_MAX_SHARDS_PER_NODE`: Maximum number of shards allowed per Elasticsearch node (default: `2000`). Each `POST /v1/summarize` or `POST /v1/stream/add` creates one `default_<asset_id>` index with one shard; raise this cap for long-retention or high-volume deployments.
+* `ES_MAX_SHARDS_PER_NODE`: Maximum number of shards allowed per Elasticsearch node (default: `2000`). Each `POST /v1/summarize` creates one `default_<asset_id>` index with one shard; raise this cap for long-retention or high-volume deployments, or reclaim indices with `DELETE /assets/{asset_id}/index`.
 * `ES_JAVA_OPTS`: JVM heap flags for the in-stack Elasticsearch container (default: `-Xms4g -Xmx4g`). Elasticsearch recommends no more than 20 active shards per GB of heap — the 4 GB default supports roughly 80 active shards in steady state. Tune `ES_MAX_SHARDS_PER_NODE` and `ES_JAVA_OPTS` together when increasing retention.
-* `LVS_DATABASE_BACKEND`: Database backend to use (default: `elasticsearch_db`)
-* `LVS_DISABLE_DB_RESET_ON_REQUEST_DONE`: Preserve request data in the database after processing
+* `MILVUS_DB_HOST`, `MILVUS_DB_GRPC_PORT`: Milvus connection, used when `vector_db` is selected
+* `ARANGO_DB_HOST`, `ARANGO_DB_PORT`, `ARANGO_DB_USERNAME`, `ARANGO_DB_PASSWORD`: ArangoDB connection, used when `graph_db_arango` is selected
+* `GRAPH_DB_HOST`, `GRAPH_DB_BOLT_PORT`, `GRAPH_DB_USERNAME`, `GRAPH_DB_PASSWORD`: Neo4j connection, used when `graph_db` is selected
 
-**LLM Configuration**
+**LLM and Embedding Configuration**
 
 * `LVS_LLM_HOST`, `LVS_LLM_PORT`: LLM NIM host and port
 * `LVS_LLM_MODEL_NAME`: LLM model name (e.g., `nvidia/nemotron-3.5-lightning-30b-a3b`)
 * `LVS_LLM_BASE_URL`: LLM API base URL
-* `LVS_ENABLE_LLM_MERGE`: Use the LLM to merge adjacent duplicate events into natural text (default: false). See [Event Merging](/vss/system-components/vision-microservices/video-summarization#event-merging) for details and examples.
+* `LVS_ENABLE_LLM_MERGING`: Use the LLM to merge adjacent duplicate events into natural text (default: false). See [Event Merging](/vss/system-components/vision-microservices/video-summarization#event-merging) for details and examples.
+* `LVS_EMB_ENABLE`: Enable the embedding tool (default: `false`). Required by the Milvus, ArangoDB, and Neo4j backends.
+* `LVS_EMB_MODEL_NAME`: Embedding model name
+* `LVS_EMB_BASE_URL`: Embedding service endpoint
 
-**Stream Configuration**
+**Prompt Overrides**
 
-* `RTVI_VLM_URL`: RTVI-VLM service URL for caption generation
-* `RTVI_VLM_URL_PASSTHROUGH`: Route Video Summarization VLM calls through RTVI-VLM
-* `KAFKA_ENABLED`: Enable Kafka integration
-* `KAFKA_BOOTSTRAP_SERVERS`: Kafka bootstrap server list
-* `KAFKA_STRUCTURED_SUMMARY_TOPIC`: Topic for structured stream summaries
+These replace individual sections of the generated VLM prompt. Each is empty by
+default, which keeps the built-in text.
+
+* `LVS_PROMPT_VLM_ROLE`: Override the AI role and persona description
+* `LVS_PROMPT_VLM_INSTRUCTION`: Override the instruction section
+* `LVS_PROMPT_VLM_CONSTRAINTS`: Append additional constraints
+* `LVS_PROMPT_VLM_STRUCTURED_OUTPUT`: Override the output format and JSON template
+
+The CA-RAG summarization function additionally accepts `aggregation_prompt` and
+`description_merge_prompt` as configuration keys rather than environment
+variables. `description_merge_prompt` applies only when `LVS_ENABLE_LLM_MERGING`
+is enabled.
 
 **Feature Flags**
 
 * `LVS_ENABLE_MCP`: Enable MCP server (default: true)
 * `ENABLE_VIA_HEALTH_EVAL`: Enable health evaluation (default: false)
-* `VSS_DISABLE_DECODER_REUSE`: Disable decoder reuse (default: true)
+* `ENABLE_DENSE_CAPTION`: Request dense captions in addition to structured events (default: false)
+* `LVS_DROP_EMPTY_EVENT_FIELDS`: Empty event fields are dropped from responses by default; set to `false` to keep them
+* `LVS_AGGREGATION_EMPTY_RETRIES`: Retry budget for aggregation calls that return no events and no summary (default: 2; `0` disables retrying)
+* `VSS_POST_PROCESS_ON_EACH_DOC_ADD`: Run post-processing after each document is added rather than at the end of the request (default: false)
+* `LVS_CHUNK_DEBUG`: Debugging aid — when `true`, chunks are processed but summarization is skipped (default: false)
 
 **Logging and Monitoring**
 

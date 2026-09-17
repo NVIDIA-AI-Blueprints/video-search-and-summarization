@@ -48,9 +48,9 @@ The agent model provider is seeded in Section 1.1 and set by one of the provider
 | Variable | Default | Description |
 | --- | --- | --- |
 | `NVIDIA_API_KEY` | *(blank)* | Required for the build.nvidia.com agent provider (Section 1.2, option c). |
-| `NEMOCLAW_ENDPOINT_URL` | *(blank)* | OpenAI-compatible base URL for a cloud or local custom agent provider (Section 1.2, options a/b). When non-empty, the notebook selects `NEMOCLAW_PROVIDER=custom`. Leave blank to select `NEMOCLAW_PROVIDER=build`. |
-| `NEMOCLAW_MODEL` | *(blank)* | Model ID for the agent chat model. If blank on the build.nvidia.com path, the installer defaults to `nvidia/nemotron-3-super-120b-a12b`. |
-| `COMPATIBLE_API_KEY` | *(blank)* | Bearer token for the custom OpenAI-compatible provider. Must be non-empty for custom provider mode, even when a local server ignores it. |
+| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` (option a) | OpenAI-compatible base URL for a cloud or local custom agent provider (Section 1.2, options a/b). When non-empty, the notebook selects `NEMOCLAW_PROVIDER=custom`. Leave blank to select `NEMOCLAW_PROVIDER=build`. |
+| `NEMOCLAW_MODEL` | `aws/anthropic/bedrock-claude-opus-5` (option a) | Model ID for the agent chat model, as the chosen endpoint serves it. |
+| `COMPATIBLE_API_KEY` | *(blank)* | Bearer token for the custom OpenAI-compatible provider, issued by whoever runs the endpoint. Must be non-empty for custom provider mode, even when a local server ignores it. |
 
 Advanced values are set in Section 1.3 or derived from the environment.
 
@@ -58,6 +58,7 @@ Advanced values are set in Section 1.3 or derived from the environment.
 | --- | --- | --- |
 | `NEMOCLAW_INSTALL_REF` | `v0.0.80` | NemoClaw installer pin. Section 3.1 reinstalls if the installed `nemoclaw` version does not match this semver tag. |
 | `NEMOCLAW_INFERENCE_PROXY` | `True` | When `NEMOCLAW_ENDPOINT_URL` resolves to a non-public address, Section 3.1 starts the bundled host proxy and points NemoClaw at it to avoid NemoClaw's SSRF rejection. The proxy reaches its upstream as `https://<host>` on port 443, so disable it for an endpoint served over plain HTTP or on another port — such as this deployment's own LLM NIM — and set `COMPATIBLE_API_KEY=EMPTY` yourself. Set to `False` in Section 1.3 or export `NEMOCLAW_INFERENCE_PROXY=0`. |
+| `NEMOCLAW_TOOL_DISCLOSURE` | *(NemoClaw default; `direct` for Nemotron 3.5 Lightning)* | OpenClaw tool exposure mode: `direct` or `progressive`. The notebook defaults Nemotron 3.5 Lightning to direct structured tools because its progressive search/describe/call trajectory is not reliable. Changing this on an existing sandbox requires a rebuild or fresh onboard. |
 | `AGENT_RUNTIME` | `openclaw` | Sandbox agent runtime used at onboard. Supported values are `openclaw` and `hermes`. Override via the `AGENT_RUNTIME` environment variable. |
 | `AGENT_HOOKS_ENABLED` | `True` | Enables agent webhooks and generates a random `AGENT_HOOKS_TOKEN`. |
 | `AGENT_HOOKS_PATH` | `/hooks` | Webhook path under the agent dashboard forward. |
@@ -65,8 +66,8 @@ Advanced values are set in Section 1.3 or derived from the environment.
 | `AGENT_DASHBOARD_PORT` | `18789` | Agent dashboard forward port used by the UI link and webhook checks. Override via `NEMOCLAW_DASHBOARD_PORT`. |
 | `AGENT_PLUGIN_VARIANT` | `nemoclaw` | Workspace variant overlay. The `nemoclaw` overlay uploads the `_nemoclaw` workspace docs into the sandbox workspace. Read into `WORKSPACE_VARIANT`. |
 | `NEMOCLAW_SANDBOX_NAME` | `demo` | Sandbox name to create or reuse. Use the same value in `deploy_vss_orchestrator.ipynb`. |
-| `VSS_ORCHESTRATOR_MCP_HOST` | `0.0.0.0` | Host used to build the MCP URL that Section 3.5 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
-| `VSS_ORCHESTRATOR_MCP_PORT` | `9988` | Port used to build the MCP URL that Section 3.5 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
+| `VSS_ORCHESTRATOR_MCP_HOST` | `0.0.0.0` | Host used to build the MCP URL that Section 3.3 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
+| `VSS_ORCHESTRATOR_MCP_PORT` | `9988` | Port used to build the MCP URL that Section 3.3 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
 | `VSS_REPO_DIR` | `~/video-search-and-summarization` | VSS checkout used by the notebook. |
 | `NEMOCLAW_REPO_DIR` | `~/NemoClaw` | Fallback NemoClaw source checkout used only when the `nemoclaw` CLI is not already available. The curl installer normally clones the installed source under `~/.nemoclaw/source`. |
 | `BREV_ENVIRONMENT_CONTEXT_PATH` | `/etc/brev/environment-context.json` | Brev context JSON with secure-link FQDNs and environment id. Override via that env var only if the context file lives elsewhere. |
@@ -134,7 +135,7 @@ Hardware overrides under `model_resolution.hardware` apply when `HARDWARE_PROFIL
 | `DGX-SPARK` | `LLM_NAME` / `LLM_NAME_SLUG` | Local Spark NIM FP8 variant when a local LLM is used. |
 | `DGX-SPARK` | `PERCEPTION_TAG` | SBSA image tag for perception services. |
 | `DGX-SPARK` / `base` | `VLM_NIM_KVCACHE_PERCENT` | `0.2`. Local VLM KV-cache sizing for the `base` profile. |
-| `DGX-SPARK` / `alerts` | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.4`. GPU memory utilization for the local RTVI VLM on `alerts`. |
+| `DGX-SPARK` / `alerts` | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.35`. GPU memory utilization for the local RTVI VLM on `alerts`. |
 | `IGX-THOR` / `AGX-THOR` | `VLM_NAME`, `RTVI_VLM_*`, `VLM_MODEL_TYPE` | Local Cosmos3 Nano Reasoner VLM settings for Thor edge systems. |
 | `IGX-THOR` / `AGX-THOR` | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` | `0.35`. GPU memory utilization for the local RTVI VLM. |
 
@@ -153,7 +154,7 @@ Pins the tested Docker stack before Section 3 creates the sandbox:
 
 Run this before Section 3 creates the sandbox. A Docker downgrade restarts `dockerd` and would disrupt live sandbox containers if it ran later in the notebook. When the installed Docker Engine already falls in the tested range (`28.3.3` through `29.5.0`), the downgrade is skipped and the packages are held at their current versions with `apt-mark hold` so later package operations do not drift the instance.
 
-### Verify sandbox, policy, skills, and webhooks (deploy_nemoclaw.ipynb Section 3.8)
+### Verify sandbox, policy, skills, and webhooks (deploy_nemoclaw.ipynb Section 3.6)
 
 Runs additional checks against the live sandbox after Section 3:
 

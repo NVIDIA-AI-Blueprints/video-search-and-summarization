@@ -51,8 +51,6 @@ ARG DS_VERSION=9.1
 # =============================================================================
 FROM ${BASE_IMAGE} AS ds-devel
 ARG DS_VERSION
-ARG REGISTRY
-ARG TAG
 
 # Precompiled libs. Unlike the multiarch file there is no arch to resolve here:
 # SBSA always takes prebuilts/sbsa.
@@ -87,11 +85,8 @@ COPY 3rdParty_Licenses.md /opt/mm/LICENSE.3rdparty
 #   must match the CUDA in the base image (9.1-triton ships 13.2).
 # DS_VERSION: the Makefile derives LIB_INSTALL_DIR/APP_INSTALL_DIR from it and
 #   errors out if neither it nor NVDS_VERSION is set.
-# REGISTRY/TAG: baked into the binary so it can print its own provenance.
 ENV CUDA_VER=13.2
 ENV DS_VERSION=${DS_VERSION}
-ENV REGISTRY=${REGISTRY}
-ENV TAG=${TAG}
 WORKDIR "/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app"
 RUN make && make install
 
@@ -100,14 +95,6 @@ RUN make && make install
 # =============================================================================
 FROM ${BASE_IMAGE} AS ds-iot
 ARG DS_VERSION
-ARG REGISTRY
-ARG TAG
-
-# Exposed at runtime so the printed image registry/tag can be updated without
-# recompiling the app (the binary reads REGISTRY/TAG env vars, falling back to
-# the build-time defaults baked into it).
-ENV REGISTRY=${REGISTRY}
-ENV TAG=${TAG}
 
 ENV LD_LIBRARY_PATH=/usr/lib64:${LD_LIBRARY_PATH}
 

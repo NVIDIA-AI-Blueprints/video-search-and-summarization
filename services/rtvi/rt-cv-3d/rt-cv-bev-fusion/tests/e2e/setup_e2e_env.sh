@@ -20,11 +20,12 @@
 # so CI can run it non-interactively.
 #
 # Required env:
-#   NGC_CLI_API_KEY   - NGC key with access to nvidia/vss-warehouse/*
+#   NGC_CLI_API_KEY   - NGC key with access to nvstaging/vss-warehouse/*
 #   HOST_IP           - this host's IP (for inter-service comms / VST UI)
 #   HARDWARE_PROFILE  - GPU slug, e.g. RTXPRO6000BW (RTX PRO 6000), H100, L40S
 # Optional env:
-#   VSS_WAREHOUSE_VERSION   (default 3.1.0)
+#   VSS_WAREHOUSE_VERSION            (default 3.1.0)
+#   VSS_WAREHOUSE_APP_DATA_VERSION   (default v3.3.0-09152026)
 #   WORK_DIR                (default: repo root) — where NGC assets are downloaded
 #   NGC_CLI_ORG             (default: nvidia)
 #
@@ -34,6 +35,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK_DIR="${WORK_DIR:-$REPO_ROOT}"
 VER="${VSS_WAREHOUSE_VERSION:-3.1.0}"
+APP_DATA_VER="${VSS_WAREHOUSE_APP_DATA_VERSION:-v3.3.0-09152026}"
 NGC_CLI_ORG="${NGC_CLI_ORG:-nvidia}"
 
 : "${NGC_CLI_API_KEY:?set NGC_CLI_API_KEY}"
@@ -44,7 +46,7 @@ export NGC_CLI_API_KEY NGC_CLI_ORG
 banner() { echo "==================== $* ===================="; }
 
 COMPOSE_DIR="${WORK_DIR}/vss-warehouse-compose_v${VER}"
-APP_DATA_DIR="${WORK_DIR}/vss-warehouse-app-data_v${VER}"
+APP_DATA_DIR="${WORK_DIR}/vss-warehouse-app-data_v${APP_DATA_VER}"
 DEPLOY_ROOT="${COMPOSE_DIR}/deployments"
 WAREHOUSE_DIR="${DEPLOY_ROOT}/warehouse"
 
@@ -55,7 +57,7 @@ if [ ! -d "${COMPOSE_DIR}" ]; then
   ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-compose:${VER}"
 fi
 if [ ! -d "${APP_DATA_DIR}" ]; then
-  ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:${VER}"
+  ngc registry resource download-version "nvstaging/vss-warehouse/vss-warehouse-app-data:${APP_DATA_VER}"
 fi
 
 banner "Step 2: Extract"

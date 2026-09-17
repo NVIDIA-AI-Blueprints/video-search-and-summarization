@@ -66,6 +66,36 @@ brev_origin 7777      # the haproxy ingress link — the VSS browse origin
 An empty result means no link is published for it: expose one in Brev, or deploy
 behind a port that has one. Do not fall back to constructing a hostname.
 
+### When the helpers return nothing
+<a id="confined-read"></a>
+
+`/etc/brev` is `0700 root:root`. An agent process holding no capabilities is
+denied it even as uid 0 ([`prerequisites.md`](prerequisites.md#confinement)).
+`read_brev_environment_context` retries that denial as `sudo -n cat` before
+turning it into `{}` — which recovers the file for a host shell holding
+passwordless sudo, and not for an agent whose `sudo` is refused by policy. When
+the retry fails too, the helpers above return nothing instead of failing,
+logging `context ... is unreadable` at `WARNING` and carrying on. **An empty
+result is not "no link is published".** Distinguish the two before reporting
+either; the warning line tells you which one you have.
+
+`dockerd` holds the capabilities the agent lacks, so a read-only bind mount
+resolves the entry. It is a privileged read of host config: **ask the user to
+approve it**, never take it unilaterally, and request the one port's entry rather
+than the whole file.
+
+```bash
+docker run --rm -v /etc/brev:/brev:ro ubuntu:22.04 cat /brev/environment-context.json \
+  | jq -r '.ports[]|select(.destination_port==7777)|"public_port=\(.public_port) fqdn=\(.fqdn)"'
+```
+
+Any image already on the host serves — nothing but `cat` is used — and a small
+one is worth pulling on a host with none. When the approval is declined, ask the
+user for the origin they browse this instance on. Never construct one either
+way: the domain is `gobrev.dev` on some instances and `brevlab.com` on others,
+and a wrong host `404`s every browser request while `curl localhost:7777` still
+succeeds.
+
 ## Per-profile secure link requirements
 
 | Profile | Required links | Optional |

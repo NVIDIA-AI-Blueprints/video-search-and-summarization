@@ -225,7 +225,12 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
 # See developer-profiles/dev-profile-alerts/overrides.env for supported settings.
 ```
 
-`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=alerts
@@ -325,6 +330,7 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
@@ -335,6 +341,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -349,6 +356,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -367,13 +375,15 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=GB300
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 ALERT_AGENT_ALWAYS_ON=true
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```
 </Tab>
@@ -382,11 +392,14 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=GB300
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 ALERT_AGENT_ALWAYS_ON=true
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -404,6 +417,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 ALERT_AGENT_ALWAYS_ON=true
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
@@ -414,6 +428,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -428,6 +443,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -441,16 +457,13 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 </Tab>
 <Tab title="RTXPRO4500BW">
 
-<Note>
-On NVIDIA driver 580.105.08, `nvidia-smi` may not identify RTX PRO 4500 Blackwell GPUs, when automatic detection is used. With native Docker Compose, set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`. NVIDIA driver 580.126.09 or later is recommended.
-</Note>
-
 <Tabs>
 <Tab title="Remote LLM">
 
 ```ini
 HARDWARE_PROFILE=RTXPRO4500BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -469,6 +482,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -483,6 +497,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -502,12 +517,13 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=DGX-SPARK
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -527,10 +543,12 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=IGX-THOR
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -550,10 +568,12 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=AGX-THOR
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -576,6 +596,7 @@ for known limitations and configuration constraints.
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 ALERT_AGENT_ALWAYS_ON=true
 LLM_ENV_FILE=/path/to/llm.env
@@ -588,6 +609,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -604,6 +626,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -711,14 +734,15 @@ Once deployed, the following services are available:
 | NVStreamer UI | `http://<HOST_IP>:31000/#/dashboard` |
 | VST UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
 | Phoenix UI | `http://<HOST_IP>:7777/phoenix/projects` |
+| Jaeger UI | `http://<HOST_IP>:16686` |
+
+The Jaeger UI is present only when the `jaeger` Compose profile is enabled; see [OpenTelemetry Tracing](/vss/system-components/analytics-microservices/alerts-microservice#opentelemetry-tracing) in the Alerts Microservice page.
 
 ### Known Issues
 
 * It is recommended to clear chat and refresh the VSS UI page after deployment to clear any data from a previous deployment.
 
 * VSS-RTVI-VLM logs may repeatedly show a "Generated text is empty" warning and result in incomplete/unreliable alert verdicts
-
-* On RTX PRO 4500 Blackwell systems with NVIDIA driver 580.105.08, `nvidia-smi` may not identify the GPU model. Set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`; native Docker Compose does not perform the script hardware check. Upgrade to NVIDIA driver 580.126.09 or later when possible.
 
 * VLM verdict verification can fail in the UI even when VLM requests are processed successfully. Alert Bridge response parsing accepts only raw verdicts such as `A/B` or `Yes/No` before serializing them to `confirmed` or `rejected`. As a result, a semantically valid `rejected` verdict from Cosmos Reason can fail schema validation and be persisted as `verification-failed`.
 

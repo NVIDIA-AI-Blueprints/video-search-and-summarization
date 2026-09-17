@@ -69,11 +69,11 @@ For instructions on downloading sample data and the deployment package, see [Dow
 #### Step 1: Deploy the Agent
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and operate the video summarization workflow.
-First, install the `vss-deploy-profile` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
+First, install the `vss-build-vision-ai` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
-The `vss-deploy-profile` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The `vss-build-vision-ai` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 **Deploy prompt structure**
@@ -84,7 +84,7 @@ Deploy the VSS video summarization profile (lvs).
 
 What the agent does:
 
-1. Loads the `vss-deploy-profile` skill and detects the repository, GPU hardware, and host networking values.
+1. Loads the `vss-build-vision-ai` skill and detects the repository, GPU hardware, and host networking values.
 2. Validates required credentials (such as `NGC_CLI_API_KEY`) and prompts you if any are missing.
 3. Selects the `lvs` profile and a platform and mode that fit your hardware, then builds the deployment configuration.
 4. Reviews the configuration with you, then deploys the containers.
@@ -111,7 +111,7 @@ What the agent does:
 
 #### Step 3: Summarize a Video and Generate Reports
 
-Ask your agent to summarize an uploaded video or generate a structured report for it. The `vss-summarize-video` skill handles direct summary requests through the Video Summarization microservice (with a VLM fallback). For report requests, the `vss-generate-video-report` skill uses the LVS summarization path when the `lvs` profile is ready and renders the result into a report template.
+Ask your agent to summarize an uploaded video or generate a structured report for it. The `vss-summarize-video` skill handles direct summary requests through the Video Summarization microservice (with a VLM fallback). For report requests, the `vss-generate-video-report` skill uses the Video Summarization MS path when the `lvs` profile is ready and renders the result into a report template.
 
 ##### Summarize an Uploaded Video
 
@@ -124,7 +124,7 @@ Summarize warehouse_sample using the default scenario and events.
 
 What the agent does:
 
-1. Loads the `vss-summarize-video` skill and probes the Video Summarization service readiness, routing to the LVS microservice when it is ready and to the VLM fallback otherwise.
+1. Loads the `vss-summarize-video` skill and probes the Video Summarization service readiness, routing to the Video Summarization MS when it is ready and to the VLM fallback otherwise.
 2. Resolves the clip URL, stream ID, and timeline through the `vss-manage-video-io-storage` skill.
 3. Collects the monitoring scenario, events, and optional objects of interest, or uses defaults when told to run autonomously.
 4. Calls the Video Summarization service with the clip URL, scenario, events, and chunking parameters.
@@ -157,7 +157,7 @@ The VSS CLI can upload media and run the Video Summarization service directly fr
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 
 vss configure --base-url "http://HOST_IP:7777"
 vss configure check
@@ -198,7 +198,12 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
 # See developer-profiles/dev-profile-lvs/overrides.env for supported settings.
 ```
 
-`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=lvs
@@ -338,6 +343,8 @@ VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_VLM_TAG=develop-latest-sbsa
 VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -348,6 +355,8 @@ VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_VLM_TAG=develop-latest-sbsa
 VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -776,7 +785,8 @@ docker compose -f compose.yml \
   down -v --remove-orphans
 ```
 
-This command stops the manually deployed LVS containers and removes their Compose volumes.
+This command stops the manually deployed Video Summarization containers and
+removes their Compose volumes.
 
 ## Service Endpoints
 
@@ -792,7 +802,7 @@ Once deployed, the following services are available:
 
 ## Optional: Use Nemotron-3-Nano-Omni (audio-aware VLM)
 
-The LVS profile defaults to **Cosmos3 Nano Reasoner** as the VLM.
+The Video Summarization profile defaults to **Cosmos3 Nano Reasoner** as the VLM.
 To swap in **Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8** for audio-aware
 summarization, edit `deploy/docker/developer-profiles/dev-profile-lvs/.env`
 and set the following variables (replace `<your_hf_token>` with your Hugging

@@ -17,7 +17,7 @@
 #   ./scripts/run_benchmark.sh --debug
 #
 # Required environment variables — NO defaults to prevent hitting another user's instance:
-#   LVS_BACKEND              — endpoint of the LVS instance YOU deployed (from vss-deploy-profile)
+#   LVS_BACKEND              — endpoint of the LVS instance YOU deployed (from vss-build-vision-ai)
 #   VLM_GPUS                 — GPU index(es) running VLM in your deployment (e.g. "6")
 #   LLM_GPUS                 — GPU index(es) running LLM in your deployment (e.g. "7")
 #

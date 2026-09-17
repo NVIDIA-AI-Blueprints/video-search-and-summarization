@@ -162,6 +162,17 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 | `STREAM_TYPE=redis` iff `BP_PROFILE=bp_wh_redis` | no metadata reaches the broker |
 | A custom `SAMPLE_VIDEO_DATASET` has no checked-in `calibration.json` | Docker creates a directory where a file is expected; perception emits nothing |
 | `MODE=3d` or `mv3dt` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
+| The checkout was cloned under a restrictive `umask` (e.g. `027`), leaving repo config non-world-readable | containers run as a different user and cannot read the config they bind-mount — see below |
+
+### Repo file permissions
+
+Compose bind-mounts config out of the checkout into containers that run as a
+different user, so those files must be world-readable and their parent
+directories world-traversable. Clone with a `umask` of `022` or looser; `027`
+yields `0640` files and `0750` directories that containers cannot read.
+
+`umask` applies to the shell that runs `git clone`, so reading it later says
+nothing about an existing checkout — the modes on the tree are what matter.
 
 ### Remote VLM is not supported (Docker path)
 

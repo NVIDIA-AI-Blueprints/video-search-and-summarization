@@ -368,4 +368,4 @@ Adding score-based fusion is deferred until every provider has a validated norma
 - `services/rtvi/rt-vlm/src/server/rtvi_stream_handler.py`
 - `skills/vss-manage-video-io-storage/references/provision-vios-source.md` (headless fan-out recipe)
 - `skills/vss-build-vision-ai/references/profiles/search.md` (search profile fan-out set)
-- `services/agent/packages/vss_core/src/vss_core/search_core` (read side: TagSearch, fusion)
+- `libs/vss/core/src/vss_core/search_core` (read side: TagSearch, fusion)

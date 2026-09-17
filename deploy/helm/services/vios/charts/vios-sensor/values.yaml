@@ -54,7 +54,12 @@ rtviVlmServerAddress: ""
 # Optional complete notification_config.json. Empty uses the chart default;
 # global.vios.notificationConfig provides one shared config to sensor and streamprocessing.
 notificationConfig: ""
+# message_broker fields in notification_config.json. Empty = chart default (redis/mdx-raw).
+messageBrokerConsumer: ""
+messageBrokerTopicConsumer: ""
+messageBrokerMetadataTopic: ""
 videoMetadataServerUrl: ""
+videoMetadataIndexPattern: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""
 # Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,

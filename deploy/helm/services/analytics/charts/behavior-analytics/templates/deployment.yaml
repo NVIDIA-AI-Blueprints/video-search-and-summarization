@@ -49,7 +49,8 @@ spec:
       imagePullSecrets:
         {{- toYaml (index $g "imagePullSecrets") | nindent 8 }}
       {{- end }}
-      {{- if or .Values.waitForKafka.enabled .Values.downloadResourcesFromNgc }}
+      {{- $calibApiUrl := .Values.resourceFiles.calibration.apiUrl }}
+      {{- if or .Values.waitForKafka.enabled .Values.downloadResourcesFromNgc $calibApiUrl }}
       initContainers:
         {{- if .Values.waitForKafka.enabled }}
         - name: wait-for-kafka
@@ -127,6 +128,32 @@ spec:
             - name: vss-behavior-analytics-resources
               mountPath: /resources-data
         {{- end }}
+        {{- if $calibApiUrl }}
+        # Fetches calibration.json from the video-analytics API, retrying
+        # until it returns real data, then validates it before the main
+        # container starts.
+        - name: fetch-calibration
+          image: {{ include "vss-behavior-analytics.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: CALIBRATION_API_URL
+              value: {{ $calibApiUrl | quote }}
+            - name: CALIBRATION_OUTPUT_PATH
+              value: /resources-data/calibration.json
+            - name: CALIBRATION_WAIT_TIMEOUT
+              value: {{ .Values.resourceFiles.calibration.fetchTimeoutSeconds | default 300 | quote }}
+            - name: CALIBRATION_POLL_INTERVAL
+              value: {{ .Values.resourceFiles.calibration.fetchPollSeconds | default 10 | quote }}
+          command:
+            - python3
+            - /scripts/fetch-calibration.py
+          volumeMounts:
+            - name: vss-behavior-analytics-resources
+              mountPath: /resources-data
+            - name: fetch-calibration-script
+              mountPath: /scripts
+              readOnly: true
+        {{- end }}
       {{- end }}
       containers:
         - name: vss-behavior-analytics
@@ -165,12 +192,19 @@ spec:
             name: {{ include "vss-behavior-analytics.fullname" . }}-config
         {{- if or .Values.resourceFiles.calibration.enabled .Values.resourceFiles.roadNetwork.enabled }}
         - name: vss-behavior-analytics-resources
-          {{- if .Values.downloadResourcesFromNgc }}
+          {{- if $calibApiUrl }}
+          emptyDir: {}
+          {{- else if .Values.downloadResourcesFromNgc }}
           persistentVolumeClaim:
             claimName: {{ include "vss-behavior-analytics.fullname" . }}-resources
           {{- else }}
           configMap:
             name: {{ include "vss-behavior-analytics.fullname" . }}-resources
           {{- end }}
+        {{- end }}
+        {{- if $calibApiUrl }}
+        - name: fetch-calibration-script
+          configMap:
+            name: {{ include "vss-behavior-analytics.fullname" . }}-fetch-calibration
         {{- end }}
 {{- end }}

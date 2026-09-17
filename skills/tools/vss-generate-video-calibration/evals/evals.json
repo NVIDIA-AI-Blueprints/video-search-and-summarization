@@ -58,5 +58,25 @@
       "Preserves existing AMC and VGGT artifacts before another workload can reset shared post-processing results.",
       "When reuse checks pass, counts the completed normal AMC run as attempt 1 instead of repeating it only to begin tuning."
     ]
+  },
+  {
+    "id": "non-amc-camera-calibration",
+    "question": "Calibrate a single camera for OpenCV chessboard intrinsics.",
+    "expected_skill": null,
+    "ground_truth": "Does not use the VSS AMC skill because this is non-AMC camera calibration.",
+    "expected_behavior": [
+      "Does not load or invoke vss-generate-video-calibration.",
+      "Routes to an appropriate non-AMC calibration workflow or asks for the intended tool."
+    ]
+  },
+  {
+    "id": "runtime-analytics-request",
+    "question": "Configure real-time people-count analytics for my deployed camera streams.",
+    "expected_skill": null,
+    "ground_truth": "Does not use the VSS AMC skill because this is runtime analytics, not calibration.",
+    "expected_behavior": [
+      "Does not load or invoke vss-generate-video-calibration.",
+      "Routes to the relevant VSS runtime analytics or deployment workflow."
+    ]
   }
 ]

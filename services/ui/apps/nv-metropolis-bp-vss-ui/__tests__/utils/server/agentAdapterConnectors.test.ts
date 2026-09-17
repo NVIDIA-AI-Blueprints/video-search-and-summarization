@@ -279,4 +279,48 @@ describe("embedded adapter connectors", () => {
       'VSS UI instructions:\nVSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}\n\nUser:\nFind a clip'
     );
   });
+
+  it("continues ordinary OpenClaw follow-ups in the same session", async () => {
+    const sockets: FakeOpenClawSocket[] = [];
+    const connector = new OpenClawConnector(
+      config({
+        backendProtocol: "openclaw-ws",
+        backendUrl: "ws://agent.local",
+        backendPath: "/",
+        backendSessionField: undefined,
+        backendSessionHeader: undefined,
+      }),
+      () => {
+        const socket = new FakeOpenClawSocket();
+        sockets.push(socket);
+        return socket;
+      }
+    );
+    const followUp = parseCreateRunRequest({
+      thread_id: "thread-1",
+      input: [{ role: "user", content: "Use the base profile" }],
+    });
+
+    for await (const _event of connector.run(
+      requestWithInstructions,
+      "run-1",
+      new AbortController().signal
+    )) {
+      // Drain the first completed turn.
+    }
+    for await (const _event of connector.run(
+      followUp,
+      "run-2",
+      new AbortController().signal
+    )) {
+      // Drain the normal follow-up turn.
+    }
+
+    const sessionKeys = sockets.map((socket) => {
+      const send = socket.sent.find((frame) => frame.method === "chat.send");
+      return (send?.params as Record<string, unknown>).sessionKey;
+    });
+    expect(sessionKeys).toHaveLength(2);
+    expect(sessionKeys[1]).toBe(sessionKeys[0]);
+  });
 });

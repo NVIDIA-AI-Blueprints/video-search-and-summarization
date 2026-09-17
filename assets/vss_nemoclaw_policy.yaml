@@ -387,7 +387,7 @@ network_policies:
       - { path: /usr/bin/python3.13 }
       - { path: /usr/local/bin/node }
 
-  # Host-CLI skills run `uv run --project services/agent --extra cli vss`.
+  # Host-CLI skills run `uv run --project libs/vss vss`.
   # Pair with the `pypi` policy: uv comes from PyPI, not the astral.sh
   # script (its release assets are not listed).
   #
@@ -424,3 +424,45 @@ network_policies:
       - { path: /usr/bin/pip }
       - { path: /usr/bin/pip3 }
       - { path: /usr/bin/curl }
+
+  # NGC, for the operation skills' sample-data and release-fixture bootstraps
+  # (`ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data`).
+  # The harness images install the CLI (../.openclaw/Dockerfile,
+  # ../.hermes/Dockerfile), so the binary is present either way — without these
+  # endpoints it is present and unusable, failing with
+  # `CONNECT tunnel failed, response 403`.
+  #
+  # Three hosts, because a download is three hops and omitting any one of them
+  # fails later than it looks:
+  #   authn.nvidia.com      exchanges NGC_CLI_API_KEY for a bearer token
+  #                         (/token?service=ngc&scope=group/ngc:<org>)
+  #   api.ngc.nvidia.com    the v2 API: resource metadata and the file listing
+  #   xfiles.ngc.nvidia.com the bytes — api.ngc.nvidia.com 302s every file to a
+  #                         signed URL on this host, so metadata succeeds and
+  #                         the transfer dies without it
+  #
+  # `access: full`, not `protocol: rest` with path rules: the signed redirect
+  # carries Expires/Signature/Key-Pair-Id query parameters, so no stable path
+  # allowlist describes it.
+  ngc:
+    name: ngc
+    endpoints:
+      - host: authn.nvidia.com
+        port: 443
+        access: full
+      - host: api.ngc.nvidia.com
+        port: 443
+        access: full
+      - host: xfiles.ngc.nvidia.com
+        port: 443
+        access: full
+    # The CLI is a bundled binary at the real path the image installs it to;
+    # OpenShell enforces /proc/<pid>/exe, so the /usr/local/bin/ngc symlink
+    # resolves here rather than matching on its own. `curl`/`wget` are listed
+    # for the documented manual `api.ngc.nvidia.com/v2/...` fetches that skip
+    # the CLI entirely.
+    binaries:
+      - { path: /usr/local/lib/ngc-cli/ngc }
+      - { path: /usr/local/bin/ngc }
+      - { path: /usr/bin/curl }
+      - { path: /usr/bin/wget }

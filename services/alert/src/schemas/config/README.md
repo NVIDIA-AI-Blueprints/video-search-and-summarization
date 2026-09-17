@@ -1,318 +1,183 @@
-# Entity Management Configuration
+# Request Defaults Configuration
 
-This directory contains the external configuration file that defines **ALL** default values for VSS and VLM parameters. **The system requires complete configuration** - missing parameters will cause startup failure.
+This directory holds the loader for `alert_request_defaults.yaml`, the file that
+supplies default values for fields an alert *request entity* may omit. It
+covers two things and nothing else:
 
-## 📁 Configuration File
+- **`vlm_params`** — sampling parameters attached to the entity when the
+  request does not carry its own.
+- **`request_defaults`** — values for optional top-level request fields.
 
-### `defaults.yaml` (Required - Complete Configuration)
-The main configuration file that **MUST** contain all default values for:
-- **VLM Parameters**: Token limits, temperature, sampling parameters
-- **VSS Parameters**: Video processing, batch sizes, feature flags
-- **Request Defaults**: Default values for optional request fields
-- **Validation Settings**: Performance tuning, error handling
-- **Constraints**: Min/max validation rules
+## Scope: compatibility and test only
 
-**⚠️ Important**: All parameters must be defined in the configuration file. The system will fail at startup if any required parameter is missing.
+**Editing this file does not change live verification.** The values reach
+nothing but `AlertRequestEntity` and `VLMParams`, and those are built in one
+place — `EntityValidator.validate_and_build` — which the verification pipeline
+never calls. `AlertSubmissionService` does construct an `EntityValidator`, but
+only so `GET /api/v1/alerts/health` has a component to report on: a submission
+is converted to protobuf and published to Kafka without passing through it. The
+layer is kept for older clients and for the tests that exercise it.
 
-## 🔧 How It Works
+What a running deployment actually verifies with:
 
-1. **Configuration Loading**: The system loads `defaults.yaml` at startup
-2. **Complete Validation**: Validates that ALL required parameters are present
-3. **Type Checking**: Ensures all parameters have correct types
-4. **Constraint Validation**: Validates values against defined constraints
-5. **Fail Fast**: Throws clear error messages if anything is missing or invalid
-6. **Default Application**: Pydantic models use these values as defaults
-7. **Caching**: Configuration is cached for performance after first load
+| Concern | Where |
+|---------|-------|
+| VLM service endpoint, model name, frame sampling | `vlm` section of `config.yaml` |
+| Per-alert-type prompt and VLM parameters | `PUT /api/v1/verification/config/{alert_type}`, served from the Elasticsearch alert-config store and seeded at startup from `alert_type_config.json` |
+| Clip window, event filters, concurrency | `vst_config` and `alert_agent` sections of `config.yaml` |
 
-## 📝 Configuration Examples
+So a `temperature` that should apply to every verification belongs in the
+per-alert-type config, not here; a wrong `base_url` belongs in `config.yaml`.
+Setting either one here changes nothing an operator can observe.
 
-### Complete Configuration Structure
+## File resolution
+
+`AlertsDefaultsConfigLoader` searches, in order:
+
+1. `ALERT_BRIDGE_DEFAULTS_FILE`, if set and the path exists. A directory is
+   accepted — the loader appends `alert_request_defaults.yaml` to it.
+2. `alert_request_defaults.yaml` in the process working directory. In the
+   container that is `/app`, which is where the shipped copy lands.
+
+The first readable candidate wins; the result is cached for the process
+lifetime, so a change requires a restart. Loading is lazy — it happens on the
+first entity build, not at startup — and if no candidate is readable the
+loader raises `FileNotFoundError` rather than falling back to built-in values.
+A deployment that never builds an entity never reads the file at all.
+
+In the service's own Compose definition, `ALERT_BRIDGE_DEFAULTS_FILE` selects
+the host file bind-mounted over that second path:
+
+```bash
+ALERT_BRIDGE_DEFAULTS_FILE=./your-defaults.yaml \
+  docker compose -f deploy_docker-compose.yml up -d
+```
+
+That override replaces the file the compatibility layer reads; it does not
+change what the verification pipeline does. The profile deployments under
+`deploy/docker/` do not wire it up at all and run with the copy baked into the
+image.
+
+## Required sections
+
+Loading fails unless both are present and non-empty:
 
 ```yaml
-# defaults.yaml - ALL sections required
 vlm_params:
+  prompt: null
+  system_prompt: null
   response_format:
     type: "text"
   max_tokens: 512
-  temperature: 0.3
+  temperature: 0.2
   top_p: 1.0
   top_k: 100
-  seed: 20
-  stream: false
-  stream_options:
-    include_usage: true
-
-vss_params:
-  # Core processing - ALL required
-  chunk_duration: 60
-  chunk_overlap_duration: 10
-  cv_metadata_overlay: true
-  num_frames_per_chunk: 8
-  enable_caption: true
-  debug: false
-  
-  # Video dimensions - ALL required
-  vlm_input_width: 1280
-  vlm_input_height: 720
-  
-  # API parameters - ALL required
-  summarize_top_p: 0.7
-  summarize_temperature: 0.2
-  summarize_max_tokens: 2048
-  summarize_batch_size: 6
-  chat_top_p: 0.7
-  chat_temperature: 0.2
-  chat_max_tokens: 512
-  notification_top_p: 0.7
-  notification_temperature: 0.2
-  notification_max_tokens: 2048
-  
-  # RAG parameters - ALL required
-  rag_batch_size: 1
-  rag_type: "graph-rag"
-  rag_top_k: 5
-  
-  # Feature flags - ALL required
-  enable_cv_metadata: false
-  enable_audio: false
-  enable_chat_history: true
-  enable_chat: true
-  highlight: false
-  
-  # Prompts - ALL required (can be empty strings)
-  cv_pipeline_prompt: ""
-  caption_summarization_prompt: "Output the original caption directly."
-  summary_aggregation_prompt: "Output the original caption directly."
+  seed: 10
 
 request_defaults:
-  # Optional field defaults (applied only if not provided in request)
-  confidence: 0.0              # Default confidence score
-  cv_metadata_path: null       # No default CV metadata path
-  meta_labels: []              # Empty default metadata labels
+  confidence: 0.92
+  meta_labels: []
+  cv_metadata_path: null
+```
 
-validation:
-  continue_on_validation_error: true
-  max_validation_errors_per_batch: 10
-  log_validation_stats: true
-  log_applied_defaults: false
+### `vlm_params`
 
-# Constraints are optional but recommended
+Every key is optional within the section, but a key you omit has no default
+anywhere else — the field is simply sent as unset. Bounds are enforced by
+`request_entity/models/parameters.py`:
+
+| Parameter | Type | Bounds |
+|-----------|------|--------|
+| `prompt` | str \| null | ≤ 12000 chars |
+| `system_prompt` | str \| null | ≤ 14000 chars |
+| `response_format` | dict \| null | free-form, passed through |
+| `max_tokens` | int \| null | > 0, ≤ 100000 |
+| `temperature` | float \| null | 0.0 – 2.0 |
+| `top_p` | float \| null | 0.0 – 1.0 |
+| `top_k` | int \| null | > 0, ≤ 2048 |
+| `seed` | int \| null | 0 – 2147483647 |
+
+Unknown keys are ignored rather than rejected, so a stale field left in the
+file is silent. A request may override any of these per field: the values here
+are deep-merged with the payload's, and the payload wins on the fields it
+carries. Accepted payload shapes are `vlm_params`, `vlmParams`, and — for
+older clients — the nested `vss_params.vlm_params` / `vssParams.vlm_params`.
+
+### `request_defaults`
+
+Only three keys are read, one per optional request field:
+
+| Key | Applied to |
+|-----|------------|
+| `confidence` | `confidence` |
+| `cv_metadata_path` | `cv_metadata_path` |
+| `meta_labels` | `meta_labels` |
+
+The logic per field is:
+
+1. Present in the request → the request value is used, always.
+2. Absent from the request, defined here → this value is used.
+3. Absent from the request, not defined here → the field stays absent on the
+   entity.
+
+Case 3 is the reason to *omit* a key rather than set it to `null`: `null`
+produces a field explicitly set to `None`, which downstream consumers see,
+while omission produces no field at all.
+
+## Optional sections
+
+`constraints` bounds parameter values and is enforced by the loader at startup.
+It is keyed by section, then parameter, with `min` and `max`:
+
+```yaml
 constraints:
   vlm_params:
     max_tokens:
       min: 1
       max: 4096
-    temperature:
-      min: 0.0
-      max: 2.0
-  vss_params:
-    chunk_duration:
-      min: 1
-      max: 300
 ```
 
-### Parameter Tuning Examples
+A value outside its constraint raises `ValueError` and the service does not
+start. The shipped file sets `constraints: {}`, so only the Pydantic bounds in
+the table above apply.
 
-```yaml
-# Production optimization
-vss_params:
-  summarize_batch_size: 8   # Increase for better throughput
-  rag_batch_size: 2         # Adjust based on memory
-  debug: false              # Always false in production
+`schema.version` is compared against `2.0.0`. A mismatch logs a warning and
+loading continues.
 
-vlm_params:
-  max_tokens: 256          # Reduce for faster responses
-  temperature: 0.2         # Lower for consistent output
+## Inert sections
+
+The shipped file also carries `validation` and `field_validation`. The loader
+parses them and exposes them on `AlertsDefaultConfig`, but no current code path
+reads either one — required-field enforcement lives in the Pydantic models, and
+validation logging is not configurable. Changing them has no effect. They are
+retained so an existing file keeps loading.
+
+## Verifying a change
+
+```bash
+yamllint alert_request_defaults.yaml
 ```
 
-## 🛡️ Validation and Error Handling
-
-### Required Configuration Validation
-The system validates that all required sections and parameters are present:
-
-```yaml
-# These sections MUST exist:
-vlm_params: { ... }      # ALL VLM parameters required
-request_defaults: { ... } # Request defaults required
-```
-
-### Type Validation
-All parameters are validated for correct types:
-- **Integers**: `max_tokens`, `chunk_duration`, etc.
-- **Floats**: `temperature`, `top_p`, etc.
-- **Booleans**: `debug`, `enable_caption`, etc.
-- **Strings**: `rag_type`, prompts, etc.
-- **Dictionaries**: `response_format`, `stream_options`
-
-### Error Messages
-Clear error messages help identify missing or invalid configuration:
-
-```
-RuntimeError: External configuration is required but failed to load: 
-Configuration missing required sections: ['vlm_params']
-Ensure schemas/config/defaults.yaml exists and is valid.
-```
-
-```
-ValueError: Required parameter 'max_tokens' not found in 'vlm_params' configuration
-```
-
-## 🔍 Debugging Configuration
-
-### Check Configuration Loading
 ```python
-from schemas import AlertsDefaultsConfigLoader
+from schemas.config import AlertsDefaultsConfigLoader
 
 loader = AlertsDefaultsConfigLoader()
-try:
-    config = loader.load_defaults()
-    print("Configuration loaded successfully")
-    print(f"VLM params: {len(config.vlm_params)} parameters")
-except Exception as e:
-    print(f"Configuration error: {e}")
+config = loader.load_defaults()
+print(loader.get_config_info())   # includes the resolved config_source path
 ```
 
-### Validate Configuration File
-```bash
-# Check YAML syntax
-yamllint schemas/config/defaults.yaml
+`config_source` reports which file the loader actually resolved, which is how
+you confirm an `ALERT_BRIDGE_DEFAULTS_FILE` override took effect rather than
+being silently ignored. Under the Compose override it is not a useful signal:
+the bind replaces the file at the path the loader would have used anyway, so
+`config_source` reads the same either way and the content is what to check.
 
-# Check file exists and is readable
-ls -la schemas/config/defaults.yaml
-```
+## Common load errors
 
-## 🎛️ Optional Field Configuration
-
-The `request_defaults` section controls which optional fields get default values and what those defaults are. This follows a precise three-step logic:
-
-### Optional Field Logic:
-1. **Field provided in input** → Use input value (always)
-2. **Field missing in input + defined in config** → Use config value  
-3. **Field missing in input + not defined in config** → Field won't exist in entity
-
-### Configuration Options:
-- **Include field with value**: Field gets that default when missing from input
-- **Include field with `null`**: Field gets `None` when missing from input
-- **Exclude field entirely**: Field won't exist unless provided in input
-
-### Examples:
-```yaml
-request_defaults:
-  confidence: 0.0              # Missing → gets 0.0
-  cv_metadata_path: null       # Missing → gets None
-  meta_labels: []              # Missing → gets empty list
-  # correlation_id: not configured → won't exist unless provided
-```
-
-### Real-World Scenarios:
-```yaml
-# Scenario 1: Conservative defaults
-request_defaults:
-  confidence: 0.0              # Safe default
-  # cv_metadata_path: omitted  # Only exists if provided
-  
-# Scenario 2: Comprehensive defaults  
-request_defaults:
-  confidence: 0.5              # Medium confidence default
-  cv_metadata_path: "/default/cv/metadata.json"  # Default path
-  meta_labels:                 # Default labels
-    - key: "source"
-      value: "auto_generated"
-      
-# Scenario 3: Minimal defaults
-request_defaults:
-  # All optional fields omitted - only exist if explicitly provided
-```
-
-## 📋 Required Configuration Parameters
-
-### VLM Parameters (ALL Required)
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `response_format` | dict | Response format specification |
-| `max_tokens` | int | Maximum response tokens |
-| `temperature` | float | Sampling temperature |
-| `top_p` | float | Nucleus sampling parameter |
-| `top_k` | int | Top-k sampling parameter |
-| `seed` | int | Random seed |
-| `stream` | bool | Enable streaming |
-| `stream_options` | dict | Streaming configuration |
-
-### VSS Parameters (ALL Required)
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `chunk_duration` | int | Video chunk duration (seconds) |
-| `chunk_overlap_duration` | int | Overlap duration (seconds) |
-| `cv_metadata_overlay` | bool | Enable CV metadata overlay |
-| `num_frames_per_chunk` | int | Frames per chunk |
-| `enable_caption` | bool | Enable video captioning |
-| `debug` | bool | Enable debug mode |
-| `vlm_input_width` | int | VLM input width (pixels) |
-| `vlm_input_height` | int | VLM input height (pixels) |
-| **... and 15+ more parameters** | various | See complete example above |
-
-## 🚨 Production Recommendations
-
-### Configuration Management
-- **Version Control**: Store `defaults.yaml` in version control
-- **Environment-Specific**: Use different files for dev/staging/prod
-- **Validation**: Test configuration in CI/CD pipelines
-- **Backup**: Keep backups of working configurations
-
-### Security
-- **File Permissions**: `chmod 644 defaults.yaml`
-- **Access Control**: Restrict who can modify configuration
-- **Audit**: Log configuration changes
-
-### Deployment Process
-1. **Validate Syntax**: `yamllint defaults.yaml`
-2. **Test Loading**: Run validation in staging
-3. **Deploy**: Update production configuration
-4. **Restart**: Restart application to load new config
-5. **Verify**: Check logs for successful loading
-
-## 🆘 Troubleshooting
-
-### Application Won't Start
-1. **Check if `defaults.yaml` exists**
-2. **Verify all required sections are present**
-3. **Validate YAML syntax**: `yamllint defaults.yaml`
-4. **Check file permissions**: should be readable
-5. **Review error messages**: they specify what's missing
-
-### Common Configuration Errors
-
-#### Missing Sections
-```
-Error: Configuration missing required sections: ['vlm_params']
-Solution: Add the missing section with all required parameters
-```
-
-#### Missing Parameters
-```
-Error: Required parameter 'max_tokens' not found in 'vlm_params'
-Solution: Add the missing parameter to the vlm_params section
-```
-
-#### Wrong Types
-```
-Error: Parameter 'vlm_params.max_tokens' must be of type int, got str
-Solution: Remove quotes from numeric values
-```
-
-#### Invalid YAML
-```
-Error: Invalid YAML in configuration file: mapping values are not allowed here
-Solution: Fix YAML syntax (indentation, colons, etc.)
-```
-
-## 🎯 Quick Start
-
-1. **Copy Template**: Use the complete configuration example above
-2. **Customize Values**: Modify parameters for your environment
-3. **Validate Syntax**: `yamllint defaults.yaml`
-4. **Test Loading**: Run a quick test to ensure all parameters load
-5. **Deploy**: Start your application
-6. **Monitor**: Check logs for successful configuration loading
-
-**Remember**: The system is designed to fail fast if configuration is incomplete. This ensures you always know exactly what needs to be configured! 
+| Message | Cause |
+|---------|-------|
+| `Configuration file not found in search paths` | Neither candidate above was readable |
+| `Missing required configuration sections: [...]` | `vlm_params` or `request_defaults` absent |
+| `Configuration file is empty or invalid` | File parsed to nothing |
+| `vlm_params.max_tokens value N above maximum M` | A `constraints` entry was violated |
+| `Schema version mismatch` (warning) | `schema.version` is not `2.0.0` |

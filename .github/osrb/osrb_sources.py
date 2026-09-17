@@ -589,6 +589,13 @@ def _url_identity(url: str) -> tuple[str, str]:
                         version = version.removesuffix(suffix)
                     break
         return project, version
+    # `…/<name>/versions/<version>/files/<file>`, NGC's registry layout. The
+    # file is per-architecture and a Dockerfile picks it with a shell variable,
+    # so the resource and its version are the only stable identity here.
+    if "versions" in segments:
+        index = segments.index("versions")
+        if index > 0 and index + 2 < len(segments) and segments[index + 2] == "files":
+            return segments[index - 1], segments[index + 1]
     if segments:
         return segments[-1], ""
     return parts.netloc, ""

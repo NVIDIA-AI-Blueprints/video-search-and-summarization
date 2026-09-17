@@ -25,8 +25,7 @@ resolve its main stream from VST, and request only the hit interval. Use
 : "${HIT_END:?exact CLI end_time}"
 [[ "${HIT_SENSOR_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || exit 1
 VSS_PUBLIC_URL="${VST_URL%/}"
-VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent" \
-  --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss" vss)
 
 # The recorded timeline. `vios timeline` resolves the sensor and its main
 # stream itself, so there is no /sensor/<id>/streams call to make.
@@ -39,7 +38,7 @@ TIMELINE_END=$(printf '%s' "${TIMELINE}" |
 # Rebase the synthetic hit interval onto the current file timeline, preserving
 # its exact duration. This is the one part the CLI does not do for you.
 mapfile -t MAPPED_BOUNDS < <(
-  uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev python - \
+  uv run --project "${VSS_REPO_ROOT}/libs/vss" python - \
     "${HIT_START}" "${HIT_END}" "${TIMELINE_START}" "${TIMELINE_END}" <<'PY'
 import sys
 from vss_core.vios import map_interval_to_timeline
