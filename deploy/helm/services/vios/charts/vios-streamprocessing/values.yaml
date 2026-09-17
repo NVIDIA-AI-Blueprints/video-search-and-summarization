@@ -61,7 +61,7 @@ rtviVlmServerAddress: ""
 # Optional complete notification_config.json. Empty uses the chart default;
 # global.vios.notificationConfig provides one shared config to sensor and streamprocessing.
 notificationConfig: ""
-# message_broker fields in notification_config.json. Empty = chart default (redis/mdx-raw).
+# message_broker fields in notification_config.json. Empty = chart default (kafka/mdx-raw).
 messageBrokerConsumer: ""
 messageBrokerTopicConsumer: ""
 messageBrokerMetadataTopic: ""
