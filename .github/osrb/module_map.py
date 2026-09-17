@@ -94,7 +94,6 @@ UNSUBMITTED = [
     # packages for it, and those rows are now in approved.csv.
     "skills/vss-manage-alerts",
     "skills/vss-build-vision-ai",
-    "skills/vss-deploy-profile",
     ".github",
     "docs",
     "docs/smartcity-docs",

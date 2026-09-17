@@ -5,6 +5,186 @@ position: 3
 ---
 # Custom Dataset
 
+## Assumptions
+
+Auto Calibration makes several assumptions about input data structure. Ensure that
+these requirements are met before deploying the service or recording footage.
+
+### Tracklet-Based Calibration: Input Video Requirements
+
+The tracklet-based AMC method estimates camera parameters by detecting and tracking
+**people** in the footage, then matching their trajectories (**tracklets**) across
+camera views. Calibration quality depends heavily on the input video content.
+
+> **Note:** These requirements apply to the tracklet-based AMC method.
+> They do not apply to the VGGT model-based calibration method.
+
+**Video content (required for AMC)**
+
+- **Moving people**: People must be clearly visible and moving throughout the
+  clip. AMC relies on PeopleNet detection and 3D tracking of people.
+- **Scene coverage**: Trajectories should span as much of each camera's field of
+  view as possible. More unique walkers and broader coverage produce more usable
+  tracklets.
+- **Recommended headcount**: Aim for at least **10 unique individuals** walking
+  through the monitored area during the recording window; more is better for
+  multi-camera overlap.
+
+**Video duration**
+
+- **Recommended**: **Five minutes or longer** per camera. There is no strict
+  minimum, but longer clips help the tracker build stable trajectories. Short
+  clips often fail during multi-view tracklet matching.
+
+**Resolution and format**
+
+- **Resolution**: **1920 × 1080**
+- **Format** (file upload): MP4. Auto Calibration does not support video formats that are not
+  supported by DeepStream.
+
+**Multi-camera specifics**
+
+- **Camera count**: Two or more time-synchronized videos or RTSP streams; one
+  video or stream is supported for single-camera calibration.
+- **Time synchronization**: All cameras must cover the same time window. Use
+  synchronized clips or one combined RTSP capture for every stream.
+- **FOV order**: List cameras in overlapping-FOV order:
+  `cam_00` overlaps `cam_01`, `cam_01` overlaps `cam_02`, and so on.
+- **FOV overlap**: Aim for at least **30% overlap** between consecutive camera
+  pairs. Insufficient overlap reduces matched tracklets and can cause failure.
+
+**Tracklet thresholds**
+
+AMC filters and matches tracklets before multi-view calibration:
+
+- **Minimum tracklet length**: 90 frames, approximately three seconds at 30 fps.
+- **Minimum matched tracklets** (multi-camera): Six cross-camera correspondences
+  per camera pair, or three in the robust two-view fallback.
+
+If videos lack enough moving people or are too short, calibration may fail during
+detection, tracking, or tracklet matching. See [Troubleshooting](/vss/system-components/calibration/auto-calibration/troubleshooting).
+
+## Lens Distortion Output (`distortion.yaml`)
+
+Auto Calibration supports input videos with lens distortion. Distortion handling is a
+dedicated **Step 4: Rectification** stage with Auto Rectification, Manual
+Rectification, or **Videos Are Rectified** paths. AMC and VGGT consume staged
+`rectified.mp4` and `rectified.jpg` files; they do not perform implicit
+rectification during calibration.
+
+When Auto or Manual Rectification generates linear media, the pipeline:
+
+1. Estimates or accepts per-camera distortion parameters: `model`, `k1`, and
+   `k2` when the model is `radial`.
+2. Writes rectified videos/stills and the canonical `distortion.yaml` under
+   `single_view_results/cam_XX/`.
+3. Unlocks alignment and calibration after rectification reaches `COMPLETED`.
+
+Use **Videos Are Rectified** when the inputs are already linear. This stages the
+source videos as linear media and clears prior distortion caches.
+
+**Important for downstream applications**
+
+Rectified videos are not automatically substituted for original camera feeds.
+Exported calibration JSON and MV3DT ZIP files describe cameras in rectified
+(undistorted) image space. Downstream applications must either use Auto Calibration-generated
+rectified videos or apply the model-specific remapping below to raw
+frames. Do not assume that `cv2.undistort()` is valid for every model.
+
+**Output location**
+
+```text
+<project_output>/single_view_results/cam_00/distortion.yaml
+<project_output>/single_view_results/cam_00/geocalib_distortion.yaml
+<project_output>/single_view_results/cam_00/rectified.mp4
+<project_output>/single_view_results/cam_00/rectified.jpg
+```
+
+**`geocalib_distortion.yaml` format**
+
+When Auto Rectification estimates distortion, GeoCalib may write:
+
+```yaml
+model: simple_divisional    # or simple_radial, radial
+k1: -1.2345678e-06          # Auto Calibration pixel-centered convention
+k1_geocalib: -4.5678901e-03 # GeoCalib normalized-coordinate value
+focal_length: 1269.0
+source: geocalib
+k2: ...                     # present only when model is radial
+```
+
+### Distortion model
+
+Auto Calibration supports:
+
+- `simple_divisional` — default
+- `simple_radial`
+- `radial`
+
+Each camera's `distortion.yaml` records the selected model and coefficients:
+
+```yaml
+model: simple_divisional
+k1: ...
+```
+
+The `radial` model also includes `k2`. Coefficient meanings depend on the model;
+in particular, `simple_divisional.k1` is not an OpenCV radial coefficient.
+Parameters use full-resolution pixel coordinates:
+
+```text
+cx = width // 2
+cy = height // 2
+```
+
+#### Reproducing Auto Calibration rectification
+
+Auto Calibration computes model-specific destination-to-source maps and uses
+`cv2.remap()` only to resample the image. For each rectified output pixel
+`(x, y)`:
+
+```text
+dx = x - cx
+dy = y - cy
+r² = dx² + dy²
+
+simple_radial:
+s = 1 + k1*r²
+
+radial:
+s = 1 + k1*r² + k2*r⁴
+
+simple_divisional:
+s = (1 - sqrt(max(0, 1 - 4*k1*r²))) / (2*k1*r²)
+s = 1 when |2*k1*r²| is near zero
+
+source_x = cx + s*dx
+source_y = cy + s*dy
+```
+
+Use `source_x` and `source_y` as OpenCV remap coordinates:
+
+```python
+rectified = cv2.remap(
+    distorted,
+    map_x.astype(np.float32),
+    map_y.astype(np.float32),
+    interpolation=cv2.INTER_LINEAR,
+    borderMode=cv2.BORDER_CONSTANT,
+)
+```
+
+`cv2.remap()` maps destination pixels to source pixels, so evaluate the
+equations on the rectified output grid. Prefer Auto Calibration-generated rectified video
+directly; do not undistort it again. If processing raw video, read the model and
+all applicable coefficients from `distortion.yaml`, and do not pass
+`simple_divisional` coefficients to `cv2.undistort()`.
+
+Apply coefficients at the original image resolution, preferably before resizing.
+When **Videos Are Rectified** is selected, rectification is bypassed and
+`distortion.yaml` is not required. Repeating rectification invalidates downstream
+calibration and post-processing outputs.
+
 For a custom dataset, you should prepare the following items:
 
 - **Input videos or RTSP streams** — Camera video files **or** time-synchronized RTSP streams
@@ -18,7 +198,7 @@ For a custom dataset, you should prepare the following items:
 
 **Video input (file upload or RTSP)**
 
-- **Formats** (file upload): MP4 . AutoMagicCalib does **not** support video formats that are not supported by DeepStream.
+- **Formats** (file upload): MP4. Auto Calibration does **not** support video formats that are not supported by DeepStream.
 - **Resolution**: **1920 × 1080** is required for uploaded videos (matches the workflow and evaluation pipeline)
 - **Camera count**: One video or stream for **single-camera** calibration; **two or more** for multi-camera
 - **Time synchronization**: All multi-camera videos or RTSP streams must cover the **same time window**—use one combined RTSP **Capture and add to project** for every stream, or upload clips that were recorded in sync. Staggered or later-added streams break calibration.
@@ -36,13 +216,13 @@ A valid single-camera project needs:
 
 - Two or more time-synchronized videos or RTSP streams
 - One layout/map image
-- `alignment_data.json` with at least **4** point sets; each set has one point per camera plus the layout (see [Alignment Data](#alignment-data-alignment_datajson))
+- `alignment_data.json` with at least **4** point sets; each set has exactly **three** `[x, y]` pairs: Camera 0, Camera 1, and layout/BEV (see [Alignment Data](#alignment-data-alignment_datajson))
 
 Users should pay close attention to upload and stream order, as this order implicitly determines camera pairing. For optimal results, consecutive camera pairs should have a significant amount of overlapping Field of View (FOV).
 
 ## Alignment Data (alignment_data.json)
 
-Alignment data maps corresponding points between camera views and the layout (bird's eye view). Prepare or create this file before running calibration.
+Alignment data maps corresponding points between the calibration's reference camera views and the layout (bird's eye view). Prepare or create this file before running calibration.
 
 **Requirements**
 
@@ -68,7 +248,7 @@ Alignment data maps corresponding points between camera views and the layout (bi
 ]
 ```
 
-For projects with more than two cameras, each point set includes one pair per camera plus the layout point (same pattern as multi-camera above, extended to all views).
+For projects with more than two cameras, the format remains exactly three pairs per point set: Camera 0, Camera 1, and layout. Do not extend a point set with coordinates from additional cameras.
 
 **Coordinate space (important)**
 
@@ -233,5 +413,3 @@ This file has object information including 3D locations and bounding boxes. The 
 | `object name` | Unique object name |
 | `3d location` | Object's 3D location in meters [x, y, z] |
 | `2d bounding box visible` | 2D bounding boxes in each camera view [x_min, y_min, x_max, y_max] |
-
-

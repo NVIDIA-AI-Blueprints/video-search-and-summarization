@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# bp-configurator's own seed ConfigMap — do not point bp-configurator.data.seedConfigMapName
+# at vss-behavior-analytics' resources ConfigMap. That one's lifecycle is owned by
+# behavior-analytics (it stops being created when resourceFiles.calibration.apiUrl is
+# set) and is unrelated to bp-configurator's needs; sharing it broke bp-configurator
+# when that ConfigMap was conditionally suppressed.
+
+{{- $bpConfigurator := index .Values "bp-configurator" | default dict }}
+{{- $data := index $bpConfigurator "data" | default dict }}
+{{- if and ($bpConfigurator.enabled | default false) ($data.enabled | default false) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-calibration-seed" ($bpConfigurator.fullnameOverride | default $bpConfigurator.name | default "bp-configurator") }}
+  labels:
+    app.kubernetes.io/name: bp-configurator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  calibration.json: |
+{{ .Files.Get "files/behavior-analytics/calibration.json" | nindent 4 }}
+{{- end }}

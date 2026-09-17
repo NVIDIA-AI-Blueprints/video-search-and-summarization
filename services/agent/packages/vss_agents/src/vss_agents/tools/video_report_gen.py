@@ -69,6 +69,7 @@ from vss_agents.tools.vst.timeline import get_timeline
 from vss_agents.tools.vst.utils import get_stream_id
 from vss_agents.tools.vst.video_clip import get_video_url
 from vss_agents.utils.hitl import format_hitl_popup_header
+from vss_agents.utils.hitl import has_human_prompt_callback
 from vss_agents.utils.reasoning_parsing import parse_reasoning_content
 from vss_agents.utils.sanitize import safe_basename
 from vss_agents.utils.time_convert import datetime_to_iso8601
@@ -1003,30 +1004,55 @@ async def _inject_snapshots(
         logger.warning("Video Analysis Report: No timestamps found in VLM response for snapshot injection")
         return content
 
-    image_urls = await asyncio.gather(
-        *[
-            picture_url_tool.ainvoke(
+    async def _fetch_snapshot(ts: TimestampMatch) -> tuple[TimestampMatch, str | None]:
+        try:
+            snapshot = await picture_url_tool.ainvoke(
                 input={
                     "sensor_id": sensor_id,
                     "start_time": ts.seconds,
                 }
             )
-            for ts in timestamps
-        ]
-    )
+        except Exception as e:
+            logger.warning(
+                "Video Analysis Report: Snapshot at %.1fs failed (%s); skipping image",
+                ts.seconds,
+                e,
+            )
+            return ts, None
+        image_src = _snapshot_image_src(snapshot)
+        if not image_src:
+            logger.warning(
+                "Video Analysis Report: Snapshot at %.1fs returned no image URL; skipping image",
+                ts.seconds,
+            )
+        return ts, image_src
+
+    fetched = await asyncio.gather(*[_fetch_snapshot(ts) for ts in timestamps])
     result_content = content
-    for ts, image_url in reversed(list(zip(timestamps, image_urls, strict=False))):
+    for ts, image_src in reversed(fetched):
+        if not image_src:
+            continue
         # Format seconds to readable string for alt text
         mins = int(ts.seconds) // 60
         secs = int(ts.seconds) % 60
         time_str = f"{mins:02d}:{secs:02d}"
         # Use HTML img tag for size control with minimal spacing
         # Add style to control margins for PDF rendering
-        image_md = (
-            f'\n\n<img src="{image_url.image_url}" alt="Snapshot at {time_str}" width="400" style="margin: 10px 0;">\n'
-        )
+        image_md = f'\n\n<img src="{image_src}" alt="Snapshot at {time_str}" width="400" style="margin: 10px 0;">\n'
         result_content = result_content[: ts.position] + image_md + result_content[ts.position :]
     return result_content
+
+
+def _snapshot_image_src(snapshot: Any) -> str | None:
+    """Extract a usable image URL from a snapshot tool result, if any."""
+    if snapshot is None:
+        return None
+    image_src = getattr(snapshot, "image_url", None)
+    if not image_src and isinstance(snapshot, dict):
+        image_src = snapshot.get("image_url")
+    if isinstance(image_src, str) and image_src.strip():
+        return image_src.strip()
+    return None
 
 
 def _clean_vlm_response(vlm_response: str) -> str:
@@ -1383,6 +1409,18 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
     #   and available memory. For high-traffic deployments, consider 500-2000.
     max_conversations = 1000
     vlm_prompt_state: OrderedDict[str, str] = OrderedDict()
+
+    def _interactive_hitl_enabled() -> bool:
+        """Resolve HITL availability without changing deployment-wide configuration."""
+        if not config.hitl_enabled:
+            return False
+        if has_human_prompt_callback():
+            return True
+        logger.info(
+            "HITL is enabled but this request has no human prompt callback; "
+            "proceeding noninteractively with the configured VLM prompt for this request only"
+        )
+        return False
 
     def _store_prompt(thread_id: str, prompt: str) -> None:
         """Store a prompt for a thread, evicting oldest entries if over capacity."""
@@ -1748,7 +1786,7 @@ Enter your choice or press Submit to keep current value:"""
 
         # Step 2: Collect base VLM prompt upfront (if any base videos and HITL enabled)
         vlm_prompt_override: str | None = None
-        if base_sensor_ids and config.hitl_enabled:
+        if base_sensor_ids and _interactive_hitl_enabled():
             thread_id = ContextState.get().conversation_id.get()
             current_prompt = _get_prompt(thread_id)
             resolved_prompt = await _collect_hitl_vlm_prompt(
@@ -2153,7 +2191,7 @@ Enter your choice or press Submit to keep current value:"""
             if vlm_prompt_override is not None:
                 logger.info(f"[PROMPT LOADED] Using pre-collected VLM prompt: '{vlm_prompt_override[:100]}...'")
                 clean_prompt = _remove_som_markers(vlm_prompt_override)
-            elif config.hitl_enabled:
+            elif _interactive_hitl_enabled():
                 thread_id = ContextState.get().conversation_id.get()
                 current_prompt = _get_prompt(thread_id)
                 resolved_prompt = await _collect_hitl_vlm_prompt(current_prompt)

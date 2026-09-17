@@ -13,6 +13,7 @@
 {{- if hasKey $init "enabled" }}
 {{- $initEnabled = $init.enabled }}
 {{- end }}
+{{- $cameraInfoEnabled := (((.Values.global | default dict).cameraInfo | default dict).enabled) | default false }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -129,6 +130,8 @@ spec:
               {{- if .valueFrom }}
               valueFrom:
                 {{- toYaml .valueFrom | nindent 16 }}
+              {{- else if and $cameraInfoEnabled (eq .name "SENSOR_INFO_SOURCE") }}
+              value: "file"
               {{- else }}
               value: {{ .value | quote }}
               {{- end }}

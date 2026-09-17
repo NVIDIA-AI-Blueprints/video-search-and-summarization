@@ -1163,6 +1163,12 @@ bool DashPackagerConsumer::audioEnabled() const
     return m_config.enableAac;
 }
 
+unsigned DashPackagerConsumer::targetDurationSeconds() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_config.targetDurationSeconds;
+}
+
 int64_t DashPackagerConsumer::publishedPositionMs() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);

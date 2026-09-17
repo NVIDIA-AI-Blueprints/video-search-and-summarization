@@ -13,11 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Helpers for rendering Human-in-the-Loop (HITL) popup content."""
+"""Helpers for request-scoped Human-in-the-Loop (HITL) behavior and popup content."""
 
 import logging
 
+from nat.builder.context import ContextState
+from nat.builder.user_interaction_manager import UserInteractionManager
+
 logger = logging.getLogger(__name__)
+
+
+def has_human_prompt_callback() -> bool:
+    """Return whether the current request can deliver interactive prompts."""
+    callback = ContextState.get().user_input_callback.get()
+    return callback is not None and callback is not UserInteractionManager.default_callback_handler
 
 
 def format_hitl_popup_header(sensor_ids: list[str] | None, total_videos: int | None) -> str:

@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """
-LVS Video Understanding Tool with Mandatory HITL Prompt Configuration.
+LVS Video Understanding Tool with Optional HITL Prompt Configuration.
 
 This tool wraps the LVS (Long Video Summarization) service API to provide
 video understanding capabilities for long videos. It has a similar interface
@@ -23,9 +23,9 @@ to the video_understanding tool but uses LVS's chunk-based processing.
 Key features:
 - Uses LVS service for hierarchical summarization (chunk-based processing)
 - Better suited for long videos (> 2 minutes)
-- MANDATORY Human-in-the-Loop (HITL) prompt configuration before every analysis
-- Prompts come from config and can be accepted or overridden by user during HITL
-- User must explicitly accept or modify all 3 prompts before video analysis begins
+- Structured Human-in-the-Loop (HITL) prompt collection is explicitly opt-in
+- When enabled, prompts come from config and can be accepted or overridden
+- When disabled, analysis uses the configured scenario and event defaults
 """
 
 import asyncio
@@ -51,6 +51,7 @@ from pydantic import Field
 from pydantic import field_validator
 
 from vss_agents.utils.hitl import format_hitl_popup_header
+from vss_agents.utils.hitl import has_human_prompt_callback
 from vss_agents.utils.url_translation import rewrite_to_internal_vst_url
 
 logger = logging.getLogger(__name__)
@@ -186,7 +187,7 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
         description="Include usage statistics in response",
     )
 
-    # HITL Templates (mandatory - configured in YAML)
+    # Prompt templates are required configuration but used only when HITL is enabled.
     hitl_scenario_template: str = Field(
         ...,
         description="HITL template for collecting scenario from user",
@@ -205,6 +206,11 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
     hitl_confirmation_template: str | None = Field(
         default=None,
         description="HITL template for final confirmation before video analysis. If None, uses default template.",
+    )
+
+    hitl_enabled: bool = Field(
+        default=False,
+        description="Collect and confirm LVS parameters interactively. Set true explicitly; false uses configured defaults.",
     )
 
     # Default values for HITL parameters
@@ -228,7 +234,7 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
 
 
 class LVSVideoUnderstandingInput(BaseModel):
-    """Input for the LVS Video Understanding tool with mandatory HITL."""
+    """Input for LVS video understanding with optional structured HITL."""
 
     sensor_id: str | list[str] = Field(
         ...,
@@ -357,17 +363,18 @@ async def lvs_video_understanding(
     config: LVSVideoUnderstandingConfig, builder: Builder
 ) -> AsyncGenerator[FunctionInfo]:
     """
-    LVS Video Understanding Tool with HITL for Scenario, Events, and Objects.
+    LVS Video Understanding Tool with optional HITL for Scenario, Events, and Objects.
 
     This tool uses the LVS (Long Video Summarization) service to analyze videos
     and supports Human-in-the-Loop configuration of analysis parameters.
 
-    HITL collects:
+    When explicitly enabled, HITL collects:
     - scenario (REQUIRED): Description of the video scenario
     - events (REQUIRED): List of events to detect
     - objects_of_interest (OPTIONAL): List of objects to focus on
 
-    Parameters are persisted per conversation thread.
+    Otherwise the tool uses configured defaults. Parameters are persisted per
+    conversation thread.
     """
 
     logger.info(f"Initializing LVS Video Understanding tool (backend: {config.lvs_backend_url})")
@@ -797,50 +804,68 @@ async def lvs_video_understanding(
         events_list: list[str] = []
         objects_of_interest: list[str] = []
 
-        # HITL workflow with confirmation loop (done once for all videos)
-        while True:
-            # Step 1: Collect parameters via HITL
-            logger.info("Running HITL workflow to collect/confirm parameters")
-            params_result = await _collect_hitl_parameters(
-                current_params, sensor_ids=sensor_ids, total_videos=request_total_videos
-            )
-
-            # Handle cancellation
-            if params_result is None:
-                logger.info("LVS analysis cancelled by user during parameter collection")
-                return LVSVideoUnderstandingOutput(
-                    status=LVSStatus.ABORTED,
-                    message="Video analysis was cancelled by user.",
+        interactive_hitl = config.hitl_enabled and has_human_prompt_callback()
+        if interactive_hitl:
+            # HITL workflow with confirmation loop (done once for all videos)
+            while True:
+                # Step 1: Collect parameters via HITL
+                logger.info("Running HITL workflow to collect/confirm parameters")
+                params_result = await _collect_hitl_parameters(
+                    current_params, sensor_ids=sensor_ids, total_videos=request_total_videos
                 )
 
-            scenario, events_list, objects_of_interest = params_result
+                # Handle cancellation
+                if params_result is None:
+                    logger.info("LVS analysis cancelled by user during parameter collection")
+                    return LVSVideoUnderstandingOutput(
+                        status=LVSStatus.ABORTED,
+                        message="Video analysis was cancelled by user.",
+                    )
 
-            # Step 2: Show all configs and get confirmation
-            logger.info("Showing LVS configuration for user confirmation")
-            user_choice = await _confirm_lvs_request(
-                scenario,
-                events_list,
-                objects_of_interest,
-                sensor_ids=sensor_ids,
-                total_videos=request_total_videos,
-            )
+                scenario, events_list, objects_of_interest = params_result
 
-            if user_choice == "/redo":
-                # User wants to modify parameters - loop back with current values
-                logger.info("User requested redo - restarting parameter collection")
-                current_params = (scenario, events_list, objects_of_interest)
-                continue
-            elif user_choice == "/cancel":
-                # User cancelled
-                logger.info("LVS analysis cancelled by user")
-                return LVSVideoUnderstandingOutput(
-                    status=LVSStatus.ABORTED,
-                    message="Video analysis was cancelled by user.",
+                # Step 2: Show all configs and get confirmation
+                logger.info("Showing LVS configuration for user confirmation")
+                user_choice = await _confirm_lvs_request(
+                    scenario,
+                    events_list,
+                    objects_of_interest,
+                    sensor_ids=sensor_ids,
+                    total_videos=request_total_videos,
+                )
+
+                if user_choice == "/redo":
+                    # User wants to modify parameters - loop back with current values
+                    logger.info("User requested redo - restarting parameter collection")
+                    current_params = (scenario, events_list, objects_of_interest)
+                    continue
+                elif user_choice == "/cancel":
+                    # User cancelled
+                    logger.info("LVS analysis cancelled by user")
+                    return LVSVideoUnderstandingOutput(
+                        status=LVSStatus.ABORTED,
+                        message="Video analysis was cancelled by user.",
+                    )
+                else:
+                    # Empty string or any other input - proceed with LVS request
+                    logger.info("User confirmed - proceeding with LVS analysis")
+                    break
+        else:
+            scenario = config.default_scenario
+            events_list = list(config.default_events)
+            objects_of_interest = []
+            if not scenario or not events_list:
+                raise ValueError(
+                    "default_scenario and default_events are required when HITL is disabled "
+                    "or no human prompt callback is available"
+                )
+            if config.hitl_enabled:
+                logger.info(
+                    "HITL is enabled but this request has no human prompt callback; "
+                    "proceeding noninteractively with configured LVS defaults for this request only"
                 )
             else:
-                # Empty string or any other input - proceed with LVS request
-                logger.info("User confirmed - proceeding with LVS analysis")
-                break
+                logger.info("HITL disabled; proceeding with configured LVS defaults")
 
         # Update state for this thread
         lvs_params_state[thread_id] = (scenario, events_list, objects_of_interest)

@@ -30,7 +30,9 @@ ACTIVE_STATUSES = frozenset(
 )
 # Close handlers that must finish after merge. Everything else on the PR,
 # required or not, is leftover work.
-PROTECTED_WORKFLOWS = frozenset({"Cancel Stale PR CI", "Cleanup PR Tags"})
+PROTECTED_WORKFLOWS = frozenset(
+    {"Cancel Stale PR CI", "Cleanup PR Tags", "Stage Fern Docs"}
+)
 PR_EVENTS = ("pull_request", "pull_request_target")
 
 

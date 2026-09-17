@@ -421,7 +421,21 @@ void NvLLTransform::doTransformTask()
                     NvBufSurfTransform_Error transform_error = NvBufWrapper::getInstance()->NvBufSurfTransform (ip_surf, dst_surf, &transform_params);
                     if (transform_error != NvBufSurfTransformError_Success)
                     {
-                        LOG(error) << "Transform failure" << endl;
+                        /* The code, the GPU and the geometry, because without
+                         * them this is unactionable: a host was found with
+                         * seven thousand of these and nothing to say whether
+                         * the call was rejected for its parameters, ran out of
+                         * memory, or failed inside the driver.  The surface
+                         * addresses are deliberately not among them: they add
+                         * nothing the code and the geometry do not already
+                         * identify, and a log a reader can reach would be
+                         * describing the process heap to them. */
+                        LOG(error) << "Transform failure: error=" << static_cast<int>(transform_error)
+                                   << " gpu=" << config_params.gpu_id
+                                   << " src=" << sink_frame->m_sourceWidth << "x"
+                                   << sink_frame->m_sourceHeight
+                                   << " dst=" << sink_frame->m_targetWidth << "x"
+                                   << sink_frame->m_targetHeight << endl;
                         is_error = true;
                         goto error;
                     }

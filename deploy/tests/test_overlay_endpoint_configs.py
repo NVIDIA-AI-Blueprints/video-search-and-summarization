@@ -29,13 +29,12 @@ FLOOR_PLACEHOLDER = "__FLOORMAP_IMAGE_ENDPOINT__"
 API_CALIB = "http://vss-video-analytics-api:8081/config/calibration"
 FLOOR_2D = (
     "http://vss-video-analytics-api:8081/config/calibration/image"
-    "?place=building%3DWarehouse%2Froom%3DRoom-1&view=plan-view"
+    "?place=building=Warehouse/room=Room-1&view=plan-view"
 )
 FLOOR_3D = (
     "http://vss-video-analytics-api:8081/config/calibration/image"
-    "?place=building%3DWarehouse%2Froom%3DRoom-1%2Fregion%3DRegion-1&view=plan-view"
+    "?place=building=Warehouse/room=Room-1&view=plan-view"
 )
-
 
 def _overlay(path: Path) -> dict:
     data = json.loads(path.read_text())

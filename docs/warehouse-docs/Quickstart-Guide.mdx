@@ -103,7 +103,7 @@ To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent
 
 For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
-AMC relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
+The tracklet-based AMC method relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
 </Note>
 
 ```bash
@@ -359,7 +359,6 @@ VST_NGINX_MODE=vst-sdrc
 ```ini
 MODE=auto-calibration
 BP_PROFILE=bp_wh_auto_calib
-STREAM_TYPE=kafka
 COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}
 
 # Auto-calibration does not use SDRC.
@@ -382,7 +381,7 @@ In the VST UI, metadata for live streams is read from Kafka or Redis, while meta
 <Note>
 **Auto-calibration GPU requirement**
 
-The auto-calibration profile requires an NVIDIA GPU with a hardware encoder (NVENC). See the [AutoMagicCalib system requirements](/vss/system-components/calibration/auto-calibration/getting-started#system-requirements) before selecting `MODE=auto-calibration`.
+The auto-calibration profile requires an NVIDIA GPU with a hardware encoder (NVENC). See the [Auto Calibration system requirements](/vss/system-components/calibration/auto-calibration/getting-started#prerequisites) before selecting `MODE=auto-calibration`.
 </Note>
 
 <a id="hardware-profile-configuration"></a>
@@ -406,66 +405,10 @@ Set the common deployment variables in `industry-profiles/warehouse-operations/o
 
 Container image coordinates are centralized in `containers.env` and loaded by the deployment command. In your hardware tab:
 
-1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`.
+1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For DGX-SPARK, also export the SBSA image-tag suffix as described in its hardware tab.
 2. Choose exactly one deployment path and copy its settings into the same file.
 
 <Tabs>
-<Tab title="H100">
-<Tabs>
-<Tab title="Hardware Profile">
-
-**Published performance**
-
-| Workload | Streams | Input frame rate |
-| --- | ---: | ---: |
-| 2D | 26 | 30 FPS |
-| 3D | 16 | 30 FPS |
-| MV3DT | 13 | 30 FPS |
-
-```ini
-# The current Warehouse configurator maps H100 NVL and H100 SXM HBM3
-# to the same H100 profile key; variant-specific profile names are not defined.
-HARDWARE_PROFILE=H100
-```
-</Tab>
-<Tab title="Vision AI only">
-
-```ini
-# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
-RT_CV_DEVICE_ID=0
-LLM_MODE=none
-VLM_MODE=none
-```
-</Tab>
-<Tab title="Agents + Remote LLM">
-
-```ini
-# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
-RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=1
-LLM_MODE=remote
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
-
-LLM_NAME_SLUG=none
-LLM_BASE_URL=https://<llm-endpoint-without-v1>
-LLM_NAME=<llm-model-id-from-v1-models>
-LLM_MODEL_TYPE=<nim-or-openai>
-NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
-```
-</Tab>
-<Tab title="Agents + Local LLM">
-
-```ini
-# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
-RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=1
-LLM_DEVICE_ID=2
-LLM_MODE=local
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
-```
-</Tab>
-</Tabs>
-</Tab>
 <Tab title="RTXPRO6000BW">
 <Tabs>
 <Tab title="Hardware Profile">
@@ -541,6 +484,62 @@ RTVI_VLM_MAX_MODEL_LEN=18000
 
 ```ini
 # One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d or 3d.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
+</Tab>
+<Tab title="H100">
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 26 | 30 FPS |
+| 3D | 16 | 30 FPS |
+| MV3DT | 13 | 30 FPS |
+
+```ini
+# The current Warehouse configurator maps H100 NVL and H100 SXM HBM3
+# to the same H100 profile key; variant-specific profile names are not defined.
+HARDWARE_PROFILE=H100
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
 VLM_MODE=none
@@ -659,6 +658,14 @@ VLM_MODE=none
 | 2D | 7 | 30 FPS |
 | 3D | 7 | 15 FPS |
 | MV3DT | 4 | 30 FPS |
+
+Before deployment, run the following command to export the SBSA image-tag suffix:
+
+```bash
+export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
+```
+
+In `industry-profiles/warehouse-operations/overrides.env`, set:
 
 ```ini
 # The bp_wh agent profile is not supported on DGX-SPARK.
@@ -813,19 +820,6 @@ docker compose -f compose.yml \
     --env-file industry-profiles/warehouse-operations/overrides.env \
     up --detach --pull always --force-recreate --build
 ```
-
-<Note>
-For DGX-SPARK, use `blueprint-deploy.sh` instead of the direct Compose command so the required platform-specific image selection is applied automatically:
-
-```bash
-./scripts/blueprint-deploy.sh up \
-    --deployment warehouse \
-    --mode 2d \
-    --bp-profile bp_wh_kafka \
-    --data-dir "/path/to/vss-warehouse-app-data" \
-    --hardware-profile DGX-SPARK
-```
-</Note>
 
 <Note>
 Initialization of some components might take a while, especially the first time, because large container images will be pulled.
@@ -1145,7 +1139,7 @@ Launch Blueprint
 Brev Launchable takes care of the host requirements below. The provided notebook validates the environment and prepares Docker storage and versions when needed.
 
 - Ubuntu 22.04 or Ubuntu 24.04
-- Minimum NVIDIA driver - 580
+- Minimum NVIDIA driver - 595
 - The notebook pins Docker to a known-good combination if the host Docker stack is outside the supported version range
 
 #### Obtain NGC API Key

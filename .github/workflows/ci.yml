@@ -473,6 +473,8 @@ jobs:
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
             deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
             deploy/docker/scripts/tests/test_run_setup_notebook.py \
+            skills/vss-build-vision-ai/scripts/tests/test_sync_skills.py \
+            skills/vss-build-vision-ai/scripts/tests/test_stage_vss_src.py \
             -q
 
       - name: Skill eval harness contracts
@@ -517,7 +519,8 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: services/agent
+        # The library is its own workspace: NAT-free, with its own lock.
+        working-directory: libs/vss
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
@@ -543,16 +546,16 @@ jobs:
 
       - name: Build and test NAT-free base distribution
         run: |
-          uv sync --frozen --no-dev --group cli-dev --extra cli
+          uv sync --frozen
           uv run --no-sync mypy \
-            packages/vss_core/src/vss_core/_foundation \
-            packages/vss_core/src/vss_core/critic \
-            packages/vss_core/src/vss_core/search_core \
-            packages/vss_core/src/vss_core/vlm \
-            packages/vss_core/src/vss_core/vios \
-            packages/vss_cli/src/vss_cli
-          uv run --no-sync pytest packages/vss_core/tests/unit_test packages/vss_cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
-            --cov=packages/vss_core/src --cov=packages/vss_cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
+            core/src/vss_core/_foundation \
+            core/src/vss_core/critic \
+            core/src/vss_core/search_core \
+            core/src/vss_core/vlm \
+            core/src/vss_core/vios \
+            cli/src/vss_cli
+          uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -W error::RuntimeWarning -W error::ResourceWarning \
+            --cov=core/src --cov=cli/src --cov-fail-under=80 --cov-report=xml:coverage-lib.xml -m "not slow and not integration"
           uv run --no-sync python ../../.github/osrb/test_osrb_scan.py
           uv run --no-sync python ../../.github/osrb/test_osrb_summary.py
           rm -rf dist
@@ -602,7 +605,7 @@ jobs:
         if: always()
         with:
           name: vss-cli-coverage-report
-          path: services/agent/coverage-lib.xml
+          path: libs/vss/coverage-lib.xml
 
   # ---------------------------------------------------------------------------
   # Job 5a: Behavior analytics unit tests
@@ -921,6 +924,7 @@ jobs:
             torch \
             torchvision
           uv pip install --python .venv-rtvi/bin/python \
+            cloudpickle \
             filelock \
             numpy \
             pillow \
@@ -938,6 +942,7 @@ jobs:
             --noconftest \
             -m test_in_ci \
             tests/model/vllm_compatible/test_input_error_handling.py \
+            tests/rtvi_vlm/test_vlm_thor_runtime.py \
             -v
 
       - name: Run rt-embed unit tests
@@ -1050,7 +1055,7 @@ jobs:
       - name: Run integration test
         run: |
           chmod +x test/integration-test/test.sh test/integration-test/cleanup.sh test/integration-test/generate_env.sh
-          chmod +x test/integration-test/scripts/run_integration_tests.sh test/integration-test/scripts/setup_elasticsearch_ingest_pipeline.sh
+          chmod +x test/integration-test/scripts/run_integration_tests.sh
           ./test/integration-test/test.sh prod
 
   # ---------------------------------------------------------------------------
@@ -1440,6 +1445,7 @@ jobs:
           python3 .github/scripts/test_cleanup_pr_tags.py
           python3 .github/scripts/test_cancel_stale_pr_ci.py
           python3 .github/scripts/test_cancel_downstream_pipeline.py
+          python3 .github/scripts/test_poll_downstream_pipeline.py
 
       - name: Unit-test the GHCR immutability/provenance guard
         run: python3 .github/scripts/test_ghcr_image_guard.py

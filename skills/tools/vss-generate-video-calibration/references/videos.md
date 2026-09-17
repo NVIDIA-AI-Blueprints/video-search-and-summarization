@@ -126,7 +126,7 @@ PROJECT_NAME   = "my_calibration_run"
 VIDEO_DIR      = Path("/path/to/videos")
 # Optional explicit overrides (leave as None to trigger auto-scan, then ask-user, then UI fallback)
 CONFIG_FILE    = None                                   # e.g. Path("/path/to/settings.json")
-                                                        # Full settings override — replaces UI Step 3 (rectification, BA, eval, detector, ...).
+                                                        # Full settings override — replaces UI Step 3 (parameters, BA, eval, ...).
                                                         # If the file pins a detector, it's also extracted for the calibrate call below.
 ALIGNMENT_JSON = None                                   # e.g. Path("/path/to/alignment_data.json")
 ALIGNMENT_COORD_SPACE = "original"                     # "original" or "rectified" for points made on rectified frames
@@ -202,14 +202,27 @@ print(f"[2] Uploaded {len(VIDEO_FILES)} videos")
 
 # Step 3/4 — Upload resolved files
 if CONFIG_FILE and CONFIG_FILE.exists():
-    r = s.post(f"{BASE_URL}/config/{project_id}",
-               data=CONFIG_FILE.read_bytes(),
-               headers={"Content-Type": "application/json"})
+    import json as _json
+    _cfg = _json.loads(CONFIG_FILE.read_text())
+    try:
+        _defaults_response = s.get(f"{BASE_URL}/config/defaults")
+        _defaults_response.raise_for_status()
+        _defaults = _defaults_response.json().get("config_params")
+    except Exception as exc:
+        raise RuntimeError("Config preflight failed; inspect the running AMC OpenAPI at /docs") from exc
+    if not isinstance(_cfg, dict) or not isinstance(_defaults, dict):
+        raise RuntimeError("Config preflight failed; inspect the running AMC OpenAPI at /docs")
+    if "skip" in _cfg:
+        raise RuntimeError(
+            "Unsupported legacy config key 'skip'; use the current AMC schema "
+            "and its 'skip_frame' field instead."
+        )
+    # Defaults are reference values, not an exhaustive key allow-list. Preserve
+    # UI-exported sections and let the running API validate its full schema.
+    r = s.post(f"{BASE_URL}/config/{project_id}", json=_cfg)
     r.raise_for_status()
     print(f"[3] Applied calibration config from {CONFIG_FILE.name}")
     try:
-        import json as _json
-        _cfg = _json.loads(CONFIG_FILE.read_text())
         _det = _cfg.get("detector") or _cfg.get("detector_type")
         if _det in ("resnet", "transformer"):
             DETECTOR_TYPE = _det

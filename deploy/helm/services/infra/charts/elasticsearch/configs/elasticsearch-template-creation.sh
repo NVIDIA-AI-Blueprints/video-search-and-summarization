@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -13,13 +15,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/bin/bash
 set -euo pipefail
 
-# ES CONNECTION VARIABLES
-ES_CONNECTION_RETRY_ATTEMPTS=0
-ES_CONNECTION_MAX_ATTEMPTS=10
-ES_URL="${ELASTICSEARCH_URL:-http://localhost:9200}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=elasticsearch-connection-init.sh
+source "${SCRIPT_DIR}/elasticsearch-connection-init.sh"
+
+# ELASTICSEARCH CONNECTION VARIABLES (parameterized from docker compose)
+ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS="${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}"
+ELASTICSEARCH_CONNECTION_RETRY_INTERVAL="${ELASTICSEARCH_CONNECTION_RETRY_INTERVAL:-5}"
+ELASTICSEARCH_URL="${ELASTICSEARCH_URL:-http://localhost:9200}"
+
+# Retry parameters for index template creation (kept separate from the connection
+# wait above, and from ILM's own knobs, for consistency and independent tuning)
+ELASTICSEARCH_TEMPLATE_CREATE_MAX_ATTEMPTS="${ELASTICSEARCH_TEMPLATE_CREATE_MAX_ATTEMPTS:-12}"
+ELASTICSEARCH_TEMPLATE_CREATE_RETRY_INTERVAL="${ELASTICSEARCH_TEMPLATE_CREATE_RETRY_INTERVAL:-10}"
 
 # Master switch: create kNN-searchable dense_vector fields in mdx-behavior-* / mdx-raw-* templates
 ELASTICSEARCH_ENABLE_EMBEDDINGS=${ELASTICSEARCH_ENABLE_EMBEDDINGS:-false}
@@ -29,25 +39,6 @@ echo "ELASTICSEARCH_ENABLE_EMBEDDINGS: ${ELASTICSEARCH_ENABLE_EMBEDDINGS}"
 ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM:-1536}
 ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM=${ELASTICSEARCH_VISION_LLM_EMBEDDINGS_DIM:-768}
 
-#################################
-## function: check_ES_status
-#################################
-check_ES_status(){
-
-    echo "Attempting to connect to the Elasticsearch server."
-
-    # Wait for ES to come up
-    until curl --output /dev/null --silent --head --fail -XGET "$ES_URL"; do
-        if [ ${ES_CONNECTION_RETRY_ATTEMPTS} -eq ${ES_CONNECTION_MAX_ATTEMPTS} ];then
-            exit_with_msg "Max attempts to connect to ES reached."
-        fi
-
-        ES_CONNECTION_RETRY_ATTEMPTS=$(($ES_CONNECTION_RETRY_ATTEMPTS+1))
-        echo "Unable to connect to ES. Trying to reconnect - (attempt $ES_CONNECTION_RETRY_ATTEMPTS/$ES_CONNECTION_MAX_ATTEMPTS)"
-        sleep 5
-    done
-}
-
 ####################################
 ## function: create_index_template
 ####################################
@@ -56,26 +47,8 @@ create_index_template(){
     local data_raw=$2
 
     echo "Creating index template: ${template_name}"
-
-    response=$(curl -s -w "\\n%{http_code}" "${ES_URL}/_index_template/${template_name}" \
-      -X 'PUT' \
-      -H 'Content-Type: application/json' \
-      --data-raw "$data_raw" \
-      --compressed \
-      --insecure)
-
-    curl_exit_code=$?
-    if [ $curl_exit_code -ne 0 ]; then
-        exit_with_msg "Curl command failed with exit code ${curl_exit_code} for template '${template_name}'. Error: ${response}"
-    fi
-
-    http_code=$(echo "$response" | tail -n1)
-    echo "HTTP code: ${http_code}"
-    if [ "$http_code" != "200" ]; then
-        response_body=$(echo "$response"| sed '$d')
-        exit_with_msg "Failed to create index template '${template_name}'.\n  Status code: ${http_code}\n  Response: ${response_body}"
-    fi
-    echo "Successfully created index template: ${template_name}"
+    put_json_with_retry "index template ${template_name}" "/_index_template/${template_name}" "${data_raw}" \
+      "200" "${ELASTICSEARCH_TEMPLATE_CREATE_MAX_ATTEMPTS}" "${ELASTICSEARCH_TEMPLATE_CREATE_RETRY_INTERVAL}"
 }
 
 ####################################
@@ -596,19 +569,11 @@ setup_elasticsearch_templates(){
     echo "Successfully created index templates."
 }
 
-############################
-## function: exit_with_msg
-############################
-exit_with_msg(){
-    echo -e "$1 \nExiting Script."
-    exit 1
-}
-
 ######################
 ## Main
 ######################
 main(){
-    check_ES_status
+    check_ES_status "Index template creation"
     setup_elasticsearch_templates
 }
 main

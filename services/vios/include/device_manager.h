@@ -163,6 +163,16 @@ struct DeviceConfig
     /* Output bitrate in kbit/s for a DASH session, for both the hardware and
      * the software encoder. Zero means derive it from the picture height. */
     int dash_bitrate_kbps;
+    /* Whether every DASH session encodes its own output rather than
+     * republishing the source's access units.
+     *
+     * A segment can only end on a keyframe, so republishing hands the segment
+     * grid to whatever the camera happens to do - typically one second, which
+     * costs a manifest poll and a fetch every second and, on a link with any
+     * latency, takes longer to fetch than the second of media it returns.
+     * Encoding costs a decode and an encode per session and a generation of
+     * quality, and buys a grid that is ours to choose. */
+    bool dash_always_encode;
     string storage_config_file;
     size_t total_video_storage_size_MB;
     double storage_threshold_percentage;

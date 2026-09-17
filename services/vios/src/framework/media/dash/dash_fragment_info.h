@@ -36,6 +36,17 @@
 
 namespace vst::dash {
 
+/* How much of a live stream stays seekable, in seconds.
+ *
+ * Two things have to agree on this and they used to be written apart: the
+ * manifest advertises the window and publishes a timeline to match, while the
+ * pruner decides which segment files survive. Expressing one in seconds and the
+ * other as a file count let them drift the moment segment length changed - one
+ * second segments left the manifest offering half again as much as remained on
+ * disk. Keep the single source here and derive both from it. */
+inline constexpr int kDashTimeShiftBufferDepthSeconds = 90;
+
+
 inline uint32_t readBigEndianUint32(const std::string& data, size_t offset)
 {
     if (offset + 4 > data.size())

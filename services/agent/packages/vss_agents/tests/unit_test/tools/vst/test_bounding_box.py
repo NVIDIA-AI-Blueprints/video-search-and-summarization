@@ -202,25 +202,30 @@ class TestSnapshotBoundingBox:
         """Test that the snapshot tool passes overlay_config to get_snapshot_url."""
         with patch("vss_agents.tools.vst.snapshot.get_stream_id", new_callable=AsyncMock) as mock_get_id:
             mock_get_id.return_value = "stream-uuid"
-            with patch("vss_agents.tools.vst.snapshot.get_snapshot_url", new_callable=AsyncMock) as mock_get_url:
-                mock_get_url.return_value = "http://10.0.0.1:30888/vst/img.jpg"
+            # The ISO path validates the timestamp against the stream's recorded timeline,
+            # so get_timeline has to be stubbed for this to stay offline.
+            with patch("vss_agents.tools.vst.snapshot.get_timeline", new_callable=AsyncMock) as mock_timeline:
+                mock_timeline.return_value = ("2025-01-01T00:00:00.000+00:00", "2025-01-01T01:00:00.000+00:00")
+                with patch("vss_agents.tools.vst.snapshot.get_snapshot_url", new_callable=AsyncMock) as mock_get_url:
+                    mock_get_url.return_value = "http://10.0.0.1:30888/vst/img.jpg"
 
-                gen = vst_snapshot.__wrapped__(config_with_overlay, mock_builder)
-                fi = await gen.__anext__()
-                inner_fn = fi.single_fn
+                    gen = vst_snapshot.__wrapped__(config_with_overlay, mock_builder)
+                    fi = await gen.__anext__()
+                    inner_fn = fi.single_fn
 
-                inp = VSTSnapshotISOInput(sensor_id="camera1", start_time="2025-01-01T00:05:00.000Z")
-                result = await inner_fn(inp)
+                    inp = VSTSnapshotISOInput(sensor_id="camera1", start_time="2025-01-01T00:05:00.000Z")
+                    result = await inner_fn(inp)
 
-                assert isinstance(result, VSTSnapshotOutput)
-                # Verify overlay_enabled was passed as True
-                mock_get_url.assert_called_once_with(
-                    "stream-uuid",
-                    "2025-01-01T00:05:00.000Z",
-                    "http://10.0.0.1:30888",
-                    overlay_enabled=True,
-                    timeout_seconds=10.0,
-                )
+                    assert isinstance(result, VSTSnapshotOutput)
+                    # Verify overlay_enabled was passed as True
+                    mock_get_url.assert_called_once_with(
+                        "stream-uuid",
+                        "2025-01-01T00:05:00.000Z",
+                        "http://10.0.0.1:30888",
+                        overlay_enabled=True,
+                        timeout_seconds=10.0,
+                    )
+                    mock_timeline.assert_awaited_once_with("stream-uuid", "http://10.0.0.1:30888")
 
 
 class TestVideoClipBoundingBox:

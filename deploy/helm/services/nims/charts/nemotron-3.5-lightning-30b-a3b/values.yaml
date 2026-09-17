@@ -26,6 +26,15 @@ service:
   type: ClusterIP
   port: 8000
 
+# haproxy.org/timeout-server for the /llm ingress route, annotated onto the
+# Service the NIM Operator creates (spec.expose.service.annotations). Scoped to
+# this backend, like vss-rtvi-vlm and vss-agent, rather than an ingress-wide
+# ceiling over every route. The first token off a cold NIM outlasts the
+# controller's 50s default, and the 504 that produces reads to the caller as a
+# model failure. Matches `timeout server 600s` on the Docker edge's
+# bk_llm_strip. Empty to leave the controller default in place.
+ingressTimeoutServer: "600s"
+
 nodeSelector: {}
 
 tolerations:

@@ -308,7 +308,7 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_APP_SUBTITLE
       value: "Vision (Base)"
     - name: NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
-      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
+      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":true,"changeable":true,"tooltip-info":"Improves tool-call planning and QA accuracy; adds latency on multi-turn conversations. Turn off for fastest multi-turn replies."},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
     - name: NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON
       value: "true"
     - name: NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED
@@ -352,7 +352,7 @@ vss-agent-ui:
     - name: NEXT_PUBLIC_RIGHT_MENU_OPEN
       value: "false"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_API_CUSTOM_AGENT_PARAMS_JSON
-      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
+      value: '{"params":[{"name":"llm_reasoning","label":"LLM Reasoning","type":"boolean","default-value":true,"changeable":true,"tooltip-info":"Improves tool-call planning and QA accuracy; adds latency on multi-turn conversations. Turn off for fastest multi-turn replies."},{"name":"vlm_reasoning","label":"VLM Reasoning","type":"boolean","default-value":false,"changeable":true,"tooltip-info":""}]}'
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_HISTORY_DEFAULT_ON
       value: "true"
     - name: NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_INPUT_MIC_ENABLED

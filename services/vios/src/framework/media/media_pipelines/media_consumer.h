@@ -251,6 +251,18 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
             return m_consumerType == ConsumerType::webrtcConsumer;
         }
 
+        /* How long a segment this consumer publishes, in seconds, or zero when
+         * it does not publish segments at all. An encoder feeding it has to
+         * emit a keyframe at that spacing, because a segment can only end on
+         * one: left to the WebRTC keyframe interval, which counts frames rather
+         * than seconds, a video wall composed at eight frames a second produced
+         * a keyframe every 3.75 s and therefore four second segments whatever
+         * DASH asked for. */
+        virtual unsigned publishedSegmentSeconds() const
+        {
+            return 0;
+        }
+
         virtual ConsumerType getConsumerType()
         {
             return m_consumerType;

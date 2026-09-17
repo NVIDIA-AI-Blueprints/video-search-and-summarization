@@ -1,0 +1,1129 @@
+{
+  "alerts": [
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:17:33.492Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 918,
+            "embeddings": [],
+            "rightX": 556
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 343,
+            "confidence": 0,
+            "info": {},
+            "leftX": 508,
+            "topY": 138,
+            "embeddings": [],
+            "rightX": 601
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.492Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 932,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 710,
+            "embeddings": [],
+            "rightX": 108
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 344,
+            "confidence": 0,
+            "info": {},
+            "leftX": 651,
+            "topY": 171,
+            "embeddings": [],
+            "rightX": 722
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_02",
+      "timestamp": "2026-02-14T10:17:33.459Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 939,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1605,
+            "topY": 584,
+            "embeddings": [],
+            "rightX": 1919
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 418,
+            "confidence": 0,
+            "info": {},
+            "leftX": 649,
+            "topY": 189,
+            "embeddings": [],
+            "rightX": 750
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.459Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 933,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 709,
+            "embeddings": [],
+            "rightX": 107
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 346,
+            "confidence": 0,
+            "info": {},
+            "leftX": 649,
+            "topY": 172,
+            "embeddings": [],
+            "rightX": 723
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:17:33.459Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 917,
+            "embeddings": [],
+            "rightX": 557
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 346,
+            "confidence": 0,
+            "info": {},
+            "leftX": 507,
+            "topY": 139,
+            "embeddings": [],
+            "rightX": 602
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_02",
+      "timestamp": "2026-02-14T10:17:33.426Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 942,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1605,
+            "topY": 584,
+            "embeddings": [],
+            "rightX": 1919
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 420,
+            "confidence": 0,
+            "info": {},
+            "leftX": 653,
+            "topY": 190,
+            "embeddings": [],
+            "rightX": 752
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:17:33.426Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 916,
+            "embeddings": [],
+            "rightX": 559
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 348,
+            "confidence": 0,
+            "info": {},
+            "leftX": 505,
+            "topY": 140,
+            "embeddings": [],
+            "rightX": 602
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.426Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 933,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 708,
+            "embeddings": [],
+            "rightX": 106
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 347,
+            "confidence": 0,
+            "info": {},
+            "leftX": 647,
+            "topY": 173,
+            "embeddings": [],
+            "rightX": 723
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_02",
+      "timestamp": "2026-02-14T10:17:33.392Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 944,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1606,
+            "topY": 584,
+            "embeddings": [],
+            "rightX": 1919
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 423,
+            "confidence": 0,
+            "info": {},
+            "leftX": 655,
+            "topY": 191,
+            "embeddings": [],
+            "rightX": 753
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.392Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 933,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 707,
+            "embeddings": [],
+            "rightX": 104
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 349,
+            "confidence": 0,
+            "info": {},
+            "leftX": 644,
+            "topY": 174,
+            "embeddings": [],
+            "rightX": 722
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:17:33.392Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 916,
+            "embeddings": [],
+            "rightX": 560
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 351,
+            "confidence": 0,
+            "info": {},
+            "leftX": 504,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 601
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_02",
+      "timestamp": "2026-02-14T10:17:33.359Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 943,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1606,
+            "topY": 584,
+            "embeddings": [],
+            "rightX": 1919
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 425,
+            "confidence": 0,
+            "info": {},
+            "leftX": 658,
+            "topY": 191,
+            "embeddings": [],
+            "rightX": 753
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.359Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 933,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 706,
+            "embeddings": [],
+            "rightX": 103
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 350,
+            "confidence": 0,
+            "info": {},
+            "leftX": 641,
+            "topY": 174,
+            "embeddings": [],
+            "rightX": 719
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:17:33.359Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 915,
+            "embeddings": [],
+            "rightX": 561
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 352,
+            "confidence": 0,
+            "info": {},
+            "leftX": 501,
+            "topY": 142,
+            "embeddings": [],
+            "rightX": 598
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_02",
+      "timestamp": "2026-02-14T10:17:33.326Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 943,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1606,
+            "topY": 584,
+            "embeddings": [],
+            "rightX": 1919
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 426,
+            "confidence": 0,
+            "info": {},
+            "leftX": 660,
+            "topY": 191,
+            "embeddings": [],
+            "rightX": 753
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.326Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 934,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 705,
+            "embeddings": [],
+            "rightX": 102
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 351,
+            "confidence": 0,
+            "info": {},
+            "leftX": 638,
+            "topY": 173,
+            "embeddings": [],
+            "rightX": 717
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:17:33.326Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 915,
+            "embeddings": [],
+            "rightX": 562
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 353,
+            "confidence": 0,
+            "info": {},
+            "leftX": 499,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 596
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_02",
+      "timestamp": "2026-02-14T10:17:33.292Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 942,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1606,
+            "topY": 584,
+            "embeddings": [],
+            "rightX": 1919
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 426,
+            "confidence": 0,
+            "info": {},
+            "leftX": 663,
+            "topY": 191,
+            "embeddings": [],
+            "rightX": 753
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.292Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 934,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 705,
+            "embeddings": [],
+            "rightX": 102
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 351,
+            "confidence": 0,
+            "info": {},
+            "leftX": 635,
+            "topY": 173,
+            "embeddings": [],
+            "rightX": 713
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:17:33.292Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 914,
+            "embeddings": [],
+            "rightX": 563
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 354,
+            "confidence": 0,
+            "info": {},
+            "leftX": 496,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 592
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_02",
+      "timestamp": "2026-02-14T10:17:33.259Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 942,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1606,
+            "topY": 584,
+            "embeddings": [],
+            "rightX": 1919
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 427,
+            "confidence": 0,
+            "info": {},
+            "leftX": 665,
+            "topY": 190,
+            "embeddings": [],
+            "rightX": 753
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.259Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 934,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 705,
+            "embeddings": [],
+            "rightX": 103
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 351,
+            "confidence": 0,
+            "info": {},
+            "leftX": 632,
+            "topY": 173,
+            "embeddings": [],
+            "rightX": 707
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera",
+      "timestamp": "2026-02-14T10:17:33.259Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 1079,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 914,
+            "embeddings": [],
+            "rightX": 564
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 354,
+            "confidence": 0,
+            "info": {},
+            "leftX": 494,
+            "topY": 141,
+            "embeddings": [],
+            "rightX": 589
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_02",
+      "timestamp": "2026-02-14T10:17:33.226Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 941,
+            "confidence": 0,
+            "info": {},
+            "leftX": 1607,
+            "topY": 585,
+            "embeddings": [],
+            "rightX": 1919
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 427,
+            "confidence": 0,
+            "info": {},
+            "leftX": 667,
+            "topY": 190,
+            "embeddings": [],
+            "rightX": 753
+          }
+        }
+      ]
+    },
+    {
+      "sensorId": "Camera_01",
+      "timestamp": "2026-02-14T10:17:33.226Z",
+      "confinedArea": {
+        "objectIds": [
+          "11"
+        ]
+      },
+      "restrictedArea": [
+        {
+          "roiId": "roi-id-1",
+          "objectIds": [
+            "0"
+          ]
+        }
+      ],
+      "objects": [
+        {
+          "id": "11",
+          "type": "Forklift",
+          "bbox": {
+            "bottomY": 935,
+            "confidence": 0,
+            "info": {},
+            "leftX": 0,
+            "topY": 705,
+            "embeddings": [],
+            "rightX": 105
+          }
+        },
+        {
+          "id": "0",
+          "type": "Person",
+          "bbox": {
+            "bottomY": 351,
+            "confidence": 0,
+            "info": {},
+            "leftX": 629,
+            "topY": 173,
+            "embeddings": [],
+            "rightX": 701
+          }
+        }
+      ]
+    }
+  ]
+}

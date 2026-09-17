@@ -33,16 +33,39 @@ if [ ! -f "$VIDEO_ANALYTICS_API_ROOT/docker/Dockerfile" ]; then
 fi
 DATA_DIR="$INTEGRATION_TEST_DIR/docker_compose/apps_data"
 
-# Host IP for any advertised listeners
-if command -v ip >/dev/null 2>&1; then
-    HOST_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
+# Repo root, by path arithmetic rather than `git rev-parse`: CI runs this suite
+# from an unpacked source tarball, which is not a git checkout.
+REPO_ROOT="$(cd "$INTEGRATION_TEST_DIR/../../../../.." && pwd)"
+
+# The Elasticsearch service, its config and its init scripts are single-sourced
+# from the deployment tree instead of being duplicated under test/. The
+# deployment compose resolves every mount it declares from VSS_APPS_DIR, and
+# every named volume's bind path from VSS_DATA_DIR, so both are pointed at this
+# checkout and this suite's own scratch area.
+INFRA_DIR="$REPO_ROOT/deploy/docker/services/infra"
+VSS_APPS_DIR="$REPO_ROOT/deploy/docker"
+VSS_DATA_DIR="$DATA_DIR"
+
+if [ ! -f "$INFRA_DIR/compose.yml" ]; then
+    echo "✗ Shared infra compose not found at $INFRA_DIR/compose.yml" >&2
+    echo "  This suite includes the deployment's own Elasticsearch definition;" >&2
+    echo "  it must run from a full repo checkout or source tarball." >&2
+    return 1 2>/dev/null || exit 1
 fi
-if [ -z "${HOST_IP:-}" ]; then
-    HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-fi
-if [ -z "${HOST_IP:-}" ]; then
-    HOST_IP="localhost"
-fi
+
+# Service selection. The deployment tags every service with its own name, so the
+# suite names exactly what it needs: Elasticsearch and the init container that
+# creates its ILM policies, index templates and ingest pipeline. Kafka, Redis,
+# logstash, Kibana, HAProxy and the rest stay defined but unstarted.
+COMPOSE_PROFILES="elasticsearch,elasticsearch-init-container"
+
+# The stack runs on the Compose bridge network, so HOST_IP only ever names the
+# host, never a container. Nothing this suite starts reads it -- the deployment
+# compose uses it for kafka's advertised listeners and the TURN server, neither
+# of which is in COMPOSE_PROFILES -- but naming it keeps Compose from warning
+# about an unset variable. A literal beats deriving a routable address: that
+# value would be wrong for a container and varies per developer machine.
+HOST_IP="localhost"
 
 ENV_FILE="$SCRIPT_DIR/docker_compose/infra/.env"
 echo "Generating environment at $ENV_FILE"
@@ -55,7 +78,28 @@ export INTEGRATION_TEST_DIR=$INTEGRATION_TEST_DIR
 export VIDEO_ANALYTICS_API_ROOT=$VIDEO_ANALYTICS_API_ROOT
 export DATA_DIR=$DATA_DIR
 export HOST_IP=$HOST_IP
+
+# Shared infra assets (the Elasticsearch service, its config and its init
+# scripts) come from the deployment tree. See deploy/docker/services/infra/.
+export INFRA_DIR=$INFRA_DIR
+export VSS_APPS_DIR=$VSS_APPS_DIR
+export VSS_DATA_DIR=$VSS_DATA_DIR
+
+# Which of the deployment's services this suite starts.
+export COMPOSE_PROFILES=$COMPOSE_PROFILES
+
 export COMPOSE_PROJECT_NAME=video-analytics-api-integration
+
+# Declared blank only to silence Compose's "variable is not set" warnings. Each
+# belongs to a deployment service this suite does not start (logstash, the
+# ingress and the stream processors), so blank is exactly what they would
+# default to; naming them keeps a real misconfiguration visible in the logs.
+export STREAM_TYPE=
+export VSS_PUBLIC_HOST=
+export VSS_PUBLIC_PORT=
+export EXTERNAL_IP=
+export NUM_STREAMS=
+export NUM_SENSORS=
 EOF
 
 COMPOSE_PROJECT_NAME=video-analytics-api-integration

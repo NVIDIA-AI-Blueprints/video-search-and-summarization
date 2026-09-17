@@ -60,6 +60,7 @@ new configuration.
 | | search over names and message text | — |
 | | export / import (toolkit v1–v4 files load) | — |
 | | send full thread vs. latest turn | `CHAT_HISTORY_DEFAULT_ON` |
+| | legacy `vss-agent` human-in-the-loop response modal | `ENABLE_HITL` |
 | Input | context chips + `[Context: …]` prefix | — |
 | | chunked video upload, drag & drop, progress, cancel | `CHAT_UPLOAD_FILE_ENABLE` |
 | | per-file upload metadata | `CHAT_UPLOAD_FILE_METADATA_ENABLED` |
@@ -95,9 +96,13 @@ type, critic toggle). `Home.tsx` resolves both surfaces through `surfaceEnv`.
   supported transports are HTTP + SSE, the deployment ships
   `NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false`, and the WebSocket path exists to
   talk to NAT core — the thing being removed.
-- **Human-in-the-loop interaction responses.** Current adapter connectors
-  advertise `interaction_responses: false`, so an interaction event is shown
-  as unsupported instead of presenting a form that cannot submit a response.
+- **Adapter human-in-the-loop interaction responses.** Structured interaction
+  UI is opt-in. The legacy `vss-agent` chat-SSE transport exposes its response
+  modal only while `ENABLE_HITL=true`.
+  Current adapter connectors advertise `interaction_responses: false`, so an
+  interaction event is shown as unsupported instead of presenting a form that
+  cannot submit a response. External OpenClaw deployments set the flag false
+  and ask follow-up questions as ordinary completed chat turns.
 - **Folders and prompt templates.** Present in the toolkit's Chatbar, never
   surfaced in VSS. Import still accepts and preserves both keys so a toolkit
   export round-trips.
@@ -146,9 +151,18 @@ accepts the original line protocol:
 | `data: {"choices":[{"delta":{"content":"…"}}]}` | assistant text |
 | `data: [DONE]` | turn complete |
 | `intermediate_data: {…}` | tool/skill step (`parent_id` nests it) |
+| `artifact_data: {…}` | validated artifact delivered to `onAnswer`, not rendered as prose |
 | `error_data: {…}` | turn-level failure |
 | `interaction_data: {…}` | unsupported-interaction error |
 | `: keepalive` | ignored |
+
+`artifact_data` carries the same `{version, kind, payload}` frame as the agent
+API's `artifact.created`, is validated the same way, and gets the same
+`mediaProxyUrl` rewriting. Any `vss.*` kind travels; which tab acts on one is
+decided by that tab's answer handler, so a new kind needs no transport change.
+Without this frame an agent answering in prose leaves the feature tabs empty,
+and embedding the payload in the reply text costs tokens and invites truncated
+or invented fields.
 
 Legacy content is also read from `choices[0].message.content` and the plain
 `value` / `output` / `answer` fields because agent servers differ.

@@ -24,3 +24,15 @@ data:
   vss-behavior-analytics-config.json: |
 {{ required "vss-behavior-analytics.config.kafkaConfigJson must be set when enabled" .Values.config.kafkaConfigJson | trim | nindent 4 }}
 {{- end }}
+{{- if and .Values.enabled .Values.resourceFiles.calibration.apiUrl }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vss-behavior-analytics.fullname" . }}-fetch-calibration
+  labels:
+    {{- include "vss-behavior-analytics.labels" . | nindent 4 }}
+data:
+  fetch-calibration.py: |
+{{ .Files.Get "files/fetch-calibration.py" | nindent 4 }}
+{{- end }}

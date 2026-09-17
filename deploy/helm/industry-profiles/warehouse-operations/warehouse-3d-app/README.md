@@ -226,6 +226,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | **`nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`** | NGC resource version for the warehouse app-data bundle (models, configs). Override when pinning to a specific release. |
 | **`rtvi.vss-rtvi-cv.persistence.models.size`** | **`80Gi`** | PVC size for the NGC model download job. |
 | **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1` | GPU request/limit for the CV inference pod. Always required for the 3D pipeline. |
+| **`warehouse.datasetType`** | **`synthetic`** | `synthetic` or `real`. Picks the Sparse4D model/anchor/label set (same as compose's `DATASET_TYPE`). Don't hand-edit `rtvi.vss-rtvi-cv.sparse4d`/`ngcModelsToDownload` — run `scripts/compute_model_selection.py --dataset-type <type> -f <your-values.yaml> -o values-model.yaml` and pass `-f values-model.yaml` to `helm upgrade --install`. |
 
 ##### `monitoring`
 
@@ -237,12 +238,13 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`monitoring.nodeExporter.enabled`** | **`true`** | Enable the node exporter DaemonSet for host-level metrics. |
 | **`monitoring.dcgmExporter.enabled`** | **`false`** | Stays off because the GPU Operator already runs `nvidia-dcgm-exporter`. Enable only on clusters without the GPU Operator. |
 
-##### `cameraInfo`
+##### `global.cameraInfo`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| **`cameraInfo.enabled`** | **`false`** | Enable live RTSP camera registration. When `true`, also set `bp-configurator` env `SENSOR_INFO_SOURCE=file` so the configurator reads the sensor list from this ConfigMap rather than discovering NVStreamer files. |
-| **`cameraInfo.sensors`** | **`[]`** | List of RTSP camera entries. Each entry takes `camera_name`, `rtsp_url`, `group_id`, and `region`. |
+| **`global.cameraInfo.enabled`** | **`false`** | Enable live RTSP camera registration. Also flips `bp-configurator`'s `SENSOR_INFO_SOURCE` env entry to `file` automatically, so no other setting is needed. |
+| **`global.cameraInfo.sensors`** | **`[]`** | List of RTSP camera entries: `camera_name`, `rtsp_url`, `group_id`, `region`. For a handful of cameras. |
+| **`global.cameraInfo.sensorsFile`** | **`""`** | Raw JSON content (strict JSON, no comments). Takes priority over `sensors` when set. Copy `../camera_configs/camera_info.example.json` somewhere outside the repo, fill in real cameras, and point `--set-file` at that path. Fails the render if the JSON is invalid or missing a `sensors` key. |
 
 ##### `vssIngress`
 
@@ -296,11 +298,14 @@ kubectl get ingressclass          # expect: haproxy
 ```bash
 helm dependency update deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app
 
+GIT_REF=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --abbrev-ref HEAD)
+
 helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app \
   -n <namespace> --create-namespace \
   --set global.vssIngress.enabled=true \
   --set global.externalHost=<NODE_IP> \
   --set global.storageClass=<STORAGE_CLASS> \
+  --set global.gitRef=$GIT_REF \
   --set monitoring.grafana.rootUrl=http://<NODE_IP>/grafana \
   --set infra.kibana.kibanaPublicUrl=http://<NODE_IP>/kibana
 ```
@@ -309,6 +314,21 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 are host-specific. Grafana and Kibana build absolute links, so without them Grafana
 points at `localhost` and Kibana at its in-cluster Service name. The rest works off
 the defaults.
+
+**`global.gitRef`** picks the branch/tag the calibration-import source links
+(`calibrationFileSource`, `imageMetadataFileSource`, `imageBaseSource`) point at.
+`GIT_REF` above resolves to the tag when installing from a tagged checkout, or the
+branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
+
+**`global.sampleVideoDataset`** picks the dataset directory under
+`calibration/sample-data/` those same three links point at. Default is
+`warehouse-4cams-20mx20m-synthetic`.
+
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
+`http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
+fetch calibration.json from that endpoint via an initContainer, retrying until
+it returns real data and validating it before the main container starts. Clear
+it to fall back to the bundled `files/behavior-analytics/calibration.json`.
 
 ### 4. Post-install validation
 

@@ -411,6 +411,21 @@ function get_env_value_from_files() {
   fi
 }
 
+# Value of a commented SBSA alternate, e.g. `#VSS_RT_CV_TAG="develop-latest-sbsa"`.
+# Profiles pin the SBSA build that way when it does not follow the shared
+# VSS_CONTAINER_TAG channel; suffix derivation is the fallback. Later files win.
+function get_commented_sbsa_value() {
+  local _var_name="${1}"
+  shift
+  local _env_file _line _val=""
+  for _env_file in "$@"; do
+    [[ -f "${_env_file}" ]] || continue
+    _line="$(grep -E "^#[[:space:]]*${_var_name}=" "${_env_file}" 2>/dev/null | grep -F 'sbsa' | head -1)"
+    [[ -n "${_line}" ]] && _val="${_line#*=}"
+  done
+  echo "${_val}"
+}
+
 function env_var_defined_in_files() {
   local _var_name="${1}"
   shift
@@ -489,19 +504,35 @@ function mask_external_ip_args() {
 function get_rtvi_vllm_gpu_memory_utilization() {
   local _hardware_profile="${1}"
   local _vlm_mode="${2}"
+  local _profile="${3}"
+
+  if [[ "${_profile}" == "alerts" ]]; then
+    case "${_hardware_profile}" in
+      GB300)
+        echo "0.2"
+        return
+        ;;
+      DGX-SPARK)
+        echo "0.35"
+        return
+        ;;
+    esac
+  fi
 
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
-      # GB300 is ~250 GiB, so the 0.4 used on 80-96 GiB cards would hand RT-VLM
-      # ~100 GiB to serve Cosmos3 Nano. vLLM claims the whole fraction whether it
-      # needs it or not, and refuses to start unless free >= fraction x total
-      # (it does not subtract other processes), so on search -- where RT-CV and
-      # RT-Embed also live on that GPU -- the LLM was then left below its own
-      # fraction and never started. 0.3 still gives RT-VLM ~75 GiB, more than
-      # double the 32 GiB it runs on today on an 80 GiB H100, and leaves ~136 GiB
-      # free against the LLM's 0.30 x 250 = ~75 GiB.
-      GB300) echo "0.3" ;;
-      DGX-SPARK|H100|RTXPRO6000BW) echo "0.4" ;;
+      # High-memory boards: vLLM claims gpu_memory_utilization x total_memory
+      # whether the model needs it or not, and refuses to start unless free >=
+      # that reservation (it does not subtract co-resident processes).
+      # GB300 (~250 GiB): 0.2 ≈ 50 GiB for Cosmos3 Nano — still above the ~32 GiB
+      # it uses on an 80 GiB H100 — leaving ~200 GiB for LLM (0.30 x 250 ≈ 75 GiB)
+      # plus RT-CV/RT-Embed. Starting point; confirm on a live GB300 search/alerts
+      # stack that RT-VLM still reaches ready.
+      GB300) echo "0.2" ;;
+      # Spark/Thor unified memory: 0.35. Thor is applied in the Thor block
+      # below (alerts and base both need it; the helper is skipped for Thor).
+      DGX-SPARK) echo "0.35" ;;
+      H100|RTXPRO6000BW) echo "0.4" ;;
       L40S|RTXPRO4500BW) echo "0.8" ;;
       *) echo "0.7" ;;
     esac
@@ -590,7 +621,6 @@ function usage() {
   echo "  -H, --hardware-profile           Hardware profile."
   echo "                                   • One of:"
   echo "                                     - H100"
-  echo "                                     - GB300"
   echo "                                     - L40S"
   echo "                                     - RTXPRO4500BW"
   echo "                                     - RTXPRO6000BW"
@@ -931,12 +961,10 @@ function process_args() {
         _vlm_is_remote=1
       fi
 
-      # Search places every local model on one shared GB300, so it resolves a
-      # single deployment GPU from an explicitly selected local model, or
-      # auto-detects it when exactly one GB300 is present (including
-      # remote+remote). Other profiles carry their own GB300 handling and must
-      # not be routed through this resolution.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # Every profile places its GPU-consuming services on one selected GB300.
+      # Resolve that GPU from an explicitly selected local model, or auto-detect
+      # it when exactly one GB300 is present (including remote+remote).
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         # Device IDs reach here from the CLI or from the profile environment, and
         # only a CLI value is an explicit selection. The profile defaults describe
         # the two-GPU layout (LLM on 1, VLM on 0), which cannot apply to a single
@@ -962,7 +990,7 @@ function process_args() {
           # A conflict the user actually expressed is an error; one inherited
           # wholly from the profile environment is not.
           if [[ "${_llm_id_is_cli}" -eq 1 ]] || [[ "${_vlm_id_is_cli}" -eq 1 ]]; then
-            echo "[ERROR] GB300 search requires local LLM and VLM device IDs to select the same GPU"
+            echo "[ERROR] GB300 requires local LLM and VLM device IDs to select the same GPU"
             ((_all_good++))
           fi
         else
@@ -992,9 +1020,9 @@ function process_args() {
         if [[ "${_vlm_is_remote}" -eq 0 ]]; then
           vlm_device_id="${hardware_device_id}"
         fi
-        if [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" \
+        if [[ "${profile}" == "search" ]] && [[ "${_llm_is_remote}" -eq 0 ]] && contains_element "llm" "${options_provided[@]}" \
           && [[ "${llm}" != "nvidia/nemotron-3.5-lightning-30b-a3b" ]]; then
-          echo "[ERROR] GB300 search supports only the local LLM nvidia/nemotron-3.5-lightning-30b-a3b"
+          echo "[ERROR] The search profile on GB300 supports only the locally hosted LLM nvidia/nemotron-3.5-lightning-30b-a3b"
           ((_all_good++))
         fi
       fi
@@ -1017,6 +1045,9 @@ function process_args() {
         _gpu_name="$(get_nvidia_smi_gpu_name "${_hardware_check_device_id}")"
         if [[ -z "${_gpu_name}" ]]; then
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match detected hardware (no NVIDIA GPU detected)."
+          ((_all_good++))
+        elif [[ "${hardware_profile}" == "GB300" ]] && [[ "$(get_detected_hardware_profile "${_gpu_name}")" != "GB300" ]]; then
+          echo "[ERROR] Selected GPU device ID '${_hardware_check_device_id}' is not a GB300."
           ((_all_good++))
         elif ! host_has_detected_hardware_profile "$(get_canonical_hardware_profile "${hardware_profile}")"; then
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match any detected NVIDIA GPU."
@@ -1161,9 +1192,9 @@ function process_args() {
         fi
       fi
 
-      # Every local model on the single selected GB300 shares that GPU with the
-      # search runtime services, even when the other model uses a remote endpoint.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # Every local model on the single selected GB300 shares that GPU with
+      # the profile runtime services, even when the other model is remote.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         [[ "${llm_mode}" != "remote" ]] && llm_mode="local_shared"
         [[ "${vlm_mode}" != "remote" ]] && vlm_mode="local_shared"
       fi
@@ -1232,8 +1263,9 @@ function process_args() {
       fi
 
       # Device IDs must not be in profile RESERVED_DEVICE_IDS (comma-separated list; may be empty).
-      # Exception: DGX-SPARK, IGX-THOR, AGX-THOR are exempt (device ID options not accepted).
-      if ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
+      # Edge boards and GB300 are exempt: their resolved device is the shared
+      # deployment GPU, so it intentionally supersedes profile reservations.
+      if [[ "${hardware_profile}" != "GB300" ]] && ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
         if [[ -n "${profile}" ]] && [[ -f "${deployment_directory}/developer-profiles/dev-profile-${profile}/.env" ]]; then
           local _profile_env_reserved="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
           local _profile_overrides_env_reserved="${deployment_directory}/developer-profiles/dev-profile-${profile}/overrides.env"
@@ -1711,7 +1743,7 @@ function state_up() {
       set_env_var "VLM_DEVICE_ID" "${vlm_device_id}"
     fi
   fi
-  if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" == "GB300" ]]; then
+  if [[ "${hardware_profile}" == "GB300" ]]; then
     local _gb300_device_id="${hardware_device_id}"
     set_env_var "SHARED_LLM_VLM_DEVICE_ID" "${_gb300_device_id}"
     set_env_var "FIXED_SHARED_DEVICE_IDS" "${_gb300_device_id}"
@@ -1831,7 +1863,7 @@ function state_up() {
     # RTVI local VLM memory utilization. Remote VLM uses rtvi-vlm as a proxy, so
     # vLLM memory sizing only applies when rtvi-vlm hosts the model locally.
     if [[ "${vlm_mode}" != "remote" ]] && [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
-      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}")"
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "$(get_rtvi_vllm_gpu_memory_utilization "${hardware_profile}" "${vlm_mode}" "${profile}")"
       if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RTVI_VLLM_ATTENTION_BACKEND" "TRITON_ATTN"
       fi
@@ -1854,19 +1886,17 @@ function state_up() {
       else
         set_env_var "RT_VLM_DEVICE_ID" "${vlm_device_id}"
       fi
-      # RT-VLM remains a local proxy for remote VLM endpoints on GB300 search,
-      # which is the only profile that resolves a single deployment GPU.
-      if [[ "${hardware_profile}" == "GB300" ]] && [[ "${profile}" == "search" ]]; then
+      # RT-VLM remains a local proxy for remote VLM endpoints on GB300, so it
+      # follows the selected deployment GPU for every profile.
+      if [[ "${hardware_profile}" == "GB300" ]]; then
         set_env_var "RT_VLM_DEVICE_ID" "${hardware_device_id}"
       fi
     fi
     if [[ "${hardware_profile}" == "IGX-THOR" ]] || [[ "${hardware_profile}" == "AGX-THOR" ]]; then
-      # Base/Thor default fraction when host env did not override; alerts/LVS keep host value as-is.
-      if [[ "${profile}" == "base" ]]; then
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
-      else
-        set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION}"
-      fi
+      # Same 0.35 Spark uses: vLLM reserves gpu_memory_utilization x total, so
+      # the unset/empty profile default would leave RT-VLM at vLLM's ~0.9 and
+      # starve co-resident services. Host env still wins when it is non-empty.
+      set_env_var "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "${RTVI_VLLM_GPU_MEMORY_UTILIZATION:-0.35}"
       set_env_var "RT_VLM_DEVICE_ID" "0"
     fi
     if [[ "${hardware_profile}" == "RTXPRO4500BW" ]] && [[ "${vlm_mode}" != "remote" ]] && [[ -z "${vlm}" ]]; then
@@ -1997,6 +2027,22 @@ function state_up() {
   if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
     export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
     echo "[INFO] Managed container tag suffix: ${VSS_CONTAINER_TAG_SUFFIX}"
+    # containers.env applies the suffix during compose interpolation only, so a
+    # service that reads a tag as plain configuration never sees it. Write the
+    # same four suffixed keys into generated.env, preferring an explicit tag
+    # (shell, uncommented env-file line, then the profile's commented SBSA pin)
+    # over the derived one.
+    local _sbsa_base_tag _sbsa_key _sbsa_value
+    _sbsa_base_tag="${VSS_CONTAINER_TAG:-$(get_env_value_from_files "VSS_CONTAINER_TAG" "${_source_env}" "${_generated_env}")}"
+    for _sbsa_key in VSS_RT_CV_TAG VSS_RT_EMBED_TAG VSS_RT_VLM_TAG VSS_VIDEO_SUMMARIZATION_TAG; do
+      _sbsa_value="${!_sbsa_key:-$(get_env_value_from_files "${_sbsa_key}" "${_source_env}" "${_generated_env}")}"
+      if [[ -z "${_sbsa_value}" ]] && [[ -z "${_sbsa_base_tag}" ]]; then
+        # No shared channel selected, so the profile's pinned SBSA build is the
+        # only meaningful tag. A selected channel always wins over the pin.
+        _sbsa_value="$(get_commented_sbsa_value "${_sbsa_key}" "${_source_env}" "${_generated_env}")"
+      fi
+      set_env_var "${_sbsa_key}" "${_sbsa_value:-${_sbsa_base_tag:-develop-latest}${VSS_CONTAINER_TAG_SUFFIX}}"
+    done
   fi
 
   # Resolve and display the managed container channel before deployment.

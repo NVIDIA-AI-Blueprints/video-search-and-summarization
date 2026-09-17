@@ -76,6 +76,13 @@
 {{- if and $infraOn (include $en (dict "vals" $fp "default" true)) }}
 {{- $_ := set $b "phoenix" (dict "service" (include "vss.lvs.serviceShort" (dict "root" . "short" "phoenix")) "port" $vi.phoenixPort) }}
 {{- end }}
+{{- /* Resolved in services/common, not here: the LLM NIM's Service is named by
+       the nims subchart's fullname rule and created by the NIM Operator, so all
+       four profiles have to agree on it. Empty when no NIM is deployed. */}}
+{{- $llm := include "vss.ingress.llmBackend" (dict "root" .) | fromYaml }}
+{{- if $llm.service }}
+{{- $_ := set $b "llm" $llm }}
+{{- end }}
 {{- include "vss.ingress.assertBackends" (dict "backends" $b) }}
 {{- if $host }}
 apiVersion: networking.k8s.io/v1

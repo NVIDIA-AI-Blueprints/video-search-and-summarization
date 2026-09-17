@@ -536,6 +536,32 @@ void NvEncoderVideoConsumer::encoderProcessThread()
             }
             target_bitrate = std::clamp(bitrate, min_bitrate * 1000, max_bitrate * 1000);
         }
+        /* A segment ends on a keyframe, so the encoder has to produce one at the
+         * spacing DASH publishes at. The WebRTC interval counts frames, which
+         * describes a different length at every frame rate: a wall composed at
+         * eight frames a second turned an interval of thirty into a keyframe
+         * every 3.75 s, so segments came out at four seconds however short the
+         * configured length was, and the preroll that waits for two of them
+         * held the first picture for sixteen seconds. Ask in seconds instead. */
+        if (is_dash_consumer && m_frameRate > 0.0)
+        {
+            const unsigned segmentSeconds =
+                m_consumer ? m_consumer->publishedSegmentSeconds() : 0u;
+            if (segmentSeconds > 0)
+            {
+                const auto wanted = static_cast<uint32_t>(std::max(
+                    1L, std::lround(m_frameRate * static_cast<double>(segmentSeconds))));
+                if (wanted != m_dashIdrInterval && m_nvEncoder)
+                {
+                    m_nvEncoder->setIDRInterval(wanted);
+                    m_dashIdrInterval = wanted;
+                    LOG(info) << "DASH hardware encoder keyframe interval: " << wanted
+                              << " frames for a " << segmentSeconds << "s segment at "
+                              << m_frameRate << " fps" << endl;
+                }
+            }
+        }
+
         if (target_bitrate != 0 && m_prevBitRate != target_bitrate)
         {
             if (is_dash_consumer)

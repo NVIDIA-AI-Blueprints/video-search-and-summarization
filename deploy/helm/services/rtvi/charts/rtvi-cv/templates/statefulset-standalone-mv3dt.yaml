@@ -18,6 +18,13 @@
 {{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") }}
 {{- $sw := .Values.standaloneWarehouse }}
 {{- $mv3dt := $sw.mv3dt | default dict }}
+{{- $reid := $mv3dt.reid | default dict }}
+{{/* Sprig `default` treats boolean false as empty, so `waitForModels: false`
+     would still render the waiter. Honour an explicit bool; omit → wait. */}}
+{{- $waitForReidModels := true }}
+{{- if and (hasKey $reid "waitForModels") (kindIs "bool" $reid.waitForModels) }}
+{{- $waitForReidModels = $reid.waitForModels }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -113,6 +120,42 @@ spec:
           volumeMounts:
             - name: models
               mountPath: /opt/storage
+        {{- if and $reid.enabled $waitForReidModels }}
+        # The tracker loads the CLIP-ReID ONNX from this claim at startup, and
+        # the vss-reid-embed chart's staging Job is what puts it there. Without
+        # this gate DeepStream would come up first and fail on a missing model.
+        - name: wait-for-reid-models
+          image: docker.io/library/busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - |
+              marker="/opt/storage/{{ $reid.modelSubDir | default "reid" }}/.reid-models-ready"
+              expected=""
+              if test -f /reid-generation/revision; then
+                expected=$(tr -d ' \n' < /reid-generation/revision)
+              fi
+              echo "Waiting for staged ReID models (${marker}) ..."
+              elapsed=0
+              timeout={{ $reid.waitSeconds | default 3600 }}
+              until test -f "${marker}" && { test -z "${expected}" || test "$(tr -d ' \n' < "${marker}")" = "${expected}"; }; do
+                if test "${elapsed}" -ge "${timeout}"; then
+                  echo "[ERROR] Timeout waiting for ReID model staging (${timeout}s)."
+                  echo "[ERROR] Is rtvi.vss-reid-embed.enabled set, and did its staging Job succeed?"
+                  exit 1
+                fi
+                echo "... still waiting (${elapsed}s)"
+                sleep 10
+                elapsed=$((elapsed + 10))
+              done
+              echo "ReID models are staged."
+          volumeMounts:
+            - name: models
+              mountPath: /opt/storage
+            - name: reid-generation
+              mountPath: /reid-generation
+              readOnly: true
+        {{- end }}
         {{- if eq ($sw.streamType | default "none") "kafka" }}
         - name: wait-for-kafka
           image: docker.io/library/busybox:1.37.0
@@ -217,6 +260,8 @@ spec:
               value: {{ $mv3dt.deepstreamEnableSensorIdExtraction | default "0" | quote }}
             - name: MV3DT_DYNAMIC_CAMERA_CONFIG
               value: {{ ($mv3dt.dynamicCameraConfig | default dict).enabled | default false | quote }}
+            - name: DS_TRACKER_REID
+              value: {{ ($mv3dt.reid | default dict).enabled | default false | quote }}
             - name: GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS
               value: {{ .Values.gstEnableCustomParserModifications | quote }}
             - name: OTEL_SDK_DISABLED
@@ -269,6 +314,12 @@ spec:
         - name: models
           persistentVolumeClaim:
             claimName: {{ include "vss-rtvi-cv.fullname" . }}-models
+        {{- if and $reid.enabled $waitForReidModels }}
+        - name: reid-generation
+          configMap:
+            name: {{ include "vss-rtvi-cv.reidGenerationConfigMapName" . }}
+            optional: true
+        {{- end }}
 
         - name: generated
           emptyDir: {}

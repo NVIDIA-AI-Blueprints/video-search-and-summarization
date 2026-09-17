@@ -45,7 +45,7 @@ Usage from the repository root:
         --rtcv-skill-dir skills/deployment/vss-deploy-detection-tracking-2d \\
         --rtembed-skill-dir skills/deployment/vss-deploy-video-embedding \\
         --summarize-skill-dir skills/operations/vss-summarize-video \\
-        --spec skills/vss-build-vision-ai/eval/profile_in_1_streaming_dense_captions.json
+        --spec skills/vss-build-vision-ai/eval/vdr_1_quickstart_vision_agent.json
 """
 from __future__ import annotations
 
@@ -100,8 +100,11 @@ DEFAULT_PLATFORM = "RTXPRO6000BW"
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
-    "setup action the trial requires."
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
+    "setup action the trial requires. This wording is what activates the skill's "
+    "autonomous-mode exception (SKILL.md, 'Exception — autonomous mode'), which "
+    "skips the Q1/Q2 intake, Q3 harness selection, and Step 6 diagram approval; "
+    "without it a trial hangs on a confirmation no human is present to give."
 )
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
@@ -235,7 +238,7 @@ def generate_task(
     runtime_deploy = bool(spec.get("runtime_deploy", True))
     judge_max_turns = int(spec.get("judge_max_turns", 60))
 
-    # dataset group = spec stem (e.g. "profile_in_1_streaming_dense_captions")
+    # dataset group = spec stem (e.g. "vdr_1_quickstart_vision_agent")
     dataset_group = Path(spec_name).stem
 
     for idx, expect in enumerate(rendered_spec.get("expects") or [], 1):
@@ -462,7 +465,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--spec", default=None,
-        help="Path to the eval spec JSON (default: <skill-dir>/eval/profile_in_1_streaming_dense_captions.json)",
+        help="Path to the eval spec JSON (default: <skill-dir>/eval/vdr_1_quickstart_vision_agent.json)",
     )
     parser.add_argument(
         "--platform", default=None,
@@ -509,7 +512,7 @@ def main() -> None:
     spec_path = (
         Path(args.spec)
         if args.spec
-        else (skill_dir / "eval" / "profile_in_1_streaming_dense_captions.json")
+        else (skill_dir / "eval" / "vdr_1_quickstart_vision_agent.json")
     )
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)

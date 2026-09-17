@@ -3,7 +3,8 @@ Third-Party Software Licenses
 
 This file contains the licenses and attributions for third-party Docker
 container images pulled at runtime as part of the deployments (e.g. when
-running developer profiles via scripts/dev-profile.sh or docker compose).
+running developer profiles via scripts/dev-profile.sh or docker compose),
+and for Python packages installed at runtime.
 
 ================================================================================
 
@@ -279,6 +280,61 @@ running developer profiles via scripts/dev-profile.sh or docker compose).
     License URL: https://github.com/haproxytech/helm-charts/blob/main/LICENSE
     Notes: This Helm chart is an optional dependency for deploying the HAProxy
            Kubernetes Ingress Controller into the Kubernetes cluster.
+
+
+23. gdown
+    Package: gdown (PyPI)
+    License: MIT License
+    Registry: https://pypi.org/project/gdown/
+    Source: https://github.com/wkentaro/gdown
+    License URL: https://github.com/wkentaro/gdown/blob/main/LICENSE
+    Description: Google Drive downloader. Installed at runtime by the ReID
+                 model-staging script (download-embedding-models.sh) to fetch
+                 the CLIP-ReID checkpoint.
+    Full License Text:
+
+    See: https://opensource.org/licenses/MIT
+
+
+24. ftfy
+    Package: ftfy (PyPI)
+    License: Apache License 2.0
+    Registry: https://pypi.org/project/ftfy/
+    Source: https://github.com/rspeer/python-ftfy
+    License URL: https://github.com/rspeer/python-ftfy/blob/main/LICENSE
+    Description: "fixes text for you" Unicode repair library. Installed at
+                 runtime by the ReID model-staging script as a CLIP-ReID
+                 conversion dependency.
+    Full License Text:
+
+    See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+25. timm
+    Package: timm (PyPI)
+    License: Apache License 2.0
+    Registry: https://pypi.org/project/timm/
+    Source: https://github.com/huggingface/pytorch-image-models
+    License URL: https://github.com/huggingface/pytorch-image-models/blob/main/LICENSE
+    Description: PyTorch Image Models. Installed at runtime by the ReID
+                 model-staging script as a CLIP-ReID conversion dependency.
+    Full License Text:
+
+    See: https://www.apache.org/licenses/LICENSE-2.0
+
+
+26. yacs
+    Package: yacs (PyPI)
+    License: Apache License 2.0
+    Registry: https://pypi.org/project/yacs/
+    Source: https://github.com/rbgirshick/yacs
+    License URL: https://github.com/rbgirshick/yacs/blob/v0.1.8/LICENSE
+    Description: Yet Another Configuration System. Installed at runtime by
+                 the ReID model-staging script; the CLIP-ReID converter
+                 imports it to load vit_clipreid.yml.
+    Full License Text:
+
+    See: https://www.apache.org/licenses/LICENSE-2.0
 
 
 ================================================================================

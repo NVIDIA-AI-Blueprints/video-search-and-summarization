@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <memory>
+#include <mutex>
 #include "libjpeg-8b/jpeglib.h"
 
 namespace nv_vms {
@@ -69,6 +70,7 @@ private:
     friend struct std::default_delete<NvJpegEncLoader>;
 
     static std::unique_ptr<NvJpegEncLoader> m_instance;
+    static std::mutex m_instanceLock;
     bool m_error;
     nv_vms::SharedLibrary* m_handleNvJpeg;
 

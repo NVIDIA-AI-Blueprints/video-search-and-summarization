@@ -31,9 +31,15 @@ constexpr int JPEG_DEFAULT_QUALITY = 75;
 #define ROUND_UP_4(num)  (((num) + 3) & ~3)
 
 std::unique_ptr<NvJpegEncLoader> NvJpegEncLoader::m_instance = nullptr;
+std::mutex NvJpegEncLoader::m_instanceLock;
 
 NvJpegEncLoader* NvJpegEncLoader::getInstance()
 {
+    // The first JPEG encode of the process is typically several concurrent
+    // thumbnail requests. An unguarded check-then-create lets each of them
+    // construct a loader and delete the previous one while other threads are
+    // still encoding through it, which crashes in nvjpegEncodeFromFd.
+    std::lock_guard<std::mutex> lock(m_instanceLock);
     if (m_instance == nullptr)
     {
         m_instance.reset(new NvJpegEncLoader());
@@ -43,6 +49,7 @@ NvJpegEncLoader* NvJpegEncLoader::getInstance()
 
 void NvJpegEncLoader::deleteInstance()
 {
+    std::lock_guard<std::mutex> lock(m_instanceLock);
     m_instance.reset();
 }
 

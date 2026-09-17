@@ -55,7 +55,7 @@ ENV NVIDIA_DRIVER_CAPABILITIES=$NVIDIA_DRIVER_CAPABILITIES,video \
     TRITON_NVDISASM_PATH=/usr/local/cuda/bin/nvdisasm \
     TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
     GST_PLUGIN_PATH=/opt/nvidia/rtvi/gst-plugins:/opt/nvidia/deepstream/deepstream/lib/gst-plugins \
-    LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/usr/lib/aarch64-linux-gnu/nvidia:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+    LD_LIBRARY_PATH=/usr/local/lib/python3.12/dist-packages/nvidia/nvshmem/lib:/opt/hpcx/ucx/lib:/usr/lib/aarch64-linux-gnu/nvidia:/opt/nvidia/deepstream/deepstream/lib:/opt/nvidia/deepstream/deepstream-9.1/lib:/usr/local/nvidia/lib64:/usr/local/cuda/targets/x86_64-linux/lib:/usr/local/cuda/targets/sbsa-linux/lib:${LD_LIBRARY_PATH}
 
 # Install only RTVI runtime dependencies directly on vLLM. Native build
 # dependencies are confined to pyds-builder and native-builder below.
@@ -178,8 +178,8 @@ RUN --mount=from=triton-cuda-runtime,source=/usr/local/cuda/targets,target=/tmp/
         cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnpp*.so* /usr/local/cuda/targets/x86_64-linux/lib/ \
         && cp -a /tmp/triton-cuda-targets/x86_64-linux/lib/libnvjpeg.so* /usr/local/cuda/targets/x86_64-linux/lib/; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        for library in /tmp/triton-cuda-targets/aarch64-linux/lib/libnpp*.so* /tmp/triton-cuda-targets/aarch64-linux/lib/libnvjpeg.so*; do \
-            if [ -e "$library" ]; then cp -a "$library" /usr/local/cuda/targets/aarch64-linux/lib/; fi; \
+        for library in /tmp/triton-cuda-targets/sbsa-linux/lib/libnpp*.so* /tmp/triton-cuda-targets/sbsa-linux/lib/libnvjpeg.so*; do \
+            if [ -e "$library" ]; then cp -a "$library" /usr/local/cuda/targets/sbsa-linux/lib/; fi; \
         done; \
     fi \
     && ldconfig
@@ -297,6 +297,31 @@ RUN --mount=from=media-runtime,source=/tmp99,target=/tmp/ds-gst,readonly \
     && install -Dm755 /tmp/ds-gst/libgstvideoparsersbad.so /usr/lib/${multiarch}/gstreamer-1.0/libgstvideoparsersbad.so \
     && install -Dm755 /tmp/libgsttimestampfilter.so /usr/lib/${multiarch}/gstreamer-1.0/libgsttimestampfilter.so
 
+# Intelligent Frame Selection (IFS): nvdsframeselector.
+#
+# Vendored rather than taken from the DeepStream 9.1 image because the build
+# shipped there predates the properties the frame-selection pipeline drives
+# (static-frame-count, of-tighten, min-changed-pixels, chunk-duration,
+# chunk-origin). Pinning the binary here also keeps every image byte-identical
+# to the one the accuracy results were measured against.
+#
+# x86_64 only for now -- there is no aarch64 build of this plugin yet, so on
+# arm64 the element is absent and CHOOSE_FSELECT falls back to the default
+# frame selection. The readelf assertion makes a wrong-architecture artifact a
+# build failure rather than a runtime plugin-load failure.
+COPY artifacts/IFS/x86/libnvdsgst_frameselector.so /tmp/ifs-libs/x86/libnvdsgst_frameselector.so
+RUN set -eu; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        library=/tmp/ifs-libs/x86/libnvdsgst_frameselector.so; \
+        readelf -h "$library" | grep -Fq 'Class:                             ELF64'; \
+        readelf -h "$library" | grep -Fq 'Machine:                           Advanced Micro Devices X86-64'; \
+        install -Dm755 "$library" \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libnvdsgst_frameselector.so; \
+    else \
+        echo "IFS: no aarch64 nvdsframeselector build; frame selection unavailable on $TARGETARCH"; \
+    fi; \
+    rm -rf /tmp/ifs-libs
+
 # Native extensions are built outside the runtime image.
 COPY LICENSE.3rdparty /opt/nvidia/rtvi/
 RUN --mount=from=native-builder,source=/opt/native-artifacts/nvdec_get_count,target=/tmp/nvdec_get_count,readonly \
@@ -346,33 +371,37 @@ COPY src/scripts/install_codecs_nonroot.sh /opt/nvidia/rtvi/
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_arch_patch.py
 
-# Transformers 5 makes Parakeet's base configuration a dataclass. vLLM's
-# positional required subclass fields must be keyword-only to remain valid.
-RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
-    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_parakeet_transformers5_patch.py
-
 # Qwen3-Omni's nightly processor incorrectly assumes every video item has
 # use_audio_in_video, including video-only requests.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_qwen3_omni_audio_patch.py
 
-# EVS++ is shipped as prebuilt architecture-specific extensions below. Do not
-# copy its Python overlay into this public build; install the compiled modules
-# directly and retain the independent tensor-IPC patch.
+# Install the public EVS++ vLLM overlay first. The eleven EVS++ libraries are
+# installed as architecture-specific extensions below.
+COPY docker/rtvi_vlm/patches/evs_vllm_public_files/ /tmp/evs-public-overlay/
+RUN set -eu; \
+    vllm_root=/usr/local/lib/python3.12/dist-packages/vllm; \
+    cp -a /tmp/evs-public-overlay/. "$vllm_root"/; \
+    rm -rf /tmp/evs-public-overlay
+
+# Apply compatibility patches after the overlay so overlay-owned files cannot
+# replace their patched versions. The protected serving module imports
+# VideoClipAddRequest from the protocol.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
-    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
+    python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_parakeet_transformers5_patch.py \
+    && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_evs_protocol_patch.py \
+    && python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_vllm_tensor_ipc_patch.py
 
 # Patch FlashInfer CUDA runtime discovery for the non-eager compile path.
 RUN --mount=type=bind,source=docker,target=/tmp/rtvi-src/docker \
     python3 /tmp/rtvi-src/docker/rtvi_vlm/patches/apply_flashinfer_cudart_patch.py
 
 COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-x86-evs-cython/ /tmp/evs-libs/x86/
-COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-igpu-evs-cython/ /tmp/evs-libs/igpu/
-COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-sbsa-evs-cython/ /tmp/evs-libs/sbsa/
+COPY artifacts/vss-rt-vlm-3.3.0-26.07.4-igpu-evs-cython/ /tmp/evs-libs/arm64/
 RUN set -eu; \
     case "$TARGETARCH" in \
         amd64) evs_arch=x86 ;; \
-        arm64) case "$ARM_PLATFORM" in igpu|sbsa) evs_arch="$ARM_PLATFORM" ;; *) echo "Unsupported ARM platform: $ARM_PLATFORM" >&2; exit 1 ;; esac ;; \
+        arm64) case "$ARM_PLATFORM" in igpu|sbsa) evs_arch=arm64 ;; *) echo "Unsupported ARM platform: $ARM_PLATFORM" >&2; exit 1 ;; esac ;; \
         *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     source_root="/tmp/evs-libs/$evs_arch/vllm"; \
@@ -387,6 +416,13 @@ RUN set -eu; \
         rm -f "$vllm_root/${relative%%.cpython-312-*}.py"; \
     done; \
     rm -rf /tmp/evs-libs
+
+# Fail the image build if the EVS++ modules and their public protocol
+# compatibility types are not a coherent set. The SBSA build environment does
+# not mount the Tegra driver, which vLLM imports during this check.
+RUN if [ "$TARGETARCH" != "arm64" ] || [ "$ARM_PLATFORM" != "sbsa" ]; then \
+        python3 -c 'from vllm.entrypoints.openai.serving_video_sessions import OpenAIServingVideoSessions; from vllm.model_executor.models.nano_nemotron_vl import NemotronH_Nano_VL_V2'; \
+    fi
 
 # Remove unneeded media libraries shipped under /usr and DALI-bundled FFmpeg
 # libraries under /opt/tritonserver (e.g. hashed shared objects inside the DALI wheel).

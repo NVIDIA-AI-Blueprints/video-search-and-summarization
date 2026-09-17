@@ -156,6 +156,9 @@ env:
     value: "0"
   - name: VLLM_DISABLE_COMPILE_CACHE
     value: "1"
+  # Opt in only on platforms that hit the Qwen3-VL Conv3D cuDNN-v8 engine issue.
+  - name: TORCH_CUDNN_V8_API_DISABLED
+    value: "false"
   - name: VLLM_LOGGING_LEVEL
     value: "INFO"
   - name: LOG_LEVEL

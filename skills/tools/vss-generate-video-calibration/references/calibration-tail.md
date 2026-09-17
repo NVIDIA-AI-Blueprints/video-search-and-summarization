@@ -123,10 +123,12 @@ print(f"    Detector: {DETECTOR_TYPE}")
 print(f"    UI:       http://{_host}:{_ui_port}")
 print(f"    Logs:     GET {BASE_URL}/amc/calibrate/{project_id}/log   (Swagger UI: {_root}/docs)")
 
-# Step E — Poll until COMPLETED (10–60 min typical). Poll every 10s, and print a
-# heartbeat at least once a minute so a long RUNNING state still shows progress.
+# Step E — Poll until COMPLETED (10–60 min typical; six-camera transformer runs
+# can exceed one hour). Poll every 10s, and print a heartbeat at least once a
+# minute so a long RUNNING state still shows progress.
 start, last_state, last_beat = time.time(), "", 0.0
-while time.time() - start < 5400:
+# Allow up to two hours: large multi-camera transformer runs can exceed one hour.
+while time.time() - start < 7200:
     info = s.get(f"{BASE_URL}/get_project_info/{project_id}").json()
     st = info["project_info"]["amc_state"]
     mins, secs = divmod(int(time.time() - start), 60)

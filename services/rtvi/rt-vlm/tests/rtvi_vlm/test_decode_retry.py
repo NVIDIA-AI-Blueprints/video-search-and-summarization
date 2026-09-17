@@ -377,6 +377,75 @@ def test_failed_seek_playthrough_only_when_pipeline_is_before_target(monkeypatch
 
 
 @pytest.mark.no_gpu
+@pytest.mark.parametrize(
+    ("error", "expected", "frames", "timestamps", "audio", "accepted"),
+    [
+        ("qtdemux: streaming stopped, reason not-linked (-1)", 20, 20, 20, False, True),
+        ("qtdemux: streaming stopped, reason not-linked (-1)", 20, 19, 20, False, False),
+        ("qtdemux: streaming stopped, reason not-linked (-1)", 20, 20, 19, False, False),
+        ("qtdemux: streaming stopped, reason not-linked (-1)", 20, 20, 20, True, False),
+        ("decoder failed", 20, 20, 20, False, False),
+    ],
+)
+def test_completed_frames_suppress_only_late_qtdemux_not_linked(
+    monkeypatch, error, expected, frames, timestamps, audio, accepted
+):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline.video_file_frame_getter import (
+        _can_use_completed_frames_after_qtdemux_not_linked,
+    )
+
+    assert (
+        _can_use_completed_frames_after_qtdemux_not_linked(
+            error,
+            expected_frames=expected,
+            actual_frames=frames,
+            actual_timestamps=timestamps,
+            audio_enabled=audio,
+        )
+        is accepted
+    )
+
+
+@pytest.mark.no_gpu
+def test_completed_frames_use_original_count_after_selector_consumption(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline.video_file_frame_getter import (
+        DefaultFrameSelector,
+        _can_use_completed_frames_after_qtdemux_not_linked,
+    )
+
+    selector = DefaultFrameSelector(20, use_fps_for_chunking=False)
+    selector.set_chunk(ChunkInfo(file="video.mp4", start_pts=0, end_pts=20_000_000_000))
+    expected_frame_count = selector._num_frames
+    error = "qtdemux: streaming stopped, reason not-linked (-1)"
+
+    for pts in range(0, 10_000_000_000, 1_000_000_000):
+        assert selector.choose_frame(None, pts)
+    assert len(selector._selected_pts_array) == 10
+    assert not _can_use_completed_frames_after_qtdemux_not_linked(
+        error,
+        expected_frames=expected_frame_count,
+        actual_frames=10,
+        actual_timestamps=10,
+        audio_enabled=False,
+    )
+
+    for pts in range(10_000_000_000, 20_000_000_000, 1_000_000_000):
+        assert selector.choose_frame(None, pts)
+    assert not selector._selected_pts_array
+    assert _can_use_completed_frames_after_qtdemux_not_linked(
+        error,
+        expected_frames=expected_frame_count,
+        actual_frames=20,
+        actual_timestamps=20,
+        audio_enabled=False,
+    )
+
+
+@pytest.mark.no_gpu
 def test_gst_property_setter_skips_properties_missing_on_jetson(monkeypatch):
     monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
 
@@ -420,6 +489,118 @@ def test_late_file_frame_after_cache_handoff_is_dropped(monkeypatch):
     assert fgetter._append_file_frame_to_cache("frame", 2.34)
     assert fgetter._cached_frames == ["frame"]
     assert fgetter._cached_frames_pts == [2.34]
+
+
+@pytest.mark.no_gpu
+def test_pipeline_replacement_removes_bus_watch_and_callbacks(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline.video_file_frame_getter import VideoFileFrameGetter
+
+    events = []
+
+    class FakePad:
+        def remove_probe(self, probe_id):
+            events.append(("probe", probe_id))
+
+    class FakeSignalObject:
+        def disconnect(self, handler_id):
+            events.append(("handler", handler_id))
+
+    class FakeBus:
+        def remove_signal_watch(self):
+            events.append(("bus-watch", None))
+
+    class FakePipeline:
+        def remove(self, element):
+            events.append(("decoder", element))
+
+    fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
+    old_pipeline = FakePipeline()
+    cached_decoder = object()
+    old_bus = FakeBus()
+    fgetter._pipeline = old_pipeline
+    fgetter._vdecodebin = cached_decoder
+    fgetter._vdecodebin_cache = {("h264", 320, 320): cached_decoder}
+    old_parser_pad = FakePad()
+    fgetter._gst_pad_probe_ids = [(old_parser_pad, 11)]
+    fgetter._gst_signal_handler_ids = [(FakeSignalObject(), 22)]
+    fgetter._vdecodebin_cache_signal_keys = {("h264", 320, 320)}
+    fgetter._bus = old_bus
+    fgetter._bus_signal_watch_added = True
+
+    detached = fgetter._detach_pipeline_for_replacement()
+
+    assert detached is old_pipeline
+    assert events == [
+        ("decoder", cached_decoder),
+        ("probe", 11),
+        ("handler", 22),
+        ("bus-watch", None),
+    ]
+    assert fgetter._pipeline is None
+    assert fgetter._vdecodebin is None
+    assert fgetter._bus is None
+    assert fgetter._gst_pad_probe_ids == []
+    assert fgetter._gst_signal_handler_ids == []
+    assert fgetter._vdecodebin_cache_signal_keys == set()
+    assert not fgetter._bus_signal_watch_added
+
+
+@pytest.mark.no_gpu
+def test_cached_decoder_restores_existing_parser_probe(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pyds", types.SimpleNamespace())
+
+    from vlm_pipeline import video_file_frame_getter as frame_getter_module
+    from vlm_pipeline.video_file_frame_getter import VideoFileFrameGetter
+
+    class FakeFactory:
+        def get_name(self):
+            return "h264parse"
+
+    class FakePad:
+        def __init__(self):
+            self.probes = []
+
+        def add_probe(self, probe_type, callback, *args):
+            self.probes.append((probe_type, callback, args))
+            return len(self.probes)
+
+    class FakeParser:
+        def __init__(self):
+            self.src_pad = FakePad()
+
+        def get_factory(self):
+            return FakeFactory()
+
+        def get_static_pad(self, name):
+            assert name == "src"
+            return self.src_pad
+
+    class FakeIterator:
+        def __init__(self, elem):
+            self.elem = elem
+
+        def next(self):
+            if self.elem is not None:
+                elem, self.elem = self.elem, None
+                return frame_getter_module.Gst.IteratorResult.OK, elem
+            return frame_getter_module.Gst.IteratorResult.DONE, None
+
+        def resync(self):
+            raise AssertionError("unexpected iterator resync")
+
+    parser = FakeParser()
+    cached_decoder = SimpleNamespace(iterate_recurse=lambda: FakeIterator(parser))
+    fgetter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
+    fgetter._gop_decode_opt_enabled = True
+    fgetter._gst_pad_probe_ids = []
+
+    fgetter._restore_cached_decoder_parser_probes(cached_decoder)
+    fgetter._restore_cached_decoder_parser_probes(cached_decoder)
+
+    assert len(parser.src_pad.probes) == 1
+    assert fgetter._gst_pad_probe_ids == [(parser.src_pad, 1)]
 
 
 @pytest.mark.no_gpu

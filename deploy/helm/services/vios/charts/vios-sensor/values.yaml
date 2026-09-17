@@ -48,6 +48,12 @@ vstIngressEndpoint: ""        # full URL with scheme. When global.vlmBaseUrl and
 redisServerAddress: ""
 # Kafka and MQTT use notification_config.json placeholders; video metadata and cloud storage remain in vst_config.json. Empty = release-based or Compose default.
 kafkaServerAddress: ""
+# RT-VLM webhook target (__RTVI_VLM_ADDRESS__). Empty = vss-rtvi-vlm:8000, or
+# <Release.Name>-vss-rtvi-vlm:8000 when global.useReleaseNamePrefix is true.
+rtviVlmServerAddress: ""
+# Optional complete notification_config.json. Empty uses the chart default;
+# global.vios.notificationConfig provides one shared config to sensor and streamprocessing.
+notificationConfig: ""
 videoMetadataServerUrl: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""

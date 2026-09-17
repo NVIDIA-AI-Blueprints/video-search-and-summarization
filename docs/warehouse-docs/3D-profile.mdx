@@ -179,7 +179,7 @@ To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent
 
 For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
-AMC relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
+The tracklet-based AMC method relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
 </Info>
 
 #### Step 1: Prepare video sources
@@ -292,11 +292,15 @@ When using a custom recorded-video dataset, `NUM_STREAMS` depends on the number 
 
 To use a custom dataset:
 
+* For a custom synthetic dataset, use a dataset name that ends in `-synthetic` (for example, `my-warehouse-synthetic`). Custom real datasets do not have a naming convention.
+
 * Set `SAMPLE_VIDEO_DATASET` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/.env` to the name of your dataset.
+
+* Set `DATASET_TYPE` in `$VSS_APPS_DIR/industry-profiles/warehouse-operations/overrides.env` to `synthetic` for a synthetic dataset or `real` for a real dataset. This selects the corresponding Sparse4D model, engine, anchor, and labels.
 
 * Place the video files in `$VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET/`.
 
-* Add the image metadata, calibration, and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
+* Add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. If you already have a calibration, add `calibration.json` to the same directory. Otherwise, generate it in Step 3. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
 
 <Note>
 Refer to [Sparse4D Real-Time Performance](/vss/system-components/models/sparse4d-3d-multi-camera#real-time-inference-throughput-latency) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
@@ -321,7 +325,7 @@ sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
 sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
 ```
 
-Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`) to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [AutoMagicCalib quickstart](/vss/system-components/calibration/auto-calibration/getting-started#quick-start). Once the calibration is generated, store it, bring the Docker Compose stack down, and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Configure `industry-profiles/warehouse-operations/overrides.env` using the **Auto-Calibration** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection), then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the Auto-Calibration profile. Use it to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [Auto Calibration workflow steps](/vss/system-components/calibration/auto-calibration/workflow-steps). After generating and storing the calibration, bring the Docker Compose stack down and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
 
 <a id="calibration-group-region-note-3d"></a>
 
@@ -329,7 +333,6 @@ Deploy the auto-calibration configuration (`MODE=auto-calibration`, `BP_PROFILE=
 - Maintain a single `calibration.json` file per deployment.
 - Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
 - For 3D profile use cases, the ROIs and Tripwires must be drawn on the floor plan/layout map.
-- The AMC UI exports the `group` and `region` blocks under each entry in `sensors[]` with empty values. The 3D profile uses these fields for multi-camera grouping and BEV fusion, so populate them with valid values for each sensor before deploying the blueprint.
 - Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
 - Manually add any other attributes that are missing from the generated calibration file but are required for your use case.
@@ -342,7 +345,7 @@ Use `create_camera_clusters.py` to partition cameras into non-overlapping groups
 
 #### Step 5: Redeploy the stack to apply the new calibration
 
-To redeploy the stack to apply the new calibration, follow the [Quickstart](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint).
+Before redeploying, replace the Auto-Calibration settings in `industry-profiles/warehouse-operations/overrides.env` with the settings from the **3D** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection). Then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the 3D profile with the new calibration.
 
 <Note>
 Before updating the warehouse `.env` file or running `docker compose up`, check whether containers from a previous Docker Compose deployment are still present:

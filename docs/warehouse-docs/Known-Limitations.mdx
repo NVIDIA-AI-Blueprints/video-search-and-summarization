@@ -44,32 +44,32 @@ While running the Warehouse Blueprint **2D Vision AI Profile with Agents**, you 
 
 This can occur when there is a connectivity issue with the VLM service.
 
-## Camera Calibration with AutoMagicCalib (AMC)
+## Camera Calibration with Auto Calibration
 
-The following are known limitations when using the AutoMagicCalib Microservice with [AutoMagicCalib](/vss/system-components/calibration/auto-calibration).
+The following are known limitations when using the [Auto Calibration service](/vss/system-components/calibration/auto-calibration).
 
 ### Floor Map and Scale Factor Requirement
 
-AMC currently requires the user to provide a floor map and a proper `scaleFactor`.
-AMC uses these inputs to scale the global coordinate system to meters.
+Auto Calibration currently requires the user to provide a floor map and a proper `scaleFactor`.
+Auto Calibration uses these inputs to scale the global coordinate system to meters.
 Behavior analytics assumes the global coordinate system is
 in meters and computes distance-related properties, such as proximity violation, based on it.
 If the `scaleFactor` is not provided or is improper with respect to the floor map,
 the computed distance-related properties can be affected.
-In future releases, AMC will remove the requirement to provide both a floor map and `scaleFactor`.
+In future releases, Auto Calibration will remove the requirement to provide both a floor map and `scaleFactor`.
 
 ### Calibration is based on detected persons
 
-AMC detects person movements from input videos and performs camera calibration based on them.
-The video should have people moving into various locations in camera view for AMC to work best.
-Currently AMC only supports person as the target and it will not work on video
+The tracklet-based AMC method detects person movements from input videos and performs camera calibration based on them.
+The video should have people moving into various locations in camera view for the AMC method to work best.
+Currently, the AMC method only supports person as the target and it will not work on video
 without enough person movements. Support for general object tracking will be added in future releases.
 
 ### Global Tripwire and ROI for 3D Blueprint
 
 VSS warehouse blueprint 3D profile needs global tripwire / ROI to generate related events.
-AMC currently supports per sensor tripwire / ROI only.
-To make the AMC output calibration file compatible with 3D blueprint,
+Auto Calibration currently supports per sensor tripwire / ROI only.
+To make the Auto Calibration output file compatible with the 3D blueprint,
 the user can first define the tripwire / ROI for one particular sensor then in the output calibration file
 manually move the tripwire/ROI from under `sensors` section to top level of the calibration file.
 
@@ -77,8 +77,8 @@ manually move the tripwire/ROI from under `sensors` section to top level of the 
 
 VSS warehouse blueprint has mainly been used for use cases where the locations of objects are tracked and analyzed in a global coordinate system.
 It supports all functionalities in image pixel coordinate as well, which we call image mode.
-AMC currently does not support image mode. For image mode, there is no camera parameters needed (intrinsics, extrinsics, homography, etc.) since there is no coordinate transformation involved.
-The tripwires and ROIs need to be defined in pixel coordinates. Since AMC does not support image mode at the moment, the user needs to manually find the pixel coordinates for the defined tripwires and ROIs.
+Auto Calibration currently does not support image mode. For image mode, there are no camera parameters needed (intrinsics, extrinsics, homography, etc.) since there is no coordinate transformation involved.
+The tripwires and ROIs need to be defined in pixel coordinates. Since Auto Calibration does not support image mode at the moment, the user needs to manually find the pixel coordinates for the defined tripwires and ROIs.
 It can be done by using image editing software or tools like Paint, IrfanView, etc.
 In addition, the user needs to set `"calibrationType": "image"` instead of `"calibrationType": "cartesian"` in the calibration file.
 

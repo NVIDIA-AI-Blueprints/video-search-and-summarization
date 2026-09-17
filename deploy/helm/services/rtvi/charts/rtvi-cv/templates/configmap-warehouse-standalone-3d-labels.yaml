@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 {{- if and .Values.enabled (eq .Values.profileMode "standalone-3d") }}
+{{- $datasetType := .Values.datasetType | default "synthetic" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -22,7 +23,5 @@ metadata:
     {{- include "vss-rtvi-cv.labels" . | nindent 4 }}
 data:
   labels.txt: |
-{{ .Files.Get "files/warehouse-standalone-3d/deepstream/label/labels.txt" | nindent 4 }}
-binaryData:
-  _ov_kmeans900_v2.2.npy: {{ .Files.Get "files/warehouse-standalone-3d/anchors/_ov_kmeans900_v2.2.npy" | b64enc | quote }}
+{{ .Files.Get (printf "files/warehouse-standalone-3d/deepstream/label/labels-%s.txt" $datasetType) | nindent 4 }}
 {{- end }}

@@ -64,7 +64,7 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-build-vision-ai` or any other "
     "setup action the trial requires."
 )
 

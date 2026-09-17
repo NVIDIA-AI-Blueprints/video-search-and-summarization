@@ -8,5 +8,8 @@ dependencies:
 - name: vss-rtvi-embed
   repository: file://./charts/rtvi-embed
   version: 3.3.0
-digest: sha256:f05de41e744128fcaa16940f01ecd096b829073d3b22b1e495159221950aaaac
-generated: "2026-08-19T11:18:55.049423+05:30"
+- name: vss-reid-embed
+  repository: file://./charts/reid-embed
+  version: 3.3.0
+digest: sha256:810270b8ec3d4be92560af6224571f1275c3159566f7cbf6f223781f1b4ea543
+generated: "2026-09-04T07:18:11.360611412Z"

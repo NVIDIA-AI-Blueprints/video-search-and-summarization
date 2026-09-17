@@ -252,10 +252,6 @@ spec:
               mountPath: /opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt
               subPath: labels.txt
               readOnly: true
-            - name: wh3d-labels
-              mountPath: /opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.2.npy
-              subPath: _ov_kmeans900_v2.2.npy
-              readOnly: true
             - name: wh3d-cfg
               mountPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config-ocr.yaml
               subPath: config-ocr.yaml
@@ -318,8 +314,6 @@ spec:
             items:
               - key: labels.txt
                 path: labels.txt
-              - key: _ov_kmeans900_v2.2.npy
-                path: _ov_kmeans900_v2.2.npy
         - name: wh3d-cfg
           configMap:
             name: {{ include "vss-rtvi-cv.fullname" . }}-warehouse-standalone-3d

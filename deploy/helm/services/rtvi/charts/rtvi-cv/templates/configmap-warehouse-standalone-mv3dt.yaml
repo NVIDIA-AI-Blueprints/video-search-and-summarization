@@ -31,6 +31,8 @@
 {{- $redisHost := include "vss-rtvi-cv.mv3dtRedisHost" . }}
 {{- $redisPort := $mv3dt.redisPort | default "6379" }}
 {{- $mqttEndpoint := printf "%s:%s" (include "vss-rtvi-cv.mv3dtMqttHost" .) ($mv3dt.mqttPort | default "1883") }}
+{{- $reid := $mv3dt.reid | default dict }}
+{{- $reidDir := printf "/opt/storage/%s" ($reid.modelSubDir | default "reid") }}
 {{- $dynamicCam := ($mv3dt.dynamicCameraConfig | default dict).enabled }}
 {{- $trackerCfg := ternary "/tmp/generated/ds-mv3dt-tracker-config.yml" (printf "%s/ds-mv3dt-tracker-config.yml" $bundle) (default false $dynamicCam) }}
 apiVersion: v1
@@ -78,6 +80,26 @@ data:
 {{- else if eq $base "pub_sub_info_config.yml" }}
   {{ $base }}: |
 {{ replace "localhost:1883" $mqttEndpoint $content | nindent 4 }}
+{{- else if eq $base "ds-mv3dt-tracker-config.yml" }}
+  {{ $base }}: |
+{{- if $reid.enabled }}
+{{/* Append the ReID/ReIDService blocks from the sibling reid-append file.
+     Drop that file's licence header by keeping only what follows the first
+     section key, then point the model paths and service endpoint at values.
+     The engine path is replaced with its quotes included so it cannot be
+     partially rewritten by the onnxFile replacement, whose match is a prefix
+     of it. */}}
+{{- $reidRaw := $.Files.Get "files/warehouse-standalone-mv3dt/deepstream/reid-append/tracker-reid.yml" }}
+{{- $reidBody := printf "TrajectoryManagement:%s" (index (splitList "\nTrajectoryManagement:" $reidRaw) 1) }}
+{{- $reidBody = replace "\"/opt/storage/reid/reid_model.onnx_b64_gpu0_fp32.engine\"" (printf "\"%s/%s\"" $reidDir ($reid.engineFileName | default "reid_model.onnx_b64_gpu0_fp32.engine")) $reidBody }}
+{{- $reidBody = replace "\"/opt/storage/reid/reid_model.onnx\"" (printf "\"%s/%s\"" $reidDir ($reid.onnxFileName | default "reid_model.onnx")) $reidBody }}
+{{- $reidBody = replace "serviceAddress: \"reid-embed\"" (printf "serviceAddress: \"%s\"" (include "vss-rtvi-cv.reidServiceAddress" $)) $reidBody }}
+{{- $reidBody = replace "servicePort: 8088" (printf "servicePort: %s" ($reid.servicePort | default "8088" | toString)) $reidBody }}
+{{- $reidBody = regexReplaceAll "(?m)^  reidExtractionInterval: 8$" $reidBody (printf "  reidExtractionInterval: %s" ($reid.extractionInterval | default "8" | toString)) }}
+{{ printf "%s\n%s" $content $reidBody | nindent 4 }}
+{{- else }}
+{{ $content | nindent 4 }}
+{{- end }}
 {{- else }}
   {{ $base }}: |
 {{ $content | nindent 4 }}

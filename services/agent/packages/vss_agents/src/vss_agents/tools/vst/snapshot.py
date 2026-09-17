@@ -100,9 +100,9 @@ class VSTSnapshotOffsetInput(BaseModel):
         description="The name of the video file uploaded or the stream ID from VST",
         min_length=1,
     )
-    start_time: float = Field(
-        ...,
-        description="Seconds since the beginning of the stream (e.g., 30.0 for 30 seconds in)",
+    start_time: float | None = Field(
+        default=None,
+        description="Optional seconds since the beginning of the stream. Omit to use the latest recorded frame.",
     )
 
 
@@ -117,9 +117,9 @@ class VSTSnapshotISOInput(BaseModel):
         description="The name of the video file uploaded or the stream ID from VST",
         min_length=1,
     )
-    start_time: str = Field(
-        ...,
-        description="ISO 8601 UTC timestamp (e.g., '2025-08-25T03:05:55.752Z')",
+    start_time: str | None = Field(
+        default=None,
+        description="Optional ISO 8601 UTC timestamp. Omit to use the latest recorded frame.",
         min_length=1,
     )
 
@@ -193,6 +193,25 @@ async def get_snapshot_url(
     return str(image_url)
 
 
+async def get_latest_snapshot_time(stream_id: str, vst_internal_url: str) -> str:
+    """Return a timestamp just inside the end of the stream's recorded timeline."""
+    timeline_start, timeline_end = await get_timeline(stream_id, vst_internal_url)
+    start = datetime.fromisoformat(timeline_start)
+    end = datetime.fromisoformat(timeline_end)
+    latest = max(start, end - timedelta(milliseconds=1))
+    return latest.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+async def validate_snapshot_time(stream_id: str, start_time: str, vst_internal_url: str) -> None:
+    """Reject ISO timestamps outside the stream's recorded timeline."""
+    timeline_start, timeline_end = await get_timeline(stream_id, vst_internal_url)
+    picture_time = datetime.fromisoformat(start_time)
+    if picture_time < datetime.fromisoformat(timeline_start) or picture_time > datetime.fromisoformat(timeline_end):
+        raise ValueError(
+            f"Picture time {start_time} is out of the video timeline {timeline_start} to {timeline_end}",
+        )
+
+
 @register_function(config_type=VSTSnapshotConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def vst_snapshot(config: VSTSnapshotConfig, _builder: Builder) -> AsyncGenerator[FunctionInfo]:
     async def _vst_snapshot(vst_snapshot_input: VSTSnapshotOffsetInput | VSTSnapshotISOInput) -> VSTSnapshotOutput:
@@ -202,10 +221,15 @@ async def vst_snapshot(config: VSTSnapshotConfig, _builder: Builder) -> AsyncGen
             VSTSnapshotOutput containing image URL and stream ID
         """
         stream_id = await get_stream_id(vst_snapshot_input.sensor_id, config.vst_internal_url)
+        start_time = vst_snapshot_input.start_time
+        if start_time is None:
+            start_time = await get_latest_snapshot_time(stream_id, config.vst_internal_url)
+        elif isinstance(start_time, str):
+            await validate_snapshot_time(stream_id, start_time, config.vst_internal_url)
 
         image_url = await get_snapshot_url(
             stream_id,
-            vst_snapshot_input.start_time,
+            start_time,
             config.vst_internal_url,
             overlay_enabled=config.overlay_config,
             timeout_seconds=config.timeout_seconds,
@@ -233,7 +257,8 @@ async def vst_snapshot(config: VSTSnapshotConfig, _builder: Builder) -> AsyncGen
         input_desc = """
         \n\nInput:
         - sensor_id: Required. The name of the sensor or video file.
-        - start_time: Required. ISO 8601 UTC timestamp (e.g., '2025-08-25T03:05:55.752Z').
+        - start_time: Optional. ISO 8601 UTC timestamp (e.g., '2025-08-25T03:05:55.752Z').
+          Omit to use the latest frame in the sensor's recorded timeline.
         """
         func_desc = _vst_snapshot.__doc__ or ""
 
@@ -251,7 +276,8 @@ async def vst_snapshot(config: VSTSnapshotConfig, _builder: Builder) -> AsyncGen
         input_desc = """
         \n\nInput:
         - sensor_id: Required. The name of the sensor or video file.
-        - start_time: Required. Seconds since the beginning of the stream (e.g., 30.0 for 30 seconds from the start of the video).
+        - start_time: Optional. Seconds since the beginning of the stream (e.g., 30.0 for 30 seconds from the start of the video).
+          Omit to use the latest frame in the sensor's recorded timeline.
         """
         func_desc = _vst_snapshot.__doc__ or ""
         yield FunctionInfo.create(

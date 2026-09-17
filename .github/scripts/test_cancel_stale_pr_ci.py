@@ -113,6 +113,16 @@ class ShouldCancelTest(unittest.TestCase):
             )
         )
 
+    def test_closed_pr_does_not_cancel_stage_fern_docs(self):
+        self.assertFalse(
+            module.should_cancel_run(
+                run=run() | {"name": "Stage Fern Docs"},
+                matches_source=True,
+                closed=True,
+                this_run_id=99,
+            )
+        )
+
     def test_does_not_cancel_self(self):
         self.assertFalse(
             module.should_cancel_run(

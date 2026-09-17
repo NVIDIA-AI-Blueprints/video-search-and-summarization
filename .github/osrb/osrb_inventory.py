@@ -799,6 +799,25 @@ def previous_licenses(path: str) -> dict[tuple[str, str], str]:
     return out
 
 
+def previous_licenses_by_language(path: str) -> dict[tuple[str, str], set[str]]:
+    """{(name, language): {licences}} from a previously committed inventory.
+
+    Language is in the key because a package name is only unique inside its
+    ecosystem: `regex` on PyPI is "Apache-2.0 AND CNRI-Python" and `regex` on
+    npm is MIT. Keyed on the name alone, one would answer for the other.
+    """
+    out: dict[tuple[str, str], set[str]] = {}
+    with open(path, newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            license_expr = (row.get("license") or "").strip()
+            package = (row.get("package") or "").strip()
+            language = (row.get("language") or "").strip()
+            if not package or not license_expr or license_expr == UNKNOWN:
+                continue
+            out.setdefault((package.lower(), language), set()).add(license_expr)
+    return out
+
+
 def unanimous_parser_licenses(entries: list[_Entry]) -> dict[tuple[str, str], str]:
     """{(name, version): license} for releases every parser in the tree agrees on.
 
@@ -823,11 +842,58 @@ def unanimous_parser_licenses(entries: list[_Entry]) -> dict[tuple[str, str], st
     return {key: next(iter(values)) for key, values in candidates.items() if len(values) == 1}
 
 
+def unanimous_package_licenses(
+    entries: list[_Entry],
+    previous_by_language: dict[tuple[str, str], set[str]] | None = None,
+) -> dict[tuple[str, str], str]:
+    """{(name, language): license} for packages every KNOWN VERSION agrees on.
+
+    Every other tier matches an exact (name, version). That is right when a
+    release can be looked up, and wrong the moment a version moves: relocating
+    a library into its own module re-resolves the lockfile, so cryptography
+    goes 50.0.0 -> 50.0.1 and its licence -- recorded three times elsewhere in
+    this same tree -- stops being found at all. The row lands UNKNOWN, the
+    agent has to research a licence the repository already knows, and past
+    --max-unknowns it is reported as needing OSRB review.
+
+    A licence is a property of the package far more often than of the release,
+    so when every version this repository knows about agrees, that answer
+    carries to a version none of them names.
+
+    Language is in the key: `regex` on PyPI is "Apache-2.0 AND CNRI-Python"
+    and `regex` on npm is MIT, and a name-only key would let one answer for
+    the other. Attribution files do not feed this tier for the same reason --
+    they are keyed by module rather than ecosystem, so they cannot say which
+    `regex` they mean.
+
+    Unanimity is the whole safeguard, and it is what makes a relicence safe:
+    a package that was MIT at 1.0 and GPL-3.0 at 2.0 disagrees, gets no
+    fallback, and goes to the agent and then to a human -- which is the
+    outcome that matters. This is the last tier, so it can only ever fill a
+    row that would otherwise be UNKNOWN.
+    """
+    candidates: dict[tuple[str, str], set[str]] = {}
+    for entry in entries:
+        for licence in entry.licenses:
+            if licence and licence != UNKNOWN:
+                candidates.setdefault(
+                    (entry.package.lower(), entry.language), set()
+                ).add(licence)
+    for key, licences in (previous_by_language or {}).items():
+        candidates.setdefault(key, set()).update(licences)
+    return {
+        key: next(iter(values))
+        for key, values in candidates.items()
+        if len(values) == 1
+    }
+
+
 def resolve_license(
     entry: _Entry,
     attribution: dict[tuple[str, str, str], str],
     previous: dict[tuple[str, str], str],
     in_tree: dict[tuple[str, str], str] | None = None,
+    across_versions: dict[tuple[str, str], str] | None = None,
 ) -> tuple[str, str]:
     """Pick a licence for one entry, or UNKNOWN. Never guesses.
 
@@ -861,6 +927,9 @@ def resolve_license(
     carried = previous.get((name, entry.version))
     if carried:
         return carried, "carried-forward"
+    across = (across_versions or {}).get((name, entry.language))
+    if across:
+        return across, "another-version"
     return UNKNOWN, "unresolved"
 
 
@@ -935,11 +1004,17 @@ def build(
 
     entries = inventory.entries()
     in_tree = unanimous_parser_licenses(entries)
+    across_versions = unanimous_package_licenses(
+        entries,
+        previous_licenses_by_language(previous_path) if previous_path else {},
+    )
 
     rows: list[dict[str, str]] = []
     provenance: dict[str, int] = {}
     for entry in entries:
-        license_expr, source = resolve_license(entry, attribution, previous, in_tree)
+        license_expr, source = resolve_license(
+            entry, attribution, previous, in_tree, across_versions
+        )
         provenance[source] = provenance.get(source, 0) + 1
         rows.append(row_for(entry, license_expr))
     rows.sort(key=sort_key)
@@ -955,6 +1030,7 @@ def build(
         "license_from_attribution_file": provenance.get("attribution", 0),
         "license_from_another_parser_in_tree": provenance.get("another-parser", 0),
         "license_carried_forward": provenance.get("carried-forward", 0),
+        "license_from_another_version": provenance.get("another-version", 0),
         "license_unknown": provenance.get("unresolved", 0),
     }
     return rows, counters

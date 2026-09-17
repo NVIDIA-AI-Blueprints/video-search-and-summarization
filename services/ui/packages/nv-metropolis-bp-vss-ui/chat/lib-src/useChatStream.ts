@@ -10,7 +10,7 @@ import {
   type AgentApiChatEvent,
   type AgentApiRun,
 } from './agentApi';
-import { SseParser, type SseEvent } from './sse';
+import { SseParser, type InteractionRequest, type SseEvent } from './sse';
 import type {
   CallerInfo,
   ChatEndpointConfig,
@@ -44,6 +44,7 @@ export interface UseChatStreamOptions {
   onAnswer?: (answer: string) => CallerInfo | boolean | void;
   onAnswerComplete?: () => void;
   onBusyChange?: (busy: boolean) => void;
+  onInteraction?: (interaction: InteractionRequest) => Promise<string>;
   /** Called when the turn's conversation is no longer the selected one. */
   isConversationStale?: (uploadConversationId: string) => boolean;
 }
@@ -184,7 +185,7 @@ export function useChatStream(
       const artifactEnvelopes: string[] = [];
       const steps: ChatStep[] = [];
 
-      const consume = (events: Array<SseEvent | AgentApiChatEvent>) => {
+      const consume = async (events: Array<SseEvent | AgentApiChatEvent>) => {
         for (const ev of events) {
           if (ev.kind === 'token') {
             answer += ev.text;
@@ -197,6 +198,24 @@ export function useChatStream(
             patchReply((m) => ({ ...m, steps: [...steps] }));
           } else if (ev.kind === 'artifact') {
             artifactEnvelopes.push(ev.envelope);
+          } else if (ev.kind === 'interaction') {
+            if (ev.interaction.prompt.input_type !== 'text') {
+              throw new Error(`Unsupported interaction type: ${ev.interaction.prompt.input_type}`);
+            }
+            const answerInteraction = optionsRef.current.onInteraction;
+            if (!answerInteraction) throw new Error('Interactive agent response UI is unavailable');
+            const interactionText = await answerInteraction(ev.interaction);
+            const interactionUrl = new URL(endpointRef.current.url, window.location.origin);
+            interactionUrl.searchParams.set('interaction', ev.interaction.response_url);
+            const interactionResponse = await fetch(`${interactionUrl.pathname}${interactionUrl.search}`, {
+              method: 'POST',
+              signal: controller.signal,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ response: { type: 'text', text: interactionText } }),
+            });
+            if (!interactionResponse.ok) {
+              throw new Error(`interaction response returned HTTP ${interactionResponse.status}`);
+            }
           } else if (ev.kind === 'error') {
             failed = ev.message;
           } else {
@@ -273,10 +292,10 @@ export function useChatStream(
             for (;;) {
               const { done, value } = await reader.read();
               if (done) break;
-              consume(mapEvents(parser.feed(decoder.decode(value, { stream: true }))));
+              await consume(mapEvents(parser.feed(decoder.decode(value, { stream: true }))));
             }
             const trailing = [...parser.feed(decoder.decode()), ...parser.finish()];
-            consume(mapEvents(trailing));
+            await consume(mapEvents(trailing));
           } finally {
             reader.releaseLock();
           }
@@ -309,13 +328,13 @@ export function useChatStream(
 
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
-          const parser = new SseParser();
+          const parser = new SseParser(endpointRef.current.mediaProxyUrl);
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
-            consume(parser.feed(decoder.decode(value, { stream: true })));
+            await consume(parser.feed(decoder.decode(value, { stream: true })));
           }
-          consume(parser.feed(decoder.decode()));
+          await consume([...parser.feed(decoder.decode()), ...parser.finish()]);
         }
 
         // An upload auto-prompt whose conversation the user has since left
