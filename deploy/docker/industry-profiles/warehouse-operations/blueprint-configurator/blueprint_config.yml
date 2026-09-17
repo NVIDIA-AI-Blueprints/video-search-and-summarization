@@ -740,14 +740,6 @@ GB300:
     # Conservative limit: Sparse4D v2.3 supports 74 and v3.0 supports 71.
     max_streams_supported: 71
 
-L4:
-  2d:
-    max_streams_supported: 9
-  3d:
-    max_streams_supported: 3
-  mv3dt:
-    max_streams_supported: 7
-
 L40S:
   2d:
     max_streams_supported: 28
@@ -755,28 +747,6 @@ L40S:
     max_streams_supported: 9
   mv3dt:
     max_streams_supported: 23
-
-L40:
-  2d:
-    max_streams_supported: 25
-  3d:
-    max_streams_supported: 7
-
-RTXA6000:
-  2d:
-    max_streams_supported: 15
-  3d:
-    max_streams_supported: 4
-  mv3dt:
-    max_streams_supported: 4
-
-RTXA6000ADA:
-  2d:
-    max_streams_supported: 27
-  3d:
-    max_streams_supported: 8
-  mv3dt:
-    max_streams_supported: 22
 
 RTXPRO6000BW:
   2d:
