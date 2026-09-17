@@ -880,10 +880,16 @@ This walkthrough is written for developers and users who want to operate VSS
 from natural language.
 
 <Note>
-Install `vss-build-vision-ai` first using
-[Prepare your coding agent](#prepare-your-coding-agent), and confirm your host
-meets the [Prerequisites](/vss/getting-started/prerequisites). For how each
-harness loads skills, see [Agent Harnesses](/vss/vision-agent/agent-harnesses).
+Before starting this walkthrough, follow
+[Ask the coding agent to install the Skills](/vss/vision-agent/agent-skills#step-2-ask-the-coding-agent-to-install-the-skills)
+to install `vss-build-vision-ai` and every Skill under `skills/operations/`, then
+start a new coding-agent session so all four Skills below are discovered. The
+deployment-only setup in [Prepare your coding agent](#prepare-your-coding-agent)
+installs only `vss-build-vision-ai` and is not sufficient for the upload, Q&A,
+and report steps. If Build Vision AI provisioned NemoClaw, run those operational
+steps in the NemoClaw session; its Skills are installed inside that sandbox, not
+back into the original coding-agent session. Also confirm your host meets the
+[Prerequisites](/vss/getting-started/prerequisites).
 </Note>
 
 The base profile journey exercises four skills:
