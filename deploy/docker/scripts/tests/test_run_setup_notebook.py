@@ -3,8 +3,10 @@
 
 import importlib.util
 import io
+import ipaddress
 import json
 import os
+import subprocess
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -428,9 +430,235 @@ class NemoClawNotebookContractTests(unittest.TestCase):
             mock.patch("subprocess.check_output", return_value="test-token"),
             redirect_stdout(io.StringIO()),
         ):
-            exec(compile(settings, "deploy_nemoclaw.ipynb:settings", "exec"), namespace)
+            exec(  # noqa: S102 - executes a checked-in notebook settings cell.
+                compile(settings, "deploy_nemoclaw.ipynb:settings", "exec"), namespace
+            )
             self.assertNotIn("NEMOCLAW_TOOL_DISCLOSURE", os.environ)
         self.assertEqual(namespace["NEMOCLAW_TOOL_DISCLOSURE"], "")
+
+
+class NemoClawForwardContractTests(unittest.TestCase):
+    HOST_GATEWAY = "192.0.2.44"
+    PORT = 18789
+    SANDBOX = "demo"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        path = SCRIPTS_DIR / "deploy_nemoclaw.ipynb"
+        notebook = json.loads(path.read_text(encoding="utf-8"))
+        source = next(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["id"] == "s37-ui-code"
+        )
+        cls.source = source.replace(
+            "    !setsid -f openshell forward start --background {_fwd} "
+            "{NEMOCLAW_SANDBOX_NAME}\n",
+            "    _start_forward(_fwd, NEMOCLAW_SANDBOX_NAME)\n",
+        )
+        verify_source = next(
+            "".join(cell["source"])
+            for cell in notebook["cells"]
+            if cell["id"] == "verify-code"
+        )
+        hooks_start = verify_source.index("if AGENT_HOOKS_ENABLED:\n")
+        hooks_end = verify_source.index("\nif gateway_container:\n", hooks_start)
+        cls.hooks_source = verify_source[hooks_start:hooks_end]
+
+    def _run_ui_cell(
+        self,
+        *,
+        adapter_enabled: bool,
+        chat_fqdn: str | None,
+        existing_bind: str | None,
+        brev_env_id: str | None = None,
+        gateway_lookup_fails: bool = False,
+    ) -> tuple[dict[str, object], list[tuple[str, str]], list[tuple[str, ...]]]:
+        state = {"bind": existing_bind}
+        starts: list[tuple[str, str]] = []
+        calls: list[tuple[str, ...]] = []
+
+        def completed(
+            command: list[str], returncode: int = 0, stdout: str = "", stderr: str = ""
+        ) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(command, returncode, stdout, stderr)
+
+        def run(
+            command: list[str], **_kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            calls.append(tuple(command))
+            if command[:3] == ["docker", "exec", "vss-agent-ui"]:
+                if gateway_lookup_fails:
+                    return completed(command, 1, stderr="host alias unavailable")
+                return completed(command, stdout=f"{self.HOST_GATEWAY}\n")
+            if command[:3] == ["openshell", "forward", "list"]:
+                bind = state["bind"]
+                row = (
+                    f"{self.SANDBOX} {bind} {self.PORT} 4242 running\n" if bind else ""
+                )
+                return completed(command, stdout=row)
+            if command[:2] == ["lsof", "-t"]:
+                return completed(command, stdout="4242\n" if state["bind"] else "")
+            if command[:2] == ["ps", "-p"]:
+                return completed(command, stdout="ssh --sandbox-id sandbox-id\n")
+            if command[:3] == ["openshell", "sandbox", "get"]:
+                return completed(command, stdout="Id: sandbox-id\n")
+            if command[0] == "curl":
+                host = command[-1].split("://", 1)[1].rsplit(":", 1)[0]
+                reachable = state["bind"] in ("0.0.0.0", host)
+                return completed(command, 0 if reachable else 7)
+            if command[:3] == ["openshell", "forward", "stop"]:
+                state["bind"] = None
+                return completed(command)
+            if command[0] == "kill":
+                state["bind"] = None
+                return completed(command)
+            if command[:2] == ["hostname", "-I"]:
+                return completed(command, stdout="192.0.2.10\n")
+            raise AssertionError(f"unexpected command: {command}")
+
+        def start_forward(forward: str, sandbox: str) -> None:
+            starts.append((forward, sandbox))
+            state["bind"] = forward.rsplit(":", 1)[0]
+
+        namespace: dict[str, object] = {
+            "AGENT_CONNECT_CMD": "",
+            "AGENT_DASHBOARD_PORT": self.PORT,
+            "AGENT_DASHBOARD_URL_CMD": "",
+            "AGENT_GATEWAY_TOKEN_CMD": "",
+            "AGENT_LABEL": "OpenClaw",
+            "AGENT_UI_USES_GATEWAY_TOKEN": False,
+            "BREV_ENVIRONMENT_CONTEXT_PATH": "",
+            "NEMOCLAW_SANDBOX_NAME": self.SANDBOX,
+            "VSS_AGENT_ADAPTER_ENABLED": adapter_enabled,
+            "_start_forward": start_forward,
+            "brev_environment_id": lambda: brev_env_id,
+            "brev_secure_link_fqdn": lambda _port: chat_fqdn,
+            "ipaddress": ipaddress,
+            "resolve_openshell_gateway_container": lambda _sandbox: "gateway",
+        }
+        with (
+            mock.patch("subprocess.run", side_effect=run),
+            mock.patch("builtins.print"),
+        ):
+            exec(  # noqa: S102 - executes a checked-in notebook cell with mocked I/O.
+                compile(self.source, "deploy_nemoclaw:s37-ui-code", "exec"),
+                namespace,
+            )
+        return namespace, starts, calls
+
+    def test_non_brev_without_adapter_keeps_loopback(self) -> None:
+        namespace, starts, calls = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, existing_bind="127.0.0.1"
+        )
+        self.assertEqual(namespace["_desired_bind"], "127.0.0.1")
+        self.assertEqual(namespace["_health"], f"http://127.0.0.1:{self.PORT}/health")
+        self.assertEqual(starts, [])
+        self.assertFalse(any(command[0] == "docker" for command in calls))
+
+    def test_brev_keeps_wildcard_without_host_gateway_lookup(self) -> None:
+        namespace, starts, calls = self._run_ui_cell(
+            adapter_enabled=True,
+            chat_fqdn="agent.example.test",
+            existing_bind="0.0.0.0",
+        )
+        self.assertEqual(namespace["_desired_bind"], "0.0.0.0")
+        self.assertEqual(namespace["_health"], f"http://127.0.0.1:{self.PORT}/health")
+        self.assertEqual(starts, [])
+        self.assertFalse(any(command[0] == "docker" for command in calls))
+
+    def test_unreadable_brev_context_keeps_wildcard(self) -> None:
+        namespace, starts, calls = self._run_ui_cell(
+            adapter_enabled=True,
+            chat_fqdn=None,
+            brev_env_id="brev-env",
+            existing_bind="0.0.0.0",
+        )
+        self.assertEqual(namespace["_desired_bind"], "0.0.0.0")
+        self.assertEqual(starts, [])
+        self.assertFalse(any(command[0] == "docker" for command in calls))
+
+    def test_non_brev_adapter_uses_vss_ui_host_gateway(self) -> None:
+        namespace, starts, calls = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None, existing_bind=self.HOST_GATEWAY
+        )
+        self.assertEqual(namespace["_desired_bind"], self.HOST_GATEWAY)
+        self.assertEqual(
+            namespace["_health"], f"http://{self.HOST_GATEWAY}:{self.PORT}/health"
+        )
+        self.assertEqual(starts, [])
+        self.assertTrue(
+            any(command[:3] == ("docker", "exec", "vss-agent-ui") for command in calls)
+        )
+
+    def test_host_gateway_discovery_failure_stops_the_cell(self) -> None:
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Could not resolve host.docker.internal inside vss-agent-ui: "
+            "host alias unavailable",
+        ):
+            self._run_ui_cell(
+                adapter_enabled=True,
+                chat_fqdn=None,
+                existing_bind="127.0.0.1",
+                gateway_lookup_fails=True,
+            )
+
+    def test_wrong_bind_is_replaced_with_vss_ui_host_gateway(self) -> None:
+        namespace, starts, calls = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None, existing_bind="127.0.0.1"
+        )
+        self.assertEqual(namespace["_bind"], "127.0.0.1")
+        self.assertEqual(
+            starts, [(f"{self.HOST_GATEWAY}:{self.PORT}", self.SANDBOX)]
+        )
+        self.assertEqual(namespace["_held"], (self.HOST_GATEWAY, "4242"))
+        self.assertIn(
+            ("openshell", "forward", "stop", str(self.PORT), self.SANDBOX), calls
+        )
+
+    def test_hooks_verification_uses_rebound_host_gateway_without_proxy(self) -> None:
+        namespace, starts, _calls = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None, existing_bind="127.0.0.1"
+        )
+        hook_calls: list[list[str]] = []
+
+        def run(
+            command: list[str], **_kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            hook_calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "{}\n200", "")
+
+        namespace.update(
+            {
+                "AGENT_HOOKS_ENABLED": True,
+                "AGENT_HOOKS_PATH": "/hooks",
+                "AGENT_HOOKS_TOKEN": "test-token",
+                "AGENT_RUNTIME": "openclaw",
+                "json": json,
+            }
+        )
+        with (
+            mock.patch("subprocess.run", side_effect=run),
+            mock.patch("builtins.print"),
+        ):
+            exec(  # noqa: S102 - executes the checked-in hooks verification block.
+                compile(
+                    self.hooks_source,
+                    "deploy_nemoclaw:verify-code:hooks",
+                    "exec",
+                ),
+                namespace,
+            )
+
+        self.assertEqual(
+            starts, [(f"{self.HOST_GATEWAY}:{self.PORT}", self.SANDBOX)]
+        )
+        self.assertEqual(len(hook_calls), 1)
+        self.assertEqual(hook_calls[0][:4], ["curl", "-sS", "--noproxy", "*"])
+        self.assertIn(
+            f"http://{self.HOST_GATEWAY}:{self.PORT}/hooks/agent", hook_calls[0]
+        )
 
 
 class NemoRelayNotebookContractTests(unittest.TestCase):
