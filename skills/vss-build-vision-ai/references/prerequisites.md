@@ -135,10 +135,9 @@ action.
 *before it executes*, by the agent's own permission policy rather than by
 `sudoers` (`blocked by administrator policy`). It inherits the previous branch's
 rule against attempting `sudo -n` installs and nothing else — in particular, not
-its handoff: **offer the approved run below before handing anything over.** One
-correction to the wording, too. The host's sudo state was never determined, so
-report that **this agent** may not run `sudo`, not that the host requires a
-password.
+its handoff: **offer the approved run below before handing anything over.** And
+since the host's sudo state was never determined, report that **this agent** may
+not run `sudo`, not that the host requires a password.
 
 **Take this branch only on a refusal you actually saw.** Run the probe and
 quote what came back; never predict the refusal from the environment, the
@@ -148,28 +147,14 @@ to specific commands (`NOPASSWD: /usr/bin/apt-get`) can still admit the
 operation the step actually needs — so report the probe as what failed, and
 say which command was never attempted rather than implying it would fail.
 
-**What the denial forbids is acting unilaterally, not the mechanism.** Running a
-script that sudoes internally, or reading host state through `docker run` with a
-bind mount and the daemon's capabilities, is circumvention on the agent's own
-authority and a granted override once the user approves it. The mechanism is the
-same; who decided is the whole difference.
+**Offer the run under an explicit approval.** Where the harness can prompt, say
+what the command changes on the host and that it needs passwordless `sudo` to
+succeed — a password prompt has no terminal to appear on and fails immediately.
 
-One thing stays out of reach either way: **never author a wrapper whose purpose
-is to carry `sudo` past the denial.** A script the repository already ships is
-part of the documented flow, which is what makes an approved run of it
-legitimate; one written to launder a refused command is what the policy exists to
-stop, and that refusal says only a user can run it.
-
-**Offer the run under an explicit approval before falling back to a handoff.**
-Where the harness can prompt — an approval card naming the command and what it
-mutates — an approved run is the user exercising the same override as typing it
-themselves, minus the transcription. The denial above is on acting unilaterally,
-not on asking. Two things to say when offering: what the command changes on the
-host, and that it needs passwordless `sudo` to succeed, since a password prompt
-has no terminal to appear on and fails immediately. Use
-[Handoff form](#handoff) when the prompt is declined, unavailable, or fails that
-way — and note that a refused `sudo` probe left the host's own sudo state
-unknown, so an approved run is also how that gets settled.
+When the prompt is declined or unavailable, give the user the exact command to
+run in their terminal, in the [Handoff form](#handoff) below. Resume after they
+confirm success, then repeat only the failed check. Do not work around the
+restriction through scripts or containers.
 
 ### Handoff form
 <a id="handoff"></a>
