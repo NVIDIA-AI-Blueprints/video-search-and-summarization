@@ -34,7 +34,7 @@ data:
 {{- $rtviVlmAddr := .Values.rtviVlmServerAddress | default (printf "%s:8000" $rtviVlmH) }}
 {{- $viosGlobal := index $g "vios" | default dict }}
 {{- $notificationConfig := .Values.notificationConfig | default (index $viosGlobal "notificationConfig" | default "") | default (.Files.Get "configs/notification_config.json") }}
-{{- $messageBrokerConsumer := .Values.messageBrokerConsumer | default (index $viosGlobal "messageBrokerConsumer" | default "kafka") }}
+{{- $messageBrokerConsumer := .Values.messageBrokerConsumer | default (index $viosGlobal "messageBrokerConsumer" | default "redis") }}
 {{- $messageBrokerTopicConsumer := .Values.messageBrokerTopicConsumer | default (index $viosGlobal "messageBrokerTopicConsumer" | default "mdx-raw") }}
 {{- $messageBrokerMetadataTopic := .Values.messageBrokerMetadataTopic | default (index $viosGlobal "messageBrokerMetadataTopic" | default "mdx-raw") }}
 {{- $videoMetaIndexPattern := .Values.videoMetadataIndexPattern | default "mdx-raw*" }}

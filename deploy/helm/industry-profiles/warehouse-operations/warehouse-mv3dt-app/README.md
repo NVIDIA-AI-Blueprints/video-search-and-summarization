@@ -383,7 +383,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. The SDRC `waitForWorkloads` target is rewritten the same way so it still reaches `vss-rtvi-cv`. |
-| **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
+| **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Chart default is `redis`; this profile overrides it since perception publishes to Kafka. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
 | **`global.vios.messageBrokerTopicConsumer`** | **`mdx-bev`** | Topic VIOS consumes for live overlay metadata. |
 | **`global.vios.messageBrokerMetadataTopic`** | **`mdx-bev`** | Same topic, used by the notification/webhook side of the same config. |
 | **`global.ngcApiSecret.name`** | **`ngc-api`** | Name of the Opaque secret holding the NGC API key (see [Required secrets](#required-secrets)). |
