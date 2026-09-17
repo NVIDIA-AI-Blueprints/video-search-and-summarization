@@ -127,11 +127,10 @@ file_burst_test:
 Both scenarios can be run in sequence in a single command:
 
 ```bash
-python vss_perf_benchmark.py --config config.yaml \
-  --scenario single_file_test file_burst_test
+./scripts/run_benchmark.sh --scenario single_file_test file_burst_test
 ```
 
-Or use `run_benchmark.sh` without `--scenario` to run all scenarios defined in `config.yaml`:
+Or omit `--scenario` to run all scenarios defined in `config.yaml`:
 
 ```bash
 ./scripts/run_benchmark.sh
