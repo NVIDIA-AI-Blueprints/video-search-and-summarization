@@ -37,7 +37,8 @@ data:
 {{- $messageBrokerConsumer := .Values.messageBrokerConsumer | default (index $viosGlobal "messageBrokerConsumer" | default "redis") }}
 {{- $messageBrokerTopicConsumer := .Values.messageBrokerTopicConsumer | default (index $viosGlobal "messageBrokerTopicConsumer" | default "mdx-raw") }}
 {{- $messageBrokerMetadataTopic := .Values.messageBrokerMetadataTopic | default (index $viosGlobal "messageBrokerMetadataTopic" | default "mdx-raw") }}
-{{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "%s:9200/mdx-raw*" $esH) }}
+{{- $videoMetaIndexPattern := .Values.videoMetadataIndexPattern | default "mdx-raw*" }}
+{{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "%s:9200/%s" $esH $videoMetaIndexPattern) }}
 {{- $cloudStorage := .Values.cloudStorageEndpoint | default "http://127.0.0.1:9000" }}
 {{- $mqttHost := ternary (printf "%s-mosquitto" .Release.Name) "mosquitto" $pfx }}
 {{- $mqttAddr := .Values.mqttBrokerAddress | default (printf "tcp://%s:1883" $mqttHost) }}

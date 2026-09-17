@@ -59,6 +59,7 @@ messageBrokerConsumer: ""
 messageBrokerTopicConsumer: ""
 messageBrokerMetadataTopic: ""
 videoMetadataServerUrl: ""
+videoMetadataIndexPattern: ""
 cloudStorageEndpoint: ""
 mqttBrokerAddress: ""
 # Comma-separated static TURN URLs (username:password@host:port). Empty = STUN only,
