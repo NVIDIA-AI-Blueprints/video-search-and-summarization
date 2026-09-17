@@ -4,6 +4,11 @@ description: Benchmark video Q&A accuracy and latency of a deployed RT-VLM (Cosm
 license: Apache-2.0
 metadata:
   version: "3.3.0"
+  # Deployment versions this skill supports. Floor is 3.3.0 because the skill
+  # drives `vss vlm run` and `vss configure check`, and it exists to replace the
+  # deprecated `nat eval` / vss-agent QA path — a 3.2 deployment has no `vss vlm`
+  # command group. Upper bound excludes a major, which may change the CLI.
+  requires-vss: ">=3.3.0,<4.0.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint performance benchmarking vlm qa"
@@ -45,6 +50,18 @@ score tool-calling or trajectories.
   `vss configure` flag, not a benchmark one. `--inline-media` *is* a benchmark flag; it
   forces the old inline behaviour and is only safe for clips under ~10 MB.
 - `uv` and this checkout (CLI via `uv run --project libs/vss vss`).
+- A deployment inside this skill's `requires-vss` range (`>=3.3.0,<4.0.0` — the floor
+  is where `vss vlm run` exists). **This is not enforced automatically.** Unlike
+  `benchmark-video-summarization`, this skill has no `preflight.sh`, and adding one
+  just to carry a single check would be out of proportion; `vss configure check` is
+  already the gate it runs. Verify by hand when in doubt:
+
+  ```bash
+  python3 <repo>/services/agent/scripts/check_vss_version.py \
+    <deployment-origin> --skill <repo>/skills/benchmarking/benchmark-vlm-qa/SKILL.md
+  ```
+
+  Exit 0 = compatible, 3 = incompatible, 1 = could not be determined.
 - The `nvdataset` CLI. It is **not** on PyPI, and the index used by the old
   deep-search eval (`urm.nvidia.com/.../sw-ngc-data-platform-pypi`) returns 403.
   Install from the documented read-only index instead — no credentials needed:
