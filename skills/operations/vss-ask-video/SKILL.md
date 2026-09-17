@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video, or when reading a stored VSS memory job or record by id, or when confirming VSS deployment and RT-VLM readiness before inspecting video. Route through hot context, agent Markdown memory, structured VSS memory, bounded introspection, or an exact-window vss vlm run. Not for video retrieval or metadata-answerable questions.
+description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video, or when reading a stored VSS memory job or record by id, or when confirming VSS deployment and RT-VLM readiness before inspecting video, or whenever a question should be answered by running the `vss memory introspect` command. Route through hot context, agent Markdown notes, `vss memory get` or `vss memory query`, `vss memory introspect`, or an exact-window `vss vlm run`. Not for video retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -88,8 +88,11 @@ configure a private Gateway URL reachable from the CLI execution environment.
   Markdown search is not a `vss` command.
 - **Structured VSS memory** is authoritative data in Elasticsearch, accessed
   only through `vss memory get` and `vss memory query`.
-- **Introspection** performs its own structured retrieval, judge call, and
-  bounded visual follow-ups through `vss memory introspect`.
+- **Introspection** is the `vss memory introspect` command, which performs its
+  own structured retrieval, judge call and bounded visual follow-ups inside
+  the deployment. It never means reflecting on what you yourself know:
+  "introspection is enabled" is a fact about the deployment's
+  configuration, and the only way to act on it is to run the command.
 
 The agent decides whether Markdown evidence already answers the question.
 Never send raw Markdown documents to the VSS judge.
@@ -296,16 +299,17 @@ Do not silently substitute ordinary VLM inspection.
 
 ## Direct fresh inspection
 
-One grounded scope is one `vss vlm run` - one, counted across the whole
-request. If it exits nonzero other than exit 6, report the exit code and stop.
-Exit 6 means the answer exists but persistence failed; retain the answer and
-report that limitation. Do not run the inspection a second time: not with a
-different `--fps`, a widened or shifted window, another spelling of the sensor,
-`--num-frames`, or a different media selector, and not with the very same
-arguments because something was adjusted in between. A failing call means the
-deployment could not serve that scope, which is the result to report. The
-second call is not a retry of the same question, it is a second inspection the
-user did not ask for.
+One grounded scope is one `vss vlm run` - one invocation, counted across the
+whole request. Exit 6 is the exception to failure, not to the count: the
+answer exists and only persistence failed, so return it with that limitation.
+On any other nonzero exit, report the exit code and stop. A second `vss vlm
+run` in the same turn is wrong whatever differs between the two - flags,
+scope, persistence, or nothing at all - and retrying with `--no-persist` is
+still a second call: if the deployment could not store the result, the
+deployment is the finding, and storage is not what was asked about. A failing
+call means the deployment could not serve that scope, which is the result to
+report. The second call is not a retry of the same question, it is a second
+inspection the user did not ask for.
 
 A failed call is also not a licence to repair the deployment. An unreachable
 Elasticsearch, an unregistered sensor, a missing recorded window, an expired
