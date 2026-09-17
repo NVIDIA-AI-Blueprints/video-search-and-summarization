@@ -259,7 +259,7 @@ Apply these on **either** answer:
   agent ships as `required: false` so the filtered project resolves; never
   re-add a hard `depends_on` in a build override.
 - **Wire the Web UI chat to NemoClaw's default OpenClaw runtime on a yes**, per [`references/agent-harness.md`](references/agent-harness.md) *Connecting the Web UI to NemoClaw*.
-- **Provisioning moves to the headless path.** Use `vss-manage-video-io-storage` `references/provision-vios-source.md`: with no agent route its own gate passes, and it is the only path that fans a source into RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`.
+- **Provisioning moves to the headless path.** Use `vss-manage-video-io-storage` `references/provision-vios-source.md`: with no agent route its own gate passes, and it is the only path that gets a source to RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`.
 - Removing a service key makes it a **Delta build**, never a Stock deploy — on a no as much as a yes, and on a quickstart as much as a custom build.
 - **A capability only the Agent owner serves contradicts a no.** Agentic natural-language decomposition (`/api/v1/search`) and `/generate` have no non-agent provider. When the request needs one, a no drops a requested capability: take it to the clarification gate rather than resolving it either way.
 
