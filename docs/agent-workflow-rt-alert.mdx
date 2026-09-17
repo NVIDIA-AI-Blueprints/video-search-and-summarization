@@ -51,11 +51,11 @@ For instructions on downloading sample data and the deployment package, see [Dow
 #### Step 1: Deploy the Agent
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and manage the real-time alerts workflow.
-First, install the `deploy` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
+First, install the `vss-build-vision-ai` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
-The deploy skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The `vss-build-vision-ai` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 <Note>
@@ -68,7 +68,7 @@ Optional: You can enable notifications by setting `webhook.openclaw.enabled` to 
 Deploy the VSS alerts profile in real-time mode.
 ```
 
-The deploy skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
+The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:
 
@@ -187,26 +187,52 @@ What the agent does:
 <Note>
 The Alerts Microservice supports receiving alerts on the OpenClaw UI. Ensure that notifications are enabled as noted above.
 
-To use this feature, send the following prompt after creating an alert rule:
+To use this feature, send the following prompt after creating an alert rule. Substitute your own
+VST public URL and gateway. Do **not** copy captured sandbox hosts from a previous environment.
 
 ```text
-Start the alert-notify relay (dashboard backend only). The relay runs INSIDE the openshell sandbox, so use these env values exactly — do not ask me, do not substitute:
+Start the alert-notify relay (dashboard backend only).
 
 NOTIFY_BACKENDS=dashboard
 
-VST_ENDPOINT=host.openshell.internal:30888
+VST_ENDPOINT=<vst-host>:<vst-port>
 
-VST_PUBLIC_URL_BASE=https://7777-xbrxpi7ia.brevlab.com
+VST_PUBLIC_URL_BASE=https://<your-public-vst-or-tunnel-base>
 
-OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
-
-Infer OPENCLAW_GATEWAY_URL based on the deployment.
+OPENCLAW_GATEWAY_URL=ws://<openclaw-gateway-host>:<port>
 ```
 
-Be sure to replace the VST_PUBLIC_URL_BASE listed above with your own VST public URL.
+`NOTIFY_BACKENDS`, `VST_ENDPOINT`, `VST_PUBLIC_URL_BASE`, and `OPENCLAW_GATEWAY_URL` are
+relay process environment variables. `VST_PUBLIC_URL_BASE` is the URL clients use to play
+clips (for example a reverse-proxy or Brev tunnel). Infer `OPENCLAW_GATEWAY_URL` from your
+OpenClaw deployment; `host.openshell.internal` is only reachable from inside that sandbox.
 </Note>
 
 ### Manually
+
+The supported Compose driver for developer profiles is
+`deploy/docker/scripts/dev-profile.sh`. It copies `overrides.env` into `generated.env`,
+sets `VSS_APPS_DIR` / `VSS_DATA_DIR` / `HOST_IP`, and for `MODE=2d_vlm` it comments out
+`RTVI_VLM_KAFKA_ENABLED` (so RT-VLM publishes alert events) and sets
+`NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=true` and
+`NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=false`.
+Hand-rolled `docker compose` that only copies `overrides.env` to `user-overrides.env`
+keeps `RTVI_VLM_KAFKA_ENABLED=false` from the template, so the stack starts without
+real-time VLM alerts.
+
+```bash
+export NGC_CLI_API_KEY='your_ngc_api_key'
+./deploy/docker/scripts/dev-profile.sh up \
+  --profile alerts \
+  --mode real-time \
+  --hardware-profile H100
+```
+
+If you still run Compose by hand, apply those three `2d_vlm` changes in the env file
+the command actually reads (`generated.env` or `user-overrides.env`). Later `--env-file`
+arguments override earlier ones: edits to `overrides.env` after it has been copied are
+ignored. `VSS_CONTAINER_REGISTRY` (default `ghcr.io/nvidia-ai-blueprints/vss`) and
+`VSS_CONTAINER_TAG` (default `develop-latest`) are set in `deploy/docker/containers.env`.
 
 #### Step 1: Deploy the Agent
 
@@ -263,7 +289,7 @@ docker compose -f compose.yml \
 The default deployed model is Cosmos3 Nano Reasoner with BF16 precision.
 You can change this model by selecting an option from the following table and
 setting `VLM_NAME` to the Name value and `RTVI_VLM_MODEL_PATH` to the Path value
-in `overrides.env`.
+in `user-overrides.env`.
 </Note>
 
 <a id="rt-alert-available-vlm-models"></a>

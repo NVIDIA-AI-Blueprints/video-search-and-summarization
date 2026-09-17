@@ -92,6 +92,15 @@ Warehouse deployments register their own sample sources through the warehouse
 configurator. Do not manually provision sources during the build path unless you
 are working with a separate custom or headless deployment.
 
+## Host preflight and intake
+
+The host must satisfy [Prerequisites](/vss/getting-started/prerequisites) (Linux, GPU, Docker, NVIDIA Container Toolkit, NGC). The Skill's own checks in `skills/vss-build-vision-ai/references/prerequisites.md` also require:
+
+- A Python runner for helper scripts: **`uv` preferred**, or `python3` with **PyYAML**. A host can pass every system prerequisite and still fail during Compose normalization without this.
+- `curl`, `docker`, and NGC CLI access (`NGC_CLI_API_KEY`).
+
+The Skill asks which developer workflow or warehouse variant you want, LLM/VLM locality (local vs remote), and hardware. Defaults follow the selected profile (for example alerts `2d_vlm` vs `2d_cv`). Each answer changes the composed stack (services, `MODE`, GPU placement).
+
 ## Custom capability builds
 
 For custom builds, describe the capabilities you want instead of choosing a

@@ -29,7 +29,7 @@ The Real Time Video Intelligence Microservice follows a modular, pipeline-based 
 
 ## Docker Compose Architecture
 
-VSS Docker Compose stacks build on a shared **RTVI-CV perception** service. In your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) repository, the base definition lives at `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`. Industry profiles and developer profiles **extend** that service with `extends` and add profile-specific volumes, environment variables, dependencies, and startup behavior. The MV3DT pipeline uses a parallel base file and an additional BEV measurement fusion service — see [MV3DT Compose Architecture](/vss/system-components/vision-microservices/object-detection-and-tracking#mv3dt-compose-architecture) below for details.
+VSS Docker Compose stacks build on a shared **RTVI-CV perception** service. In your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop) repository, the base definition lives at `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`. Industry profiles and developer profiles **extend** that service with `extends` and add profile-specific volumes, environment variables, dependencies, and startup behavior. The MV3DT pipeline uses a parallel base file and an additional BEV measurement fusion service — see [MV3DT Compose Architecture](/vss/system-components/vision-microservices/object-detection-and-tracking#mv3dt-compose-architecture) below for details.
 
 **Layering model:** `compose.yaml` defines `perception` → each profile service (`perception-2d`, `perception-3d`, `perception-alerts`, `perception-2d-fusion`, …) uses `extends:` that base and adds mounts and environment overrides.
 
@@ -490,12 +490,13 @@ ofa-predict=1
 
 ### Quick Start
 
-Always check out the **latest release tag** of the blueprint repository before deploying, so the deployment assets match your release. List the available tags with `git tag` and check out the latest one. The current latest release is `v3.2.1`:
+Always check out the **`develop`** branch for VSS 3.3.0 Compose assets until a `v3.3.0` GitHub tag is published. The last GA tag `v3.2.1` does not contain `deploy/docker/containers.env`.
 
 ```bash
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone --branch develop https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.2.1
+git lfs install
+git lfs pull
 ```
 
 Then follow the deployment guide for your target:
@@ -1117,7 +1118,7 @@ No separate download or bind-mount is required — the configs are already prese
 | `smartcities/gdino/` | Alerts Profile open-vocabulary detection (Grounding DINO) — main pipeline config, Triton nvinferserver config, Kafka broker config |
 
 <Note>
-**MV3DT** does not ship reference configs in the in-container `reference-configs` directory. Use the configs under `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/` in your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) repository as reference. See the [Warehouse MV3DT Configurations section](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#configurations) for the full list of configuration files (`ds-main-config-mv3dt.txt`, `ds-pgie-config.yml`, `ds-mv3dt-tracker-config.yml`, `pub_sub_info_config.yml`, `ds-kafka-config.txt`, per-camera `camInfo/<sensor_id>.yml`, etc.).
+**MV3DT** does not ship reference configs in the in-container `reference-configs` directory. Use the configs under `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/` in your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop) repository as reference. See the [Warehouse MV3DT Configurations section](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt#configurations) for the full list of configuration files (`ds-main-config-mv3dt.txt`, `ds-pgie-config.yml`, `ds-mv3dt-tracker-config.yml`, `pub_sub_info_config.yml`, `ds-kafka-config.txt`, per-camera `camInfo/<sensor_id>.yml`, etc.).
 </Note>
 
 #### Start the Docker Container
@@ -1398,7 +1399,7 @@ After changing `config.yaml`, re-copy it to the Sparse4D source directory before
 
 For **warehouse 2D** (RT-DETR) and **warehouse 3D** (Sparse4D) perception on Kubernetes without deploying the full Metropolis stack, use the `vss-rtvi-cv` subchart under the `rtvi` Helm umbrella. Profile modes `standalone-2d` and `standalone-3d` run DeepStream with **file** sources from the NGC `vss-warehouse-app-data` bundle on a shared PVC. **Kafka and Redis are not used** in these profiles (FakeSink / `STREAM_TYPE=none`).
 
-Install steps, prerequisites, values, NGC download Job, StatefulSet rollout, uninstall, and troubleshooting are documented in the chart README at `deploy/helm/services/rtvi/charts/rtvi-cv/README-standalone-warehouse.md` in your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) repository. Check out the `v3.2.1` tag, then follow that README for authoritative install commands and values.
+Install steps, prerequisites, values, NGC download Job, StatefulSet rollout, uninstall, and troubleshooting are documented in the chart README at `deploy/helm/services/rtvi/charts/rtvi-cv/README-standalone-warehouse.md` in your clone of the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop) repository. Check out the `develop` branch, then follow that README for authoritative install commands and values.
 
 **Prerequisites (summary)**
 
@@ -1410,7 +1411,7 @@ Install steps, prerequisites, values, NGC download Job, StatefulSet rollout, uni
 
 **Chart location and profiles**
 
-The umbrella chart is at `deploy/helm/services/rtvi` in the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1) repository. With default naming, workload objects use the subchart name `vss-rtvi-cv` (StatefulSet, PVC, NGC download Job).
+The umbrella chart is at `deploy/helm/services/rtvi` in the [video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop) repository. With default naming, workload objects use the subchart name `vss-rtvi-cv` (StatefulSet, PVC, NGC download Job).
 
 | `profileMode` | Description |
 | --- | --- |

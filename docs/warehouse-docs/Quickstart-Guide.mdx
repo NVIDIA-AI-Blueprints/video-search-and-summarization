@@ -70,7 +70,7 @@ Perform this on the machine where you intend to deploy the blueprint.
 </Note>
 
 ```bash
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone --branch develop https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
 git lfs install
 git lfs pull
@@ -107,14 +107,14 @@ The tracklet-based AMC method relies heavily on moving people in the input video
 </Note>
 
 ```bash
-ngc registry resource download-version "nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09042026"
+ngc registry resource download-version "nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0"
 
 # OR Manually download the tar file from NGC
-# URL https://catalog.ngc.nvidia.com/orgs/nvstaging/teams/vss-warehouse/resources/vss-warehouse-app-data?version=v3.3.0-09042026
+# URL https://catalog.ngc.nvidia.com/orgs/nvidia/teams/vss-warehouse/resources/vss-warehouse-app-data?version=3.2.0
 
 # Extract the package
 
-cd vss-warehouse-app-data_vv3.3.0-09042026
+cd vss-warehouse-app-data_v3.2.0
 tar -xvf vss-warehouse-app-data.tar.gz
 
 # Set permissions
@@ -126,6 +126,8 @@ sudo chmod -R 777 /path/to/vss-warehouse-app-data
 ```
 
 ## Deploy Warehouse Blueprint
+
+`deploy/docker/scripts/dev-profile.sh` is for **developer** profiles (`base`, `alerts`, `search`, `lvs`), not warehouse. Warehouse Compose uses `industry-profiles/warehouse-operations/.env` plus `overrides.env`. Later `--env-file` values win; edit `overrides.env` (or the env file your command lists last), not a copy that is never passed to Compose.
 
 ### Configure Environment settings
 
@@ -688,9 +690,11 @@ VLM_MODE=none
 Published performance figures are not currently listed on this page for these profiles.
 
 ```ini
-# Select the profile that matches the x86_64 GPU:
-# L40, L4, RTXA6000, or RTXA6000ADA.
-HARDWARE_PROFILE=L40
+# Select a HARDWARE_PROFILE that exists in
+# industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml.
+# Shipped x86_64 profiles include L4, L40S, RTXA6000, and RTXA6000ADA.
+# There is no L40 profile. Do not invent a slug.
+HARDWARE_PROFILE=L40S
 ```
 </Tab>
 <Tab title="Vision AI only">

@@ -133,7 +133,7 @@ docker compose -f resolved.yml down
 
 - Simple video understanding queries (use `video-understanding` skill)
 - Direct LVS summarization without HITL (use `video-summarization` skill)
-- Deployment tasks (use `deploy` skill)
+- Deployment tasks (use `vss-build-vision-ai` skill)
 - Real-time alerts (use `alerts` skill)
 
 ## Workflow: Generate an LVS Report with Enterprise RAG
