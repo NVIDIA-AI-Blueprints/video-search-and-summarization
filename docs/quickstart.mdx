@@ -709,15 +709,12 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 </Note>
 
 <Note>
-**Switch Agent Workflows:** In the Docker Compose commands, use the matching `developer-profiles/dev-profile-<profile>/.env` and `developer-profiles/dev-profile-<profile>/user-overrides.env` files. For the Alerts profile, set `MODE` in `developer-profiles/dev-profile-alerts/user-overrides.env` to the workflow mode:
+**Switch Agent Workflows:** Prefer `deploy/docker/scripts/dev-profile.sh`. That helper writes `generated.env` and applies profile-specific flags. If you run `docker compose` directly, use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env` (or `generated.env` after the helper has run). Later `--env-file` values win.
 
-- `base`: Base vision agent (this quickstart)
-- `lvs`: [Video Summarization Workflow](/vss/vision-agent/agent-workflows/video-summarization#step-1-deploy-the-agent)
-- `search`: [Search Workflow](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent)
-- `alerts`: Alert workflows
+Switch profiles by changing the `dev-profile-<profile>` directory, not by setting `MODE` to `base`/`lvs`/`search`/`alerts`. Those names are profile directories. For the **alerts** profile only, `MODE` is:
 
-  - [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent) — `MODE=2d_cv`
-  - [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#step-1-deploy-the-agent) — `MODE=2d_vlm`
+- [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent) — `MODE=2d_cv`
+- [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#step-1-deploy-the-agent) — `MODE=2d_vlm`
 </Note>
 
 Once the deployment is complete, check that all the containers are running and healthy:

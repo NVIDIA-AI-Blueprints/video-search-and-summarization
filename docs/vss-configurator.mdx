@@ -35,7 +35,7 @@ When enabled, it runs before the API server starts and adjusts configuration fil
 
 **Key Features:**
 
-- Detects your GPU type (H100, L40S, L4, RTXA6000, RTXA6000ADA, RTXPRO6000BW, IGX-THOR, DGX-SPARK, etc.)
+- Detects your GPU type (H100, L40S, L4, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO6000BW-SE, RTXPRO4500BW, IGX-THOR, DGX-SPARK). There is no `L40` slug.
 - Adjusts settings based on 2D or 3D deployment mode
 - Updates YAML, JSON, and text configuration files
 - Validates that your environment is configured correctly
@@ -84,23 +84,23 @@ commons:
 # GPU-specific settings
 H100:
   2d:
-    max_streams_supported: 26
+    max_streams_supported: 77
   3d:
-    max_streams_supported: 12
+    max_streams_supported: 19
 
 L4:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 9
   3d:
-    max_streams_supported: 2   # L4 is less powerful in 3D mode
+    max_streams_supported: 3   # L4 is less powerful in 3D mode
 ```
 
 **What happens:**
 
 1. User sets `HARDWARE_PROFILE=L4` and `MODE=3d` and `NUM_STREAMS=8`
-2. Configurator looks up L4's 3D limit: `max_streams_supported=2`
-3. Computes: `final_stream_count = min(8, 2) = 2`
-4. Updates `config.yaml` with `num_sensors: 2`
+2. Configurator looks up L4's 3D limit: `max_streams_supported=3`
+3. Computes: `final_stream_count = min(8, 3) = 3`
+4. Updates `config.yaml` with `num_sensors: 3`
 
 **That's it!** The L4 GPU won't be overloaded because the system automatically capped the streams.
 
@@ -111,7 +111,7 @@ L4:
 | Section | Purpose | Analogy |
 | --- | --- | --- |
 | `commons` | Shared rules for ALL GPUs | Company-wide policies |
-| `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `IGX-THOR`, `DGX-SPARK`, etc. | GPU-specific overrides/limits | Department-specific rules |
+| `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK` | GPU-specific overrides/limits | Department-specific rules |
 
 **How they work together:**
 
@@ -163,7 +163,7 @@ The following environment variables **must** be set to use the Profile Configura
 | Variable | Default | Possible Values | Description |
 | --- | --- | --- | --- |
 | `ENABLE_PROFILE_CONFIGURATOR` | `false` | `true`, `false` | \| **Must be set to** `true` **to activate the Profile Configurator.** \| **true**: Run profile configurator before starting API server, adjusts config files based on detected GPU \| **false**: Skip profile configuration entirely (default) |
-| `HARDWARE_PROFILE` | `default` | `H100`, `L40S`, `L40`, `L4`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `IGX-THOR`, `DGX-SPARK`, `default`, or a custom value | \| GPU type/model to use for configuration. \| If it matches a profile in the config file, profile-specific settings are appended to `commons`. \| If it does not match, the requested name is preserved and commons-only configuration can still run when all referenced values are available without profile-specific variables, or when fallbacks such as `effective_max_streams_supported` are defined. |
+| `HARDWARE_PROFILE` | `default` | Warehouse: `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`. Developer NIM env files also use `OTHER`. There is no `L40` profile. | GPU slug matching a `blueprint_config.yml` hardware block (warehouse) or `hw-<HARDWARE_PROFILE>.env` (developer NIMs). Unknown slugs do not load those files. |
 | `MODE` | `3d` | `2d`, `3d` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D Warehouse Blueprint (tracking, detection) - typically allows more streams \| **3d**: 3D Warehouse Blueprint (depth, positioning) - typically allows fewer streams |
 | `NUM_STREAMS` | (user-defined) | Non-negative integer | \| Desired number of video streams for profile formulas such as `final_stream_count = min(${NUM_STREAMS}, ${max_streams_supported})`. \| The Sensor Configuration Manager also reads this value when `SENSOR_INFO_SOURCE=nvstreamer`: it is the expected camera count to wait for before VST registration (`0` = wait for a stable non-empty list instead). |
 
@@ -261,9 +261,9 @@ HARDWARE_PROFILE:
 ```yaml
 L4:
   2d:
-    max_streams_supported: 4
+    max_streams_supported: 9
   3d:
-    max_streams_supported: 2 
+    max_streams_supported: 3
 ```
 
 This value becomes available as `${max_streams_supported}` in variable expressions.
@@ -277,16 +277,18 @@ Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2
 
 The following hardware profiles are defined in `blueprint_config.yml`. Names and `max_streams_supported` values must match the config file.
 
-| Profile | 2D max streams | 3D max streams | Notes |
-| --- | --- | --- | --- |
-| `H100` | 26 | 12 | Stream limits only; inherits commons. |
-| `L40S` | 12 | 7 | Stream limits only; inherits commons. |
-| `L4` | 4 | 2 | Stream limits only; inherits commons. |
-| `RTXA6000` | 4 | 2 | Stream limits only; inherits commons. |
-| `RTXA6000ADA` | 8 | 7 | Stream limits only; inherits commons. |
-| `RTXPRO6000BW` | 16 | 14 | Stream limits only; inherits commons. |
-| `IGX-THOR` | 7 | 6 | \| 2D: extra file_operations (ds-main-config.txt, ds-main-redis-config.txt: drop-on-latency, msg-conv-msg2p-lib, compute-hw, low-latency-mode; ds-nvdcf-accuracy-tracker-config.yml). \| 3D: extra file_operations (ds-main-config.txt, ds-main-redis-config.txt: batched-push-timeout 67000, low-latency-mode; config.yaml: interval 1; vst_config_kafka.json, vst_config_redis.json: overlay.enable_overlay_skip_frame true). |
-| `DGX-SPARK` | 7 | 6 | \| 2D: extra file_operations (ds-main-config.txt, ds-main-redis-config.txt: msg-conv-msg2p-lib). \| 3D: extra file_operations (ds-main-config.txt, ds-main-redis-config.txt: batched-push-timeout 67000; config.yaml: interval 1; vst_config_kafka.json, vst_config_redis.json: overlay.enable_overlay_skip_frame true). \| When `HARDWARE_PROFILE=DGX-SPARK`, image tags (e.g. PERCEPTION_TAG, VST_*_IMAGE_TAG, NVSTREAMER_IMAGE_TAG) must contain `sbsa`. |
+| Profile | 2D max streams | 3D max streams | MV3DT max streams | Notes |
+| --- | --- | --- | --- | --- |
+| `H100` | 77 | 19 | 61 | Stream limits only; inherits commons. |
+| `L40S` | 29 | 10 | 23 | Stream limits only; inherits commons. |
+| `L4` | 9 | 3 | 7 | Stream limits only; inherits commons. |
+| `RTXA6000` | 15 | 4 | 4 | Stream limits only; inherits commons. |
+| `RTXA6000ADA` | 28 | 8 | 22 | Stream limits only; inherits commons. |
+| `RTXPRO6000BW` | 52 | 21 | 39 | Stream limits only; inherits commons. |
+| `RTXPRO6000BW-SE` | 47 | 20 | 39 | RTX PRO 6000 Blackwell Server Edition. |
+| `RTXPRO4500BW` | 20 | 9 | — | Stream limits only; inherits commons. |
+| `IGX-THOR` | 9 | 8 | 7 | Extra file_operations (DeepStream / VST). |
+| `DGX-SPARK` | 7 | 7 | 7 | Extra file_operations; image tags must contain `sbsa`. |
 
 **use_commons**
 

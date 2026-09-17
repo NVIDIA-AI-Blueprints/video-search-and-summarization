@@ -29,9 +29,9 @@ llms:
     max_tokens: 4096
     temperature: 0.0
 
-  cosmos3_nano_reasoner:
+  nim_vlm:
     _type: nim
-    model_name: nvidia/cosmos3-nano-reasoner
+    model_name: ${VLM_NAME}
     base_url: ${VLM_BASE_URL}/v1
     max_tokens: 4096
 ```
@@ -82,7 +82,7 @@ Analyzes video content using a Vision Language Model (VLM).
 ```yaml
 video_understanding:
   _type: video_understanding
-  vlm_name: cosmos3_nano_reasoner
+  vlm_name: ${VLM_MODEL_TYPE:-nim}_vlm
   max_frames: 30
   min_pixels: 3136
   max_pixels: 8388608
