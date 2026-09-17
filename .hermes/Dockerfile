@@ -138,6 +138,8 @@ RUN set -eux; \
 # overlay2 depth limit, so this stage adds exactly two: one COPY of the staged
 # assets and one RUN for everything else. Do not split the RUN.
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
+ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
+ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
 USER root
 COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 # In one layer:
