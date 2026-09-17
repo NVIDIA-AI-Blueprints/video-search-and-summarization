@@ -195,7 +195,7 @@ The Profile Configurator automatically adjusts application configurations based 
   - `file_management` — file counts and keep-count cleanup (prerequisites)
   - `recompute_bev_groups` — derive exact camera IDs from `.mp4`/`.mkv`
     filename stems, validate them against a mounted calibration, and
-    transactionally recompute 3D BEV groups before sensor discovery starts
+    safely recompute 3D BEV groups before sensor discovery starts
   - **Variable computation**: Math expressions, ternary operators, comparisons
   - **Variable validation**: Rules with `allowed_values`, patterns, and conditions
   - **Backup creation**: Automatic timestamped backups before mutating files

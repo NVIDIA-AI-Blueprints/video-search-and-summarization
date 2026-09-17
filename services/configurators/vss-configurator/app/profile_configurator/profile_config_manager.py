@@ -1431,15 +1431,28 @@ class ProfileConfigManager:
             updated_sensor_ids = self._validate_calibration_data(
                 updated_data, temp_path
             )
-            if updated_sensor_ids != original_sensor_ids:
+            expected_sensor_ids = set(camera_names)
+            if updated_sensor_ids != expected_sensor_ids:
                 raise ValueError(
-                    "BEV recomputation unexpectedly changed calibration sensor IDs"
+                    "BEV recomputation produced unexpected calibration sensor IDs: "
+                    f"expected {sorted(expected_sensor_ids)}, "
+                    f"got {sorted(updated_sensor_ids)}"
                 )
 
-            os.replace(temp_path, calibration_file)
+            # Preserve the calibration file's inode. Several warehouse services
+            # bind-mount this individual file and would keep reading the old inode
+            # if os.replace() swapped the path to a new file.
+            updated_bytes = temp_path.read_bytes()
+            with calibration_file.open("r+b") as file:
+                file.seek(0)
+                file.write(updated_bytes)
+                file.truncate()
+                file.flush()
+                os.fsync(file.fileno())
+            temp_path.unlink()
             temp_path = None
             logger.info(
-                "BEV groups recomputed atomically in %s for %d camera(s); "
+                "BEV groups recomputed in place in %s for %d camera(s); "
                 "backup: %s",
                 calibration_file,
                 len(camera_names),

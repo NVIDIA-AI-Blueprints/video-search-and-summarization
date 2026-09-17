@@ -74,13 +74,14 @@ def test_discover_camera_names_rejects_duplicate_stems(tmp_path):
         assert "Duplicate camera ID 'Camera'" in str(exc)
 
 
-def test_recompute_uses_filename_stems_and_atomically_updates(tmp_path):
+def test_recompute_uses_filename_stems_and_preserves_inode(tmp_path):
     video_dir = tmp_path / "videos"
     video_dir.mkdir()
     for filename in ("Camera_01.mp4", "Camera.mp4"):
         (video_dir / filename).write_text("", encoding="utf-8")
     calibration_file = tmp_path / "calibration.json"
     write_calibration(calibration_file, ["Camera", "Camera_01"])
+    original_inode = calibration_file.stat().st_ino
 
     manager = make_manager({"CALIBRATION_MODE": "mount"})
     calls = []
@@ -102,9 +103,41 @@ def test_recompute_uses_filename_stems_and_atomically_updates(tmp_path):
 
     assert calls[0][1:] == (["Camera", "Camera_01"], 1, 2)
     result = json.loads(calibration_file.read_text(encoding="utf-8"))
+    assert calibration_file.stat().st_ino == original_inode
     assert result["sensorGroups"][0]["sensors"] == ["Camera", "Camera_01"]
     assert list(tmp_path.glob("calibration.backup_*.json"))
     assert not list(tmp_path.glob(".calibration.bev_*.json"))
+
+
+def test_recompute_accepts_and_filters_calibration_superset(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera", "UnusedCamera"])
+    original_inode = calibration_file.stat().st_ino
+
+    def fake_recompute(path, sensor_names, *_args):
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        selected = set(sensor_names)
+        data["sensors"] = [
+            sensor for sensor in data["sensors"] if sensor["id"] in selected
+        ]
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ):
+        assert manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file, expected_count=1)
+        )
+
+    result = json.loads(calibration_file.read_text(encoding="utf-8"))
+    assert calibration_file.stat().st_ino == original_inode
+    assert [sensor["id"] for sensor in result["sensors"]] == ["Camera"]
 
 
 def test_missing_video_sensor_preserves_original(tmp_path):
