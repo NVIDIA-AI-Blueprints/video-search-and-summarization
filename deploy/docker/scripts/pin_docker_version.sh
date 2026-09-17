@@ -92,13 +92,15 @@ configure_cgroup_driver() {
 
   local merged
   merged="$(mktemp)"
-  if [ -f "$DAEMON_JSON" ]; then
+  # Read under sudo like the write below: the file is often root-owned 0600,
+  # and this script runs as the login user.
+  if sudo test -f "$DAEMON_JSON"; then
     ensure_jq
     # Keep the file's other keys (default-runtime, runtimes, address pools) and
     # any unrelated exec-opt. Staged through a temp file because a
     # `jq | sudo tee $DAEMON_JSON` pipeline truncates the live config even when
     # jq fails, and dockerd will not start on an empty one.
-    jq '.["exec-opts"] = ((.["exec-opts"] // []
+    sudo jq '.["exec-opts"] = ((.["exec-opts"] // []
          | map(select(startswith("native.cgroupdriver=") | not)))
          + ["native.cgroupdriver=cgroupfs"])' "$DAEMON_JSON" > "$merged"
     sudo cp "$DAEMON_JSON" "$DAEMON_JSON.bak"

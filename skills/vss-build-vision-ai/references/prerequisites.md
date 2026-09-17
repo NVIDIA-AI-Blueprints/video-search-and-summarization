@@ -483,8 +483,9 @@ If the host is locked to Docker `29.5.0` or later (e.g. distro-managed), add or 
 **Inspect first, then back up:**
 
 ```bash
-# Inspect any existing config
-test -f /etc/docker/daemon.json && cat /etc/docker/daemon.json || echo "no existing daemon.json"
+# Inspect any existing config (root-owned 0600 on many hosts, so read it as root:
+# an unprivileged cat reports "no existing daemon.json" over a file that has keys)
+sudo test -f /etc/docker/daemon.json && sudo cat /etc/docker/daemon.json || echo "no existing daemon.json"
 
 # Backup (safe no-op if the file doesn't exist)
 sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak 2>/dev/null || true
