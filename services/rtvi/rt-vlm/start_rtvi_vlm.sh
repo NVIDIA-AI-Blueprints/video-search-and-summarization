@@ -95,7 +95,7 @@ fi
 
 if [ -f /etc/nv_tegra_release ]; then
     if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
-        export LD_LIBRARY_PATH="/opt/nvidia/via/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="/opt/nvidia/via/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
     fi
 fi
 

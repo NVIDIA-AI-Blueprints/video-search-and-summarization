@@ -24,10 +24,16 @@ def test_generic_ipc_environment_selects_socket_path(monkeypatch):
 
 def test_vlm_image_contains_ipc_runtime_wiring():
     package_files = (ROOT / "docker" / "rtvi_vlm" / "package_file_list.txt").read_text()
-    dockerfile = (ROOT / "docker" / "rtvi_vlm" / "Dockerfile").read_text()
+    dockerfile = (ROOT / "docker" / "Dockerfile").read_text()
 
     assert "vlm_pipeline/ipc_frame_source.py" in package_files
-    assert "libgstnvunixfd.so" in dockerfile
+    assert "FROM --platform=linux/amd64" in dockerfile
+    assert "FROM --platform=linux/arm64" in dockerfile
+    assert "FROM nvunixfd-${TARGETARCH} AS nvunixfd-prebuilt" in dockerfile
+    assert dockerfile.count(
+        "/opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so"
+    ) >= 2
+    assert "and could shadow it" in dockerfile
 
 
 def test_vlm_compose_mounts_socket_directory_without_hiding_tmp():
