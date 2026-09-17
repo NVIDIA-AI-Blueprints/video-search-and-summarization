@@ -31,9 +31,17 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import urlopen
 
-# Must stay in step with vss_agents.api.version._SEMVER_PATTERN. Duplicated
-# rather than imported so this script needs nothing but Python.
-SEMVER_PATTERN = re.compile(r"\d+\.\d+\.\d+(-[A-Za-z0-9\-.]+)?(\+[A-Za-z0-9\-.]+)?")
+# Source of truth: vss_agents.api.version.SEMVER_PATTERN (the official Semantic
+# Versioning 2.0.0 grammar). Duplicated rather than imported so this script
+# needs nothing but Python and can be copied to any machine; the agent's
+# test_version.py asserts the two expressions are identical so they cannot
+# drift.
+SEMVER_PATTERN = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 
 
 def check(base_url: str, timeout: float) -> str:
@@ -45,8 +53,8 @@ def check(base_url: str, timeout: float) -> str:
     except HTTPError as error:
         if error.code == 503:
             raise RuntimeError(
-                f"{url} returned 503: the deployment has no usable VSS_AGENT_VERSION, "
-                "so its version cannot be determined."
+                f"{url} returned 503: the deployment has no usable VSS_DEPLOYMENT_VERSION "
+                "(or legacy VSS_AGENT_VERSION), so its version cannot be determined."
             ) from error
         raise RuntimeError(f"{url} returned HTTP {error.code} {error.reason}.") from error
     except (URLError, TimeoutError) as error:
