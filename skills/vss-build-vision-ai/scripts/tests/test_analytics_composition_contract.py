@@ -178,6 +178,72 @@ def test_harness_only_validation_rejects_unrequested_pruning() -> None:
         validate_harness_only_delta(foundation, over_pruned)
 
 
+def _run_resolve_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(SCRIPTS / "resolve_service_graph.py"), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_harness_only_cli_rejects_unrequested_pruning() -> None:
+    foundation = ",".join(_base_profiles())
+    over_pruned = ",".join(
+        resolve_service_profiles(
+            _base_profiles(),
+            excluded_profiles=("vss-ui", "phoenix"),
+            host_cli=True,
+        )
+    )
+
+    completed = _run_resolve_cli("--foundation", foundation, "--final", over_pruned)
+    assert completed.returncode == 1
+    assert "unexpected removals" in completed.stderr
+
+
+def test_harness_only_cli_accepts_host_cli_delta() -> None:
+    foundation = _base_profiles()
+    final = resolve_service_profiles(foundation, host_cli=True)
+
+    completed = _run_resolve_cli(
+        "--foundation",
+        ",".join(foundation),
+        "--final",
+        ",".join(final),
+        "--requested",
+        "",
+    )
+    assert completed.returncode == 0
+
+
+def test_harness_only_cli_keeps_explicitly_requested_va_mcp() -> None:
+    foundation = ("alert-bridge", "vss-agent", "vss-va-mcp")
+    final = resolve_service_profiles(
+        foundation,
+        requested_profiles=("vss-va-mcp",),
+        host_cli=True,
+    )
+    args = (
+        "--foundation",
+        ",".join(foundation),
+        "--final",
+        ",".join(final),
+    )
+
+    without_requested = _run_resolve_cli(*args)
+    assert without_requested.returncode == 1
+    assert "unexpected additions: vss-va-mcp" in without_requested.stderr
+
+    with_requested = _run_resolve_cli(*args, "--requested", "vss-va-mcp")
+    assert with_requested.returncode == 0
+
+
+def test_harness_only_cli_requires_profile_lists() -> None:
+    completed = _run_resolve_cli()
+    assert completed.returncode != 0
+
+
 def test_explicit_headless_capability_removals_remain_allowed() -> None:
     foundation = _base_profiles()
     profiles = resolve_service_profiles(
@@ -201,14 +267,31 @@ def test_explicit_headless_capability_removals_remain_allowed() -> None:
 
 def test_active_build_flow_guards_harness_only_deltas() -> None:
     skill = (BUILD_SKILL / "SKILL.md").read_text()
+    composition = (BUILD_SKILL / "references/composition.md").read_text()
     agent_owner = (BUILD_SKILL / "references/services/agent.md").read_text()
     step_five = skill[skill.index("5. Determine the effective service set.") :]
     step_five = step_five[: step_five.index("6. Before writing delta artifacts")]
+    step_seven = skill[skill.index("7. For every stock or delta build") :]
+    step_seven = step_seven[: step_seven.index("8. Generate `resolved.yml`")]
+    command = (
+        'uv run "$REPO/skills/vss-build-vision-ai/scripts/resolve_service_graph.py"'
+    )
 
     assert "Harness-only delta invariant" in step_five
     assert "ADDED_PROFILES=∅" in step_five
     assert "REMOVED_PROFILES" in step_five
-    assert "validate_harness_only_delta" in step_five
+    assert command in step_five
+    assert '--foundation "$FOUNDATION_PROFILES"' in step_five
+    assert '--final "$FINAL_PROFILES"' in step_five
+    assert '--requested "$REQUESTED_PROFILES"' in step_five
+    assert command in step_seven
+    assert '--foundation "$FOUNDATION_PROFILES"' in step_seven
+    assert "sed -n 's/^COMPOSE_PROFILES=//p'" in step_seven
+    assert '--requested "$REQUESTED_PROFILES"' in step_seven
+    assert command in composition
+    assert '--foundation "$FOUNDATION_PROFILES"' in composition
+    assert '--final "$FINAL_PROFILES"' in composition
+    assert '--requested "$REQUESTED_PROFILES"' in composition
     assert "bypass generic forward-closure/unused-service pruning" in step_five
     assert "harness-only delta bypasses owner pruning" in agent_owner
     assert "preserve `vss-ui` and `phoenix`" in agent_owner

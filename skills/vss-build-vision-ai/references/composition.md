@@ -70,9 +70,17 @@ Foundation list and remove only `vss-agent`, plus an unrequested `vss-va-mcp`
 when the existing VA-MCP rule applies. Do not interpret Q3 **no** as headless
 and do not run forward-closure pruning: the host-side `vss` CLI is the driver,
 while UI, ingress, models, Redis, VIOS, and all other Foundation services stay.
-Use `resolve_service_graph.py`'s `validate_harness_only_delta` before artifact
-generation. An explicit request for headless operation or capability removal
-does not meet this guard and proceeds through normal pruning.
+Run this exact check before artifact generation:
+
+```bash
+uv run "$REPO/skills/vss-build-vision-ai/scripts/resolve_service_graph.py" \
+  --foundation "$FOUNDATION_PROFILES" \
+  --final "$FINAL_PROFILES" \
+  --requested "$REQUESTED_PROFILES"
+```
+
+An explicit request for headless operation or capability removal does not meet
+this guard and proceeds through normal pruning.
 
 The Foundation is a starting graph to trim, not a floor to inherit. A delta is
 symmetric: after adding requested owners and their peers, prune every Foundation

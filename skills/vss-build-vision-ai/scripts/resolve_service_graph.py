@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import argparse
+import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -92,6 +94,52 @@ def validate_harness_only_delta(
     )
 
 
+def _profile_list(value: str) -> tuple[str, ...]:
+    return tuple(profile.strip() for profile in value.split(",") if profile.strip())
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Reject a harness-only COMPOSE_PROFILES list that dropped or added "
+            "unrelated Foundation profiles."
+        )
+    )
+    parser.add_argument(
+        "--foundation",
+        required=True,
+        help="comma-separated Foundation COMPOSE_PROFILES",
+    )
+    parser.add_argument(
+        "--final",
+        required=True,
+        help="comma-separated effective COMPOSE_PROFILES after the Q3 delta",
+    )
+    parser.add_argument(
+        "--requested",
+        default="",
+        help="comma-separated explicitly requested profiles, if any",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        validate_harness_only_delta(
+            _profile_list(args.foundation),
+            _profile_list(args.final),
+            requested_profiles=_profile_list(args.requested),
+        )
+    except UnexpectedHarnessDeltaError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    print(
+        "Validated harness-only delta: Foundation preserved except harness-owned removals"
+    )
+    return 0
+
+
 def analytics_readiness_targets(
     resolved_services: Iterable[str],
 ) -> tuple[ReadinessTarget, ...]:
@@ -100,3 +148,7 @@ def analytics_readiness_targets(
     return tuple(
         target for target in ANALYTICS_READINESS_TARGETS if target.service in selected
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
