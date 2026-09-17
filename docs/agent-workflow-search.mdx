@@ -127,7 +127,12 @@ The search profile uses 2 base GPUs: GPU 0 is shared by RTVI-CV and VIOS Stream 
 - **Remote VLM:** 2 GPUs -- 2 base with LLM shared (VLM offloaded).
 - **Remote LLM + VLM:** 2 GPUs -- base services only.
 
-`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=search

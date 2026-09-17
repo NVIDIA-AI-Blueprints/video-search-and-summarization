@@ -51,6 +51,24 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-va-mc
 | `ALERT_BRIDGE_HOST_PORT`, `VSS_VA_MCP_HOST_PORT`, `RTVI_CV_HOST_PORT`, `RTVI_VLM_PORT` | Change alert-facing host ports. |
 | `NVSTREAMER_HTTP_HOST_PORT` | Select source playback host port. |
 
+## Efficient Video Sampling
+
+EVS++ is optional and disabled by default. When the user requests EVS++ for
+alert verification, add this tested set to the build's `override.env`:
+
+```ini
+VIA_EVS_SESSION=true
+VLM_VIDEO_PRUNING_RATE=0.5
+VLLM_EVS_SIMILARITY_THRESHOLD=0.015
+```
+
+This alert-verification configuration was tested on warehouse footage with the
+Cosmos 3 Super Reasoner FP8 VLM on RTX PRO 6000. It reduced VLM latency by
+approximately 20% with an approximately 1% accuracy decrease. Treat those
+figures as workload-specific, not guarantees. Tune
+`VLLM_EVS_SIMILARITY_THRESHOLD` for the input streams' accuracy/latency
+tradeoff. Do not enable EVS++ unless the user requests it.
+
 ## Stock readiness checks
 
 Both modes (`rtvi-vlm` is stock in `2d_cv` and `2d_vlm`):
@@ -79,5 +97,6 @@ probe `http://${HOST_IP}:8018/v1/health/ready`.
 - `deploy/docker/services/agent/compose.yml`
 - `deploy/docker/services/rtvi/rtvi-cv/compose.yaml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
+- `docs/agent-workflow-alert-verification.mdx`
 - `skills/operations/vss-manage-alerts/references/integrate-alerts.md`
 - `skills/deployment/vss-setup-behavior-analytics/references/configuration.md`
