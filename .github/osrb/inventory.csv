@@ -1197,6 +1197,8 @@ cupy-cuda12x,13.3.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,se
 curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/behavior-analytics,deb,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/video-analytics-api,deb,container,services/analytics/video-analytics-api/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,apk,container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile,runtime,no,no,yes,container-apt,Unknown
+curl,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+curl,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,deb,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/agent,deb,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,services/sdrc,deb,container,services/sdrc/envoy/Dockerfile.wdm-router,runtime,no,no,yes,container-apt,Unknown
@@ -2524,6 +2526,8 @@ networkx,3.6.1,BSD-3-Clause,services/analytics/behavior-analytics,python,lockfil
 next,16.3.3,MIT,services/ui,node,lockfile;manifest,services/ui/apps/nv-metropolis-bp-vss-ui/package.json;services/ui/apps/vss-chat/package.json;services/ui/package-lock.json;services/ui/package.json,runtime,no,no,no,declared-manifest,None
 next-i18next,16.0.11,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 next-runtime-env,1.8.0,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+ngc_cli,4.10.0,UNKNOWN,.hermes,source,container,.hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
+ngc_cli,4.10.0,UNKNOWN,.openclaw,source,container,.openclaw/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 ngcsdk,3.64.2,Apache Software License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 ngcsdk,3.64.2,Apache Software License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 ninja,1.11.1.1,Apache-2.0,libs/analytics/spatialai-data-utils,python,container,libs/analytics/spatialai-data-utils/docker/Dockerfile,runtime,no,no,yes,container-pip,None
@@ -3856,6 +3860,8 @@ universalify,2.0.1,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/pack
 unpipe,1.0.0,MIT,.openclaw,node,lockfile,.openclaw/plugin/package-lock.json,runtime,no,no,no,declared-manifest,None
 unpipe,1.0.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/src/app/package-lock.json;services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 unrs-resolver,1.12.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
+unzip,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+unzip,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 unzipper,0.12.5,MIT,services/vios,node,lockfile,services/vios/ui/vios-ui/package-lock.json,runtime,no,no,no,declared-manifest,None
 update-browserslist-db,1.2.3,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 update-browserslist-db,1.3.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None
