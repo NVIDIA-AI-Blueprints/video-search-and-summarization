@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <exception>
 #include <limits>
 #include <sstream>
 #include <thread>
@@ -68,6 +69,40 @@ unsigned parsePositive(const std::string& value, unsigned fallback)
     catch (const std::exception&)
     {
         return fallback;
+    }
+}
+
+/* DASH sessions are started straight from the HTTP handler, so the source is
+ * built on a civetweb worker thread. Those threads run on a 100 KB stack (the
+ * size is compiled into libcivetweb.a), and opening an NVENC session inside
+ * the driver alone takes about 50 KB on top of what the handler already uses.
+ * The result was a stack overflow in libnvcuvid that took the whole process
+ * down with SIGSEGV on every live or replay DASH start. WebRTC never hit this
+ * because it builds the same pipeline on an event-loop thread with the default
+ * 8 MB stack.
+ *
+ * Run the build on a fresh thread with the default stack and wait for it, so
+ * the handler keeps its synchronous contract and the callers' error handling
+ * is unchanged: anything thrown on the worker is carried back and rethrown
+ * here. */
+template <typename Fn>
+void runOnDefaultStack(Fn&& fn)
+{
+    std::exception_ptr failure;
+    std::thread worker([&]() {
+        try
+        {
+            fn();
+        }
+        catch (...)
+        {
+            failure = std::current_exception();
+        }
+    });
+    worker.join();
+    if (failure)
+    {
+        std::rethrow_exception(failure);
     }
 }
 
@@ -731,11 +766,13 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
          * session, not the process. */
         try
         {
-            session->source = std::make_shared<CommonVideoSource>(
-                compositeRequested ? compositeUrls : mediaUrl, opts, session->packager);
-            session->source->createConsumerPipeline();
-            session->source->setConsumerReady();
-            session->source->startStream();
+            runOnDefaultStack([&]() {
+                session->source = std::make_shared<CommonVideoSource>(
+                    compositeRequested ? compositeUrls : mediaUrl, opts, session->packager);
+                session->source->createConsumerPipeline();
+                session->source->setConsumerReady();
+                session->source->startStream();
+            });
         }
         catch (const std::exception& error)
         {
@@ -1005,10 +1042,12 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
      * a failed start for this session alone. */
     try
     {
-        session->source = std::make_shared<CommonVideoSource>(uri, opts, session->packager);
-        session->source->createConsumerPipeline();
-        session->source->setConsumerReady();
-        session->source->startStream();
+        runOnDefaultStack([&]() {
+            session->source = std::make_shared<CommonVideoSource>(uri, opts, session->packager);
+            session->source->createConsumerPipeline();
+            session->source->setConsumerReady();
+            session->source->startStream();
+        });
     }
     catch (const std::exception& error)
     {
