@@ -260,3 +260,5 @@ def test_hermes_workspace_routes_through_standalone_vss():
     assert "_hermes/VSS_ROUTING.md" in dockerfile
     assert "sed -n '/^## First Run$/,$p'" in dockerfile
     assert "! grep -q 'vss_cli'" in dockerfile
+    assert dockerfile.count("ARG NEMOCLAW_TOOL_DISCLOSURE=progressive") == 1
+    assert "ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}" in dockerfile

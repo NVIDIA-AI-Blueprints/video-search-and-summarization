@@ -119,6 +119,8 @@ RUN if [ -f /opt/vss-src/STAGED ]; then \
 # overlay2 depth limit, so this stage adds exactly two: one COPY of the staged
 # assets and one RUN for everything else. Do not split the RUN.
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
+ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
+ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
 USER root
 ARG VSS_REPO
 ARG VSS_REF
