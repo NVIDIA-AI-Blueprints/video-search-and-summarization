@@ -227,12 +227,6 @@ def check(base_url: str, timeout: float) -> str:
         raise IndeterminateError(f"{url} is not reachable: {error}.") from error
     except json.JSONDecodeError as error:
         raise IndeterminateError(f"{url} did not return JSON: {error}.") from error
-    except ValueError as error:
-        # urlopen raises ValueError for some malformed origins (empty host, bad
-        # IPv6 literal). JSONDecodeError is a ValueError subclass, so this
-        # clause must follow that one. Surface it as indeterminate, not a
-        # traceback, because the operator still cannot determine a version.
-        raise IndeterminateError(f"{url} could not be requested: {error}.") from error
 
     if not isinstance(payload, dict) or payload.get("service") != "vss" or not isinstance(payload.get("version"), str):
         raise IndeterminateError(
