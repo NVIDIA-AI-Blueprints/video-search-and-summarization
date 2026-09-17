@@ -179,6 +179,13 @@ def test_incidents_reports_has_more_when_the_page_is_full(cli: Any, monkeypatch:
     assert _Client.calls[0][1]["limit"] == 4
 
 
+def test_incidents_accepts_the_maximum_user_visible_limit(cli: Any) -> None:
+    result = _invoke(cli, ["incidents", "--limit", "9999"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["has_more"] is False
+    assert _Client.calls[0][1]["limit"] == 10000
+
+
 @pytest.mark.parametrize(
     "args,fragment",
     [
@@ -186,6 +193,7 @@ def test_incidents_reports_has_more_when_the_page_is_full(cli: Any, monkeypatch:
         (["incidents", "--source-type", "sensor"], "source"),
         (["incidents", "--start-time", "2026-01-01T00:00:00Z"], "end-time"),
         (["incidents", "--limit", "0"], "Invalid value"),
+        (["incidents", "--limit", "10000"], "Invalid value"),
         (["incidents", "--vlm-verdict", "unverified"], "Invalid value"),
         (
             [

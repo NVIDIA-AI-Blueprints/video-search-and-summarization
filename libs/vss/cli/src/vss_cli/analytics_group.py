@@ -22,6 +22,7 @@ REQUIRES = frozenset({"video_analytics"})
 _SOURCE_TYPES = click.Choice(["sensor", "place"])
 _VERDICTS = click.Choice(["all", "confirmed", "rejected", "verification-failed", "not-confirmed"])
 _ANALYSIS_TYPES = click.Choice(["max-min-incidents", "average-speed", "avg-num-people", "avg-num-vehicles"])
+_MAX_INCIDENT_LIMIT = 9999
 
 
 def _run(coro: Any) -> Any:
@@ -213,7 +214,12 @@ def _build() -> click.Group:
                 click.Option(["--source-type"], type=_SOURCE_TYPES),
                 _time_option("start_time", required=False),
                 _time_option("end_time", required=False),
-                click.Option(["--limit"], type=click.IntRange(min=1), default=10, show_default=True),
+                click.Option(
+                    ["--limit"],
+                    type=click.IntRange(min=1, max=_MAX_INCIDENT_LIMIT),
+                    default=10,
+                    show_default=True,
+                ),
                 _include_option(),
                 click.Option(["--vlm-verdict"], type=_VERDICTS),
             ],
