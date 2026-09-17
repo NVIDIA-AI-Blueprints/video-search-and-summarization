@@ -178,6 +178,55 @@ const normalizedVssMediaPath = (value: unknown): string | undefined => {
   return `${path}${parsed.search}`;
 };
 
+interface SnapshotMetadata {
+  name?: string;
+  at?: string;
+  source?: string;
+  streamId?: string;
+  sensorId?: string;
+}
+
+const snapshotUrls = (candidate: JsonObject): unknown[] => {
+  const urls: unknown[] = [];
+  if (candidate.kind === "snapshot") urls.push(candidate.media_url);
+  if (candidate.image_url !== undefined) urls.push(candidate.image_url);
+  if (Array.isArray(candidate.snapshot_urls)) {
+    urls.push(...candidate.snapshot_urls);
+  }
+  return urls;
+};
+
+const snapshotMetadata = (candidate: JsonObject): SnapshotMetadata => ({
+  name: safeMediaMetadata(candidate.name ?? candidate.sensor),
+  at: safeMediaMetadata(candidate.at ?? candidate.timestamp),
+  source: safeMediaMetadata(candidate.source),
+  streamId: safeMediaMetadata(candidate.stream_id),
+  sensorId: safeMediaMetadata(candidate.sensor_id),
+});
+
+const snapshotAlt = ({ name, at }: SnapshotMetadata): string => {
+  if (!name) return "VSS snapshot";
+  if (!at) return `Snapshot of ${name}`;
+  return `Snapshot of ${name} at ${at}`;
+};
+
+const snapshotPayload = (
+  mediaUrl: string,
+  metadata: SnapshotMetadata
+): JsonObject => {
+  const payload: JsonObject = {
+    media_url: mediaUrl,
+    mime_type: "image/jpeg",
+    alt: snapshotAlt(metadata),
+  };
+  if (metadata.name) payload.sensor = metadata.name;
+  if (metadata.at) payload.at = metadata.at;
+  if (metadata.source) payload.source = metadata.source;
+  if (metadata.streamId) payload.stream_id = metadata.streamId;
+  if (metadata.sensorId) payload.sensor_id = metadata.sensorId;
+  return payload;
+};
+
 export class ArtifactStreamParser {
   private buffer = "";
   private readonly seen = new Map<string, true>();
@@ -245,44 +294,20 @@ export class ArtifactStreamParser {
   }
 
   private inspectVssSnapshot(candidate: JsonObject): ConnectorEvent[] {
-    const urls: unknown[] = [];
-    if (candidate.kind === "snapshot") urls.push(candidate.media_url);
-    if (candidate.image_url !== undefined) urls.push(candidate.image_url);
-    if (Array.isArray(candidate.snapshot_urls)) {
-      urls.push(...candidate.snapshot_urls);
-    }
-
-    const name = safeMediaMetadata(candidate.name ?? candidate.sensor);
-    const at = safeMediaMetadata(candidate.at ?? candidate.timestamp);
-    const source = safeMediaMetadata(candidate.source);
-    const streamId = safeMediaMetadata(candidate.stream_id);
-    const sensorId = safeMediaMetadata(candidate.sensor_id);
+    const metadata = snapshotMetadata(candidate);
     const events: ConnectorEvent[] = [];
     const emittedUrls = new Set<string>();
 
-    for (const rawUrl of urls) {
+    for (const rawUrl of snapshotUrls(candidate)) {
       const mediaUrl = normalizedVssMediaPath(rawUrl);
       if (!mediaUrl || emittedUrls.has(mediaUrl)) continue;
       emittedUrls.add(mediaUrl);
-
-      const payload: JsonObject = {
-        media_url: mediaUrl,
-        mime_type: "image/jpeg",
-        alt: name
-          ? `Snapshot of ${name}${at ? ` at ${at}` : ""}`
-          : "VSS snapshot",
-      };
-      if (name) payload.sensor = name;
-      if (at) payload.at = at;
-      if (source) payload.source = source;
-      if (streamId) payload.stream_id = streamId;
-      if (sensorId) payload.sensor_id = sensorId;
 
       const artifact = parseArtifact(
         JSON.stringify({
           version: ARTIFACT_PROTOCOL_VERSION,
           kind: "vss.media.image",
-          payload,
+          payload: snapshotPayload(mediaUrl, metadata),
         })
       );
       if (!artifact) continue;
@@ -323,6 +348,66 @@ export class ArtifactStreamParser {
     return event ? [event] : [];
   }
 
+  private inspectArtifactEnvelopes(value: string): ConnectorEvent[] {
+    const events: ConnectorEvent[] = [];
+    let cursor = 0;
+    while (cursor < value.length) {
+      const opening = value.indexOf(ARTIFACT_OPEN, cursor);
+      if (opening < 0) break;
+      const payloadStart = opening + ARTIFACT_OPEN.length;
+      const closing = value.indexOf(ARTIFACT_CLOSE, payloadStart);
+      if (closing < 0) break;
+      const artifact = parseArtifact(value.slice(payloadStart, closing).trim());
+      if (artifact) {
+        const event = this.deduplicatedEvent(artifact);
+        if (event) events.push(event);
+      }
+      cursor = closing + ARTIFACT_CLOSE.length;
+    }
+    return events;
+  }
+
+  private inspectStringCandidate(
+    candidate: string,
+    depth: number,
+    stack: Array<[unknown, number]>
+  ): ConnectorEvent[] {
+    if (candidate.length > MAX_ARTIFACT_LENGTH * 2) return [];
+    if (depth < MAX_INSPECTION_DEPTH) {
+      for (const document of jsonDocuments(candidate)) {
+        stack.push([document, depth + 1]);
+      }
+    }
+    return [
+      ...this.inspectVssCliSearch(candidate),
+      ...this.inspectArtifactEnvelopes(candidate),
+    ];
+  }
+
+  private inspectCandidate(
+    candidate: unknown,
+    depth: number,
+    stack: Array<[unknown, number]>
+  ): ConnectorEvent[] {
+    if (typeof candidate === "string") {
+      return this.inspectStringCandidate(candidate, depth, stack);
+    }
+    if (depth >= MAX_INSPECTION_DEPTH) return [];
+    if (isJsonObject(candidate)) {
+      for (const nested of Object.values(candidate)) {
+        stack.push([nested, depth + 1]);
+      }
+      return [
+        ...this.inspectInlineImage(candidate),
+        ...this.inspectVssSnapshot(candidate),
+      ];
+    }
+    if (Array.isArray(candidate)) {
+      for (const nested of candidate) stack.push([nested, depth + 1]);
+    }
+    return [];
+  }
+
   inspectComplete(value: unknown): ConnectorEvent[] {
     const events: ConnectorEvent[] = [];
     const stack: Array<[unknown, number]> = [[value, 0]];
@@ -330,39 +415,7 @@ export class ArtifactStreamParser {
     while (stack.length && visited < 1_000) {
       const [candidate, depth] = stack.pop()!;
       visited += 1;
-      if (typeof candidate === "string") {
-        if (candidate.length > MAX_ARTIFACT_LENGTH * 2) continue;
-        events.push(...this.inspectVssCliSearch(candidate));
-        if (depth < MAX_INSPECTION_DEPTH) {
-          for (const document of jsonDocuments(candidate)) {
-            stack.push([document, depth + 1]);
-          }
-        }
-        let cursor = 0;
-        while (cursor < candidate.length) {
-          const opening = candidate.indexOf(ARTIFACT_OPEN, cursor);
-          if (opening < 0) break;
-          const payloadStart = opening + ARTIFACT_OPEN.length;
-          const closing = candidate.indexOf(ARTIFACT_CLOSE, payloadStart);
-          if (closing < 0) break;
-          const artifact = parseArtifact(
-            candidate.slice(payloadStart, closing).trim()
-          );
-          if (artifact) {
-            const event = this.deduplicatedEvent(artifact);
-            if (event) events.push(event);
-          }
-          cursor = closing + ARTIFACT_CLOSE.length;
-        }
-      } else if (depth < MAX_INSPECTION_DEPTH && isJsonObject(candidate)) {
-        events.push(...this.inspectInlineImage(candidate));
-        events.push(...this.inspectVssSnapshot(candidate));
-        for (const nested of Object.values(candidate)) {
-          stack.push([nested, depth + 1]);
-        }
-      } else if (depth < MAX_INSPECTION_DEPTH && Array.isArray(candidate)) {
-        for (const nested of candidate) stack.push([nested, depth + 1]);
-      }
+      events.push(...this.inspectCandidate(candidate, depth, stack));
     }
     return events;
   }
