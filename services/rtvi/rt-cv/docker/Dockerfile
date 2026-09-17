@@ -75,6 +75,8 @@ RUN set -eux; \
        /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so; \
     cp "/tmp/prebuilts/${PREBUILT_DIR}/libnvds_infercustomparser_tao.so" \
        /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so; \
+    cp "/tmp/prebuilts/${PREBUILT_DIR}/libnvds_infercustomparser.so" \
+       /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so; \
     rm -rf /tmp/prebuilts; \
     ldconfig
 
@@ -137,6 +139,7 @@ COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/sparse4d/configs/
 # Prebuilt libs + ldconfig so the loader can resolve them at runtime
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so
+COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so
 RUN ldconfig
 
 # Third-party licence text, at the path the compliance scan expects
