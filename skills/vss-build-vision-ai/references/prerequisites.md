@@ -459,15 +459,19 @@ version pin, so try it before writing a `daemon.json` edit out to the user, and
 re-run the probe above rather than the whole preflight afterwards.
 
 Hand over this block only once that run is declined or unavailable, per
-[Handoff form](#handoff). It replaces every `exec-opts` entry and leaves
-`daemon.json` empty if `jq` rejects the file, so prefer the script:
+[Handoff form](#handoff). It replaces every `exec-opts` entry rather than
+merging into it, so prefer the script:
 
 ```bash
 command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
+test -f /etc/docker/daemon.json || echo '{}' | sudo tee /etc/docker/daemon.json >/dev/null
 sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak
+# Stage the merge: jq's exit status is the gate, so a rejected file leaves the
+# live config as it was instead of truncating it to empty.
 sudo jq '.["exec-opts"] = ["native.cgroupdriver=cgroupfs"]' \
-  /etc/docker/daemon.json.bak | sudo tee /etc/docker/daemon.json >/dev/null
-sudo systemctl restart docker
+  /etc/docker/daemon.json.bak > /tmp/daemon.json.new \
+  && sudo install -m 0644 /tmp/daemon.json.new /etc/docker/daemon.json \
+  && sudo systemctl restart docker
 ```
 
 #### Docker 29.5.0+ workaround
