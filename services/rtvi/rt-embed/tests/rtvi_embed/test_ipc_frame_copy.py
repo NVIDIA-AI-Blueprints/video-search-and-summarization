@@ -45,10 +45,13 @@ def test_resolve_ipc_socket_path_accepts_uuid_identity():
     )
 
 
-def test_resolve_ipc_socket_path_honors_socket_override_environment(monkeypatch):
+def test_resolve_ipc_socket_path_ignores_socket_override_environment(monkeypatch):
     monkeypatch.setenv("RTVI_IPC_SOCKET_DIR", "/elsewhere")
     monkeypatch.setenv("RTVI_IPC_SOCKET_TEMPLATE", "other_{camera_id}.sock")
-    assert ipc_frame_source.resolve_ipc_socket_path("camera-1") == "/elsewhere/other_camera-1.sock"
+    assert (
+        ipc_frame_source.resolve_ipc_socket_path("camera-1")
+        == "/run/rtvi-ipc/nvds_ipc_camera-1.sock"
+    )
 
 
 def test_resolve_ipc_socket_path_honors_explicit_overrides():

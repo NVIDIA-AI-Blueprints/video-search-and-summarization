@@ -80,10 +80,8 @@ def resolve_ipc_socket_path(
     socket_template: str | None = None,
 ) -> str:
     """Resolve the Unix socket path used by CV to publish decoded frames."""
-    socket_dir = socket_dir or os.environ.get("RTVI_IPC_SOCKET_DIR") or DEFAULT_IPC_SOCKET_DIR
-    socket_template = (
-        socket_template or os.environ.get("RTVI_IPC_SOCKET_TEMPLATE") or "nvds_ipc_{camera_id}.sock"
-    )
+    socket_dir = socket_dir or DEFAULT_IPC_SOCKET_DIR
+    socket_template = socket_template or "nvds_ipc_{camera_id}.sock"
     safe_identity = sanitize_ipc_socket_token(stream_identity)
     socket_template = validate_ipc_socket_template(socket_template)
     socket_name = socket_template.format(
