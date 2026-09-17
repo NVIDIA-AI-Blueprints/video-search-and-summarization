@@ -68,6 +68,8 @@ VIEWER_ROOT = Path("/tmp/skill-eval/results/_viewer")
 AGENT_RUN_MARKER_OVERRIDE_ENV = "SKILL_EVAL_AGENT_RUN_MARKER"
 DEFER_AGENT_REAP_ENV = "SKILL_EVAL_DEFER_AGENT_REAP"
 REMOTE_AGENT_RUN_PREFIX = "skill-eval-"
+AGENT_ROUTE_API_KEY_ENV = "SKILL_EVAL_AGENT_ROUTE_API_KEY"
+AGENT_ROUTE_BASE_URL_ENV = "SKILL_EVAL_AGENT_ROUTE_BASE_URL"
 
 
 # Harbor phase budgets. Adapters set the task's base agent timeout to the same
@@ -335,18 +337,23 @@ def build_harbor_command(
         # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
         # provider-prefixed model id — harbor's stock codex strips it to the
         # last path segment, which the NVIDIA gateway 401s on. Endpoint via
-        # `--ak api_base`; OPENAI_API_KEY is read from the environment (same as
-        # claude-code reads ANTHROPIC_API_KEY), so it never lands on the CLI.
+        # `--ak api_base`; route endpoint/key values are resolved from the
+        # Harbor process environment into agent-only `--ae` variables below,
+        # so the key never lands on the CLI and the verifier route stays intact.
         agent_flags = [
             "-a", "agents.nv_codex:NvCodex",
             "--model", model,
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+            "--ae", f"OPENAI_API_KEY=${{{AGENT_ROUTE_API_KEY_ENV}}}",
+            "--ae", f"OPENAI_BASE_URL=${{{AGENT_ROUTE_BASE_URL_ENV}}}",
         ]
     elif agent == "claude-code":
         agent_flags = [
             "-a", "claude-code",
             "--model", model,
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
+            "--ae", f"ANTHROPIC_API_KEY=${{{AGENT_ROUTE_API_KEY_ENV}}}",
+            "--ae", f"ANTHROPIC_BASE_URL=${{{AGENT_ROUTE_BASE_URL_ENV}}}",
             "--ae", "CLAUDE_CODE_DISABLE_THINKING=1",
         ]
     elif agent == "nemoclaw":
@@ -1581,20 +1588,24 @@ def run_invocations(
     # coding-agent deployment contract, then switch to the operational route.
     spec_path = os.environ.get("EVAL_SPEC_PATH", "")
     operational_eval = spec_path.startswith("skills/operations/")
-    coding_setup = invocations[0] if operational_eval and invocations else None
     if operational_eval and not invocations:
         print("FATAL: no operational Harbor invocation to run", file=sys.stderr)
         return 1
 
-    nemoclaw_setup: HarborInvocation | None = None
+    coding_setups: dict[str, HarborInvocation] = {}
+    if operational_eval:
+        for invocation in invocations:
+            coding_setups.setdefault(invocation.chain_key, invocation)
+
+    nemoclaw_setups: dict[str, HarborInvocation] = {}
     deferred_agent_marker: str | None = None
     operational_config = model_routes.operational
     if operational_eval and operational_config.runtime == "nemoclaw":
-        nemoclaw_setup = coding_setup
-        assert nemoclaw_setup is not None
+        nemoclaw_setups = coding_setups
         operational_skill = os.environ.get("EVAL_SKILL", "operational-skill")
         try:
-            prepare_nemoclaw_setup_task(nemoclaw_setup, operational_skill)
+            for setup in nemoclaw_setups.values():
+                prepare_nemoclaw_setup_task(setup, operational_skill)
         except OSError as exc:
             print(f"FATAL: could not prepare NemoClaw setup task: {exc}", file=sys.stderr)
             return 1
@@ -1627,13 +1638,7 @@ def run_invocations(
                 NEMOCLAW_SETUP_BREV_EXEC_TIMEOUT_SEC,
             )
         )
-        # The setup coding agent may start the NemoClaw gateway or other
-        # services required by later expects[]. Keep those descendants alive
-        # only after a successful agent exit; failures and cancellation still
-        # trigger BrevEnvironment's immediate marker-scoped cleanup.
         deferred_agent_marker = deferred_agent_run_marker(run_id, leg_slug)
-        env[AGENT_RUN_MARKER_OVERRIDE_ENV] = deferred_agent_marker
-        env[DEFER_AGENT_REAP_ENV] = "1"
     skipped_after: dict[str, int] = {}
     overall_rc = 0
 
@@ -1675,8 +1680,21 @@ def run_invocations(
                     )
                 return finish(124)
 
-        is_coding_setup = invocation is coding_setup
-        is_nemoclaw_setup = invocation is nemoclaw_setup
+        is_coding_setup = invocation is coding_setups.get(invocation.chain_key)
+        is_nemoclaw_setup = invocation is nemoclaw_setups.get(invocation.chain_key)
+        if is_coding_setup:
+            # Every generated platform/mode chain owns an independent setup.
+            # Its first task must start from a clean deployment even when an
+            # earlier chain in this leg successfully enabled preservation.
+            env.pop("SKILL_EVAL_PRESERVE_DEPLOYMENT", None)
+        if is_nemoclaw_setup:
+            assert deferred_agent_marker is not None
+            # The setup coding agent may start the NemoClaw gateway or other
+            # services required by later expects[]. Keep those descendants
+            # alive only after a successful agent exit; failures and
+            # cancellation still trigger immediate marker-scoped cleanup.
+            env[AGENT_RUN_MARKER_OVERRIDE_ENV] = deferred_agent_marker
+            env[DEFER_AGENT_REAP_ENV] = "1"
         invocation_config = (
             model_routes.coding
             if not operational_eval or is_coding_setup
@@ -1705,16 +1723,19 @@ def run_invocations(
         )
         invocation_env = env.copy()
         if invocation_agent == "claude-code":
-            # Harbor 0.20's ClaudeCode adapter reads the endpoint from the
-            # child environment, not its api_base kwarg. Scope this per
-            # invocation so NemoClaw's setup coding agent keeps the runner
-            # route while a directly evaluated Claude agent gets its selected
-            # endpoint.
-            invocation_env["ANTHROPIC_BASE_URL"] = invocation_base_url
-            invocation_env["ANTHROPIC_API_KEY"] = invocation_config.api_key
+            # Harbor resolves the ${...} --ae templates from its process env,
+            # then scopes the resulting ANTHROPIC_* values to agent setup/run.
+            # The parent ANTHROPIC_* values therefore remain the coordinator's
+            # verifier route rather than being replaced by the evaluated route.
+            invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
+            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = _api_base_v1(
+                invocation_base_url
+            )
         elif invocation_agent == "codex":
-            invocation_env["OPENAI_API_KEY"] = invocation_config.api_key
-            invocation_env["OPENAI_BASE_URL"] = _api_base_v1(invocation_base_url)
+            invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
+            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = _api_base_v1(
+                invocation_base_url
+            )
         started_at = time.time() - 1.0
         with phase(f"harbor:{invocation.include_task_name}"):
             rc = run_command(cmd, invocation_env, harbor_timeout_sec)
@@ -1757,17 +1778,36 @@ def run_invocations(
 
         if is_coding_setup:
             if rc != 0 or _reward_value(reward) < 1.0:
+                if overall_rc == 0:
+                    overall_rc = rc or 1
+                if (
+                    invocation.step_index is not None
+                    and invocation.step_count is not None
+                    and invocation.chain_key not in skipped_after
+                ):
+                    write_skip_markers(
+                        scratch,
+                        spec_stem,
+                        platform or invocation.chain_key,
+                        invocation.step_index,
+                        reward,
+                        invocation.step_count,
+                    )
+                    skipped_after[invocation.chain_key] = invocation.step_index
                 print(
-                    "[run-leg] expects[0] deployment/setup failed; "
-                    "operational scenarios were not started",
+                    f"[run-leg] {invocation.chain_key} expects[0] "
+                    "deployment/setup failed; this chain's operational "
+                    "scenarios were not started",
                     file=sys.stderr,
                 )
-                return finish(rc or 1)
-            # Later Harbor tasks must reuse the VSS containers, checked-out
-            # repository, and sandbox created by the first task.
-            env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
-            env.pop(AGENT_RUN_MARKER_OVERRIDE_ENV, None)
-            env.pop(DEFER_AGENT_REAP_ENV, None)
+                env.pop(AGENT_RUN_MARKER_OVERRIDE_ENV, None)
+                env.pop(DEFER_AGENT_REAP_ENV, None)
+            else:
+                # Later tasks in this chain must reuse the VSS containers,
+                # checked-out repository, and sandbox created by setup.
+                env["SKILL_EVAL_PRESERVE_DEPLOYMENT"] = "1"
+                env.pop(AGENT_RUN_MARKER_OVERRIDE_ENV, None)
+                env.pop(DEFER_AGENT_REAP_ENV, None)
 
         # An outer Harbor timeout is terminal for the entire locked leg, not
         # only a multi-step chain. Continuing could wipe/reuse the same Brev
