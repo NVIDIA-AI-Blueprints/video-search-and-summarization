@@ -34,12 +34,16 @@ data:
 {{- $rtviVlmAddr := .Values.rtviVlmServerAddress | default (printf "%s:8000" $rtviVlmH) }}
 {{- $viosGlobal := index $g "vios" | default dict }}
 {{- $notificationConfig := .Values.notificationConfig | default (index $viosGlobal "notificationConfig" | default "") | default (.Files.Get "configs/notification_config.json") }}
+{{- $messageBrokerConsumer := .Values.messageBrokerConsumer | default (index $viosGlobal "messageBrokerConsumer" | default "redis") }}
+{{- $messageBrokerTopicConsumer := .Values.messageBrokerTopicConsumer | default (index $viosGlobal "messageBrokerTopicConsumer" | default "mdx-raw") }}
+{{- $messageBrokerMetadataTopic := .Values.messageBrokerMetadataTopic | default (index $viosGlobal "messageBrokerMetadataTopic" | default "mdx-raw") }}
 {{- $videoMeta := .Values.videoMetadataServerUrl | default (printf "%s:9200/mdx-raw*" $esH) }}
 {{- $cloudStorage := .Values.cloudStorageEndpoint | default "http://127.0.0.1:9000" }}
 {{- $mqttHost := ternary (printf "%s-mosquitto" .Release.Name) "mosquitto" $pfx }}
 {{- $mqttAddr := .Values.mqttBrokerAddress | default (printf "tcp://%s:1883" $mqttHost) }}
 {{- $calibEp := .Values.calibrationFileEndpoint | default "" }}
 {{- $floorEp := .Values.floormapImageEndpoint | default "" }}
+{{- $overlaySensorName := .Values.overlaySensorName | default "" }}
 {{- $extHost := index $g "externalHost" | default "" | toString | trim }}
 {{- $extPort := index $g "externalPort" | default "" | toString | trim }}
 {{- $extScheme := index $g "externalScheme" | default "http" }}
@@ -54,9 +58,9 @@ data:
 {{- $turnUrls = append $turnUrls (trim .) }}
 {{- end }}
 {{- end }}
-{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "__USE_SOFTWARE_PATH__" ($softwarePath | toString) | replace "__STATIC_TURNURL_LIST__" ($turnUrls | toJson) | indent 4 }}
+{{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "__USE_SOFTWARE_PATH__" ($softwarePath | toString) | replace "__STATIC_TURNURL_LIST__" ($turnUrls | toJson) | replace "__3D_OVERLAY_SENSOR_NAME__" $overlaySensorName | indent 4 }}
   notification_config.json: |
-{{ $notificationConfig | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | indent 4 }}
+{{ $notificationConfig | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | replace "__USE_MESSAGE_BROKER_CONSUMER__" $messageBrokerConsumer | replace "__MESSAGE_BROKER_TOPIC_CONSUMER__" $messageBrokerTopicConsumer | replace "__MESSAGE_BROKER_METADATA_TOPIC__" $messageBrokerMetadataTopic | indent 4 }}
   adaptor_config.json: |
 {{ .Files.Get "configs/adaptor_config.json" | indent 4 }}
   vst_storage.json: |
