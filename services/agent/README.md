@@ -202,13 +202,22 @@ $ curl -sS http://localhost:8000/api/v1/version
 `service` is always `vss`. `version` is the exact `VSS_AGENT_VERSION` configured
 for the deployment and follows [Semantic Versioning 2.0.0](https://semver.org/):
 `MAJOR.MINOR.PATCH`, optionally followed by a prerelease suffix and build
-metadata (for example, `3.3.0-rc.1+build.42`). Consumers should parse this field
-as SemVer and apply their own compatibility policy against the benchmark skill
-version.
+metadata (for example, `3.3.0-rc.1+build.42`).
 
 The endpoint returns HTTP 503 when `VSS_AGENT_VERSION` is absent, empty, or not
-valid SemVer. Benchmark clients must treat that response as an inability to
-determine compatibility and stop with a clear error.
+valid SemVer — the deployment's version cannot be determined. The Helm chart
+defaults `VSS_AGENT_VERSION`; Docker Compose passes it through to the agent but
+does not default it, so a Compose deployment must set it in the environment or
+profile `.env` to serve this endpoint.
+
+[`scripts/check_vss_version.py`](scripts/check_vss_version.py) checks the
+endpoint on any deployment — standard library only, exits non-zero with the
+reason when the version cannot be determined:
+
+```console
+$ python3 scripts/check_vss_version.py http://localhost:8000
+3.3.0
+```
 
 ### Environment Variables
 
