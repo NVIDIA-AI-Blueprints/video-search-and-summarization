@@ -65,10 +65,10 @@ RUN case "${TARGETARCH}" in \
 
 
 # Conditional runner phase
-FROM nvcr.io/nvidia/distroless/node:22-v4.1.2 AS runner-prod
+FROM nvcr.io/nvidia/distroless/node:22-v4.1.4 AS runner-prod
 ARG BUILD_TYPE
 
-FROM nvcr.io/nvidia/distroless/node:22-v4.1.2-dev AS runner-dev
+FROM nvcr.io/nvidia/distroless/node:22-v4.1.4-dev AS runner-dev
 ARG BUILD_TYPE
 
 
