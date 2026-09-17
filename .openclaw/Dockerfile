@@ -46,7 +46,7 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572
 # `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise).
 # Override with --build-arg VSS_REF=<sha>; bump the default when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=5212368036879feb704a258be0db012ce518aeaa
+ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
 
 # ── VSS source checkout ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
@@ -161,9 +161,7 @@ RUN set -eux; \
     && uv venv --python /usr/bin/python3 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install "nvidia-vss[cli] @ /usr/local/src/vss/services/agent" \
     && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
-    # Strip to what the editable install points at: services/agent, plus
-    # libs/vss when the source tree has it (the CLI library moved there; the
-    # pinned VSS_REF predates the move, so the pinned path is unchanged).
+    # Strip to what the editable install points at: services/agent and libs/vss.
     && mv /usr/local/src/vss/services/agent /usr/local/src/vss-agent \
     && if [ -d /usr/local/src/vss/libs/vss ]; then mkdir -p /usr/local/src/vss-libs && mv /usr/local/src/vss/libs/vss /usr/local/src/vss-libs/vss; fi \
     && rm -rf /usr/local/src/vss \
@@ -172,6 +170,7 @@ RUN set -eux; \
     && if [ -d /usr/local/src/vss-libs ]; then mkdir -p /usr/local/src/vss/libs && mv /usr/local/src/vss-libs/vss /usr/local/src/vss/libs/vss && rmdir /usr/local/src/vss-libs; fi \
     && chmod -R a+rX /usr/local/src/vss \
     && vss --version \
+    && vss vlm run --help | grep -F -- '--fps' \
     && su -s /bin/sh sandbox -c "vss --version"
 
 # ── Extend the managed runtime with the VSS plugin ─────────────────────────────
