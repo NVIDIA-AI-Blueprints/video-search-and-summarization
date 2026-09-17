@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""VSS deployment version endpoint."""
+"""VSS deployment version endpoint: ``GET /api/v1/version``."""
 
 import os
 import re
@@ -24,44 +24,28 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from pydantic import Field
 
-_SEMVER_PATTERN = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
-    r"(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
-    r"(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
-)
+# Same SemVer rule the RTVI services validate their versions against
+# (``services/rtvi/rt-embed/src/api_models/common.py::VERSION_PATTERN``), so a
+# version accepted by one VSS service is accepted by all of them.
+_SEMVER_PATTERN = re.compile(r"\d+\.\d+\.\d+(-[A-Za-z0-9\-.]+)?(\+[A-Za-z0-9\-.]+)?")
 
 
 class VersionResponse(BaseModel):
     """Public VSS deployment version."""
 
-    service: Literal["vss"] = Field(description="Service identified by this response.")
+    service: Literal["vss"] = "vss"
     version: str = Field(description="Deployed VSS version in Semantic Versioning 2.0.0 format.")
-
-
-def get_deployed_version() -> str:
-    """Return the configured SemVer deployment version.
-
-    ``VSS_AGENT_VERSION`` is set by both the Docker Compose and Helm
-    deployments and identifies the release that supplied the running agent.
-    """
-    version = os.getenv("VSS_AGENT_VERSION", "").strip()
-    if not _SEMVER_PATTERN.fullmatch(version):
-        raise HTTPException(
-            status_code=503,
-            detail="The deployed VSS version is unavailable or is not valid Semantic Versioning 2.0.0.",
-        )
-    return version
 
 
 def register_version_route(app: FastAPI) -> None:
     """Register the deployment version endpoint."""
 
-    @app.get(
-        "/api/v1/version",
-        response_model=VersionResponse,
-        summary="Get deployed VSS version",
-        tags=["version"],
-    )
+    @app.get("/api/v1/version", response_model=VersionResponse, summary="Get deployed VSS version")
     async def version() -> VersionResponse:
-        return VersionResponse(service="vss", version=get_deployed_version())
+        configured = os.getenv("VSS_AGENT_VERSION", "").strip()
+        if not _SEMVER_PATTERN.fullmatch(configured):
+            raise HTTPException(
+                status_code=503,
+                detail="The deployed VSS version is unavailable or is not valid Semantic Versioning 2.0.0.",
+            )
+        return VersionResponse(version=configured)

@@ -68,7 +68,6 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         logger.info("Registered custom /health endpoint (replaced NAT default)")
 
         register_version_route(app)
-        logger.info("Registered VSS deployment version endpoint")
 
         # Register custom streaming routes per capability flags in streaming_ingest
         self._register_streaming_routes(app)

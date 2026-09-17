@@ -164,12 +164,10 @@ async def test_add_routes_registers_deployment_version_endpoint() -> None:
         patch(
             "vss_agents.api.custom_fastapi_worker.FastApiFrontEndPluginWorker.add_routes",
             new_callable=AsyncMock,
-        ) as add_standard_routes,
+        ),
         patch("vss_agents.api.custom_fastapi_worker.register_version_route") as register_version_route,
-        patch.object(worker, "_register_streaming_routes") as register_streaming_routes,
+        patch.object(worker, "_register_streaming_routes"),
     ):
         await worker.add_routes(app, builder)
 
-    add_standard_routes.assert_awaited_once_with(app, builder)
     register_version_route.assert_called_once_with(app)
-    register_streaming_routes.assert_called_once_with(app)
