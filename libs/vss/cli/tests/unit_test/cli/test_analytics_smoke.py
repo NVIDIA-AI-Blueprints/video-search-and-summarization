@@ -74,7 +74,7 @@ def test_cli_smoke_uses_only_video_analytics_api(
         capsys.readouterr()
 
         assert vss_cli.main(["analytics", "incidents", "--limit", "10"]) == 0
-        assert json.loads(capsys.readouterr().out) == {"count": 0, "incidents": []}
+        assert json.loads(capsys.readouterr().out) == {"count": 0, "incidents": [], "has_more": False}
 
         assert vss_cli.main(["analytics", "sensors"]) == 0
         assert json.loads(capsys.readouterr().out) == {"count": 1, "sensors": ["cam-1"]}

@@ -120,18 +120,21 @@ def _include_option() -> click.Option:
 def _incidents(ctx: Any, values: dict[str, Any]) -> Result:
     _validate_pair(values, "source", "source_type")
     _validate_pair(values, "start_time", "end_time")
+    requested = values["limit"]
     incidents = _run(
         _client(ctx).incidents(
             source=values.get("source"),
             source_type=values.get("source_type"),
             start_time=values.get("start_time"),
             end_time=values.get("end_time"),
-            limit=values["limit"],
+            limit=requested + 1,
             includes=values["include"],
             vlm_verdict=values.get("vlm_verdict"),
         )
     )
-    return Result(body={"count": len(incidents), "incidents": incidents})
+    has_more = len(incidents) > requested
+    incidents = incidents[:requested]
+    return Result(body={"count": len(incidents), "incidents": incidents, "has_more": has_more})
 
 
 def _incident(ctx: Any, values: dict[str, Any]) -> Result:

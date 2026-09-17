@@ -132,6 +132,10 @@ def _places_from_sensors(sensors: list[dict[str, Any]]) -> list[str]:
     return sorted({place for sensor in sensors if (place := _place_path(sensor)) is not None})
 
 
+def _place_matches(sensor_place: str, place: str) -> bool:
+    return sensor_place == place or sensor_place.startswith(f"{place}/")
+
+
 def _merge_histograms(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Combine per-sensor FOV histograms for a place deterministically."""
     if not results:
@@ -289,7 +293,10 @@ class AnalyticsClient:
             str(row["id"])
             for row in rows
             if row.get("id") is not None
-            and (place is None or ((sensor_place := _place_path(row)) is not None and sensor_place.startswith(place)))
+            and (
+                place is None
+                or ((sensor_place := _place_path(row)) is not None and _place_matches(sensor_place, place))
+            )
         }
         return sorted(sensors)
 

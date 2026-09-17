@@ -98,8 +98,10 @@ Use `--source-type place` when `--source` is an analytics place. The source and
 source type are paired. Time bounds are paired and the end cannot precede the
 start.
 
-For a count question, use the returned `count`. Do not invent or estimate
-incidents when the array is empty.
+For a count question, use the returned `count` only when `has_more` is false.
+When `has_more` is true, say there are at least `count` matching incidents; do
+not treat `count` as an exact total. Do not invent or estimate incidents when
+the array is empty.
 
 ### Sensors and places
 

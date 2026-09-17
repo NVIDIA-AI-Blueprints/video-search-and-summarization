@@ -170,17 +170,26 @@ async def test_sensor_and_place_normalization(
                 "id": "cam-3",
                 "place": [{"name": "building", "value": "Annex"}],
             },
+            {
+                "id": "cam-10",
+                "place": [
+                    {"name": "building", "value": "Warehouse"},
+                    {"name": "room", "value": "Room-10"},
+                ],
+            },
             {"id": "orphan"},
         ]
     }
-    assert await client.sensors() == ["cam-1", "cam-2", "cam-3", "orphan"]
-    assert await client.sensors("building=Warehouse") == ["cam-1", "cam-2"]
+    assert await client.sensors() == ["cam-1", "cam-10", "cam-2", "cam-3", "orphan"]
+    assert await client.sensors("building=Warehouse") == ["cam-1", "cam-10", "cam-2"]
     assert await client.sensors("building=Warehouse/room=Room-1") == ["cam-2"]
+    assert await client.sensors("building=Warehouse/room=Room-10") == ["cam-10"]
     assert await client.sensors("Warehouse") == []
     places = await client.places()
     assert places == [
         "building=Annex",
         "building=Warehouse/room=Room-1/aisle=A",
+        "building=Warehouse/room=Room-10",
         "building=Warehouse/room=Room-2",
     ]
     responses["incidents"] = {"incidents": []}

@@ -25,7 +25,9 @@ VSS CLI. It uses `vss analytics incidents`; use this command shape after its
 bootstrap:
 
 ```bash
-"${VSS_CMD[@]}" analytics incidents \
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
+vss analytics incidents \
   --source "<sensor-id>" --source-type sensor \
   --start-time "<ISO>" --end-time "<ISO>" \
   --limit 100 \
@@ -59,10 +61,11 @@ For non-empty results, rendered output MUST start exactly with:
 - `## Basic Information`
 - a pipe table containing rows: `Report Identifier`, `Range`, `Scope`, `Total Incidents`, `Confirmed / Rejected / Unverified`
 
-The result contains `count` and `incidents`. Because `--limit 100` caps the
-response, never present 100 as an uncapped total; say `100+ (query capped)` or
-rerun with a larger positive limit. Zero results means `count` is `0` and
-`incidents` is `[]`. A nonzero CLI exit or output without an `incidents` key is
+The result contains `count`, `incidents`, and `has_more`. When `has_more` is
+true, `count` is a page size, not a total: say at least N (query capped) or
+rerun with a larger positive `--limit`. Zero results means `count` is `0`,
+`has_more` is false, and `incidents` is `[]`. A nonzero CLI exit or output
+without an `incidents` key is
 a failure (SKILL.md § Error Handling), never an empty range. On zero results,
 STOP and return exactly this one-line sentence shape (single line only):
 `No incidents found for scope <scope> in range <start_time> to <end_time>.`

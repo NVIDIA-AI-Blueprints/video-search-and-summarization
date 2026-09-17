@@ -61,7 +61,8 @@ vss analytics analyze --source TEXT --source-type sensor|place --start-time T --
 
 Every command requires the `video_analytics` service discovered by
 `vss configure`. Empty arrays/counts are successful answers. A missing incident
-exits 5.
+exits 5. `vss analytics incidents` also returns `has_more`: when it is true,
+`count` is at least that many matching incidents, not an exact total.
 
 `vss analytics sensors` lists sensor IDs represented in analytics calibration
 data. It is not VIOS registration: use `vss vios list` for the sensors currently

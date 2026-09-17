@@ -142,10 +142,12 @@ def test_incidents_returns_stable_object_and_translates_options(cli: Any) -> Non
         ],
     )
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["count"] == 1
+    body = json.loads(result.stdout)
+    assert body["count"] == 1
+    assert body["has_more"] is False
     operation, values = _Client.calls[0]
     assert operation == "incidents"
-    assert values["limit"] == 4
+    assert values["limit"] == 5
     assert values["includes"] == ("info",)
     assert values["vlm_verdict"] == "confirmed"
 
@@ -158,7 +160,23 @@ def test_empty_results_are_success(cli: Any, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(_Client, "incidents", empty)
     result = _invoke(cli, ["incidents"])
     assert result.exit_code == 0
-    assert json.loads(result.stdout) == {"count": 0, "incidents": []}
+    assert json.loads(result.stdout) == {"count": 0, "incidents": [], "has_more": False}
+
+
+def test_incidents_reports_has_more_when_the_page_is_full(cli: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def page(self: _Client, **values: Any) -> list[dict[str, Any]]:
+        self._record("incidents", values)
+        return [{"id": f"i-{index}"} for index in range(int(values["limit"]))]
+
+    monkeypatch.setattr(_Client, "incidents", page)
+    result = _invoke(cli, ["incidents", "--limit", "3"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {
+        "count": 3,
+        "incidents": [{"id": "i-0"}, {"id": "i-1"}, {"id": "i-2"}],
+        "has_more": True,
+    }
+    assert _Client.calls[0][1]["limit"] == 4
 
 
 @pytest.mark.parametrize(
