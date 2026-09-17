@@ -157,27 +157,16 @@ if [[ -z "${CHECKER}" ]]; then
 elif [[ ! -f "${SKILL_MD}" ]]; then
     err "SKILL.md not found at ${SKILL_MD}, so this skill's requires-vss range cannot be read"
 else
-    # HTTP 404 means this origin does not serve the version endpoint (LVS
-    # fallback, a deployment that predates the route, or a mis-pointed
-    # VSS_PUBLIC_URL). Compatibility is unknown — warn and continue rather
-    # than stopping a run that can still produce LVS numbers. 503, unreachable,
-    # a malformed payload, and an out-of-range version remain hard failures.
-    vcode=$(curl -s -o /dev/null -m 5 -w "%{http_code}" "${VERSION_ORIGIN}/api/v1/version" 2>/dev/null)
-    if [[ "$vcode" == "404" ]]; then
-        wrn "${VERSION_ORIGIN} does not serve /api/v1/version (404) — version compatibility was NOT verified."
-        wrn "      To verify, point VSS_PUBLIC_URL at an origin that routes /api to the VSS agent, or run:"
-        wrn "      python3 ${CHECKER} <agent-origin> --skill ${SKILL_MD}"
-    else
-        vout=$("${PYBIN}" "${CHECKER}" "${VERSION_ORIGIN}" --skill "${SKILL_MD}" --timeout 10 2>&1)
-        vrc=$?
-        case "$vrc" in
-            0) ok "deployed VSS ${vout} satisfies this skill's requires-vss range (via ${VERSION_ORIGIN})" ;;
-            3) err "${vout}"
-               err "      this skill does not support this deployment — do not benchmark it" ;;
-            *) err "${vout}"
-               err "      compatibility could not be determined; fix the above or check a different origin" ;;
-        esac
-    fi
+    vout=$("${PYBIN}" "${CHECKER}" "${VERSION_ORIGIN}" --skill "${SKILL_MD}" --timeout 10 2>&1)
+    vrc=$?
+    case "$vrc" in
+        0) ok "deployed VSS ${vout} satisfies this skill's requires-vss range (via ${VERSION_ORIGIN})" ;;
+        3) err "${vout}"
+           err "      this skill does not support this deployment — do not benchmark it" ;;
+        *) err "${vout}"
+           err "      compatibility could not be determined; set VSS_PUBLIC_URL to an origin that routes"
+           err "      /api to the VSS agent, then retry" ;;
+    esac
 fi
 
 echo ""

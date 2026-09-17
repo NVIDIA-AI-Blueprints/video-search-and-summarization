@@ -135,24 +135,23 @@ what a run enforces cannot drift from what the skill publishes.
 `GET /api/v1/version` is served by the **VSS agent**, not by LVS. The check uses
 `VSS_PUBLIC_URL` — the deployment origin `vss-build-vision-ai` publishes, whose
 ingress routes `/api` to the agent — and falls back to `LVS_BACKEND` when that is
-unset. An HTTP 404 from that origin (Compose pointing at LVS, a deployment that
-predates the route, or a `VSS_PUBLIC_URL` that does not route `/api` to the
-agent) is a **warning**: compatibility is not verified and the run continues.
-To make the check binding, point it at the agent:
+unset. On a Compose deployment `VSS_PUBLIC_URL` is unset by design and
+`LVS_BACKEND` is the LVS server, which returns 404 for this route. Because
+compatibility cannot be determined from that origin, preflight stops. Point it at
+the agent:
 
 ```bash
 export VSS_PUBLIC_URL=http://localhost:8000        # YOUR VSS agent / deployment origin
 ./scripts/preflight.sh
 ```
 
-Outcomes, which preflight maps onto its own `ok`/`WARN`/`FAIL` lines:
+Outcomes, which preflight maps onto its own `ok`/`FAIL` lines:
 
 | Checker exit | Meaning | Preflight |
 |---|---|---|
 | 0 | deployed version is inside `requires-vss` | `ok` |
 | 3 | deployed version is outside `requires-vss` | `FAIL` — benchmark stops |
-| 1 | HTTP 404 from the version origin (whether `VSS_PUBLIC_URL` is set or not) | `WARN` — not verified, run continues |
-| 1 | version or range could not be determined (503, non-SemVer, unreachable, absent/malformed `requires-vss`) | `FAIL` — benchmark stops |
+| 1 | version or range could not be determined (404, 503, non-SemVer, unreachable, absent/malformed `requires-vss`) | `FAIL` — benchmark stops |
 
 A prerelease counts as its release (`3.3.0-65576357eb80` satisfies exactly what
 `3.3.0` does), so the check behaves identically on Helm and Compose defaults. The
