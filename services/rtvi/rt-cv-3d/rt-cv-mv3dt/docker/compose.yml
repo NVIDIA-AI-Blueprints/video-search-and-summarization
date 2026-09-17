@@ -203,7 +203,7 @@ services:
       - -c
       - |
         topics="${RAW_TOPIC:-mdx-raw} ${FUSED_TOPIC:-mdx-bev}"
-        case "${REID_ENABLE_COMPRESSION:-False}" in
+        case "${REID_ENABLE_SECONDARY_EMBEDDING:-False}" in
           [Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss]) topics="$$topics ${REID_OUTPUT_TOPIC:-mdx-compressed-embeddings}" ;;
         esac
         for t in $$topics; do
@@ -322,7 +322,7 @@ services:
       MILVUS_PORT: "${REID_MILVUS_PORT:-19530}"
       DIMENSION: "${REID_DIMENSION:-1280}"
       DEEPSTREAM_SCHEMA: protobuf
-      ENABLE_COMPRESSION: "${REID_ENABLE_COMPRESSION:-False}"
+      ENABLE_COMPRESSION: "${REID_ENABLE_COMPRESSION:-True}"
       ENABLE_SECONDARY_EMBEDDING: "${REID_ENABLE_SECONDARY_EMBEDDING:-False}"
       CLEAN_RESTART: "${REID_CLEAN_RESTART:-False}"
       PYTHONUNBUFFERED: "1"
