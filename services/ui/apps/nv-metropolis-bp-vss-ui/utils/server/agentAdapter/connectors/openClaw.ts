@@ -31,6 +31,21 @@ const MANAGED_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
+const TOOL_START_PHASES = new Set([
+  "start",
+  "started",
+  "running",
+  "in_progress",
+]);
+const TOOL_PROGRESS_PHASES = new Set(["update", "delta", "progress"]);
+const TOOL_END_PHASES = new Set([
+  "result",
+  "complete",
+  "completed",
+  "error",
+  "failed",
+]);
+const TOOL_FAILURE_PHASES = new Set(["error", "failed"]);
 
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
@@ -613,89 +628,180 @@ export class OpenClawConnector implements Connector {
     return undefined;
   }
 
-  async normalizeEvent(
+  private static emptyNormalizedFrame(): NormalizedFrame {
+    return { events: [], terminal: false };
+  }
+
+  private static toolData(
     frame: JsonObject,
+    payload: JsonObject
+  ): JsonObject | undefined {
+    let value: unknown;
+    if (frame.event === "agent" && payload.stream === "tool") {
+      value = payload.data;
+    } else if (frame.event === "session.tool") {
+      value = payload.data ?? payload;
+    }
+    return isJsonObject(value) ? value : undefined;
+  }
+
+  private normalizeChatDelta(
+    payload: JsonObject,
+    state: NormalizationState
+  ): NormalizedFrame {
+    if (typeof payload.deltaText !== "string" || !payload.deltaText) {
+      return OpenClawConnector.emptyNormalizedFrame();
+    }
+    state.sawText = true;
+    return {
+      events: [{ type: "message.delta", data: { delta: payload.deltaText } }],
+      terminal: false,
+    };
+  }
+
+  private async normalizeFinalChat(
+    payload: JsonObject,
     state: NormalizationState,
     signal: AbortSignal
   ): Promise<NormalizedFrame> {
-    if (frame.type !== "event" || !isJsonObject(frame.payload)) {
-      return { events: [], terminal: false };
-    }
-    const payload = frame.payload;
-    if (payload.sessionKey !== state.sessionKey) {
-      return { events: [], terminal: false };
-    }
-    if (
-      typeof payload.runId === "string" &&
-      payload.runId !== state.upstreamRunId
-    ) {
-      return { events: [], terminal: false };
-    }
-    if (frame.event === "chat") {
-      if (
-        payload.state === "delta" &&
-        typeof payload.deltaText === "string" &&
-        payload.deltaText
-      ) {
-        state.sawText = true;
-        return {
-          events: [
-            { type: "message.delta", data: { delta: payload.deltaText } },
-          ],
-          terminal: false,
-        };
+    const finalText = state.sawText
+      ? undefined
+      : OpenClawConnector.finalText(payload);
+    const events: ConnectorEvent[] = finalText
+      ? [{ type: "message.delta", data: { delta: finalText } }]
+      : [];
+    const recoverySignal = this.managedImageRecoverySignal(signal);
+    for (const image of OpenClawConnector.managedImageBlocks(
+      payload,
+      state.sessionKey
+    )) {
+      if (recoverySignal.aborted) break;
+      const source = await this.materializeManagedImage(image, recoverySignal);
+      if (source) {
+        events.push({ type: "artifact.source", data: { source } });
       }
-      if (payload.state === "final") {
-        const finalText = state.sawText
-          ? undefined
-          : OpenClawConnector.finalText(payload);
-        const events: ConnectorEvent[] = finalText
-          ? [{ type: "message.delta", data: { delta: finalText } }]
-          : [];
-        const recoverySignal = this.managedImageRecoverySignal(signal);
-        for (const image of OpenClawConnector.managedImageBlocks(
-          payload,
-          state.sessionKey
-        )) {
-          if (recoverySignal.aborted) break;
-          const source = await this.materializeManagedImage(
-            image,
-            recoverySignal
-          );
-          if (source) {
-            events.push({ type: "artifact.source", data: { source } });
-          }
-        }
-        return {
-          events,
-          terminal: true,
-        };
-      }
-      if (payload.state === "error" || payload.state === "failed") {
+    }
+    return { events, terminal: true };
+  }
+
+  private async normalizeChatEvent(
+    payload: JsonObject,
+    state: NormalizationState,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
+    switch (payload.state) {
+      case "delta":
+        return this.normalizeChatDelta(payload, state);
+      case "final":
+        return this.normalizeFinalChat(payload, state, signal);
+      case "error":
+      case "failed":
         throw new ConnectorError(
           "OpenClaw agent run failed",
           "backend_run_failed"
         );
-      }
-      if (payload.state === "aborted" || payload.state === "cancelled") {
+      case "aborted":
+      case "cancelled":
         throw new ConnectorError(
           "OpenClaw agent run was aborted",
           "backend_run_aborted"
         );
-      }
-      return { events: [], terminal: false };
+      default:
+        return OpenClawConnector.emptyNormalizedFrame();
+    }
+  }
+
+  private static ensureToolStarted(
+    events: ConnectorEvent[],
+    state: NormalizationState,
+    toolCallId: string,
+    name: string
+  ): void {
+    if (state.startedTools.has(toolCallId)) return;
+    state.startedTools.add(toolCallId);
+    events.push({
+      type: "tool.started",
+      data: { tool_call_id: toolCallId, name, payload: "Running" },
+    });
+  }
+
+  private normalizeToolStart(
+    toolData: JsonObject,
+    state: NormalizationState,
+    toolCallId: string,
+    name: string
+  ): NormalizedFrame {
+    const imageSource = OpenClawConnector.toolImageSource(toolData);
+    if (imageSource) state.imageSources.set(toolCallId, imageSource);
+    const events: ConnectorEvent[] = [];
+    OpenClawConnector.ensureToolStarted(events, state, toolCallId, name);
+    return { events, terminal: false };
+  }
+
+  private async appendToolImageArtifact(
+    events: ConnectorEvent[],
+    state: NormalizationState,
+    toolCallId: string,
+    signal: AbortSignal
+  ): Promise<void> {
+    const imageSource = state.imageSources.get(toolCallId);
+    if (
+      !imageSource ||
+      state.materializedImageSources.has(imageSource.source)
+    ) {
+      return;
+    }
+    const source = await this.readManagedImage(
+      imageSource.source,
+      imageSource.mimeType,
+      "VSS snapshot",
+      this.managedImageRecoverySignal(signal)
+    );
+    if (!source) return;
+    state.materializedImageSources.add(imageSource.source);
+    events.push({ type: "artifact.source", data: { source } });
+  }
+
+  private async normalizeToolEnd(
+    toolData: JsonObject,
+    state: NormalizationState,
+    toolCallId: string,
+    name: string,
+    phase: string,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
+    state.completedTools.add(toolCallId);
+    const events: ConnectorEvent[] = [];
+    OpenClawConnector.ensureToolStarted(events, state, toolCallId, name);
+    if (TOOL_FAILURE_PHASES.has(phase) || toolData.isError === true) {
+      events.push({
+        type: "tool.failed",
+        data: {
+          tool_call_id: toolCallId,
+          name,
+          error: "Tool failed in OpenClaw",
+        },
+      });
+      return { events, terminal: false };
     }
 
-    let toolData: unknown;
-    if (frame.event === "agent" && payload.stream === "tool") {
-      toolData = payload.data;
-    } else if (frame.event === "session.tool") {
-      toolData = payload.data ?? payload;
-    } else {
-      return { events: [], terminal: false };
-    }
-    if (!isJsonObject(toolData)) return { events: [], terminal: false };
+    const data: JsonObject = {
+      tool_call_id: toolCallId,
+      name,
+      payload: "Completed",
+    };
+    if (toolData.result !== undefined) data._artifact_source = toolData.result;
+    events.push({ type: "tool.completed", data });
+    await this.appendToolImageArtifact(events, state, toolCallId, signal);
+    return { events, terminal: false };
+  }
 
+  private async normalizeToolEvent(
+    toolData: JsonObject,
+    payload: JsonObject,
+    state: NormalizationState,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
     const fallbackId = `tool-${sequenceText(payload.seq)}`;
     const toolCallId = OpenClawConnector.safeIdentifier(
       toolData.toolCallId || toolData.id,
@@ -711,77 +817,52 @@ export class OpenClawConnector implements Connector {
       asString(toolData.status) ??
       "start"
     ).toLowerCase();
-    const events: ConnectorEvent[] = [];
-    if (["start", "started", "running", "in_progress"].includes(phase)) {
-      const imageSource = OpenClawConnector.toolImageSource(toolData);
-      if (imageSource) state.imageSources.set(toolCallId, imageSource);
-      if (!state.startedTools.has(toolCallId)) {
-        state.startedTools.add(toolCallId);
-        events.push({
-          type: "tool.started",
-          data: {
-            tool_call_id: toolCallId,
-            name,
-            payload: "Running",
-          },
-        });
-      }
-      return { events, terminal: false };
-    }
-    if (["update", "delta", "progress"].includes(phase)) {
-      return { events: [], terminal: false };
+
+    if (TOOL_START_PHASES.has(phase)) {
+      return this.normalizeToolStart(toolData, state, toolCallId, name);
     }
     if (
-      !["result", "complete", "completed", "error", "failed"].includes(phase) ||
+      TOOL_PROGRESS_PHASES.has(phase) ||
+      !TOOL_END_PHASES.has(phase) ||
       state.completedTools.has(toolCallId)
     ) {
-      return { events: [], terminal: false };
+      return OpenClawConnector.emptyNormalizedFrame();
     }
-    state.completedTools.add(toolCallId);
-    if (!state.startedTools.has(toolCallId)) {
-      state.startedTools.add(toolCallId);
-      events.push({
-        type: "tool.started",
-        data: { tool_call_id: toolCallId, name, payload: "Running" },
-      });
+    return this.normalizeToolEnd(
+      toolData,
+      state,
+      toolCallId,
+      name,
+      phase,
+      signal
+    );
+  }
+
+  async normalizeEvent(
+    frame: JsonObject,
+    state: NormalizationState,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
+    if (frame.type !== "event" || !isJsonObject(frame.payload)) {
+      return OpenClawConnector.emptyNormalizedFrame();
     }
-    if (["error", "failed"].includes(phase) || toolData.isError === true) {
-      events.push({
-        type: "tool.failed",
-        data: {
-          tool_call_id: toolCallId,
-          name,
-          error: "Tool failed in OpenClaw",
-        },
-      });
-    } else {
-      const data: JsonObject = {
-        tool_call_id: toolCallId,
-        name,
-        payload: "Completed",
-      };
-      if (toolData.result !== undefined)
-        data._artifact_source = toolData.result;
-      events.push({ type: "tool.completed", data });
-      const imageSource = state.imageSources.get(toolCallId);
-      if (
-        imageSource &&
-        !state.materializedImageSources.has(imageSource.source)
-      ) {
-        const recoverySignal = this.managedImageRecoverySignal(signal);
-        const source = await this.readManagedImage(
-          imageSource.source,
-          imageSource.mimeType,
-          "VSS snapshot",
-          recoverySignal
-        );
-        if (source) {
-          state.materializedImageSources.add(imageSource.source);
-          events.push({ type: "artifact.source", data: { source } });
-        }
-      }
+    const payload = frame.payload;
+    if (payload.sessionKey !== state.sessionKey) {
+      return OpenClawConnector.emptyNormalizedFrame();
     }
-    return { events, terminal: false };
+    if (
+      typeof payload.runId === "string" &&
+      payload.runId !== state.upstreamRunId
+    ) {
+      return OpenClawConnector.emptyNormalizedFrame();
+    }
+    if (frame.event === "chat") {
+      return this.normalizeChatEvent(payload, state, signal);
+    }
+
+    const toolData = OpenClawConnector.toolData(frame, payload);
+    if (!toolData) return OpenClawConnector.emptyNormalizedFrame();
+    return this.normalizeToolEvent(toolData, payload, state, signal);
   }
 
   async *run(
