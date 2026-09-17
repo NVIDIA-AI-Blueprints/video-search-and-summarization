@@ -22,10 +22,18 @@ This project also contains Elasticsearch, Kibana and Redis configuration files, 
    - GNU Affero General Public License v3 (AGPLv3)
 
 Data assets:
-  - Sample media assets in this repository are provided under the NVIDIA Asset
-    License in LICENSE.DATA, not under the code licenses above. Covered assets:
+  - Sample media and sample data in this repository are provided under the
+    NVIDIA Asset License in LICENSE.DATA, not under the code licenses above.
+    This applies to a covered file wherever it sits, including under a
+    directory the code licenses otherwise cover. Covered assets:
       - services/alert/warmup/test.mp4
       - services/vios/test/bdd_tests/data/test_video.mp4
+      - services/ui/apps/nv-metropolis-bp-vss-ui/public/audio/recording.wav
+      - deploy/docker/industry-profiles/*/*/calibration/sample-data/
+        (sample camera images and the accompanying camera and scene metadata
+        for the warehouse and smart-city calibration examples)
+    Compiled libraries, packaged archives and other prebuilt artifacts are
+    code, not data assets, and are not covered by LICENSE.DATA.
 
 All contributions to this repository are accepted under the Apache-2.0 license.
 See CONTRIBUTING.md for the contribution terms and the Developer Certificate of
