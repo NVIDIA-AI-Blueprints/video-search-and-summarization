@@ -30,6 +30,8 @@
 #   - kafka sink conn-str = KAFKA_BOOTSTRAP host;port;RAW_TOPIC
 #   - [sink0] on-screen display: enabled with OSD=1 (needs an X display), else off
 #   - RT-DETR model-engine-file batch suffix = NUM_CAMS
+#   - REID_ENABLED=1: enable the 1280-D tracker extractor + ReID service client;
+#     disabled runs force both ReID switches off
 #   - INPUT_MODE=file: static [source-list] of file:///videos/<cam>.mp4 + SEI/sync
 #     off (plays local clips once; no add-streams.sh registration)
 #   - SAVE_VIDEO=1: enable the [sink2] tiled grid file sink -> video-output/grid-view.mkv
@@ -41,7 +43,7 @@
 #         [ALLOW_UNBOUNDED_RECORDING=0|1]
 #         [TRACKER_CONFIG=/path/to/tracker.yml] ./scripts/stage-configs.sh
 # Reads NUM_CAMS / DS_HTTP_PORT / KAFKA_BOOTSTRAP / RAW_TOPIC / INPUT_MODE /
-# VIDEO_DIR / SAVE_VIDEO / ALLOW_UNBOUNDED_RECORDING from docker/.env
+# VIDEO_DIR / SAVE_VIDEO / ALLOW_UNBOUNDED_RECORDING / REID_* from docker/.env
 # (already-exported env values win).
 #   TRACKER_CONFIG  base tracker config to stage (default:
 #                   configs/ds-mv3dt-tracker-config.yml). Point this at your
@@ -76,6 +78,49 @@ INPUT_MODE="${INPUT_MODE:-stream}"
 SAVE_VIDEO="${SAVE_VIDEO:-0}"
 ALLOW_UNBOUNDED_RECORDING="${ALLOW_UNBOUNDED_RECORDING:-0}"
 GPU_DEVICE="${GPU_DEVICE:-0}"
+REID_ENABLED="${REID_ENABLED:-0}"
+REID_SERVICE_HOST="${REID_SERVICE_HOST:-127.0.0.1}"
+REID_SERVICE_PORT="${REID_SERVICE_PORT:-8088}"
+REID_DIMENSION="${REID_DIMENSION:-1280}"
+REID_EXTRACTION_INTERVAL="${REID_EXTRACTION_INTERVAL:-8}"
+REID_INPUT_TOPIC="${REID_INPUT_TOPIC:-$RAW_TOPIC}"
+REID_RESET_BEFORE_RUN="${REID_RESET_BEFORE_RUN:-1}"
+REID_READY_TIMEOUT_SEC="${REID_READY_TIMEOUT_SEC:-300}"
+
+validate_reid_settings() {
+  case "$REID_ENABLED" in 0|1) ;; *) echo "ERROR: REID_ENABLED must be 0 or 1 (got '$REID_ENABLED')" >&2; exit 1 ;; esac
+  case "$REID_RESET_BEFORE_RUN" in 0|1) ;; *) echo "ERROR: REID_RESET_BEFORE_RUN must be 0 or 1 (got '$REID_RESET_BEFORE_RUN')" >&2; exit 1 ;; esac
+  [[ "$REID_SERVICE_PORT" =~ ^[0-9]+$ ]] && (( REID_SERVICE_PORT >= 1 && REID_SERVICE_PORT <= 65535 )) || {
+    echo "ERROR: REID_SERVICE_PORT must be an integer from 1 to 65535" >&2; exit 1; }
+  [[ "$REID_DIMENSION" =~ ^[0-9]+$ ]] && (( REID_DIMENSION > 0 )) || {
+    echo "ERROR: REID_DIMENSION must be a positive integer" >&2; exit 1; }
+  [[ "$REID_EXTRACTION_INTERVAL" =~ ^[0-9]+$ ]] || {
+    echo "ERROR: REID_EXTRACTION_INTERVAL must be a non-negative integer" >&2; exit 1; }
+  [[ "$REID_READY_TIMEOUT_SEC" =~ ^[0-9]+$ ]] && (( REID_READY_TIMEOUT_SEC > 0 )) || {
+    echo "ERROR: REID_READY_TIMEOUT_SEC must be a positive integer" >&2; exit 1; }
+  [[ "$REID_SERVICE_HOST" =~ ^[A-Za-z0-9._-]+$ ]] || {
+    echo "ERROR: REID_SERVICE_HOST must be a hostname or IPv4 address without a URL scheme" >&2; exit 1; }
+
+  [ "$REID_ENABLED" = 1 ] || return 0
+  [ "$REID_DIMENSION" = 1280 ] || {
+    echo "ERROR: the supplied CLIP-ReID model has dimension 1280; REID_DIMENSION='$REID_DIMENSION'" >&2
+    exit 1
+  }
+  [ "$REID_INPUT_TOPIC" = "$RAW_TOPIC" ] || {
+    echo "ERROR: REID_INPUT_TOPIC='$REID_INPUT_TOPIC' must match RAW_TOPIC='$RAW_TOPIC'." >&2
+    echo "       The service must consume the messages emitted by perception." >&2
+    exit 1
+  }
+  [ -n "${MODELS_DIR:-}" ] || { echo "ERROR: MODELS_DIR is required when REID_ENABLED=1" >&2; exit 1; }
+  local model
+  for model in reid_model.onnx reid_model.onnx_b64_gpu0_fp32.engine; do
+    [ -r "$MODELS_DIR/reid/$model" ] || {
+      echo "ERROR: required ReID model is missing or unreadable: $MODELS_DIR/reid/$model" >&2
+      exit 1
+    }
+  done
+}
+validate_reid_settings
 
 if [ "$INPUT_MODE" = "stream" ] && [ "$SAVE_VIDEO" = "1" ] && [ "$ALLOW_UNBOUNDED_RECORDING" != "1" ]; then
   echo "ERROR: INPUT_MODE=stream SAVE_VIDEO=1 would write an unbounded live recording to video-output/grid-view.mkv." >&2
@@ -260,6 +305,63 @@ else
   ' "$TRACKER_CONFIG" > "$STAGE/ds-mv3dt-tracker-config.yml"
 fi
 
+# set_yaml_scalar FILE SECTION KEY VALUE — rewrite exactly one existing scalar
+# inside a top-level YAML section. The tracker file is intentionally edited as
+# text so comments/order and the tuned values outside the ReID blocks survive.
+set_yaml_scalar() {
+  local file="$1" section="$2" key="$3" value="$4" tmp="${1}.tmp"
+  if ! awk -v section="$section" -v key="$key" -v value="$value" '
+    $0 == section ":" { in_section=1; saw_section=1; print; next }
+    in_section && /^[^[:space:]#]/ { in_section=0 }
+    in_section && $0 ~ "^[[:space:]]+" key ":[[:space:]]*" {
+      match($0, /^[[:space:]]*/)
+      print substr($0, RSTART, RLENGTH) key ": " value
+      found++
+      next
+    }
+    { print }
+    END { if (!saw_section || found != 1) exit 42 }
+  ' "$file" > "$tmp"; then
+    rm -f "$tmp"
+    echo "ERROR: cannot set $section.$key in staged tracker config $file" >&2
+    exit 1
+  fi
+  mv "$tmp" "$file"
+}
+
+has_yaml_scalar() {  # FILE SECTION KEY
+  awk -v section="$2" -v key="$3" '
+    $0 == section ":" { in_section=1; next }
+    in_section && /^[^[:space:]#]/ { in_section=0 }
+    in_section && $0 ~ "^[[:space:]]+" key ":[[:space:]]*" { found=1; exit }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
+
+TRACKER_STAGED="$STAGE/ds-mv3dt-tracker-config.yml"
+if [ "$REID_ENABLED" = 1 ]; then
+  set_yaml_scalar "$TRACKER_STAGED" TrajectoryManagement reidExtractionInterval "$REID_EXTRACTION_INTERVAL"
+  set_yaml_scalar "$TRACKER_STAGED" ReID reidType 2
+  set_yaml_scalar "$TRACKER_STAGED" ReID reidFeatureSize "$REID_DIMENSION"
+  set_yaml_scalar "$TRACKER_STAGED" ReID outputReidTensor 1
+  set_yaml_scalar "$TRACKER_STAGED" ReID onnxFile '"/opt/storage/reid/reid_model.onnx"'
+  set_yaml_scalar "$TRACKER_STAGED" ReID modelEngineFile '"/opt/storage/reid/reid_model.onnx_b64_gpu0_fp32.engine"'
+  set_yaml_scalar "$TRACKER_STAGED" ReIDService reidServiceType 1
+  set_yaml_scalar "$TRACKER_STAGED" ReIDService serviceAddress "\"$REID_SERVICE_HOST\""
+  set_yaml_scalar "$TRACKER_STAGED" ReIDService servicePort "$REID_SERVICE_PORT"
+  set_yaml_scalar "$TRACKER_STAGED" ReIDService operateOnClassIds '[0]'
+  echo "   ReID enabled: ${REID_DIMENSION}-D features -> ${REID_SERVICE_HOST}:${REID_SERVICE_PORT} (topic $REID_INPUT_TOPIC)"
+  echo "   ReID models: $MODELS_DIR/reid/reid_model.onnx + reid_model.onnx_b64_gpu0_fp32.engine"
+else
+  # Older/custom tracker configs may omit these optional blocks entirely. If a
+  # switch exists, force it off; absence already means the service is disabled.
+  has_yaml_scalar "$TRACKER_STAGED" ReID reidType && \
+    set_yaml_scalar "$TRACKER_STAGED" ReID reidType 0
+  has_yaml_scalar "$TRACKER_STAGED" ReIDService reidServiceType && \
+    set_yaml_scalar "$TRACKER_STAGED" ReIDService reidServiceType 0
+  echo "   ReID disabled: tracker extractor and service client forced off"
+fi
+
 # RT-DETR engine file name follows the batch size (TensorRT builds it on first
 # run if missing — a cold build takes minutes).
 ONNX=$(sed -nE 's/^[[:space:]]*onnx-file:[[:space:]]*([^[:space:]]+).*/\1/p' "$STAGE/ds-pgie-config.yml" | head -1)
@@ -372,6 +474,7 @@ set_ini sink1        msg-broker-conn-str "$KAFKA_HOST;$KAFKA_PORT_ONLY;$RAW_TOPI
 set_ini sink0 enable "$([ "$OSD" = 1 ] && echo 1 || echo 0)"          # on-screen OSD (needs a display)
 set_ini sink1 enable 1                                                # Kafka metadata sink
 set_ini sink2 enable "$([ "$SAVE_VIDEO" = 1 ] && echo 1 || echo 0)"   # grid file sink (SAVE_VIDEO)
+
 if [ "$SAVE_VIDEO" = "1" ] && [ -n "$NVENC_LESS_GPU_NAME" ]; then
   set_ini sink2 enc-type 1
   echo "   SAVE_VIDEO=1 on ${NVENC_LESS_GPU_NAME} -> using software encoder for sink2 (enc-type=1; this GPU cannot encode in hardware)"
@@ -381,6 +484,7 @@ fi
 # live-source latency dropping disabled, and the system clock stamped as NTP so
 # the Kafka/BEV output has per-frame timestamps.
 if [ "$INPUT_MODE" = "file" ]; then
+  set_ini sink1 sync 1
   set_ini source-list num-source-bins "$NUM_CAMS"
   set_ini source-list list "$URIS"
   set_ini source-list sensor-id-list "$IDS"
@@ -417,7 +521,11 @@ fi
 chmod -R o+rX "$ROOT/generated"
 
 echo "── Staged. Launch from the docker/ directory:"
-echo "   cd docker && COMPOSE_PROFILES=mosquitto,kafka docker compose up -d   # bundled brokers"
+if [ "$REID_ENABLED" = 1 ]; then
+  echo "   cd docker && COMPOSE_PROFILES=mosquitto,kafka,reid docker compose up -d   # bundled brokers + ReID"
+else
+  echo "   cd docker && COMPOSE_PROFILES=mosquitto,kafka docker compose up -d   # bundled brokers"
+fi
 echo "   cd docker && docker compose up -d                                    # own brokers"
 if [ "$INPUT_MODE" = "file" ]; then
   echo "   INPUT_MODE=file: sources are static (VIDEO_DIR/*.mp4) — no add-streams.sh needed; clips play once."

@@ -174,6 +174,14 @@ PY
 MQTT_HOST=${MQTT_HOST:-localhost}
 MQTT_PORT=${MQTT_PORT:-1883}
 MQTT_ENDPOINT="${MQTT_HOST}:${MQTT_PORT}"
+REID_ENABLED=${REID_ENABLED:-0}
+REID_SERVICE_HOST=${REID_SERVICE_HOST:-127.0.0.1}
+REID_SERVICE_PORT=${REID_SERVICE_PORT:-8088}
+REID_RESET_BEFORE_RUN=${REID_RESET_BEFORE_RUN:-1}
+REID_READY_TIMEOUT_SEC=${REID_READY_TIMEOUT_SEC:-300}
+REID_DIMENSION=${REID_DIMENSION:-1280}
+REID_EXTRACTION_INTERVAL=${REID_EXTRACTION_INTERVAL:-8}
+REID_INPUT_TOPIC=${REID_INPUT_TOPIC:-${RAW_TOPIC:-mdx-raw}}
 
 # MQTT is rewritten at every start, so docker/.env alone is enough. Kafka is
 # baked into the staged config, so an edit without a restage leaves the old
@@ -235,6 +243,71 @@ if ! batch_matches_caminfo "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
   exit 1
 fi
 
+# Staging owns the tracker-side ReID switches. Refuse a stale config rather than
+# silently run the requested experiment with the opposite behavior.
+tracker_yaml_scalar() {  # $1=file $2=top-level section $3=key
+  awk -v section="$2" -v key="$3" '
+    $0 == section ":" { in_section=1; next }
+    in_section && /^[^[:space:]#]/ { in_section=0 }
+    in_section && $0 ~ "^[[:space:]]+" key ":[[:space:]]*" {
+      sub("^[[:space:]]+" key ":[[:space:]]*", "")
+      sub(/[[:space:]]+#.*$/, "")
+      gsub(/^"|"$/, "")
+      print
+      exit
+    }
+  ' "$1"
+}
+
+tracker_reid_matches_env() {
+  local cfg="$1" reid_type service_type extraction_interval feature_size output_tensor service_host service_port
+  [ -f "$cfg" ] || { echo "** ERROR: staged tracker config is missing: $cfg" >&2; return 1; }
+  reid_type="$(tracker_yaml_scalar "$cfg" ReID reidType)"
+  service_type="$(tracker_yaml_scalar "$cfg" ReIDService reidServiceType)"
+
+  if [ "$REID_ENABLED" = 0 ]; then
+    { [ -z "$reid_type" ] || [ "$reid_type" = 0 ]; } && \
+      { [ -z "$service_type" ] || [ "$service_type" = 0 ]; } && return 0
+    { echo "** ERROR: REID_ENABLED=0, but the staged tracker config still enables ReID."
+      echo "          staged ReID.reidType=${reid_type:-missing} ReIDService.reidServiceType=${service_type:-missing}"
+      echo "          Run ./scripts/stage-configs.sh after changing docker/.env."; } >&2
+    return 1
+  fi
+
+  if [ "$REID_ENABLED" != 1 ]; then
+    echo "** ERROR: REID_ENABLED must be 0 or 1 (got '$REID_ENABLED')" >&2
+    return 1
+  fi
+  if [ "$REID_INPUT_TOPIC" != "${RAW_TOPIC:-mdx-raw}" ]; then
+    { echo "** ERROR: ReID is consuming '$REID_INPUT_TOPIC', but perception publishes '${RAW_TOPIC:-mdx-raw}'."
+      echo "          Set REID_INPUT_TOPIC=RAW_TOPIC and restage before launching."; } >&2
+    return 1
+  fi
+  extraction_interval="$(tracker_yaml_scalar "$cfg" TrajectoryManagement reidExtractionInterval)"
+  feature_size="$(tracker_yaml_scalar "$cfg" ReID reidFeatureSize)"
+  output_tensor="$(tracker_yaml_scalar "$cfg" ReID outputReidTensor)"
+  service_host="$(tracker_yaml_scalar "$cfg" ReIDService serviceAddress)"
+  service_port="$(tracker_yaml_scalar "$cfg" ReIDService servicePort)"
+  if [ "$reid_type" = 2 ] && [ "$service_type" = 1 ] && \
+     [ "$extraction_interval" = "$REID_EXTRACTION_INTERVAL" ] && \
+     [ "$feature_size" = "$REID_DIMENSION" ] && [ "$output_tensor" = 1 ] && \
+     [ "$service_host" = "$REID_SERVICE_HOST" ] && [ "$service_port" = "$REID_SERVICE_PORT" ]; then
+    return 0
+  fi
+
+  { echo "** ERROR: REID_ENABLED=1 does not match the staged tracker config."
+    echo "          expected: reidType=2 serviceType=1 extractionInterval=$REID_EXTRACTION_INTERVAL featureSize=$REID_DIMENSION outputTensor=1"
+    echo "                    service=${REID_SERVICE_HOST}:${REID_SERVICE_PORT}"
+    echo "          staged:   reidType=${reid_type:-missing} serviceType=${service_type:-missing} extractionInterval=${extraction_interval:-missing} featureSize=${feature_size:-missing} outputTensor=${output_tensor:-missing}"
+    echo "                    service=${service_host:-missing}:${service_port:-missing}"
+    echo "          Run ./scripts/stage-configs.sh after changing docker/.env."; } >&2
+  return 1
+}
+
+if ! tracker_reid_matches_env "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"; then
+  exit 1
+fi
+
 if ! osd_preflight "${CONFIG_DIR}/ds-main-config-mv3dt.txt"; then
   { echo
     echo "** ERROR: not starting the pipeline: it would fail at 'Failed to set pipeline"
@@ -284,15 +357,88 @@ cat "${CONFIG_DIR}/ds-pgie-config.yml"
 echo -e "\nTracker config:"
 cat "${CONFIG_DIR}/ds-mv3dt-tracker-config.yml"
 
+prepare_reid_service() {
+  [ "$REID_ENABLED" = 1 ] || return 0
+  case "$REID_RESET_BEFORE_RUN" in
+    0|1) ;;
+    *) echo "** ERROR: REID_RESET_BEFORE_RUN must be 0 or 1 (got '$REID_RESET_BEFORE_RUN')" >&2; return 1 ;;
+  esac
+  [[ "$REID_READY_TIMEOUT_SEC" =~ ^[0-9]+$ ]] && [ "$REID_READY_TIMEOUT_SEC" -gt 0 ] || {
+    echo "** ERROR: REID_READY_TIMEOUT_SEC must be a positive integer" >&2; return 1; }
+
+  echo -e "\nWaiting up to ${REID_READY_TIMEOUT_SEC}s for ReID at ${REID_SERVICE_HOST}:${REID_SERVICE_PORT}..."
+  python3 - "$REID_SERVICE_HOST" "$REID_SERVICE_PORT" "$REID_READY_TIMEOUT_SEC" "$REID_RESET_BEFORE_RUN" <<'PY'
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+
+host, port, timeout, do_reset = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4] == "1"
+base = f"http://{host}:{port}"
+deadline = time.monotonic() + timeout
+last_error = "not contacted"
+next_report = 0.0
+
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(base + "/health/ready", timeout=5) as response:
+            if 200 <= response.status < 300:
+                print("ReID readiness: OK", flush=True)
+                break
+            last_error = f"HTTP {response.status}"
+    except Exception as error:
+        last_error = str(error)
+    now = time.monotonic()
+    if now >= next_report:
+        print(f"  still waiting ({last_error})", flush=True)
+        next_report = now + 10
+    time.sleep(min(2, max(0, deadline - time.monotonic())))
+else:
+    print(f"ERROR: ReID did not become ready within {timeout}s: {last_error}", file=sys.stderr)
+    sys.exit(1)
+
+if do_reset:
+    request = urllib.request.Request(
+        base + "/reset?clear_main=true&clear_compressed=true", method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = response.read().decode("utf-8", "replace")
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"HTTP {response.status}: {body}")
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = body
+            print(f"ReID reset: OK ({payload})", flush=True)
+    except Exception as error:
+        print(f"ERROR: ReID reset failed: {error}", file=sys.stderr)
+        sys.exit(1)
+else:
+    print("ReID reset skipped (REID_RESET_BEFORE_RUN=0)", flush=True)
+PY
+}
+
+if ! prepare_reid_service; then
+  echo "** ERROR: not starting perception without a ready, reset ReID service." >&2
+  exit 1
+fi
+
+REID_ARGS=()
+if [ "$REID_ENABLED" = 1 ]; then
+  REID_ARGS+=(--tracker-reid)
+fi
+
 if [ "${STREAM_TYPE}" = "redis" ]; then
   echo -e "\nRunning metropolis_perception_app with redis (RT-DETR + MV3DT)..."
   echo -e "\nMain config:"
   cat "${CONFIG_DIR}/ds-main-redis-config-mv3dt.txt"
-  ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-redis-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1 --tiledtext
+  exec ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-redis-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1 --tiledtext "${REID_ARGS[@]}"
 else
   [ "${STREAM_TYPE}" = "kafka" ] || echo "STREAM_TYPE not set or invalid. Defaulting to kafka..."
   echo -e "\nRunning metropolis_perception_app with kafka (RT-DETR + MV3DT)..."
   echo -e "\nMain config:"
   cat "${CONFIG_DIR}/ds-main-config-mv3dt.txt"
-  ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1 --tiledtext
+  exec ./metropolis_perception_app -c "${CONFIG_DIR}/ds-main-config-mv3dt.txt" -m 1 -t 0 -l 5 --message-rate 1 --tiledtext "${REID_ARGS[@]}"
 fi
