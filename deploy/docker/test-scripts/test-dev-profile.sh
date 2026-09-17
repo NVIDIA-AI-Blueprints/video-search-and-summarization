@@ -2801,28 +2801,37 @@ EOF
       ((TESTS_FAILED++)) || true
     else
       # Returns 0 once RT-CV's stream list matches the wanted presence state.
+      # A failed fetch is not an answer: absence counts only when RT-CV
+      # responded, so an unreachable receiver times out rather than reporting
+      # the stream withdrawn.
       function await_rtvi_cv_stream() {
-        local _want_present="${1}" _deadline=$(( $(date +%s) + _wh_bound ))
+        local _want_present="${1}" _deadline=$(( $(date +%s) + _wh_bound )) _streams
         while :; do
-          if curl -sf "${VSS_TEST_RTVI_CV_URL%/}/api/v1/stream/get-stream-info" 2>/dev/null \
-            | grep -q "${_wh_sensor_id}"; then
-            [[ "${_want_present}" == "present" ]] && return 0
-          else
-            [[ "${_want_present}" == "absent" ]] && return 0
+          if _streams="$(curl -sf "${VSS_TEST_RTVI_CV_URL%/}/api/v1/stream/get-stream-info" 2>/dev/null)"; then
+            if grep -q "${_wh_sensor_id}" <<<"${_streams}"; then
+              [[ "${_want_present}" == "present" ]] && return 0
+            else
+              [[ "${_want_present}" == "absent" ]] && return 0
+            fi
           fi
           [[ $(date +%s) -ge ${_deadline} ]] && return 1
           sleep 10
         done
       }
+      _wh_added=0
       if await_rtvi_cv_stream present; then
         echo "PASS: camera_streaming webhook delivered the registered source to RT-CV within ${_wh_bound}s"
         ((TESTS_PASSED++)) || true
+        _wh_added=1
       else
         echo "FAIL: camera_streaming webhook did not deliver the registered source to RT-CV within ${_wh_bound}s"
         ((TESTS_FAILED++)) || true
       fi
       if curl -sf -X DELETE "${VSS_TEST_VST_API_BASE%/}/sensor/${_wh_sensor_id}" >/dev/null 2>&1; then
-        if await_rtvi_cv_stream absent; then
+        if [[ "${_wh_added}" -eq 0 ]]; then
+          # The stream never reached RT-CV, so its absence proves no teardown.
+          echo "SKIP: camera_remove webhook (the source never reached RT-CV; nothing to withdraw)"
+        elif await_rtvi_cv_stream absent; then
           echo "PASS: camera_remove webhook withdrew the source from RT-CV within ${_wh_bound}s"
           ((TESTS_PASSED++)) || true
         else
