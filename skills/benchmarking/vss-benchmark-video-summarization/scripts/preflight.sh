@@ -157,25 +157,16 @@ if [[ -z "${CHECKER}" ]]; then
 elif [[ ! -f "${SKILL_MD}" ]]; then
     err "SKILL.md not found at ${SKILL_MD}, so this skill's requires-vss range cannot be read"
 else
-    vcode=$(curl -s -o /dev/null -m 5 -w "%{http_code}" "${VERSION_ORIGIN}/api/v1/version" 2>/dev/null)
-    if [[ "$vcode" == "404" && -z "${VSS_PUBLIC_URL:-}" ]]; then
-        # Expected on Compose: LVS_BACKEND is the LVS server, and the version
-        # endpoint lives on the agent. Not a misconfiguration, so not a failure.
-        wrn "${VERSION_ORIGIN} does not serve /api/v1/version (404) — that is your LVS origin, and"
-        wrn "      the endpoint is on the VSS agent. Version compatibility was NOT verified."
-        wrn "      To verify, export VSS_PUBLIC_URL=<your deployment origin>, or run by hand:"
-        wrn "      python3 ${CHECKER} <agent-origin> --skill ${SKILL_MD}"
-    else
-        vout=$("${PYBIN}" "${CHECKER}" "${VERSION_ORIGIN}" --skill "${SKILL_MD}" --timeout 10 2>&1)
-        vrc=$?
-        case "$vrc" in
-            0) ok "deployed VSS ${vout} satisfies this skill's requires-vss range (via ${VERSION_ORIGIN})" ;;
-            3) err "${vout}"
-               err "      this skill does not support this deployment — do not benchmark it" ;;
-            *) err "${vout}"
-               err "      compatibility could not be determined; fix the above or check a different origin" ;;
-        esac
-    fi
+    vout=$("${PYBIN}" "${CHECKER}" "${VERSION_ORIGIN}" --skill "${SKILL_MD}" --timeout 10 2>&1)
+    vrc=$?
+    case "$vrc" in
+        0) ok "deployed VSS ${vout} satisfies this skill's requires-vss range (via ${VERSION_ORIGIN})" ;;
+        3) err "${vout}"
+           err "      this skill does not support this deployment — do not benchmark it" ;;
+        *) err "${vout}"
+           err "      compatibility could not be determined; set VSS_PUBLIC_URL to an origin that routes"
+           err "      /api to the VSS agent, then retry" ;;
+    esac
 fi
 
 echo ""

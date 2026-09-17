@@ -110,8 +110,7 @@ export LVS_BACKEND=http://localhost:38111                          # YOUR LVS /s
 export LVS_CONTAINER_NAME=vss-lvs                                   # YOUR LVS container (see deploy step)
 export VLM_GPUS=<VLM_GPU>                                           # GPU(s) your VLM uses
 export LLM_GPUS=<LLM_GPU>                                           # GPU(s) your LLM uses
-export VSS_PUBLIC_URL=http://localhost:8000                         # optional: origin serving the VSS agent,
-                                                                    # for the version-compatibility check below
+export VSS_PUBLIC_URL=http://localhost:8000                         # origin serving the VSS agent
 
 ./scripts/preflight.sh
 ```
@@ -137,9 +136,8 @@ what a run enforces cannot drift from what the skill publishes.
 `VSS_PUBLIC_URL` — the deployment origin `vss-build-vision-ai` publishes, whose
 ingress routes `/api` to the agent — and falls back to `LVS_BACKEND` when that is
 unset. On a Compose deployment `VSS_PUBLIC_URL` is unset by design and
-`LVS_BACKEND` is the LVS server, which returns 404 for this route; preflight
-reports that as a **warning** and continues, because it is a normal topology
-rather than a misconfiguration. To make the check binding on Compose, point it at
+`LVS_BACKEND` is the LVS server, which returns 404 for this route. Because
+compatibility cannot be determined from that origin, preflight stops. Point it at
 the agent:
 
 ```bash
@@ -147,14 +145,13 @@ export VSS_PUBLIC_URL=http://localhost:8000        # YOUR VSS agent / deployment
 ./scripts/preflight.sh
 ```
 
-Outcomes, which preflight maps onto its own `ok`/`WARN`/`FAIL` lines:
+Outcomes, which preflight maps onto its own `ok`/`FAIL` lines:
 
 | Checker exit | Meaning | Preflight |
 |---|---|---|
 | 0 | deployed version is inside `requires-vss` | `ok` |
 | 3 | deployed version is outside `requires-vss` | `FAIL` — benchmark stops |
-| 1 | version or range could not be determined (503, non-SemVer, unreachable, absent/malformed `requires-vss`) | `FAIL` — benchmark stops |
-| 1 | 404 from the `LVS_BACKEND` fallback specifically | `WARN` — not verified, run continues |
+| 1 | version or range could not be determined (404, 503, non-SemVer, unreachable, absent/malformed `requires-vss`) | `FAIL` — benchmark stops |
 
 A prerelease counts as its release (`3.3.0-65576357eb80` satisfies exactly what
 `3.3.0` does), so the check behaves identically on Helm and Compose defaults. The
@@ -277,11 +274,11 @@ export VIA_BACKEND="${LVS_BACKEND}"
 export VIA_VLM_GPUS="${VLM_GPUS:?ERROR: VLM_GPUS must be set (e.g. export VLM_GPUS=6)}"
 export VIA_LLM_GPUS="${LLM_GPUS:?ERROR: LLM_GPUS must be set (e.g. export LLM_GPUS=7)}"
 
-# Run single_file scenario
-python vss_perf_benchmark.py --config config.yaml --scenario single_file_test
+# Run single_file scenario. The wrapper runs preflight first.
+./run_benchmark.sh --scenario single_file_test
 
 # Run file_burst scenario (can be run separately or together)
-python vss_perf_benchmark.py --config config.yaml --scenario file_burst_test
+./run_benchmark.sh --scenario file_burst_test
 ```
 
 The benchmark creates an output directory (default: `vss-perf-report/`) with per-scenario subdirectories. Each scenario run generates an XLSX report and `execution_summary.json`.
