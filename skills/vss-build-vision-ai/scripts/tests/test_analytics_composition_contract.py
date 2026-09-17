@@ -87,8 +87,21 @@ def _compose_config(
 
 
 @pytest.mark.parametrize("mode", ("CV", "VLM"))
-def test_canonical_alerts_profiles_do_not_select_legacy_va_mcp(mode: str) -> None:
-    assert "vss-va-mcp" not in _alerts_profiles(mode)
+def test_stock_alerts_keeps_va_mcp_with_the_in_stack_agent(mode: str) -> None:
+    profiles = _alerts_profiles(mode)
+    assert "vss-agent" in profiles
+    assert "vss-va-mcp" in profiles
+
+
+def test_stock_alerts_compose_includes_agent_mcp_tools(tmp_path: Path) -> None:
+    document = _compose_config(tmp_path, _alerts_profiles())
+    services = set(document["services"])
+    assert {"vss-agent", "vss-va-mcp"} <= services
+    assert document["services"]["vss-va-mcp"]["command"][0:3] == [
+        "mcp",
+        "serve",
+        "--config_file",
+    ]
 
 
 def test_nemoclaw_alerts_lvs_resolves_without_agent_or_va_mcp(

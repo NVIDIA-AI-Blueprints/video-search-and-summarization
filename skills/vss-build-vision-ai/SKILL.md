@@ -245,10 +245,12 @@ Applies to **every** entry mode — prompt-driven, quickstart, and custom build 
 
 Apply these on **either** answer:
 
-- **Remove the in-stack agent and legacy VA-MCP.** Host-side analytics uses
-  `vss analytics` through `vss-video-analytics-api`; `vss-va-mcp` remains only
-  when the request explicitly selects the legacy MCP interface (for example,
-  the SOP-report flow in `references/services/sop.md`). Use
+- **Remove the in-stack agent and legacy VA-MCP.** Stock Alerts keeps
+  `vss-va-mcp` only because the in-stack agent still calls it. Host-side
+  analytics uses `vss analytics` through `vss-video-analytics-api`, so a Q3
+  answer removes both keys. Re-add `vss-va-mcp` only when the request
+  explicitly selects the legacy MCP interface (for example, the SOP-report
+  flow in `references/services/sop.md`) or names the in-stack agent. Use
   `scripts/resolve_service_graph.py`'s `resolve_service_profiles` rule when
   computing the final profile set. `vss-ui`, `phoenix`, and the `llm_*` peer
   stay; pruning them is a capability decision, not a harness one. `vss-ui`

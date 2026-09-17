@@ -43,11 +43,10 @@ already up by then, so Mode C's prerequisite is satisfied and it will not hand b
 ## Delta composition
 
 SOP is not a Foundation; compose it as a **delta** off the closest Foundation —
-`alerts` in `2d_vlm` mode (it already carries Elasticsearch, Kafka, Redis, VIOS,
-and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
+`alerts` in `2d_vlm` mode (it already carries `vss-va-mcp`, Elasticsearch, Kafka,
+Redis, VIOS, and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
 
-- **add** `vss-va-mcp` as the explicitly requested legacy MCP interface,
-  `ds-sop` as a genuinely new service → emit `patches/ds-sop.yml` from the
+- **add** `ds-sop` as a genuinely new service → emit `patches/ds-sop.yml` from the
   DS-SOP Compose block in `sop/integrate-ds-sop.md § Example Compose Snippet`,
   and `sop-kibana-init` (SOP data-view + dashboard one-shot).
 - **remove** `rtvi-vlm` (DS-SOP takes the perception slot), and the parts SOP does
@@ -55,7 +54,7 @@ and a VLM-perception slot). Against alerts `COMPOSE_PROFILES_VLM`:
   `vss-behavior-analytics-alerts`, `perception-alerts`, `kibana-init-container-alerts`,
   and the `llm_${LLM_MODE}_${LLM_NAME_SLUG}` token (SOP reports are rendered by the
   `vss-generate-video-report` skill — no report LLM / agent / UI).
-- **keep** ELK (`elasticsearch`(+init), `logstash`, `kibana`,
+- **keep** `vss-va-mcp`, ELK (`elasticsearch`(+init), `logstash`, `kibana`,
   `kafka`(+init), `redis`, `broker-health-check`), the VIOS set (`vst-ingress`,
   `sensor-ms`, `streamprocessing-ms`, `sdr-controller` + its `init-dirs` /
   `render-config` / `wdm-env-from-config` / `wait-for-redis` helpers,

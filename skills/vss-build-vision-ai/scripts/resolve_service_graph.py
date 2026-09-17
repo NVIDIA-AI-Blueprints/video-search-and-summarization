@@ -47,6 +47,8 @@ def resolve_service_profiles(
     if host_cli:
         profiles.pop(VSS_AGENT, None)
 
+    # Stock Alerts still ships vss-agent tools that call video_analytics_mcp.
+    # Drop VA-MCP with the agent unless a workflow explicitly re-selects it.
     if legacy_va_mcp:
         profiles[VSS_VA_MCP] = None
     else:

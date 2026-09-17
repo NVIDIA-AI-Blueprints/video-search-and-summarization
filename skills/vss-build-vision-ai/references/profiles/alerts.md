@@ -15,18 +15,19 @@ Authoritative source:
 `2d_cv`:
 
 ```text
-vss-behavior-analytics-alerts,nvstreamer-alerts,perception-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-agent,alert-bridge,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-vlm,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
+vss-behavior-analytics-alerts,nvstreamer-alerts,perception-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-va-mcp,vss-agent,alert-bridge,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-vlm,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
 ```
 
 `2d_vlm`:
 
 ```text
-nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-agent,alert-bridge,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-vlm,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
+nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-va-mcp,vss-agent,alert-bridge,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-vlm,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
 ```
 
-Neither stock mode selects `vss-va-mcp`. Add that key only in a delta that
-explicitly requests the legacy video-analytics MCP interface, including the SOP
-report flow documented by `services/sop.md`.
+Stock modes keep `vss-va-mcp` because `vss-agent` still calls
+`video_analytics_mcp` from `incident_report_agent` and `rtvi_vlm_alert`. A
+NemoClaw or host-CLI delta removes both keys; SOP-report deltas that need MCP
+without the agent add `vss-va-mcp` explicitly (`services/sop.md`).
 
 ## Capability owners present
 
@@ -39,7 +40,7 @@ report flow documented by `services/sop.md`.
 | ELK | `elasticsearch`, `elasticsearch-init-container`, `kafka`, `kafka-topic-init-container`, `redis`, `kibana`, `logstash`, `broker-health-check`, `kibana-init-container-alerts` |
 | VIOS | `nvstreamer-alerts`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
 | Agent/UI | `vss-agent`, `vss-ui`, `phoenix` |
-| Legacy analytics MCP (explicit delta only) | `vss-va-mcp` |
+| Video-analytics MCP (required while stock agent configs use it) | `vss-va-mcp` |
 | Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 

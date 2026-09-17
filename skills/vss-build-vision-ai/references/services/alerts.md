@@ -12,10 +12,12 @@ container name across all Foundations. Include that key when the build needs the
 REST query surface; never add a Foundation-specific alias or a second API
 instance.
 
-Alerts do not require `vss-va-mcp`. Structured analytics queries use
-`vss analytics` through `vss-video-analytics-api`. Select `vss-va-mcp` only when
-the request explicitly requires the legacy MCP interface; that capability is
-owned by `agent.md`, while the SOP-report-specific patch is owned by `sop.md`.
+Host-CLI and NemoClaw analytics do not require `vss-va-mcp`; they use
+`vss analytics` through `vss-video-analytics-api`. Stock Alerts still ships
+`vss-agent`, whose `config.yml` points `incident_report_agent` and
+`rtvi_vlm_alert` at `video_analytics_mcp`, so keep `vss-va-mcp` beside
+`vss-agent` until those tools move to the REST API. That MCP surface is owned
+by `agent.md`; the SOP-report-specific patch is owned by `sop.md`.
 
 ## Required peers
 
