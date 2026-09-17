@@ -90,6 +90,7 @@ points at the **rendered** file under `/app/runtime` when always-on is enabled.
 | Environment variable | Use |
 |---|---|
 | `MODE` | Select `2d_cv` (verification) or `2d_vlm` (real-time); keep `COMPOSE_PROFILES` aligned. |
+| `NEXT_PUBLIC_APP_SUBTITLE` | Mode-derived UI subtitle; set `"Vision (Alerts - CV)"` for `2d_cv` and `"Vision (Alerts - VLM)"` for `2d_vlm` in the build `override.env`. |
 | `ALERT_AGENT_ALWAYS_ON` | Gate always-on (`true` for `2d_vlm`, `false` for `2d_cv`). |
 | `VST_NOTIFICATION_CONFIG_PATH` | MODE-selected VIOS webhook config (`notification_config_${MODE}.json`). |
 | `ALERT_BRIDGE_HOST_PORT`, `ALERT_BRIDGE_PORT` | Publish and bind the alert API. |
