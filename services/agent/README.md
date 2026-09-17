@@ -191,24 +191,57 @@ pre-configured.
 ### Deployment version API
 
 `GET /api/v1/version` exposes the version of the deployed VSS release for
-automated compatibility checks. The route is available through the deployment
-origin as well as directly from the agent:
+automated compatibility checks. It is served by the agent, so it is reachable
+wherever the agent is — directly at the agent service, and through the
+deployment origin on profiles whose ingress routes `/api` to the agent. Some
+profiles do not: the warehouse Helm ingress
+(`deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/templates/vss-ingress.yaml`)
+declares no agent backend at all, so on that profile point the check at the
+agent service rather than the deployment origin.
 
 ```console
 $ curl -sS http://localhost:8000/api/v1/version
 {"service":"vss","version":"3.3.0"}
 ```
 
-`service` is always `vss`. `version` is the exact `VSS_AGENT_VERSION` configured
-for the deployment and follows [Semantic Versioning 2.0.0](https://semver.org/):
+`service` is always `vss`. `version` is the configured deployment version and
+must be strict [Semantic Versioning 2.0.0](https://semver.org/):
 `MAJOR.MINOR.PATCH`, optionally followed by a prerelease suffix and build
-metadata (for example, `3.3.0-rc.1+build.42`).
+metadata (for example, `3.3.0-rc.1+build.42`). The official SemVer grammar is
+enforced, so `03.3.0`, `3.3.0-01`, `3.3.0-.` and `v1.0.0` are all rejected.
 
-The endpoint returns HTTP 503 when `VSS_AGENT_VERSION` is absent, empty, or not
-valid SemVer — the deployment's version cannot be determined. The Helm chart
-defaults `VSS_AGENT_VERSION`; Docker Compose passes it through to the agent but
-does not default it, so a Compose deployment must set it in the environment or
-profile `.env` to serve this endpoint.
+**Which variable supplies it.** Two are consulted, in order:
+
+| Order | Variable | Notes |
+|-------|----------|-------|
+| 1 | `VSS_DEPLOYMENT_VERSION` | Dedicated to the reported version. Feeds nothing else. |
+| 2 | `VSS_AGENT_VERSION` | Legacy fallback. Also used for telemetry project naming and as the fallback container image tag. |
+
+The first of the two that is set to a non-empty value wins. If that value is not
+valid SemVer the endpoint returns HTTP 503 rather than falling through to the
+other variable, so a misconfigured deployment reports a problem instead of
+silently serving a different variable's value.
+
+`VSS_DEPLOYMENT_VERSION` exists because `VSS_AGENT_VERSION` also resolves the
+agent's container image tag
+(`${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}` in
+[`compose.yml`](../../deploy/docker/services/agent/compose.yml)). Giving that
+variable a default would change which image a deployment pulls;
+`VSS_DEPLOYMENT_VERSION` appears in no `image:` line, so defaulting it cannot.
+
+Both deployment paths default it, so the endpoint answers 200 with no operator
+action:
+
+- **Docker Compose** — [`containers.env`](../../deploy/docker/containers.env)
+  and the inline default in
+  [`compose.yml`](../../deploy/docker/services/agent/compose.yml) set `3.3.0`.
+- **Helm** — the agent chart sets
+  `vssDeploymentVersion | default vssAgentVersion | default .Chart.Version`, so
+  a chart that already pins `vssAgentVersion` keeps reporting that value.
+
+The endpoint returns HTTP 503 only when neither variable is set (for example a
+bare `nat serve` with no deployment environment), or when the winning value is
+not valid SemVer.
 
 [`scripts/check_vss_version.py`](scripts/check_vss_version.py) checks the
 endpoint on any deployment — standard library only, exits non-zero with the
@@ -242,7 +275,8 @@ or are only needed for specific features.
 | `VSS_AGENT_PORT` | no | `8000` | Agent HTTP port |
 | `VSS_AGENT_OBJECT_STORE_TYPE` | no | `local_object_store` | Object store: `local_object_store` (in-memory) or `s3` |
 | `VSS_AGENT_REPORTS_BASE_URL` | no | — | Base URL for generated report assets |
-| `VSS_AGENT_VERSION` | no | — | SemVer deployment version used by telemetry and `GET /api/v1/version` |
+| `VSS_DEPLOYMENT_VERSION` | no | `3.3.0` (Compose/Helm) | Strict SemVer version reported by `GET /api/v1/version`; feeds no image tag |
+| `VSS_AGENT_VERSION` | no | — | Telemetry project naming and fallback container image tag; also the fallback for `GET /api/v1/version` |
 | `PHOENIX_ENDPOINT` | no | — | Phoenix tracing endpoint (e.g. `http://HOST:6006`) |
 | `EVAL_LLM_JUDGE_NAME` | no | same as `LLM_NAME` | Model used for evaluation judge |
 | `EVAL_LLM_JUDGE_BASE_URL` | no | same as `LLM_BASE_URL` | Endpoint for evaluation judge |
