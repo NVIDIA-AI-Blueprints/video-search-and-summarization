@@ -118,6 +118,23 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
+### User follow-up questions
+
+`ENV.md` defines `HITL_ENABLED`. Obey it for every skill and workflow:
+
+- When it is `false`, never invoke `AskUserQuestion`, `request_user_input`, an
+  MCP question tool, or any other structured human-in-the-loop mechanism. This
+  rule overrides skill text that says to use one of those mechanisms.
+- Ask required clarifying or confirmation questions as ordinary assistant text,
+  then end the turn. The user's next chat message continues the same session.
+  Present choices inline when useful and do not start gated work until the user
+  replies.
+- Do not call an API that creates or resumes interaction IDs. If a workflow has
+  no non-HITL form, explain that it is unavailable in this configuration
+  instead of leaving a run paused.
+- Only when it is explicitly `true` may a skill use a structured interaction
+  mechanism supported by the active harness and UI.
+
 
 ### VSS Deploy Conventions
 
