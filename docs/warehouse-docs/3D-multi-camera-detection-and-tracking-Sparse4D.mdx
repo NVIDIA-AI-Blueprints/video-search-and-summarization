@@ -41,7 +41,7 @@ volumes:
   - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
 
   # Model related mountings
-  - $VSS_DATA_DIR/models/sparse4d/ov/sparse4d_warehouse_v2.3_r50.onnx:/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.3_r50.onnx
+  - $VSS_DATA_DIR/models/sparse4d/ov/sparse4d_warehouse_v2.3.onnx:/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.3.onnx
   - $VSS_DATA_DIR/models/sparse4d/ov/_ov_kmeans900_v2.3_r50.npy:/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.3_r50.npy
 ```
 
@@ -55,7 +55,7 @@ The main configuration file for Sparse4D, `config.yaml`, handles properties rela
 
 | Parameter | Description | Default Value |
 | --- | --- | --- |
-| `onnx_file` | Path to the ONNX model file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.3_r50.onnx` |
+| `onnx_file` | Path to the ONNX model file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/sparse4d_warehouse_v2.3.onnx` |
 | `engine_file` | Path to the TensorRT engine file (stored in the `perception-3d` volume) | `/opt/storage/model.engine` |
 | `labels_file` | Path to the object class labels file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/labels.txt` |
 | `gpu_id` | GPU ID to use for tensor operations | `0` |
