@@ -214,18 +214,18 @@ const SpeakerAction: React.FC<SpeakerActionProps> = ({ content, onNotify }) => {
 
   useEffect(
     () => () => {
-      if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel();
+      if ('speechSynthesis' in globalThis) globalThis.speechSynthesis.cancel();
     },
     [],
   );
 
   const handleSpeak = () => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    if (!('speechSynthesis' in globalThis)) {
       onNotify?.('Text-to-speech is not supported in this browser');
       return;
     }
     if (isPlaying) {
-      window.speechSynthesis.cancel();
+      globalThis.speechSynthesis.cancel();
       setIsPlaying(false);
       return;
     }
@@ -234,7 +234,7 @@ const SpeakerAction: React.FC<SpeakerActionProps> = ({ content, onNotify }) => {
     utterance.onend = () => setIsPlaying(false);
     utterance.onerror = () => setIsPlaying(false);
     setIsPlaying(true);
-    window.speechSynthesis.speak(utterance);
+    globalThis.speechSynthesis.speak(utterance);
   };
 
   return (
