@@ -22,6 +22,7 @@
 # Outputs (all under generated/, consumed by stage-configs.sh / the compose mounts):
 #   generated/camInfo/<sensor>.yml     per-camera projection matrices + model priors
 #   generated/pub_sub_info_config.yml  sparse MQTT pub/sub neighbour graph
+#   generated/calibration.json         copy of the input file (bev-fusion bind-mount)
 #
 # (The tracker config is handled by stage-configs.sh, which rewrites its
 # cameraModelFilepath map to the camInfo generated here.)
@@ -93,6 +94,17 @@ echo "── Generating pub_sub_info_config.yml → $GEN  (neighbor_criteria=$NE
   --neighbor_criteria "$NEIGHBOR_CRITERIA" \
   --output_path "$GEN"
 
+# bev-fusion mounts generated/calibration.json. Copy the input so the mount
+# tracks the same file camInfo was generated from. If compose started first,
+# Docker creates that path as a directory and this copy would fail opaquely.
+if [ -d "$GEN/calibration.json" ]; then
+  echo "ERROR: $GEN/calibration.json is a directory (an empty Docker bind-mount)." >&2
+  echo "       Remove it (sudo rm -rf '$GEN/calibration.json') and re-run this script." >&2
+  exit 1
+fi
+cp -f "$CALIB" "$GEN/calibration.json"
+echo "── Copied calibration.json → $GEN/calibration.json"
+
 # The container's runtime user must be able to read the bind-mounted camInfo
 # regardless of the host umask (e.g. 027 leaves it group-only).
 chmod -R o+rX "$ROOT/generated"
@@ -101,6 +113,7 @@ echo
 echo "DONE. Generated:"
 echo "  $CAMINFO/  ($(ls -1 "$CAMINFO"/*.yml 2>/dev/null | wc -l | tr -d ' ') files)"
 echo "  $GEN/pub_sub_info_config.yml"
+echo "  $GEN/calibration.json"
 # NUM_CAMS must equal the cameras just generated: stage-configs.sh checks it, and
 # compose passes it to bev-fusion as MAX_EXPECTED_SENSORS, where a stale value is
 # silent.
