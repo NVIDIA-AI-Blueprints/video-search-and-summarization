@@ -191,7 +191,9 @@ reach (typically `VST_EXTERNAL_URL` equal to the public origin).
 
 Main host pattern: `vss.<ip>.nip.io` (Helm `dev-profile-alerts`) — same family as
 base/lvs, not `vss-search.*`. Stock Ingress publishes Agent, VIOS, Alert Bridge,
-and VA-MCP (path-rewrite strips the public prefix):
+and Video Analytics API. VA-MCP is published only when the resolved service
+graph explicitly selects the legacy MCP interface (path-rewrite strips the
+public prefix):
 
 | Capability | Public endpoint |
 |---|---|
@@ -199,22 +201,25 @@ and VA-MCP (path-rewrite strips the public prefix):
 | Realtime rules | `GET`/`POST`/`DELETE ${VSS_PUBLIC_URL}/alert-bridge/api/v1/realtime` |
 | Realtime incidents | `GET ${VSS_PUBLIC_URL}/alert-bridge/api/v1/realtime/incidents` |
 | On-demand / verifier config | `${VSS_PUBLIC_URL}/alert-bridge/api/v1/verification/...` |
-| VA-MCP health | `GET ${VSS_PUBLIC_URL}/va-mcp/health` (rewritten to `/health`; prefer over `/mcp` or `/`) |
-| VA-MCP | `${VSS_PUBLIC_URL}/va-mcp/mcp` (rewritten to `/mcp`) |
+| VA-MCP health (legacy service selected only) | `GET ${VSS_PUBLIC_URL}/va-mcp/health` (rewritten to `/health`; prefer over `/mcp` or `/`) |
+| VA-MCP (legacy service selected only) | `${VSS_PUBLIC_URL}/va-mcp/mcp` (rewritten to `/mcp`) |
 | VIOS list/inspect | `GET ${VST_API_BASE}/sensor/list`, … |
 | Agent generate | `POST ${VSS_PUBLIC_URL}/generate` — **not** for rule CRUD |
 | NvStreamer HTTP | `${VSS_STREAMER_URL}/api/v1/...` — separate `streamer.*` host |
 
-Derive Alert Bridge and VA-MCP from the **public origin** (force; ignore leftover
-Docker host-port env):
+Derive Alert Bridge from the **public origin** (force; ignore leftover Docker
+host-port env). Derive VA-MCP only when `vss-va-mcp` is in the resolved graph:
 
 ```bash
 # Kubernetes — path-rewrite strips /alert-bridge and /va-mcp on the Service.
 ALERT_BRIDGE_URL="${VSS_PUBLIC_URL%/}/alert-bridge"
-VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+if docker compose -f "$BUILD_DIR/resolved.yml" config --services |
+  grep -qx vss-va-mcp; then
+  VA_MCP_URL="${VSS_PUBLIC_URL%/}/va-mcp"
+fi
 # Docker Compose (unchanged host ports)
 # ALERT_BRIDGE_URL=http://${HOST_IP}:9080
-# VA_MCP_URL=http://${HOST_IP}:9901
+# VA_MCP_URL=http://${HOST_IP}:9901  # explicit legacy selection only
 ```
 
 **Not on stock alerts Ingress** (Docker host ports / private backends only):
@@ -316,9 +321,10 @@ VST_API_BASE="${VSS_VIOS_URL}/api/v1"
 # LVS client base is the /lvs mount (no /v1 suffix) — the bare origin is the
 # UI catch-all; ignore Docker-derived values:
 LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
-# Alerts — force public prefixes; ignore leftover Docker :9080 / :9901:
+# Alerts — force public prefixes; ignore leftover Docker :9080:
 ALERT_BRIDGE_URL="${VSS_PUBLIC_URL}/alert-bridge"
-VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
+# Only an explicitly selected legacy MCP workflow defines:
+# VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 ```
 
 The public Agent, VIOS (`/vst`), Video Analytics API

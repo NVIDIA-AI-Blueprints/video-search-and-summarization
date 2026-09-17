@@ -5,13 +5,17 @@
 | Capability | Canonical service profile keys |
 |---|---|
 | Alert verification and real-time bridge | `alert-bridge` |
-| Video-analytics MCP | `vss-va-mcp` |
 | Alerts analytics API | `vss-video-analytics-api` |
 
 `vss-video-analytics-api` is a common Compose service with one profile key and one
 container name across all Foundations. Include that key when the build needs the
 REST query surface; never add a Foundation-specific alias or a second API
 instance.
+
+Alerts do not require `vss-va-mcp`. Structured analytics queries use
+`vss analytics` through `vss-video-analytics-api`. Select `vss-va-mcp` only when
+the request explicitly requires the legacy MCP interface; that capability is
+owned by `agent.md`, while the SOP-report-specific patch is owned by `sop.md`.
 
 ## Required peers
 
@@ -36,8 +40,8 @@ instance.
   (a combined build), it runs as **one** shared instance, not two — converge its
   single mounted JSON config per [`behavior-analytics.md`](behavior-analytics.md);
   its `numWorkersFor*` gates are not env-expressible.
-- `vss-va-mcp` requires the matching Agent config and reachable VST/ELK
-  endpoints.
+- An explicitly selected `vss-va-mcp` requires its matching legacy config and
+  reachable VST/ELK endpoints. Those requirements do not apply to Alerts itself.
 
 ## Stream lifecycle (VIOS webhooks)
 
@@ -97,7 +101,7 @@ points at the **rendered** file under `/app/runtime` when always-on is enabled.
 | `RTVI_VLM_BASE_URL`, `RTVI_VLM_MODEL_TO_USE` | Configure real-time VLM alerts. |
 | `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` | Select mounted verifier/rule configs. |
 | `HOST_IP`, `EXTERNAL_IP`, `VST_INTERNAL_URL` | Configure media URL routing. |
-| `VSS_VA_MCP_HOST_PORT`, `VSS_VA_MCP_PORT`, `VSS_VA_MCP_CONFIG_FILE` | Configure video-analytics MCP. |
+| `VSS_VA_MCP_HOST_PORT`, `VSS_VA_MCP_PORT`, `VSS_VA_MCP_CONFIG_FILE` | Configure an explicitly selected legacy video-analytics MCP. |
 | `VIDEO_ANALYTICS_API_HOST_PORT`, `VSS_VIDEO_ANALYTICS_API_IMAGE`, `VSS_VIDEO_ANALYTICS_API_TAG` | Configure the alerts analytics API. |
 
 ## Sources
