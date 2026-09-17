@@ -188,6 +188,28 @@ Ready-to-use configurations are provided under
 Each profile has a companion `.env` file in the same directory with all deployment variables
 pre-configured.
 
+### Deployment version API
+
+`GET /api/v1/version` exposes the version of the deployed VSS release for
+automated compatibility checks. The route is available through the deployment
+origin as well as directly from the agent:
+
+```console
+$ curl -sS http://localhost:8000/api/v1/version
+{"service":"vss","version":"3.3.0"}
+```
+
+`service` is always `vss`. `version` is the exact `VSS_AGENT_VERSION` configured
+for the deployment and follows [Semantic Versioning 2.0.0](https://semver.org/):
+`MAJOR.MINOR.PATCH`, optionally followed by a prerelease suffix and build
+metadata (for example, `3.3.0-rc.1+build.42`). Consumers should parse this field
+as SemVer and apply their own compatibility policy against the benchmark skill
+version.
+
+The endpoint returns HTTP 503 when `VSS_AGENT_VERSION` is absent, empty, or not
+valid SemVer. Benchmark clients must treat that response as an inability to
+determine compatibility and stop with a clear error.
+
 ### Environment Variables
 
 The table below lists every variable referenced by the agent config files.
@@ -211,7 +233,7 @@ or are only needed for specific features.
 | `VSS_AGENT_PORT` | no | `8000` | Agent HTTP port |
 | `VSS_AGENT_OBJECT_STORE_TYPE` | no | `local_object_store` | Object store: `local_object_store` (in-memory) or `s3` |
 | `VSS_AGENT_REPORTS_BASE_URL` | no | — | Base URL for generated report assets |
-| `VSS_AGENT_VERSION` | no | — | Version tag (used in telemetry project name) |
+| `VSS_AGENT_VERSION` | no | — | SemVer deployment version used by telemetry and `GET /api/v1/version` |
 | `PHOENIX_ENDPOINT` | no | — | Phoenix tracing endpoint (e.g. `http://HOST:6006`) |
 | `EVAL_LLM_JUDGE_NAME` | no | same as `LLM_NAME` | Model used for evaluation judge |
 | `EVAL_LLM_JUDGE_BASE_URL` | no | same as `LLM_BASE_URL` | Endpoint for evaluation judge |

@@ -27,6 +27,7 @@ from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontE
 
 from vss_agents.api.rtsp_delete import register_rtsp_delete_routes
 from vss_agents.api.rtsp_ingest import register_rtsp_ingest_routes
+from vss_agents.api.version import register_version_route
 from vss_agents.api.video_delete import register_video_delete_routes
 from vss_agents.api.video_ingest import register_video_upload
 from vss_agents.api.video_ingest import register_video_upload_complete
@@ -65,6 +66,9 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
             return {"value": {"isAlive": True}}
 
         logger.info("Registered custom /health endpoint (replaced NAT default)")
+
+        register_version_route(app)
+        logger.info("Registered VSS deployment version endpoint")
 
         # Register custom streaming routes per capability flags in streaming_ingest
         self._register_streaming_routes(app)
