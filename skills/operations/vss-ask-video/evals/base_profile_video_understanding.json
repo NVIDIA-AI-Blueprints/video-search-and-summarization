@@ -83,14 +83,14 @@
       ]
     },
     {
-      "query": "Treat this as a mocked result: introspection returned no_memory. Before that call, dock_cam and the exact range 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z were already grounded. Continue once.",
+      "query": "Treat this as a mocked result: introspection returned nothing. Before that call, dock_cam and the exact range 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z were already grounded. Continue once.",
       "checks": [
         "It allows exactly one vss vlm run for the already-grounded sensor and exact range.",
         "It does not broaden or invent scope."
       ]
     },
     {
-      "query": "Treat this as a mocked result: introspection returned no_memory and no exact sensor or UTC bounds were grounded before the call. The user's question - was the worker wearing a safety helmet? - is still outstanding. Respond to the user.",
+      "query": "Treat this as a mocked result: introspection returned nothing and no exact sensor or UTC bounds were grounded before the call. The user's question - was the worker wearing a safety helmet? - is still outstanding. Respond to the user.",
       "checks": [
         "It requests the missing exact recorded sensor and UTC bounds.",
         "It does not call VLM."
