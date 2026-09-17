@@ -22,11 +22,16 @@ Two jobs, mirroring upstream where upstream has a shape:
   model `openshell inference get --json` reports.
 - limits: upstream's reconcile never corrects contextWindow/maxTokens, and the
   gateway probe does not expose them, so there is no runtime source of truth.
-  NEMOCLAW_CONTEXT_WINDOW / NEMOCLAW_MAX_TOKENS count as operator overrides
-  only when they differ from the values baked into the image (they are
-  build-ARG ENVs, always present); otherwise, when the served model differs
-  from the baked one, the stale keys are DELETED so OpenClaw's model catalog
-  and defaults apply instead of the wrong model's caps.
+  VSS_OPENCLAW_CONTEXT_WINDOW / VSS_OPENCLAW_MAX_TOKENS are unambiguous
+  operator overrides, honored whenever set (no image bakes them).
+  NEMOCLAW_CONTEXT_WINDOW / NEMOCLAW_MAX_TOKENS are build-ARG ENVs the base
+  image always bakes, so a runtime value equal to the baked one is
+  indistinguishable from "not set" — they count as operator overrides only
+  when they DIFFER from the baked values (an operator who wants exactly the
+  baked value under another model uses the VSS_OPENCLAW_* form). Otherwise,
+  when the served model differs from the baked one, the stale keys are
+  DELETED so OpenClaw's model catalog and defaults apply instead of the wrong
+  model's caps.
 
 Runtime mode is fail-open: any error logs and exits 0 — never blocks startup.
 --snapshot (build time) records the baked primary and env limits to
@@ -153,21 +158,30 @@ def reconcile(config: str | None = None, hash_path: str | None = None, baked: st
         first["name"] = qualified
         changed = True
 
-    # Limits: operator-supplied env (differs from the baked value) wins; else a
-    # model change drops the stale keys so OpenClaw's own catalog/defaults rule.
-    for env_key, cfg_key, baked_key in (
-        ("NEMOCLAW_CONTEXT_WINDOW", "contextWindow", "env_context_window"),
-        ("NEMOCLAW_MAX_TOKENS", "maxTokens", "env_max_tokens"),
+    # Limits: an explicit VSS_OPENCLAW_* override always wins (never baked, so
+    # never ambiguous); a NEMOCLAW_* env counts only when it differs from the
+    # baked value (it is a build-ARG ENV, always present, so equality is
+    # indistinguishable from "not set"); else a model change drops the stale
+    # keys so OpenClaw's own catalog/defaults rule.
+    for vss_key, env_key, cfg_key, baked_key in (
+        ("VSS_OPENCLAW_CONTEXT_WINDOW", "NEMOCLAW_CONTEXT_WINDOW", "contextWindow", "env_context_window"),
+        ("VSS_OPENCLAW_MAX_TOKENS", "NEMOCLAW_MAX_TOKENS", "maxTokens", "env_max_tokens"),
     ):
+        explicit = env.get(vss_key, "")
         value = env.get(env_key, "")
-        if value and value != baked_info.get(baked_key, "") and re.fullmatch(r"[1-9][0-9]*", value):
+        if explicit and re.fullmatch(r"[1-9][0-9]*", explicit):
+            if first.get(cfg_key) != int(explicit):
+                first[cfg_key] = int(explicit)
+                changed = True
+        elif value and value != baked_info.get(baked_key, "") and re.fullmatch(r"[1-9][0-9]*", value):
             if first.get(cfg_key) != int(value):
                 first[cfg_key] = int(value)
                 changed = True
         elif baked_info.get("primary") and qualified != baked_info["primary"] and cfg_key in first:
             del first[cfg_key]
             log(f"dropped baked {cfg_key} (generated for {baked_info['primary']}, "
-                f"gateway serves {qualified}); OpenClaw defaults apply")
+                f"gateway serves {qualified}); OpenClaw defaults apply — set "
+                f"{vss_key} to pin a value")
             changed = True
 
     if not changed:

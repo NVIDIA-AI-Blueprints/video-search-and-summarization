@@ -124,6 +124,23 @@ def test_env_equal_to_baked_is_not_an_operator_override(paths):
     assert "contextWindow" not in first and "maxTokens" not in first
 
 
+def test_vss_env_equal_to_baked_is_still_honored(paths):
+    # The greptile P1 case: operator wants exactly the baked value under a new
+    # model. The VSS_OPENCLAW_* form is never baked, so it is unambiguous.
+    env = {"VSS_OPENCLAW_MAX_TOKENS": "4096", "VSS_OPENCLAW_CONTEXT_WINDOW": "131072"}
+    assert run(paths, env=env, gateway="aws/anthropic/bedrock-claude-opus-4-8") is True
+    first = read(paths[0])["models"]["providers"]["inference"]["models"][0]
+    assert first["contextWindow"] == 131072 and first["maxTokens"] == 4096
+
+
+def test_vss_env_wins_over_nemoclaw_env(paths):
+    env = {"VSS_OPENCLAW_MAX_TOKENS": "9000", "NEMOCLAW_MAX_TOKENS": "16000"}
+    assert run(paths, env=env, gateway="aws/anthropic/bedrock-claude-opus-4-8") is True
+    first = read(paths[0])["models"]["providers"]["inference"]["models"][0]
+    assert first["maxTokens"] == 9000
+    assert "contextWindow" not in first  # no override for it -> dropped
+
+
 def test_limits_kept_without_baked_snapshot(paths):
     config, hash_path, baked = paths
     baked.unlink()
