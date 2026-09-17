@@ -353,6 +353,8 @@ Do not treat an empty list as an error.
 > **This confirmation is a user-facing safety gate, not a setup/deploy confirmation.** It ALWAYS applies — including under autonomous, pre-authorized, or non-interactive/CI execution. A "run autonomously / do not ask for confirmation" instruction authorizes deploy and setup actions only; it does NOT authorize you to skip this stop/delete confirmation. When there is no interactive user to answer (e.g. an eval harness), reply with the yes/no confirmation question (stating the rule ID and sensor) and STOP — do not issue the `DELETE`.
 >
 > **`DELETE` is never a diagnostic.** Do not issue `DELETE` calls as connectivity probes, retries-against-a-dead-endpoint, or cleanup attempts — diagnostics use `GET` / `/health` only. And when **no matching rule was found**, there is nothing to delete: zero `DELETE` calls may be issued on that turn.
+>
+> **The gate covers every teardown path, not just `DELETE`.** `POST $AB/api/v1/realtime/always-on` with `change: camera_remove` naming a real camera stops that camera's always-on monitoring, and removing the sensor or stream from VIOS stops all of it. Both need the same yes/no first. An empty rules list is a finding to report ("nothing active found to stop"), not a reason to reach for one of those instead — always-on rules are in-memory and never appear in `GET /api/v1/realtime`.
 
 ### On "Stop" Request — Find Rule and Ask Confirmation
 
