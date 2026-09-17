@@ -24,10 +24,32 @@ from the sensor listing; if one unambiguous result corrects a typo, state the
 correction and use the listed identifier. Obtain the sensor's exact recorded
 timeline before time-based requests; never substitute the current date.
 A report for a named video shorter than 120 seconds uses
-`vss-generate-video-report` Mode A, never `vss summarize`: resolve the exact
-timeline, call `vss_cli` with `vlm run --prompt "Generate a structured video
-analysis report." --sensor <listed-name> --start-time <timeline-start>
---end-time <timeline-end> --fps 2`, then render the structured report.
+`vss-generate-video-report` Mode A, never `vss summarize`: resolve the sensor's
+full recorded timeline and complete the skill's default/HITL prompt-selection
+step. Use the HITL-selected prompt when one exists. Otherwise, use this exact
+default prompt as one argument, preserving its line breaks:
+
+```text
+Describe in detail what happens in the video, with timestamps (start-end in seconds from clip start) for each segment or event.
+
+Cover scenes, objects, people, vehicles, and notable actions.
+
+Output requirements:
+- Keep events in chronological order.
+- Use concrete descriptions rather than generic placeholders.
+- Include timestamps in each event line.
+```
+
+After selecting the prompt, the first and only backend call in the report turn
+must be this `vss_cli` argument-array shape:
+
+```json
+{"args":["vlm","run","--prompt","<selected-prompt>","--sensor","<listed-name>","--start-time","<timeline-start>","--end-time","<timeline-end>","--fps","2"]}
+```
+
+Use the exact recorded ISO-8601 timeline values; do not omit them or replace
+them with offsets. Then render the structured report. Never call `summarize`,
+`exec`, `web_fetch`, or `write`, and never reuse an earlier answer or snapshot.
 
 ## First Run
 
