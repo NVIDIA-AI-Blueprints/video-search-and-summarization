@@ -355,6 +355,18 @@ Then verify:
   Validate gate on every build, deploy or not.
 - `resolved.yml` contains no stock sentinels such as
   `/path/to/deploy/docker` or `<HOST_IP>`.
+- If the resolved `COMPOSE_PROFILES` includes RT-CV, RT-Embed, or RT-VLM, the
+  build's VIOS `notification_config.json` (`VST_NOTIFICATION_CONFIG_PATH`, see
+  `services/vios.md`) has `webhooks.enabled: true` and a `camera_streaming`
+  entry addressed to every one of those consumers the delta resolved — no more,
+  no fewer. `search` and `lvs` ship this wired for their stock consumer set;
+  a delta that adds or removes RT-CV/RT-Embed/RT-VLM from either, or that
+  resolves any of them off `base` (`webhooks.enabled: false` by default) or
+  `alerts` (a narrower CV/Alert-Bridge-only config), must write or edit a
+  matching `notification_config.json` in the build artifacts. This is a
+  blocker, not a caveat: with no matching webhook entry, `vss vios add`
+  registers the source and nothing downstream ever fires — no error, no
+  detections, no embeddings, no captions.
 - Every checked-in bind source exists and a file target is not backed by a
   directory. This is a validation check only: do not create placeholder files
   or directories under `deploy/docker/` to satisfy it.

@@ -4,9 +4,10 @@ Use the search agent's source endpoints so VST, VIOS, and Elasticsearch remain
 consistent. Never replace these operations with direct backend mutations.
 
 These Agent-backed mutations are the full-stack path. For a headless
-`vss-build-vision-ai` deployment with no Agent tier, provision the source
-through `vss-manage-video-io-storage`'s
-[direct register-and-fan-out workflow](../../vss-manage-video-io-storage/references/provision-vios-source.md),
+`vss-build-vision-ai` deployment with no Agent tier, provision the source with
+`vss vios add`/`delete` — VIOS's own webhook
+([`vss-build-vision-ai` `services/vios.md`](../../../vss-build-vision-ai/references/services/vios.md))
+fans it into RT-CV/RT-Embed/RT-VLM automatically, no separate step required —
 then return here for search. Do not apply the Agent endpoint recipes below to
 a deployment that has no Agent.
 

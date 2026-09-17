@@ -112,10 +112,13 @@ variant profile.
 
 The single `rtvi-vlm` deployment serves two independent headless fan-out legs that
 differ only in the `POST /v1/generate_captions` prompt — no second service is
-deployed. **Dense captioning** uses a free-form prompt for captions/incidents and
-is skipped when an Alert Bridge owns verification (see
-`vss-manage-video-io-storage` `provision-vios-source.md`). **VLM tagging** uses a
-controlled JSON-tag prompt (`response_format={"type":"json_object"}`,
+deployed. Both legs are driven by VIOS's webhook `POST /v1/stream/add` on
+registration (`services/vios.md`), which auto-starts inference when the call
+carries `metadata`; the build's `notification_config.json` selects which leg(s)
+run by which prompt it bakes into that call's `user_defined_metadata`. **Dense
+captioning** uses a free-form prompt for captions/incidents and is skipped
+(omitted from the webhook config) when an Alert Bridge owns verification.
+**VLM tagging** uses a controlled JSON-tag prompt (`response_format={"type":"json_object"}`,
 `temperature=0`, 5s chunks) whose output feeds BM25 tag search: RT-VLM publishes
 to its existing `mdx-vlm-captions` topic, the existing LVS Logstash pipeline
 writes each chunk to `default_<streamId>`, and the read side
@@ -145,10 +148,9 @@ response (VOD) or in each SSE `data:` event (live). The tagging caller must:
 
 Streaming-admission caveat: the server does not emit an immediate ID-only event
 before captions begin, so for the live leg the `id` is captured from the first
-real SSE `data:` event, and the deliberate early-close sequence in
-`provision-vios-source.md` runs after that first event, not before. A caller
-that issues `DELETE` without the returned `request_id` tears down every
-subscriber on the stream, including the Alert Bridge.
+real SSE `data:` event. A caller that issues `DELETE` without the returned
+`request_id` tears down every subscriber on the stream, including the Alert
+Bridge.
 
 ## Configuration knobs
 

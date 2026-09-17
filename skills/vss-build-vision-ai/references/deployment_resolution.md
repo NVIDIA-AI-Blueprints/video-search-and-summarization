@@ -276,23 +276,20 @@ Docker readiness checks; they are not Kubernetes operate prerequisites.
 
 ### Read vs write path resolution (headless)
 
-The two runtime paths resolve endpoints by **different** mechanisms, and the
-asymmetry is deliberate — each matches the vantage it runs from:
+Read and write resolve the same way — `vss vios` is not a `CommandGroup` and
+mints no `job_id`, but it still reads `ctx.deployment.base_url`, the same
+`vss configure`-recorded origin the search CLI uses. There is **no
+ingress-less path for either**: a build must front the operate route-set (see
+`services/ingress.md`) to be reachable from the host CLI at all.
 
 - **Read / query → `vss configure`** against the build origin (the block above).
   The search CLI takes no endpoints, so ingress-routed URLs for VST, Elasticsearch,
-  RT-Embed, and RT-CV all come from the recorded config. There is **no
-  ingress-less read path**: a build must front the operate route-set (see
-  `services/ingress.md`) to be queryable from the host CLI.
-- **Write / provision → loopback host ports**, *not* `vss configure`. The caller
-  reads the consumer ports from the build's `resolved.yml` `ports:` mappings
-  (`http://localhost:<port>`; stock deploys fall back to profile defaults) and
-  hands them to `vss-manage-video-io-storage` `provision-vios-source.md`. Loopback
-  covers RT-VLM natively and keeps RT-Embed's live SSE stream off the proxy hop.
-  `vss configure` records **ingress URLs, not loopback ports**, so the two
-  mechanisms do not overlap — except on a build that fronts RT-VLM for the tagging
-  leg, where the RT-VLM tagging call may also use the recorded `/rtvi-vlm` origin
-  from a remote host; loopback stays the lower-latency choice from the deploy host.
+  RT-Embed, and RT-CV all come from the recorded config.
+- **Write / provision → `vss vios add`**, against that same recorded origin —
+  register the source and stop. Fan-out to RT-CV/RT-Embed/RT-VLM is VIOS's own
+  webhook (`vss-build-vision-ai` `services/vios.md`), triggered server-side on
+  registration; the caller resolves no consumer ports and makes no further
+  calls.
 - **RT-VLM is loopback-only by default**, but fronted at `/rtvi-vlm` on builds that
   resolve the VLM **tagging** capability (see `services/ingress.md`), so the tagging
   leg can be driven from any host that reaches the origin. `vss configure` then

@@ -39,15 +39,18 @@ compose tokens). Helm search keeps SDRC enabled for live multi-worker scale.
 
 ## Headless fan-out (no-agent builds)
 
-When the `vss-agent` tier is omitted, a registered VIOS source is fanned out by
-direct REST per `vss-manage-video-io-storage` `provision-vios-source.md`. The
-search profile's fan-out set is **three legs**: RT-CV (`/api/v1/stream/add`),
-RT-Embed (`/v1/generate_video_embeddings`), and RT-VLM tagging (a controlled
-JSON-tag `POST /v1/generate_captions`). The RT-VLM tagging leg is what makes
-`vss search tag` and `fusion` return hits against a freshly ingested source;
-without it the read side has nothing indexed. Dense captioning is a separate,
-optional RT-VLM leg governed by the Alert-Bridge carve-out, not a search
-requirement.
+When the `vss-agent` tier is omitted, a registered VIOS source is still fanned
+out automatically — this profile's own `notification_config.json` webhook
+(`vss-build-vision-ai` `services/vios.md`) does it on `camera_streaming`, no
+caller action needed beyond `vss vios add`. The search profile's fan-out set is
+**three legs**: RT-CV (`/api/v1/stream/add`), RT-Embed (`/v1/stream/add` with
+`model` metadata, auto-starting `generate_video_embeddings`), and RT-VLM
+tagging (`/v1/stream/add` with the controlled JSON-tag prompt as
+`user_defined_metadata`). The RT-VLM tagging leg is what makes `vss search tag`
+and `fusion` return hits against a freshly ingested source; without it the read
+side has nothing indexed. Dense captioning is a separate, optional RT-VLM leg
+governed by the Alert-Bridge carve-out — this profile's webhook config omits
+it, not a search requirement.
 
 ## Profile-specific environment knobs
 

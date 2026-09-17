@@ -141,10 +141,10 @@ index.
 Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.
 
-`vss search run` is read-only. For upload, registration, deletion, or
-repair, use the agent-backed mutation workflows in the parent skill. For **VLM
-tag ingestion**, use the headless direct-REST fan-out in
-`vss-manage-video-io-storage` `references/provision-vios-source.md` (the
-controlled JSON-tag `generate_captions` leg); on a build that fronts RT-VLM at
-`/rtvi-vlm` it is drivable from any host that reaches the origin, otherwise
-loopback-only on the deploy host.
+`vss search run` is read-only. For upload, registration, deletion, or repair,
+use the agent-backed mutation workflows in the parent skill on a build with an
+agent, or `vss vios add`/`delete` on a headless build. **VLM tag ingestion**
+needs no separate call on a headless `search` build — VIOS's own webhook
+(`vss-build-vision-ai` `services/vios.md`) drives the controlled JSON-tag
+`generate_captions` leg on registration, keyed off that profile's
+`notification_config.json`.

@@ -152,14 +152,14 @@ LVS, Elasticsearch, RT-Embed, RT-VLM, and VIOS directly. `vss-ui` holds the only
 profile calls the agent, so alerting, analytics, ingest, and summarization are
 unaffected.
 
-### Provisioning moves to the headless path
+### Provisioning is unchanged
 
-With no agent route, source provisioning is the direct-REST recipe:
-`vss-manage-video-io-storage`
-[`provision-vios-source.md`](../../vss-manage-video-io-storage/references/provision-vios-source.md).
-Its own gate — stop when an agent route answers — passes on any build with the
-agent removed, and it is the only path that fans a source into RT-CV and
-RT-Embed. Alert rules stay with `vss-manage-alerts`, which addresses Alert Bridge.
+Removing the in-stack agent changes nothing about provisioning: register a
+source with `vss vios add` as on any build. VIOS's own webhook still fans it
+into RT-CV/RT-Embed/RT-VLM — confirm at Step 8 that the build's
+`notification_config.json` still covers the resolved consumer set
+(`services/vios.md`). Alert rules stay with `vss-manage-alerts`, which
+addresses Alert Bridge.
 
 ### Ingress is still required
 
