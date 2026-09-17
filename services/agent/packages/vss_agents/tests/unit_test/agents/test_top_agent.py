@@ -33,14 +33,19 @@ from vss_agents.agents.data_models import AgentMessageChunkType
 from vss_agents.agents.data_models import AgentOutput
 from vss_agents.agents.data_models import AgentRequestOptions
 from vss_agents.agents.search_agent import SearchAgentInput
+from vss_agents.agents.top_agent import DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE
+from vss_agents.agents.top_agent import DUPLICATE_TOOL_CALL_SKIP_MESSAGE
 from vss_agents.agents.top_agent import EMPTY_MESSAGES_ERROR
 from vss_agents.agents.top_agent import EMPTY_SCRATCHPAD_ERROR
+from vss_agents.agents.top_agent import MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
 from vss_agents.agents.top_agent import NO_INPUT_ERROR_MESSAGE
 from vss_agents.agents.top_agent import TOOL_NOT_FOUND_ERROR_MESSAGE
 from vss_agents.agents.top_agent import TopAgent
 from vss_agents.agents.top_agent import TopAgentRequest
 from vss_agents.agents.top_agent import TopAgentState
 from vss_agents.agents.top_agent import _augment_context_clip_offsets
+from vss_agents.agents.top_agent import _store_identical_tool_call_outcome
+from vss_agents.agents.top_agent import identical_tool_call_key
 from vss_agents.agents.top_agent import strip_frontend_tags
 from vss_agents.agents.top_agent import trace_step_title
 from vss_agents.tools.lvs_config_media import LVS_CONFIG_MEDIA_BLOCKED_MESSAGE
@@ -61,6 +66,11 @@ class TestTopAgentConstants:
 
     def test_empty_scratchpad_error(self):
         assert "agent_scratchpad" in EMPTY_SCRATCHPAD_ERROR
+
+    def test_identical_tool_call_retry_cap(self):
+        assert MAX_IDENTICAL_TOOL_CALL_ATTEMPTS == 3
+        assert "{name}" in DUPLICATE_TOOL_CALL_SKIP_MESSAGE
+        assert "{attempts}" in DUPLICATE_TOOL_CALL_SKIP_MESSAGE
 
 
 class TestTraceStepTitle:
@@ -1243,6 +1253,266 @@ class TestRequestOptionsContext:
         result = await agent.tool_or_subagent_node(state)
 
         assert result.final_answer == "No incidents found with the specified criteria."
+
+
+IDENTICAL_TOOL_CALL_ARGS = {
+    "sensor_id": "warehouse_safety_001",
+    "start_timestamp": "None",
+    "end_timestamp": "None",
+    "prompt": "what happened",
+}
+
+
+class TestIdenticalToolCallCap:
+    """Cap exact duplicate tool calls: reuse a success; retry failures up to 2 times."""
+
+    def test_fingerprint_ignores_key_order_and_null_sentinels(self):
+        left = identical_tool_call_key("video_understanding_iso", IDENTICAL_TOOL_CALL_ARGS)
+        right = identical_tool_call_key(
+            "video_understanding_iso",
+            {"prompt": "what happened", "sensor_id": "warehouse_safety_001"},
+        )
+        assert left == right
+
+    def test_fingerprint_differs_when_args_or_name_differ(self):
+        base = identical_tool_call_key("video_understanding_iso", {"sensor_id": "cam_a"})
+        assert identical_tool_call_key("video_understanding_iso", {"sensor_id": "cam_b"}) != base
+        assert identical_tool_call_key("video_understanding", {"sensor_id": "cam_a"}) != base
+
+    @staticmethod
+    def _counting_tool():
+        class CountingTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                yield "video understanding ok"
+
+        return CountingTool()
+
+    @staticmethod
+    def _failing_tool():
+        class FailingTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                raise RuntimeError("backend unavailable")
+                yield "unreachable"
+
+        return FailingTool()
+
+    @staticmethod
+    def _fail_once_then_succeed_tool():
+        class FailOnceThenSucceedTool:
+            args_schema = None
+            call_count = 0
+
+            async def astream(self, input, config=None):
+                type(self).call_count += 1
+                if type(self).call_count == 1:
+                    raise RuntimeError("transient failure")
+                yield "video understanding ok"
+
+        return FailOnceThenSucceedTool()
+
+    def _agent_with_tool(self, tool, name="video_understanding_iso"):
+        agent = TopAgent.__new__(TopAgent)
+        agent.tools_dict = {name: tool}
+        agent.subagent_names = set()
+        agent.callbacks = []
+        return agent
+
+    def _scratchpad_call(self, call_id: str, args: dict | None = None, name="video_understanding_iso"):
+        return [
+            AIMessage(
+                content="calling video understanding",
+                tool_calls=[{"name": name, "args": args or IDENTICAL_TOOL_CALL_ARGS, "id": call_id}],
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_success_then_skip_executes_once(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._counting_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        state.agent_scratchpad = self._scratchpad_call("first")
+        await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call("skip")
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == 1
+        skip_message = state.agent_scratchpad[-1]
+        assert skip_message.content == DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
+            name="video_understanding_iso",
+            attempts=1,
+        )
+        assert getattr(skip_message, "status", None) == "success"
+        assert not state.tool_failure
+
+    @pytest.mark.asyncio
+    async def test_failure_then_success_then_skip_executes_twice(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._fail_once_then_succeed_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        state.agent_scratchpad = self._scratchpad_call("fail")
+        await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call("succeed")
+        await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call("skip")
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == 2
+        skip_message = state.agent_scratchpad[-1]
+        assert skip_message.content == DUPLICATE_TOOL_CALL_SKIP_MESSAGE.format(
+            name="video_understanding_iso",
+            attempts=2,
+        )
+        assert getattr(skip_message, "status", None) == "success"
+        assert not state.tool_failure
+
+    @pytest.mark.asyncio
+    async def test_three_failures_then_stop(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._failing_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        for index in range(MAX_IDENTICAL_TOOL_CALL_ATTEMPTS):
+            state.agent_scratchpad = self._scratchpad_call(f"fail_{index}")
+            await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        recorded_failure = state.tool_failure
+        assert recorded_failure.startswith("Tool call failed: backend unavailable")
+
+        state.agent_scratchpad = self._scratchpad_call("skip_after_fail")
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == MAX_IDENTICAL_TOOL_CALL_ATTEMPTS
+        skip_message = state.agent_scratchpad[-1]
+        assert isinstance(skip_message, ToolMessage)
+        expected = DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE.format(
+            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+            last_error=recorded_failure,
+        )
+        assert skip_message.content == expected
+        assert getattr(skip_message, "status", None) == "error"
+        assert state.tool_failure == recorded_failure
+
+    @pytest.mark.asyncio
+    async def test_plan_update_does_not_claim_success_after_failed_then_skip(self, monkeypatch):
+        chunks = []
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: chunks.append)
+
+        agent = TopAgent.__new__(TopAgent)
+        agent.llm = MagicMock()
+        agent.llm.ainvoke = AsyncMock(return_value=AIMessage(content="<think>retry</think>"))
+        agent.callbacks = []
+        skip_content = DUPLICATE_TOOL_CALL_FAILED_SKIP_MESSAGE.format(
+            attempts=MAX_IDENTICAL_TOOL_CALL_ATTEMPTS,
+            last_error="Tool call failed: backend unavailable",
+        )
+        state = TopAgentState(
+            current_message=HumanMessage(content="What happened in warehouse_safety_001?"),
+            plan="1. [ ] Call `video_understanding_iso` to analyze the video.",
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding_iso",
+                            "args": IDENTICAL_TOOL_CALL_ARGS,
+                            "id": "skip_after_fail",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    name="video_understanding_iso",
+                    tool_call_id="skip_after_fail",
+                    content=skip_content,
+                    status="error",
+                ),
+            ],
+            tool_failure="Tool call failed: backend unavailable",
+            options=AgentRequestOptions(llm_reasoning=True),
+        )
+
+        result = await agent._plan_update_node(state)
+
+        agent.llm.ainvoke.assert_not_awaited()
+        assert result.plan.startswith("1. [ ] Call `video_understanding_iso`")
+        assert "already completed successfully" not in result.plan
+        assert result.tool_failure == "Tool call failed: backend unavailable"
+
+    @pytest.mark.asyncio
+    async def test_tool_node_does_not_cap_same_tool_with_different_args(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._counting_tool()
+        agent = self._agent_with_tool(tool)
+        state = TopAgentState(options=AgentRequestOptions())
+
+        state.agent_scratchpad = self._scratchpad_call(
+            "first",
+            args={"sensor_id": "warehouse_safety_001", "prompt": "what happened"},
+        )
+        await agent.tool_or_subagent_node(state)
+        state.agent_scratchpad = self._scratchpad_call(
+            "other",
+            args={"sensor_id": "warehouse_safety_002", "prompt": "what happened"},
+        )
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_tool_node_caps_parallel_identical_calls_in_one_turn(self, monkeypatch):
+        monkeypatch.setattr("vss_agents.agents.top_agent.get_stream_writer", lambda: lambda _chunk: None)
+        tool = self._counting_tool()
+        agent = self._agent_with_tool(tool)
+        extra_calls = MAX_IDENTICAL_TOOL_CALL_ATTEMPTS + 2
+        state = TopAgentState(
+            agent_scratchpad=[
+                AIMessage(
+                    content="calling video understanding",
+                    tool_calls=[
+                        {
+                            "name": "video_understanding_iso",
+                            "args": IDENTICAL_TOOL_CALL_ARGS,
+                            "id": f"call_{index}",
+                        }
+                        for index in range(extra_calls)
+                    ],
+                )
+            ],
+            options=AgentRequestOptions(),
+        )
+
+        await agent.tool_or_subagent_node(state)
+
+        assert tool.call_count == 1
+        skip_count = sum(
+            1
+            for msg in state.agent_scratchpad
+            if isinstance(msg, ToolMessage) and str(msg.content).startswith("Identical tool call skipped")
+        )
+        assert skip_count == extra_calls - 1
+
+    def test_store_keeps_success_when_a_later_failure_arrives(self):
+        state = TopAgentState(options=AgentRequestOptions())
+        args = IDENTICAL_TOOL_CALL_ARGS
+        _store_identical_tool_call_outcome(state, "video_understanding_iso", args, "error", "Tool call failed: first")
+        _store_identical_tool_call_outcome(state, "video_understanding_iso", args, "success", "ok")
+        _store_identical_tool_call_outcome(state, "video_understanding_iso", args, "error", "Tool call failed: late")
+        outcome = state.identical_tool_call_last_outcome[identical_tool_call_key("video_understanding_iso", args)]
+        assert outcome["status"] == "success"
+        assert outcome["content"] == "ok"
 
 
 class TestTopAgentRequestUseCritic:

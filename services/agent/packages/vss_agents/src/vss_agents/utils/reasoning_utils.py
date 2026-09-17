@@ -50,7 +50,17 @@ def get_llm_reasoning_bind_kwargs(llm: Any, llm_reasoning: bool | None) -> dict:
         if any(marker in model_name for marker in _ENABLE_THINKING_MARKERS) and llm_reasoning is not None:
             return {"chat_template_kwargs": {"enable_thinking": llm_reasoning}}
     elif type(llm).__name__ == "ChatOpenAI":
-        return {"reasoning": {"effort": "medium", "summary": "auto"}} if llm_reasoning else {}
+        if llm_reasoning:
+            return {"reasoning": {"effort": "medium", "summary": "auto"}}
+        # A NIM reached over its OpenAI-compatible API is still driven by the
+        # `enable_thinking` chat-template kwarg, and the server defaults it to true.
+        # Returning {} here left thinking on for every profile running
+        # LLM_MODEL_TYPE=openai, which is the documented alternative. ChatOpenAI
+        # rejects a top-level chat_template_kwargs, so it travels in extra_body.
+        # Gated on the marker so an OpenAI-hosted model is never sent the kwarg.
+        if llm_reasoning is False and any(marker in model_name for marker in _ENABLE_THINKING_MARKERS):
+            return {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+        return {}
     else:
         logger.warning(f"models using {type(llm).__name__} is not supported for reasoning binding")
         return {}

@@ -95,10 +95,6 @@
                 {
                     "name": "room",
                     "value": "Room-1"
-                },
-                {
-                    "name": "region",
-                    "value": "Region-1"
                 }
             ],
             "imageCoordinates": [
@@ -328,10 +324,6 @@
                 {
                     "name": "room",
                     "value": "Room-1"
-                },
-                {
-                    "name": "region",
-                    "value": "Region-1"
                 }
             ],
             "imageCoordinates": [
@@ -561,10 +553,6 @@
                 {
                     "name": "room",
                     "value": "Room-1"
-                },
-                {
-                    "name": "region",
-                    "value": "Region-1"
                 }
             ],
             "imageCoordinates": [
@@ -794,10 +782,6 @@
                 {
                     "name": "room",
                     "value": "Room-1"
-                },
-                {
-                    "name": "region",
-                    "value": "Region-1"
                 }
             ],
             "imageCoordinates": [

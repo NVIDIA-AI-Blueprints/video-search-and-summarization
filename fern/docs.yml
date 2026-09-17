@@ -12,6 +12,9 @@ title: NVIDIA Blueprint for Video Search and Summarization
 
 global-theme: nvidia
 
+layout:
+  api-reference-expand-properties: true
+
 logo:
   href: /vss
   right-text: VSS
@@ -438,9 +441,10 @@ navigation:
                 slug: video-analytics-api
                 path: ../docs/video-analytics-api-server.mdx
                 contents:
-                  - page: "Video Analytics API Reference"
+                  - api: "Video Analytics API Reference"
                     slug: video-analytics-api-reference
-                    path: ../docs/video-analytics-api.mdx
+                    summary: ../docs/video-analytics-api-reference-overview.mdx
+                    paginated: false
               - page: "Video Analytics MCP"
                 slug: video-analytics-mcp
                 path: ../docs/video-analytics-mcp.mdx

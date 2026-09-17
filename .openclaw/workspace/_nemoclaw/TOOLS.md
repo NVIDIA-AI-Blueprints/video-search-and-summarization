@@ -219,8 +219,8 @@ in Docker, not in the orchestrator's process memory.
 
 Kubernetes deployments do not go through the orchestrator MCP. The skills
 that operate them (`vss-search-archive`, `vss-summarize-video`) run the
-project CLI directly — `uv run --project <checkout>/services/agent --no-dev
---extra cli vss` — against the Ingress origin in `VSS_PUBLIC_URL`. That
+project CLI directly — `uv run --project <checkout>/libs/vss vss` —
+against the Ingress origin in `VSS_PUBLIC_URL`. That
 needs `uv` and a checkout, both of which you can set up yourself: the
 egress policy already names GitHub for `git` and PyPI for `uv`. Do not ask
 the user to prepare anything on the host.
@@ -238,9 +238,9 @@ test -d "${VSS_REPO_ROOT}/.git" ||
     "${VSS_REPO_ROOT}"
 ```
 
-`-b develop` is required. The default branch (`main`) predates the split
-into `packages/`, so `--extra cli` there fails with "Extra `cli` is not
-defined" — the `vss` executable does not exist on it. Keep the checkout at
+`-b develop` is required. The default branch (`main`) predates the move of
+the library to `libs/vss`, so that project does not exist there and the
+`vss` executable cannot be resolved from it. Keep the checkout at
 the skills' default location above unless you have a reason to move it;
 exporting `VSS_REPO_ROOT` is only needed for a checkout somewhere else.
 
@@ -253,7 +253,7 @@ Point the CLI at the deployment once, then re-run the same command after
 every ingestion, because the recorded index inventory is a snapshot:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli \
+uv run --project "${VSS_REPO_ROOT}/libs/vss" \
   vss configure --base-url "${VSS_PUBLIC_URL}"
 ```
 

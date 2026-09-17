@@ -6,7 +6,7 @@ position: 3
 
 <Warning>
 Agent Skills are released as **Early Access** and are not intended for use in production environments.
-Agent Skills for VSS were validated using Claude Opus 4.6.
+Agent Skills for VSS were validated using Claude Opus 5.
 </Warning>
 
 The `vss-build-vision-ai` Skill is the recommended deployment entry point for
@@ -32,8 +32,8 @@ profile from the [Quickstart](/vss/getting-started/quickstart#deploy-the-base-pr
 
 Use `vss-build-vision-ai` when you want to:
 
-- Deploy a pre-built developer workflow such as `base`, `alerts`, `lvs`, or
-  `search`.
+- Deploy a pre-built developer workflow such as `base`, `alerts`,
+  `video-summarization`, or `search`.
 - Deploy a warehouse industry blueprint, including 2D, 3D, MV3DT, and
   auto-calibration variants.
 - Build a custom stack from capabilities such as dense captioning, object
@@ -55,7 +55,7 @@ report.
 
 | Path | Use it for | What the Skill does |
 | --- | --- | --- |
-| Pre-built developer workflow | Quickstarts and standard workflows | Selects one validated developer profile: `base`, `alerts`, `lvs`, or `search`. |
+| Pre-built developer workflow | Quickstarts and standard workflows | Selects one validated developer profile: `base`, `alerts`, `video-summarization`, or `search`. |
 | Pre-built industry blueprint | Warehouse deployments | Selects a warehouse variant and expands its validated service list. |
 | Custom build | Capability combinations that do not exactly match a stock profile | Starts from the closest profile and creates the smallest delta needed for the requested capabilities. |
 
@@ -67,7 +67,7 @@ report.
 | --- | --- | --- |
 | `base` | First run, video Q&A, and report generation on short clips | VSS Agent, UI, VIOS, LLM, and RT-VLM. |
 | `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, VA-MCP, RT-VLM, and optionally RT-CV with behavior analytics. |
-| `lvs` | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI/agent surfaces for summarization workflows. |
+| `video-summarization` | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI/agent surfaces for summarization workflows. Uses the `lvs` Foundation in generated build artifacts. |
 | `search` | Natural-language video search | RT-CV detection and tracking, RT-Embed embeddings, Elasticsearch, Video Analytics API, and search services. |
 
 For `alerts`, the Skill asks which mode you want:
@@ -95,19 +95,9 @@ are working with a separate custom or headless deployment.
 ## Custom capability builds
 
 For custom builds, describe the capabilities you want instead of choosing a
-profile directly. The Skill maps the request to VSS service owners, selects a
-Foundation profile, and creates a build-local delta.
-
-Common capability requests include:
-
-| Capability | Typical Foundation |
-| --- | --- |
-| Dense captioning or VLM Q&A | `base` |
-| Object detection and tracking | `search` or `alerts`, depending on the downstream workflow |
-| Semantic search over video | `search` |
-| Real-time alerting or alert verification | `alerts` |
-| Video summarization | `lvs` |
-| SOP compliance monitoring | `alerts` in VLM mode, with SOP services added as a delta |
+profile directly. The Skill owns the capability mapping: it selects the closest
+Foundation profile and creates a build-local delta for the services the request
+adds or removes.
 
 The Skill includes VIOS as the video input and storage layer for guided custom
 builds. It retains ingress only when the requested capability or harness needs a
@@ -184,7 +174,7 @@ CLI against that origin. Run this from the VSS Blueprint checkout:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$PWD}"
-vss() { uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss "$@"; }
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 vss --version
 
 vss configure --base-url "<VSS_PUBLIC_URL>"
@@ -196,7 +186,7 @@ services:
 
 - `vss-manage-video-io-storage` or `vss vios` for sensors, uploads, clips, and
   snapshots.
-- `vss-ask-video` for one-off visual questions.
+- `vss-ask-video` or `vss vlm` for one-off visual questions.
 - `vss-generate-video-report` for report generation.
 - `vss-summarize-video` or `vss summarize` for video summaries.
 - `vss-search-archive` or `vss search` for archive search.

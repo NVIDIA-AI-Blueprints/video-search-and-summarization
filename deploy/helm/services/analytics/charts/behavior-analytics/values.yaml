@@ -51,6 +51,11 @@ resourceFiles:
   calibration:
     enabled: false
     mountPath: /resources/calibration.json
+    # Set: fetch calibration.json from this endpoint via initContainer instead
+    # of the ConfigMap. Same fetch/validate logic as mv3dt-config-init.py.
+    apiUrl: ""
+    fetchTimeoutSeconds: 300
+    fetchPollSeconds: 10
   roadNetwork:
     enabled: false
     mountPath: /resources/road-network.json

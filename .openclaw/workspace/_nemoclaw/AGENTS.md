@@ -2,6 +2,55 @@
 
 This folder is home. Treat it that way.
 
+## VSS Base prompt routing
+
+For every named-video report, first resolve the exact timeline with `vss_cli`.
+If it is 120 seconds or longer, stop before any VLM call and report that LVS is
+required. Never bypass this gate through `exec`, raw HTTP, or another tool.
+
+For these UI requests, select and follow exactly one active VSS skill:
+
+- List sensors, take a snapshot, or inspect a timeline: `vss-manage-video-io-storage`
+- Ask what is visually present in a named video, including whether a worker is wearing PPE: `vss-ask-video`
+- Generate a report for a named video: `vss-generate-video-report`
+
+Read the selected skill from its exact `<location>` in `<available_skills>`;
+never derive or search for a path from the skill name. In this NemoClaw image,
+invoke the skill's `vss` arguments through the `vss_cli` tool. Do not look for a
+repository checkout or replace the CLI with raw HTTP.
+
+Never route a named-video PPE question to analytics or VA-MCP. Resolve names
+from the sensor listing; if one unambiguous result corrects a typo, state the
+correction and use the listed identifier. Obtain the sensor's exact recorded
+timeline before time-based requests; never substitute the current date.
+A report for a named video shorter than 120 seconds uses
+`vss-generate-video-report` Mode A, never `vss summarize`: resolve the sensor's
+full recorded timeline and complete the skill's default/HITL prompt-selection
+step. Use the HITL-selected prompt when one exists. Otherwise, use this exact
+default prompt as one argument, preserving its line breaks:
+
+```text
+Describe in detail what happens in the video, with timestamps (start-end in seconds from clip start) for each segment or event.
+
+Cover scenes, objects, people, vehicles, and notable actions.
+
+Output requirements:
+- Keep events in chronological order.
+- Use concrete descriptions rather than generic placeholders.
+- Include timestamps in each event line.
+```
+
+After selecting the prompt, the first and only backend call in the report turn
+must be this `vss_cli` argument-array shape:
+
+```json
+{"args":["vlm","run","--prompt","<selected-prompt>","--sensor","<listed-name>","--start-time","<timeline-start>","--end-time","<timeline-end>","--fps","2"]}
+```
+
+Use the exact recorded ISO-8601 timeline values; do not omit them or replace
+them with offsets. Then render the structured report. Never call `summarize`,
+`exec`, `web_fetch`, or `write`, and never reuse an earlier answer or snapshot.
+
 ## First Run
 
 If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then delete it. You won't need it again.
@@ -118,6 +167,23 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
+### User follow-up questions
+
+`ENV.md` defines `HITL_ENABLED`. Obey it for every skill and workflow:
+
+- When it is `false`, never invoke `AskUserQuestion`, `request_user_input`, an
+  MCP question tool, or any other structured human-in-the-loop mechanism. This
+  rule overrides skill text that says to use one of those mechanisms.
+- Ask required clarifying or confirmation questions as ordinary assistant text,
+  then end the turn. The user's next chat message continues the same session.
+  Present choices inline when useful and do not start gated work until the user
+  replies.
+- Do not call an API that creates or resumes interaction IDs. If a workflow has
+  no non-HITL form, explain that it is unavailable in this configuration
+  instead of leaving a run paused.
+- Only when it is explicitly `true` may a skill use a structured interaction
+  mechanism supported by the active harness and UI.
+
 
 ### VSS Deploy Conventions
 
@@ -133,7 +199,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
   5. Poll `vss_orchestrator__docker_status` with that ops id until `status` becomes terminal (`success`, `error`, or `cancelled`). Use the cadence the server returns in `recommended_poll_interval_s` (currently 60s for `up`, 10s for `down`) — wait the full interval between calls, do not poll faster.
   5a. **After every poll, print a 1-line chat update** summarizing the current state — e.g. `"[poll N] still running — pulling image X"` or `"[poll N] containers starting: A, B (elapsed Ms)"`. The user must see progress in plain chat without having to expand the tool-output panel in the UI.
   5b. **When `status` becomes terminal, in the same turn (do not end the turn before all the work below is done):**
-      - `success` → send a clear final message: `"✅ VSS <profile> deployment complete (elapsed Ms)"`, **then immediately call `vss_orchestrator__docker_list`** and report the running services to the user. **Also report the access URL** — read the deployed public origin from `vss_orchestrator__docker_read` (the resolved env's `VSS_AGENT_EXTERNAL_URL`, i.e. `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`) and give the UI as `<origin>/` (REST API `<origin>/api`). **Never synthesize a `<HOST_IP>:<port>` URL** — on Brev the orchestrator already sets that origin to the `https://7777-<id>.apps.run.brev.nvidia.com` secure link, and a raw host:port is an unreachable internal IP. Full mapping: `vss-deploy-profile` skill, `references/base.md` (Endpoints) / `references/brev.md`.
+      - `success` → send a clear final message: `"✅ VSS <profile> deployment complete (elapsed Ms)"`, **then immediately call `vss_orchestrator__docker_list`** and report the running services to the user. **Also report the access URL** — read the deployed public origin from `vss_orchestrator__docker_read` (the resolved env's `VSS_AGENT_EXTERNAL_URL`, i.e. `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`) and give the UI as `<origin>/` (REST API `<origin>/api`). **Never synthesize a `<HOST_IP>:<port>` URL** — on Brev the orchestrator already sets that origin to the `https://7777-<id>.apps.run.brev.nvidia.com` secure link, and a raw host:port is an unreachable internal IP. Full mapping: `vss-build-vision-ai` skill, `references/base.md` (Endpoints) / `references/brev.md`.
       - `error` → send `"❌ VSS <profile> deployment failed (exit_code=X)"`, then call `vss_orchestrator__docker_logs` for the failing service and surface a short log snippet plus a suggested next step.
       - `cancelled` → send `"⚠️ VSS <profile> deployment was cancelled (likely by a docker_down)."`
 

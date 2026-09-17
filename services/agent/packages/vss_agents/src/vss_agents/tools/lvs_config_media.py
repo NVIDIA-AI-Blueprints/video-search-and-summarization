@@ -202,8 +202,8 @@ class LVSConfigMediaConfig(FunctionBaseConfig, name="lvs_config_media"):
         description="HITL template for final media configuration confirmation.",
     )
     hitl_enabled: bool = Field(
-        default=True,
-        description="Collect and confirm media parameters interactively. Disable to use configured defaults.",
+        default=False,
+        description="Collect and confirm media parameters interactively. Set true explicitly; false uses configured defaults.",
     )
     default_scenario: str = Field(default="", description="Default media scenario.")
     default_events: list[str] = Field(default_factory=list, description="Default media events.")
@@ -339,7 +339,7 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
 
     async def _lvs_config_media(lvs_input: LVSConfigMediaInput) -> LVSConfigMediaOutput:
         """
-        Do NOT call this tool for "summarize", "describe", "give a summary of", or "report" requests — those route to `lvs_stream_understanding`, `lvs_video_understanding`, or `report_agent`. This tool opens a HITL modal; calling it on a summarize query is always wrong.
+        Do NOT call this tool for "summarize", "describe", "give a summary of", or "report" requests — those route to `lvs_stream_understanding`, `lvs_video_understanding`, or `report_agent`. This tool may open a HITL modal when explicitly enabled; calling it on a summarize query is always wrong.
 
         Set up a live stream for LVS caption generation.
 
@@ -349,10 +349,11 @@ async def lvs_config_media(config: LVSConfigMediaConfig, _: Builder) -> AsyncGen
         or in response to another tool's "not_configured" message — the user must
         confirm first.
 
-        For streams, this tool resolves the stream in VST, collects scenario,
-        events, and objects_of_interest through HITL, calls LVS
-        `/v1/generate_captions`, and stores the configured stream in short-term
-        memory so later `lvs_stream_understanding` / report calls can succeed.
+        For streams, this tool resolves the stream in VST, optionally collects
+        scenario, events, and objects_of_interest through HITL (or uses the
+        configured defaults), calls LVS `/v1/generate_captions`, and stores the
+        configured stream in short-term memory so later
+        `lvs_stream_understanding` / report calls can succeed.
         """
         media_name = lvs_input.stream_name
         logger.info("Configuring LVS %s '%s'", lvs_input.media_type, media_name)

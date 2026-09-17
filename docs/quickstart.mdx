@@ -38,17 +38,25 @@ The following diagram illustrates a conceptual architecture of the base vision a
 
 ## Agent Harness Options
 
-The default VSS Agent is built on the **NVIDIA NeMo Agent Toolkit (NAT)** and is the recommended way to interact with VSS. However, the underlying VSS microservices (Video Analytics MCP, VSS Orchestrator MCP, VST/VIOS, Video Analytics API) are framework-agnostic, so you can also drive them from other agent harnesses. The table below compares the supported options.
+For Build Vision AI deployments, NemoClaw is the default and recommended agent
+harness for interacting with VSS.
+The underlying VSS microservices (Video Analytics MCP, VSS Orchestrator MCP,
+VST/VIOS, and Video Analytics API) are framework-agnostic, so you can also drive
+them through direct MCP or REST integrations. The table below compares the
+supported options.
 
 | Harness | What it is | Pros | Cons |
 | --- | --- | --- | --- |
-| **NeMo Agent Toolkit (NAT)** — VSS Agent (default) | The shipped reference agent (`services/agent`). YAML-driven workflow with built-in MCP client, function groups, FastAPI front-end, and Phoenix telemetry. Powers the Reference Agentic UI via `/v1/chat/stream` and `/v1/workflow/stream` endpoints. See [VSS Agents](/vss/vision-agent/vss-agents). | Native NIM and MCP integration out of the box; declarative `config.yml` for tools, sub-agents, and prompts; first-class sub-agent hierarchy (`report_agent`, `multi_report_agent`); built-in Phoenix tracing; UI compatibility guaranteed. | YAML can become verbose for highly custom flows; tied to NAT's runtime model. |
-| **NemoClaw (OpenClaw sandbox)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Bundled with VSS skills and a policy preset; installed via the `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks. See [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw). | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
+| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Bundled with VSS skills and a policy preset; installed via the `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks. See [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw). | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
 | **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/vss/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
 | **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
 <Note>
-These harnesses are **not mutually exclusive**. A common pattern is to run the default NAT-based VSS Agent for end-user chat, while a separate service (NemoClaw, a custom MCP client, or a REST integration) handles deployment automation or back-office workflows against the same VSS microservices.
+When you deploy with Build Vision AI, NemoClaw runs on the host outside the
+Docker Compose project, and the in-stack VSS Agent is omitted unless the request
+explicitly names it. The manual Docker Compose base-profile commands later on
+this page use the stock `COMPOSE_PROFILES` and still deploy the NAT-based VSS
+Agent.
 </Note>
 
 ## Prerequisites
@@ -105,6 +113,44 @@ The native Docker Compose workflow below requires the `develop` branch. The
 latest release tag, `v3.2.1`, does not contain `deploy/docker/containers.env` or
 the per-profile `overrides.env` templates used by these commands.
 </Note>
+
+## Prepare your coding agent
+
+Run the coding agent in an environment that can access the VSS Blueprint checkout
+and run deployment commands on the target host. For the Docker Compose
+quickstart, the deployment host must meet the supported Linux platform,
+GPU, Docker, and NVIDIA Container Toolkit requirements in
+[Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use Ubuntu
+22.04 or Ubuntu 24.04.
+
+You can use a remote development environment such as a Brev or Omnistation
+sandbox when that environment exposes the required GPU, Docker Engine, network
+ports, NGC access, and repository checkout to the coding agent. A Windows or Mac
+machine can be used as the browser or coding-agent client, but it is not the
+validated Docker Compose deployment host for this quickstart; point the agent at
+a supported Linux deployment host instead.
+
+Install the Build Vision AI Skill before asking the agent to deploy VSS. From the
+VSS Blueprint checkout, ask your coding agent:
+
+```text title="Install the Build Vision AI Skill"
+Install only skills/vss-build-vision-ai for this host. Use the host's standard
+skills directory. Symlink the skills/vss-build-vision-ai folder rather than
+copying it so a git pull here keeps the Skill up to date. If it is already
+installed and points at this checkout, leave it unchanged. When done, report the
+registered path.
+```
+
+The standard Skill locations are:
+
+| Host | Skill path |
+| --- | --- |
+| Codex | `~/.codex/skills/vss-build-vision-ai` |
+| Claude Code | `~/.claude/skills/vss-build-vision-ai` |
+| Other `agentskills.io`-compatible hosts | `~/.agents/skills/vss-build-vision-ai` |
+
+After installation, start a new coding-agent session from this checkout so the
+agent discovers `vss-build-vision-ai`.
 
 ## Deploy the base profile
 
@@ -302,6 +348,8 @@ LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_VLM_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -311,6 +359,8 @@ HARDWARE_PROFILE=GB300
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_VLM_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -499,7 +549,7 @@ HARDWARE_PROFILE=DGX-SPARK
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
 VSS_RT_VLM_TAG=develop-latest-sbsa
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -838,9 +888,16 @@ This walkthrough is written for developers and users who want to operate VSS
 from natural language.
 
 <Note>
-Install the skills into your coding agent first (see [Agent Skills](/vss/vision-agent/agent-skills) for the install flow) and confirm your host meets the
-[Prerequisites](/vss/getting-started/prerequisites). For how each harness loads skills, see
-[Agent Harnesses](/vss/vision-agent/agent-harnesses).
+Before starting this walkthrough, follow
+[Ask the coding agent to install the Skills](/vss/vision-agent/agent-skills#step-2-ask-the-coding-agent-to-install-the-skills)
+to install `vss-build-vision-ai` and every Skill under `skills/operations/`, then
+start a new coding-agent session so all four Skills below are discovered. The
+deployment-only setup in [Prepare your coding agent](#prepare-your-coding-agent)
+installs only `vss-build-vision-ai` and is not sufficient for the upload, Q&A,
+and report steps. If Build Vision AI provisioned NemoClaw, run those operational
+steps in the NemoClaw session; its Skills are installed inside that sandbox, not
+back into the original coding-agent session. Also confirm your host meets the
+[Prerequisites](/vss/getting-started/prerequisites).
 </Note>
 
 The base profile journey exercises four skills:

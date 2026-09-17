@@ -9,16 +9,16 @@ Run the `vss` console executable from the `vss` project in the checkout
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/services/agent/pyproject.toml" || {
+test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
   echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
   exit 1
 }
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
 cd "${VSS_REPO_ROOT}" && "${VSS[@]}" summarize run --help >/dev/null || exit 1
 ```
 
-Keep `--extra cli` on every invocation; the base meta package does not install
-the `nvidia-vss-cli` distribution that declares `vss`. Do not use `which vss`,
+`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
+needed — the agent stack is not in it. Do not use `which vss`,
 and do not run it through `docker exec`, `kubectl exec`, or a pod shell.
 
 ## Configure once

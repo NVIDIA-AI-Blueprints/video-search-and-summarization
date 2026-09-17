@@ -348,7 +348,7 @@ services:
         {"name": "mdx-embed-filtered"},
         {"name": "mdx-compressed-embeddings"}]'
     container_name: vss-broker-health-check
-    restart: "no"
+    restart: "on-failure:5"
 
 volumes:
   vss-turn-password:

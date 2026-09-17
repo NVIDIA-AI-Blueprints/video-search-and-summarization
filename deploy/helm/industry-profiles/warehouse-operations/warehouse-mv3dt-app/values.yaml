@@ -23,6 +23,10 @@ global:
   externalHost: ""
   # NodePort for VST ingress (30888). Set when using values-nodeport.yaml.
   externalPort: ""
+  # Branch/tag for calibration-import source URLs. Empty falls back to "develop".
+  gitRef: ""
+  # Dataset dir under calibration/sample-data/, shared by calibration-import's source URLs.
+  sampleVideoDataset: warehouse-4cams-20mx20m-synthetic
   # Comma-separated static TURN URLs (username:password@host:port). See
   # deploy/helm/industry-profiles/warehouse-operations/TURN-SERVER.md.
   turnServerUrl: ""
@@ -45,7 +49,7 @@ bp-configurator:
   data:
     enabled: true
     mountPath: /opt/data
-    seedConfigMapName: vss-behavior-analytics-resources
+    seedConfigMapName: bp-configurator-mv3dt-calibration-seed
   image:
     repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
     tag: develop-latest
@@ -134,10 +138,12 @@ bp-configurator:
 calibration-import:
   enabled: true
   name: import-calibration-output-mv3dt
+  restartPolicy: OnFailure
+  backoffLimit: 5
   apiUrl: http://vss-video-analytics-api:8081
-  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
-  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
-  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images
   requireCalibration: true
   requireImages: true
 
@@ -178,7 +184,7 @@ vios:
     headlessServiceName: ""
     # No bind-mounts in Helm: download overlay assets from video-analytics-api.
     calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
-    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1%2Fregion%3DRegion-1&view=plan-view"
+    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building=Warehouse/room=Room-1&view=plan-view"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
@@ -212,7 +218,7 @@ vios:
         # hostPath: /opt/vss/customer-videos   # node-local customer videos
     ngcVideoSeed:
       enabled: true
-      dataset: warehouse-4cams-20mx20m-synthetic
+      # dataset unset: falls back to global.sampleVideoDataset.
       # Reuses the bundle the rtvi-cv NGC job already extracted, so it is not
       # downloaded twice. Needs nvstreamer and rtvi-cv on the same node (RWO).
       # Clear this and set resourceVersion to download independently.
@@ -244,6 +250,16 @@ infra:
       configMapName: sdrc-config
       key: config.yml
       mountPath: /config.yml
+    # MV3DT starts slowly: the tracker builds a ReID TensorRT engine on first
+    # run, and with appearance ReID enabled it also waits for the model-staging
+    # Job. SDRC would otherwise be up long before it, consume the VST camera
+    # events and ack them, leaving the pipeline at "Active sources : 0".
+    waitForWorkloads:
+      enabled: true
+      # Unprefixed Service name. The sdrc chart rewrites this to
+      # <release>-vss-rtvi-cv:9000 when global.useReleaseNamePrefix is true.
+      targets:
+        - vss-rtvi-cv:9000
   elasticsearch:
     enabled: true
     persistence:
@@ -311,6 +327,7 @@ analytics:
       calibration:
         enabled: true
         mountPath: /resources/calibration.json
+        apiUrl: "http://vss-video-analytics-api:8081/config/calibration"
     config:
       kafkaConfigJson: |
         {
@@ -432,6 +449,18 @@ rtvi:
         maxBatchSize: "4"
         mqttPort: "1883"
         redisPort: "6379"
+        # Appearance-based ReID re-association. Kept in step with the
+        # vss-reid-embed release below: serviceAddress/servicePort must match
+        # that chart's Service, and both must be enabled together.
+        reid:
+          enabled: true
+          # serviceAddress intentionally unset: it is derived from the
+          # vss-reid-embed Service name so it stays correct under
+          # global.useReleaseNamePrefix. Set it only to reach an external
+          # ReID service.
+          serviceAddress: ""
+          servicePort: "8088"
+          extractionInterval: "8"
         dynamicCameraConfig:
           enabled: true
           calibrationApiUrl: "http://vss-video-analytics-api:8081/config/calibration"
@@ -457,6 +486,25 @@ rtvi:
       storageClass: ""
       models:
         size: 100Gi
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+      requests:
+        nvidia.com/gpu: 1
+  # ReID embedding service plus its Milvus gallery backends. The staging Job
+  # writes the SigLIP2 and CLIP-ReID assets onto the vss-rtvi-cv models claim,
+  # which is why models.rtviCvClaimName tracks vss-rtvi-cv's fullname and why
+  # both releases must agree on streamType.
+  vss-reid-embed:
+    enabled: true
+    streamType: kafka
+    image:
+      pullPolicy: IfNotPresent
+    models:
+      rtviCvClaimName: vss-rtvi-cv-models
+    kafka:
+      consumerTopic: mdx-raw
+      producerTopic: mdx-compressed-embeddings
     resources:
       limits:
         nvidia.com/gpu: 1
