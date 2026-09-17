@@ -472,7 +472,8 @@ export class OpenClawConnector implements Connector {
   private backendHttpUrl(pathname: string): URL {
     const url = new URL(this.config.backendUrl);
     url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-    url.pathname = pathname;
+    const basePath = url.pathname.replace(/\/$/u, "");
+    url.pathname = `${basePath}${pathname}`;
     url.search = "";
     url.hash = "";
     return url;

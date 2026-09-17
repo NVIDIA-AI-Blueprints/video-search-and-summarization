@@ -120,14 +120,13 @@ export class AgentApiSseParser {
 
 const proxyArtifactMedia = (value: unknown, mediaProxyUrl?: string, key = ''): unknown => {
   if (key.endsWith('_url') && mediaProxyUrl && typeof value === 'string') {
-    let candidate = value;
-    if (candidate === '/storage' || candidate.startsWith('/storage/')) {
-      candidate = `/vst${candidate}`;
-    }
     try {
-      const absolute = /^https?:\/\//i.test(candidate);
-      if (!absolute && !candidate.startsWith('/vst/')) return value;
-      const url = new URL(candidate, 'https://vss-ui.invalid');
+      const absolute = /^https?:\/\//i.test(value);
+      const url = new URL(value, 'https://vss-ui.invalid');
+      if (url.pathname === '/storage' || url.pathname.startsWith('/storage/')) {
+        url.pathname = `/vst${url.pathname}`;
+      }
+      if (!absolute && !url.pathname.startsWith('/vst/')) return value;
       if (url.protocol === 'http:' || url.protocol === 'https:') {
         return `${mediaProxyUrl.replace(/\/$/, '')}${url.pathname}${url.search}`;
       }

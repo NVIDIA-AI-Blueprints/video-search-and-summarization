@@ -398,7 +398,7 @@ describe("embedded adapter connectors", () => {
     const connector = new OpenClawConnector(
       config({
         backendProtocol: "openclaw-ws",
-        backendUrl: "ws://agent.local",
+        backendUrl: "ws://agent.local/gateway",
         backendPath: "/",
         backendSessionField: undefined,
         backendSessionHeader: undefined,
@@ -430,7 +430,9 @@ describe("embedded adapter connectors", () => {
     const metadataUrl = new URL(
       (global.fetch as jest.Mock).mock.calls[0][0] as URL
     );
-    expect(metadataUrl.pathname).toBe("/__openclaw__/assistant-media");
+    expect(metadataUrl.pathname).toBe(
+      "/gateway/__openclaw__/assistant-media"
+    );
     expect(metadataUrl.searchParams.get("source")).toBe(
       "/sandbox/.openclaw/workspace/warehouse_safety_0002_12.5s.jpg"
     );
