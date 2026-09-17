@@ -3000,6 +3000,29 @@ class TestReconcileOrphanedStream:
         mock_rtvi_client.stop_stream.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_skips_delete_when_ref_count_unavailable(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        """Regression test: a failed ref-count query must not be
+        treated as "verified zero readers".
+
+        reconcile_orphaned_stream is deciding whether to delete a
+        stream nothing is known, from this instance's own registry, to
+        own — unlike stop_alert (deleting a stream *this* rule owns),
+        failing open here would actively delete a stream that might
+        still be in use instead of just costing an unnecessary
+        teardown. If the store query itself fails, it must skip.
+        """
+        mock_rtvi_client.get_stream_info.return_value = [{"id": "stream-abc-123"}]
+        fake_rule_store.list = MagicMock(side_effect=Exception("ES unavailable"))
+
+        found = await persistent_service.reconcile_orphaned_stream("stream-abc-123")
+
+        assert found is False
+        mock_rtvi_client.stop_captions.assert_not_awaited()
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_concurrent_reconcile_calls_never_overlap(
         self, realtime_service, mock_rtvi_client
     ):
@@ -3209,3 +3232,73 @@ class TestCrossInstanceStreamTeardownLock:
         assert code == 200
         client_persistent.stop_captions.assert_awaited_once()
         client_persistent.stop_stream.assert_not_awaited()
+
+
+class TestCleanupFailedRuleLocking:
+    """_cleanup_failed_rule must hold the per-stream teardown lock like
+    every other RTVI-teardown call site.
+
+    It runs as a fire-and-forget asyncio.create_task from a
+    caption-task failure callback (see the caller in start_alert), so
+    it can genuinely be concurrent with a stop_alert or
+    reconcile_orphaned_stream for the same stream — not just a
+    theoretical race.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cleanup_serializes_with_concurrent_stop_alert(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        d1, _ = await persistent_service.start_alert(make_config(alert_type="a"))
+        d2, _ = await persistent_service.start_alert(make_config(alert_type="b"))
+        stream_id = fake_rule_store.get(d1["id"])["rtvi_stream_id"]
+        assert fake_rule_store.get(d2["id"])["rtvi_stream_id"] == stream_id
+
+        # d1's ES delete happens *before* its RTVI calls, inside the
+        # same locked section. Gate _cleanup_failed_rule on d1's
+        # stop_captions actually starting, so by the time its own
+        # ref-count runs, d1's ES doc is genuinely already gone —
+        # isolating the lock as the only thing that can still prevent
+        # its stop_stream call from overlapping d1's still-in-flight
+        # stop_captions call.
+        d1_in_rtvi_calls = asyncio.Event()
+        in_flight = 0
+        overlapped = False
+
+        async def _tracked_d1_captions(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            d1_in_rtvi_calls.set()
+            await asyncio.sleep(0.05)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        async def _tracked(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            await asyncio.sleep(0.03)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        mock_rtvi_client.stop_captions.side_effect = _tracked_d1_captions
+        mock_rtvi_client.stop_stream.side_effect = _tracked
+
+        async def _cleanup_once_d1_is_mid_teardown():
+            await d1_in_rtvi_calls.wait()
+            await persistent_service._cleanup_failed_rule(
+                stream_id, alert_rule_id=d2["id"],
+            )
+
+        await asyncio.gather(
+            persistent_service.stop_alert(d1["id"]),
+            _cleanup_once_d1_is_mid_teardown(),
+        )
+
+        assert not overlapped, (
+            "RTVI calls from stop_alert and _cleanup_failed_rule "
+            "overlapped for the same shared stream"
+        )

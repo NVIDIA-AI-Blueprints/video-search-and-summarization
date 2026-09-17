@@ -132,6 +132,24 @@ class _StreamIdentityConflict(Exception):
         self.existing_url = existing_url
 
 
+class _RefCountUnavailable(Exception):
+    """Raised internally by :meth:`_rule_ids_referencing_stream` /
+    :meth:`_count_other_rules_for_stream` when ``fail_open=False`` and a
+    ref-count query fails.
+
+    Every other caller of ref-counting wants "fail open" (a transient
+    ES blip must not block the user's own delete — worst case is an
+    unnecessary teardown of the stream *that rule itself* owns).
+    :meth:`reconcile_orphaned_stream` is different: it's deciding
+    whether to delete a stream no rule is known, from its own
+    registry, to own — the whole point of the check is to protect a
+    stream something *else* might still depend on, so treating "can't
+    verify" the same as "verified zero readers" would actively delete
+    a stream that might still be in use instead of just costing an
+    unnecessary teardown.
+    """
+
+
 def _observe(histogram, method: str, duration: float) -> None:
     if histogram is not None:
         histogram.labels(method=method).observe(duration)
@@ -2166,6 +2184,8 @@ class RealtimeAlertService:
         rtvi_stream_id: str,
         exclude_rule_id: str,
         statuses: List[str],
+        *,
+        fail_open: bool = True,
     ) -> Set[str]:
         """Query an ES-backed ``RuleStore`` for rule ids (excluding
         ``exclude_rule_id``) referencing ``rtvi_stream_id``.
@@ -2174,7 +2194,9 @@ class RealtimeAlertService:
         ``self._rule_store`` and ``self._extra_rule_store`` — the query
         logic is identical, only which store it targets differs.
         Degrades to an empty set on failure so a transient ES blip
-        can't leave the user unable to delete a rule.
+        can't leave the user unable to delete a rule — unless
+        ``fail_open=False``, in which case a failure raises
+        :class:`_RefCountUnavailable` instead (see that class).
         """
         seen: Set[str] = set()
         try:
@@ -2196,7 +2218,9 @@ class RealtimeAlertService:
                     )
                 except Exception as exc:
                     logger.warning(
-                        "Failed to count rules for stream — assuming 0",
+                        "Failed to count rules for stream — assuming 0"
+                        if fail_open else
+                        "Failed to count rules for stream — cannot verify safety",
                         extra={
                             "rtvi_stream_id": rtvi_stream_id,
                             "exclude_rule_id": exclude_rule_id,
@@ -2204,19 +2228,27 @@ class RealtimeAlertService:
                             "error": str(exc),
                         },
                     )
+                    if not fail_open:
+                        raise _RefCountUnavailable from exc
                     continue
                 for item in result.get("items", []):
                     item_id = item.get("_id") or item.get("id")
                     if item_id and item_id != exclude_rule_id:
                         seen.add(item_id)
+        except _RefCountUnavailable:
+            raise
         except Exception:
             logger.exception(
-                "Unexpected error counting rules for stream — assuming 0",
+                "Unexpected error counting rules for stream — assuming 0"
+                if fail_open else
+                "Unexpected error counting rules for stream — cannot verify safety",
                 extra={
                     "rtvi_stream_id": rtvi_stream_id,
                     "exclude_rule_id": exclude_rule_id,
                 },
             )
+            if not fail_open:
+                raise _RefCountUnavailable from None
             return set()
         return seen
 
@@ -2227,7 +2259,8 @@ class RealtimeAlertService:
         *,
         statuses: Optional[List[str]] = None,
         include_pending_refs: bool = False,
-    ) -> int:
+        fail_open: bool = True,
+    ) -> Optional[int]:
         """Return the number of *other* rules (excluding ``exclude_rule_id``)
         that currently reference ``rtvi_stream_id``.
 
@@ -2258,38 +2291,48 @@ class RealtimeAlertService:
         Failures are degraded to ``0`` so a transient ES blip can't
         leave the user unable to delete a rule — the worst case is
         an unnecessary stream teardown, which the next reuser will
-        re-create.
+        re-create. Pass ``fail_open=False`` to invert that for a
+        caller where "0" must mean "verified zero readers" rather than
+        "couldn't check" — see :class:`_RefCountUnavailable`. Returns
+        ``None`` (instead of raising) when a query fails with
+        ``fail_open=False``, so callers that don't opt in never see a
+        behaviour change.
         """
         if statuses is None:
             statuses = [RuleStatus.ACTIVE]
 
         seen: Set[str] = set()
 
-        if self._rule_store is not None:
-            seen |= await self._rule_ids_referencing_stream(
-                self._rule_store, rtvi_stream_id, exclude_rule_id, statuses,
-            )
-        else:
-            with self._lock:
-                for rule_id, rule in self._rules.items():
-                    if (
-                        rule_id != exclude_rule_id
-                        and rule.get("rtvi_stream_id") == rtvi_stream_id
-                    ):
-                        seen.add(rule_id)
+        try:
+            if self._rule_store is not None:
+                seen |= await self._rule_ids_referencing_stream(
+                    self._rule_store, rtvi_stream_id, exclude_rule_id, statuses,
+                    fail_open=fail_open,
+                )
+            else:
+                with self._lock:
+                    for rule_id, rule in self._rules.items():
+                        if (
+                            rule_id != exclude_rule_id
+                            and rule.get("rtvi_stream_id") == rtvi_stream_id
+                        ):
+                            seen.add(rule_id)
 
-        # The always-on RealtimeAlertService instance is deliberately
-        # in-memory-only (see get_always_on_service's docstring — this
-        # avoids duplicating ES rows after a restart), so the branch
-        # above can never see a "regular" (direct-API, ES-persisted)
-        # rule sharing this stream. _extra_rule_store is a read-only
-        # handle to that same ES store wired in for exactly this query,
-        # so ref-counting still sees those rules instead of tearing
-        # down a stream one of them depends on.
-        if self._extra_rule_store is not None:
-            seen |= await self._rule_ids_referencing_stream(
-                self._extra_rule_store, rtvi_stream_id, exclude_rule_id, statuses,
-            )
+            # The always-on RealtimeAlertService instance is deliberately
+            # in-memory-only (see get_always_on_service's docstring — this
+            # avoids duplicating ES rows after a restart), so the branch
+            # above can never see a "regular" (direct-API, ES-persisted)
+            # rule sharing this stream. _extra_rule_store is a read-only
+            # handle to that same ES store wired in for exactly this query,
+            # so ref-counting still sees those rules instead of tearing
+            # down a stream one of them depends on.
+            if self._extra_rule_store is not None:
+                seen |= await self._rule_ids_referencing_stream(
+                    self._extra_rule_store, rtvi_stream_id, exclude_rule_id,
+                    statuses, fail_open=fail_open,
+                )
+        except _RefCountUnavailable:
+            return None
 
         # Mirror of the block above in the other direction: this
         # instance (e.g. the persistent singleton) can't see an
@@ -2638,11 +2681,27 @@ class RealtimeAlertService:
                 return False
 
             # "" never matches a real alert_rule_id (always a uuid4 hex
-            # string), so this counts every currently-active rule
-            # referencing the stream, not "every rule but one".
+            # string), so this counts every currently-active (or
+            # in-flight — see statuses/include_pending_refs below)
+            # rule referencing the stream, not "every rule but one".
+            # fail_open=False: if the count can't be verified, don't
+            # delete — this call site is deciding whether to destroy a
+            # stream nothing is known to own, so "couldn't check" must
+            # not be treated the same as "verified zero readers" (see
+            # _RefCountUnavailable).
             other_count = await self._count_other_rules_for_stream(
                 rtvi_stream_id, "",
+                statuses=[RuleStatus.ACTIVE, RuleStatus.PENDING],
+                include_pending_refs=True,
+                fail_open=False,
             )
+            if other_count is None:
+                logger.warning(
+                    "Could not verify no rule still references this RTVI "
+                    "stream — skipping reconcile",
+                    extra=ctx,
+                )
+                return False
             if other_count > 0:
                 logger.info(
                     "RTVI stream still referenced by an active rule — "
@@ -2694,28 +2753,37 @@ class RealtimeAlertService:
             # writing ACTIVE to ES if it detects this flag after an await.
             self._readiness_failed_ids.add(alert_rule_id)
 
-        other_count = 0
-        if alert_rule_id is not None:
-            other_count = await self._count_other_rules_for_stream(
-                rtvi_stream_id,
-                alert_rule_id,
-                statuses=[RuleStatus.ACTIVE, RuleStatus.PENDING],
-                include_pending_refs=True,
-            )
+        # Locked like every other RTVI-teardown call site: this runs as
+        # a fire-and-forget asyncio.create_task from a caption-task
+        # failure callback, so it can genuinely be concurrent with a
+        # stop_alert or reconcile_orphaned_stream for the same stream.
+        # Without the lock, this count-then-stop_stream could overlap
+        # another caller's own count-then-teardown for the same
+        # rtvi_stream_id — the exact 409/orphan collision the lock
+        # exists to prevent.
+        async with self._get_stream_teardown_lock(rtvi_stream_id):
+            other_count = 0
+            if alert_rule_id is not None:
+                other_count = await self._count_other_rules_for_stream(
+                    rtvi_stream_id,
+                    alert_rule_id,
+                    statuses=[RuleStatus.ACTIVE, RuleStatus.PENDING],
+                    include_pending_refs=True,
+                )
 
-        if other_count == 0:
-            await self._safe_stop_stream(rtvi_stream_id)
-        else:
-            logger.info(
-                "Skipping stop_stream during cleanup — %d other rule(s) still "
-                "reference this RTVI stream",
-                other_count,
-                extra={
-                    "alert_rule_id": alert_rule_id,
-                    "rtvi_stream_id": rtvi_stream_id,
-                    "other_rules": other_count,
-                },
-            )
+            if other_count == 0:
+                await self._safe_stop_stream(rtvi_stream_id)
+            else:
+                logger.info(
+                    "Skipping stop_stream during cleanup — %d other rule(s) still "
+                    "reference this RTVI stream",
+                    other_count,
+                    extra={
+                        "alert_rule_id": alert_rule_id,
+                        "rtvi_stream_id": rtvi_stream_id,
+                        "other_rules": other_count,
+                    },
+                )
 
         if alert_rule_id:
             with self._lock:
