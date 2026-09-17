@@ -240,7 +240,7 @@ services:
       start_period: 5s
 
   reid-minio:
-    image: ${REID_MINIO_IMAGE:-minio/minio:RELEASE.2023-03-20T20-16-18Z}
+    image: ${REID_MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2023-03-20T20-16-18Z}
     container_name: vss-reid-minio-rtcv
     profiles: ["reid"]
     restart: unless-stopped
