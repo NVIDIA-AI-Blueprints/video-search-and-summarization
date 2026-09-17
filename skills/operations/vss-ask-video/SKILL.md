@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video. Route through hot context, agent Markdown memory, structured VSS memory, bounded introspection, or an exact-window vss vlm run. Not for retrieval or metadata-answerable questions.
+description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video, or when reading a stored VSS memory job or record by id, or when confirming VSS deployment and RT-VLM readiness before inspecting video. Route through hot context, agent Markdown memory, structured VSS memory, bounded introspection, or an exact-window vss vlm run. Not for video retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -32,7 +32,10 @@ This skill does not call `POST /generate` on the VSS agent. It requires a
 > - `POST` to `http://<host>:8000/generate` or `/v1/summarize`.
 >
 > If a CLI operation fails, report the exit code. Do not retry by hand-rolling
-> the request or by using a globally installed `vss`. Do not separately inspect
+> the request or by using a globally installed `vss`, a `libs/vss/.venv/bin/vss`
+> binary, or any other direct path to the executable: the complete
+> `uv run --project .../libs/vss vss` array is the invocation, every time.
+> Do not separately inspect
 > media or call another verifier after the CLI returns.
 
 ## Prerequisites
@@ -105,21 +108,27 @@ For a general question about previously analyzed video, use this exact order:
 6. If introspection is enabled, call `vss memory introspect`.
 7. If introspection is disabled or unconfigured, retrieve structured VSS memory
    with `vss memory get` or `vss memory query`, but do not introspect.
-8. If the available memory still cannot answer, clearly report the missing
-   information.
+8. If the available memory still cannot answer, name the missing information
+   and ask the user for the selectors that would make it answerable. The
+   question stays open until they arrive.
 
-Do not force Markdown search when:
-- Hot context already answers.
-- The user requests a specific known `job_id` or complete child identity.
-- The user explicitly requests a fresh visual inspection of a grounded
-  sensor/time window.
-- A search skill supplies a pre-resolved bounded `VIDEO_URL`.
+When the request already names its own scope, that order does not apply. Skip
+it and make the matching command below the first thing you run: do not search
+Markdown, do not check the introspection state, and do not probe the deployment
+first. Confirming readiness is a step of its own only when the request asks for
+it.
 
-Those exact routes remain:
-- Exact stored parent -> `vss memory get` or a group-specific `get`.
-- Exact fresh sensor/window -> `vss vlm run`.
-- Pre-resolved bounded media URL -> `vss vlm run --media-url`.
-- Local file with configured VSS -> `vss vlm run --file`.
+- Hot context already answers -> answer from it.
+- A specific known `job_id` or complete child identity -> `vss memory get`, or
+  a group-specific `get`.
+- An explicit fresh visual inspection of a grounded sensor and time window ->
+  `vss vlm run`. "Freshly verify" means the recall layers are already ruled
+  out, not that they should be tried first.
+- A pre-resolved bounded `VIDEO_URL` from a search skill ->
+  `vss vlm run --media-url`.
+- A named local file with configured VSS -> `vss vlm run --file`, resolving the
+  name against the working directory. The file is already on disk; do not hunt
+  for it through Markdown, VIOS, or the deployment's own media paths.
 
 ## Invoke the project-local CLI
 
@@ -240,7 +249,11 @@ Handle the result fields `status`, `sufficient_from_memory`, `answer`,
   not invent an answer or repeat internal VLM calls.
 - **`no_memory`**: treat it as expected not-found output. Only one direct VLM
   fallback is allowed, and only when an exact sensor plus exact UTC start/end
-  range were grounded before introspection. Otherwise request the missing scope.
+  range were grounded before introspection. Otherwise the reply is a request,
+  not a status: ask the user which exact recorded sensor to read and which
+  exact UTC start and end bounds to use, and state that the question stays open
+  until they supply them. "No memory was found, no action taken" is not an
+  acceptable ending - nothing was asked for, so nothing can arrive.
 
 ## When introspection is disabled or unconfigured
 
@@ -249,8 +262,8 @@ and do not enable it or rewrite static configuration automatically. Users and
 the agent may still configure and enable introspection when the user explicitly
 asks. If Markdown supplies a `job_id`, use `vss memory get`; otherwise use
 `vss memory query` with relevant text, sensor, and time filters. Answer from
-the returned records when sufficient. If insufficient, report what is known and
-what is missing.
+the returned records when sufficient. If insufficient, say what is known and
+ask for what is missing by name rather than closing the request out.
 
 Do not simulate introspection by selecting a sensor/window and automatically
 calling VLM. Direct VLM is still allowed only for an explicit fresh-verification

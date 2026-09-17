@@ -62,7 +62,7 @@
       ]
     },
     {
-      "query": "Read the exact stored VSS job sum-01JXYZ from VSS unified memory - the deployment's store, reached through this skill's CLI, not your own agent memory files.",
+      "query": "Read the exact stored VSS job sum-01JXYZ from VSS unified memory.",
       "checks": [
         "It goes directly to memory get --job-id sum-01JXYZ.",
         "It does not perform broad Markdown search, semantic discovery, introspection, or VLM."
@@ -90,7 +90,7 @@
       ]
     },
     {
-      "query": "Treat this as a mocked result: introspection returned no_memory and no exact sensor or UTC bounds were grounded before the call. Continue safely.",
+      "query": "Treat this as a mocked result: introspection returned no_memory and no exact sensor or UTC bounds were grounded before the call. The user's question - was the worker wearing a safety helmet? - is still outstanding. Respond to the user.",
       "checks": [
         "It requests the missing exact recorded sensor and UTC bounds.",
         "It does not call VLM."
