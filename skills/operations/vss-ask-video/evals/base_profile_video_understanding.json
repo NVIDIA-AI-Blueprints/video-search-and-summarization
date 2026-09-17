@@ -33,7 +33,7 @@
       ]
     },
     {
-      "query": "Treat these as mocked prior tool results: the harness's own Markdown note search found a relevant but incomplete note with VSS job pointer sum-01JXYZ, and configure memory show reports introspection.enabled=true. Answer from VSS unified memory - the deployment's store, reached through this skill's project-local CLI, not your own agent memory files or a backend endpoint. Continue the question verbatim: Was the worker wearing a safety helmet?",
+      "query": "Treat these as mocked prior tool results: native Markdown search found a relevant but incomplete note with VSS job pointer sum-01JXYZ, and configure memory show reports introspection.enabled=true. Continue the question verbatim: Was the worker wearing a safety helmet?",
       "checks": [
         "The next VSS operation is memory introspect with --job-id sum-01JXYZ, the user's question preserved verbatim, and --fps chosen from the skim/locate/inspect policy.",
         "It does not run memory query first and does not manually duplicate an internal VLM follow-up.",
@@ -41,28 +41,28 @@
       ]
     },
     {
-      "query": "Treat these as mocked tool results: the harness's own Markdown note search returned no useful evidence, configure memory show reports introspection.enabled=true, and dock_cam is a grounded sensor. Answer from VSS unified memory - the deployment's store, reached through this skill's project-local CLI, not your own agent memory files or a backend endpoint. Continue: Was anyone missing PPE?",
+      "query": "Treat these as mocked tool results: native Markdown search returned no useful evidence, configure memory show reports introspection.enabled=true, and dock_cam is a grounded sensor. Continue: Was anyone missing PPE?",
       "checks": [
         "The next VSS operation is memory introspect with --sensor dock_cam, the verbatim question, and --fps.",
         "It does not issue memory query first or call a backend directly."
       ]
     },
     {
-      "query": "Treat these as mocked prior tool results: the harness's own Markdown note search found an incomplete note with pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue by retrieving that stored job from VSS unified memory - the deployment's store, reached through this skill's CLI, not your own agent memory files. Do not treat the pointer as informational only.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found an incomplete note with pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue by retrieving that stored job with ordinary structured memory. Do not treat the pointer as informational only.",
       "checks": [
         "It uses memory get --job-id sum-01JXYZ for ordinary structured retrieval.",
         "It never calls memory introspect, never enables it, and never automatically runs VLM when records are insufficient."
       ]
     },
     {
-      "query": "Treat these as mocked prior tool results: the harness's own Markdown note search found nothing and configure memory show reports introspection=null. Find structured VSS records about forklifts on dock_cam in VSS unified memory - the deployment's store, reached through this skill's project-local CLI, not your own agent memory files.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found nothing and configure memory show reports introspection=null. Find structured VSS records about forklifts on dock_cam.",
       "checks": [
         "It treats introspection as unavailable and uses memory query with forklift text and dock_cam scope.",
         "It does not call or configure introspection and does not automatically run VLM."
       ]
     },
     {
-      "query": "Read the exact stored VSS job sum-01JXYZ from VSS unified memory.",
+      "query": "Read the exact stored VSS job sum-01JXYZ.",
       "checks": [
         "It goes directly to memory get --job-id sum-01JXYZ.",
         "It does not perform broad Markdown search, semantic discovery, introspection, or VLM."
@@ -97,7 +97,7 @@
       ]
     },
     {
-      "query": "Introspect child record event-17 in VSS unified memory - the deployment's store, reached through this skill's project-local CLI. No job id or record type is known. Show the safe next step, assuming each OpenClaw command runs in a fresh shell.",
+      "query": "Introspect child record event-17. No job id or record type is known. Show the safe next step, assuming each OpenClaw command runs in a fresh shell.",
       "checks": [
         "It never emits --record-id without both --job-id and --record-type and requests the missing identity or another valid scope.",
         "Any proposed VSS command defines VSS_REPO_ROOT and the uv run array in the same shell call against libs/vss.",
