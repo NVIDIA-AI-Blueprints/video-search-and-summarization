@@ -247,7 +247,9 @@ vios:
       # downloaded twice. Needs nvstreamer and rtvi-cv on the same node (RWO).
       # Clear this and set resourceVersion to download independently.
       fromExistingClaim: vss-rtvi-cv-models
-      resourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+      resourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
+      # Must match resourceVersion's org (nvstaging) — chart default is nvidia.
+      org: nvstaging
 
 infra:
   enabled: true
@@ -445,8 +447,8 @@ rtvi:
     downloadModelsFromNgc: true
     ngcApiKeySecretName: ngc-api
     ngcApiKeySecretKey: NGC_CLI_API_KEY
-    ngcAppDataOrg: nvidia
-    ngcAppDataResourceVersion: nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0
+    ngcAppDataOrg: nvstaging
+    ngcAppDataResourceVersion: nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026
     ngcModelsToDownload:
       - model: nvstaging/tao/sparse4d_rn50:deployable_v2.3
         org: nvstaging
