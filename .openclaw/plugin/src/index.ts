@@ -25,7 +25,7 @@
 // the agent's memory.
 
 import { execFile, spawnSync } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -215,9 +215,14 @@ vssPlugin.register = (api) => {
       `[vss] skill selection unavailable, activating all shipped skills: ${err instanceof Error ? err.message : String(err)}`,
     );
     try {
+      // Copy-then-swap: the current skills-active/ is only replaced after the
+      // full copy succeeds, so a failed copy cannot leave it empty or partial.
       const activeDir = join(pluginDir, "skills-active");
+      const stagingDir = `${activeDir}.next`;
+      rmSync(stagingDir, { recursive: true, force: true });
+      cpSync(join(pluginDir, "skills"), stagingDir, { recursive: true });
       rmSync(activeDir, { recursive: true, force: true });
-      cpSync(join(pluginDir, "skills"), activeDir, { recursive: true });
+      renameSync(stagingDir, activeDir);
     } catch (copyErr) {
       a.logger.warn(
         `[vss] all-skills fallback failed, keeping the current skills-active/: ${copyErr instanceof Error ? copyErr.message : String(copyErr)}`,
