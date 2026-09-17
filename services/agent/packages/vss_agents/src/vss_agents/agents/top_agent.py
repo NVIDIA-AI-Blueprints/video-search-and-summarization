@@ -991,32 +991,28 @@ class TopAgent(AsyncMixin):
             plan_text = ""
             logger.warning("Plan node produced no usable plan; continuing with an empty plan")
 
+        # Nemotron can return reasoning without a final plan when thinking is enabled. An empty
+        # plan falls back to the general routing prompt, which may treat "video summarization" as
+        # a request for lvs_video_understanding and return prose before report_agent can create
+        # artifacts. Limit this recovery to report tools whose schema accepts sensor_id, so it
+        # does not rewrite incident-report plans on profiles with a different report contract.
+        report_tool = self.tools_dict.get("report_agent")
+        report_fields = getattr(getattr(report_tool, "args_schema", None), "model_fields", {})
+        if not plan_text and "report" in lowered_question and "sensor_id" in report_fields:
+            plan_text = (
+                "1. Call `report_agent` with every media name from the user's request (as a single list when the "
+                "request names more than one) and the original request as `user_query`, then present the "
+                "generated report."
+            )
+            logger.warning("Recovered an empty uploaded-video report plan with a direct report_agent step")
+
         logger.debug("Plan node produced plan:\n%s", plan_text)
         if plan_reasoning:
             logger.debug("Plan node reasoning:\n%s", plan_reasoning)
 
-        requests_lvs_report = "report" in lowered_question and (
-            "lvs" in lowered_question or re.search(r"\blong[\s-]+video[\s-]+summari[sz]", lowered_question) is not None
-        )
-        if (
-            requests_lvs_report
-            and "lvs_video_understanding" in self.tools_dict
-            and "report_agent" in self.tools_dict
-            and "lvs_video_understanding" not in plan_text
-        ):
-            plan_text = (
-                "1. Call `lvs_video_understanding` using the exact sensor ID and time range from the user's request "
-                "to analyze the video with LVS.\n"
-                "2. Call `report_agent` with the same sensor ID and time range plus the original request as "
-                "`user_query`, then present the generated report."
-            )
-            logger.warning("Corrected LVS report plan that omitted lvs_video_understanding")
-
         # Check if the planner wants to ask the user for clarification
         if plan_text.strip().startswith(PLAN_CLARIFY_PREFIX):
             clarification = plan_text.strip()[len(PLAN_CLARIFY_PREFIX) :].strip()
-            report_tool = self.tools_dict.get("report_agent")
-            report_fields = getattr(getattr(report_tool, "args_schema", None), "model_fields", {})
             if "report" in question.lower() and "incident_id" in report_fields and "sensor_id" not in report_fields:
                 state.plan = (
                     "1. Call `report_agent` without a sensor filter to retrieve the most recent incident "
