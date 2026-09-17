@@ -178,6 +178,9 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. |
+| **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
+| **`global.vios.messageBrokerTopicConsumer`** | **`mdx-raw`** | Topic VIOS consumes for live overlay metadata. |
+| **`global.vios.messageBrokerMetadataTopic`** | **`mdx-raw`** | Same topic, used by the notification/webhook side of the same config. |
 | **`global.ngcApiSecret.name`** | **`ngc-api`** | Name of the Opaque secret holding the NGC API key (see [Required secrets](#required-secrets)). |
 | **`global.ngcApiSecret.key`** | **`NGC_CLI_API_KEY`** | Key inside the secret that holds the NGC API key value. |
 | **`global.imagePullSecrets`** | **`[{name: ngc-docker-reg-secret}]`** | Image pull credentials for nvcr.io. Must reference the docker-registry secret created in [Required secrets](#required-secrets). |

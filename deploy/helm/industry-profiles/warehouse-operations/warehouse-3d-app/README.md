@@ -178,6 +178,9 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`global.externalScheme`** | **`""`** | `http` or `https`. Builds browser-facing URLs together with **`global.externalHost`** and **`global.externalPort`**. |
 | **`global.externalPort`** | **`""`** | Port segment in generated URLs. Leave empty so URLs omit `:port` when using standard 80/443. Set only for non-standard ports. |
 | **`global.useReleaseNamePrefix`** | **`false`** | When `true`, all in-cluster service names are prefixed with the Helm release name. |
+| **`global.vios.messageBrokerConsumer`** | **`kafka`** | Live metadata broker VST/VIOS listens on for overlay bounding boxes. Shared by `vss-vios-sensor` and `vss-vios-streamprocessing`. |
+| **`global.vios.messageBrokerTopicConsumer`** | **`mdx-bev`** | Topic VIOS consumes for live overlay metadata. |
+| **`global.vios.messageBrokerMetadataTopic`** | **`mdx-bev`** | Same topic, used by the notification/webhook side of the same config. |
 | **`global.ngcApiSecret.name`** | **`ngc-api`** | Name of the Opaque secret holding the NGC API key (see [Required secrets](#required-secrets)). |
 | **`global.ngcApiSecret.key`** | **`NGC_CLI_API_KEY`** | Key inside the secret that holds the NGC API key value. |
 | **`global.imagePullSecrets`** | **`[{name: ngc-docker-reg-secret}]`** | Image pull credentials for nvcr.io. Must reference the docker-registry secret created in [Required secrets](#required-secrets). |
@@ -197,7 +200,9 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
 | **`vios.vss-vios-sensor.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | VST overlay metadata source. Derived from the in-cluster `elasticsearch` Service; override for a non-standard endpoint. No `http://` scheme — VST rejects one. |
-| **`vios.vss-vios-streamprocessing.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | Same as above, for streamprocessing. |
+| **`vios.vss-vios-streamprocessing.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | Same as above, for streamprocessing. Prefer **`videoMetadataIndexPattern`** below — this bypasses release-name-prefix awareness. |
+| **`vios.vss-vios-streamprocessing.videoMetadataIndexPattern`** | **`mdx-bev`\*** | Overlay index pattern, prefix-aware. This profile fuses detections into BEV metadata, so it overrides the chart's `mdx-raw*` default. |
+| **`vios.vss-vios-streamprocessing.overlaySensorName`** | **`bev-sensor-1`** | Associates BEV overlay metadata with camera streams. Must match `group.name` in `calibration.json`. |
 | **`vios.vss-vios-nvstreamer.videoMetadataServerUrl`** | **`""`** (derived: `http://<elasticsearch-svc>:9200/mdx-raw*`) | NVStreamer's overlay metadata source. Requires the `http://` scheme, unlike the two rows above. |
 
 ##### `infra`
@@ -225,7 +230,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | **`nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0`** | NGC resource version for the warehouse app-data bundle (models, configs). Override when pinning to a specific release. |
 | **`rtvi.vss-rtvi-cv.persistence.models.size`** | **`80Gi`** | PVC size for the NGC model download job. |
-| **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1` | GPU request/limit for the CV inference pod. Always required for the 3D pipeline. |
+| **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1`; `cpu: 8` request, `12` limit | GPU request/limit for the CV inference pod, required for the 3D pipeline. CPU request (`8`) matches Sparse4D's `num_torch_threads: 8`; the limit (`12`) is normal headroom for the rest of the DeepStream pipeline. |
 | **`warehouse.datasetType`** | **`synthetic`** | `synthetic` or `real`. Picks the Sparse4D model/anchor/label set (same as compose's `DATASET_TYPE`). Don't hand-edit `rtvi.vss-rtvi-cv.sparse4d`/`ngcModelsToDownload` — run `scripts/compute_model_selection.py --dataset-type <type> -f <your-values.yaml> -o values-model.yaml` and pass `-f values-model.yaml` to `helm upgrade --install`. |
 
 ##### `monitoring`
