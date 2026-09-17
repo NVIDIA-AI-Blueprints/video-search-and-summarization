@@ -25,15 +25,63 @@ Data assets:
   - Sample media and sample data in this repository are provided under the
     NVIDIA Asset License in LICENSE.DATA, not under the code licenses above.
     This applies to a covered file wherever it sits, including under a
-    directory the code licenses otherwise cover. Covered assets:
+    directory the code licenses otherwise cover. Compiled libraries, packaged
+    archives and other prebuilt artifacts are code, not data assets, and are
+    not covered by LICENSE.DATA. Covered assets:
+
       - services/alert/warmup/test.mp4
-      - services/vios/test/bdd_tests/data/test_video.mp4
       - services/ui/apps/nv-metropolis-bp-vss-ui/public/audio/recording.wav
-      - deploy/docker/industry-profiles/*/*/calibration/sample-data/
-        (sample camera images and the accompanying camera and scene metadata
-        for the warehouse and smart-city calibration examples)
-    Compiled libraries, packaged archives and other prebuilt artifacts are
-    code, not data assets, and are not covered by LICENSE.DATA.
+      - services/vios/test/bdd_tests/data/test_video.mp4
+
+      - deploy/docker/industry-profiles/smartcities/smc-app/calibration/sample-data/calibration.json
+      - deploy/docker/industry-profiles/smartcities/smc-app/calibration/sample-data/road-network.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/nv-warehouse-4cams/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/nv-warehouse-4cams/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/nv-warehouse-4cams/images/imageMetadata.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera_01.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera_02.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/nv-warehouse-4cams/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/nv-warehouse-4cams/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/nv-warehouse-4cams/images/imageMetadata.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera_01.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera_02.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/nv-warehouse-4cams/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/nv-warehouse-4cams/camInfo/Camera.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/nv-warehouse-4cams/camInfo/Camera_01.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/nv-warehouse-4cams/camInfo/Camera_02.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/nv-warehouse-4cams/camInfo/Camera_03.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/nv-warehouse-4cams/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/nv-warehouse-4cams/images/imageMetadata.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/camInfo/Camera.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/camInfo/Camera_01.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/camInfo/Camera_02.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/camInfo/Camera_03.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/calibration.json
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/camInfo/Camera.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/camInfo/Camera_01.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/camInfo/Camera_02.yml
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera_01.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Camera_02.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/Top.png
+      - deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-loading-dock-3cams-synthetic/images/imageMetadata.json
 
 All contributions to this repository are accepted under the Apache-2.0 license.
 See CONTRIBUTING.md for the contribution terms and the Developer Certificate of
