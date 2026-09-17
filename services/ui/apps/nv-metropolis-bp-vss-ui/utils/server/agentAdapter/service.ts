@@ -61,6 +61,7 @@ export class AgentAdapterService {
         transport: "connector-normalized",
         transports: [
           "openclaw-tool-result",
+          "openclaw-managed-image",
           "vss-cli-completion",
           "responses-client-tool",
           "agent-tool-output",
@@ -117,6 +118,12 @@ export class AgentAdapterService {
       if (type === "message.delta" && typeof rawData.delta === "string") {
         for (const parsed of parser.feed(rawData.delta)) {
           record.append(parsed.type, parsed.data);
+        }
+        return;
+      }
+      if (type === "artifact.source") {
+        for (const artifact of parser.inspectComplete(rawData.source)) {
+          record.append(artifact.type, artifact.data);
         }
         return;
       }
