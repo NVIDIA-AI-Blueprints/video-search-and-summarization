@@ -208,7 +208,7 @@ vios:
     calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
     floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building=Warehouse/room=Room-1&view=plan-view"
     overlaySensorName: bev-sensor-1
-    videoMetadataServerUrl: "elasticsearch:9200/mdx-bev*"
+    videoMetadataIndexPattern: "mdx-bev*"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
