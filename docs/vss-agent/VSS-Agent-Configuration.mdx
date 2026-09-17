@@ -305,7 +305,7 @@ general:
       phoenix:
         _type: phoenix
         endpoint: ${PHOENIX_ENDPOINT}/v1/traces
-        project: WH-vss-agent-${VSS_AGENT_VERSION}
+        project: WH-vss-agent-${VSS_DEPLOYMENT_VERSION:-${VSS_AGENT_VERSION:-unknown}}
 ```
 
 | Parameter | Required | Description |
