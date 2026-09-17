@@ -3,6 +3,13 @@
     "vss-build-vision-ai",
     "vss-query-analytics"
   ],
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
   "expects": [
     {
       "query": "Build the smallest VSS deployment for NemoClaw to query existing incidents, analytics sensors and occupancy metrics through the VSS CLI. Do not include the in-stack VSS Agent or legacy analytics MCP.",
