@@ -481,3 +481,38 @@ async def test_max_min_analysis_is_deterministic(
     assert body["result"]["minimum_overlap"] == 1
     assert body["result"]["minimum_overlap_at"] == "2026-01-01T00:00:00+00:00"
     assert body["result"]["valid_incident_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_max_min_analysis_clips_incidents_to_query_window(
+    client: AnalyticsClient,
+    transport: tuple[list[tuple[str, dict[str, object] | None]], dict[str, object]],
+) -> None:
+    _calls, responses = transport
+    responses["incidents"] = {
+        "incidents": [
+            {
+                "id": "one",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "end": "2026-01-01T01:00:00Z",
+            },
+            {
+                "id": "two",
+                "timestamp": "2026-01-01T00:10:00Z",
+                "end": "2026-01-01T01:00:00Z",
+            },
+        ]
+    }
+
+    body = await client.analyze(
+        source="cam",
+        source_type="sensor",
+        start_time="2026-01-01T00:30:00Z",
+        end_time="2026-01-01T00:40:00Z",
+        analysis_type="max-min-incidents",
+    )
+
+    assert body["result"]["maximum_overlap"] == 2
+    assert body["result"]["minimum_overlap"] == 2
+    assert body["result"]["maximum_overlap_at"] == "2026-01-01T00:30:00+00:00"
+    assert body["result"]["minimum_overlap_at"] == "2026-01-01T00:30:00+00:00"

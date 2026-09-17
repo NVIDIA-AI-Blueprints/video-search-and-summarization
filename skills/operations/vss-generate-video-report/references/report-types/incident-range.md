@@ -30,12 +30,15 @@ vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 vss analytics incidents \
   --source "<sensor-id>" --source-type sensor \
   --start-time "<ISO>" --end-time "<ISO>" \
+  --vlm-verdict all \
   --limit 100 \
   --include objectIds --include info --include category --include place
 ```
 
 `--source` and `--source-type` go together: keep both for a sensor scope, omit
-BOTH for an all-sensors query.
+BOTH for an all-sensors query. Always keep `--vlm-verdict all`: Alerts stores
+the incidents used by this report in the VLM-verified incident index, including
+both confirmed and rejected verdicts.
 
 Read-only boundary (mandatory):
 - Mode B is strictly read-only analytics retrieval. Never write, seed, backfill, or mutate Elasticsearch/VA data.

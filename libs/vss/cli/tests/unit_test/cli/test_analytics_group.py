@@ -11,7 +11,7 @@ from typing import ClassVar
 from click.testing import CliRunner
 import pytest
 
-from vss_cli import analytics_group
+from vss_cli.analytics import group as analytics_group
 from vss_cli.exits import Exit
 from vss_cli.group import Context
 

@@ -67,16 +67,18 @@ Start with the Foundation's effective `COMPOSE_PROFILES`.
 the requested capability set with the Foundation. If they are identical and
 the only change is a Q3 answer, this is a harness-only delta. Preserve the
 Foundation list and remove only `vss-agent`, plus an unrequested `vss-va-mcp`
-when the existing VA-MCP rule applies. Do not interpret Q3 **no** as headless
-and do not run forward-closure pruning: the host-side `vss` CLI is the driver,
-while UI, ingress, models, Redis, VIOS, and all other Foundation services stay.
+when the existing VA-MCP rule applies. Set `REQUESTED_PROFILES` to the
+explicitly requested profile keys, including an empty value when none were
+named. Do not interpret Q3 **no** as headless and do not run forward-closure
+pruning: the host-side `vss` CLI is the driver, while UI, ingress, models,
+Redis, VIOS, and all other Foundation services stay.
 Run this exact check before artifact generation:
 
 ```bash
 uv run "$REPO/skills/vss-build-vision-ai/scripts/resolve_service_graph.py" \
   --foundation "$FOUNDATION_PROFILES" \
   --final "$FINAL_PROFILES" \
-  --requested "$REQUESTED_PROFILES"
+  --requested "${REQUESTED_PROFILES:-}"
 ```
 
 An explicit request for headless operation or capability removal does not meet

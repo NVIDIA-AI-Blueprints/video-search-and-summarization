@@ -283,15 +283,16 @@ def test_active_build_flow_guards_harness_only_deltas() -> None:
     assert command in step_five
     assert '--foundation "$FOUNDATION_PROFILES"' in step_five
     assert '--final "$FINAL_PROFILES"' in step_five
-    assert '--requested "$REQUESTED_PROFILES"' in step_five
+    assert "REQUESTED_PROFILES=" in step_five
+    assert '--requested "${REQUESTED_PROFILES:-}"' in step_five
     assert command in step_seven
     assert '--foundation "$FOUNDATION_PROFILES"' in step_seven
     assert "sed -n 's/^COMPOSE_PROFILES=//p'" in step_seven
-    assert '--requested "$REQUESTED_PROFILES"' in step_seven
+    assert '--requested "${REQUESTED_PROFILES:-}"' in step_seven
     assert command in composition
     assert '--foundation "$FOUNDATION_PROFILES"' in composition
     assert '--final "$FINAL_PROFILES"' in composition
-    assert '--requested "$REQUESTED_PROFILES"' in composition
+    assert '--requested "${REQUESTED_PROFILES:-}"' in composition
     assert "bypass generic forward-closure/unused-service pruning" in step_five
     assert "harness-only delta bypasses owner pruning" in agent_owner
     assert "preserve `vss-ui` and `phoenix`" in agent_owner
@@ -423,6 +424,7 @@ def test_incident_report_mode_b_uses_cli_and_mode_c_keeps_legacy_mcp() -> None:
     mode_c = (report / "references/report-types/sop-compliance.md").read_text()
 
     assert "vss analytics incidents" in mode_b
+    assert "--vlm-verdict all" in mode_b
     assert "video_analytics__get_incidents" not in mode_b
     assert "video_analytics__get_sop_report" in mode_c
     assert "VA_MCP_URL" in mode_c

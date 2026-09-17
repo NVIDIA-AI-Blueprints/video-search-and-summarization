@@ -39,7 +39,7 @@ vss = "vss_cli:main"
 
 # First-party groups register through the same contract third parties use.
 [project.entry-points."vss.commands"]
-analytics = "vss_cli.analytics_group:ANALYTICS"
+analytics = "vss_cli.analytics.register:GROUP"
 configure = "vss_cli.configure:CONFIGURE"
 memory = "vss_cli.memory_cmd:MEMORY"
 search = "vss_cli.search.register:GROUP"

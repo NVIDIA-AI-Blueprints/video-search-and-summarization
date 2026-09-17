@@ -54,9 +54,10 @@
       ]
     },
     {
-      "query": "Insert one VLM-verified incident into Elasticsearch index mdx-vlm-incidents (include Id, id, timestamp, end, sensorId, category, type, objectIds, and info.verdict=confirmed), refresh the index, and verify `vss analytics incidents --limit 1 --vlm-verdict confirmed` returns it. Assume the analytics deployment is already up and configured.",
+      "query": "Create an isolated incident-report fixture in Elasticsearch: choose a unique time range with no matching document in the raw mdx-incidents index, insert one VLM-verified incident in that range into mdx-vlm-incidents (include Id, id, timestamp, end, sensorId, category, type, objectIds, and info.verdict=confirmed), refresh the index, and verify `vss analytics incidents --limit 1 --vlm-verdict confirmed` returns it. Assume the analytics deployment is already up and configured.",
       "checks": [
         "Elasticsearch is reachable on localhost:9200",
+        "The selected fixture range has no matching incident in the raw mdx-incidents index",
         "The run inserted an incident document into mdx-vlm-incidents (not only mdx-incidents), including a confirmed verdict",
         "The project-local `vss analytics incidents --limit 1 --vlm-verdict confirmed` command returned the inserted incident — success was not claimed from the Elasticsearch insert alone",
         "The run did NOT redeploy the alerts profile for this step"
@@ -65,6 +66,8 @@
     {
       "query": "Give me a report on the last incident.",
       "checks": [
+        "The run invokes `vss analytics incidents` with `--vlm-verdict all`, so it reads the VLM-verified incident index rather than the empty raw incident index",
+        "The VLM-only fixture created in the preceding setup step is returned and used for the report",
         "If incidents were available, the run generated a user-facing incident report for the last incident",
         "If no incidents were found, the agent says so clearly and does not fabricate a report"
       ]

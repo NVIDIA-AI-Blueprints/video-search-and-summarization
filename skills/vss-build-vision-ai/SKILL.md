@@ -324,7 +324,7 @@ After the selection, ask in one typed-values message only for that provider's st
 4. Read `references/composition.md` and only the capability-owner files under `references/services/` needed by the request.
 5. Determine the effective service set. For an exact stock match, keep its authoritative set unchanged. Otherwise compute the smallest delta from the Foundation’s exact `COMPOSE_PROFILES`: add or remove only canonical service profile keys and change only requested environment knobs.
 
-   **Harness-only delta invariant (apply here, before capability pruning).** When the selected capabilities exactly equal the Foundation, Q3 is the only customization, and the user did not explicitly add or remove a capability, set `ADDED_PROFILES=∅` and set `REMOVED_PROFILES` only to the harness-owned removal: `vss-agent`, plus `vss-va-mcp` only when it is present and the existing VA-MCP rule says it is unrequested. Compute `FINAL_PROFILES = (FOUNDATION_PROFILES ∪ ADDED_PROFILES) − REMOVED_PROFILES` and bypass generic forward-closure/unused-service pruning. A Q3 **no** is host-CLI driven, not headless; it does not authorize removing `vss-ui`, `phoenix`, `vss-haproxy-ingress`, the Foundation `llm_*` peer, `redis`, VIOS, models, or any other Foundation capability service. A Q3 **yes** has the same Compose preservation rule; NemoClaw is added outside Compose.
+   **Harness-only delta invariant (apply here, before capability pruning).** When the selected capabilities exactly equal the Foundation, Q3 is the only customization, and the user did not explicitly add or remove a capability, set `ADDED_PROFILES=∅` and set `REMOVED_PROFILES` only to the harness-owned removal: `vss-agent`, plus `vss-va-mcp` only when it is present and the existing VA-MCP rule says it is unrequested. Set `REQUESTED_PROFILES` to the comma-separated explicitly requested profile keys **before** the validator runs, including `REQUESTED_PROFILES=` when that set is empty (the normal Q3-only path). Compute `FINAL_PROFILES = (FOUNDATION_PROFILES ∪ ADDED_PROFILES) − REMOVED_PROFILES` and bypass generic forward-closure/unused-service pruning. A Q3 **no** is host-CLI driven, not headless; it does not authorize removing `vss-ui`, `phoenix`, `vss-haproxy-ingress`, the Foundation `llm_*` peer, `redis`, VIOS, models, or any other Foundation capability service. A Q3 **yes** has the same Compose preservation rule; NemoClaw is added outside Compose.
 
    Before continuing, run this exact check against the Foundation and final profile lists:
 
@@ -332,7 +332,7 @@ After the selection, ask in one typed-values message only for that provider's st
    uv run "$REPO/skills/vss-build-vision-ai/scripts/resolve_service_graph.py" \
      --foundation "$FOUNDATION_PROFILES" \
      --final "$FINAL_PROFILES" \
-     --requested "$REQUESTED_PROFILES"
+     --requested "${REQUESTED_PROFILES:-}"
    ```
 
    Any unexpected addition or removal is a blocker: restore the Foundation list and apply only the harness-owned removal. Run ordinary capability pruning only when the user explicitly requested headless operation or a capability addition/removal; those builds are not harness-only and remain valid.
@@ -345,7 +345,7 @@ After the selection, ask in one typed-values message only for that provider's st
    uv run "$REPO/skills/vss-build-vision-ai/scripts/resolve_service_graph.py" \
      --foundation "$FOUNDATION_PROFILES" \
      --final "$(sed -n 's/^COMPOSE_PROFILES=//p' "$BUILD_DIR/override.env")" \
-     --requested "$REQUESTED_PROFILES"
+     --requested "${REQUESTED_PROFILES:-}"
    ```
 
    A non-zero exit is a blocker: fail clearly instead of writing or deploying an over-pruned build.

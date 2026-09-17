@@ -9,14 +9,14 @@ from typing import Any
 
 import click
 
-from . import params as params_mod
-from .group import InvalidInput
-from .group import Result
-from .group import context_from
-from .group import emit
-from .group import guarded
-from .group import require_services
-from .group import requires_note
+from vss_cli import params as params_mod
+from vss_cli.group import InvalidInput
+from vss_cli.group import Result
+from vss_cli.group import context_from
+from vss_cli.group import emit
+from vss_cli.group import guarded
+from vss_cli.group import require_services
+from vss_cli.group import requires_note
 
 REQUIRES = frozenset({"video_analytics"})
 _SOURCE_TYPES = click.Choice(["sensor", "place"])

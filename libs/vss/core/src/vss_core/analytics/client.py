@@ -171,7 +171,13 @@ def _merge_histograms(results: list[dict[str, Any]]) -> dict[str, Any]:
     return {"bucketSizeInSec": bucket_size, "histogram": histogram}
 
 
-def _overlap_result(incidents: list[dict[str, Any]]) -> dict[str, Any]:
+def _overlap_result(
+    incidents: list[dict[str, Any]],
+    start_time: str,
+    end_time: str,
+) -> dict[str, Any]:
+    window_start = datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+    window_end = datetime.datetime.fromisoformat(end_time.replace("Z", "+00:00"))
     events: list[tuple[datetime.datetime, int]] = []
     for incident in incidents:
         try:
@@ -179,6 +185,8 @@ def _overlap_result(incidents: list[dict[str, Any]]) -> dict[str, Any]:
             end = datetime.datetime.fromisoformat(str(incident["end"]).replace("Z", "+00:00"))
         except (KeyError, TypeError, ValueError):
             continue
+        start = max(start, window_start)
+        end = min(end, window_end)
         if end < start:
             continue
         events.extend(((start, 1), (end, -1)))
@@ -375,7 +383,11 @@ class AnalyticsClient:
                 includes=("timestamp", "end"),
             )
             has_more = len(incidents) > 1000
-            result = _overlap_result(incidents[:1000])
+            result = _overlap_result(
+                incidents[:1000],
+                start_time=start_time,
+                end_time=end_time,
+            )
             result["has_more"] = has_more
             summary = (
                 f"Analyzed {result['valid_incident_count']} incidents; maximum overlap "
