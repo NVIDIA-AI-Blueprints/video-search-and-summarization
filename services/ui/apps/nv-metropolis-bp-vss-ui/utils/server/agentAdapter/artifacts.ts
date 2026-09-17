@@ -16,7 +16,17 @@ const MAX_ARTIFACT_LENGTH = 1_000_000;
 const MAX_TRACKED_ARTIFACTS = 10_000;
 const MAX_JSON_DOCUMENTS = 100;
 const MAX_MEDIA_METADATA_LENGTH = 256;
+const MAX_INSPECTION_DEPTH = 8;
 const KIND_PATTERN = /^vss\.[a-z0-9]+(?:[._-][a-z0-9]+)*$/u;
+const BASE64_PAYLOAD =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
+const INLINE_IMAGE_MIME_TYPES = new Set([
+  "image/bmp",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 export interface VssUiArtifact {
   artifactId: string;
@@ -282,6 +292,37 @@ export class ArtifactStreamParser {
     return events;
   }
 
+  /** Convert OpenClaw image-read results into self-contained UI artifacts. */
+  private inspectInlineImage(candidate: JsonObject): ConnectorEvent[] {
+    if (candidate.type !== "image") return [];
+    const data = candidate.data;
+    const mimeType = candidate.mimeType;
+    if (
+      typeof data !== "string" ||
+      !data ||
+      data.length > MAX_ARTIFACT_LENGTH ||
+      !BASE64_PAYLOAD.test(data) ||
+      typeof mimeType !== "string" ||
+      !INLINE_IMAGE_MIME_TYPES.has(mimeType)
+    ) {
+      return [];
+    }
+    const artifact = parseArtifact(
+      JSON.stringify({
+        version: ARTIFACT_PROTOCOL_VERSION,
+        kind: "vss.media.image",
+        payload: {
+          media_url: `data:${mimeType};base64,${data}`,
+          mime_type: mimeType,
+          alt: safeMediaMetadata(candidate.alt) ?? "VSS snapshot",
+        },
+      })
+    );
+    if (!artifact) return [];
+    const event = this.deduplicatedEvent(artifact);
+    return event ? [event] : [];
+  }
+
   inspectComplete(value: unknown): ConnectorEvent[] {
     const events: ConnectorEvent[] = [];
     const stack: Array<[unknown, number]> = [[value, 0]];
@@ -292,7 +333,7 @@ export class ArtifactStreamParser {
       if (typeof candidate === "string") {
         if (candidate.length > MAX_ARTIFACT_LENGTH * 2) continue;
         events.push(...this.inspectVssCliSearch(candidate));
-        if (depth < 4) {
+        if (depth < MAX_INSPECTION_DEPTH) {
           for (const document of jsonDocuments(candidate)) {
             stack.push([document, depth + 1]);
           }
@@ -313,12 +354,13 @@ export class ArtifactStreamParser {
           }
           cursor = closing + ARTIFACT_CLOSE.length;
         }
-      } else if (depth < 4 && isJsonObject(candidate)) {
+      } else if (depth < MAX_INSPECTION_DEPTH && isJsonObject(candidate)) {
+        events.push(...this.inspectInlineImage(candidate));
         events.push(...this.inspectVssSnapshot(candidate));
         for (const nested of Object.values(candidate)) {
           stack.push([nested, depth + 1]);
         }
-      } else if (depth < 4 && Array.isArray(candidate)) {
+      } else if (depth < MAX_INSPECTION_DEPTH && Array.isArray(candidate)) {
         for (const nested of candidate) stack.push([nested, depth + 1]);
       }
     }

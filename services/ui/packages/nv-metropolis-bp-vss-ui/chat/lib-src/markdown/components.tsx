@@ -24,6 +24,9 @@ import { MarkdownImage, MarkdownVideo } from './Media';
 const sameChildren = (prev: any, next: any) => isEqual(prev.children, next.children);
 const ARTIFACT_OPEN = '<vss-ui-artifact>';
 const ARTIFACT_CLOSE = '</vss-ui-artifact>';
+const INLINE_IMAGE_DATA_URL =
+  /^data:image\/(?:bmp|gif|jpeg|png|webp);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const MAX_INLINE_IMAGE_URL_LENGTH = 1_000_100;
 
 /**
  * Large `src` values (base64 frames) make a full compare expensive, so match
@@ -77,8 +80,14 @@ function parseArtifact(value: unknown): Record<string, unknown> | null {
 
 function vssImageSource(value: unknown, mediaProxyUrl?: string): string | null {
   if (typeof value !== 'string' || !value.trim()) return null;
+  const normalized = value.trim();
+  if (normalized.startsWith('data:')) {
+    return normalized.length <= MAX_INLINE_IMAGE_URL_LENGTH && INLINE_IMAGE_DATA_URL.test(normalized)
+      ? normalized
+      : null;
+  }
   try {
-    const parsed = new URL(value.trim(), 'https://vss-ui.invalid');
+    const parsed = new URL(normalized, 'https://vss-ui.invalid');
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     let path = parsed.pathname;
     if (path === '/storage' || path.startsWith('/storage/')) path = `/vst${path}`;

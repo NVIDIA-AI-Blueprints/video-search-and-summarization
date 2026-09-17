@@ -187,6 +187,51 @@ describe("embedded agent adapter", () => {
     expect(parser.inspectComplete(cliSnapshot)).toEqual([]);
   });
 
+  it("derives inline image artifacts from nested OpenClaw read results", () => {
+    const parser = new ArtifactStreamParser();
+    const readResult = {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            tool: { name: "read" },
+            result: {
+              content: [
+                { type: "text", text: "Read image file [image/jpeg]" },
+                {
+                  type: "image",
+                  data: "/9j/2Q==",
+                  mimeType: "image/jpeg",
+                },
+              ],
+            },
+          }),
+        },
+      ],
+    };
+
+    expect(parser.inspectComplete(readResult)).toEqual([
+      expect.objectContaining({
+        type: "artifact.created",
+        data: expect.objectContaining({
+          kind: "vss.media.image",
+          payload: {
+            media_url: "data:image/jpeg;base64,/9j/2Q==",
+            mime_type: "image/jpeg",
+            alt: "VSS snapshot",
+          },
+        }),
+      }),
+    ]);
+    expect(
+      new ArtifactStreamParser().inspectComplete({
+        type: "image",
+        data: "PHN2Zz48L3N2Zz4=",
+        mimeType: "image/svg+xml",
+      })
+    ).toEqual([]);
+  });
+
   it("removes artifact envelopes from nested private tool output", () => {
     const artifact = `${ARTIFACT_OPEN}${JSON.stringify({
       version: "1.0",

@@ -11,6 +11,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
+import { VssUiArtifact } from '../lib-src/markdown/components';
 
 jest.mock('../lib-src/storage', () => ({
   initConversationSessionLifecycle: jest.fn(),
@@ -63,6 +64,26 @@ async function typeAndSend(text: string) {
 
 describe('ChatPanel', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('renders a validated inline raster image artifact', () => {
+    render(
+      <VssUiArtifact
+        value={{
+          version: '1.0',
+          kind: 'vss.media.image',
+          payload: {
+            media_url: 'data:image/jpeg;base64,/9j/2Q==',
+            alt: 'Warehouse snapshot',
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('img', { name: 'Warehouse snapshot' })).toHaveAttribute(
+      'src',
+      'data:image/jpeg;base64,/9j/2Q==',
+    );
+  });
 
   it('streams an answer and renders it as markdown', async () => {
     global.fetch = jest.fn().mockResolvedValue(
