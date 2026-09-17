@@ -362,16 +362,15 @@ Run in order, report pass/fail for each.
 nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv,noheader
 ```
 
-Expected for this machine: 2× RTX PRO 6000 Blackwell, devices 0 and 1.
-
 If `nvidia-smi` fails, rule out [confinement](#confinement) first — inside a sandbox it fails on a perfectly healthy host. Once the unconfined probe fails too, the driver is not installed or not loaded. Each platform has its own minimum — a floor, not an exact pin, so a newer build passes:
 
 | Platform | Minimum driver | Where it comes from |
 |---|---|---|
 | x86 dGPU — RTX PRO 4500, RTX PRO 6000 SE | **`595.58.03`** | https://www.nvidia.com/en-us/drivers/ |
+| x86 dGPU — H100 (SXM / PCIe), H200 | **`595.58.03`** | same x86_64 baseline; the SXM parts also need Fabric Manager below |
 | x86 Brev Cloud — NemoClaw, RTX 6000 launchables | **`595.91.07`** | the instance image |
 | Kubernetes — RTX 6000, H200 | **`595.58.03`** | the GPU Operator's driver setting |
-| ARM SBSA — DGX Station GB300 | **`595.58.03`** | the bundled DGX OS driver |
+| ARM SBSA — DGX Station GB300 | **`610.43.03`** | the bundled DGX OS 7.6.0 driver (host-confirmed, VSS-TEGRA-REQ-002 §4.9) |
 | ARM SBSA — GH200 / GB200 | **`580.159.03`** | bundled in the container, not installed on the host |
 | DGX-SPARK | **`580.173.02`** | the bundled DGX OS driver |
 | Jetson AGX Orin / AGX Thor / Orin NX | **`595.78`** | JetPack 7.2 / L4T r39.2 |
@@ -383,7 +382,7 @@ After install, load the kernel modules instead of rebooting:
 sudo modprobe nvidia && sudo modprobe nvidia_uvm
 ```
 
-> **Multi-GPU H100 SXM HBM3 only — NVIDIA Fabric Manager matching the installed driver** is also required to host a local LLM. Unlike the driver table above, this is an exact match and not a floor: install `nvidia-fabricmanager-<branch>` at the running driver's version (`nvidia-fabricmanager-595=595.58.03-1ubuntu1` against `595.58.03`), because the service refuses to initialize the fabric against a driver it does not match. Single-GPU and multi-GPU PCIe-only systems do **not** need Fabric Manager — installing it will conflict with the standard driver package.
+> **Multi-GPU H100 SXM / H200 SXM only — NVIDIA Fabric Manager matching the installed driver** is also required to host a local LLM. Unlike the driver table above, this is an exact match and not a floor: install `cuda-drivers-fabricmanager-<branch>` at the running driver's version (`cuda-drivers-fabricmanager-595` against `595.58.03`), because the service refuses to initialize the fabric against a driver it does not match. Single-GPU systems and the PCIe form factors of H100/H200 do **not** need Fabric Manager — installing it will conflict with the standard driver package.
 
 > **Workaround:** If GPU is present but detection fails during a deploy, prepend `SKIP_HARDWARE_CHECK=true` — but investigate root cause.
 
@@ -398,6 +397,8 @@ docker ps               # verify runs without sudo
 If Docker needs to be installed: https://docs.docker.com/engine/install/ubuntu/
 
 > **Docker upper bound — `< 29.5.0`.** Docker Engine `29.5.0` and later fail to pull some NGC-hosted image tags after the layers download with `error from registry: Incorrect Repository Format`. Pin a supported version with the script below. If the host is locked above the bound and cannot be downgraded, disable the containerd snapshotter daemon-side — see [Docker 29.5.0+ workaround](#docker-2950-workaround) below.
+>
+> **DGX Station GB300 ships above the bound.** DGX OS 7.6.0 carries Docker `29.6.1`, so the pin script's downgrade branch is what runs there — try it rather than assuming it fails. Fall back to the override only on a *version not found*, meaning the DGX-OS arm64 repo does not carry the epoch-versioned packages. Then apply the [cgroup driver](#cgroup-driver) separately: the override settles the snapshotter alone, and a host that skipped the script never got `cgroupfs`.
 
 #### Pin the tested Docker versions
 <a id="docker-pin"></a>
@@ -589,11 +590,12 @@ Single source of truth for **every** dependency the deploy assumes. Sourced from
 | OS — DGX-SPARK | DGX OS 7.5.0 | |
 | OS — IGX-THOR | IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04) | |
 | OS — AGX-THOR | JetPack 7.2 (Jetson Linux/L4T r39.2) | |
-| NVIDIA Driver | per platform — [GPU Detection](#1-gpu-detection) owns the table | a minimum, not an exact pin. `595.58.03` on x86 dGPU, Kubernetes and DGX Station GB300; `595.91.07` on Brev Cloud; `595.78` on Jetson; `580.173.02` on DGX-SPARK; `580.00` on IGX Thor |
-| NVIDIA Fabric Manager | exact match to the installed driver | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM HBM3, NVSwitch, HGX). Not a floor like the driver row — the service will not initialize the fabric on a mismatch, so it moves with whatever [GPU Detection](#1-gpu-detection) selected |
+| NVIDIA Driver | per platform — [GPU Detection](#1-gpu-detection) owns the table | a minimum, not an exact pin. `595.58.03` on x86 dGPU and Kubernetes; `595.91.07` on Brev Cloud; `610.43.03` on DGX Station GB300; `595.78` on Jetson; `580.173.02` on DGX-SPARK; `580.00` on IGX Thor |
+| NVIDIA Fabric Manager | exact match to the installed driver | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM, H200 SXM, NVSwitch, HGX). Not a floor like the driver row — the service will not initialize the fabric on a mismatch, so it moves with whatever [GPU Detection](#1-gpu-detection) selected |
 | NVIDIA Container Toolkit | `1.17.8+` | |
 | Docker | `28.3.3+` **and** `< 29.5.0` | pin with [`pin_docker_version.sh`](#docker-pin), which owns the exact versions. Upper bound: `29.5.0`+ breaks NGC image pulls — on a host that cannot be downgraded, see [Docker 29.5.0+ workaround](#docker-2950-workaround) |
 | Docker Compose | `v2.39.1+` | |
+| Kubernetes — where it is supported at all | GPU Operator `v26.3.3`, K8s `v1.29`–`v1.36` | x86_64 and ARM SBSA only. Every Tegra platform (IGX Thor T7000/T5000, Jetson AGX Orin, AGX Thor, Orin NX), DGX Spark, GH200/GB200 and DGX Station GB300 are **Docker Compose only** — Helm paths are not validated there |
 | NGC CLI | `4.10.0+` | follow `ngc.md` |
 
 ---
