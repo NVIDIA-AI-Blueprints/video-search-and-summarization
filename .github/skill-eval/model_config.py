@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import os
-import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 RUNTIMES = ("claude-code", "codex", "nemoclaw")
 CODING_RUNTIMES = ("claude-code", "codex")
-REQUESTED_PROVIDERS = ("default", "nvidia-inference", "nvidia-build", "custom")
+REQUESTED_PROVIDERS = ("default", "nvidia-inference", "nvidia-build")
+NVIDIA_INFERENCE_SOURCE_URL = "https://inference.nvidia.com/"
+NVIDIA_INFERENCE_API_BASE_URL = f"{NVIDIA_INFERENCE_SOURCE_URL.rstrip('/')}/v1"
 ENDPOINT_MANAGED_PROVIDERS = {
     "nvidia-build",
     "build",
@@ -29,14 +30,6 @@ def _first(*values: object) -> str:
         if text:
             return text
     return ""
-
-
-def _validate_endpoint_url(endpoint_url: str, variable: str) -> None:
-    if not endpoint_url:
-        return
-    parsed = urllib.parse.urlsplit(endpoint_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError(f"{variable} must be an HTTP(S) URL with a host")
 
 
 @dataclass(frozen=True)
@@ -83,7 +76,6 @@ def resolve_model_config(
     runtime = _first(env.get(f"{prefix}_HARNESS"), runtime_default)
     requested_provider = _first(env.get(f"{prefix}_PROVIDER"), "default")
     requested_model = _first(env.get(f"{prefix}_MODEL"))
-    requested_endpoint = _first(env.get(f"{prefix}_ENDPOINT_URL"))
     route_api_key = _first(env.get(f"{prefix}_API_KEY"))
 
     allowed_runtimes = CODING_RUNTIMES if role == "coding" else RUNTIMES
@@ -96,10 +88,6 @@ def resolve_model_config(
         raise ValueError(
             f"unsupported {prefix}_PROVIDER {requested_provider!r}; "
             f"expected {' | '.join(REQUESTED_PROVIDERS)}"
-        )
-    if requested_endpoint and not requested_model:
-        raise ValueError(
-            f"{prefix}_MODEL is required when {prefix}_ENDPOINT_URL is set"
         )
     if requested_provider != "default" and not requested_model:
         raise ValueError(
@@ -122,11 +110,9 @@ def resolve_model_config(
                 raise ValueError(f"{prefix}_MODEL or CODEX_MODEL is required for codex")
         else:
             model = requested_model or _first(env.get("ANTHROPIC_MODEL"))
-        endpoint_url = requested_endpoint or _first(env.get("ANTHROPIC_BASE_URL"))
+        endpoint_url = NVIDIA_INFERENCE_API_BASE_URL
         api_key = route_api_key or _first(env.get("ANTHROPIC_API_KEY"))
         credential_name = f"{prefix}_API_KEY or ANTHROPIC_API_KEY"
-        if requested_provider == "custom" and not requested_endpoint:
-            raise ValueError(f"{prefix}_ENDPOINT_URL is required for provider=custom")
     else:
         inherited_provider = _first(env.get("NEMOCLAW_PROVIDER"), "custom")
         provider = (
@@ -139,11 +125,6 @@ def resolve_model_config(
             env.get("ANTHROPIC_MODEL"),
             env.get("LLM_REMOTE_MODEL"),
         )
-        if requested_endpoint and provider in ENDPOINT_MANAGED_PROVIDERS:
-            raise ValueError(
-                f"{prefix}_ENDPOINT_URL is incompatible with "
-                f"provider={provider}; that provider manages its own endpoint"
-            )
         if provider in {"nvidia-build", "build"}:
             endpoint_url = ""
             api_key = route_api_key or _first(env.get("NVIDIA_API_KEY"))
@@ -153,11 +134,7 @@ def resolve_model_config(
             api_key = "local-provider"
             credential_name = ""
         else:
-            endpoint_url = requested_endpoint or _first(
-                env.get("NEMOCLAW_ENDPOINT_URL"),
-                env.get("ANTHROPIC_BASE_URL"),
-                env.get("LLM_REMOTE_URL"),
-            )
+            endpoint_url = NVIDIA_INFERENCE_API_BASE_URL
             api_key = route_api_key or _first(
                 env.get("COMPATIBLE_API_KEY"),
                 env.get("ANTHROPIC_API_KEY"),
@@ -165,10 +142,6 @@ def resolve_model_config(
             credential_name = (
                 f"{prefix}_API_KEY, COMPATIBLE_API_KEY, or ANTHROPIC_API_KEY"
             )
-            if requested_provider == "custom" and not requested_endpoint:
-                raise ValueError(
-                    f"{prefix}_ENDPOINT_URL is required for provider=custom"
-                )
 
     if not model:
         raise ValueError(
@@ -184,8 +157,6 @@ def resolve_model_config(
         raise ValueError(
             f"no API key is configured; set {credential_name} on the runner"
         )
-
-    _validate_endpoint_url(endpoint_url, f"{prefix}_ENDPOINT_URL")
 
     return SkillEvalModelConfig(
         role=role,
