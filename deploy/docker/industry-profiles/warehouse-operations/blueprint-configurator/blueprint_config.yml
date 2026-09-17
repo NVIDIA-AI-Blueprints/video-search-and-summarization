@@ -600,6 +600,21 @@ commons:
             count: ${final_stream_count}
             pattern: "*.mp4"
 
+      # Recompute BEV groups from the final set of video filename stems.
+      # This must run after keep_count so calibration reflects retained videos.
+      - operation_type: "recompute_bev_groups"
+        enabled: "${RECOMPUTE_BEV_CENTERS_ENABLED}"
+        required_mode: "3d"
+        required_calibration_mode: "mount"
+        video_directories:
+          - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+        video_patterns:
+          - "*.mp4"
+          - "*.mkv"
+        calibration_file: "${CALIBRATION_DIR_MOUNT_PATH}/${CALIBRATION_FILE_NAME}"
+        expected_camera_count: "${NUM_STREAMS}"
+        n_sensor_groups: 1
+
     mv3dt:
       # Update DeepStream main config
       - operation_type: "text_config_update"
