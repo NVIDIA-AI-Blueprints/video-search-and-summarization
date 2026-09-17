@@ -32,12 +32,7 @@
 ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7ed6a6f1b682991818a2acaf5636d9fb066ae33265b011837b0ba601c0970
 ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=5212368036879feb704a258be0db012ce518aeaa
-# NGC CLI, staged unconditionally: the operation skills fetch sample data and
-# release fixtures with `ngc registry resource download-version`, and the
-# sandbox cannot install it for itself at runtime — its egress policy allows no
-# NGC host. Keep in step with ../.openclaw/Dockerfile.
-ARG NGC_CLI_VERSION=4.10.0
+ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
 
 # ── VSS source checkout: operation skills + workspace docs ─────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src

@@ -190,6 +190,34 @@ def test_run_no_persist_skips_memory(
     assert result.body["persisted"] is False
 
 
+def test_run_returns_answer_when_configured_memory_backend_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    answer = "The worker is wearing a hard hat and high-visibility vest."
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(answer))))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={"rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["cosmos-reason1-7b"])},
+        memory=config_mod.MemoryConfig(),
+    )
+    result = VlmGroup().run(
+        "",
+        VlmInput(prompt="Is the worker wearing PPE?", media_url="http://h/clip.mp4"),
+        Context(deployment=deployment),
+    )
+
+    assert result.exit == Exit.PARTIAL
+    assert result.body["status"] == "completed"
+    assert result.body["answer"] == answer
+    assert result.body["persisted"] is False
+    assert "records no Elasticsearch" in result.body["persist_error"]
+    assert result.extra["marker"]["persisted"] is False
+
+
 def test_run_request_carries_video_url(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
@@ -923,13 +951,14 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
 
 
 def test_is_loopback_url() -> None:
-    """_is_loopback_url must match localhost / 127.x.x.x / ::1 and reject routable hosts."""
+    """_is_loopback_url matches CLI-only hosts and rejects VLM-routable hosts."""
     from vss_cli.vlm.group import _is_loopback_url
 
     assert _is_loopback_url("http://localhost:30888/vst/api/v1/storage/file/abc")
     assert _is_loopback_url("http://127.0.0.1:9000/clip.mp4")
     assert _is_loopback_url("http://127.1.2.3:8080/")
     assert _is_loopback_url("http://[::1]/clip.mp4")
+    assert _is_loopback_url("http://host.openshell.internal:7777/vst/api/v1/storage/file/abc")
     assert not _is_loopback_url("http://10.86.83.113:30888/vst/api/v1/storage/file/abc")
     assert not _is_loopback_url("http://vst-host/clip.mp4")
     assert not _is_loopback_url("https://192.168.1.100:8080/clip.mp4")
