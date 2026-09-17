@@ -4,15 +4,22 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
+from contextlib import asynccontextmanager
 import datetime
+from itertools import groupby
 import json
+from typing import TYPE_CHECKING
 from typing import Any
 
 import aiohttp
 
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import LibraryError
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 _DEFAULT_TIMEOUT_SECONDS = 30.0
 _DEFAULT_INCIDENT_FIELDS = ("Id", "id", "timestamp", "end", "sensorId")
@@ -30,6 +37,10 @@ class AnalyticsNotFoundError(LibraryError):
     """A requested analytics record does not exist."""
 
 
+class AnalyticsInvalidInputError(LibraryError):
+    """The Video Analytics API rejected caller-supplied input."""
+
+
 class AnalyticsTimeoutError(LibraryError):
     """The Video Analytics API exceeded the bounded request timeout."""
 
@@ -45,6 +56,7 @@ def _error_text(text: str) -> str:
 
 
 async def _request_json(
+    session: aiohttp.ClientSession,
     base_url: str,
     path: str,
     *,
@@ -54,17 +66,16 @@ async def _request_json(
 ) -> object:
     """Issue one bounded GET and return parsed JSON."""
     url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with (
-            aiohttp.ClientSession(timeout=timeout, trust_env=True) as session,
-            session.get(url, params=params) as response,
-        ):
+        async with session.get(url, params=params) as response:
             text = await response.text()
+            detail = f"Video Analytics API {operation} returned HTTP {response.status}: {_error_text(text)}"
+            if response.status == 404:
+                raise AnalyticsNotFoundError(detail)
+            if 400 <= response.status < 500:
+                raise AnalyticsInvalidInputError(detail)
             if response.status < 200 or response.status >= 300:
-                raise AnalyticsError(
-                    f"Video Analytics API {operation} returned HTTP {response.status}: {_error_text(text)}"
-                )
+                raise AnalyticsError(detail)
             try:
                 return json.loads(text)
             except ValueError as exc:
@@ -105,20 +116,20 @@ def _sensor_rows(calibration: object) -> list[dict[str, Any]]:
     return [row for row in sensors if isinstance(row, dict)]
 
 
-def _place_values(sensor: dict[str, Any]) -> list[str]:
+def _place_path(sensor: dict[str, Any]) -> str | None:
     places = sensor.get("place", [])
-    if not isinstance(places, list):
-        return []
-    return [str(entry["value"]) for entry in places if isinstance(entry, dict) and entry.get("value") is not None]
+    if not isinstance(places, list) or not places:
+        return None
+    levels = []
+    for entry in places:
+        if not isinstance(entry, dict) or entry.get("name") is None or entry.get("value") is None:
+            return None
+        levels.append(f"{entry['name']}={entry['value']}")
+    return "/".join(levels)
 
 
-def _places_from_sensors(sensors: list[dict[str, Any]]) -> dict[str, list[str]]:
-    places: dict[str, set[str]] = defaultdict(set)
-    for sensor in sensors:
-        values = _place_values(sensor)
-        if len(values) >= 2:
-            places[values[0]].add(values[1])
-    return {city: sorted(children) for city, children in sorted(places.items())}
+def _places_from_sensors(sensors: list[dict[str, Any]]) -> list[str]:
+    return sorted({place for sensor in sensors if (place := _place_path(sensor)) is not None})
 
 
 def _merge_histograms(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -168,23 +179,28 @@ def _overlap_result(incidents: list[dict[str, Any]]) -> dict[str, Any]:
             continue
         events.extend(((start, 1), (end, -1)))
     events.sort(key=lambda event: (event[0], -event[1]))
+    grouped_events = [
+        (instant, sum(delta for _, delta in group)) for instant, group in groupby(events, key=lambda event: event[0])
+    ]
     count = 0
     maximum = 0
     minimum: int | None = None
     maximum_at: datetime.datetime | None = None
     minimum_at: datetime.datetime | None = None
-    for instant, delta in events:
+    for index, (instant, delta) in enumerate(grouped_events):
         count += delta
-        if delta > 0 and count > maximum:
+        if index == len(grouped_events) - 1:
+            continue
+        if count > maximum:
             maximum, maximum_at = count, instant
-        if minimum is None or count < minimum:
+        if count > 0 and (minimum is None or count < minimum):
             minimum, minimum_at = count, instant
     return {
         "incident_count": len(incidents),
         "valid_incident_count": len(events) // 2,
         "maximum_overlap": maximum,
         "maximum_overlap_at": maximum_at.isoformat() if maximum_at else None,
-        "minimum_overlap": minimum or 0,
+        "minimum_overlap": minimum if minimum is not None else 0,
         "minimum_overlap_at": minimum_at.isoformat() if minimum_at else None,
     }
 
@@ -195,15 +211,32 @@ class AnalyticsClient:
     def __init__(self, base_url: str, timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS) -> None:
         self._base_url = base_url
         self._timeout_seconds = timeout_seconds
+        self._session: aiohttp.ClientSession | None = None
+
+    @asynccontextmanager
+    async def _session_scope(self) -> AsyncIterator[None]:
+        if self._session is not None:
+            yield
+            return
+        timeout = aiohttp.ClientTimeout(total=self._timeout_seconds)
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+            self._session = session
+            try:
+                yield
+            finally:
+                self._session = None
 
     async def _get(self, path: str, operation: str, params: dict[str, QueryValue] | None = None) -> object:
-        return await _request_json(
-            self._base_url,
-            path,
-            params=params,
-            operation=operation,
-            timeout_seconds=self._timeout_seconds,
-        )
+        async with self._session_scope():
+            assert self._session is not None
+            return await _request_json(
+                self._session,
+                self._base_url,
+                path,
+                params=params,
+                operation=operation,
+                timeout_seconds=self._timeout_seconds,
+            )
 
     async def incidents(
         self,
@@ -232,11 +265,19 @@ class AnalyticsClient:
             "queryString": f'Id:"{escaped}" OR id:"{escaped}"',
             "maxResultSize": 2,
         }
-        for params in (common_params, common_params | {"vlmVerified": "true"}):
-            rows = _list_field(await self._get("incidents", "incident lookup", params), "incidents", "incident lookup")
-            for row in rows:
-                if isinstance(row, dict) and incident_id in (row.get("Id"), row.get("id")):
-                    return _incident_fields(row, includes)
+        async with self._session_scope():
+            for params in (common_params, common_params | {"vlmVerified": "true"}):
+                rows = _list_field(
+                    await self._get("incidents", "incident lookup", params),
+                    "incidents",
+                    "incident lookup",
+                )
+                for row in rows:
+                    if isinstance(row, dict) and incident_id in (
+                        row.get("Id"),
+                        row.get("id"),
+                    ):
+                        return _incident_fields(row, includes)
         raise AnalyticsNotFoundError(f"incident {incident_id!r} was not found")
 
     async def _calibration_sensors(self) -> list[dict[str, Any]]:
@@ -247,11 +288,12 @@ class AnalyticsClient:
         sensors = {
             str(row["id"])
             for row in rows
-            if row.get("id") is not None and (place is None or place in _place_values(row))
+            if row.get("id") is not None
+            and (place is None or ((sensor_place := _place_path(row)) is not None and sensor_place.startswith(place)))
         }
         return sorted(sensors)
 
-    async def places(self) -> dict[str, list[str]]:
+    async def places(self) -> list[str]:
         return _places_from_sensors(await self._calibration_sensors())
 
     async def fov_histogram(
@@ -264,21 +306,33 @@ class AnalyticsClient:
         object_type: str | None = None,
         bucket_count: int = 10,
     ) -> dict[str, Any]:
-        sensor_ids = [source] if source_type == "sensor" else await self.sensors(place=source)
-        results = []
-        for sensor_id in sensor_ids:
-            params: dict[str, QueryValue] = {
-                "sensorId": sensor_id,
-                "fromTimestamp": start_time,
-                "toTimestamp": end_time,
-                "bucketCount": bucket_count,
-            }
-            if object_type:
-                params["objectType"] = object_type
-            results.append(
-                _object(await self._get("metrics/occupancy/fov/histogram", "FOV histogram", params), "FOV histogram")
-            )
-        return results[0] if len(results) == 1 else _merge_histograms(results)
+        try:
+            async with asyncio.timeout(self._timeout_seconds), self._session_scope():
+                sensor_ids = [source] if source_type == "sensor" else await self.sensors(place=source)
+                requests = []
+                for sensor_id in sensor_ids:
+                    params: dict[str, QueryValue] = {
+                        "sensorId": sensor_id,
+                        "fromTimestamp": start_time,
+                        "toTimestamp": end_time,
+                        "bucketCount": bucket_count,
+                    }
+                    if object_type:
+                        params["objectType"] = object_type
+                    requests.append(
+                        self._get(
+                            "metrics/occupancy/fov/histogram",
+                            "FOV histogram",
+                            params,
+                        )
+                    )
+                payloads = await asyncio.gather(*requests)
+        except TimeoutError as exc:
+            raise AnalyticsTimeoutError(
+                f"Video Analytics API FOV histogram timed out after {self._timeout_seconds:g}s"
+            ) from exc
+        results = [_object(payload, "FOV histogram") for payload in payloads]
+        return _merge_histograms(results)
 
     async def average_speed(
         self,
@@ -368,6 +422,7 @@ class AnalyticsClient:
 __all__ = [
     "AnalyticsClient",
     "AnalyticsError",
+    "AnalyticsInvalidInputError",
     "AnalyticsNotFoundError",
     "AnalyticsTimeoutError",
 ]

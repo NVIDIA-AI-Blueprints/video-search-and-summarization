@@ -53,9 +53,9 @@ class _Client:
         self._record("sensors", values)
         return []
 
-    async def places(self) -> dict[str, list[str]]:
+    async def places(self) -> list[str]:
         self._record("places", {})
-        return {"San Jose": ["First"]}
+        return ["building=Warehouse/room=Room-1"]
 
     async def fov_histogram(self, **values: Any) -> dict[str, Any]:
         self._record("fov-histogram", values)
@@ -255,7 +255,10 @@ def test_each_read_shape(cli: Any) -> None:
     cases = [
         (["incident", "--incident-id", "i-1"], {"id": "i-1"}),
         (["sensors"], {"count": 0, "sensors": []}),
-        (["places"], {"count": 1, "places": {"San Jose": ["First"]}}),
+        (
+            ["places"],
+            {"count": 1, "places": ["building=Warehouse/room=Room-1"]},
+        ),
         (["fov-histogram", *common], {"bucketSizeInSec": 5, "histogram": []}),
         (
             ["average-speed", *common],
@@ -318,10 +321,12 @@ def test_unexpected_failure_is_not_mistaken_for_an_empty_result(cli: Any, error:
 
 def test_typed_operational_failures_use_stderr(cli: Any) -> None:
     from vss_core.analytics import AnalyticsError
+    from vss_core.analytics import AnalyticsInvalidInputError
     from vss_core.analytics import AnalyticsNotFoundError
     from vss_core.analytics import AnalyticsTimeoutError
 
     for error, code in (
+        (AnalyticsInvalidInputError("incident list rejected invalid source"), Exit.INVALID_INPUT),
         (AnalyticsError("incident list connection failed"), Exit.BACKEND_UNREACHABLE),
         (AnalyticsNotFoundError("incident 'missing' was not found"), Exit.NOT_FOUND),
         (AnalyticsTimeoutError("incident list timed out"), Exit.TIMEOUT),

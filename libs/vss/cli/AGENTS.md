@@ -67,6 +67,10 @@ exits 5.
 data. It is not VIOS registration: use `vss vios list` for the sensors currently
 registered in the media plane.
 
+`vss analytics places` returns hierarchy tokens such as
+`building=Warehouse/room=Room-1`. Use those exact tokens with
+`--source-type place` or `analytics sensors --place`.
+
 ## `vss vios` — media
 
 ```bash

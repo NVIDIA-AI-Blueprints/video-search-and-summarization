@@ -39,20 +39,16 @@ def resolve_service_profiles(
     requested_profiles: Iterable[str] = (),
     *,
     host_cli: bool,
-    legacy_va_mcp: bool = False,
 ) -> tuple[str, ...]:
     """Return an ordered profile set after applying explicit ownership rules."""
-    profiles = dict.fromkeys((*foundation_profiles, *requested_profiles))
+    requested = tuple(requested_profiles)
+    profiles = dict.fromkeys((*foundation_profiles, *requested))
 
     if host_cli:
-        profiles.pop(VSS_AGENT, None)
-
-    # Stock Alerts still ships vss-agent tools that call video_analytics_mcp.
-    # Drop VA-MCP with the agent unless a workflow explicitly re-selects it.
-    if legacy_va_mcp:
-        profiles[VSS_VA_MCP] = None
-    else:
-        profiles.pop(VSS_VA_MCP, None)
+        explicitly_requested = set(requested)
+        for profile in (VSS_AGENT, VSS_VA_MCP):
+            if profile not in explicitly_requested:
+                profiles.pop(profile, None)
 
     return tuple(profiles)
 

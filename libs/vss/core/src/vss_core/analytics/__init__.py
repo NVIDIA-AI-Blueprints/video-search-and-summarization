@@ -4,12 +4,14 @@
 
 from .client import AnalyticsClient
 from .client import AnalyticsError
+from .client import AnalyticsInvalidInputError
 from .client import AnalyticsNotFoundError
 from .client import AnalyticsTimeoutError
 
 __all__ = [
     "AnalyticsClient",
     "AnalyticsError",
+    "AnalyticsInvalidInputError",
     "AnalyticsNotFoundError",
     "AnalyticsTimeoutError",
 ]

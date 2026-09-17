@@ -65,7 +65,7 @@ set -e
 case "${RC}" in
   0) printf '%s\n' "${RESULT}" ;;
   2) echo "The analytics query is invalid; correct its options." >&2 ;;
-  3) echo "The Video Analytics API rejected the request or is unreachable." >&2 ;;
+  3) echo "The Video Analytics API or one of its dependencies is unreachable." >&2 ;;
   4) echo "Deployment routes are missing or stale; rerun vss configure --base-url <origin>." >&2 ;;
   5) echo "The requested incident does not exist." >&2 ;;
   7) echo "The analytics request timed out." >&2 ;;
@@ -107,13 +107,16 @@ These are different inventories:
 
 ```bash
 vss analytics sensors
-vss analytics sensors --place <analytics-place>
+vss analytics sensors --place 'building=<name>[/room=<name>...]'
 vss analytics places
 vss vios list
 ```
 
 - `vss analytics sensors` lists sensor IDs represented in analytics
   calibration data.
+- `vss analytics places` returns the API's hierarchy tokens, such as
+  `building=Warehouse/room=Room-1`; pass one of those tokens to place-scoped
+  incident and metric commands.
 - `vss vios list` lists sensors registered in VIOS, including media-plane
   names, IDs, and provenance.
 
@@ -153,6 +156,7 @@ a memory record.
 ## Troubleshooting
 
 - Exit 4: rerun `vss configure --base-url <origin>`, then `vss configure check`.
+- Exit 2: correct the rejected query options before retrying.
 - Exit 3: report the Video Analytics API operation named by the diagnostic;
   do not improvise an Elasticsearch query.
 - Exit 5 from `incident`: verify the ID from an incident listing.

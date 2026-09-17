@@ -35,7 +35,10 @@ class _AnalyticsHandler(BaseHTTPRequestHandler):
                 "sensors": [
                     {
                         "id": "cam-1",
-                        "place": [{"value": "San Jose"}, {"value": "First"}],
+                        "place": [
+                            {"name": "building", "value": "Warehouse"},
+                            {"name": "room", "value": "Room-1"},
+                        ],
                     }
                 ]
             }
@@ -79,7 +82,7 @@ def test_cli_smoke_uses_only_video_analytics_api(
         assert vss_cli.main(["analytics", "places"]) == 0
         assert json.loads(capsys.readouterr().out) == {
             "count": 1,
-            "places": {"San Jose": ["First"]},
+            "places": ["building=Warehouse/room=Room-1"],
         }
     finally:
         server.shutdown()

@@ -3,6 +3,7 @@
 """Composition regression for host-CLI analytics service ownership."""
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,26 @@ BUILD_SKILL = SKILLS_ROOT / "vss-build-vision-ai"
 QUERY_SKILL = SKILLS_ROOT / "operations" / "vss-query-analytics"
 SCRIPTS = BUILD_SKILL / "scripts"
 ALERTS_PROFILE = REPOSITORY / "deploy/docker/developer-profiles/dev-profile-alerts"
+
+
+def _docker_compose_available() -> bool:
+    docker = shutil.which("docker")
+    if docker is None:
+        return False
+    return (
+        subprocess.run(
+            [docker, "compose", "version"],
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
+requires_docker_compose = pytest.mark.skipif(
+    not _docker_compose_available(),
+    reason="docker compose is required for resolved composition tests",
+)
 
 sys.path.insert(0, str(SCRIPTS))
 from resolve_service_graph import (
@@ -93,6 +114,16 @@ def test_stock_alerts_keeps_va_mcp_with_the_in_stack_agent(mode: str) -> None:
     assert "vss-va-mcp" in profiles
 
 
+def test_host_cli_honors_explicit_legacy_mcp_delta() -> None:
+    profiles = resolve_service_profiles(
+        ("alert-bridge", "vss-agent", "vss-va-mcp"),
+        requested_profiles=("vss-va-mcp",),
+        host_cli=True,
+    )
+    assert profiles == ("alert-bridge", "vss-va-mcp")
+
+
+@requires_docker_compose
 def test_stock_alerts_compose_includes_agent_mcp_tools(tmp_path: Path) -> None:
     document = _compose_config(tmp_path, _alerts_profiles())
     services = set(document["services"])
@@ -104,6 +135,7 @@ def test_stock_alerts_compose_includes_agent_mcp_tools(tmp_path: Path) -> None:
     ]
 
 
+@requires_docker_compose
 def test_nemoclaw_alerts_lvs_resolves_without_agent_or_va_mcp(
     tmp_path: Path,
 ) -> None:
@@ -140,11 +172,12 @@ def test_nemoclaw_alerts_lvs_resolves_without_agent_or_va_mcp(
     assert all("9901" not in target.url for target in targets)
 
 
+@requires_docker_compose
 def test_explicit_legacy_mcp_selection_remains_available(tmp_path: Path) -> None:
     profiles = resolve_service_profiles(
         _alerts_profiles(),
+        requested_profiles=("vss-va-mcp",),
         host_cli=True,
-        legacy_va_mcp=True,
     )
     document = _compose_config(tmp_path, profiles)
     services = set(document["services"])

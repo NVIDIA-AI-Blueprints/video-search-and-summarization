@@ -144,6 +144,7 @@ def _exit_for(exc: Exception) -> Exit | None:
     would undo that.
     """
     by_name = {
+        "AnalyticsInvalidInputError": Exit.INVALID_INPUT,
         "InvalidInputError": Exit.INVALID_INPUT,
         "VIOSInvalidInputError": Exit.INVALID_INPUT,
         "VIOSNotFoundError": Exit.NOT_FOUND,
