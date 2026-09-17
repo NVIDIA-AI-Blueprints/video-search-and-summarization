@@ -352,8 +352,12 @@ agent:
         value: '{{ .Values.vssAgentVersion | default "3.3.0-65576357eb80" }}'
     waitForDependencies:
       enabled: true
+  # Legacy vss-va-mcp: off by default, matching the docker profile lists in
+  # deploy/docker/developer-profiles/dev-profile-alerts/overrides.env, which
+  # dropped it from COMPOSE_PROFILES_{CV,VLM}. Selected only by an explicit
+  # MCP/SOP-report delta (override this flag to true).
   vss-va-mcp:
-    enabled: true
+    enabled: false
     vstIngressUrl: ""
     elasticsearchUrl: ""
 
