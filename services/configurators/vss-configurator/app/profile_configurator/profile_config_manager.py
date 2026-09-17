@@ -1379,8 +1379,8 @@ class ProfileConfigManager:
             unused_sensor_ids = sorted(original_sensor_ids - set(camera_names))
             if unused_sensor_ids:
                 logger.warning(
-                    "Calibration sensors without matching videos will not be used "
-                    "for BEV groups: %s",
+                    "Calibration sensors without matching videos will be removed "
+                    "from the updated calibration: %s",
                     unused_sensor_ids,
                 )
 
@@ -1443,12 +1443,44 @@ class ProfileConfigManager:
             # bind-mount this individual file and would keep reading the old inode
             # if os.replace() swapped the path to a new file.
             updated_bytes = temp_path.read_bytes()
-            with calibration_file.open("r+b") as file:
-                file.seek(0)
-                file.write(updated_bytes)
-                file.truncate()
-                file.flush()
-                os.fsync(file.fileno())
+            original_bytes = calibration_file.read_bytes()
+
+            def write_in_place(content: bytes) -> None:
+                with calibration_file.open("r+b") as file:
+                    file.seek(0)
+                    bytes_written = file.write(content)
+                    if bytes_written != len(content):
+                        raise OSError(
+                            "Short write while updating calibration: "
+                            f"wrote {bytes_written} of {len(content)} bytes"
+                        )
+                    file.truncate()
+                    file.flush()
+                    os.fsync(file.fileno())
+
+            try:
+                write_in_place(updated_bytes)
+            except Exception as publish_error:
+                logger.exception(
+                    "Failed to publish recomputed calibration; restoring %s",
+                    calibration_file,
+                )
+                try:
+                    write_in_place(original_bytes)
+                except Exception as rollback_error:
+                    logger.critical(
+                        "Failed to restore calibration after publish failure; "
+                        "backup remains at %s",
+                        backup_path,
+                        exc_info=True,
+                    )
+                    raise RuntimeError(
+                        "Calibration publish and rollback both failed; "
+                        f"restore manually from {backup_path}"
+                    ) from rollback_error
+                raise RuntimeError(
+                    "Calibration publish failed; original content was restored"
+                ) from publish_error
             temp_path.unlink()
             temp_path = None
             logger.info(

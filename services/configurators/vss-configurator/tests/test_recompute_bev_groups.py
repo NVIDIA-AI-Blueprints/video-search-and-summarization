@@ -4,6 +4,7 @@
 """Tests for profile-driven, filename-based BEV group recomputation."""
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -138,6 +139,50 @@ def test_recompute_accepts_and_filters_calibration_superset(tmp_path):
     result = json.loads(calibration_file.read_text(encoding="utf-8"))
     assert calibration_file.stat().st_ino == original_inode
     assert [sensor["id"] for sensor in result["sensors"]] == ["Camera"]
+
+
+def test_publish_failure_restores_original_in_place(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera"])
+    original_bytes = calibration_file.read_bytes()
+    original_inode = calibration_file.stat().st_ino
+
+    def fake_recompute(path, sensor_names, *_args):
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        data["sensorGroups"] = [{"name": "bev-sensor-1", "sensors": sensor_names}]
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    real_fsync = os.fsync
+    fsync_calls = 0
+
+    def fail_first_fsync(file_descriptor):
+        nonlocal fsync_calls
+        fsync_calls += 1
+        if fsync_calls == 1:
+            raise OSError("simulated publish failure")
+        return real_fsync(file_descriptor)
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ), patch(
+        "profile_configurator.profile_config_manager.os.fsync",
+        side_effect=fail_first_fsync,
+    ):
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file, expected_count=1)
+        )
+
+    assert fsync_calls == 2
+    assert calibration_file.read_bytes() == original_bytes
+    assert calibration_file.stat().st_ino == original_inode
+    assert list(tmp_path.glob("calibration.backup_*.json"))
+    assert not list(tmp_path.glob(".calibration.bev_*.json"))
 
 
 def test_missing_video_sensor_preserves_original(tmp_path):
