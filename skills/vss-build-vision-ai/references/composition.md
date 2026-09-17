@@ -63,6 +63,17 @@ Start with the Foundation's effective `COMPOSE_PROFILES`.
 - Put user-configurable values in the env delta. Do not copy default values that
   are unchanged.
 
+**Harness-only guard.** Before running the generic pruning pass below, compare
+the requested capability set with the Foundation. If they are identical and
+the only change is a Q3 answer, this is a harness-only delta. Preserve the
+Foundation list and remove only `vss-agent`, plus an unrequested `vss-va-mcp`
+when the existing VA-MCP rule applies. Do not interpret Q3 **no** as headless
+and do not run forward-closure pruning: the host-side `vss` CLI is the driver,
+while UI, ingress, models, Redis, VIOS, and all other Foundation services stay.
+Use `resolve_service_graph.py`'s `validate_harness_only_delta` before artifact
+generation. An explicit request for headless operation or capability removal
+does not meet this guard and proceeds through normal pruning.
+
 The Foundation is a starting graph to trim, not a floor to inherit. A delta is
 symmetric: after adding requested owners and their peers, prune every Foundation
 service that no requested capability needs. Compute the reachable set by forward
@@ -330,8 +341,10 @@ Then verify:
 - The resolved service list is non-empty.
 - Added capability owners and their required peers resolve.
 - Removed services do not resolve.
-- Every retained service is transitively required by at least one requested
-  capability; no orphaned Foundation carryover survives the delta.
+- Except in a harness-only delta, every retained service is transitively
+  required by at least one requested capability; no orphaned Foundation
+  carryover survives ordinary capability pruning. A harness-only delta instead
+  preserves every unrelated Foundation key by invariant.
 - A shared singleton owner resolves to exactly one variant, and every consumer
   config that keys on that owner's output (class-label taxonomy and casing,
   topic names) matches the resolved variant; no consumer filters on a taxonomy

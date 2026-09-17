@@ -12,6 +12,10 @@ VSS_AGENT = "vss-agent"
 VSS_VA_MCP = "vss-va-mcp"
 
 
+class UnexpectedHarnessDeltaError(ValueError):
+    """A harness-only delta changed unrelated Foundation profiles."""
+
+
 @dataclass(frozen=True)
 class ReadinessTarget:
     service: str
@@ -37,6 +41,7 @@ ANALYTICS_READINESS_TARGETS = (
 def resolve_service_profiles(
     foundation_profiles: Iterable[str],
     requested_profiles: Iterable[str] = (),
+    excluded_profiles: Iterable[str] = (),
     *,
     host_cli: bool,
 ) -> tuple[str, ...]:
@@ -50,7 +55,41 @@ def resolve_service_profiles(
             if profile not in explicitly_requested:
                 profiles.pop(profile, None)
 
+    for profile in excluded_profiles:
+        profiles.pop(profile, None)
+
     return tuple(profiles)
+
+
+def validate_harness_only_delta(
+    foundation_profiles: Iterable[str],
+    final_profiles: Iterable[str],
+    requested_profiles: Iterable[str] = (),
+) -> None:
+    """Require a Q3-only delta to preserve every unrelated Foundation profile."""
+    foundation = tuple(foundation_profiles)
+    expected = resolve_service_profiles(
+        foundation,
+        requested_profiles=requested_profiles,
+        host_cli=True,
+    )
+    actual = tuple(final_profiles)
+    if set(actual) == set(expected):
+        return
+
+    expected_set = set(expected)
+    actual_set = set(actual)
+    unexpected_removed = sorted(expected_set - actual_set)
+    unexpected_added = sorted(actual_set - expected_set)
+    details = []
+    if unexpected_removed:
+        details.append(f"unexpected removals: {', '.join(unexpected_removed)}")
+    if unexpected_added:
+        details.append(f"unexpected additions: {', '.join(unexpected_added)}")
+    raise UnexpectedHarnessDeltaError(
+        "harness-only delta must preserve the Foundation except for harness-owned "
+        f"removals ({'; '.join(details)})"
+    )
 
 
 def analytics_readiness_targets(

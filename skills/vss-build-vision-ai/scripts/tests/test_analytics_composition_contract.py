@@ -16,6 +16,7 @@ BUILD_SKILL = SKILLS_ROOT / "vss-build-vision-ai"
 QUERY_SKILL = SKILLS_ROOT / "operations" / "vss-query-analytics"
 SCRIPTS = BUILD_SKILL / "scripts"
 ALERTS_PROFILE = REPOSITORY / "deploy/docker/developer-profiles/dev-profile-alerts"
+BASE_PROFILE = REPOSITORY / "deploy/docker/developer-profiles/dev-profile-base"
 
 
 def _docker_compose_available() -> bool:
@@ -39,8 +40,10 @@ requires_docker_compose = pytest.mark.skipif(
 
 sys.path.insert(0, str(SCRIPTS))
 from resolve_service_graph import (
+    UnexpectedHarnessDeltaError,
     analytics_readiness_targets,
     resolve_service_profiles,
+    validate_harness_only_delta,
 )
 
 
@@ -63,9 +66,21 @@ def _alerts_profiles(mode: str = "CV") -> tuple[str, ...]:
     return tuple(value.split(","))
 
 
+def _base_profiles() -> tuple[str, ...]:
+    overrides = BASE_PROFILE / "overrides.env"
+    value = _env_value(overrides, "COMPOSE_PROFILES")
+    value = value.replace("${LLM_MODE}", _env_value(overrides, "LLM_MODE"))
+    value = value.replace(
+        "${LLM_NAME_SLUG}",
+        _env_value(overrides, "LLM_NAME_SLUG"),
+    )
+    return tuple(value.split(","))
+
+
 def _compose_config(
     tmp_path: Path,
     profiles: tuple[str, ...],
+    foundation_profile: Path = ALERTS_PROFILE,
 ) -> dict:
     override = tmp_path / "override.env"
     override.write_text(
@@ -85,9 +100,9 @@ def _compose_config(
         "--env-file",
         str(REPOSITORY / "deploy/docker/containers.env"),
         "--env-file",
-        str(ALERTS_PROFILE / ".env"),
+        str(foundation_profile / ".env"),
         "--env-file",
-        str(ALERTS_PROFILE / "overrides.env"),
+        str(foundation_profile / "overrides.env"),
         "--env-file",
         str(override),
         "-f",
@@ -121,6 +136,100 @@ def test_host_cli_honors_explicit_legacy_mcp_delta() -> None:
         host_cli=True,
     )
     assert profiles == ("alert-bridge", "vss-va-mcp")
+
+
+def test_base_no_harness_delta_removes_only_agent() -> None:
+    foundation = _base_profiles()
+    profiles = resolve_service_profiles(foundation, host_cli=True)
+
+    validate_harness_only_delta(foundation, profiles)
+    assert set(foundation) - set(profiles) == {"vss-agent"}
+    assert {
+        "vss-ui",
+        "phoenix",
+        "vss-haproxy-ingress",
+        "redis",
+        "centralizedb",
+        "vst-ingress",
+        "sensor-ms",
+        "streamprocessing-ms",
+        "rtvi-vlm",
+    } <= set(profiles)
+    assert any(profile.startswith("llm_") for profile in profiles)
+
+
+def test_harness_only_validation_rejects_unrequested_pruning() -> None:
+    foundation = _base_profiles()
+    over_pruned = resolve_service_profiles(
+        foundation,
+        excluded_profiles=(
+            "vss-ui",
+            "phoenix",
+            "vss-haproxy-ingress",
+            "redis",
+        ),
+        host_cli=True,
+    )
+
+    with pytest.raises(
+        UnexpectedHarnessDeltaError,
+        match="unexpected removals: phoenix, redis, vss-haproxy-ingress, vss-ui",
+    ):
+        validate_harness_only_delta(foundation, over_pruned)
+
+
+def test_explicit_headless_capability_removals_remain_allowed() -> None:
+    foundation = _base_profiles()
+    profiles = resolve_service_profiles(
+        foundation,
+        excluded_profiles=("vss-ui", "phoenix", "vss-haproxy-ingress"),
+        host_cli=True,
+    )
+
+    assert {"vss-agent", "vss-ui", "phoenix", "vss-haproxy-ingress"}.isdisjoint(
+        profiles
+    )
+    assert {
+        "redis",
+        "centralizedb",
+        "vst-ingress",
+        "sensor-ms",
+        "streamprocessing-ms",
+        "rtvi-vlm",
+    } <= set(profiles)
+
+
+def test_active_build_flow_guards_harness_only_deltas() -> None:
+    skill = (BUILD_SKILL / "SKILL.md").read_text()
+    step_five = skill[skill.index("5. Determine the effective service set.") :]
+    step_five = step_five[: step_five.index("6. Before writing delta artifacts")]
+
+    assert "Harness-only delta invariant" in step_five
+    assert "ADDED_PROFILES=∅" in step_five
+    assert "REMOVED_PROFILES" in step_five
+    assert "validate_harness_only_delta" in step_five
+    assert "bypass generic forward-closure/unused-service pruning" in step_five
+
+
+@requires_docker_compose
+def test_base_harness_only_compose_keeps_foundation_services(tmp_path: Path) -> None:
+    profiles = resolve_service_profiles(_base_profiles(), host_cli=True)
+    document = _compose_config(tmp_path, profiles, BASE_PROFILE)
+    services = set(document["services"])
+
+    assert "vss-agent" not in services
+    assert {
+        "vss-ui",
+        "phoenix",
+        "vss-haproxy-ingress",
+        "redis",
+        "centralizedb",
+        "vst-ingress",
+        "sensor-ms",
+        "streamprocessing-ms",
+        "rtvi-vlm",
+        "nemotron-3.5-lightning-30b-a3b-shared-gpu",
+    } <= services
 
 
 @requires_docker_compose
@@ -159,6 +268,9 @@ def test_nemoclaw_alerts_lvs_resolves_without_agent_or_va_mcp(
         "vst-ingress",
         "sensor-ms",
         "streamprocessing-ms",
+        "vss-ui",
+        "phoenix",
+        "vss-haproxy-ingress",
     } <= services
     assert any("nemotron-3.5-lightning-30b-a3b" in name for name in services)
     assert {"vss-agent", "vss-va-mcp"}.isdisjoint(services)
