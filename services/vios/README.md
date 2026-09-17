@@ -198,7 +198,7 @@ docker pull --platform linux/arm64 <image>:<tag>
 
 ## Git LFS
 
-Some files under `services/vios/` are stored with [Git LFS](https://git-lfs.com/); see `.gitattributes` for paths such as `LICENSE.3rdparty`, prebuilt `*.so` and `*.a` files, bundled UI `*.js` files, and `*.tar.gz` source archives. Install Git LFS before cloning or building so these resolve to real files instead of pointer stubs.
+Some files under `services/vios/` are stored with [Git LFS](https://git-lfs.com/); see `.gitattributes` for paths such as prebuilt `*.so` and `*.a` files, bundled UI `*.js` files, and `*.tar.gz` source archives. Install Git LFS before cloning or building so these resolve to real files instead of pointer stubs.
 
 When adding an LFS-tracked file:
 

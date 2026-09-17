@@ -727,6 +727,7 @@ class IsDependencyFileTest(unittest.TestCase):
             ".github/workflows/ci.yml": "ci",
             # attribution
             "services/rtvi/rt-cv/LICENSE.3rdparty": "attribution",
+            "services/vios/LICENSE.3rdparty.part2": "attribution",
             "services/agent/LICENSE-3rd-party.txt": "attribution",
             "services/sdrc/3rdParty_Licenses.md": "attribution",
             "deploy/docker/services/infra/3rdParty_Licenses": "attribution",
