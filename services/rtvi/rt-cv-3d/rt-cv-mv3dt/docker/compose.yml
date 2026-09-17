@@ -110,8 +110,24 @@ services:
       SENSOR_TIMEOUT_MS: "100"
       MAX_EXPECTED_SENSORS: ${NUM_CAMS:?set NUM_CAMS in docker/.env}
       BUFFER_DURATION_S: "2.0"
-      FUSION_METHOD: ${FUSION_METHOD:-gated_weighted}
+      FUSION_METHOD: ${FUSION_METHOD:-rays}
       VISIBILITY_MIN: ${VISIBILITY_MIN:-0.3}
+      MAX_DIST: ${MAX_DIST:-25}
+      TEMPORAL_FILTER: ${TEMPORAL_FILTER:-1}
+      PIXEL_SIGMA: ${PIXEL_SIGMA:-3.0}
+      ACCEL_SIGMA: ${ACCEL_SIGMA:-3.0}
+      # "auto" measures it from overlapping views; "off" or metres to pin it.
+      FOOT_OFFSET: ${FOOT_OFFSET:-auto}
+      # Views of one id further apart than this are different people. 0 disables.
+      CONFLICT_RADIUS: ${CONFLICT_RADIUS:-2.0}
+      # Buckets of publish delay to let a backward pass run. 0 is causal.
+      SMOOTH_LAG: ${SMOOTH_LAG:-0}
+      CALIBRATION_PATH: /calibration/calibration.json
+    volumes:
+      # Camera geometry. closest refuses to start without it and rays
+      # fuses worse; the baselines ignore it. Staging writes this file, so it
+      # tracks the dataset the deployment was staged for.
+      - ../generated/calibration.json:/calibration/calibration.json:ro
     healthcheck:
       test: ["CMD", "python3", "-c", "import os,sys; sys.exit(0 if os.path.isfile('/tmp/fusion_ready') else 1)"]
       interval: 2s
