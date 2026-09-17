@@ -45,7 +45,9 @@ deploy/
 │   │   ├── alert/compose.yml
 │   │   ├── infra/{Dockerfiles,...}/...
 │   │   └── nim/...
-│   ├── industry-profiles/                             ← skip (out of scope for now)
+│   ├── industry-profiles/
+│   │   ├── warehouse-operations/                      ← has a helm counterpart, in scope
+│   │   └── smartcities/                                ← docker-only, no helm counterpart, skip
 │   └── scripts/                                       ← skip (tooling, not deployments)
 └── helm/
     ├── developer-profiles/
@@ -55,6 +57,10 @@ deploy/
     │   │   ├── values*.yaml
     │   │   ├── templates/...
     │   │   └── configs/...
+    ├── industry-profiles/
+    │   └── warehouse-operations/
+    │       ├── warehouse-{2d,3d,mv3dt}-app/            ← parity target, one per docker app
+    │       └── camera_configs/, scripts/               ← shared, not per-app
     └── services/
         ├── agent/{Chart.yaml, charts/, values.yaml}
         ├── alert/{Chart.yaml, configs/, ...}
@@ -62,13 +68,30 @@ deploy/
 ```
 
 The helm chart for each `deploy/docker/<path>/<name>/compose.yml`
-lives at `deploy/helm/<path>/<name>/` (mirror layout). This
-mirroring is in place for **both** `developer-profiles/*` and
-`services/*` — the two paths the agent walks. `industry-profiles/`
-and `scripts/` are out of scope: skip them entirely and don't
-generate any drift signal for paths under them. Verify the actual
-layout in this PR's checkout before applying the convention; the
-repo evolves.
+lives at `deploy/helm/<path>/<name>/` (mirror layout), in place for
+`developer-profiles/*`, `services/*`, and
+`industry-profiles/warehouse-operations/*` — the three paths the
+agent walks. Within `industry-profiles/`, `smartcities/` has no
+helm counterpart (not deployed via Helm — not a gap) and
+`scripts/` is tooling, not deployments; skip both. Verify the
+actual layout in this PR's checkout before applying the
+convention; the repo evolves.
+
+`warehouse-operations` has three docker apps
+(`warehouse-2d-app/`, `warehouse-3d-app/`, `warehouse-mv3dt-app/`)
+mapping to identically-named helm chart dirs. Its per-app config
+is mounted as files on the docker side but rendered as
+go-templated ConfigMaps on the helm side (`tpl (.Files.Get ...)`
+in `templates/vss-agent-configmap.yaml` and
+`templates/sdrc-configmap.yaml`) — compare semantic content, not
+literal text. Non-drift by design in this tree:
+- `vst/configs/notification_config.json` and `vst_config.json`
+  have no per-app helm counterpart; sourced from the shared
+  `deploy/helm/services/vios/charts/vios-sensor/configs/notification_config.json`
+  umbrella dependency instead.
+- sdrc's `WDM_CLUSTER_TYPE: docker` vs `k8s`, and Kafka/Redis
+  addressing (`kafka:29092`/`redis` vs `kafka-kafka:9092`), are
+  platform differences, not drift.
 
 ## Your job, in order
 
@@ -91,14 +114,20 @@ repo evolves.
 2. **Classify each changed `deploy/` file.** Walk the diff and bucket
    each path:
 
-   - **docker-side** — anything under `deploy/docker/developer-profiles/`
-     or `deploy/docker/services/`, including `compose*.y[a]ml`,
-     `Dockerfile*`, files under any `Dockerfiles/` dir, and any
-     `.env` / `.env.example` referenced by a compose file.
-   - **helm-side** — anything under `deploy/helm/developer-profiles/`
-     or `deploy/helm/services/`: `Chart.yaml`, `values*.yaml`,
-     `templates/**`, `configs/**`, `charts/**` (subcharts), `Chart.lock`.
-   - **skip entirely** — `deploy/docker/industry-profiles/**`,
+   - **docker-side** — anything under `deploy/docker/developer-profiles/`,
+     `deploy/docker/services/`, or
+     `deploy/docker/industry-profiles/warehouse-operations/`,
+     including `compose*.y[a]ml`, `Dockerfile*`, files under any
+     `Dockerfiles/` dir, `.env` / `.env.example` referenced by a
+     compose file, and config files mounted by a compose service
+     (e.g. `vss-agent/configs/*.yml`, `*/sdrc/configs/*.tmpl`,
+     `*/vst/configs/*.json`).
+   - **helm-side** — anything under `deploy/helm/developer-profiles/`,
+     `deploy/helm/services/`, or
+     `deploy/helm/industry-profiles/warehouse-operations/`:
+     `Chart.yaml`, `values*.yaml`, `templates/**`, `configs/**`,
+     `charts/**` (subcharts), `Chart.lock`.
+   - **skip entirely** — `deploy/docker/industry-profiles/smartcities/**`,
      `deploy/docker/scripts/**`, and any `deploy/*.md` / README /
      non-deployment file. Don't drift-flag, don't comment, don't
      bot-PR; treat them as out of scope for this workflow.

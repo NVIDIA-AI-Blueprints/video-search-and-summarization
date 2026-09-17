@@ -32,13 +32,15 @@
 ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7ed6a6f1b682991818a2acaf5636d9fb066ae33265b011837b0ba601c0970
 ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=5212368036879feb704a258be0db012ce518aeaa
+ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
 
 # ── VSS source checkout: operation skills + workspace docs ─────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
 ARG VSS_REPO
 ARG VSS_REF
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+ARG NGC_CLI_VERSION=4.10.0
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/*
 # Dev-loop override: a .vss-src/ snapshot in the build context (staged by
 # stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
@@ -72,6 +74,23 @@ RUN mkdir -p /opt/vss-assets/workspace \
     && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
     && cp /opt/vss-src/.openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
     && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md
+# NGC CLI, unpacked into the staged assets so it rides the runtime stage's
+# single COPY and costs no extra layer. Fetched in this builder rather than the
+# managed base, which carries no guarantee of `curl` or `unzip`.
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) ngc_zip=ngccli_linux.zip ;; \
+      arm64) ngc_zip=ngccli_arm64.zip ;; \
+      *) echo "no NGC CLI build for TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/ngccli.zip \
+      "https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/${NGC_CLI_VERSION}/files/${ngc_zip}"; \
+    unzip -qo /tmp/ngccli.zip -d /opt/vss-assets; \
+    rm -f /tmp/ngccli.zip; \
+    # The zip also carries a sibling ngc-cli.md5, computed from stdin so what it
+    # covers is undocumented. Drop it rather than ship it into the COPY layer.
+    rm -f /opt/vss-assets/ngc-cli.md5; \
+    test -f /opt/vss-assets/ngc-cli/ngc
 # CLI-source handoff for a pre-staged snapshot: it has no .git for the runtime
 # stage to re-fetch, so its CLI sources and STAGED marker ride the one
 # /opt/vss-assets COPY the runtime's layer budget allows (absent on the pinned
@@ -109,6 +128,9 @@ COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 #  - Skills into Hermes' canonical writable skill root (sandbox-owned, like the
 #    ones `nemohermes <sb> skill install` places there); docs into /sandbox,
 #    where Hermes and the notebook's verification expect them.
+#  - The NGC CLI from the staged assets, on PATH for root and the sandbox user.
+#    Unconditional: an operation skill that resolves a sample video by name
+#    shells out to `ngc` directly and cannot install it from inside the sandbox.
 #  - NemoClaw's per-shell `ulimit -u 512` hooks removed: fatal under the
 #    OpenShell k8s driver (container runs as uid 0; RLIMIT_NPROC for root counts
 #    every root process on the node). Process limits are the cluster's job.
@@ -158,6 +180,12 @@ RUN set -eux; \
     && su -s /bin/sh sandbox -c "vss-hermes-sync --all" \
     && cp /opt/vss-assets/workspace/*.md /sandbox/ \
     && for f in /opt/vss-assets/workspace/*.md; do chown sandbox:sandbox "/sandbox/$(basename "$f")"; done \
+    && mv /opt/vss-assets/ngc-cli /usr/local/lib/ngc-cli \
+    && chmod -R a+rX /usr/local/lib/ngc-cli \
+    && chmod +x /usr/local/lib/ngc-cli/ngc \
+    && ln -sf /usr/local/lib/ngc-cli/ngc /usr/local/bin/ngc \
+    && ngc --version \
+    && su -s /bin/sh sandbox -c "ngc --version" \
     && rm -rf /opt/vss-assets \
     && test -f /sandbox/.hermes/skills/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
     && rm -f /etc/profile.d/nemoclaw-rlimits.sh \
@@ -175,4 +203,5 @@ LABEL harness.base="nemoclaw-hermes-sandbox" \
       harness.contract="harbor-trial-v1" \
       harness.agent="hermes" \
       harness.vss-cli="true" \
+      harness.ngc-cli="true" \
       harness.workspace-root="/sandbox"

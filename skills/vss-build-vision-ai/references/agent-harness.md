@@ -1,6 +1,7 @@
 # Agent Harness
 
 - [Model](#model)
+- [Connecting the Web UI to NemoClaw](#connecting-the-web-ui-to-nemoclaw)
 - [`nemoclaw` is never a service key](#nemoclaw-is-never-a-service-key)
 - [What removing the agent implies](#what-removing-the-agent-implies)
 - [Ordering](#ordering)
@@ -18,10 +19,17 @@ build. Two exist, they are **mutually exclusive**, and **at most one** is
 deployed. `vss-agent` is removed unless the request names it, so a build carries
 the NemoClaw sandbox, the in-stack agent, or no harness at all — never two.
 
-| Harness | Where it runs | Reached by | Selected by |
+**Q3 is binary — these are its only two outcomes:**
+
+| Q3 answer | Outcome | Where it runs | Reached by |
 |---|---|---|---|
-| `nemoclaw` *(default)* | a sandbox on the host, outside the Compose project | its chat UI, with the VSS skills installed into it | this file |
-| `vss-agent` | inside the Compose project | the agent REST API (`/generate`), Web UI | the Agent owner ([`services/agent.md`](services/agent.md)), like any other capability |
+| **yes** *(default)* | `nemoclaw` | a sandbox on the host, outside the Compose project | its chat UI, with the VSS skills installed into it |
+| **no** | no harness | — | the `vss` CLI from the host |
+
+**Separate explicit-name path — not a Q3 option:** `vss-agent` runs inside the
+Compose project and is reached through the agent REST API (`/generate`) and Web
+UI. Select it through the Agent owner ([`services/agent.md`](services/agent.md))
+only when the request names it; skip Q3 entirely.
 
 `vss-agent` is in-stack: it is a container, it is reached through the build's own
 origin, and forward closure retains it whenever agentic orchestration is
@@ -48,6 +56,48 @@ alone.
 A build that reaches no interactive surface still has **no harness at all** — the
 correct outcome for one that only ingests, indexes, or serves an API. Defaulting
 to NemoClaw never means adding a harness to a headless build.
+
+## Connecting the Web UI to NemoClaw
+
+When a NemoClaw build uses the default OpenClaw runtime and includes `vss-ui`,
+connect its chat sidebar and Chat tab through the embedded adapter. This
+requires a bridge-aware `deploy_nemoclaw.ipynb`: with
+`VSS_AGENT_ADAPTER_ENABLED=true` and no Brev secure link, its dashboard forward
+must bind to Docker's private bridge gateway so `host.docker.internal` can
+reach it. If the checked-out notebook lacks that behavior, stop and report the
+checkout as incompatible; a loopback-only forward cannot serve the
+containerized UI.
+
+Before onboarding, select the dashboard port (default `18789`) and export both
+it and the adapter flag. The notebook derives `AGENT_DASHBOARD_PORT` from this
+same value:
+
+```bash
+export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+export VSS_AGENT_ADAPTER_ENABLED=true
+```
+
+After onboarding, add these values to `_builds/<name>/override.env`, resolving
+`<dashboard-port>` to the selected `NEMOCLAW_DASHBOARD_PORT` rather than writing
+the placeholder or assuming the default:
+
+| Variable | Value |
+|---|---|
+| `VSS_AGENT_ADAPTER_ENABLED` | `true` |
+| `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
+| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<dashboard-port>` |
+| `VSS_AGENT_BACKEND_TOKEN` | output of `nemoclaw <sandbox> gateway-token --quiet` |
+
+Leave `VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default. The
+token does not exist until onboarding. Capture it without printing it, keep it
+only in the ignored build artifacts, then repeat Step 8 and recreate `vss-ui`
+from the regenerated `resolved.yml`. Confirm the container has the four
+corresponding `AGENT_*` values without printing the token.
+
+This restores the chat sidebar and Chat tab. It does not restore the Search tab
+or the ingress `/api`, `/chat`, `/websocket` routes, which address the in-stack
+agent directly. `openclaw-ws` is specific to OpenClaw; do not apply this block
+to an explicit Hermes build.
 
 ## `nemoclaw` is never a service key
 
@@ -87,9 +137,9 @@ Report every one of these that the build has, whenever the agent is removed:
 
 | Surface | Effect |
 |---|---|
-| Web UI chat sidebar, Chat tab, Search tab | stop answering — they address `/chat/stream`, `/websocket`, and `/api/v1/search`. The Alerts, Dashboard, and Video Management tabs keep working, because they address Alert Bridge, Kibana, and VST directly — including Video Management's upload and delete, which never went through the agent |
+| Web UI chat sidebar, Chat tab, Search tab | the sidebar and Chat tab answer through NemoClaw when the adapter is wired ([Connecting the Web UI to NemoClaw](#connecting-the-web-ui-to-nemoclaw)); with no harness they stop. The Search tab stays dead either way because it addresses `/api/v1/search`, which the adapter does not replace. The Alerts, Dashboard, and Video Management tabs keep working, because they address Alert Bridge, Kibana, and VST directly — including Video Management's upload and delete, which never went through the agent |
 | Alerts tab, *Generate Report* | goes with the sidebar it drives. The incident list and rule CRUD stay, on `video-analytics-api` and Alert Bridge |
-| Web UI summarization on `lvs` | gone: the UI ships no LVS client and reaches summarization only through the agent's chat. On a build with no harness, the capability is `vss summarize` from the host and the UI is a dashboard |
+| Web UI summarization on `lvs` | with no harness, gone: the UI ships no LVS client, so the capability is `vss summarize` from the host and the UI is a dashboard |
 | Ingress `/api`, `/chat`, `/websocket` | `503`. HAProxy still starts — `bk_vss_agent` is declared `init-addr none` — and the origin's root still serves the UI |
 | Search **ingestion and deletion** | no `vss` verb covers the RT-CV/RT-Embed fan-out the agent's `/complete` performs. Use the headless recipe below |
 | `vss-generate-video-report-rag` | unavailable: it drives the agent's `/v1/chat` and `/executions`. Route reports through `vss-generate-video-report`, which never calls the agent |
@@ -156,12 +206,10 @@ Two things the user should hear up front rather than discover:
   build against [`sizing.md`](sizing.md) plus the harness's own model provider —
   and note that a NemoClaw-managed local model claims every visible GPU unless
   pinned (see [Prerequisites](#prerequisites)).
-- **At most one chat surface, plus a dashboard.** The build's Web UI remains
-  either way, with its chat and Search tabs dead and the rest live. On a `yes`
-  the sandbox chat UI is the only conversational surface: report **both as
-  markdown links** — the build's browse origin next to the Agent UI — and name
-  NemoClaw as the driver. On a `no` report the browse origin alone, and name the
-  `vss` CLI as the driver. The build's
+- **One harness, two entry points.** On a default OpenClaw `yes`, the build UI
+  chat and Agent UI both reach NemoClaw. Report **both as markdown links** and
+  name NemoClaw as the driver. On a `no`, report the browse origin alone and
+  name the `vss` CLI as the driver. The build's
   origin is `VSS_PUBLIC_HOST`; on Brev that is the FQDN the context file
   publishes for the ingress port, resolved rather than constructed
   ([`brev.md`](brev.md)). Never `EXTERNAL_IP`, which on a NemoClaw build holds
@@ -194,21 +242,25 @@ with no harness, or name the in-stack agent instead, and deploy nothing until
 that is answered. Discovering it after the readiness gate means a deployed build
 with no way to drive it.
 
-- **Python 3.11+ to run the notebook**, plus `docker`, `python3`, and `curl` on
-  `PATH`, and outbound reach to the installer. **Do not require the NemoClaw CLI
-  here**: section 3.1 installs it at the pinned `NEMOCLAW_INSTALL_REF` whenever
-  that ref is not already present, so a fresh host is a supported starting point
-  and preflighting the post-install CLI would reject one. The notebook's own
-  preflight (section 2) re-checks the host commands, but it runs too late to
-  inform the harness choice.
+- **`uv`, `docker`, `python3`, and `curl` on `PATH`**, and outbound reach to the
+  installer. The host's own Python version is not a requirement here — the
+  bring-up below pins its interpreter with `uv run --python 3.12`. **Do not
+  require the NemoClaw CLI here**: section 3.1 installs it at the pinned
+  `NEMOCLAW_INSTALL_REF` whenever that ref is not already present, so a fresh
+  host is a supported starting point and preflighting the post-install CLI would
+  reject one. The notebook's own preflight (section 2) reports on `docker`,
+  `python3`, and `curl` without failing the run, so it neither informs the
+  harness choice nor stops a host that is short one of them.
 - **An agent model provider**, and only the credential that provider needs. This
   is the harness's *own* LLM, unrelated to the build's `LLM_*` and `VLM_*` knobs.
   The notebook offers three — (a) an OpenAI-compatible endpoint, (b) a
   NemoClaw-managed local model, (c) a build.nvidia.com hosted model — and **this
-  skill defaults to (a) with a remote Claude Opus** (see [Default
-  provider](#default-provider) below). Section 1.2 of the notebook remains the
-  authority on which variables each provider needs; do not infer them, and do not
-  preflight a variable a different provider would have used.
+  skill defaults to (a) serving Claude Opus 5** (see [Default
+  provider](#default-provider) below). The provider is a default; the endpoint,
+  model id, and bearer token it needs are **collected from the user** at Q3a,
+  which is where a missing credential surfaces. Section 1.2 of the notebook
+  remains the authority on which variables each provider needs; do not infer
+  them, and do not preflight a variable a different provider would have used.
 - **A GPU budget that accounts for the harness.** The default remote provider
   costs no GPU. This applies only when the user overrides to the local
   provider: (b)
@@ -257,21 +309,46 @@ working chat.
 ## Default provider
 
 **Default to notebook option (a) — the remote OpenAI-compatible endpoint —
-serving Claude Opus.** Do not ask which provider to use, and do not fall through
-to the notebook's own (c) build.nvidia.com path:
+serving Claude Opus 5 through the NVIDIA Inference Hub.** First ask the user
+which model the sandbox runs on, per [Harness model —
+Q3a](../SKILL.md#harness-model--q3a). Another model on this same endpoint
+replaces `NEMOCLAW_MODEL` alone and keeps every other value below. Only a
+request for a different provider shows the notebook's three provider options
+(a), (b), and (c), whereupon collect only the selected provider's settings.
 
 | Variable | Default | Note |
 |---|---|---|
-| `NEMOCLAW_PROVIDER` | `custom` | option (a); the only provider that consumes `NEMOCLAW_ENDPOINT_URL` |
-| `NEMOCLAW_MODEL` | `claude-opus-4-8` | matches the notebook's own (a) example; override for a different Opus revision, or for a router **route id** when the endpoint is a model router |
-| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` | any OpenAI-compatible base URL; point it at an internal gateway or router instead when one is in use |
+| `NEMOCLAW_PROVIDER` | `custom` — not asked | option (a); the only provider that consumes `NEMOCLAW_ENDPOINT_URL` |
+| `NEMOCLAW_MODEL` | `aws/anthropic/bedrock-claude-opus-5` | Claude Opus 5 as the Inference Hub routes it. The id is **the endpoint's, not the model's**: `azure/anthropic/claude-opus-5` is the same model over another route, a provider's public API serves the bare `claude-opus-5`, and a model router takes a **route id**. Replace it whenever the endpoint changes |
+| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` | the NVIDIA Inference Hub gateway, reachable from NVIDIA infrastructure — the same upstream the bundled `inference-api-proxy.py` defaults to. Any OpenAI-compatible base URL replaces it: another gateway, a model router, a self-hosted server, or a provider's public API |
 | `COMPATIBLE_API_KEY` | **no default** | a real bearer token is required for a public endpoint. Take it from the environment or the platform secret store — never a literal in a command, a file, or skill output |
 
-Override the default **only on an explicit request** for a local or different
-model. "Use a local model", "air-gapped", "use Nemotron", or a named endpoint of
-their own each move the build off the remote default — the choice is the user's,
-so carry it through rather than reasoning about which is better. A local request
-has **two** destinations, not one:
+### Where the user gets each value
+
+What to tell a user who selects option (a) but cannot use its defaults or does
+not have the key.
+
+| Value | Where it comes from |
+|---|---|
+| A key for the default endpoint | Create one at <https://inference.nvidia.com/key-management?action=new-key>; the model ids the Hub serves are listed at <https://inference.nvidia.com/?new=0>. Its gateway answers from NVIDIA infrastructure, so a host outside that network takes one of the rows below — settle that before onboard, not after the first agent turn fails |
+| Another gateway or router the user runs | Whoever operates it, plus its own model list for the matching Opus id. Usually the endpoint their other tooling already points at, so ask about that first when the default does not apply. A router's route ids come from [`deploy_vss_switchyard.ipynb`](../../../deploy/docker/scripts/deploy_vss_switchyard.ipynb), and it forwards the caller's credential upstream, so the key stays the **upstream** provider's |
+| A provider's public API key | That provider's own documentation, for both the key and the model ids it serves. Point the user there rather than describing a key format or a console layout this skill does not own |
+| No key at all | The build's own LLM NIM, per *(a) against the build's own LLM NIM* below (`NIM_SERVED_MODEL_NAME` and `COMPATIBLE_API_KEY=EMPTY`) on a build that resolved `LLM_MODE=local` or `local_shared`; or option (c) with an `nvapi-…` key from <https://build.nvidia.com>, which replaces this route and serves Nemotron rather than Opus |
+
+Two cases need no question at all. **A provider explicitly configured in the
+environment with all of its required values is the answer**: values exported
+by the caller, by CI, or by a platform secret store win over anything Q3a
+collects, so read them first and confirm what was found instead of re-asking.
+And in **autonomous mode**
+([`SKILL.md`](../SKILL.md#exception--autonomous-mode)) the caller's instruction
+plus that environment answer Q3a; a token missing from both is still a blocker
+to report, never grounds to substitute a provider.
+
+Requesting a local model, or any model this endpoint does not serve, moves
+the build to the provider-selection question. "Use a local model", "air-gapped",
+"use Nemotron", or a named endpoint of their own already answers that question,
+so carry it through rather than re-asking. A local request has **two**
+destinations, not one:
 
 | Request | Route | Where the model runs |
 |---|---|---|
@@ -336,9 +413,17 @@ works the same way.
 ## Bring-up
 
 Do not reimplement any of this. `deploy_nemoclaw.ipynb` is the single source of
-host-side harness logic — Docker pinning, sandbox onboarding, policy, skill
-install, workspace docs, webhooks, UI link — and
+host-side harness logic — sandbox onboarding, policy, skill install, workspace
+docs, webhooks, UI link — and
 `deploy/docker/scripts/run_setup_notebook.py` executes it non-interactively.
+
+Its section 2.1 also runs `deploy/docker/scripts/pin_docker_version.sh`, which
+the Docker gate in [`prerequisites.md`](prerequisites.md#docker-pin) already ran
+at Step 3. That is deliberate: the script is idempotent and only re-applies the
+`apt-mark hold`s on a host already pinned. **A host that skipped Step 3 gets its
+Docker downgrade here, with the build running** — dockerd restarts under it. The
+pin belongs at Step 3 for that reason; reaching this step unpinned is a
+prerequisite that was missed, not a step the harness owns.
 
 Set the environment, then run the notebook:
 
@@ -349,27 +434,35 @@ Set the environment, then run the notebook:
 | `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
 | `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
-| `NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, `NEMOCLAW_ENDPOINT_URL`, `COMPATIBLE_API_KEY` | per [Default provider](#default-provider) | remote Claude Opus unless the user asked for local or another model. The block below spells out that remote route alone; every other route **replaces** these values rather than defaulting through them |
+| `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | the notebook forward and the UI adapter backend URL must use the same value |
+| `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | makes a compatible notebook expose the forward on Docker's private bridge when no Brev secure link exists |
+| `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 when the user accepts the default; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
 
 ```bash
 set -o pipefail   # report the notebook's status, not `tee`'s
+umask 077         # the setup log contains the authenticated Agent UI URL
 
 REPO="$(git rev-parse --show-toplevel)"
 
 export VSS_REPO_DIR="$REPO"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
 export NEMOCLAW_RECREATE_SANDBOX=0
+export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+export VSS_AGENT_ADAPTER_ENABLED=true
 
-# Default harness LLM: notebook option (a), remote Claude Opus. The `:-` form
-# lets an already-exported value win — right for a caller-supplied remote
-# endpoint, and exactly why these four lines must not be copied as-is for the
-# NIM route, where a stale remote endpoint and model would survive.
+# Harness LLM: notebook option (a), Claude Opus 5 through the NVIDIA
+# Inference Hub. Substitute the Q3a answers whenever the user replaced a
+# default; the `:-` form lets an already-exported value win — right for a
+# caller-supplied endpoint or CI, and exactly why these lines must not be
+# copied as-is for the NIM route, where a stale endpoint and model would
+# survive.
 export NEMOCLAW_PROVIDER=custom
-export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-claude-opus-4-6}"
-export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://api.anthropic.com/v1/}"
-# From the environment or the secret store; never a literal here.
+export NEMOCLAW_MODEL="${NEMOCLAW_MODEL:-aws/anthropic/bedrock-claude-opus-5}"
+export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://inference-api.nvidia.com/v1}"
+# From the environment or the secret store; never a literal here. A key the user
+# dropped in a file is read in first: set -a; . "$REPO/nemoclaw.env"; set +a
 : "${COMPATIBLE_API_KEY:?bearer token for NEMOCLAW_ENDPOINT_URL is required}"
 export COMPATIBLE_API_KEY
 
@@ -394,10 +487,10 @@ blocker: report it with the log path and stop, rather than going on to the UI
 link.
 
 **Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
-`| tail`, `| head`, or a dropped stream loses section 3.5's `Agent UI:` line and
-the `WARNING:` that cell prints — without failing — when the dashboard forward
-does not come up. A clean exit does not mean the link is usable. Read the link
-from the `tee`d log.
+`| tail`, `| head`, or a dropped stream loses section 3.5's `Sandbox:` and
+`Agent UI:` lines and the `WARNING:` that cell prints — without failing — when
+the dashboard forward does not come up. A clean exit does not mean the link is
+usable. Read the link and the sandbox name from the `tee`d log.
 
 Do not reconstruct the URL from the notebook source. Its origin branches on
 whether the Brev context file publishes a secure link for the dashboard port.
@@ -453,15 +546,18 @@ The notebook runs with errors fatal and asserts each step itself, so a clean
 exit already means onboarding, policy, skills, and workspace docs all landed.
 Confirm the two things that exit code cannot cover:
 
-1. **The harness is reachable.** Section 3.5 prints `Agent UI: <url>`. Put it in
-   the final summary as a **markdown link** — `[Open the NemoClaw Agent UI](<url>)`
-   — not as a bare URL in prose, so the user can click straight through to the
-   harness they just deployed. The target is the printed URL character for
-   character: do not shorten it, re-host it, or drop the fragment, because the
-   OpenClaw URL carries the gateway token in `#token=` and a link without it
-   lands on an unauthenticated page. On Brev the host is the secure-link FQDN. A
-   `127.0.0.1` URL only resolves on the deployment host, so pair the link with
-   the SSH tunnel the same section prints rather than offering it alone.
+1. **The harness is reachable.** Section 3.5 prints `Sandbox: <name>` and
+   `Agent UI: <url>`. The OpenClaw URL carries the gateway token in `#token=`;
+   treat the complete URL as a secret. In the final summary, remove the
+   fragment and report only the token-free origin as a markdown link, then
+   point the user to `_builds/<name>/nemoclaw-setup.log` on the deployment host
+   for the complete authenticated URL. Never copy the token or the
+   secret-bearing URL into the response. Hand over the recipe rather than the
+   value: on the deployment host `nemoclaw <name> gateway-token --quiet` prints
+   a fresh token, and the UI URL is the reported origin plus `/#token=<token>`.
+   On Brev the host is the secure-link FQDN. A `127.0.0.1` origin only resolves
+   on the deployment host, so pair it with the SSH tunnel the same section
+   prints.
 
    Confirm the forward behind it is bound as that origin requires:
 
@@ -470,8 +566,10 @@ Confirm the two things that exit code cannot cover:
    ```
 
    On Brev it must read `0.0.0.0`; a `127.0.0.1` bind answers a local health
-   probe and still `503`s behind the secure link. On loopback, re-run the
-   notebook and take the new link — do not publish the localhost URL instead.
+   probe and still `503`s behind the secure link. Without a Brev secure link,
+   an adapter-enabled run must bind to Docker's private bridge gateway, not
+   `127.0.0.1` or `0.0.0.0`. If the bind is wrong, stop and use a compatible
+   notebook rather than recreating the UI against an unreachable backend.
 2. **The sandbox can reach the build.** From the sandbox, one call against the
    origin recorded in `ENV.md`. A `403 CONNECT tunnel failed` is the egress
    policy (see Prerequisites), not a deployment fault — the distinction matters
@@ -480,6 +578,17 @@ Confirm the two things that exit code cannot cover:
 Section 3.6 is an optional deeper pass over the live sandbox, active policy
 metadata, webhooks, and the installed workspace docs. Run it when onboarding
 behaved unexpectedly.
+
+### Name the sandbox in the summary
+
+Report the sandbox name next to the Agent UI link — the `NEMOCLAW_SANDBOX_NAME`
+the bring-up was given, read back from section 3.5's `Sandbox: <name>` line
+rather than assumed. It is the handle every later command takes:
+`nemoclaw <name> status`, `openshell sandbox exec -n <name>`, and the
+[Teardown](#teardown) destroy. The sandbox lives outside the Compose project, so
+nothing that lists the build reveals it, and a name left at the `demo` default is
+the one a second build silently reuses — a user who cannot name this sandbox
+cannot tell the two apart later.
 
 ## Teardown
 
@@ -501,5 +610,7 @@ reports as a skill failure rather than a missing deployment.
 - `deploy/docker/scripts/deploy_nemoclaw.ipynb`
 - `deploy/docker/scripts/run_setup_notebook.py`
 - `deploy/docker/scripts/nemoclaw/README.md`
+- `deploy/docker/services/ui/compose.yml`
+- `services/ui/DOCKER-README.md`
 - `assets/vss_nemoclaw_policy.yaml`
 - `.openclaw/` — `Dockerfile`, `plugin/`, `workspace/` (and its `_nemoclaw` overlay)

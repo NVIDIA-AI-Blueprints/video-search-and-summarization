@@ -41,18 +41,25 @@ ARG OPENCLAW_VERSION=2026.7.1
 ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
 # uv 0.12.10, by index digest (multi-arch).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
+# NGC CLI, staged unconditionally: the operation skills fetch sample data and
+# release fixtures with `ngc registry resource download-version`, and the
+# sandbox cannot install it for itself at runtime — its egress policy allows no
+# NGC host. Same version prerequisites.md pins for a host install.
+ARG NGC_CLI_VERSION=4.10.0
 # Skills and the vss CLI: one pinned commit of this repo, so an eval can say
 # exactly which it measured. Must be a commit whose operation skills declare
 # `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise).
 # Override with --build-arg VSS_REF=<sha>; bump the default when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=5212368036879feb704a258be0db012ce518aeaa
+ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
 
 # ── VSS source checkout ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
 ARG VSS_REPO
 ARG VSS_REF
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+ARG NGC_CLI_VERSION
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/*
 # Dev-loop override: a .vss-src/ snapshot in the build context (staged by
 # stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
@@ -83,6 +90,22 @@ RUN mkdir -p /opt/vss-cli-src \
               && cp -R /opt/vss-src/libs/vss /opt/vss-cli-src/libs/vss; \
             fi; \
        fi
+
+# NGC CLI, unpacked here for the runtime stage to copy. Fetched in this builder
+# rather than in the managed base, which carries no guarantee of `curl` or
+# `unzip`; extracting here also keeps the runtime to one COPY.
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) ngc_zip=ngccli_linux.zip ;; \
+      arm64) ngc_zip=ngccli_arm64.zip ;; \
+      *) echo "no NGC CLI build for TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/ngccli.zip \
+      "https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/${NGC_CLI_VERSION}/files/${ngc_zip}"; \
+    unzip -qo /tmp/ngccli.zip -d /opt; \
+    rm -f /tmp/ngccli.zip; \
+    chmod +x /opt/ngc-cli/ngc; \
+    test -x /opt/ngc-cli/ngc
 
 # ── Plugin build (from its lockfile) ───────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-plugin-builder
@@ -145,6 +168,16 @@ ARG VSS_REPO
 ARG VSS_REF
 COPY --from=uv /uv /usr/local/bin/uv
 COPY --from=vss-src /opt/vss-cli-src/ /opt/vss-cli-src/
+
+# NGC CLI on PATH for root and the sandbox user. Unconditional: an operation
+# skill that resolves a sample video by name shells out to `ngc` directly, and a
+# sandbox that lacks it fails with `command not found` having no way to recover.
+COPY --from=vss-src /opt/ngc-cli/ /usr/local/lib/ngc-cli/
+RUN chmod -R a+rX /usr/local/lib/ngc-cli \
+    && chmod +x /usr/local/lib/ngc-cli/ngc \
+    && ln -sf /usr/local/lib/ngc-cli/ngc /usr/local/bin/ngc \
+    && ngc --version \
+    && su -s /bin/sh sandbox -c "ngc --version"
 RUN set -eux; \
     if [ -f /opt/vss-cli-src/STAGED ]; then \
       export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-cli-src/STAGED)"; \
@@ -161,9 +194,7 @@ RUN set -eux; \
     && uv venv --python /usr/bin/python3 /usr/local/vss \
     && VIRTUAL_ENV=/usr/local/vss uv pip install "nvidia-vss[cli] @ /usr/local/src/vss/services/agent" \
     && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
-    # Strip to what the editable install points at: services/agent, plus
-    # libs/vss when the source tree has it (the CLI library moved there; the
-    # pinned VSS_REF predates the move, so the pinned path is unchanged).
+    # Strip to what the editable install points at: services/agent and libs/vss.
     && mv /usr/local/src/vss/services/agent /usr/local/src/vss-agent \
     && if [ -d /usr/local/src/vss/libs/vss ]; then mkdir -p /usr/local/src/vss-libs && mv /usr/local/src/vss/libs/vss /usr/local/src/vss-libs/vss; fi \
     && rm -rf /usr/local/src/vss \
@@ -172,6 +203,7 @@ RUN set -eux; \
     && if [ -d /usr/local/src/vss-libs ]; then mkdir -p /usr/local/src/vss/libs && mv /usr/local/src/vss-libs/vss /usr/local/src/vss/libs/vss && rmdir /usr/local/src/vss-libs; fi \
     && chmod -R a+rX /usr/local/src/vss \
     && vss --version \
+    && vss vlm run --help | grep -F -- '--fps' \
     && su -s /bin/sh sandbox -c "vss --version"
 
 # ── Extend the managed runtime with the VSS plugin ─────────────────────────────
@@ -241,6 +273,22 @@ RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
 # _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
 ENV VSS_WORKSPACE_VARIANT=nemoclaw
 
+# The managed base image already contains generic workspace Markdown, while
+# register-time seeding intentionally preserves existing files. Seed the VSS
+# variant while building the immutable image so a fresh sandbox starts with
+# the NemoClaw-specific instructions; later runtime seeding still preserves
+# user edits.
+USER root
+RUN set -eu; \
+    workspace=/sandbox/.openclaw/workspace; \
+    mkdir -p "$workspace"; \
+    cp /opt/vss-plugin/workspace/_nemoclaw/*.md "$workspace"/; \
+    for source in /opt/vss-plugin/workspace/*.md; do \
+      target="$workspace/$(basename "$source")"; \
+      [ -e "$target" ] || cp "$source" "$target"; \
+    done; \
+    chown -R sandbox:sandbox "$workspace"
+
 # NemoClaw's shell hooks apply a hard `ulimit -u 512` in every shell
 # (/etc/profile.d/nemoclaw-rlimits.sh and /etc/bash.bashrc, sourcing
 # /usr/local/lib/nemoclaw/sandbox-rlimits.sh). That is harmless when the shell
@@ -279,4 +327,5 @@ LABEL harness.base="nemoclaw-openclaw-sandbox" \
       harness.agent="openclaw" \
       harness.vss-cli="true" \
       harness.vss-plugin="true" \
+      harness.ngc-cli="true" \
       harness.workspace-root="/sandbox"

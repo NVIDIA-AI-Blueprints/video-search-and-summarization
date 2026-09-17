@@ -55,15 +55,15 @@ spec:
             - name: CALIBRATION_SOURCE_TYPE
               value: {{ .Values.calibrationSourceType | default "" | quote }}
             - name: CALIBRATION_FILE_SOURCE
-              value: {{ .Values.calibrationFileSource | default "" | quote }}
+              value: {{ tpl (.Values.calibrationFileSource | default "") $ | quote }}
             - name: IMAGES_DIR
               value: {{ .Values.imagesDir | default "/opt/vss/images" | quote }}
             - name: IMAGE_SOURCE_TYPE
               value: {{ .Values.imageSourceType | default "" | quote }}
             - name: IMAGE_METADATA_FILE_SOURCE
-              value: {{ .Values.imageMetadataFileSource | default "" | quote }}
+              value: {{ tpl (.Values.imageMetadataFileSource | default "") $ | quote }}
             - name: IMAGE_BASE_SOURCE
-              value: {{ .Values.imageBaseSource | default "" | quote }}
+              value: {{ tpl (.Values.imageBaseSource | default "") $ | quote }}
             - name: APP_DATA_MARKER_FILE
               value: {{ .Values.appDataMarkerFile | default "" | quote }}
             - name: MAX_RETRIES

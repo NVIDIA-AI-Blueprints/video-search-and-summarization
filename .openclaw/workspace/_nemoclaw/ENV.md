@@ -27,6 +27,11 @@ export HOST_IP=host.openshell.internal
 # "Empty VSS_PUBLIC_URL" below before running anything that needs it.
 export VSS_PUBLIC_URL=""
 
+# Whether this harness may pause a running turn for structured human input.
+# The launch configuration keeps this false: ask follow-up questions in the
+# ordinary chat response and let the user's next message start the next turn.
+export HITL_ENABLED=false
+
 # Skills that drive the VSS CLI (vss-search-archive, vss-summarize-video)
 # invoke it as `uv run --project <checkout>/libs/vss`, so uv has to
 # resolve. `pip install --user` puts it here, and this directory is not on

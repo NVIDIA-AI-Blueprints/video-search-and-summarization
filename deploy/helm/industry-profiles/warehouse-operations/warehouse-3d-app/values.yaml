@@ -15,6 +15,10 @@ global:
   useReleaseNamePrefix: false
   externalHost: ""
   externalPort: ""
+  # Branch/tag for calibration-import source URLs. Empty falls back to "develop".
+  gitRef: ""
+  # Dataset dir under calibration/sample-data/, shared by calibration-import's source URLs.
+  sampleVideoDataset: warehouse-4cams-20mx20m-synthetic
   # Comma-separated static TURN URLs (username:password@host:port). See
   # deploy/helm/industry-profiles/warehouse-operations/TURN-SERVER.md.
   turnServerUrl: ""
@@ -126,10 +130,12 @@ bp-configurator:
 calibration-import:
   enabled: true
   name: import-calibration-output-3d
+  restartPolicy: OnFailure
+  backoffLimit: 5
   apiUrl: http://vss-video-analytics-api:8081
-  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
-  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
-  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images
   requireCalibration: true
   requireImages: true
 
@@ -197,7 +203,7 @@ vios:
     headlessServiceName: ""
     # No bind-mounts in Helm: download overlay assets from video-analytics-api.
     calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
-    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1%2Fregion%3DRegion-1&view=plan-view"
+    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building=Warehouse/room=Room-1&view=plan-view"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
@@ -231,7 +237,7 @@ vios:
         # hostPath: /opt/vss/customer-videos   # node-local customer videos
     ngcVideoSeed:
       enabled: true
-      dataset: warehouse-4cams-20mx20m-synthetic
+      # dataset unset: falls back to global.sampleVideoDataset.
       # Reuses the bundle the rtvi-cv NGC job already extracted, so it is not
       # downloaded twice. Needs nvstreamer and rtvi-cv on the same node (RWO).
       # Clear this and set resourceVersion to download independently.
@@ -321,6 +327,7 @@ analytics:
       calibration:
         enabled: true
         mountPath: /resources/calibration.json
+        apiUrl: "http://vss-video-analytics-api:8081/config/calibration"
     config:
       kafkaConfigJson: |
         {
@@ -394,7 +401,16 @@ analytics:
             {"name": "sinkType", "value": "kafka"},
             {"name": "numWorkersForBehaviorCreation", "value": "1"},
             {"name": "numWorkersForFrameEnhancement", "value": "1"},
-            {"name": "numWorkersForSpaceEstimation", "value": "0"}
+            {"name": "numWorkersForSpaceEstimation", "value": "0"},
+            {"name": "restrictedAreaViolationIncidentEnable", "value": "true"},
+            {"name": "restrictedAreaViolationIncidentThreshold", "value": "1.0"},
+            {"name": "restrictedAreaViolationIncidentExpirationWindow", "value": "0.5"},
+            {"name": "confinedAreaViolationIncidentEnable", "value": "true"},
+            {"name": "confinedAreaViolationIncidentThreshold", "value": "1.0"},
+            {"name": "confinedAreaViolationIncidentExpirationWindow", "value": "0.5"},
+            {"name": "proximityViolationIncidentEnable", "value": "true"},
+            {"name": "proximityViolationIncidentThreshold", "value": "1.0"},
+            {"name": "proximityViolationIncidentExpirationWindow", "value": "0.5"}
           ]
         }
     imagePullSecrets:
@@ -450,8 +466,10 @@ rtvi:
     resources:
       limits:
         nvidia.com/gpu: 1
+        cpu: 12
       requests:
         nvidia.com/gpu: 1
+        cpu: 8
 
 # Prometheus + Grafana (K8s port of deploy/docker/services/monitoring).
 # dcgmExporter stays off because the NVIDIA GPU operator already runs

@@ -22,13 +22,17 @@ from __future__ import annotations
 
 from enum import StrEnum
 import json
+import logging
 import os
+import subprocess
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Final
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PROXY_PORT: Final[str] = "7777"
 PROXY_MODE_VALUE: Final[str] = "proxy"
@@ -52,11 +56,29 @@ class BrevEnvKey(StrEnum):
     VSS_PUBLIC_PORT = "VSS_PUBLIC_PORT"
 
 
+def _sudo_read(path: str) -> str | None:
+    """Return *path* read as root via passwordless sudo, or ``None`` if that fails.
+
+    ``-n`` keeps a host without passwordless sudo from blocking on a prompt that
+    nothing (a notebook cell, a service) is there to answer.
+    """
+    try:
+        proc = subprocess.run(["sudo", "-n", "cat", path], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("Could not run `sudo -n cat %s` (%s)", path, exc)
+        return None
+    if proc.returncode != 0:
+        logger.debug("`sudo -n cat %s` exited %s: %s", path, proc.returncode, (proc.stderr or "").strip())
+        return None
+    return proc.stdout
+
+
 def read_brev_environment_context(path: str | None = None) -> dict[str, Any]:
     """Return the parsed Brev environment context, or ``{}`` when unavailable.
 
     The context file (``BREV_ENVIRONMENT_CONTEXT_PATH``) is the source of truth for
     the environment id and per-port secure-link FQDNs. There is no hardcoded path.
+    An unreadable file is logged at WARNING, an absent one at DEBUG.
     """
     if path is None:
         path = os.environ.get(BrevEnvKey.BREV_ENVIRONMENT_CONTEXT_PATH.value, "").strip()
@@ -65,7 +87,39 @@ def read_brev_environment_context(path: str | None = None) -> dict[str, Any]:
     try:
         with open(path, encoding="utf-8") as fp:
             data = json.load(fp)
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        logger.debug("No Brev environment context at %s", path)
+        return {}
+    except PermissionError:
+        # /etc/brev is 0700 root:root, so the login user cannot read the file at all;
+        # escalating is the difference between having the secure-link FQDNs and not.
+        raw = _sudo_read(path)
+        if raw is None:
+            logger.warning(
+                "Brev environment context %s is unreadable and `sudo -n` could not read it either; "
+                "secure-link FQDNs will be unavailable",
+                path,
+            )
+            return {}
+        try:
+            data = json.loads(raw)
+        except ValueError as exc:
+            logger.warning(
+                "Brev environment context %s read via sudo is not valid JSON (%s); "
+                "secure-link FQDNs will be unavailable",
+                path,
+                exc,
+            )
+            return {}
+    except (OSError, ValueError) as exc:
+        # {} alone cannot tell an absent file from one this process may not read, and
+        # the second is a misconfiguration: /etc/brev is 0700 root:root, so every
+        # caller running as the login user silently loses its secure-link FQDNs.
+        logger.warning(
+            "Brev environment context %s is unreadable (%s); secure-link FQDNs will be unavailable",
+            path,
+            exc,
+        )
         return {}
     return data if isinstance(data, dict) else {}
 

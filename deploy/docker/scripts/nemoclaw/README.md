@@ -14,8 +14,27 @@ document is the equivalent command reference for running it by hand.
   `nemoclaw onboard --from` and `nemoclaw <sandbox> {policy-add, mcp, config set, upload, gateway-token}`.
 - `docker`, `node`/`npm`, `nemoclaw`, and `openshell` on `PATH`.
 - Provider credentials in the environment (`NVIDIA_API_KEY`, or
-  `NEMOCLAW_ENDPOINT_URL` + `COMPATIBLE_API_KEY` for a custom OpenAI-compatible
-  endpoint).
+  `NEMOCLAW_ENDPOINT_URL` + `NEMOCLAW_MODEL` + `COMPATIBLE_API_KEY` for a custom
+  OpenAI-compatible endpoint). The default agent model is **Claude Opus 5
+  through the NVIDIA Inference Hub**, which is reachable from NVIDIA
+  infrastructure and issues its own token:
+
+  ```bash
+  export NEMOCLAW_ENDPOINT_URL="https://inference-api.nvidia.com/v1"
+  export NEMOCLAW_MODEL="aws/anthropic/bedrock-claude-opus-5"
+  export COMPATIBLE_API_KEY="<token for that endpoint>"
+  ```
+
+  Create a Hub key at <https://inference.nvidia.com/key-management?action=new-key>;
+  the model ids it serves are listed at <https://inference.nvidia.com/?new=0>.
+
+  Any other endpoint replaces all three — your own gateway or router with the id
+  it serves the model under, a self-hosted server, or a provider's public API —
+  and its own documentation is where that key and those model ids come from.
+  `NVIDIA_API_KEY` (`nvapi-…`, from <https://build.nvidia.com>) is the
+  build.nvidia.com path instead, and a NemoClaw-managed local model needs no key
+  at all. Notebook section 1.2 stays the authority on which variables each
+  provider reads.
 - This repo checked out so the policy, the harness image definition for the
   runtime you pick (`.openclaw/` or `.hermes/`), skills, and workspace docs are
   available.
@@ -56,6 +75,11 @@ nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --
 # sed "s|^export VSS_PUBLIC_URL=.*|export VSS_PUBLIC_URL=\"$VSS_PUBLIC_URL\"|" \
 #   "$REPO/.openclaw/workspace/_nemoclaw/ENV.md" > /tmp/ENV.md
 # nemoclaw "$SB" upload /tmp/ENV.md /sandbox/.openclaw/workspace/   # hermes: /sandbox/
+
+# The checked-in NemoClaw ENV.md defaults HITL_ENABLED=false. In this mode the
+# agent asks required questions in its normal response, ends the turn, and
+# continues after the user's next chat message. Do not enable structured HITL
+# unless both the active harness protocol and its UI support response events.
 
 # 5. Orchestrator MCP registration — only for HTTPS.
 #    Default path: leave this out. deploy_vss_orchestrator.ipynb starts the

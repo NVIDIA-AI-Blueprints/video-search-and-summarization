@@ -23,6 +23,10 @@ global:
   externalHost: ""
   # NodePort for VST ingress (30888). Set when using values-nodeport.yaml.
   externalPort: ""
+  # Branch/tag for calibration-import source URLs. Empty falls back to "develop".
+  gitRef: ""
+  # Dataset dir under calibration/sample-data/, shared by calibration-import's source URLs.
+  sampleVideoDataset: warehouse-4cams-20mx20m-synthetic
   # Comma-separated static TURN URLs (username:password@host:port). See
   # deploy/helm/industry-profiles/warehouse-operations/TURN-SERVER.md.
   turnServerUrl: ""
@@ -45,7 +49,7 @@ bp-configurator:
   data:
     enabled: true
     mountPath: /opt/data
-    seedConfigMapName: vss-behavior-analytics-resources
+    seedConfigMapName: bp-configurator-mv3dt-calibration-seed
   image:
     repository: ghcr.io/nvidia-ai-blueprints/vss/vss-configurator
     tag: develop-latest
@@ -134,10 +138,12 @@ bp-configurator:
 calibration-import:
   enabled: true
   name: import-calibration-output-mv3dt
+  restartPolicy: OnFailure
+  backoffLimit: 5
   apiUrl: http://vss-video-analytics-api:8081
-  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json
-  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/imageMetadata.json
-  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images
+  calibrationFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/calibration.json
+  imageMetadataFileSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images/imageMetadata.json
+  imageBaseSource: https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/{{ .Values.global.gitRef | default "develop" }}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/{{ .Values.global.sampleVideoDataset }}/images
   requireCalibration: true
   requireImages: true
 
@@ -178,7 +184,7 @@ vios:
     headlessServiceName: ""
     # No bind-mounts in Helm: download overlay assets from video-analytics-api.
     calibrationFileEndpoint: "http://vss-video-analytics-api:8081/config/calibration"
-    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building%3DWarehouse%2Froom%3DRoom-1%2Fregion%3DRegion-1&view=plan-view"
+    floormapImageEndpoint: "http://vss-video-analytics-api:8081/config/calibration/image?place=building=Warehouse/room=Room-1&view=plan-view"
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
@@ -212,7 +218,7 @@ vios:
         # hostPath: /opt/vss/customer-videos   # node-local customer videos
     ngcVideoSeed:
       enabled: true
-      dataset: warehouse-4cams-20mx20m-synthetic
+      # dataset unset: falls back to global.sampleVideoDataset.
       # Reuses the bundle the rtvi-cv NGC job already extracted, so it is not
       # downloaded twice. Needs nvstreamer and rtvi-cv on the same node (RWO).
       # Clear this and set resourceVersion to download independently.
@@ -321,6 +327,7 @@ analytics:
       calibration:
         enabled: true
         mountPath: /resources/calibration.json
+        apiUrl: "http://vss-video-analytics-api:8081/config/calibration"
     config:
       kafkaConfigJson: |
         {

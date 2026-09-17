@@ -109,7 +109,9 @@ def _is_loopback_url(url: str) -> bool:
         host = urllib.parse.urlparse(url).hostname or ""
     except Exception:
         return False
-    return host in ("localhost", "127.0.0.1", "::1") or host.startswith("127.")
+    return host in ("localhost", "127.0.0.1", "::1", "host.openshell.internal") or host.startswith(
+        "127."
+    )
 
 
 def _vios_exit_for(exc: Exception) -> tuple[Exit, str]:
@@ -422,8 +424,16 @@ class VlmGroup(CommandGroup):
             model_params["temperature"] = inputs.temperature
 
         # Initialise memory before media resolution so any failure path (including
-        # the loopback clip-fetch timeout below) can write a terminal record.
-        memory = self.persist_memory(ctx, no_persist=options.no_persist)
+        # the loopback clip-fetch timeout below) can write a terminal record. A
+        # configured store that is unavailable must not prevent the visual answer:
+        # carry on unpersisted and report the persistence failure as partial.
+        persist_error: str | None = None
+        try:
+            memory = self.persist_memory(ctx, no_persist=options.no_persist)
+        except memory_mod.MemoryUnavailable as exc:
+            persist_error = str(exc)
+            click.echo(f"vss: unified memory is unavailable, running without it ({exc})", err=True)
+            memory = None
 
         # Resolve the media URL.
         media_url: str
@@ -798,10 +808,12 @@ class VlmGroup(CommandGroup):
         # Point call: write the terminal record once.
         if memory is None:
             body["persisted"] = False
+            if persist_error:
+                body["persist_error"] = persist_error
             return Result(
                 body=body,
                 extra={"marker": {"status": "completed", "persisted": False}},
-                exit=Exit.SUCCESS,
+                exit=Exit.PARTIAL if persist_error else Exit.SUCCESS,
                 job_id=job_id,
             )
 
@@ -819,7 +831,6 @@ class VlmGroup(CommandGroup):
             input_data=input_data,
             output=output,
         )
-        persist_error: str | None = None
         try:
             memory.service.upsert(terminal)
         except memory_mod.write_failures() as exc:

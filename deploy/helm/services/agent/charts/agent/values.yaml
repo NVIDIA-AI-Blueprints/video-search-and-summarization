@@ -35,6 +35,9 @@ service:
 # default; profiles whose agent runs long operations (search, LVS) raise it.
 ingressTimeoutServer: ""
 profile: base
+# Structured NAT interactions are disabled unless this is explicitly true.
+# Enable the matching UI NEXT_PUBLIC_* HITL flags in the same release.
+hitlEnabled: false
 # Alerts profile only: mount ConfigMap key(s) under /etc/vss-agent/report-templates. Must match keys baked into
 # vss-agent-config (e.g. dev-profile-alerts `configs/vss-agent/incident_report_template.md`). If disabled, omit the
 # volume entirely — Kubernetes fails when `items` references a key missing from the ConfigMap.

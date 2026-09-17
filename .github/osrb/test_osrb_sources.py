@@ -248,6 +248,28 @@ RUN wget -O /patches/libssl3.deb https://security.debian.org/pool/libssl3_3.0.20
         self.assertEqual({"v9.1.0"}, versions(rows, "NVIDIA/DeepStream"))
         self.assertEqual({"v2.2.6"}, versions(rows, "numpy/numpy"))
 
+    def test_a_registry_artifact_is_named_by_its_resource_not_the_archive(self) -> None:
+        # The harness images pick the NGC archive with a shell variable
+        # assigned in the same RUN, so the filename never resolves. The
+        # resource and its version are in the path either way.
+        dockerfile = b"""
+FROM ubuntu:24.04
+ARG NGC_CLI_VERSION=4.10.0
+RUN case "${TARGETARCH:-amd64}" in \\
+      amd64) ngc_zip=ngccli_linux.zip ;; \\
+      arm64) ngc_zip=ngccli_arm64.zip ;; \\
+    esac; \\
+    curl -fsSLo /tmp/ngccli.zip \\
+      "https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/${NGC_CLI_VERSION}/files/${ngc_zip}"
+RUN wget -O /tmp/tool.tar.gz https://example.invalid/tool/versions/1.2.3.tar.gz
+"""
+        rows = osrb_sources.parse_dockerfile(dockerfile, "svc/Dockerfile")
+
+        # A `versions` segment without the rest of the shape says nothing about
+        # what the project is called.
+        self.assertEqual({"ngc_cli", "1.2.3.tar.gz"}, packages(rows, "source"))
+        self.assertEqual({"4.10.0"}, versions(rows, "ngc_cli"))
+
     def test_fetching_a_licence_pdf_or_signing_key_is_not_a_dependency(self) -> None:
         dockerfile = b"""
 FROM ubuntu:24.04

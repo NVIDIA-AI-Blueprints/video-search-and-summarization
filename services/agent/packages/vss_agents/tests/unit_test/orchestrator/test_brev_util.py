@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for vss_agents/orchestrator/brev_util.py."""
 
+import builtins
+import errno
 import json
+import logging
+import subprocess
 
 from vss_agents.orchestrator import brev_util
 from vss_agents.orchestrator.brev_util import apply_brev_proxy_env
@@ -174,3 +178,89 @@ def test_brev_secure_link_fqdn_returns_none_without_context(monkeypatch):
     monkeypatch.delenv("BREV_ENVIRONMENT_CONTEXT_PATH", raising=False)
 
     assert brev_util.brev_secure_link_fqdn(7777) is None
+
+
+def _deny_direct_read(monkeypatch, context_path) -> None:
+    """Make ``open(context_path)`` raise EACCES.
+
+    The host case is /etc/brev being 0700 root:root, which chmod cannot reproduce
+    for a test run as root.
+    """
+    real_open = builtins.open
+
+    def denied(file, *args, **kwargs):
+        if str(file) == str(context_path):
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", denied)
+
+
+def test_read_context_warns_when_unreadable(tmp_path, monkeypatch, caplog):
+    context_path = tmp_path / "environment-context.json"
+    _write_context(
+        context_path,
+        env_id="denied",
+        ports=[{"destination_port": 18789, "fqdn": "18789-denied.stg.apps.launchpad.nvidia.com"}],
+    )
+    monkeypatch.setenv("BREV_ENVIRONMENT_CONTEXT_PATH", str(context_path))
+    _deny_direct_read(monkeypatch, context_path)
+    monkeypatch.setattr(brev_util, "_sudo_read", lambda _path: None)
+
+    with caplog.at_level(logging.WARNING):
+        assert brev_util.read_brev_environment_context() == {}
+        assert brev_util.brev_secure_link_fqdn(18789) is None
+
+    assert "unreadable" in caplog.text
+    assert str(context_path) in caplog.text
+
+
+def test_read_context_falls_back_to_sudo_when_denied(tmp_path, monkeypatch, caplog):
+    context_path = tmp_path / "environment-context.json"
+    _write_context(
+        context_path,
+        env_id="sudo-env",
+        ports=[{"destination_port": 18789, "fqdn": "18789-sudo-env.stg.apps.launchpad.nvidia.com"}],
+    )
+    monkeypatch.setenv("BREV_ENVIRONMENT_CONTEXT_PATH", str(context_path))
+    _deny_direct_read(monkeypatch, context_path)
+    raw = json.dumps(
+        {
+            "environment_id": "sudo-env",
+            "ports": [{"destination_port": 18789, "fqdn": "18789-sudo-env.stg.apps.launchpad.nvidia.com"}],
+        }
+    )
+    monkeypatch.setattr(brev_util, "_sudo_read", lambda _path: raw)
+
+    with caplog.at_level(logging.WARNING):
+        assert brev_util.brev_secure_link_fqdn(18789) == "18789-sudo-env.stg.apps.launchpad.nvidia.com"
+
+    assert caplog.records == []
+
+
+def test_sudo_read_returns_none_when_sudo_fails(monkeypatch):
+    def failing_run(cmd, **kwargs):
+        assert cmd[:2] == ["sudo", "-n"]
+        return subprocess.CompletedProcess(cmd, 1, "", "sudo: a password is required")
+
+    monkeypatch.setattr(brev_util.subprocess, "run", failing_run)
+
+    assert brev_util._sudo_read("/etc/brev/environment-context.json") is None
+
+
+def test_sudo_read_returns_none_when_sudo_missing(monkeypatch):
+    def missing(cmd, **kwargs):
+        raise FileNotFoundError("sudo")
+
+    monkeypatch.setattr(brev_util.subprocess, "run", missing)
+
+    assert brev_util._sudo_read("/etc/brev/environment-context.json") is None
+
+
+def test_read_context_stays_quiet_when_absent(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("BREV_ENVIRONMENT_CONTEXT_PATH", str(tmp_path / "environment-context.json"))
+
+    with caplog.at_level(logging.WARNING):
+        assert brev_util.read_brev_environment_context() == {}
+
+    assert caplog.records == []

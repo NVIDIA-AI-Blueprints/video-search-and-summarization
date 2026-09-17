@@ -111,6 +111,8 @@ spec:
               mountPath: /vss-agent/eval-output
             {{- end }}
           env:
+            - name: HITL_ENABLED
+              value: {{ .Values.hitlEnabled | default false | quote }}
             {{- /*
               Option B: container env is the explicit list `env` (each value may use Helm `tpl` with .Values / .Release).
               `extraEnv` is appended last (duplicate names: last wins). No envOverrides layer.
