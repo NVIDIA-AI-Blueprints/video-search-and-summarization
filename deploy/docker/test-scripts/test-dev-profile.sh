@@ -2268,6 +2268,52 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
+# The UI's same-origin chat proxy runs inside the vss-ui container. Its stock
+# backend must therefore use Compose DNS instead of hairpinning through HOST_IP,
+# which fresh hosts can block at the Docker-to-host firewall boundary. Render
+# the Compose model to cover interpolation as well as explicit BYO overrides.
+_ui_compose="${REPO_ROOT}/deploy/docker/services/ui/compose.yml"
+_ui_agent_stub=$'services:\n  vss-agent:\n    image: scratch'
+set +e
+_ui_default_config="$(
+  printf '%s\n' "${_ui_agent_stub}" \
+    | env -u VSS_AGENT_PORT -u VSS_CHAT_BACKEND_MAIN -u VSS_CHAT_BACKEND_SIDEBAR \
+        VSS_PUBLIC_WS_PROTOCOL=ws VSS_PUBLIC_HTTP_PROTOCOL=http \
+        VSS_PUBLIC_HOST=localhost VSS_PUBLIC_PORT=8000 HOST_IP=127.0.0.1 \
+        EXTERNAL_IP=127.0.0.1 \
+        docker compose --profile vss-ui -f "${_ui_compose}" -f - config 2>/dev/null
+)"
+_ui_default_exit=$?
+_ui_override_config="$(
+  printf '%s\n' "${_ui_agent_stub}" \
+    | VSS_CHAT_BACKEND_MAIN=http://custom-main:9100/custom \
+      VSS_CHAT_BACKEND_SIDEBAR=http://custom-sidebar:9200/custom \
+      VSS_PUBLIC_WS_PROTOCOL=ws VSS_PUBLIC_HTTP_PROTOCOL=http \
+      VSS_PUBLIC_HOST=localhost VSS_PUBLIC_PORT=8000 HOST_IP=127.0.0.1 \
+      EXTERNAL_IP=127.0.0.1 \
+      docker compose --profile vss-ui -f "${_ui_compose}" -f - config 2>/dev/null
+)"
+_ui_override_exit=$?
+set -e
+if [[ ${_ui_default_exit} -eq 0 ]] \
+  && grep -Fq 'VSS_CHAT_BACKEND_MAIN: http://vss-agent:8000/v1/chat/stream' <<< "${_ui_default_config}" \
+  && grep -Fq 'VSS_CHAT_BACKEND_SIDEBAR: http://vss-agent:8000/v1/chat/stream' <<< "${_ui_default_config}"; then
+  echo "PASS: rendered vss-ui chat defaults use the internal vss-agent service"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: rendered vss-ui chat defaults should use the internal vss-agent service"
+  ((TESTS_FAILED++)) || true
+fi
+if [[ ${_ui_override_exit} -eq 0 ]] \
+  && grep -Fq 'VSS_CHAT_BACKEND_MAIN: http://custom-main:9100/custom' <<< "${_ui_override_config}" \
+  && grep -Fq 'VSS_CHAT_BACKEND_SIDEBAR: http://custom-sidebar:9200/custom' <<< "${_ui_override_config}"; then
+  echo "PASS: rendered vss-ui chat backends preserve explicit overrides"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: rendered vss-ui chat backends should preserve explicit overrides"
+  ((TESTS_FAILED++)) || true
+fi
+
 _vst_service_env="${REPO_ROOT}/deploy/docker/services/vios/vst.env"
 if grep -Fq "VST_INTERNAL_IP=" "${_vst_service_env}" && grep -Fq "VST_INGRESS_ENDPOINT=" "${_vst_service_env}" && grep -Fq "VST_INTERNAL_URL=" "${_vst_service_env}"; then
   echo "PASS: VIOS service env exposes shared Helm-compatible VST endpoint defaults"
