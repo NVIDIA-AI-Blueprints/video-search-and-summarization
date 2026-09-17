@@ -1611,9 +1611,16 @@ def run_invocations(
                 "NEMOCLAW_PROVIDER": operational_config.nemoclaw_provider,
                 "NEMOCLAW_ENDPOINT_URL": operational_config.endpoint_url,
                 "NEMOCLAW_MODEL": operational_config.model,
-                "COMPATIBLE_API_KEY": operational_config.api_key,
             }
         )
+        if operational_config.nemoclaw_provider == "build":
+            # The provider-managed NVIDIA route reads NVIDIA_API_KEY and
+            # ignores COMPATIBLE_API_KEY. Override any runner-global key with
+            # the credential resolved for this operational route.
+            env["NVIDIA_API_KEY"] = operational_config.api_key
+            env.pop("COMPATIBLE_API_KEY", None)
+        else:
+            env["COMPATIBLE_API_KEY"] = operational_config.api_key
         env["BREV_EXEC_TIMEOUT"] = str(
             max(
                 int(env.get("BREV_EXEC_TIMEOUT", "0")),

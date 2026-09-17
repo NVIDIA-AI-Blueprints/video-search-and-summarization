@@ -597,10 +597,12 @@ sandbox during that first task. Specs outside `skills/operations/`, including
 locking remain route-independent.
 
 Manual dispatch exposes matching `coding_*` and `operational_*` harness,
-provider, model, and endpoint inputs. `model_config.py` validates both routes
-before `run_leg.py` waits for a worker. One route must never inherit an override
-from the other. Coordinator and judge routing stays runner-managed; do not
-infer or rewrite any route in an adapter, skill, or notebook.
+provider, and model inputs. Both NVIDIA inference routes use the fixed public
+`https://inference.nvidia.com/v1` API base; there is no endpoint input that can
+redirect a runner credential. `model_config.py` validates both routes before
+`run_leg.py` waits for a worker. One route must never inherit an override from
+the other. Coordinator and judge routing stays runner-managed; do not infer or
+rewrite any route in an adapter, skill, or notebook.
 
 `$DS` / `$RES` are this leg's per-leg roots — see § "Per-leg scratch
 isolation". Never write to an unscoped `datasets/` or `results/<run_id>`

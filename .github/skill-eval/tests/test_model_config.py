@@ -20,7 +20,9 @@ _SPEC.loader.exec_module(model_config)
 
 DEFAULT_ENV = {
     "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
-    "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
+    # The legacy runner endpoint is intentionally different: model_config
+    # must consolidate routes on the public NVIDIA inference source.
+    "ANTHROPIC_BASE_URL": "https://legacy-gateway.example.test/v1",
     "ANTHROPIC_API_KEY": "secret",
 }
 
@@ -32,6 +34,11 @@ def test_default_routes_preserve_claude_runner_configuration() -> None:
     assert routes.operational.runtime == "claude-code"
     assert routes.coding.model == DEFAULT_ENV["ANTHROPIC_MODEL"]
     assert routes.operational.model == DEFAULT_ENV["ANTHROPIC_MODEL"]
+    assert routes.coding.endpoint_url == model_config.NVIDIA_INFERENCE_API_BASE_URL
+    assert (
+        routes.operational.endpoint_url
+        == model_config.NVIDIA_INFERENCE_API_BASE_URL
+    )
 
 
 def test_coding_and_operational_overrides_are_independent() -> None:
@@ -40,25 +47,26 @@ def test_coding_and_operational_overrides_are_independent() -> None:
             **DEFAULT_ENV,
             "CODEX_MODEL": "configured/codex",
             "SKILLS_EVAL_CODING_HARNESS": "codex",
-            "SKILLS_EVAL_CODING_PROVIDER": "custom",
+            "SKILLS_EVAL_CODING_PROVIDER": "nvidia-inference",
             "SKILLS_EVAL_CODING_MODEL": "coding/model",
-            "SKILLS_EVAL_CODING_ENDPOINT_URL": "https://coding.example.test/v1/",
             "SKILLS_EVAL_CODING_API_KEY": "coding-secret",
             "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
-            "SKILLS_EVAL_OPERATIONAL_PROVIDER": "custom",
+            "SKILLS_EVAL_OPERATIONAL_PROVIDER": "nvidia-inference",
             "SKILLS_EVAL_OPERATIONAL_MODEL": "operational/model",
-            "SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL": "https://ops.example.test/v1/",
             "SKILLS_EVAL_OPERATIONAL_API_KEY": "ops-secret",
         }
     )
 
     assert routes.coding.runtime == "codex"
     assert routes.coding.model == "coding/model"
-    assert routes.coding.endpoint_url == "https://coding.example.test/v1"
+    assert routes.coding.endpoint_url == model_config.NVIDIA_INFERENCE_API_BASE_URL
     assert routes.coding.api_key == "coding-secret"
     assert routes.operational.runtime == "nemoclaw"
     assert routes.operational.model == "operational/model"
-    assert routes.operational.endpoint_url == "https://ops.example.test/v1"
+    assert (
+        routes.operational.endpoint_url
+        == model_config.NVIDIA_INFERENCE_API_BASE_URL
+    )
     assert routes.operational.api_key == "ops-secret"
 
 
@@ -69,12 +77,16 @@ def test_legacy_eval_agent_remains_operational_default() -> None:
             "EVAL_AGENT": "nemoclaw",
             "NEMOCLAW_PROVIDER": "custom",
             "NEMOCLAW_MODEL": "nvidia/model",
-            "NEMOCLAW_ENDPOINT_URL": "https://models.example.test/v1",
+            "NEMOCLAW_ENDPOINT_URL": "https://untrusted.example.test/v1",
         }
     )
 
     assert routes.coding.runtime == "claude-code"
     assert routes.operational.runtime == "nemoclaw"
+    assert (
+        routes.operational.endpoint_url
+        == model_config.NVIDIA_INFERENCE_API_BASE_URL
+    )
 
 
 def test_coding_route_rejects_nemoclaw() -> None:
@@ -100,7 +112,6 @@ def test_operational_nvidia_inference_maps_to_nemoclaw_custom() -> None:
             "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
             "SKILLS_EVAL_OPERATIONAL_PROVIDER": "nvidia-inference",
             "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/model",
-            "SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL": "https://models.example.test/v1",
             "SKILLS_EVAL_OPERATIONAL_API_KEY": "ops-secret",
         },
         role="operational",
@@ -108,6 +119,7 @@ def test_operational_nvidia_inference_maps_to_nemoclaw_custom() -> None:
 
     assert config.nemoclaw_provider == "custom"
     assert config.api_key == "ops-secret"
+    assert config.endpoint_url == model_config.NVIDIA_INFERENCE_API_BASE_URL
 
 
 def test_operational_nvidia_build_uses_provider_managed_endpoint() -> None:
@@ -138,56 +150,30 @@ def test_coding_route_rejects_nvidia_build() -> None:
         )
 
 
-@pytest.mark.parametrize("provider", ["nvidia-build", "build"])
-def test_managed_nemoclaw_provider_rejects_endpoint(provider: str) -> None:
-    environment = {
-        **DEFAULT_ENV,
-        "SKILLS_EVAL_OPERATIONAL_HARNESS": "nemoclaw",
-        "SKILLS_EVAL_OPERATIONAL_PROVIDER": "nvidia-build",
-        "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/model",
-        "SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL": "https://wrong.example.test/v1",
-        "NVIDIA_API_KEY": "secret",
-    }
-    if provider == "build":
-        environment["SKILLS_EVAL_OPERATIONAL_PROVIDER"] = "default"
-        environment["NEMOCLAW_PROVIDER"] = "build"
+@pytest.mark.parametrize("provider", ["default", "nvidia-inference"])
+def test_endpoint_override_cannot_redirect_runner_credential(provider: str) -> None:
+    config = model_config.resolve_model_config(
+        {
+            **DEFAULT_ENV,
+            "SKILLS_EVAL_CODING_PROVIDER": provider,
+            "SKILLS_EVAL_CODING_MODEL": "nvidia/model",
+            "SKILLS_EVAL_CODING_ENDPOINT_URL": "https://attacker.example.test/v1",
+        },
+        role="coding",
+    )
 
-    with pytest.raises(ValueError, match="manages its own endpoint"):
-        model_config.resolve_model_config(environment, role="operational")
+    assert config.endpoint_url == model_config.NVIDIA_INFERENCE_API_BASE_URL
+    assert config.api_key == DEFAULT_ENV["ANTHROPIC_API_KEY"]
 
 
-def test_custom_route_requires_model_and_endpoint() -> None:
-    with pytest.raises(ValueError, match="SKILLS_EVAL_OPERATIONAL_MODEL"):
-        model_config.resolve_model_config(
-            {
-                **DEFAULT_ENV,
-                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "custom",
-            },
-            role="operational",
-        )
-
-    with pytest.raises(ValueError, match="SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL"):
-        model_config.resolve_model_config(
-            {
-                **DEFAULT_ENV,
-                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "custom",
-                "SKILLS_EVAL_OPERATIONAL_MODEL": "custom/model",
-            },
-            role="operational",
-        )
-
-
-@pytest.mark.parametrize("endpoint", ["not-a-url", "https://"])
-def test_malformed_endpoint_names_its_route(endpoint: str) -> None:
-    with pytest.raises(
-        ValueError, match="SKILLS_EVAL_CODING_ENDPOINT_URL.*HTTP\\(S\\)"
-    ):
+def test_custom_provider_is_not_a_dispatchable_route() -> None:
+    with pytest.raises(ValueError, match="unsupported SKILLS_EVAL_CODING_PROVIDER"):
         model_config.resolve_model_config(
             {
                 **DEFAULT_ENV,
                 "SKILLS_EVAL_CODING_PROVIDER": "custom",
                 "SKILLS_EVAL_CODING_MODEL": "custom/model",
-                "SKILLS_EVAL_CODING_ENDPOINT_URL": endpoint,
+                "SKILLS_EVAL_CODING_ENDPOINT_URL": "https://attacker.example.test/v1",
             },
             role="coding",
         )
