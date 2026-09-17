@@ -288,12 +288,14 @@ Do not silently substitute ordinary VLM inspection.
 
 ## Direct fresh inspection
 
-One grounded scope is one `vss vlm run`. If it exits nonzero, report the exit
-code and stop. Do not run it again with a different `--fps`, a widened or
-shifted window, another spelling of the sensor, `--num-frames`, or a different
-media selector: a failing call means the deployment could not serve that scope,
-which is the result to report. Re-running it is not a retry of the same
-question, it is a second inspection the user did not ask for.
+One grounded scope is one `vss vlm run`. If it exits nonzero other than exit 6,
+report the exit code and stop. Exit 6 means the answer exists but persistence
+failed; retain the answer and report that limitation. Do not run the inspection
+again with a different `--fps`, a widened or shifted window, another spelling
+of the sensor, `--num-frames`, or a different media selector: a failing call
+means the deployment could not serve that scope, which is the result to report.
+Re-running it is not a retry of the same question, it is a second inspection
+the user did not ask for.
 
 A failed call is also not a licence to repair the deployment. An unreachable
 Elasticsearch, an unregistered sensor, a missing recorded window, an expired
