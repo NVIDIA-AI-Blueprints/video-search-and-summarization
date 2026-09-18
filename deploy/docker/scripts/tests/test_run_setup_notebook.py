@@ -174,9 +174,12 @@ class HitlLaunchContractTests(unittest.TestCase):
 
     def test_external_adapter_forces_hitl_off_in_vss_deployment(self) -> None:
         sources = self._sources("deploy_vss_orchestrator.ipynb")
+        guidance = sources["d3d4cd3e"]
         settings = sources["20b35654"]
         server = sources["042eabd1"]
 
+        self.assertIn("Structured HITL is enabled by default for `vss-agent`", guidance)
+        self.assertIn("Set `HITL_ENABLED=False` to disable it", guidance)
         self.assertIn("HITL_ENABLED = True", settings)
         self.assertIn(
             "if VSS_AGENT_ADAPTER_ENABLED:\n    HITL_ENABLED = False",
