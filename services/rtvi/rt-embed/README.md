@@ -703,7 +703,7 @@ socket before Embed starts the stream.
 
 ## License
 
-This project is licensed under the **Apache License, Version 2.0**. See the top-level [LICENSE](../../../LICENSE) file in the repository, and the SPDX header carried in every source file in [`src/`](src/) and [`tests/`](tests/).
+This project is licensed under the **Apache License, Version 2.0**. See the [top-level LICENSE](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/main/LICENSE) file in the repository, and the SPDX header carried in every source file in [`src/`](src/) and [`tests/`](tests/).
 
 ## External Materials Notice
 
