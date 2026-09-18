@@ -392,7 +392,7 @@ The auto-calibration profile requires an NVIDIA GPU with a hardware encoder (NVE
 
 #### Hardware Profiles and Deployment Paths
 
-Run `nvidia-smi -L` to identify the GPU model, then use the architecture tab below to set `HARDWARE_PROFILE` and the GPU placement for your deployment path.
+Run `nvidia-smi -L` to identify the GPU model, then use the hardware tab below to set `HARDWARE_PROFILE` and the GPU placement for your deployment path.
 
 Set the common deployment variables in `industry-profiles/warehouse-operations/overrides.env`:
 
@@ -408,7 +408,7 @@ Set the common deployment variables in `industry-profiles/warehouse-operations/o
 
 Container image coordinates are centralized in `containers.env` and loaded by the deployment command. In your hardware tab:
 
-1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For DGX-SPARK, also export the SBSA image-tag suffix as described in its hardware tab.
+1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For GB300 and DGX-SPARK, also export the SBSA image-tag suffix as described in the hardware tab.
 2. Choose exactly one deployment path and copy its settings into the same file.
 
 <Tabs>
@@ -577,6 +577,69 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 </Tab>
 </Tabs>
 </Tab>
+<Tab title="GB300">
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+Published performance figures are not currently listed for this hardware profile.
+
+Before deployment, run the following command to export the SBSA image-tag suffix:
+
+```bash
+export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
+```
+
+In `industry-profiles/warehouse-operations/overrides.env`, set:
+
+```ini
+# Supports 2D and 3D. MV3DT is not defined for this hardware profile.
+HARDWARE_PROFILE=GB300
+
+# Required when bp_wh deploys the local RTVI-VLM service on GB300.
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d or 3d.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# One GPU: bp_wh with MODE=2d; RT-CV and RT-VLM share the GB300.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=0
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# One GPU: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM share the GB300.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=0
+LLM_DEVICE_ID=0
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
+</Tab>
 <Tab title="L40S">
 <Tabs>
 <Tab title="Hardware Profile">
@@ -680,59 +743,6 @@ LLM_MODE=none
 VLM_MODE=none
 ```
 
-</Tab>
-<Tab title="Other x86_64">
-
-<Tabs>
-<Tab title="Hardware Profile">
-
-**Published performance**
-
-Published performance figures are not currently listed on this page for these profiles.
-
-```ini
-# Select the profile that matches the x86_64 GPU:
-# L40, L4, RTXA6000, or RTXA6000ADA.
-HARDWARE_PROFILE=L40
-```
-</Tab>
-<Tab title="Vision AI only">
-
-```ini
-# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
-RT_CV_DEVICE_ID=0
-LLM_MODE=none
-VLM_MODE=none
-```
-</Tab>
-<Tab title="Agents + Remote LLM">
-
-```ini
-# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
-RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=1
-LLM_MODE=remote
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
-
-LLM_NAME_SLUG=none
-LLM_BASE_URL=https://<llm-endpoint-without-v1>
-LLM_NAME=<llm-model-id-from-v1-models>
-LLM_MODEL_TYPE=<nim-or-openai>
-NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
-```
-</Tab>
-<Tab title="Agents + Local LLM">
-
-```ini
-# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
-RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=1
-LLM_DEVICE_ID=2
-LLM_MODE=local
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
-```
-</Tab>
-</Tabs>
 </Tab>
 </Tabs>
 
