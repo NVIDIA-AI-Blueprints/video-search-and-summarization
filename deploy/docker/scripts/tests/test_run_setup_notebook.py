@@ -378,7 +378,7 @@ class HitlLaunchContractTests(unittest.TestCase):
                 str(path.relative_to(repo)),
             )
 
-    def test_helm_defaults_agent_and_ui_hitl_off(self) -> None:
+    def test_helm_defaults_agent_and_ui_hitl_on(self) -> None:
         repo = runner.repo_root()
         agent_chart = (
             repo / "deploy" / "helm" / "services" / "agent" / "charts" / "agent"
@@ -391,12 +391,12 @@ class HitlLaunchContractTests(unittest.TestCase):
             repo / "deploy" / "helm" / "services" / "ui" / "values.yaml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("hitlEnabled: false", agent_values)
+        self.assertIn("hitlEnabled: true", agent_values)
         self.assertIn("- name: HITL_ENABLED", agent_deployment)
-        self.assertIn(".Values.hitlEnabled | default false", agent_deployment)
-        self.assertIn('- name: NEXT_PUBLIC_ENABLE_HITL\n    value: "false"', ui_values)
+        self.assertIn(".Values.hitlEnabled | default true", agent_deployment)
+        self.assertIn('- name: NEXT_PUBLIC_ENABLE_HITL\n    value: "true"', ui_values)
         self.assertIn(
-            '- name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL\n    value: "false"',
+            '- name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL\n    value: "true"',
             ui_values,
         )
 
