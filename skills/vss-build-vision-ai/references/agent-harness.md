@@ -61,31 +61,35 @@ to NemoClaw never means adding a harness to a headless build.
 
 When a NemoClaw build uses the default OpenClaw runtime and includes `vss-ui`,
 connect its chat sidebar and Chat tab through the embedded adapter. This
-requires a bridge-aware `deploy_nemoclaw.ipynb`: with
-`VSS_AGENT_ADAPTER_ENABLED=true` and no Brev secure link, its dashboard forward
-must bind to Docker's private bridge gateway so `host.docker.internal` can
-reach it. If the checked-out notebook lacks that behavior, stop and report the
-checkout as incompatible; a loopback-only forward cannot serve the
-containerized UI.
+requires a relay-aware `deploy_nemoclaw.ipynb`: NemoClaw keeps its dashboard
+forward on `127.0.0.1` (its `connect`/`recover`/`start` recovery re-creates it
+there and retires a `0.0.0.0` forward as stale), so section 3.5 starts a
+**dashboard relay** on a second host port, bound to Docker's default-bridge
+gateway — what `host.docker.internal` resolves to inside the container. If the
+checked-out notebook lacks section 3.5's relay, stop and report the checkout as
+incompatible; a loopback-only forward cannot serve the containerized UI.
 
-Before onboarding, select the dashboard port (default `18789`) and export both
-it and the adapter flag. The notebook derives `AGENT_DASHBOARD_PORT` from this
-same value:
+Before onboarding, select the dashboard port (default `18789`) and the relay
+port (default `18790`, must differ) and export them with the adapter flag. The
+notebook derives `AGENT_DASHBOARD_PORT` and `AGENT_DASHBOARD_RELAY_PORT` from
+these same values:
 
 ```bash
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 ```
 
 After onboarding, add these values to `_builds/<name>/override.env`, resolving
-`<dashboard-port>` to the selected `NEMOCLAW_DASHBOARD_PORT` rather than writing
-the placeholder or assuming the default:
+`<relay-port>` to the selected `NEMOCLAW_DASHBOARD_RELAY_PORT` — the relay
+port, not the forward's — rather than writing the placeholder or assuming the
+default:
 
 | Variable | Value |
 |---|---|
 | `VSS_AGENT_ADAPTER_ENABLED` | `true` |
 | `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
-| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<dashboard-port>` |
+| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<relay-port>` |
 | `VSS_AGENT_BACKEND_TOKEN` | output of `nemoclaw <sandbox> gateway-token --quiet` |
 
 Leave `VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default. The
@@ -434,8 +438,9 @@ Set the environment, then run the notebook:
 | `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
 | `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
-| `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | the notebook forward and the UI adapter backend URL must use the same value |
-| `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | makes a compatible notebook expose the forward on Docker's private bridge when no Brev secure link exists |
+| `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
+| `NEMOCLAW_DASHBOARD_RELAY_PORT` | selected port; default `18790` | the section 3.5 relay the UI adapter backend URL must use (`ws://host.docker.internal:<relay-port>`); the Brev secure link and `CHAT_UI_URL` publish this port |
+| `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | the relay is what makes the gateway reachable from the container; this flag turns the UI's adapter on |
 | `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 when the user accepts the default; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
@@ -450,6 +455,7 @@ export VSS_REPO_DIR="$REPO"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
 export NEMOCLAW_RECREATE_SANDBOX=0
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 
 # Harness LLM: notebook option (a), Claude Opus 5 through the NVIDIA
