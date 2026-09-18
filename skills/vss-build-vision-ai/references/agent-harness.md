@@ -442,7 +442,7 @@ Set the environment, then run the notebook:
 
 ```bash
 set -o pipefail   # report the notebook's status, not `tee`'s
-umask 077         # the setup log contains the authenticated Agent UI URL
+umask 077         # the setup log echoes the notebook's own settings dump
 
 REPO="$(git rev-parse --show-toplevel)"
 
@@ -478,6 +478,7 @@ uv run --isolated --no-project --python 3.12 \
   python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
     --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
     --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
+    --echo-output \
   2>&1 | tee "$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/nemoclaw-setup.log"
 ```
 
@@ -486,11 +487,19 @@ read `${PIPESTATUS[0]}` on the line right after the pipeline. Non-zero is a
 blocker: report it with the log path and stop, rather than going on to the UI
 link.
 
-**Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
-`| tail`, `| head`, or a dropped stream loses section 3.5's `Sandbox:` and
-`Agent UI:` lines and the `WARNING:` that cell prints — without failing — when
-the dashboard forward does not come up. A clean exit does not mean the link is
-usable. Read the link and the sandbox name from the `tee`d log.
+**`--echo-output` is what puts the notebook's output in the log.** Without it the
+runner keeps every output in memory, prints one summary line, and discards the
+rest — so section 3.5's `Sandbox:` and `Agent UI:` lines, and the `WARNING:`
+that cell prints when the dashboard forward does not come up, never reach the
+`tee`d log. `--require-output` matches the in-memory copy either way, so a run
+that omits the flag exits 0 with a log that proves nothing. Keep the whole run
+for the same reason: `| tail` or `| head` drops those lines back out.
+
+The flag redacts the UI link's `#token=` fragment, so the log gives you the
+origin, the sandbox name and that warning — never a live token. Read the log for
+which origin the notebook *chose*; it is the only record of that decision, and
+it can differ from what the context file publishes when the notebook's own read
+of `/etc/brev` was denied.
 
 Do not reconstruct the URL from the notebook source. Its origin branches on
 whether the Brev context file publishes a secure link for the dashboard port.
@@ -549,15 +558,32 @@ Confirm the two things that exit code cannot cover:
 1. **The harness is reachable.** Section 3.5 prints `Sandbox: <name>` and
    `Agent UI: <url>`. The OpenClaw URL carries the gateway token in `#token=`;
    treat the complete URL as a secret. In the final summary, remove the
-   fragment and report only the token-free origin as a markdown link, then
-   point the user to `_builds/<name>/nemoclaw-setup.log` on the deployment host
-   for the complete authenticated URL. Never copy the token or the
-   secret-bearing URL into the response. Hand over the recipe rather than the
-   value: on the deployment host `nemoclaw <name> gateway-token --quiet` prints
-   a fresh token, and the UI URL is the reported origin plus `/#token=<token>`.
-   On Brev the host is the secure-link FQDN. A `127.0.0.1` origin only resolves
-   on the deployment host, so pair it with the SSH tunnel the same section
-   prints.
+   fragment and report only the token-free origin as a markdown link. Never
+   copy the token or the secret-bearing URL into the response, and do not send
+   the user to the setup log for it — `--echo-output` redacts the fragment, so
+   the log does not hold one. Hand over the recipe rather than the value: on
+   the deployment host `nemoclaw <name> gateway-token --quiet` prints a fresh
+   token, and the UI URL is the reported origin plus `/#token=<token>`.
+   Carry all three — origin, token command, and that `/#token=` form — into the
+   summary; a token-free origin on its own lands the user on an unauthenticated
+   page.
+
+   **On Brev the host is the secure-link FQDN for the dashboard port, and a
+   `127.0.0.1` origin is a claim to prove rather than a fallback to take.**
+   Resolve `brev_origin <dashboard-port>` yourself and read what it returned
+   before reporting anything; an unread lookup is not an empty one.
+
+   A denied read of `/etc/brev` is a third answer, distinct from both. A
+   confined agent is refused the directory even as uid 0 — under a user
+   namespace it appears owned by `nobody`, so the denial can look like an
+   ordinary missing file. Escalate it, never resolve it as "no link": re-run
+   the lookup unconfined if the environment allows, or use the approved
+   `docker run -v /etc/brev:/brev:ro` read in [`brev.md`](brev.md) →
+   *When the helpers return nothing*. Only a lookup that ran with access and
+   came back empty justifies the loopback origin, and then it is paired with
+   the SSH tunnel the same section prints. Reporting a tunnel the user does not
+   need, against an origin that does not resolve for them, is the failure this
+   paragraph exists to prevent.
 
    Confirm the forward behind it is bound as that origin requires:
 
