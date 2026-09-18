@@ -208,6 +208,8 @@ or are only needed for specific features.
 | `VLM_MODE` | no | `local_shared` | VLM deployment mode: `local_shared`, `local`, `remote` |
 | `VST_INTERNAL_URL` | yes | — | VST internal URL (e.g. `http://HOST:30888`) |
 | `VST_EXTERNAL_URL` | yes | — | VST external URL (e.g. `http://HOST:30888`) |
+| `COSMOS_EMBED_ENDPOINT` | no | — | RTVI embedding endpoint used by upload post-processing |
+| `RTVI_CV_ENDPOINT` | no | — | RTVI-CV endpoint used by upload post-processing |
 | `VSS_AGENT_PORT` | no | `8000` | Agent HTTP port |
 | `VSS_AGENT_OBJECT_STORE_TYPE` | no | `local_object_store` | Object store: `local_object_store` (in-memory) or `s3` |
 | `VSS_AGENT_REPORTS_BASE_URL` | no | — | Base URL for generated report assets |
