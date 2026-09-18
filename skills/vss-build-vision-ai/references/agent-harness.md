@@ -119,9 +119,17 @@ after deployment (below).
 Applies to **both** Q3 answers — a `yes` and a `no` alike — and not to a build
 whose request named the in-stack agent.
 
-**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`, and change no
-other key.** `vss-ui`, `phoenix`, and the `llm_*` peer all stay. Pruning them is
-a capability decision, not a harness one: leave them and report `phoenix` as
+**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`, then prune what
+only it consumed.** The `llm_*` peer is the in-stack agent's LLM: of the `base`
+services only `vss-agent` reads `LLM_*` (`services/agent/compose.yml`; the other
+readers are `alert-bridge` and `vss-lvs`, outside `base`), and the harness brings
+its own model provider. Drop the key - it is the build's largest GPU claim and
+image pull - unless an enabled service still consumes it (an `alerts`, `lvs` or
+combined build keeps it for `alert-bridge` / `vss-lvs`) or the harness LLM is
+route (a) *against the build's own LLM NIM*, which needs the NIM resident. This
+is [`composition.md`](composition.md)'s forward closure applied to the agent's
+own peer, not a harness rule. `vss-ui` and `phoenix` stay: pruning them is a
+capability decision, not a harness one - leave them and report `phoenix` as
 idle, since it collects the agent's traces and has no other client.
 
 `vss-ui`'s dependency on the agent ships as `required: false` so the filtered
@@ -206,8 +214,10 @@ so never reaches Q3, can stay a stock deploy.
 Two things the user should hear up front rather than discover:
 
 - **GPU and memory budget.** `vss-agent` reserves no GPU, so its removal frees
-  memory rather than a device, and the `llm_*` peer stays resident. Budget the
-  build against [`sizing.md`](sizing.md) plus the harness's own model provider —
+  memory rather than a device; pruning its `llm_*` peer (above) is what frees
+  GPU memory, and a build that keeps the NIM for `alert-bridge` / `vss-lvs` or
+  for route (a) must say so. Budget the build against [`sizing.md`](sizing.md)
+  plus the harness's own model provider —
   and note that a NemoClaw-managed local model claims every visible GPU unless
   pinned (see [Prerequisites](#prerequisites)).
 - **One harness, two entry points.** On a default OpenClaw `yes`, the build UI

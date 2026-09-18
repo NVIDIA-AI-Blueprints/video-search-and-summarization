@@ -252,12 +252,8 @@ Apply these on **either** answer:
   explicitly selects the legacy MCP interface (for example, the SOP-report
   flow in `references/services/sop.md`) or names the in-stack agent. Use
   `scripts/resolve_service_graph.py`'s `resolve_service_profiles` rule when
-  computing the final profile set. `vss-ui`, `phoenix`, and the `llm_*` peer
-  stay; pruning them is a capability decision, not a harness one. `vss-ui`
-  remains useful with no agent — its Alerts, Dashboard, and Video Management
-  tabs address Alert Bridge, Kibana, and VST directly. Its dependency on the
-  agent ships as `required: false` so the filtered project resolves; never
-  re-add a hard `depends_on` in a build override.
+  computing the final profile set.
+- **The agent's two private peers leave with it: the `llm_*` key and `phoenix`.** The `llm_*` peer is the agent's LLM - with the agent gone nothing in `base` reads `LLM_*`, and the harness brings its own model - and `phoenix` collects the agent's traces and has no other client. Drop both; the NIM is the build's largest GPU and image cost. Keep `llm_*` only when an enabled service still consumes it - `vss-lvs`; `alert-bridge` reads `LLM_MODE` alone, for URL rewriting, and never calls the LLM - or the harness LLM is route (a) against the build's own NIM. `vss-ui` stays; pruning it is a capability decision, not a harness one. `vss-ui` remains useful with no agent — its Alerts, Dashboard, and Video Management tabs address Alert Bridge, Kibana, and VST directly. Its dependency on the agent ships as `required: false` so the filtered project resolves; never re-add a hard `depends_on` in a build override.
 - **Wire the Web UI chat to NemoClaw's default OpenClaw runtime on a yes**, per [`references/agent-harness.md`](references/agent-harness.md) *Connecting the Web UI to NemoClaw*.
 - **Provisioning moves to the headless path.** Use `vss-manage-video-io-storage` `references/provision-vios-source.md`: with no agent route its own gate passes, and it is the only path that gets a source to RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`.
 - Removing a service key makes it a **Delta build**, never a Stock deploy — on a no as much as a yes, and on a quickstart as much as a custom build.
