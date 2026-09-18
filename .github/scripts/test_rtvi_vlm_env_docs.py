@@ -16,8 +16,7 @@ README = ROOT / "services/rtvi/rt-vlm/README.md"
 def main() -> None:
     compose = COMPOSE.read_text(encoding="utf-8")
     service = compose.split("  rtvi-server:\n", 1)[1].split("\n  kafka:\n", 1)[0]
-    environment = service.split("    environment:\n", 1)[1].split("\n\n    ulimits:", 1)[0]
-    compose_variables = set(re.findall(r"\$\{([A-Z][A-Z0-9_]+)", environment))
+    compose_variables = set(re.findall(r"\$\{([A-Z][A-Z0-9_]+)", service))
 
     docs = DOCS.read_text(encoding="utf-8")
     table = docs.split("### Docker Compose and Helm Variables", 1)[1].split(
