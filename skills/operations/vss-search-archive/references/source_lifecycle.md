@@ -131,10 +131,12 @@ if [ "${VSS_MEDIA_SCOPE}" = host-local ]; then
 fi
 ```
 
-Never assemble a Brev hostname from guesswork: the documented
-`7777-<BREV_ENV_ID>.<BREV_LINK_DOMAIN>` form, built only from values read out
-of `/etc/environment`, is the one sanctioned construction, and letting the
-deployment workflow write it is preferred. Never rewrite a media URL returned
+Never assemble a Brev hostname — there is no sanctioned construction. Brev
+publishes the secure-link hostname per exposed port in
+`/etc/brev/environment-context.json`, and the deployment workflow reads it from
+there into `VSS_PUBLIC_HOST`; take the origin from that. A
+`<port>-<env>.<domain>` pattern is not a rule: the prefix is a name the link's
+creator chooses and the domain varies per instance. Never rewrite a media URL returned
 in a search result: the CLI already anchors those on the recorded origin, so
 editing one only hides which origin answered. The upload handshake URL in
 **File source** is the one exception, because the Agent mints it from

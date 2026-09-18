@@ -55,6 +55,60 @@ class _RecordingLLM:
         yield SimpleNamespace()
 
 
+class _ChatTemplateIgnoringReasoning:
+    def apply_chat_template(self, *args, **kwargs):
+        self.messages = args[0]
+        return "<|im_start|>assistant\n"
+
+
+class _QwenTokenizer:
+    eos_token_id = 99
+    unk_token_id = 0
+
+    def convert_tokens_to_ids(self, token):
+        assert token == "<|im_end|>"
+        return 99
+
+    def decode(self, token_ids, skip_special_tokens=True):
+        assert skip_special_tokens is True
+        assert token_ids == [10, 11]
+        return '{"visual_sentinel":"ALPHA"}'
+
+    def encode(self, _prompt, add_special_tokens=False):
+        assert add_special_tokens is False
+        return [1, 2]
+
+
+class _QwenProcessor:
+    tokenizer = _QwenTokenizer()
+
+    def apply_chat_template(self, *_args, **_kwargs):
+        return "<|im_start|>assistant\n"
+
+
+class _QwenStreamingLLM:
+    async def generate(self, *_args, **_kwargs):
+        yield SimpleNamespace(
+            outputs=[SimpleNamespace(text='{"visual_sent', token_ids=[10])]
+        )
+        yield SimpleNamespace(
+            outputs=[
+                SimpleNamespace(
+                    text='{"visual_sentinel":"ALPHA"}<|im_end|>',
+                    token_ids=[10, 11, 99],
+                )
+            ]
+        )
+        yield SimpleNamespace(
+            outputs=[
+                SimpleNamespace(
+                    text='{"visual_sentinel":"ALPHA"}<|im_end|>reasoning leak',
+                    token_ids=[10, 11, 99, 20],
+                )
+            ]
+        )
+
+
 class _RequestQueue:
     def __init__(self):
         self.request_id = "req-1"
@@ -185,6 +239,97 @@ def test_reasoning_chat_template_disables_thinking_by_default(architecture):
     assert model._get_apply_chat_template_kwargs(VlmGenerationConfig(enable_reasoning=True)) == {
         "enable_thinking": True
     }
+
+
+def test_qwen3vl_non_reasoning_fallback_closes_empty_think_block():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _ChatTemplateIgnoringReasoning()
+    config = VlmGenerationConfig(enable_reasoning=False)
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Describe"}]}]
+
+    prompt = model._apply_chat_template(messages, config)
+
+    assert prompt.endswith("<think>\n\n</think>\n\n")
+    assert model._processor.messages[0]["content"][0]["text"] == "Describe /no_think"
+    assert messages[0]["content"][0]["text"] == "Describe"
+
+
+def test_qwen3vl_reasoning_prompt_is_not_modified():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _ChatTemplateIgnoringReasoning()
+    config = VlmGenerationConfig(enable_reasoning=True)
+
+    assert model._apply_chat_template([], config) == "<|im_start|>assistant\n"
+
+
+def test_qwen3vl_non_reasoning_keeps_fixed_work_generation_with_ignore_eos():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    config = VlmGenerationConfig(enable_reasoning=False, ignore_eos=True)
+    sampling_kwargs = vllm_compatible_model._build_vllm_sampling_kwargs(config)
+
+    model._apply_reasoning_suppression_sampling_params(sampling_kwargs, config)
+
+    assert sampling_kwargs["ignore_eos"] is True
+    assert sampling_kwargs["bad_words"] == ["<think>", "</think>"]
+    assert "stop_token_ids" not in sampling_kwargs
+
+
+def test_qwen3vl_non_reasoning_truncates_backend_output_at_first_answer_boundary():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _QwenProcessor()
+    model._inflight_req_ids = []
+    model._vlm_model_type = "cosmos-reason3"
+    output = SimpleNamespace(
+        prompt_token_ids=[1, 2],
+        outputs=[
+            SimpleNamespace(
+                text='{"visual_sentinel":"ALPHA"}\nStep-by-step analysis',
+                token_ids=[10, 11, 99, 20, 21],
+            )
+        ],
+    )
+
+    result = model._postprocess_vllm(
+        [output],
+        [],
+        ignore_eos=True,
+        preserve_reasoning_tags=False,
+        enable_reasoning=False,
+    )
+
+    assert result[0].output == '{"visual_sentinel":"ALPHA"}'
+    assert result[0].reasoning_description == ""
+    assert result[0].output_tokens == 5
+
+
+def test_qwen3vl_non_reasoning_stream_hides_post_boundary_output(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm",
+        SimpleNamespace(SamplingParams=_FakeSamplingParams),
+    )
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _QwenProcessor()
+    model._llm = _QwenStreamingLLM()
+    model._inflight_req_ids = []
+
+    async def collect():
+        config = VlmGenerationConfig(enable_reasoning=False, ignore_eos=True)
+        return [
+            delta
+            async for delta in model.generate_text_only_stream(
+                [{"role": "user", "content": "Describe"}],
+                config,
+            )
+        ]
+
+    assert "".join(asyncio.run(collect())) == '{"visual_sentinel":"ALPHA"}'
+    assert model._inflight_req_ids == []
 
 
 @pytest.mark.parametrize(
@@ -603,8 +748,11 @@ def test_kv_cache_dtype_override_is_forwarded_when_supported(monkeypatch):
     assert engine_args["kv_cache_dtype"] == "auto"
 
 
-def test_attention_backend_override_is_forwarded_when_supported(monkeypatch):
-    monkeypatch.setenv("VLLM_ATTENTION_BACKEND", "TRITON_ATTN")
+@pytest.mark.parametrize("attention_backend", ["CUSTOM", "TRITON_ATTN"])
+def test_attention_backend_override_is_forwarded_when_supported(
+    monkeypatch, attention_backend
+):
+    monkeypatch.setenv("VLLM_ATTENTION_BACKEND", attention_backend)
     engine_args = {}
 
     applied = vllm_compatible_model._apply_attention_backend_override(
@@ -613,10 +761,10 @@ def test_attention_backend_override_is_forwarded_when_supported(monkeypatch):
     )
 
     assert applied is True
-    assert engine_args["attention_backend"] == "TRITON_ATTN"
+    assert engine_args["attention_backend"] == attention_backend
 
 
-def test_cosmos3_edge_defaults_to_custom_attention_backend(monkeypatch):
+def test_cosmos3_edge_defaults_to_triton_attention_backend(monkeypatch):
     monkeypatch.delenv("VLLM_ATTENTION_BACKEND", raising=False)
     monkeypatch.delenv("RTVI_VLLM_ATTENTION_BACKEND", raising=False)
     engine_args = {}
@@ -628,7 +776,22 @@ def test_cosmos3_edge_defaults_to_custom_attention_backend(monkeypatch):
     )
 
     assert applied is True
-    assert engine_args["attention_backend"] == "CUSTOM"
+    assert engine_args["attention_backend"] == "TRITON_ATTN"
+
+
+def test_non_edge_model_does_not_default_attention_backend(monkeypatch):
+    monkeypatch.delenv("VLLM_ATTENTION_BACKEND", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_ATTENTION_BACKEND", raising=False)
+    engine_args = {}
+
+    applied = vllm_compatible_model._apply_attention_backend_override(
+        engine_args,
+        {"attention_backend"},
+        "Qwen3VLForConditionalGeneration",
+    )
+
+    assert applied is False
+    assert "attention_backend" not in engine_args
 
 
 def test_num_preprocess_workers_defaults_to_parallel_video_value(monkeypatch):
@@ -1298,7 +1461,7 @@ def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
     assert future.result() == ["ok"]
     content = processor.messages[-1]["content"]
     assert [item["type"] for item in content] == ["text", "image", "image", "image"]
-    assert content[0]["text"] == "Describe the time-lapsed video."
+    assert content[0]["text"] == "Describe the time-lapsed video. /no_think"
     assert [item["image"] for item in content[1:]] == [
         "frame_000000.jpg",
         "frame_000001.jpg",

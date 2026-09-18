@@ -34,6 +34,8 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+      bp-configurator-3d:
+        condition: service_healthy
 
   vss-behavior-analytics-playback-3d:
     extends:
@@ -79,16 +81,6 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import socket; s=socket.create_connection((\"127.0.0.1\", 5001), 3); s.close()"
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
 
   ds-configurator-3d:
     image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
@@ -195,6 +187,9 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-3d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
     command: bash /opt/vss/init-scripts/calibration-import.sh
     restart: on-failure:5
+    depends_on:
+      bp-configurator-3d:
+        condition: service_healthy
 
 volumes:
   vss-behavior-analytics-3d:

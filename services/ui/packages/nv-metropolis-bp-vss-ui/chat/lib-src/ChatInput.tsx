@@ -126,7 +126,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (disabled) setShowParams(false);
   }, [disabled]);
 
-  // Grow with content up to a ceiling, then scroll — matching the toolkit.
+  // Grow with content up to a ceiling, then scroll.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;

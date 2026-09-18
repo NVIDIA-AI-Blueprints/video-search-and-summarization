@@ -20,8 +20,8 @@ body {
   border-bottom: 1px solid #2c2f36;
   flex: 0 0 auto;
 }
-.vss-shell-note { color: #9aa0a6; font-size: 13px; margin-right: auto; }
 .vss-shell-bar button {
+  margin-left: auto;
   background: transparent;
   border: 1px solid #2c2f36;
   color: inherit;

@@ -29,17 +29,25 @@ Tests cover:
 
 import argparse
 import asyncio
+import multiprocessing
 import os
+import socket
 import tempfile
 import time
+import urllib.error
+import urllib.request
 import uuid
+from threading import Thread
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import uvicorn
 from fastapi.testclient import TestClient
 
 import server.rtvi_vlm_server as rtvi_vlm_server
 from api_models.captions import VlmQuery
+from api_models.nim_compat import ChatCompletionRequest
 from common.chunk_info import ChunkInfo
 from common.service_exception import ServiceException
 from models.base_vlm_model import VlmModelOutput
@@ -51,9 +59,21 @@ from server.rtvi_vlm_server import (
     _build_chat_assistant_message,
 )
 from tests.tests_common import TempEnv
-from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmModelType
+from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmModelType, VlmPipeline, VlmProcess
 
 API_PREFIX = "/v1"
+
+
+def _detect_unhealthy_vllm_in_spawned_child(shared_failure):
+    from models.vllm_compatible.vllm_compatible_model import VllmCompatible
+
+    model = object.__new__(VllmCompatible)
+    model._llm = SimpleNamespace(errored=True)
+    process = object.__new__(VlmProcess)
+    process._model = model
+    process._model_unhealthy_event = shared_failure
+    process._next_model_health_check_at = 0.0
+    process._refresh_model_health(force=True)
 
 
 def _config_payload(
@@ -325,6 +345,57 @@ class TestHealthEndpoints:
         assert response.status_code == 200
         # Content-type may vary, just check it's text/plain
         assert "text/plain" in response.headers.get("content-type", "")
+
+    def test_spawned_vllm_failure_reaches_real_tcp_readiness(self, rtvi_server):
+        context = multiprocessing.get_context("spawn")
+        shared_failure = context.Event()
+        child = context.Process(
+            target=_detect_unhealthy_vllm_in_spawned_child,
+            args=(shared_failure,),
+        )
+        child.start()
+        child.join(timeout=15)
+        assert child.exitcode == 0
+        assert shared_failure.is_set()
+
+        process = object.__new__(VlmProcess)
+        process._disabled = False
+        process._model_unhealthy_event = shared_failure
+        process.is_alive = MagicMock(return_value=True)
+        pipeline = object.__new__(VlmPipeline)
+        pipeline._decoder_procs = []
+        pipeline._asr_procs = []
+        pipeline._vlm_procs = [process]
+        rtvi_server._stream_handler._vlm_pipeline = pipeline
+
+        port_socket = socket.socket()
+        port_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        port_socket.bind(("127.0.0.1", 0))
+        port_socket.listen(128)
+        port = port_socket.getsockname()[1]
+        tcp_server = uvicorn.Server(
+            uvicorn.Config(rtvi_server._app, host="127.0.0.1", port=port, log_level="error")
+        )
+        server_thread = Thread(
+            target=tcp_server.run,
+            kwargs={"sockets": [port_socket]},
+            daemon=True,
+        )
+        server_thread.start()
+        deadline = time.monotonic() + 10
+        while not tcp_server.started and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert tcp_server.started
+
+        try:
+            with pytest.raises(urllib.error.HTTPError) as exc_info:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}{API_PREFIX}/ready", timeout=5)
+            assert exc_info.value.code == 503
+        finally:
+            tcp_server.should_exit = True
+            server_thread.join(timeout=10)
+            port_socket.close()
+        assert not server_thread.is_alive()
 
 
 class TestModelsEndpoint:
@@ -903,6 +974,7 @@ class TestCaptionGeneration:
         req_info = RequestInfo()
         req_info.is_live = True
         req_info.status = RequestInfo.Status.PROCESSING
+        req_info._live_active_accounted = True
         req_info.assets = [asset]
         asset.lock()
 
@@ -911,10 +983,7 @@ class TestCaptionGeneration:
         rtvi_server._stream_handler.stop_request_profiling = MagicMock()
 
         rtvi_server._stream_handler._process_output(req_info, True, [])
-        rtvi_server._stream_handler._finish_stopped_live_caption_request(
-            req_info,
-            was_processing=True,
-        )
+        rtvi_server._stream_handler._finish_stopped_live_caption_request(req_info)
 
         active_counter.add.assert_called_once_with(-1)
         assert asset.use_count == 0
@@ -980,6 +1049,7 @@ class TestCaptionGeneration:
         req_info = RequestInfo()
         req_info.is_live = True
         req_info.status = RequestInfo.Status.PROCESSING
+        req_info._live_active_accounted = True
         req_info.assets = [asset]
         req_info._request_metrics = object()
         asset.lock()
@@ -987,10 +1057,7 @@ class TestCaptionGeneration:
             side_effect=RuntimeError("profiling export failed")
         )
 
-        rtvi_server._stream_handler._finish_stopped_live_caption_request(
-            req_info,
-            was_processing=True,
-        )
+        rtvi_server._stream_handler._finish_stopped_live_caption_request(req_info)
 
         assert asset.use_count == 0
         assert req_info.status == RequestInfo.Status.SUCCESSFUL
@@ -2005,6 +2072,34 @@ class TestNIMCompatibleEndpoints:
         # Text-only request routes through VLM pipeline.
         # In test env (no model), it times out (504) or succeeds (200).
         assert response.status_code in (200, 504)
+
+    def test_chat_completions_returns_backend_unavailable(self, test_client, rtvi_server):
+        pipeline = rtvi_server._stream_handler._vlm_pipeline
+        pipeline.enqueue_vlm_text_chunk.side_effect = lambda **kwargs: kwargs[
+            "on_chunk_result"
+        ](PipelineChunkResult(error="VLM model backend is unavailable", error_status_code=503))
+
+        response = test_client.post(
+            f"{API_PREFIX}/chat/completions",
+            json={"model": "test-model", "messages": [{"role": "user", "content": "Test"}]},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["message"] == "VLM model backend is unavailable"
+
+    def test_streaming_chat_rejects_backend_unavailable_before_sse(self, rtvi_server):
+        pipeline = rtvi_server._stream_handler._vlm_pipeline
+        pipeline.enqueue_vlm_text_chunk.side_effect = lambda **kwargs: kwargs[
+            "on_chunk_result"
+        ](PipelineChunkResult(error="VLM model backend is unavailable", error_status_code=503))
+        request = ChatCompletionRequest(
+            model="test-model", stream=True, messages=[{"role": "user", "content": "Test"}]
+        )
+
+        with pytest.raises(ServiceException) as exc_info:
+            asyncio.run(rtvi_server._handle_text_only_chat(request, "", "Test"))
+
+        assert exc_info.value.status_code == 503
 
     def test_chat_completions_missing_messages(self, test_client):
         """Test chat completions without messages"""

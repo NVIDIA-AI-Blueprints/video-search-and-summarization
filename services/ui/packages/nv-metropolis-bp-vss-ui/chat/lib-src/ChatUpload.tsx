@@ -3,9 +3,9 @@
 /**
  * Chunked video upload from the chat surface.
  *
- * The dialogs and the upload itself come from `common` — the same components
- * the toolkit's ChatFileUpload used — so this file is only the coordination:
- * which files, cancellation, and the auto-prompt sent once a batch lands.
+ * The dialogs and the upload itself come from `common`, so this file is only
+ * the coordination: which files, cancellation, and the auto-prompt sent once
+ * a batch lands.
  *
  * Chunking is not an optimisation. The browser posts chunks straight to the
  * configured VST API, which keeps a large file from dying on the ingress'

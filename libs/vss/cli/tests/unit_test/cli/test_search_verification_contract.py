@@ -319,7 +319,8 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert "Deployment and public-origin selection are prerequisite work outside this ingestion budget" in prose
     assert "SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))" in lifecycle
     assert "CURRENT_EPOCH < SEARCH_READINESS_DEADLINE" in lifecycle
-    assert "is the one sanctioned construction" in prose
+    assert "there is no sanctioned construction" in prose
+    assert "/etc/brev/environment-context.json" in prose
     assert "--max-redirs 0" in origin_selector
     assert '.type == "vst"' in origin_selector
     assert origin_selector.count("curl ") == 1

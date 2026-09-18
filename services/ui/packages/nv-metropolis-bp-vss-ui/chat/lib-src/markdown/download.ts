@@ -7,8 +7,6 @@
  * attribute is ignored for cross-origin hrefs, so the browser navigates away
  * from the app instead of saving. VSS media comes from VST on another origin,
  * which is exactly that case.
- *
- * Ported from the toolkit's `utils/media/download.ts`.
  */
 /**
  * Save a Blob under a chosen filename.

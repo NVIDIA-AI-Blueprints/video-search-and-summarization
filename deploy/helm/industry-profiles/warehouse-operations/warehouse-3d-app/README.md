@@ -230,7 +230,8 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource version for the warehouse app-data bundle (models, configs). Override when pinning to a specific release. |
 | **`rtvi.vss-rtvi-cv.persistence.models.size`** | **`80Gi`** | PVC size for the NGC model download job. |
-| **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1`; `cpu: 8` request, `12` limit | GPU request/limit for the CV inference pod, required for the 3D pipeline. CPU request (`8`) matches Sparse4D's `num_torch_threads: 8`; the limit (`12`) is normal headroom for the rest of the DeepStream pipeline. |
+| **`rtvi.vss-rtvi-cv.sparse4d.numTorchThreads`** | **`8`** | PyTorch CPU thread count for Sparse4D. Scale with the CPU request/limit below if you observe contention. |
+| **`rtvi.vss-rtvi-cv.resources`** | `nvidia.com/gpu: 1`; `cpu: 8` request, `12` limit | GPU request/limit for the CV inference pod. CPU request should be ≥ **`sparse4d.numTorchThreads`** above; the `12` limit is a buffer for the rest of the DeepStream pipeline. |
 | **`warehouse.datasetType`** | **`synthetic`** | `synthetic` or `real`. Picks the Sparse4D model/anchor/label set (same as compose's `DATASET_TYPE`). Don't hand-edit `rtvi.vss-rtvi-cv.sparse4d`/`ngcModelsToDownload` — run `scripts/compute_model_selection.py --dataset-type <type> -f <your-values.yaml> -o values-model.yaml` and pass `-f values-model.yaml` to `helm upgrade --install`. |
 
 ##### `monitoring`

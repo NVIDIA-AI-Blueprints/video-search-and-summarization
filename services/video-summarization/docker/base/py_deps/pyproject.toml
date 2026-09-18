@@ -26,7 +26,7 @@ dependencies = [
     "tabulate==0.10.0",
     "tqdm==4.67.3",
     "pyyaml==6.0.3",
-    "kafka-python==2.2.15",
+    "kafka-python==3.0.11",
     "prometheus-client==0.25.0",
     # CVE in urllib3 2.6.3 — pin direct dep to 2.7.0 (transitive via requests).
     "urllib3==2.7.0",
