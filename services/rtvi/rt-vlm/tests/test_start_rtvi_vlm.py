@@ -21,6 +21,7 @@ import pytest
 START_SCRIPT = Path(__file__).parents[1] / "start_rtvi_vlm.sh"
 REPO_ROOT = START_SCRIPT.parent
 RUNTIME_VALIDATOR_PATH = "rtvi/utils/env_validation.py"
+SOURCE_VALIDATOR_PATH = "src/utils/env_validation.py"
 
 
 def _create_runtime_layout(root: Path) -> None:
@@ -44,7 +45,7 @@ def _run_entrypoint_defaults(
     stubs = r"""
 nvdec_get_count() { echo 8; }
 python3() {
-    if [ "$1" = "rtvi/utils/env_validation.py" ]; then
+    if [ "$1" = "rtvi/utils/env_validation.py" ] || [ "$1" = "src/utils/env_validation.py" ]; then
         command python3 "__VALIDATOR_PATH__"
     else
         return 0
@@ -227,6 +228,6 @@ def test_environment_validator_is_packaged_for_runtime_and_public_release() -> N
 
     assert "utils/env_validation.py" in runtime_files.splitlines()
     assert "src/utils/env_validation.py" in release_files.splitlines()
-    assert f"python3 {RUNTIME_VALIDATOR_PATH}" in START_SCRIPT.read_text(
-        encoding="utf-8"
-    )
+    entrypoint = START_SCRIPT.read_text(encoding="utf-8")
+    assert f"python3 {RUNTIME_VALIDATOR_PATH}" in entrypoint
+    assert f"python3 {SOURCE_VALIDATOR_PATH}" in entrypoint
