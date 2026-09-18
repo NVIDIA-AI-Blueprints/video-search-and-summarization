@@ -215,13 +215,10 @@ the connection carries the gateway token and alert contents. Use `ws://` only fo
 
 The supported Compose driver for developer profiles is
 `deploy/docker/scripts/dev-profile.sh`. It copies `overrides.env` into `generated.env`,
-sets `VSS_APPS_DIR` / `VSS_DATA_DIR` / `HOST_IP`, and for `MODE=2d_vlm` it comments out
-`RTVI_VLM_KAFKA_ENABLED` (so RT-VLM publishes alert events) and sets
-`NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=true` and
-`NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=false`.
-Hand-rolled `docker compose` that only copies `overrides.env` to `user-overrides.env`
-keeps `RTVI_VLM_KAFKA_ENABLED=false` from the template, so the stack starts without
-real-time VLM alerts.
+sets `VSS_APPS_DIR`, `VSS_DATA_DIR`, and `HOST_IP`, and applies the complete
+real-time configuration. For `MODE=2d_vlm`, the helper enables the alert agent,
+selects the VLM Compose service list, enables RT-VLM Kafka publishing, and
+configures the applicable Manage Alerts user interface.
 
 ```bash
 export NGC_CLI_API_KEY='your_ngc_api_key'
@@ -231,11 +228,27 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
   --hardware-profile H100
 ```
 
-If you still run Compose by hand, apply those three `2d_vlm` changes in the env file
-the command actually reads (`generated.env` or `user-overrides.env`). Later `--env-file`
-arguments override earlier ones: edits to `overrides.env` after it has been copied are
-ignored. `VSS_CONTAINER_REGISTRY` (default `ghcr.io/nvidia-ai-blueprints/vss`) and
-`VSS_CONTAINER_TAG` (default `develop-latest`) are set in `deploy/docker/containers.env`.
+When invoking Docker Compose directly, apply all of the following settings in
+the environment file supplied to the command (`generated.env` or
+`user-overrides.env`):
+
+```ini
+MODE=2d_vlm
+ALERT_AGENT_ALWAYS_ON=true
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+# RTVI_VLM_KAFKA_ENABLED=false
+NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=true
+NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=false
+```
+
+The `RTVI_VLM_KAFKA_ENABLED=false` assignment from the template must be
+commented out or removed so that the RT-VLM Compose default enables Kafka
+publishing. Later `--env-file` arguments take precedence over earlier
+arguments; therefore, changes to `overrides.env` made after it has been copied
+do not affect a command that reads `user-overrides.env`.
+`VSS_CONTAINER_REGISTRY` (default `ghcr.io/nvidia-ai-blueprints/vss`) and
+`VSS_CONTAINER_TAG` (default `develop-latest`) are defined in
+`deploy/docker/containers.env`.
 
 #### Step 1: Deploy the Agent
 
