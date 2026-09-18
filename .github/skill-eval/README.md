@@ -49,19 +49,18 @@ Manual runs configure both routes without changing the coordinator or judge:
 | Workflow input | Meaning |
 |---|---|
 | `coding_harness` | Build Vision AI/setup runtime: `claude-code` or `codex` |
-| `coding_provider`, `coding_model` | Independent coding route; models come from [`inference.nvidia.com`](https://inference.nvidia.com/) and a blank model preserves its configured default |
+| `coding_model` | Independent coding model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
-| `operational_provider`, `operational_model` | Independent operational route; models come from [`inference.nvidia.com`](https://inference.nvidia.com/) and a blank model preserves its configured default |
+| `operational_model` | Independent operational model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
 
 The runner owns credentials. NVIDIA inference uses the fixed public
 `https://inference.nvidia.com/` source; manual runs cannot redirect a runner
-credential to another host. `default` preserves the configured harness and
-model. Neither route inherits model or provider overrides from the other. For
-NemoClaw, the operational values are passed to Build Vision AI as
-`NEMOCLAW_PROVIDER`, `NEMOCLAW_MODEL`, and the fixed
-`NEMOCLAW_ENDPOINT_URL`; the setup task itself uses the independently selected
-coding route. The provider-managed `nvidia-build` route has no endpoint input
-and receives its resolved credential as `NVIDIA_API_KEY`.
+credential to another host. A blank model preserves the configured model, and
+neither route inherits a model override from the other. For NemoClaw, the
+operational values are passed to Build Vision AI as `NEMOCLAW_MODEL` and the
+fixed `NEMOCLAW_ENDPOINT_URL`; Build Vision AI's `custom` adapter name denotes
+that OpenAI-compatible NVIDIA inference endpoint. The setup task itself uses
+the independently selected coding route.
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 

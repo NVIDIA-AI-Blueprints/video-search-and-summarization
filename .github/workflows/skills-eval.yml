@@ -11,7 +11,7 @@
 # workflow_dispatch:
 #   plan -> computes the same (skill, spec, platform) rows
 #   eval -> dispatches one matrix job per row with independent coding and
-#           operational runtime/model routes
+#           operational harness/model selections
 
 name: Skills Eval
 
@@ -26,8 +26,8 @@ on:
     branches:
       - "pull-request/[0-9]+"
   # Manual full-sweep trigger. The `plan` job enumerates the picked skill's
-  # specs (or all skills) instead of diffing, then both configured routes use
-  # the same per-(spec, platform) matrix dispatch.
+  # specs (or all skills) instead of diffing, then both configured harnesses
+  # use the same per-(spec, platform) matrix dispatch.
   workflow_dispatch:
     inputs:
       skills:
@@ -46,14 +46,6 @@ on:
         options:
           - claude-code
           - codex
-      coding_provider:
-        description: "CODING · NVIDIA inference route."
-        required: false
-        default: "default"
-        type: choice
-        options:
-          - default
-          - nvidia-inference
       coding_model:
         description: "CODING · Model ID from https://inference.nvidia.com/. Blank preserves the configured default."
         required: false
@@ -68,15 +60,6 @@ on:
           - claude-code
           - codex
           - nemoclaw
-      operational_provider:
-        description: "OPERATIONAL · NVIDIA inference route; nvidia-build is NemoClaw-only."
-        required: false
-        default: "default"
-        type: choice
-        options:
-          - default
-          - nvidia-inference
-          - nvidia-build
       operational_model:
         description: "OPERATIONAL · Model ID from https://inference.nvidia.com/. Blank preserves the configured default."
         required: false
@@ -256,10 +239,8 @@ jobs:
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
           CODING_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_harness || 'claude-code' }}
-          CODING_PROVIDER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_provider || 'default' }}
           CODING_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.coding_model || '' }}
           OPERATIONAL_HARNESS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_harness || 'claude-code' }}
-          OPERATIONAL_PROVIDER_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_provider || 'default' }}
           OPERATIONAL_MODEL_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.operational_model || '' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -283,10 +264,8 @@ jobs:
           skill_eval_venv_dir="$SKILL_EVAL_VENV"
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           coding_harness="$CODING_HARNESS_INPUT"
-          coding_provider="$CODING_PROVIDER_INPUT"
           coding_model="$CODING_MODEL_INPUT"
           operational_harness="$OPERATIONAL_HARNESS_INPUT"
-          operational_provider="$OPERATIONAL_PROVIDER_INPUT"
           operational_model="$OPERATIONAL_MODEL_INPUT"
           set -a
           source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
@@ -300,7 +279,6 @@ jobs:
           export PATH="$skill_eval_venv_dir/bin:$PATH"
           export EVAL_AGENT="$operational_harness"
           export SKILLS_EVAL_CODING_HARNESS="$coding_harness"
-          export SKILLS_EVAL_CODING_PROVIDER="$coding_provider"
           if [ -n "$coding_model" ]; then
             export SKILLS_EVAL_CODING_MODEL="$coding_model"
           else
@@ -308,13 +286,13 @@ jobs:
           fi
           unset SKILLS_EVAL_CODING_ENDPOINT_URL
           export SKILLS_EVAL_OPERATIONAL_HARNESS="$operational_harness"
-          export SKILLS_EVAL_OPERATIONAL_PROVIDER="$operational_provider"
           if [ -n "$operational_model" ]; then
             export SKILLS_EVAL_OPERATIONAL_MODEL="$operational_model"
           else
             unset SKILLS_EVAL_OPERATIONAL_MODEL
           fi
           unset SKILLS_EVAL_OPERATIONAL_ENDPOINT_URL
+          unset SKILLS_EVAL_CODING_PROVIDER SKILLS_EVAL_OPERATIONAL_PROVIDER
           hash -r
           python3 -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use

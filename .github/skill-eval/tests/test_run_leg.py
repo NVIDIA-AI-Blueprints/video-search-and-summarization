@@ -826,7 +826,6 @@ class RunInvocations(unittest.TestCase):
         env = {
             **self.ENV,
             "EVAL_AGENT": "claude-code",
-            "SKILLS_EVAL_CODING_PROVIDER": "nvidia-inference",
             "SKILLS_EVAL_CODING_MODEL": "selected/model",
             "SKILLS_EVAL_CODING_API_KEY": "route-secret",
             "SKILLS_EVAL_CODING_ENDPOINT_URL": "https://attacker.example.test/v1",
@@ -1111,7 +1110,7 @@ class RunInvocations(unittest.TestCase):
             [None, None, "1"],
         )
 
-    def test_nemoclaw_build_route_exports_resolved_nvidia_key(self):
+    def test_nemoclaw_exports_resolved_nvidia_inference_key(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             invocation = run_leg.HarborInvocation(
@@ -1126,7 +1125,6 @@ class RunInvocations(unittest.TestCase):
                 "EVAL_AGENT": "nemoclaw",
                 "EVAL_SKILL": "vss-manage-alerts",
                 "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
-                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "nvidia-build",
                 "SKILLS_EVAL_OPERATIONAL_MODEL": "nvidia/nemotron",
                 "SKILLS_EVAL_OPERATIONAL_API_KEY": "route-specific-key",
                 "NVIDIA_API_KEY": "runner-global-key",
@@ -1168,9 +1166,9 @@ class RunInvocations(unittest.TestCase):
                 )
 
         self.assertEqual(rc, 0)
-        self.assertEqual(seen_env[0]["NEMOCLAW_PROVIDER"], "build")
-        self.assertEqual(seen_env[0]["NVIDIA_API_KEY"], "route-specific-key")
-        self.assertNotIn("COMPATIBLE_API_KEY", seen_env[0])
+        self.assertEqual(seen_env[0]["NEMOCLAW_PROVIDER"], "custom")
+        self.assertEqual(seen_env[0]["COMPATIBLE_API_KEY"], "route-specific-key")
+        self.assertEqual(seen_env[0]["NVIDIA_API_KEY"], "runner-global-key")
 
     def test_operational_claude_uses_independent_models(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1188,9 +1186,7 @@ class RunInvocations(unittest.TestCase):
             env = {
                 **self.ENV,
                 "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
-                "SKILLS_EVAL_CODING_PROVIDER": "nvidia-inference",
                 "SKILLS_EVAL_CODING_MODEL": "coding/model",
-                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "nvidia-inference",
                 "SKILLS_EVAL_OPERATIONAL_MODEL": "operational/model",
             }
             with (
@@ -1246,10 +1242,8 @@ class RunInvocations(unittest.TestCase):
                 "EVAL_SKILL": "vss-manage-alerts",
                 "EVAL_SPEC_PATH": "skills/operations/vss-manage-alerts/evals/alerts.json",
                 "SKILLS_EVAL_CODING_HARNESS": "codex",
-                "SKILLS_EVAL_CODING_PROVIDER": "nvidia-inference",
                 "SKILLS_EVAL_CODING_MODEL": "selected/codex",
                 "SKILLS_EVAL_CODING_API_KEY": "coding-secret",
-                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "nvidia-inference",
                 "SKILLS_EVAL_OPERATIONAL_MODEL": "selected/nemotron",
                 "SKILLS_EVAL_OPERATIONAL_API_KEY": "compatible-secret",
             }
@@ -1990,7 +1984,7 @@ class ModelConfigPreflight(unittest.TestCase):
                 "EVAL_AGENT": "claude-code",
                 "ANTHROPIC_MODEL": "configured/model",
                 "ANTHROPIC_BASE_URL": "https://configured.example.test/v1",
-                "SKILLS_EVAL_OPERATIONAL_PROVIDER": "custom",
+                "SKILLS_EVAL_OPERATIONAL_HARNESS": "custom",
                 "ANTHROPIC_API_KEY": "secret",
             }
             with (
