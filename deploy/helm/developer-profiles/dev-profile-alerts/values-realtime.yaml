@@ -35,22 +35,22 @@ global:
   externalPort: "" # Default 80 (http) / 443 (https): use "" — chart omits :port in URLs. Non-default port only: e.g. "8080", "8443".
   # When empty and externalHost is set, vss-agent-ui / kibana derive http(s)://kibana.<externalHost> (same host as ingress kibana rule).
   kibanaPublicUrl: ""
-  # Remote NIM: one place for vss-agent (same pattern as dev-profile-lvs). Override with agent.vss-agent.llmBaseUrl / llmName if needed.
+  # Remote NIM defaults for vss-agent. Override with
+  # agent.vss-agent.llmBaseUrl / llmName if needed.
   llmBaseUrl: ""
   vlmBaseUrl: ""
   llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 
 infra:
-  # SDRC stays enabled in real-time mode as well; only the workload config
-  # differs. Compose dropped SDRC for VIOS webhooks — do not mirror that here,
-  # SDRC is what scales stream placement in Kubernetes. Full rationale is in
-  # values.yaml under infra.sdrc.
+  # SDRC stays enabled in real-time mode; only the workload config differs.
+  # SDRC scales stream placement in Kubernetes. Full rationale is in values.yaml
+  # under infra.sdrc.
   sdrc:
     configFilePath: configs/sdrc/config-realtime.yml
 
-# Real-time mirrors COMPOSE_PROFILES_VLM: disables perception/behavior analytics,
-# keeps alert-bridge, and enables vss-rtvi-vlm.
+# Real-time mode disables perception/behavior analytics, keeps alert-bridge,
+# and enables vss-rtvi-vlm.
 # agent.vss-agent: wire RTVI_VLM_BASE_URL to in-cluster vss-rtvi-vlm (rtviVlmEnabled + rtviVlmServiceName; image override optional).
 # COSMOS_EMBED_ENDPOINT stays empty — alerts profile does not ship vss-rtvi-embed (same as reference; search profile uses embed).
 agent:
