@@ -19,7 +19,10 @@ as the sandbox user. vss-start runs it before handing over to nemoclaw-start.
 Two jobs, mirroring upstream where upstream has a shape:
 - names: agents.defaults.model.primary and models.providers.inference.models[0]
   follow NEMOCLAW_MODEL_OVERRIDE when set (validated like upstream), else the
-  model `openshell inference get --json` reports.
+  model `openshell inference get` reports. The openshell CLI's output is a
+  display boundary, not a typed API (and --json support varies by release), so
+  the probe tries `--json` and falls back to parsing the `Model:` line of the
+  text output.
 - limits: upstream's reconcile never corrects contextWindow/maxTokens, and the
   gateway probe does not expose them, so there is no runtime source of truth.
   VSS_OPENCLAW_CONTEXT_WINDOW / VSS_OPENCLAW_MAX_TOKENS are unambiguous
@@ -61,18 +64,34 @@ def valid_model(model: str) -> bool:
 
 
 def gateway_model() -> str:
-    """The model the OpenShell gateway serves; empty when unknowable."""
-    try:
-        r = subprocess.run(
-            ["openshell", "inference", "get", "--json"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if r.returncode != 0:
+    """The model the OpenShell gateway serves; empty when unknowable.
+
+    `openshell inference get` is a display boundary, not a typed API, and its
+    `--json` flag is not available in every release — so try JSON first and
+    fall back to the text output's `Model:` line. Anything unparseable is
+    "unknowable", never an error: the caller fails open.
+    """
+    for argv in (["openshell", "inference", "get", "--json"],
+                 ["openshell", "inference", "get"]):
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=3)
+        except Exception:
             return ""
-        model = json.loads(r.stdout).get("model")
-        return model if isinstance(model, str) else ""
-    except Exception:
-        return ""
+        if r.returncode != 0:
+            continue
+        out = r.stdout.strip()
+        if argv[-1] == "--json":
+            try:
+                model = json.loads(out).get("model")
+                if isinstance(model, str) and model:
+                    return model
+            except Exception:
+                continue
+        else:
+            m = re.search(r"^Model:\s*(\S+)\s*$", out, re.M)
+            if m:
+                return m.group(1)
+    return ""
 
 
 def refresh_hash(config: str, hash_path: str) -> None:

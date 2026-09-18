@@ -150,6 +150,36 @@ def test_limits_kept_without_baked_snapshot(paths):
     assert first["contextWindow"] == 131072 and first["maxTokens"] == 4096
 
 
+# --- gateway probe --------------------------------------------------------------
+
+class _Proc:
+    def __init__(self, rc, out):
+        self.returncode, self.stdout = rc, out
+
+
+def test_gateway_model_prefers_json(monkeypatch):
+    def fake_run(argv, **kw):
+        return _Proc(0, '{"provider": "p", "model": "a/b"}' if "--json" in argv else "Model: wrong")
+    monkeypatch.setattr(mr.subprocess, "run", fake_run)
+    assert mr.gateway_model() == "a/b"
+
+
+def test_gateway_model_falls_back_to_text_when_json_unsupported(monkeypatch):
+    # openshell releases without --json reject the flag; the text output's
+    # Model: line is the fallback (Ryan's review: there is no --json).
+    def fake_run(argv, **kw):
+        if "--json" in argv:
+            return _Proc(2, "")
+        return _Proc(0, "Provider: custom\nModel: aws/anthropic/bedrock-claude-opus-4-8\n")
+    monkeypatch.setattr(mr.subprocess, "run", fake_run)
+    assert mr.gateway_model() == "aws/anthropic/bedrock-claude-opus-4-8"
+
+
+def test_gateway_model_unparseable_is_empty(monkeypatch):
+    monkeypatch.setattr(mr.subprocess, "run", lambda argv, **kw: _Proc(0, "garbage"))
+    assert mr.gateway_model() == ""
+
+
 # --- hash + safety --------------------------------------------------------------
 
 def test_hash_refreshed_to_sha256_of_config(paths):
