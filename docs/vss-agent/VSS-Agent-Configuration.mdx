@@ -340,6 +340,10 @@ HOST_IP='10.20.30.40'
 # reported version (VSS_DEPLOYMENT_VERSION is consulted first and wins), and it
 # also resolves the container image tag, so setting it would change which image
 # this configuration pulls. Use VSS_CONTAINER_TAG to pin the image.
+# Leaving it unset does have one visible effect: the Phoenix telemetry project
+# above is named WH-vss-agent-${VSS_AGENT_VERSION}, which renders with an empty
+# suffix. If you want that suffix, set VSS_AGENT_VERSION as well — and set
+# VSS_CONTAINER_TAG alongside it so the image tag stays what you intended.
 VSS_DEPLOYMENT_VERSION=3.3.0
 VSS_AGENT_CONFIG_FILE=./deploy/docker/industry-profiles/warehouse-operations/vss-agent/configs/config.yml
 VSS_AGENT_HOST=0.0.0.0
