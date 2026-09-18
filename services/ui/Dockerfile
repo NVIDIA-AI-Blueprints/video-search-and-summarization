@@ -98,7 +98,7 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui
 # Copy custom server (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/custom-server.js ./custom-server.js
 
-# Copy license files (read-only): LICENSE (MIT) and LICENSE-3rd-party.txt.
+# Copy license files (read-only): LICENSE.md (Apache-2.0) and LICENSE-3rd-party.txt.
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/LICENSE* ./
 
 # The NVIDIA Software License Agreement is not vendored in this source tree.

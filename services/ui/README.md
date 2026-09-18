@@ -1,12 +1,12 @@
 <!--
 SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-SPDX-License-Identifier: MIT AND Apache-2.0
+SPDX-License-Identifier: Apache-2.0
 -->
+
 # VSS UI Monorepo
 
 This workspace contains the Video Search and Summarization (VSS) web apps and
-shared UI packages. File-level SPDX headers record the applicable licenses and
-provenance for retained code.
+shared UI packages. File-level SPDX headers use NVIDIA copyright and Apache-2.0.
 
 ## Node version (nvm)
 
@@ -178,12 +178,9 @@ Requires Docker. The script reads the Node version from `services/ui/.nvmrc` and
 This module contains source under file-level open-source licenses and a
 separately licensed pre-built container distribution:
 
-- **Source code:** retained upstream-derived code remains under MIT, while VSS
-  additions are accepted under Apache-2.0. Modified derived files identify both
-  obligations as `MIT AND Apache-2.0`. The SPDX header on each file is
-  authoritative; see the repository [contributor guide](../../CONTRIBUTING.md),
-  the repository [`LICENSE`](../../LICENSE), and the UI's bundled MIT
-  [`LICENSE`](./LICENSE).
+- **Source code:** NVIDIA copyright, Apache-2.0. The SPDX header on each file
+  is authoritative; see the repository [contributor guide](../../CONTRIBUTING.md),
+  the repository [`LICENSE`](../../LICENSE), and the UI [`LICENSE.md`](./LICENSE.md).
 
 - **The pre-built VSS Agent UI container images distributed by NVIDIA via NGC**
   (`nvcr.io/nvidia/blueprint/vss-agent-ui` and related tags) **are licensed under the NVIDIA Software
@@ -194,7 +191,7 @@ separately licensed pre-built container distribution:
 Third-party open-source components bundled in the container image are attributed in
 [`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
 
-The container image carries `LICENSE` (MIT), `LICENSE-3rd-party.txt`, and
+The container image carries `LICENSE.md` (Apache-2.0), `LICENSE-3rd-party.txt`, and
 `NVIDIA-Software-License-Agreement.pdf` under `/repo`. The agreement is **not** vendored in this
 source tree — the Dockerfile's `ADD` instruction fetches it from `nvidia.com` at build time with a
 pinned SHA-256, which keeps the repository free of a proprietary EULA and needs no HTTP client in

@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * VSS-specific routing: multiple main tabs subscribe by tab id.
  * Generic parent/listener API lives in types/mainTabChatBridge.ts.

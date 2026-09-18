@@ -11,13 +11,6 @@ Its primary transport is the versioned VSS agent API exposed by the embedded
 adapter. The original OpenAI-shaped chat-SSE transport remains available for
 deployments that have not enabled that adapter.
 
-## Source provenance
-
-Components and helpers marked `MIT AND Apache-2.0` retain code derived from the
-MIT-licensed NeMo Agent Toolkit UI and include contributions made in this
-repository under Apache-2.0. Files marked only `Apache-2.0` are original work
-authored for this repository.
-
 ## Usage
 
 ```tsx

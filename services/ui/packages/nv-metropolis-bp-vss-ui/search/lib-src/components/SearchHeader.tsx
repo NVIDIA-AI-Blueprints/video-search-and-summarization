@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { CustomProvider, Button } from 'rsuite';
 import { Select, Button as KaizenButton, Tag as KaizenTag } from '@nvidia/foundations-react-core';

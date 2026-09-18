@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 export { DashboardComponent } from './DashboardComponent';
 export type { DashboardComponentProps, DashboardSidebarControlHandlers } from './DashboardComponent';
 export { DashboardSidebarControls } from './components/DashboardSidebarControls';

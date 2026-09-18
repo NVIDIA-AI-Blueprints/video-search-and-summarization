@@ -2,8 +2,8 @@
   "name": "@nv-metropolis-bp-vss-ui/chat",
   "version": "3.3-dev",
   "private": true,
-  "license": "MIT AND Apache-2.0",
-  "description": "Toolkit-free VSS chat interface for the structured agent API, with legacy chat-SSE compatibility.",
+  "license": "Apache-2.0",
+  "description": "VSS chat interface for the structured agent API, with legacy chat-SSE compatibility.",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
