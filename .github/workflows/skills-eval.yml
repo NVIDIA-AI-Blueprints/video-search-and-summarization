@@ -298,13 +298,6 @@ jobs:
           if [ "${{ matrix.local_gpu }}" = "true" ]; then
             printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
             printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"
-            # Do not persist corp remote LLM/VLM URLs into GITHUB_ENV.
-            # Guests cannot reach 10.86.6.50; the skill then deploys
-            # remote mode and local NIMs never occupy VRAM.
-            printf "LLM_REMOTE_URL=\n" >> "$GITHUB_ENV"
-            printf "LLM_REMOTE_MODEL=\n" >> "$GITHUB_ENV"
-            printf "VLM_REMOTE_URL=\n" >> "$GITHUB_ENV"
-            printf "VLM_REMOTE_MODEL=\n" >> "$GITHUB_ENV"
             # sample-deployment judge requires a harness-provided NGC
             # resource (WAREHOUSE_APP_DATA_DIR or WAREHOUSE_APP_DATA_NGC).
             # Pin matches deploy/docker and helm 3.2.0 defaults.
@@ -395,11 +388,10 @@ jobs:
           if [ -z "${ANTHROPIC_MODEL:-}" ]; then
             export ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
           fi
-          # OpenShell local-GPU smoke must not inherit corp remote LLM/VLM
-          # URLs from ~/.eval_env. Those endpoints time out from the guests;
-          # the skill then writes LLM_MODE=remote and never starts local NIMs.
           if [ -n "${SKILL_EVAL_LOCAL_GPU_INSTANCE:-}" ]; then
-            unset LLM_REMOTE_URL LLM_REMOTE_MODEL VLM_REMOTE_URL VLM_REMOTE_MODEL
+            # OpenShell guest egress permits the configured remote model
+            # endpoints. Preserve placement keys sourced from the optional
+            # guest env so profile skills can select remote LLM/VLM modes.
             # Same inheritance trap: a BREV_INSTANCE left in ~/.eval_env names
             # a coordinator pool box, and brev_env fails the leg in seconds
             # with "BREV_INSTANCE does not match SKILL_EVAL_LOCAL_GPU_INSTANCE".
