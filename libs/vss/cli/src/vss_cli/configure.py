@@ -685,6 +685,7 @@ def check_memory() -> None:
 )
 @click.option("--fps", type=click.FloatRange(min=0, min_open=True, max=256), help="Frames sampled per second.")
 @click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
+@click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
 def configure_vlm(
     timeout: int | None,
     temperature: float | None,
@@ -694,6 +695,7 @@ def configure_vlm(
     chunk_duration: int | None,
     fps: float | None,
     locked: bool | None,
+    reset: bool,
 ) -> None:
     """Configure reusable defaults for ``vss vlm run``."""
     try:
@@ -701,11 +703,19 @@ def configure_vlm(
     except config_mod.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    current = deployment.vlm or config_mod.VlmConfig()
-    if all(
-        value is None
+    supplied = any(
+        value is not None
         for value in (timeout, temperature, max_tokens, seed, enable_reasoning, chunk_duration, fps, locked)
-    ):
+    )
+    if reset:
+        if supplied:
+            raise click.UsageError("cannot combine --reset with VLM policy options")
+        path = config_mod.save(replace(deployment, vlm=None))
+        click.echo(f"removed VLM request policy from {path}", err=True)
+        return
+
+    current = deployment.vlm or config_mod.VlmConfig()
+    if not supplied:
         click.echo(json.dumps(current.to_json(), indent=2))
         return
 

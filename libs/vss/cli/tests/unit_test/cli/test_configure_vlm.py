@@ -95,6 +95,28 @@ def test_configure_vlm_without_options_shows_policy(config_home: Path) -> None:
     assert json.loads(result.output) == _locked_policy().to_json()
 
 
+def test_configure_vlm_reset_removes_policy_and_preserves_deployment(config_home: Path) -> None:
+    config_mod.save(replace(config_mod.load(), vlm=_locked_policy()))
+
+    result = _invoke("--reset")
+
+    assert result.exit_code == 0, result.output
+    deployment = config_mod.load()
+    assert deployment.vlm is None
+    assert deployment.base_url == "http://example"
+    assert deployment.services == {"rt_vlm": config_mod.Service(url="http://example/rtvi-vlm")}
+
+
+def test_configure_vlm_reset_rejects_policy_options(config_home: Path) -> None:
+    config_mod.save(replace(config_mod.load(), vlm=_locked_policy()))
+
+    result = _invoke("--reset", "--fps", "2")
+
+    assert result.exit_code != 0
+    assert "cannot combine --reset with VLM policy options" in result.output
+    assert config_mod.load().vlm == _locked_policy()
+
+
 def test_main_configure_preserves_vlm_policy(
     config_home: Path,
     monkeypatch: pytest.MonkeyPatch,
