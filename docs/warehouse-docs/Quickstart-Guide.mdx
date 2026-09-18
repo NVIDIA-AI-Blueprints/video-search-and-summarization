@@ -130,8 +130,6 @@ sudo chmod -R 777 /path/to/vss-warehouse-app-data
 
 ## Deploy Warehouse Blueprint
 
-`deploy/docker/scripts/dev-profile.sh` is for **developer** profiles (`base`, `alerts`, `search`, `lvs`), not warehouse. Warehouse Compose uses `industry-profiles/warehouse-operations/.env` plus `overrides.env`. Later `--env-file` values win; edit `overrides.env` (or the env file your command lists last), not a copy that is never passed to Compose.
-
 ### Configure Environment settings
 
 This section explains the most commonly edited variables in `industry-profiles/warehouse-operations/.env` and `overrides.env`.
