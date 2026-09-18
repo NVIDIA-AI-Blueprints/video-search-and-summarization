@@ -61,7 +61,7 @@ on:
           - codex
           - nemoclaw
       operational_model:
-        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/. Blank preserves the configured default."
+        description: "OPERATIONAL · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
         required: false
         default: ""
         type: string
