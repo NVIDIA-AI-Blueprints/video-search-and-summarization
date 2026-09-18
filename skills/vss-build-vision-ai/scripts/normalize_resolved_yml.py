@@ -16,6 +16,7 @@ required dependency remains an error.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -99,9 +100,19 @@ def normalize(path: Path) -> int:
     return 0
 
 
-def main() -> None:
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("resolved.yml")
-    raise SystemExit(normalize(path))
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Normalize a profile-filtered Compose model for deployment."
+    )
+    parser.add_argument(
+        "resolved_yml",
+        nargs="?",
+        type=Path,
+        default=Path("resolved.yml"),
+        help="resolved Compose YAML to normalize (default: resolved.yml)",
+    )
+    args = parser.parse_args(argv)
+    raise SystemExit(normalize(args.resolved_yml))
 
 
 if __name__ == "__main__":
