@@ -290,12 +290,20 @@ def generate_task(
         )
         if needs_deploy_skill:
             copies.insert(1, (deploy_skill_dir, "vss-build-vision-ai"))
+        # Mount the skill's documentation, never its eval specs: a spec file
+        # carries the very checks this trial is graded on, and copying it into
+        # the agent's own skills/ tree hands it the answer key. A judge already
+        # caught the leak being used - "the phrase only appears in the
+        # trajectory because the agent read a file containing the eval checks
+        # themselves". `evals/` is the current layout, `eval/` the legacy one.
         for src, name in copies:
             if src and src.exists():
                 dst = step_dir / "skills" / name
                 if dst.exists():
                     shutil.rmtree(dst)
-                shutil.copytree(src, dst)
+                shutil.copytree(
+                    src, dst, ignore=shutil.ignore_patterns("evals", "eval")
+                )
 
 
 # ---------------------------------------------------------------------------

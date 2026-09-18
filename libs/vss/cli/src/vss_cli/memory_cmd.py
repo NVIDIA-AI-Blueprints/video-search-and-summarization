@@ -261,7 +261,11 @@ def get_record(
 @click.option("--job-id")
 @click.option("--group", type=click.Choice(("summary", "search", "alert", "vlm")))
 @click.option("--status", type=click.Choice(("submitted", "running", "completed", "failed", "partial", "timeout")))
-@click.option("--sensor-id")
+@click.option(
+    "--sensor-id",
+    "--sensor",
+    help="Restrict to one VIOS sensor by name. `--sensor` is the spelling\n    every vios and vlm command uses; both are accepted here.",
+)
 @click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
 @click.option("--record-id")
 @click.option("--parents-only", is_flag=True, help="Return parent job records only.")

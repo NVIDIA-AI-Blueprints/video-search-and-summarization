@@ -134,3 +134,41 @@ def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() ->
         assert "--fps" in block
         assert "VLM_FPS=" in block
         assert "--num-frames" not in block
+
+
+def test_mounted_skills_never_carry_their_eval_specs(tmp_path: Path) -> None:
+    """The agent's skills/ mount must not contain the checks it is graded on.
+
+    Copying a skill directory wholesale drags its `evals/` (or legacy `eval/`)
+    specs along, and those files spell out every check for the trial in flight.
+    A judge caught the leak in use: the agent quoted a check verbatim having
+    never run the command, because it had read the spec out of its own mount.
+    """
+    adapter = _load_adapter()
+    spec = json.loads(SPEC_PATH.read_text())
+    spec["_source_path"] = str(SPEC_PATH)
+
+    adapter.generate_task(
+        "L40S",
+        "base",
+        spec,
+        tmp_path,
+        SKILL_DIR,
+        REPO_ROOT / "skills/vss-build-vision-ai",
+        None,
+    )
+
+    mounted = [p for p in tmp_path.rglob("*") if "/skills/" in f"{p.as_posix()}/"]
+    assert mounted, "expected the adapter to mount at least one skill"
+
+    leaked = [
+        p
+        for p in mounted
+        if p.is_file()
+        and p.suffix == ".json"
+        and p.parent.name in {"evals", "eval"}
+    ]
+    assert not leaked, f"eval specs leaked into the agent's skills mount: {leaked}"
+
+    # The verifier's own copy must survive - it is what grades the trial.
+    assert sorted(tmp_path.rglob("tests/*.json")), "judge spec copy went missing"

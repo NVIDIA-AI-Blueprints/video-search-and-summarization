@@ -98,6 +98,21 @@ For a general question about previously analyzed video, use this exact order:
    with `vss memory get` or `vss memory query`, but do not introspect.
 8. If the available memory still cannot answer, clearly report the missing
    information.
+9. An empty retrieval is an answer, not a failure of method. That covers
+   `memory introspect` returning `"status": "no_memory"`, `memory get`
+   exiting with `job_id not found`, `memory query` returning
+   `{"records": []}`, and `vlm run` reporting `no VIOS sensor named ...` for
+   a sensor the deployment has not registered. Report the negative rather
+   than treating it as a sign you chose the wrong tool.
+
+   This does not cancel the one sanctioned continuation: on `no_memory` with
+   an exact sensor and exact UTC start/end already grounded, take the single
+   direct `vss vlm run` fallback described under *Interpreting introspection
+   results*. What is ruled out is re-asking the same question through an
+   unsanctioned surface - a raw Elasticsearch query against `vss-memory`,
+   VIOS/VST/RT-VLM endpoints, filesystem search, or another skill. Those do
+   not turn an empty store into evidence; they replace a grounded negative
+   with a guess.
 
 Do not force Markdown search when:
 - Hot context already answers.
@@ -191,7 +206,10 @@ frame budget or a reproducibility workflow requires it. Never combine
 For a general memory-aware question that Markdown does not fully answer:
 - Preserve the user's question verbatim.
 - Pass only grounded selectors.
-- Prefer a known `job_id` from the Markdown pointer.
+- Prefer a known `job_id` from the Markdown pointer - pass it as
+  `memory introspect --job-id <id>`. A pointer is a reason to scope
+  introspection, never a reason to fall back to `vss memory get`; that
+  fallback belongs only to the disabled path below.
 - Otherwise use a grounded sensor or complete time range.
 - Do not run `vss memory query` immediately before introspection merely to
   duplicate its internal retrieval.
@@ -206,9 +224,22 @@ VSS=(uv run \
 VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
 RC=0
+# Build the scope from whichever grounded selector you actually have. Never
+# pass an unset one: an empty --sensor is rejected for lacking useful scope.
+if [ -n "${JOB_ID:-}" ]; then
+  SCOPE=(--job-id "${JOB_ID}")
+elif [ -n "${SENSOR_NAME:-}" ]; then
+  SCOPE=(--sensor "${SENSOR_NAME}")
+elif [ -n "${START_TIME:-}" ] && [ -n "${END_TIME:-}" ]; then
+  SCOPE=(--start-time "${START_TIME}" --end-time "${END_TIME}")
+else
+  echo "no grounded scope: need a job id, a sensor, or a complete time range" >&2
+  exit 2
+fi
+
 RESULT=$("${VSS[@]}" memory introspect \
   --query "${USER_QUESTION}" \
-  --sensor "${SENSOR_NAME}" \
+  "${SCOPE[@]}" \
   --fps "${VLM_FPS}") || RC=$?
 
 if [ -n "${RESULT}" ]; then
@@ -238,8 +269,11 @@ Handle the result fields `status`, `sufficient_from_memory`, `answer`,
 Do not call `vss memory introspect` while answering an ordinary video question,
 and do not enable it or rewrite static configuration automatically. Users and
 the agent may still configure and enable introspection when the user explicitly
-asks. If Markdown supplies a `job_id`, use `vss memory get`; otherwise use
-`vss memory query` with relevant text, sensor, and time filters. Answer from
+asks. This section applies only when introspection is disabled or
+unconfigured - when it is enabled, follow the enabled path above even if a
+pointer is present. Here, if Markdown supplies a `job_id`, use
+`vss memory get`; otherwise use `vss memory query` with relevant text, sensor,
+and time filters. Answer from
 the returned records when sufficient. If insufficient, report what is known and
 what is missing.
 
