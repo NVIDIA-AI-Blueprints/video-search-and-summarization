@@ -153,15 +153,25 @@ def execute_notebook(
         allow_errors=False,
         resources={"metadata": {"path": str(cwd)}},
     )
-    executed = client.execute()
-    if echo_output:
-        # Opt-in even with the fragment scrubbed: a notebook can still print a
-        # credential in a shape this does not match.
-        text = _TOKEN_FRAGMENT.sub(r"\1<redacted>", output_text(executed))
-        if text.strip():
-            print(text)
+    try:
+        executed = client.execute()
+    finally:
+        if echo_output:
+            # `client` records outputs on `notebook` as it goes, so a failed
+            # cell still leaves the completed cells' output to echo here.
+            echo_notebook_output(notebook)
     print(f"Executed {path.name} from beginning to end; outputs were not persisted.")
     return executed
+
+
+def echo_notebook_output(notebook: Any) -> None:
+    """Print what *notebook* has produced so far, with the token redacted."""
+
+    # Opt-in even with the fragment scrubbed: a notebook can still print a
+    # credential in a shape this does not match.
+    text = _TOKEN_FRAGMENT.sub(r"\1<redacted>", output_text(notebook))
+    if text.strip():
+        print(text, flush=True)
 
 
 def output_text(notebook: Any) -> str:

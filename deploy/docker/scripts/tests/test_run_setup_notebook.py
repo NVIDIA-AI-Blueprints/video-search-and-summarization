@@ -5,8 +5,9 @@ import importlib.util
 import io
 import json
 import os
+import sys
 import unittest
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -545,6 +546,164 @@ class OutputTests(unittest.TestCase):
         self.assertIn("SANDBOX READY", str(raised.exception))
 
 
+class TokenRedactionTests(unittest.TestCase):
+    """What an echoed log may contain once the gateway token is scrubbed."""
+
+    TOKEN = "cf1ba9d0e5b74c2f8a3b6d91e0472c5d"
+    SECOND_TOKEN = "7e42af08b1c34d96b5170ea3c8fd62b1"
+
+    @staticmethod
+    def _notebook(*outputs: dict) -> dict:
+        return {"cells": [{"outputs": [output]} for output in outputs]}
+
+    @staticmethod
+    def _streamed(*texts: str) -> dict:
+        return {
+            "cells": [
+                {"outputs": [{"output_type": "stream", "text": text}]} for text in texts
+            ]
+        }
+
+    def _echo(self, notebook: dict) -> str:
+        stream = io.StringIO()
+        with redirect_stdout(stream):
+            runner.echo_notebook_output(notebook)
+        return stream.getvalue()
+
+    def test_the_whole_token_goes_and_the_link_stays_readable(self) -> None:
+        printed = self._echo(
+            self._streamed(f"Agent UI: http://192.0.2.10:18789/#token={self.TOKEN}\n")
+        )
+        self.assertIn("Agent UI: http://192.0.2.10:18789/#token=<redacted>", printed)
+        # A pattern that matched only part of the value would leave one end of
+        # the secret in the log, so check both ends are gone, not just the URL.
+        self.assertNotIn(self.TOKEN, printed)
+        self.assertNotIn(self.TOKEN[:8], printed)
+        self.assertNotIn(self.TOKEN[-8:], printed)
+
+    def test_every_token_in_the_run_is_redacted(self) -> None:
+        printed = self._echo(
+            self._notebook(
+                {
+                    "output_type": "stream",
+                    "text": f"Agent UI: http://host-a:18789/#token={self.TOKEN}\n",
+                },
+                {
+                    "output_type": "execute_result",
+                    "data": {
+                        "text/plain": (
+                            f"'http://host-b:18789/#token={self.SECOND_TOKEN}'"
+                        )
+                    },
+                },
+            )
+        )
+        self.assertNotIn(self.TOKEN, printed)
+        self.assertNotIn(self.SECOND_TOKEN, printed)
+        self.assertEqual(printed.count("#token=<redacted>"), 2)
+
+    def test_redaction_ends_with_the_token_not_the_rest_of_the_line(self) -> None:
+        printed = self._echo(
+            self._streamed(
+                f'{{"url": "http://host:18789/#token={self.TOKEN}"}}\n'
+                f'<a href="http://host:18789/#token={self.TOKEN}">open</a>\n'
+                f"http://host:18789/#token={self.TOKEN} (paste this)\n"
+            )
+        )
+        self.assertNotIn(self.TOKEN, printed)
+        self.assertIn('{"url": "http://host:18789/#token=<redacted>"}', printed)
+        self.assertIn('#token=<redacted>">open</a>', printed)
+        self.assertIn("#token=<redacted> (paste this)", printed)
+
+    def test_output_that_carries_no_token_is_echoed_as_it_was(self) -> None:
+        text = (
+            "Sandbox 'nemoclaw-vss' ready.\n"
+            "WARNING: the dashboard forward did not come up\n"
+        )
+        self.assertEqual(self._echo(self._streamed(text)), f"{text}\n")
+
+    def test_a_run_that_printed_nothing_echoes_nothing(self) -> None:
+        self.assertEqual(self._echo({"cells": []}), "")
+        self.assertEqual(self._echo(self._streamed("\n   \n")), "")
+
+
+class EchoOutputTests(unittest.TestCase):
+    """Whether `execute_notebook` puts the notebook's output in the log."""
+
+    TOKEN = "b93c7f1ad0e4426fa8225c6e3b07d914"
+    AGENT_UI = "Agent UI: http://192.0.2.10:18789/#token="
+
+    def _execute(self, *, fail: bool = False, **kwargs: object) -> str:
+        """Capture stdout from a run whose kernel is a stub.
+
+        `nbformat` and `nbclient` are absent from the environment CI runs these
+        tests in, so they are injected rather than patched in place.
+        """
+
+        notebook = {"cells": [{"source": "", "outputs": []}]}
+
+        def execute() -> dict:
+            # NotebookClient records outputs on the notebook it was handed, so
+            # a failing run still leaves the completed cells' output behind.
+            notebook["cells"][0]["outputs"] = [
+                {"output_type": "stream", "text": f"{self.AGENT_UI}{self.TOKEN}\n"}
+            ]
+            if fail:
+                raise RuntimeError("cell 3 raised")
+            return notebook
+
+        nbformat = mock.Mock()
+        nbformat.read.return_value = notebook
+        nbclient = mock.Mock()
+        nbclient.NotebookClient.return_value.execute.side_effect = execute
+
+        # Pinned to the stub's message: the runner raises RuntimeError for a
+        # missing nbformat too, and that would echo nothing for another reason.
+        raised = (
+            self.assertRaisesRegex(RuntimeError, "cell 3 raised")
+            if fail
+            else nullcontext()
+        )
+        stream = io.StringIO()
+        with (
+            mock.patch.dict(sys.modules, {"nbformat": nbformat, "nbclient": nbclient}),
+            redirect_stdout(stream),
+            raised,
+        ):
+            runner.execute_notebook(
+                SCRIPTS_DIR / "deploy_nemoclaw.ipynb",
+                cwd=SCRIPTS_DIR,
+                timeout=600,
+                parameters=(),
+                **kwargs,
+            )
+        return stream.getvalue()
+
+    def test_a_default_run_reports_the_summary_and_nothing_else(self) -> None:
+        printed = self._execute()
+        self.assertIn("outputs were not persisted", printed)
+        self.assertNotIn("Agent UI", printed)
+        self.assertNotIn(self.TOKEN, printed)
+
+    def test_an_opt_in_run_echoes_the_output_with_the_token_redacted(self) -> None:
+        printed = self._execute(echo_output=True)
+        self.assertIn(f"{self.AGENT_UI}<redacted>", printed)
+        self.assertNotIn(self.TOKEN, printed)
+        self.assertIn("outputs were not persisted", printed)
+
+    def test_a_failed_cell_still_echoes_what_the_run_completed(self) -> None:
+        printed = self._execute(fail=True, echo_output=True)
+        self.assertIn(f"{self.AGENT_UI}<redacted>", printed)
+        self.assertNotIn(self.TOKEN, printed)
+        # The run did not finish, so it must not claim it did.
+        self.assertNotIn("outputs were not persisted", printed)
+
+    def test_a_failed_default_run_echoes_nothing(self) -> None:
+        printed = self._execute(fail=True)
+        self.assertNotIn("Agent UI", printed)
+        self.assertNotIn(self.TOKEN, printed)
+
+
 class RunNotebooksTests(unittest.TestCase):
     @staticmethod
     def _streamed(text: str) -> dict:
@@ -604,6 +763,33 @@ class RunNotebooksTests(unittest.TestCase):
         self.assertIn("UI READY", str(raised.exception))
         self.assertNotIn("SANDBOX READY", str(raised.exception))
 
+    def test_output_is_not_echoed_unless_the_caller_asked(self) -> None:
+        with mock.patch.object(
+            runner, "execute_notebook", return_value=self._streamed("")
+        ) as execute:
+            runner.run_notebooks(
+                [SCRIPTS_DIR / "deploy_nemoclaw.ipynb"], cwd=SCRIPTS_DIR, timeout=600
+            )
+        self.assertIs(execute.call_args.kwargs["echo_output"], False)
+
+    def test_the_echo_choice_reaches_every_notebook_in_the_run(self) -> None:
+        with mock.patch.object(
+            runner, "execute_notebook", return_value=self._streamed("")
+        ) as execute:
+            runner.run_notebooks(
+                [
+                    SCRIPTS_DIR / "deploy_nemoclaw.ipynb",
+                    SCRIPTS_DIR / "deploy_vss_orchestrator.ipynb",
+                ],
+                cwd=SCRIPTS_DIR,
+                timeout=600,
+                echo_output=True,
+            )
+        self.assertEqual(
+            [call.kwargs["echo_output"] for call in execute.call_args_list],
+            [True, True],
+        )
+
 
 class CommandLineTests(unittest.TestCase):
     def test_forwards_the_notebooks_cwd_timeout_and_markers(self) -> None:
@@ -629,6 +815,16 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(
             run_notebooks.call_args.kwargs["required_output"], ("SANDBOX READY",)
         )
+
+    def test_echoing_the_output_is_opt_in(self) -> None:
+        notebook = SCRIPTS_DIR / "deploy_nemoclaw.ipynb"
+        with mock.patch.object(runner, "run_notebooks") as run_notebooks:
+            runner.main(["--notebook", str(notebook)])
+        self.assertIs(run_notebooks.call_args.kwargs["echo_output"], False)
+
+        with mock.patch.object(runner, "run_notebooks") as run_notebooks:
+            runner.main(["--notebook", str(notebook), "--echo-output"])
+        self.assertIs(run_notebooks.call_args.kwargs["echo_output"], True)
 
     def test_defaults_the_kernel_directory_to_the_repository_root(self) -> None:
         with mock.patch.object(runner, "run_notebooks") as run_notebooks:
