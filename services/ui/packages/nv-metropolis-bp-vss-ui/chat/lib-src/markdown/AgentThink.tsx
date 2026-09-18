@@ -4,8 +4,7 @@
  * `<agent-think>` / `<agent-think-step>` renderers for agent markdown.
  *
  * The backend emits reasoning traces as these two custom tags. Formatting
- * rules the backend must follow (unchanged from the toolkit, because the
- * prompts that produce them are unchanged):
+ * rules the backend must follow:
  *
  *   - blank line before `<agent-think>` and after `</agent-think>`, so the
  *     markdown parser treats them as block-level rather than wrapping them in

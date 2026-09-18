@@ -4,11 +4,9 @@
  * Conversation controls, rendered into whichever container the host app gives
  * them.
  *
- * The toolkit's equivalent (`ChatSidebarContent`) needed two React contexts
- * passed through props to stay reactive, because the list lived inside the
- * toolkit's own state tree. Here the panel hands over plain handlers via
- * `onControlsReady`, so this is a presentational component the host can render
- * anywhere — its left sidebar, a drawer, or not at all.
+ * The panel hands over plain handlers via `onControlsReady`, so this is a
+ * presentational component the host can render anywhere — its left sidebar, a
+ * drawer, or not at all.
  */
 import {
   IconCheck,

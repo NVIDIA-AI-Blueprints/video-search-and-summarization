@@ -60,8 +60,7 @@ export interface UseChatStreamResult {
  *
  * Only `data` crosses the wire: `id`, `label` and `contextType` exist for the
  * chip UI. `contextType` is stripped even if a caller duplicated it inside
- * `data`, matching the toolkit's Chat.tsx exactly — the agent prompt is written
- * against that shape.
+ * `data`. The agent prompt is written against that shape.
  */
 export function buildContextPrefix(items: QueryDataContext[]): string {
   if (!items.length) return '';

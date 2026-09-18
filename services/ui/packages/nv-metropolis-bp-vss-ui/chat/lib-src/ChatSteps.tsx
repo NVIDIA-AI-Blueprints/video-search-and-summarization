@@ -3,12 +3,10 @@
 /**
  * Intermediate-step disclosure.
  *
- * The toolkit built this by serialising steps into a `<details>` cascade,
- * embedding it in the assistant message's markdown, and re-parsing it — which
- * means a half-written step is a half-written HTML tag, and the repairs in
- * `markdown/streaming.ts` exist mostly to paper over that. Here the tree stays
- * structured all the way to render, so a step that is still arriving is just a
- * node with `status: 'in_progress'`.
+ * The tree stays structured all the way to render, so a step that is still
+ * arriving is just a node with `status: 'in_progress'`. Serialising steps into
+ * markdown HTML and re-parsing them would turn a half-written step into a
+ * half-written HTML tag.
  */
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import React, { useState } from 'react';
@@ -75,9 +73,8 @@ export interface ChatStepsProps {
 }
 
 export const ChatSteps: React.FC<ChatStepsProps> = ({ steps, streaming, expandByDefault }) => {
-  // Open while the agent is working so progress is visible the way the toolkit
-  // showed it; collapses once the answer lands so finished steps do not bury
-  // it. An explicit click wins over that default either way.
+  // Open while the agent is working so progress is visible; collapse once the
+  // answer lands so finished steps do not bury it. An explicit click wins.
   const [manual, setManual] = useState<boolean | null>(null);
   const open = manual ?? (!!streaming || !!expandByDefault);
   if (!steps.length) return null;

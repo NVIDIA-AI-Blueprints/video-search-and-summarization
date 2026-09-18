@@ -7,7 +7,6 @@ SPDX-License-Identifier: Apache-2.0
 
 VSS chat interface for the chat tab and the docked sidebar.
 
-**No NeMo Agent Toolkit dependency** — that is the reason this package exists.
 Its primary transport is the versioned VSS agent API exposed by the embedded
 adapter. The original OpenAI-shaped chat-SSE transport remains available for
 deployments that have not enabled that adapter.
@@ -45,20 +44,14 @@ import '@nv-metropolis-bp-vss-ui/chat/lib/chat.css';
 />
 ```
 
-## Feature parity with the toolkit chat bar
-
-The toolkit chat bar is ~11k lines across `Chat`, `Chatbar`, `Markdown`,
-`Settings` and `Sidebar`. Everything below is reproduced here; the flag column
-gives the `NEXT_PUBLIC_*` variable the deployment already sets, which
-`Home.tsx` maps onto the `features` prop, so an existing deployment needs no
-new configuration.
+## Features
 
 | Area | Feature | Flag |
 |---|---|---|
 | Conversations | multiple threads, new / rename / delete / clear | — |
 | | tab-scoped IndexedDB persistence, `storageKeyPrefix` | — |
 | | search over names and message text | — |
-| | export / import (toolkit v1–v4 files load) | — |
+| | export / import (v1–v4 files load) | — |
 | | send full thread vs. latest turn | `CHAT_HISTORY_DEFAULT_ON` |
 | | legacy `vss-agent` human-in-the-loop response modal | `ENABLE_HITL` |
 | Input | context chips + `[Context: …]` prefix | — |
@@ -83,19 +76,18 @@ new configuration.
 
 ### Per-surface configuration
 
-The chat tab and the docked sidebar are configured independently, exactly as
-they were for the toolkit: the sidebar overrides any main variable by
-re-declaring it under `NEXT_PUBLIC_SIDEBAR_CHAT_`, and falls back to the main
-value otherwise. This deployment relies on it — the sidebar runs a different
-agent from the chat tab and exposes its own parameter fields (search source
-type, critic toggle). `Home.tsx` resolves both surfaces through `surfaceEnv`.
+The chat tab and the docked sidebar are configured independently: the sidebar
+overrides any main variable by re-declaring it under `NEXT_PUBLIC_SIDEBAR_CHAT_`,
+and falls back to the main value otherwise. This deployment relies on it — the
+sidebar runs a different agent from the chat tab and exposes its own parameter
+fields (search source type, critic toggle). `Home.tsx` resolves both surfaces
+through `surfaceEnv`.
 
 ### Deliberately not ported
 
 - **WebSocket transport** and its `webSocketSchema` / connection toggle. Both
-  supported transports are HTTP + SSE, the deployment ships
-  `NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false`, and the WebSocket path exists to
-  talk to NAT core — the thing being removed.
+  supported transports are HTTP + SSE, and the deployment ships
+  `NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false`.
 - **Adapter human-in-the-loop interaction responses.** Structured interaction
   UI is opt-in. The legacy `vss-agent` chat-SSE transport exposes its response
   modal only while `ENABLE_HITL=true`.
@@ -103,9 +95,8 @@ type, critic toggle). `Home.tsx` resolves both surfaces through `surfaceEnv`.
   interaction event is shown as unsupported instead of presenting a form that
   cannot submit a response. External OpenClaw deployments set the flag false
   and ask follow-up questions as ordinary completed chat turns.
-- **Folders and prompt templates.** Present in the toolkit's Chatbar, never
-  surfaced in VSS. Import still accepts and preserves both keys so a toolkit
-  export round-trips.
+- **Folders and prompt templates.** Never surfaced in VSS. Import still accepts
+  and preserves both keys so an export round-trips.
 - **`GraphPlot` charts** (`react-force-graph-2d`). Not installed in this
   workspace and not emitted by any VSS workflow; the type renders as
   "unsupported" rather than pulling in a graph engine for a case that never
@@ -113,14 +104,11 @@ type, critic toggle). `Home.tsx` resolves both surfaces through `surfaceEnv`.
 
 ### Deliberate differences
 
-- **Intermediate steps are a React tree, not serialised HTML.** The toolkit
-  rendered steps by writing a `<details>` cascade into the message's markdown
-  and re-parsing it, which is why half its `fixMalformedHtml` helpers exist. The
-  tree stays structured here; the repairs are kept only for markup the *model*
-  emits mid-stream (`markdown/streaming.ts`).
-- **Pie slice colours are a fixed palette.** The toolkit called
-  `getRandomColor()` inside render, so every streamed token recoloured the
-  chart.
+- **Intermediate steps are a React tree, not serialised HTML.** The tree stays
+  structured here; the repairs are kept only for markup the *model* emits
+  mid-stream (`markdown/streaming.ts`).
+- **Pie slice colours are a fixed palette.** Random colours inside render would
+  recolour the chart on every streamed token.
 - **Syntax highlighting loads on demand.** Prism and its grammars are several
   hundred kilobytes and only needed once a fenced block has stopped changing.
 

@@ -50,7 +50,7 @@ describe('SseParser', () => {
     expect(p.feed('ent":"split"}}]}\n\n')).toEqual([{ kind: 'token', text: 'split' }]);
   });
 
-  it('parses NAT interaction_required event frames', () => {
+  it('parses interaction_required event frames', () => {
     const p = new SseParser();
     const interaction = {
       event_type: 'interaction_required',

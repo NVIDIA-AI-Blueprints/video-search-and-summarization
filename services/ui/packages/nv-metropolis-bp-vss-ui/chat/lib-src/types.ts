@@ -3,12 +3,8 @@
 /**
  * Types for the VSS chat interface.
  *
- * This package deliberately has no dependency on the NeMo Agent Toolkit UI.
- * It consumes the versioned VSS agent API contract directly and
- * retains the original chat-SSE transport as a compatibility fallback.
- *
- * The shapes below mirror the toolkit's `types/chat.ts` closely enough that a
- * feature ported from there behaves the same, without importing it.
+ * Consumes the versioned VSS agent API contract and retains the original
+ * chat-SSE transport as a compatibility fallback.
  */
 
 import type { FileUploadResult } from 'common';
@@ -18,10 +14,9 @@ export type ChatRole = 'user' | 'assistant';
 /**
  * One tool/skill step reported by the agent while it works.
  *
- * `children` makes this a tree: the toolkit nests steps by `parent_id` and
- * renders the result as a `<details>` cascade. We keep the tree structured and
- * render it as React instead of serialising to HTML and re-parsing it, which is
- * where the toolkit's version leaks (half-written tags mid-stream).
+ * `children` makes this a tree nested by `parent_id`. Keep it structured and
+ * render it as React instead of serialising to HTML and re-parsing it, which
+ * leaks half-written tags mid-stream.
  */
 export interface ChatStep {
   id: string;
@@ -38,7 +33,7 @@ export interface ChatStep {
 export type CallerInfo = string;
 
 export interface ChatAttachment {
-  /** data: URL. Images only, matching the toolkit. */
+  /** data: URL. Images only. */
   content: string;
   type: 'image';
   name?: string;
@@ -66,7 +61,7 @@ export interface ChatMessage {
   timestamp?: number;
 }
 
-/** A named thread of messages. Mirrors the toolkit's `Conversation`. */
+/** A named thread of messages. */
 export interface Conversation {
   id: string;
   name: string;
@@ -77,9 +72,8 @@ export interface Conversation {
  * UI-only chip attached to the next message.
  *
  * `contextType` drives the chip icon and is never sent to the backend — only
- * `data` is, inside the `[Context: …]` prefix. Same contract as the toolkit's
- * `QueryDataContext`, so the Search tab's existing `addChatQueryContext` calls
- * work unchanged.
+ * `data` is, inside the `[Context: …]` prefix. Search-tab
+ * `addChatQueryContext` calls keep working unchanged.
  */
 export interface QueryDataContext {
   id: string;
@@ -112,7 +106,7 @@ export interface ChatEndpointConfig {
  *
  * This is how feature tabs (search, alerts) receive results without the chat
  * package knowing anything about them. Returning a string renders it as the
- * message's caller-info card, matching the toolkit's `onAnswerCompleteWithContent`.
+ * message's caller-info card.
  */
 export type ChatAnswerHandler = (
   answer: string,
@@ -170,7 +164,7 @@ export interface ParamField extends ParamFieldConfig {
 
 export type CustomAgentParamsValues = Record<string, string | number | boolean>;
 
-/** Feature switches, mirroring the toolkit's NEXT_PUBLIC_CHAT_* env flags. */
+/** Feature switches, mapped from NEXT_PUBLIC_CHAT_* env flags. */
 export interface ChatFeatureFlags {
   /** Send the whole thread rather than just the latest turn. */
   chatHistory?: boolean;
@@ -213,10 +207,7 @@ export interface ChatPanelProps {
   uploadConfigTemplateJson?: string;
   /** Auto-prompt sent after a successful upload; `{filenames}` is substituted. */
   uploadHiddenMessageTemplate?: string;
-  /**
-   * Separates this instance's persisted conversations from another's, exactly
-   * as the toolkit's prop of the same name does.
-   */
+  /** Separates this instance's persisted conversations from another's. */
   storageKeyPrefix?: string;
   /** False while the surface is hidden; suppresses autoscroll work. */
   isActive?: boolean;

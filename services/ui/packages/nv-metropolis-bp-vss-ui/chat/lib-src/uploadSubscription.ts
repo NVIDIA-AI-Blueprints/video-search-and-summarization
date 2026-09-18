@@ -8,8 +8,8 @@
  * The host app owns the registry and hands each tab a registrar; this is the
  * contract between them.
  *
- * Lived in the toolkit until the toolkit was removed. It belongs here because
- * it pairs with `ChatVideoUploadCompletePayload`, which this package emits.
+ * It belongs here because it pairs with `ChatVideoUploadCompletePayload`,
+ * which this package emits.
  */
 import { useEffect } from 'react';
 
