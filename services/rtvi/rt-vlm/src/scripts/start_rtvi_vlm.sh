@@ -18,6 +18,9 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 
 ASSET_STORAGE_DIR="${ASSET_STORAGE_DIR:-/tmp/assets}"
 
+# Fail before GPU/model initialization when service-level configuration is invalid.
+python3 src/utils/env_validation.py || exit $?
+
 # Validate MAX_ASSET_STORAGE_SIZE_GB against actual storage at startup.
 # Without this, an unset or oversized limit silently allows unlimited storage,
 # which causes upload failures when tmpfs fills or unexpectedly fills a bind-mounted disk.

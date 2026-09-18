@@ -811,7 +811,9 @@ EVS prunes redundant video tokens at the vLLM engine level to reduce computation
 VLM_VIDEO_PRUNING_RATE=0.5
 ```
 
-Set to `0` or remove to disable (default). Valid range: greater than 0.0 and less than 1.0.
+Leave the variable unset or empty to disable EVS (default). A configured value must be
+finite and strictly greater than `0` and less than `1`; boundary, out-of-range,
+non-numeric, NaN, and infinite values cause service startup to fail.
 
 #### EVS++ session mode
 
@@ -981,7 +983,7 @@ The table lists variables in the standalone Docker Compose stack and the standal
 | `RTVI_ENABLE_GOP_DECODE_OPT` | Enable GOP-aligned decode optimization | `true` |
 | `VSS_SKIP_INPUT_MEDIA_VERIFICATION` | Skip input media validation | Empty |
 | `VLLM_GPU_MEMORY_UTILIZATION` | vLLM GPU memory utilization fraction | Empty |
-| `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning | Compose: Empty; Helm: `0.0` |
+| `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; leave empty to disable it. Configured values must be finite and strictly between `0` and `1`, otherwise RTVI-VLM fails startup. Also required to activate EVS++ pruning | Empty |
 | `VIA_EVS_SESSION` | Enable the optional EVS++ session path when set to `true` or `1` | Empty (disabled) |
 | `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ is enabled |
 | `VLLM_NUM_PREPROCESS_WORKERS` | vLLM multimodal preprocessing worker count | `16` |
