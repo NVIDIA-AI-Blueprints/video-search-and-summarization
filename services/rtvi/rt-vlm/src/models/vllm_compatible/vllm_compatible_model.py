@@ -534,6 +534,11 @@ _EVS_MM_PROCESSOR_DEFAULTS = {
 # clip is padded up to this many frames before it is handed to the session.
 _EVS_MIN_CLIP_FRAMES = 2
 
+# EVS clips retain their decoded CPU frame arrays through event-triggered
+# generation.  A generic batch of 32 such clips can exhaust unified memory on
+# Thor, so keep a conservative independent bound on outstanding clip futures.
+_DEFAULT_EVS_MAX_INFLIGHT_CLIPS = 4
+
 
 _DEFAULT_MAX_VIDEO_FRAMES = "256"
 
@@ -666,6 +671,18 @@ _ABSOLUTE_TIMESTAMP_SOURCE_FPS = 1000.0
 
 def _is_evs_session_enabled() -> bool:
     return os.environ.get("VIA_EVS_SESSION", "").lower() in ("1", "true")
+
+
+def _get_evs_max_inflight_clips() -> int:
+    max_inflight = _parse_int_env(
+        "VIA_EVS_MAX_INFLIGHT_CLIPS", _DEFAULT_EVS_MAX_INFLIGHT_CLIPS
+    )
+    if max_inflight < 1:
+        raise ValueError(
+            "Invalid value for VIA_EVS_MAX_INFLIGHT_CLIPS: "
+            f"'{max_inflight}' must be greater than or equal to 1"
+        )
+    return max_inflight
 
 
 def _build_evs_sampling_kwargs(max_tokens, generation_config):
@@ -2670,7 +2687,10 @@ class VllmCompatible(BaseVlmModel):
                     >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS
                 ):
                     return False
-        return len(self._inflight_req_ids) < self._max_batch_size
+        max_inflight = self._max_batch_size
+        if _is_evs_session_enabled():
+            max_inflight = min(max_inflight, _get_evs_max_inflight_clips())
+        return len(self._inflight_req_ids) < max_inflight
 
     def release_idle_resources(self, wait_timeout_sec: float = 0.0):
         """Release allocator caches after the service becomes fully idle.
@@ -3243,12 +3263,11 @@ class VllmCompatible(BaseVlmModel):
         # blocked, so the copy starts at once. EVS's only other thread is an
         # _output_tpool worker, and those block for the whole add_clip_tensors
         # round trip (encode plus, when the detector fires, a full generation).
-        # Since the in-flight slot is released at encode-done, new clips are
-        # admitted while every worker is still blocked, so a deferred copy could
-        # queue behind them and pin this clip's CUDA frames (~49 MB for a
-        # 40-frame 640x640 chunk) for a whole generation cycle — to save ~14 ms
-        # on a dispatcher that is not the bottleneck. Copying now lets the
-        # pipeline free the frames as soon as generate() returns.
+        # A deferred copy could therefore queue behind every worker and pin this
+        # clip's CUDA frames (~49 MB for a 40-frame 640x640 chunk) for a whole
+        # generation cycle -- to save ~14 ms on a dispatcher that is not the
+        # bottleneck. Copying now lets the pipeline free the CUDA frames as soon
+        # as generate() returns.
         if self._vlm_model_type == "cosmos-reason1":
             images_cpu = images.cpu()
         else:
@@ -3259,14 +3278,6 @@ class VllmCompatible(BaseVlmModel):
         self._inflight_req_ids.append(request_id)
 
         def _run_evs_clip():
-            inflight_released = False
-
-            def _release_inflight():
-                nonlocal inflight_released
-                if not inflight_released and request_id in self._inflight_req_ids:
-                    self._inflight_req_ids.remove(request_id)
-                    inflight_released = True
-
             async def _add():
                 return await handler.add_clip_tensors(
                     session_id=session_id,
@@ -3276,7 +3287,6 @@ class VllmCompatible(BaseVlmModel):
                     timestamps=client_timestamps,
                     is_last=is_last,
                     chunk_id=ooo_chunk_id,
-                    on_encode_done=_release_inflight,
                 )
 
             try:
@@ -3314,7 +3324,14 @@ class VllmCompatible(BaseVlmModel):
                     500,
                 ) from e
             finally:
-                _release_inflight()
+                # Keep the admission slot for the complete EVS operation, not
+                # merely until its encoder finishes.  The worker closure owns
+                # images_cpu until add_clip_tensors returns after any triggered
+                # generation.  Releasing on_encode_done let a second full batch
+                # accumulate while the first batch still retained its frames,
+                # exhausting unified host/GPU memory on Thor (NVBug 6759865).
+                if request_id in self._inflight_req_ids:
+                    self._inflight_req_ids.remove(request_id)
 
             logger.debug(
                 "EVS clip: tokens=%d/%d, kept=%d, dropped=%d%s",
