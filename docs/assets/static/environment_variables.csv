@@ -3,7 +3,7 @@ HOST_IP,Blueprint endpoint IP address
 VSS_AGENT_HOST,Agent server host (default: 0.0.0.0)
 VSS_AGENT_PORT,Agent server port (default: 8000)
 VSS_AGENT_VERSION,Agent version for telemetry project naming; also the fallback container image tag
-VSS_DEPLOYMENT_VERSION,"SemVer version reported by GET /api/v1/version (defaults to 3.3.0; falls back to VSS_AGENT_VERSION)"
+VSS_DEPLOYMENT_VERSION,"SemVer version reported by GET /api/v1/version (defaults to 3.3.0; falls back to VSS_AGENT_VERSION, then to the checkout's git tags)"
 VSS_AGENT_CONFIG_FILE,Path to agent config YAML file
 VSS_AGENT_OBJECT_STORE_TYPE,Object store type (local_object_store or remote_object_store)
 VSS_AGENT_REPORTS_BASE_URL,Base URL for serving generated reports
