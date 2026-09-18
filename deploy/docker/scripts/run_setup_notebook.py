@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from collections.abc import Iterable, Sequence
 from pathlib import Path
@@ -55,6 +56,10 @@ NOTEBOOK_PARAMETERS: dict[str, tuple[str, ...]] = {
 }
 
 _MINIMUM_TIMEOUT_SEC = 60
+
+# The OpenClaw control UI authenticates from this fragment, so an echoed
+# Agent UI line would otherwise leave a live gateway token in the caller's log.
+_TOKEN_FRAGMENT = re.compile(r"(#token=)[^\s\"'<>]+")
 
 
 def repo_root() -> Path:
@@ -119,6 +124,7 @@ def execute_notebook(
     timeout: int,
     parameters: Iterable[str] | None = None,
     kernel_name: str | None = None,
+    echo_output: bool = False,
 ) -> Any:
     """Run *path* end to end and return the executed in-memory notebook."""
 
@@ -148,6 +154,12 @@ def execute_notebook(
         resources={"metadata": {"path": str(cwd)}},
     )
     executed = client.execute()
+    if echo_output:
+        # Opt-in even with the fragment scrubbed: a notebook can still print a
+        # credential in a shape this does not match.
+        text = _TOKEN_FRAGMENT.sub(r"\1<redacted>", output_text(executed))
+        if text.strip():
+            print(text)
     print(f"Executed {path.name} from beginning to end; outputs were not persisted.")
     return executed
 
@@ -185,6 +197,7 @@ def run_notebooks(
     cwd: Path,
     timeout: int,
     required_output: Sequence[str] = (),
+    echo_output: bool = False,
 ) -> None:
     """Execute *paths* in order, then assert every required marker was printed."""
 
@@ -194,7 +207,9 @@ def run_notebooks(
 
     combined: list[str] = []
     for path in paths:
-        executed = execute_notebook(path, cwd=cwd, timeout=timeout)
+        executed = execute_notebook(
+            path, cwd=cwd, timeout=timeout, echo_output=echo_output
+        )
         combined.append(output_text(executed))
 
     produced = "\n".join(combined)
@@ -236,6 +251,14 @@ def main(argv: list[str] | None = None) -> int:
             "repeat to require several."
         ),
     )
+    parser.add_argument(
+        "--echo-output",
+        action="store_true",
+        help=(
+            "Print what the notebook printed, with any #token= fragment "
+            "redacted. Off by default: cell output can carry other credentials."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.timeout < _MINIMUM_TIMEOUT_SEC:
         parser.error(f"--timeout must be at least {_MINIMUM_TIMEOUT_SEC} seconds")
@@ -257,6 +280,7 @@ def main(argv: list[str] | None = None) -> int:
         cwd=Path(args.cwd).resolve() if args.cwd else root,
         timeout=args.timeout,
         required_output=tuple(args.require_output),
+        echo_output=args.echo_output,
     )
     return 0
 

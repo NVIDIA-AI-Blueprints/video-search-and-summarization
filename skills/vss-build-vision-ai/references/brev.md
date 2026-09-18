@@ -105,6 +105,12 @@ succeeds.
 | `search` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
 | `alerts` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
 
+On a NemoClaw build, add the harness dashboard port (`NEMOCLAW_DASHBOARD_PORT`,
+default **18789**) to whichever row applies: it is the Agent UI's own origin and
+is not behind HAProxy, so it needs its own link. Resolve it the same way as
+7777 — the answer decides whether the summary reports a secure-link URL or a
+loopback one behind an SSH tunnel.
+
 Ports that should NOT get their own secure link (they're behind HAProxy):
 3000 (UI), 8000 (Agent), 30888 (VST).
 
