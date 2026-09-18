@@ -156,8 +156,8 @@ unaffected.
 
 With no agent route, source provisioning follows `vss-manage-video-io-storage`
 [`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md):
-register one VIOS source and verify the fan-out its mounted notification config
-performs, direct REST only where webhooks are off. Its own gate — stop when an
+register one VIOS source, which its mounted notification config fans out. Its
+own gate — stop when an
 agent route answers — passes on any build with the agent removed, and it is the
 only path that gets a source to RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`, which addresses Alert Bridge.
 

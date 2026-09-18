@@ -124,12 +124,11 @@ serve no query. A build holding no sources is finished, not half-finished:
 neither path below runs unless the request asks for it, and provisioning a
 source to prove the stack works is not a readiness check.
 
-- **Write path (provisioning), when a source was requested.** Resolve consumer ports from `resolved.yml`, confirm
-  the build is headless (no `vss-agent`), then follow `vss-manage-video-io-storage`
+- **Write path (provisioning), when a source was requested.** Confirm the build is
+  headless (no `vss-agent`), then follow `vss-manage-video-io-storage`
   [`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md)
   to register one VIOS source. The build's mounted notification config fans it
-  out, so the work is post-checking the items that config enables — the resolved
-  ports serve those read-backs — with direct REST only where webhooks are off.
+  out, asynchronously, so registration ends the write path.
 - **Read path (query), when a query was requested.** Run `vss configure --base-url <build-origin>` (the fronting
   `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local `vss` entry point
   (`uv run --project <repo>/libs/vss vss`; see `deployment_resolution.md`),

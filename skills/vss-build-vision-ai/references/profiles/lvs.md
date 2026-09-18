@@ -33,12 +33,12 @@ kibana-init-container-lvs,nvstreamer-lvs,vss-agent,phoenix,elasticsearch,elastic
 This profile pins `VST_NOTIFICATION_CONFIG_PATH` at a webhooks-enabled
 `notification_config.json`, so a registered VIOS source reaches RT-VLM with no
 caller: `stream/add` on `camera_add` and `camera_streaming`, `stream/remove` on
-`camera_remove`. Register the source and verify delivery
+`camera_remove`. Registering the source is the whole caller-side job
 (`vss-manage-video-io-storage` `provision-vios-source.md`).
 
 The adds carry no prompt, so RT-VLM admits the stream and starts no inference —
-summaries still come from a caller driving `/v1/summarize`. Verify registration,
-never captions ([`../services/rt-vlm.md`](../services/rt-vlm.md)). The file
+summaries still come from a caller driving `/v1/summarize`, and no captions or
+tags exist before that ([`../services/rt-vlm.md`](../services/rt-vlm.md)). The file
 carries a single consumer and no item ids, which constrains what a delta can
 project from it ([`../services/vios.md`](../services/vios.md)).
 

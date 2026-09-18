@@ -1,19 +1,16 @@
-# Provision a source and verify fan-out (headless)
+# Provision a source (headless)
 
 Registering a source brings **no** perception with it: a bare VIOS add stores or
 publishes the media, but nothing detects, embeds, or captions it until the
 source reaches the consumers a build deployed. A stock full-stack profile does
 this through the agent in one transaction. When **no agent tier is present** —
 e.g. a `vss-build-vision-ai` headless `_builds/<name>` deployment — this file is
-that recipe: register one source with VIOS, then confirm the deployment's
-configured fan-out delivered it.
+that recipe: register one source with VIOS, and stop there.
 
-Where the mounted notification config enables webhooks (the current Docker
-search and alerts profiles, and any build selecting such a config), the fan-out
-is **webhook-driven**: VIOS posts the sensor lifecycle events to the receivers
-that config declares, so the caller registers and verifies, never provisions a
-consumer. Without webhook coverage, use the direct-REST fallback appendix.
-Step 2 decides which case you are in — never the profile name.
+Fan-out is the deployment's, not the caller's: VIOS posts each sensor lifecycle
+event to the receivers its mounted notification config declares. Delivery is
+asynchronous, so a consumer trails registration by design — waiting is the
+answer, never a direct call to make up the lag.
 
 ## Headless-only — first line of defense
 
@@ -44,14 +41,13 @@ capability check, not internal discovery.
 
 ## One registration; the deployment owns the fan-out
 
-Register the source once with VIOS (Step 1). What happens next is decided by the
+Register the source once with VIOS. What happens next is decided by the
 deployment, not the caller:
 
 | Deployment state | Provisioning path |
 |---|---|
 | Agent tier present | Agent-owned ingest (`vss-search-archive` / `vss-manage-alerts`) — this recipe stops at the guard above |
-| Headless, webhook coverage for this source's origin (Step 2) | Register with VIOS → **verify fan-out** (Step 3) |
-| Headless, no webhook coverage | Register with VIOS → **direct-REST fan-out** (fallback appendix) |
+| Headless | Register with VIOS; the mounted notification config fans it out |
 
 On SDRC-routed deployments (warehouse and LVS Docker profiles, all Helm
 profiles) the single-registration rule still holds: do **not** also register the
@@ -60,10 +56,9 @@ provisions the same stream twice. Keep SDRC for VST recording/playback only.
 Webhook-driven builds run VIOS in direct mode, with no SDRC chain.
 
 The consumer set follows the build's resolved capabilities, not any profile.
-**VIOS is the mandatory base** — every build registers exactly one source. On a
-webhook-covered build the authoritative expected set is the mounted config
-(Step 2), not this table; the table maps each consumer to the owner contract for
-its payload and read-back API:
+**VIOS is the mandatory base** — every build registers exactly one source. Which
+consumers actually receive it is decided by the mounted config, not by this
+table, which maps each consumer to the owner contract for its API:
 
 | Consumer | Expected when the build resolves… | Owner |
 | --- | --- | --- |
@@ -78,8 +73,7 @@ consumes Kafka (`mdx-raw` / `mdx-embed`), so enabling its workers is config, not
 source call.
 
 Both feed origins — upload and live — reach every receiver; the origin changes
-which source URL the event carries (Step 1) and which `camera_type` filter
-applies (Step 2).
+which source URL the event carries.
 
 **RT-VLM carries two independent legs** on one deployment, differing only in the
 `generate_captions` prompt — no second service:
@@ -99,76 +93,63 @@ applies (Step 2).
   settings is rejected `400 BadParameters`. Builds enable one or the other
   (`vss-build-vision-ai` `references/services/vios.md`).
 
-Where `rtvi-vlm-tagging-camera-streaming` is enabled, the tagging leg needs no
+Where the mounted config enables a tagging receiver, the tagging leg needs no
 call from here: that receiver carries the tag prompt in `user_defined_metadata`,
-and RT-VLM starts captioning automatically on any `stream/add` bearing a
-`prompt`, so Step 3 verifies it and `rtvi-vlm-tagging-camera-remove` tears it
-down. Calling it by hand there does not merely duplicate the work — the webhook
-has already registered the asset under the `sensorId`, so the upload call returns
-`400 AssetAlreadyExists` and the live registration is rejected as a duplicate
-stream id. Drive it by hand only in the fallback, where the teardown caveat
-below applies.
+RT-VLM starts captioning on any `stream/add` bearing a `prompt`, and the
+matching `camera_remove` item tears it down. Calling it by hand there does not
+merely duplicate the work — the webhook has already registered the asset under
+the `sensorId`, so the upload call returns `400 AssetAlreadyExists` and the live
+registration is rejected as a duplicate stream id. Drive it by hand only where
+no such receiver exists — *Driving RT-VLM by hand*, below.
 
 ## Endpoints are injected by the caller — never hard-code ports
 
-This recipe takes the consumer endpoints as **inputs** — `VST_API_BASE`,
-`RTVI_CV_URL`, `RTVI_EMBED_URL`, `RTVI_VLM_URL`, and `ALERT_BRIDGE_URL` on
-real-time-alerts builds — resolved and passed in by the caller; it reads no
-build manifest itself. On the webhook path they serve the Step-3 read-back
-checks; only the fallback writes to them. A `vss-build-vision-ai` build reads
-them from its resolved service ports and hands them in; a human operator
-supplies them directly. A build can remap ports (RT-CV's is
-`${RTVI_CV_HOST_PORT:-9000}`, not a fixed `9000`), so never hard-code. Address
-each endpoint by the vantage that uses it:
+This recipe takes its endpoints as **inputs** — `VST_API_BASE`, plus
+`RTVI_VLM_URL` where a caller drives RT-VLM by hand; it reads no build manifest
+itself. A `vss-build-vision-ai` build reads them from its resolved service ports
+and hands them in; a human operator supplies them directly. A build can remap
+ports, so never hard-code. Address each endpoint by the vantage that uses it:
 
-- **Calls you make from the deploy host** — VIOS/VST, NvStreamer, RT-CV, RT-Embed,
-  RT-VLM, Alert Bridge — use `http://localhost:<resolved-port>`, the same loopback the readiness
-  checks use. On a build that fronts RT-VLM at `/rtvi-vlm` for the tagging leg, the
-  origin URL (`http://<origin>/rtvi-vlm`) is also valid — use it to reach the tagging
-  leg from a remote host; loopback (`http://localhost:${RTVI_VLM_PORT:-8018}`) remains
-  the lower-latency choice from the deploy host. Otherwise RT-VLM has no ingress
-  route, so loopback is its only form — identical to every other consumer here.
+- **Calls you make from the deploy host** — VIOS/VST, NvStreamer, RT-VLM — use
+  `http://localhost:<resolved-port>`. On a build that fronts RT-VLM at
+  `/rtvi-vlm`, the origin URL (`http://<origin>/rtvi-vlm`) reaches it from any
+  host; loopback (`http://localhost:${RTVI_VLM_PORT:-8018}`) remains the
+  lower-latency choice from the deploy host, and is its only form otherwise.
 - **URLs a service consumes** — the synthetic RTSP from NvStreamer and the VIOS
-  live proxy handed to the consumers — are host-reachable `$HOST_IP` URLs produced
-  by those services: **read** them, don't build them. VIOS assigns the RTSP port
-  from its pool (`30554–30564`) at registration, so only VIOS knows the exact value
-(Step 1). The upload equivalent is the uploaded stream's VIOS clip URL —
-likewise consumer-reachable via `vst-ingress` / `$HOST_IP:<vst-ingress-port>`,
-  **not** loopback.
+  live proxy — are host-reachable `$HOST_IP` URLs produced by those services:
+  **read** them, don't build them. VIOS assigns the RTSP port from its pool
+  (`30554–30564`) at registration, so only VIOS knows the exact value.
 
-## Step 1 — register the source, then resolve its consumer URL
+`vss vios` is the exception: it resolves VIOS from the deployment `vss
+configure` recorded, so it takes no endpoint (repo `AGENTS.md` for the entry
+point, [`libs/vss/cli/AGENTS.md`](../../../../libs/vss/cli/AGENTS.md) for the
+commands).
 
-Register one source in VIOS, then **read back** the URL the consumers will use —
-never construct it. The origin decides the register call and the URL's shape, but
-the "read it from VIOS" rule is common to both. On a webhook-covered build the
-caller never hands this URL to a consumer — VIOS dispatches it — but each
-origin's read-back is still its readiness gate.
+## Register the source
 
-**Stored file (upload).** Store the bytes (synchronous) and pin the timeline:
+Register one source in VIOS. The origin decides the register call and, on the
+live path, a read-back that doubles as the readiness gate.
+
+**Stored file (upload).** `vss vios add` stores the bytes, pins the timeline
+anchor at `2025-01-01T00:00:00.000Z` (see the date rule), and returns only once
+VIOS has indexed the recording — exit 7 if it never does, rather than a sensor
+nothing can use. That wait **is** this origin's readiness gate:
 
 ```bash
-PUT http://localhost:<vios-port>/vst/api/v1/storage/file/<filename>?timestamp=2025-01-01T00:00:00.000Z
-#   octet-stream, Content-Length required → {sensorId, streamId, filePath}
+vss vios add /path/to/clip.mp4     # or an http(s) URL, streamed straight through
+vss vios timeline --sensor <name>  # re-check a source registered earlier
 ```
 
-`timestamp` anchors the storage timeline (see the date rule). A bare upload stores
-bytes only — no detections or embeddings.
+The equivalent raw call is
+`PUT /vst/api/v1/storage/file/<filename>?timestamp=…` without the wait
+([`api-reference.md`](api-reference.md) § 8). A bare upload stores bytes only —
+no detections or embeddings.
 
-`GET /vst/api/v1/storage/<streamId>/timelines` is this origin's readiness gate,
-on the webhook path as much as the fallback: a non-empty `{startTime, endTime}`
-for the returned `streamId`, with the sensor listed under it, means VIOS holds a
-timeline-indexed recording. Nothing else stands in for it. All three consumers
-(RT-CV, RT-Embed, RT-VLM) take the clip URL that window resolves — the
-self-contained
-`/vst/api/v1/storage/file/<streamId>?startTime=<t0>&endTime=<t1>&container=mp4&disableAudio=true` **HTTP** URL
-(binary-direct — the same clip the `/url` envelope wraps, minus its upstream
-double-`http://` bug; see `integrate-vios-service.md`). RT-Embed and RT-VLM accept
-`http`/`https`/`file` but gate `file://` behind `FILE_URL_ALLOWED_DIRS` (unset by
-default); RT-CV's `camera_url` accepts `http(s)://`, `rtsp://`, and `file://`, but a
-`file://` resolves *inside the RT-CV container*, where the stored bytes are not mounted.
-So the VIOS **HTTP** URL is the reliable path for every consumer — RT-CV consumes it as
-`camera_url`; RT-VLM takes it directly — no pre-upload — or registers it via
-`/v1/files`. There is no live proxy on this path.
+There is no live proxy on this path. Where a caller drives RT-VLM by hand, the
+media URL is `vss vios clip --sensor <name>` → `media_url`, which the CLI
+re-anchors on the deployment origin so it resolves from inside the consumer's
+container. RT-VLM also accepts `file://`, but only under `FILE_URL_ALLOWED_DIRS`
+(unset by default), so the HTTP URL is the reliable form.
 
 **Live (RTSP).** Register the RTSP URL — an external camera as-is, or a local file
 served as synthetic RTSP by NvStreamer (stage it into
@@ -177,13 +158,15 @@ served as synthetic RTSP by NvStreamer (stage it into
 never construct it):
 
 ```bash
+vss vios add rtsp://…                      # or, raw:
 POST http://localhost:<vios-port>/vst/api/v1/sensor/add
 #   {"sensorUrl":"rtsp://…","name":"…","username":"","password":""} → {sensorId}
 #   the field is `sensorUrl`, not `url`.
 ```
 
-Then resolve the **live proxy** the consumers must target, and treat this read as a
-**readiness gate**. VST re-publishes the stream under a stable, VIOS-managed,
+Then resolve the **live proxy**. The CLI does not surface it, so this read is
+raw, and it is this origin's **readiness gate**. VST re-publishes the stream
+under a stable, VIOS-managed,
 `sensorId`-keyed RTSP handle (e.g. `rtsp://<vios-host>:<pool-port>/live/<sensorId>`),
 published asynchronously. SDRC-routed builds (warehouse, LVS, Helm) gate the
 republish on the SDRC Envoy, so the per-sensor
@@ -192,242 +175,71 @@ post-add race. Docker search and alerts run VIOS in **direct** mode; the same
 aggregate/proxy read + backoff still applies for the brief post-add race.
 Resolve the handle from the endpoint that carries it — the aggregate
 `GET /sensor/streams` (match your `sensorId`) or `GET /proxy/streams` (`.proxyUrl`
-for that `sensorId`) — and **retry with backoff until it is non-empty** before
-passing it to the consumers. Read it, never construct it; do **not** fall back to
-the raw NvStreamer/camera URL — that bypasses the VIOS-managed handle and is the
+for that `sensorId`) — and **retry with backoff until it is non-empty**. It is
+also the URL a hand-driven RT-VLM leg takes. Read it, never construct it; do
+**not** fall back to the raw NvStreamer/camera URL — that bypasses the VIOS-managed handle and is the
 failure mode the runtime evals guard against. This applies to the live/RTSP origin
 only; the uploaded-file origin above has no live proxy.
 
-## Step 2 — resolve webhook coverage
-
-The fan-out policy is the notification config mounted at the fixed container
-path `/home/vst/vst_release/configs/notification_config.json` in **both** VIOS
-containers (`vss-vios-sensor` and `vss-vios-streamprocessing`). VIOS reads only
-that fixed path, once, at process start — there is no reload API.
-`VST_NOTIFICATION_CONFIG_PATH` exists only at the Compose mount layer and is
-interpolated away in a resolved build; never read it off a deployed build.
-Resolve the effective config in this precedence order, stopping at the first
-that answers:
-
-1. **Caller-supplied** — the normal case. A `vss-build-vision-ai` caller knows
-   which notification config its `override.env` selected and passes the path in.
-2. **Read the bind-mount source out of the running deployment** — the
-   authoritative, interpolation-proof source:
-
-   ```bash
-   # Host path of the effective config, from each VIOS container's mount spec.
-   for c in vss-vios-sensor vss-vios-streamprocessing; do
-     docker inspect "$c" --format '{{range .Mounts}}{{if eq .Destination "/home/vst/vst_release/configs/notification_config.json"}}{{.Source}}{{"\n"}}{{end}}{{end}}'
-   done
-   ```
-
-   Both containers must print the **same** host path. A mismatch is a
-   split-brain fan-out — stop and report it.
-3. **`VST_NOTIFICATION_CONFIG_PATH`** — a convenience only, valid when reading a
-   profile's `overrides.env` directly.
-
-**Coverage is per-item and per-origin, not per-deployment.** The expected
-fan-out for this source is precisely:
-
-```
-webhooks.enabled == true
-AND items[] where enabled == true AND camera_status_change == "camera_streaming"
-  AND within those, request[] entries whose camera_type[] is empty
-      or contains this source's origin ("file" for uploads, "rtsp" for live)
-```
-
-A global `webhooks.enabled: false` overrides every per-item `enabled: true`; a
-request filtered out by `camera_type` never fires. Do not count a disabled
-placeholder item — some shipped configs carry one (`dummy-camera-add`,
-`enabled: false`, empty `request[]`). No matching entries → the fallback
-appendix.
-
-An enabled `camera_add` item sits outside that set: VIOS always sends it with an
-empty `camera_url`, so there is nothing to register — RT-VLM answers `200` with
-`asset_id: ""` and `inference: false`. Expect the delivery in the logs and verify
-nothing against it; registration arrives with `camera_streaming`.
-
-**Record the enabled items; they are the expected set.** Where a config is
-decomposed by capability, each item is one capability on one event and carries an
-`id` naming both — `rtvi-cv-camera-streaming`, `rtvi-embed-camera-streaming`,
-`rtvi-vlm-tagging-camera-streaming`, `alert-bridge-camera-streaming`, their
-`*-camera-remove` counterparts, and the `es-*-camera-remove` index cleanups. VIOS
-prefixes that item's log lines with `Webhook camera_status_change/<event> (<id>)`
-and stamps the id into each delivered body as `webhook_id`, so a post-check and
-its log line agree by name rather than position.
-
-`id` is optional and not every shipped config uses one. An item without one logs
-its event alone and delivers an empty `webhook_id`; verification is unaffected,
-since Step 3 keys off the consumer an item names, not its id.
-
-The enabled set is authoritative — do **not** re-derive it by intersecting with
-the deployed services. Every build resolves this config against its own consumer
-set (`vss-build-vision-ai` `references/services/vios.md`), so an enabled item
-whose service is absent is a build defect: report that item against the mounted
-config, and do not silence it as expected noise. With no introspection API, a
-genuine delivery failure to a deployed service is log-identical to it.
-
-## Step 3 — verify the fan-out
-
-One bounded, read-only post-check per enabled item, keyed by the consumer its
-`request[]` URL names; the ids below are what a decomposed config calls them.
-
-| Enabled item | Post-check (read-only) |
-|---|---|
-| `rtvi-cv-camera-streaming` | `GET ${RTVI_CV_URL}/api/v1/stream/get-stream-info` lists the `sensorId`; detections land in `mdx-raw-*` |
-| `rtvi-embed-camera-streaming` | `GET ${RTVI_EMBED_URL}/v1/streams/get-stream-info`; embeddings in `mdx-embed` → `mdx-embed-filtered-*` |
-| `rtvi-vlm-tagging-camera-streaming` | `GET ${RTVI_VLM_URL}/v1/streams/get-stream-info`; captions on `mdx-vlm-captions`, which Logstash writes to `default_<streamId>` (there is no `mdx-vlm-tags` or `mdx-vlm-captions-*` index). Incidents (`mdx-vlm-incidents-*`) appear only when the model emits a trigger token — not a valid liveness check for tagging |
-| An RT-VLM `stream/add` item with no prompt (the LVS profile's config) | `GET ${RTVI_VLM_URL}/v1/stream/get-stream-info` lists the `camera_id` with `inference_active: false`. RT-VLM starts inference only when the add carries a prompt, so registration is the whole contract — do not poll for captions or index writes; nothing produces them until a caller drives one (`vss-build-vision-ai` `references/services/rt-vlm.md`) |
-| `alert-bridge-camera-streaming` | The Alert Bridge log (`vss-alert-bridge`) carries the incoming `POST /api/v1/realtime/always-on` and the `reason` it answered — `STREAM_ADD_SUCCESS`, or `STREAM_ADD_ALREADY_ACTIVE` on a repeat delivery; any other reason is a failure, with per-rule `details` (`vss-manage-alerts` `always-on.md`). Incidents (`GET ${ALERT_BRIDGE_URL}/api/v1/realtime/incidents`) stay empty until video matches a rule prompt — not a valid liveness check for registration |
-| `*-camera-remove` (teardown) | The consumer no longer lists the `sensorId` — the Alert Bridge has no such listing, so read `STREAM_REMOVE_SUCCESS` from its log instead; for the `es-*` items, counts drain to zero **for upload-anchored data only** (`*-2025-01-01`). Live-stream documents in `*-<today>` are not cleaned by these webhooks, and the VLM tag index (`default_<streamId>`) has no cleanup item in any shipped config, so tag-search hits survive removal in full — report both as known limitations, not failures |
-
-### Timing — compute the bound, do not quote one
-
-Delivery is asynchronous per receiver; final failure is logged and dropped — no
-dead-letter, no redelivery. Poll each post-check until it passes or the bound
-for **that entry** elapses:
-
-```
-worst_case ~ max_attempts x timeout_ms
-           + sum(i = 0 .. max_attempts-2) backoff_ms[min(i, len-1)]
-```
-
-`backoff_ms` clamps to its last element when shorter than `max_attempts`. Every
-shipped config uses `backoff_ms: [1000, 5000, 15000]`; computed from the shipped
-values:
-
-| Item | `max_attempts` | `timeout_ms` | Worst case |
-|---|---|---|---|
-| `rtvi-cv-camera-*` | 3 | 60000 | ~3 min 6 s |
-| `rtvi-embed-camera-*` | 3 | 600000 | ~30 min 6 s |
-| `rtvi-vlm-tagging-camera-streaming` | 3 | 5000 | ~21 s |
-| `rtvi-vlm-tagging-camera-remove` | 3 | 600000 | ~30 min 6 s |
-| `alert-bridge-camera-*` | 60 | 10000 | ~24 min 21 s |
-| `es-*-camera-remove` | 1 (no retry) | 5000 | 5 s, then dropped |
-
-One id can carry different values in different configs — `rtvi-cv-camera-*` runs
-60 x 10 s in the alerts profile's config, not 3 x 60 s — so read the values from
-the file resolved in Step 2 rather than from this table. The slowest entries are
-RT-Embed and the tagging teardown at ~30 min: an impatient bound abandons
-exactly the receiver that needed waiting. The ES cleanup items get a single 5 s
-attempt, so run their post-check promptly and treat any residue as likely
-permanent rather than pending.
-
-### Failure taxonomy
-
-| Observed | Meaning | Action |
-|---|---|---|
-| Post-check passes within the computed bound | Fan-out delivered | Done |
-| Consumer reports the stream already present, or `409 DuplicateStreamId` / `STREAM_ADD_ALREADY_ACTIVE` | Already provisioned — expected on RTSP reconnect, since VIOS re-fires `camera_streaming` with no dedup | **Treat as success.** Never as a failure or a reason to re-add |
-| Bound elapses; VIOS logs show `Webhook … giving up` (or repeated `retrying in`) for an enabled item | Delivery genuinely failed and was dropped | Report the item id and the log line. Remediation: fix the receiver, then re-register the source (delete the VIOS sensor, re-add). Do **not** paper over it with a direct consumer call |
-| Same, and that item's service is not deployed at all | The mounted config does not match the build (Step 2) | Report the id against the config as a build defect; it is not a fan-out failure, and not expected noise either |
-| Bound elapses; **no** webhook attempt in the VIOS logs | The `camera_type` filter excluded the receiver (Step 2) | Report the receiver as unreachable by this origin, not as a delivery failure |
-| Receiver answers `400` with `camera_url is required` | VIOS emits `camera_streaming` for every upload, but its URL generation failed, so the event carried an empty URL — only `camera_add` is tolerated URL-less | Report it against VIOS storage URL generation; re-registering will not help until the upload resolves a URL |
-
-There is no webhook introspection API: every "VIOS logs show…" check above is a
-container-log grep, run against **both** VIOS containers (`vss-vios-sensor`,
-`vss-vios-streamprocessing`) for these literal patterns:
-
-- `Webhook .*delivered`
-- `Webhook .*giving up`
-- `Webhook .*retrying in`
-- `skipped, camera_type '`
-
-Each line names its item as `camera_status_change/<event>`, plus ` (<id>)` where
-the item has one — grep whichever it carries to isolate a capability. Receivers
-within an item are identified by 1-based position, not by URL.
-
 ## The shared-id rule
 
-Every consumer must key on the **one VST `sensorId` returned at Step 1**, VOD and
-RTSP alike. The id-vs-name distinction is load-bearing on both paths: embed
+Every consumer must key on the **one VST `sensorId` returned at registration**,
+VOD and RTSP alike. The id-vs-name distinction is load-bearing on both paths: embed
 records key on the `sensorId`, behavior and raw records on the **source name**,
 and both the search read path and the `camera_remove` ES cleanup resolve each
 accordingly. An id/name mismatch deletes nothing, silently.
 
-**On the webhook path** VIOS threads both: `{{event.camera_id}}` is the
-`sensorId`, `event.camera_name` the `name` given at registration. Nothing to
-thread — register under the canonical source name, then confirm each consumer
-keyed on that `sensorId`.
+VIOS threads both itself: `{{event.camera_id}}` is the `sensorId`,
+`event.camera_name` the `name` given at registration. Nothing to thread —
+register under the canonical source name.
 
-**In the fallback** the caller threads them: `sensorId` verbatim as RT-CV
-`camera_id`, RT-Embed `id`, and the `x-stream-id` header on **both** calls
-(`x-stream-id` pins the stream to a worker under an SDR-fronted RTVI
-deployment), with RT-CV `camera_name` the source name. Never let a consumer mint
-its own id — given no `id`, RT-Embed generates an asset UUID and its embeddings
-land under a `sensor.id` no name- or sensor-scoped query can reach.
+A caller driving RT-VLM by hand threads them instead, and carries them **in the
+body** (`id` / `sensor_name`), since RT-VLM does not read the `x-stream-id`
+header. Never let a consumer mint its own id: given none, it generates its own
+asset UUID and its records land under an id no name- or sensor-scoped query can
+reach.
 
 ## The upload-date rule
 
 `creation_time`/`timestamp` is **upload-only**:
-- VIOS anchors an untimed upload at `2025-01-01T00:00:00.000Z` itself; pin
-  `timestamp=2025-01-01T00:00:00.000Z` to state that anchor rather than inherit
-  it silently;
+- VIOS anchors an untimed upload at `2025-01-01T00:00:00.000Z` itself, and
+  `vss vios add` pins that same value rather than inherit it silently;
 - on the webhook path the anchor rides the event as
   `metadata.file_start_time`, which RT-Embed and RT-VLM map to `creation_time`,
   so records land in the `*-2025-01-01` indices the `camera_remove` cleanup
   targets. VIOS emits that field on every upload, pinned or not — the consumers'
   `created_at` fallback never applies here, and omitting the pin does **not**
   move the records off the anchor;
-- in the fallback the caller passes the anchor as `creation_time` on **every**
-  upload consumer itself — RT-CV
-  `/stream/add` (`value.creation_time` + `headers.created_at`), RT-Embed
-  `generate_video_embeddings`, and RT-VLM `/v1/files` (dense-captioning builds).
-  Omit it and frame times are file-relative (epoch 0), landing records in a
-  `…-1970-01-01` index a date-pinned read can't see — RT-Embed and RT-VLM are
-  **not** exempt;
+- a caller driving RT-VLM by hand passes the anchor itself, as `creation_time`
+  on `/v1/files` and `generate_captions`. Omit it and frame times are
+  file-relative (epoch 0), landing captions in a `…-1970-01-01` index a
+  date-pinned read can't see;
 - **RTSP carries none** on any path — chunks are stamped from live NTP time.
 
 ## Idempotency and teardown
 
-Add = register once, then verify (Step 3). Duplicates are benign and expected on
-RTSP reconnect: RT-VLM answers `409 DuplicateStreamId`, the Alert Bridge
-`STREAM_ADD_ALREADY_ACTIVE` — treat both as success.
+Add = register once. Duplicates are benign and expected on RTSP reconnect, since
+VIOS re-fires `camera_streaming` with no dedup: RT-VLM answers
+`409 DuplicateStreamId`, the Alert Bridge `STREAM_ADD_ALREADY_ACTIVE` — treat
+both as success, never as a reason to re-add.
 
-Teardown on a webhook-covered build = delete the VIOS sensor; the enabled
-`*-camera-remove` items perform consumer removal and the upload-anchor ES
-cleanup. Verify absence scoped: consumer stream state drains
-(`get-stream-info` no longer lists the `sensorId`); ES counts drain for the
-`*-2025-01-01` anchor indices only — live-dated index residue is a known
-limitation, not a failure. On a webhook-less build, reverse the fan-out by hand
-per the fallback appendix **before** deleting the sensor.
+Teardown = `vss vios delete --type video|stream --sensor <name>` (raw:
+`DELETE /sensor/<sensorId>`); the enabled `*-camera-remove` items withdraw the
+source from the consumers and run the upload-anchor ES cleanup. Two known
+limitations, not failures: the ES cleanups target the `*-2025-01-01` anchor
+indices, so live-dated documents survive, and no shipped config cleans the VLM
+tag index (`default_<streamId>`), so tag-search hits survive in full. A
+hand-driven RT-VLM leg is torn down by its caller, before the sensor goes.
 
-## Fallback — direct REST on builds without webhook coverage
+## Driving RT-VLM by hand
 
-Use this only when Step 2 finds no webhook coverage (shared default config, or
-every receiver filtered out by `camera_type`). Call each resolved consumer with
-the Step-1 source URL (storage URL for an upload, live proxy for a live
-stream); RT-VLM on an upload takes its `file_id` instead.
-
-**Contract note:** this path's RT-Embed VOD call is the synchronous
-`POST /v1/generate_video_embeddings` — no register, no teardown. The webhook
-path uses `POST /v1/stream/add` with `user_defined_metadata` auto-start. These
-are different contracts — do not mix them.
+Two RT-VLM uses have no webhook receiver to do them for you: **dense
+captioning**, which no shipped config carries an item for, and **tagging** on a
+build whose config has no tagging receiver. Both take the registered source's
+URL — the clip URL for an upload, the live proxy for a stream. Nothing else here is
+caller-driven; RT-CV and RT-Embed receive every source from VIOS.
 
 ```bash
-# RT-CV — detection/tracking (sensor envelope). Header x-stream-id: <sensorId>.
-POST http://localhost:<rtvi-cv-port>/api/v1/stream/add
-#   {"key":"sensor","value":{"camera_id":"<sensorId>","camera_name":"<source-name>",
-#     "camera_url":"<vios-url>","change":"camera_add","creation_time":"<upload-anchor>"},
-#    "headers":{"source":"vst","created_at":"<upload-anchor>"}}
-#   camera_id = the Step-1 sensorId, camera_name = the source name (see the shared-id rule).
-#   Upload: creation_time + created_at REQUIRED; RTSP: omit both (see upload-date rule).
-
-# RT-Embed — chunk embeddings (only when embeddings/retrieval is resolved).
-# The two origins drive the endpoint differently:
-#   Upload (VOD): one synchronous call, no register, no teardown —
-POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-stream-id: <sensorId>; body {"url":"<vios-storage-url>","id":"<sensorId>","model":"<resolved>","creation_time":"<upload-anchor>","chunk_duration":<n>}
-#     accept: application/json; blocks until the bounded clip finishes
-#     (read usage.total_chunks_processed). id = the Step-1 sensorId (see the shared-id
-#     rule). creation_time REQUIRED (see upload-date rule). No stream:true, no /v1/streams/add.
-#   Live (RTSP): register, then fire-and-verify — do NOT hold the SSE open —
-POST http://localhost:<rt-embed-port>/v1/streams/add                 # register the live proxy (header x-stream-id: <sensorId>; body {"streams":[{"id":"<sensorId>","liveStreamUrl":"<vios-url>"}]} — carry the id here so streams/add keys on the sensorId instead of minting its own UUID)
-POST http://localhost:<rt-embed-port>/v1/generate_video_embeddings   # header x-stream-id: <sensorId>; body {"id":"<sensorId>","model":"<resolved>","stream":true,"chunk_duration":<n>}
-#     open, confirm HTTP 200, then CLOSE. The server keeps embedding and publishing
-#     to Kafka after you disconnect (closing the SSE does not stop it, and Kafka
-#     publishing does not require it held open); stop with
-#     DELETE /v1/generate_video_embeddings/{id} then DELETE /v1/streams/delete/{id}.
-
 # RT-VLM — dense captioning (source-agnostic; captions → mdx-vlm-captions, yes/no
 # incidents → mdx-vlm-incidents). SKIP when the build has an Alert Bridge — see
 # the carve-out below.
@@ -435,7 +247,7 @@ POST http://localhost:<rt-vlm-port>/v1/files          # uploaded (VOD): multipar
 POST http://localhost:<rt-vlm-port>/v1/streams/add    # RTSP: feed the VIOS live-proxy URL
 #   then POST .../v1/generate_captions with the returned file_id/stream_id
 
-# RT-VLM tagging — the search-indexing leg (provision when the build resolves search).
+# RT-VLM tagging — the search-indexing leg, where no tagging receiver runs it.
 # Independent of the Alert Bridge carve-out above; same rtvi-vlm deployment, different
 # prompt. Controlled JSON-tag prompt + response_format json_object + temperature 0 +
 # 5s chunks. RT-VLM does NOT read the x-stream-id header — carry identity in the body
@@ -499,26 +311,49 @@ goes live. A build that carries a bridge leg does not also run tagging on that
 instance, so the tagging block above does not apply there either.
 
 Exact payloads and field lists live in the operating contracts — do not restate
-them here: RT-CV `vss-deploy-detection-tracking-2d` `api-reference.md`; RT-Embed
-`vss-deploy-video-embedding` `rest-api.md`; VIOS/NvStreamer this skill's
+them here: RT-VLM `vss-deploy-dense-captioning` `integrate-rt-vlm.md`;
+VIOS/NvStreamer this skill's
 [`integrate-vios-service.md`](integrate-vios-service.md) +
-[`nvstreamer-api-reference.md`](nvstreamer-api-reference.md); RT-VLM
-`vss-deploy-dense-captioning` `integrate-rt-vlm.md`. The controlled tag-prompt
-contract and the `default_<streamId>` indexing path are specified in
-[`../../../docs/designs/vlm-tagging-search.md`](../../../docs/designs/vlm-tagging-search.md).
+[`nvstreamer-api-reference.md`](nvstreamer-api-reference.md). The controlled
+tag-prompt contract and the `default_<streamId>` indexing path are specified in
+[`docs/designs/vlm-tagging-search.md`](../../../../docs/designs/vlm-tagging-search.md).
 
-**Teardown without webhooks.** Reverse the fan-out — RT-CV
-`change:"camera_remove"`, RT-Embed
-`DELETE /v1/streams/delete/{id}` (or `DELETE /v1/generate_video_embeddings/{id}`),
-RT-VLM `DELETE /v1/streams/delete/{id}` (a tagging leg first needs its
-`request_id`, per the block above) — then delete the VIOS sensor. Deleting only
-VIOS leaves the consumers provisioned.
+**Teardown.** A hand-driven leg is the caller's to stop:
+`DELETE /v1/streams/delete/{id}` (a tagging leg first needs its `request_id`,
+per the block above), then delete the VIOS sensor. No `camera_remove` item
+covers it, so deleting only VIOS leaves RT-VLM holding the stream.
+
+## Troubleshooting — a consumer never got the source
+
+Registration is the caller's contract, so reach for this only when someone
+reports missing perception, not as a routine check. Fan-out has no
+introspection API: the evidence is a container-log grep, run against **both**
+VIOS containers (`vss-vios-sensor`, `vss-vios-streamprocessing`) for these
+literal patterns:
+
+- `Webhook .*delivered`
+- `Webhook .*giving up`
+- `Webhook .*retrying in`
+- `skipped, camera_type '`
+
+Each line names its item as `camera_status_change/<event>`, plus ` (<id>)` where
+the item has one. Receivers within an item are identified by 1-based position,
+not by URL.
+
+| Observed | Meaning | Action |
+|---|---|---|
+| `Webhook … giving up` (or repeated `retrying in`) for an enabled item | Delivery failed and was dropped — there is no dead-letter and no redelivery | Report the item and the log line. Remediation: fix the receiver, then re-register the source. Do **not** paper over it with a direct consumer call |
+| Same, and that item's service is not deployed | The mounted config does not match the build | Report the item against the config as a build defect, not a fan-out failure (`vss-build-vision-ai` `references/services/vios.md`) |
+| **No** webhook attempt at all | The item is disabled, or its `camera_type` filter excluded this origin | Report the receiver as unreachable by this origin, not as a delivery failure |
+| `400 camera_url is required` | VIOS emits `camera_streaming` for every upload, but its URL generation failed, so the event carried an empty URL — only `camera_add` is tolerated URL-less | Report it against VIOS storage URL generation; re-registering will not help until the upload resolves a URL |
+
+While `retrying in` lines are still appearing, delivery is in flight rather than
+lost: the slowest shipped receivers spend ~30 minutes on their attempts before
+they give up.
 
 ## Sources
 
 - This skill: [`integrate-vios-service.md`](integrate-vios-service.md), [`nvstreamer-api-reference.md`](nvstreamer-api-reference.md), [`api-reference.md`](api-reference.md) (`§ RTSP Proxy` for `/proxy/streams`; `/sensor/streams`)
-- `skills/deployment/vss-deploy-detection-tracking-2d/references/api-reference.md`
-- `skills/deployment/vss-deploy-video-embedding/references/rest-api.md`
 - `skills/deployment/vss-deploy-dense-captioning/references/integrate-rt-vlm.md`
 - `skills/operations/vss-manage-alerts/references/always-on.md` (Alert Bridge always-on contract)
 - Endpoint contract (read-vs-write resolution split): `skills/vss-build-vision-ai/references/deployment_resolution.md`
