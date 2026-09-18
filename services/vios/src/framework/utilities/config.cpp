@@ -816,6 +816,13 @@ VmsConfigManager::VmsConfigManager()
     {
         m_vmsConfig.video_metadata_server = overlay.get("video_metadata_server", "").asString();
         m_vmsConfig.video_metadata_query_batch_size_num_frames = overlay.get("video_metadata_query_batch_size_num_frames", 300).asInt();
+        // Number of Elasticsearch slice queries the download prefetch runs in
+        // parallel. Clamped to 1..10: more than a few concurrent full-source
+        // fetches trip the ES request circuit breaker (HTTP 429).
+        m_vmsConfig.video_metadata_query_max_threads = std::max(1, std::min(10,
+            overlay.get("video_metadata_query_max_threads", 2).asInt()));
+        // Per-frame wait for metadata while a fetch is in flight (download path).
+        m_vmsConfig.video_metadata_wait_timeout_ms = overlay.get("video_metadata_wait_timeout_ms", 1000).asInt();
         m_vmsConfig.use_video_metadata_protobuf = overlay.get("use_video_metadata_protobuf", true).asBool();
         m_vmsConfig.enable_gem_drawing = overlay.get("enable_gem_drawing", false).asBool();
         m_vmsConfig.analytic_server_address = overlay.get("analytic_server_address", "").asString();

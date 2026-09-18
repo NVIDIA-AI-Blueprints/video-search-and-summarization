@@ -82,7 +82,7 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
   });
 
-  it('renders and answers NAT interaction prompts', async () => {
+  it('renders and answers interaction prompts', async () => {
     const interaction = {
       event_type: 'interaction_required',
       execution_id: 'execution-1',

@@ -34,7 +34,13 @@
 class elasticSearch
 {
 private:
-    static Json::Value queryESMetadata(string url, string query)
+    /*
+     * httpStatus (optional) receives the HTTP status of the request: 0 when no
+     * HTTP response was received (curl failure / timeout), otherwise the code
+     * Elasticsearch answered with (200, 429, 503, ...). Only fetchRangeHits
+     * uses it; the other callers leave it null.
+     */
+    static Json::Value queryESMetadata(string url, string query, int* httpStatus = nullptr)
     {
         std::string jsonData;
         CurlRequestFields curlFields = {};
@@ -45,6 +51,10 @@ private:
 
         int ret = curlSendRequest(curlFields, jsonData);
         LOG(verbose) << "ret: " << ret << endl;
+        if (httpStatus != nullptr)
+        {
+            *httpStatus = curlFields.m_httpErrorCode;
+        }
 
         return stringToJson(jsonData);
     }
@@ -175,6 +185,23 @@ public:
     static void getBboxPosition(BBoxMetaData& outData);
 
     /*
+     * Result of fetchRangeHits.
+     *  - httpStatus: HTTP status of the query, 0 when no HTTP response was
+     *    received (curl timeout / connection refused). Lets the prefetch tell a
+     *    rejected request (429 / 503, retry at lower load) apart from an
+     *    unreachable server (stop blocking per frame).
+     *  - reachable: true when Elasticsearch answered the query with a hits
+     *    document (even with zero hits).
+     *  - hits: the metadata records, ascending by timestamp.
+     */
+    struct RangeFetchResult
+    {
+        int                      httpStatus = 0;
+        bool                     reachable  = false;
+        std::vector<Json::Value> hits;
+    };
+
+    /*
      * Single-shot range query used by the download prefetch path. Returns up to
      * `size` metadata hits for the window [startIso, endIso], sorted ascending,
      * WITHOUT touching any shared queue. Safe to call concurrently (each call is
@@ -182,15 +209,12 @@ public:
      * in parallel. Does not paginate: choose `size`/window so the slice stays
      * under the Elasticsearch max_result_window.
      *
-     * Returns {reachable, hits}. `reachable` is true when Elasticsearch answered
-     * the query (even with zero hits) and false when the server could not be
-     * reached / returned no valid response - the prefetch uses this to tell
-     * "empty because idle" (keep waiting for later data) apart from "empty
-     * because ES is down" (stop blocking per frame).
+     * See RangeFetchResult for how the prefetch uses the status: "empty because
+     * idle" (keep waiting for later data), "rejected" (retry with fewer parallel
+     * slices) and "ES is down" (stop blocking per frame) are all distinguished.
      */
-    static std::pair<bool, std::vector<Json::Value>> fetchRangeHits(
-                                                   const std::string& sensorId,
-                                                   const std::string& startIso,
-                                                   const std::string& endIso,
-                                                   int size);
+    static RangeFetchResult fetchRangeHits(const std::string& sensorId,
+                                           const std::string& startIso,
+                                           const std::string& endIso,
+                                           int size);
 };

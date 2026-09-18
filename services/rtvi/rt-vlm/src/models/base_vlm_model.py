@@ -206,6 +206,10 @@ class BaseVlmModel(ABC):
         """
         pass
 
+    def is_healthy(self) -> bool:
+        """Return whether the model backend can still serve requests."""
+        return True
+
     def warmup(self):
         """
         Warm up the model with dummy data to initialize CUDA kernels and memory.

@@ -51,6 +51,7 @@ from models.vllm_compatible.adaptive_preprocess_limiter import (
     AdaptivePreprocessLimiter,
     PreprocessAdmissionTimeout,
 )
+from utils.env_validation import get_video_pruning_rate
 
 _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_GPU_MEMORY_UTILIZATION": "RTVI_VLLM_GPU_MEMORY_UTILIZATION",
@@ -398,7 +399,7 @@ def _apply_attention_backend_override(
     if not attention_backend:
         if not _is_cosmos3_edge_arch(model_architecture):
             return False
-        attention_backend = "CUSTOM"
+        attention_backend = "TRITON_ATTN"
         logger.info("Defaulting Cosmos3 Edge attention backend to %s", attention_backend)
     if "attention_backend" not in supported_params:
         logger.warning(
@@ -1649,24 +1650,19 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs["moe_backend"] = moe_backend
                     logger.info("Using vLLM MoE backend %s: %s", moe_backend_source, moe_backend)
 
-                # EVS (Efficient Video Sampling): prune redundant video tokens
-                # Set VLM_VIDEO_PRUNING_RATE=0.5 for 50% pruning. 0 or empty = disabled.
-                video_pruning_rate_str = os.environ.get("VLM_VIDEO_PRUNING_RATE", "")
-                if video_pruning_rate_str and "video_pruning_rate" in _engine_supported_params:
-                    try:
-                        rate = float(video_pruning_rate_str)
-                        if 0 < rate < 1:
-                            engine_args_kwargs["video_pruning_rate"] = rate
-                            logger.info("EVS enabled: video_pruning_rate=%.2f", rate)
-                        elif rate != 0:
-                            logger.warning(
-                                "VLM_VIDEO_PRUNING_RATE=%.2f out of range (0,1), EVS disabled",
-                                rate,
-                            )
-                    except ValueError:
+                # EVS (Efficient Video Sampling): prune redundant video tokens.
+                # Invalid configured values are fatal rather than silently disabling EVS.
+                video_pruning_rate = get_video_pruning_rate()
+                if video_pruning_rate is not None:
+                    if "video_pruning_rate" in _engine_supported_params:
+                        engine_args_kwargs["video_pruning_rate"] = video_pruning_rate
+                        logger.info(
+                            "EVS enabled: video_pruning_rate=%.2f", video_pruning_rate
+                        )
+                    else:
                         logger.warning(
-                            "Invalid VLM_VIDEO_PRUNING_RATE='%s', EVS disabled",
-                            video_pruning_rate_str,
+                            "VLM_VIDEO_PRUNING_RATE is set but the installed vLLM engine "
+                            "does not support video_pruning_rate"
                         )
 
                 # EVS extra engine args (similarity threshold, mm-embeds passthrough,
@@ -2730,6 +2726,19 @@ class VllmCompatible(BaseVlmModel):
         )
         return True
 
+    def is_healthy(self) -> bool:
+        """Return false after the independently-running vLLM engine dies."""
+        engine = getattr(self, "_llm", None)
+        if engine is None:
+            return False
+        errored = getattr(engine, "errored", None)
+        if errored is not None:
+            return not bool(errored() if callable(errored) else errored)
+        is_stopped = getattr(engine, "is_stopped", None)
+        if is_stopped is not None:
+            return not bool(is_stopped() if callable(is_stopped) else is_stopped)
+        return True
+
     def warmup(self):
         """Warm up the model with dummy tensors to initialize CUDA kernels and memory."""
         logger.info("Starting model warmup...")
@@ -2792,7 +2801,7 @@ class VllmCompatible(BaseVlmModel):
             self._evs_handler = OpenAIServingVideoSessions(
                 engine_client=self._llm,
                 max_sessions=int(os.environ.get("VIA_EVS_MAX_SESSIONS") or "256"),
-                pruning_rate=float(os.environ.get("VLM_VIDEO_PRUNING_RATE") or "0.5"),
+                pruning_rate=get_video_pruning_rate() or 0.5,
                 similarity_threshold=_get_evs_similarity_threshold(),
                 pd_server_url=os.environ.get("VIA_PD_SERVER_URL") or None,
                 pd_server_timeout_s=float(os.environ.get("VIA_PD_SERVER_TIMEOUT_S") or "120.0"),

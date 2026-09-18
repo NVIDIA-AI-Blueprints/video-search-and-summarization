@@ -375,6 +375,81 @@ function get_remote_model_name() {
   return 0
 }
 
+# Resolve the secure link Brev publishes for a destination port.
+#
+# Brev's environment context file is the source of truth: it lists one entry per
+# exposed port with its fqdn and public_port. Read the fqdn from it — never build
+# one from a pattern. The domain varies per instance (gobrev.dev, brevlab.com,
+# apps.run.brev.nvidia.com, ...) and a constructed hostname that happens to be
+# wrong is indistinguishable from a missing link: Brev's edge answers
+# 404 route_not_found for both, and the same wrong hostname lands in
+# VSS_PUBLIC_HOST, so HAProxy's known_host ACL then rejects the *correct* URL too.
+#
+# Key names are matched loosely so a schema tweak degrades to "no link found"
+# (which is reported) rather than a wrong hostname (which is not).
+#
+# Arguments:
+#   $1 destination port on the instance
+# Outputs: BREV_LINK_FQDN / BREV_LINK_PUBLIC_PORT on success; BREV_CONTEXT_PROBLEM
+#          when the context file itself is the reason, empty when the file was
+#          read fine and simply publishes no link for this port. Returns non-zero
+#          either way. These are globals rather than stdout on purpose: a caller
+#          using $(...) would run this in a subshell and lose the reason, and
+#          reporting "no link published" for an unreadable file is the confusion
+#          this whole function exists to avoid.
+function brev_link_for_port() {
+  local _port="${1}"
+  local _ctx _raw _result
+  _ctx="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
+  BREV_CONTEXT_PROBLEM=""
+  BREV_LINK_FQDN=""
+  BREV_LINK_PUBLIC_PORT=""
+
+  if [[ ! "${_port}" =~ ^[0-9]+$ ]]; then
+    BREV_CONTEXT_PROBLEM="'${_port}' is not a port number"
+    return 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    BREV_CONTEXT_PROBLEM="jq is required to read ${_ctx}"
+    return 1
+  fi
+
+  if [[ -r "${_ctx}" ]]; then
+    _raw="$(cat "${_ctx}" 2>/dev/null)"
+  elif [[ -e "${_ctx}" ]]; then
+    # /etc/brev is 0700 root:root on Brev images and this script usually runs as
+    # the instance user. Passwordless sudo is the norm there, so retry through it
+    # rather than reporting a link that is actually published.
+    if ! _raw="$(sudo -n cat "${_ctx}" 2>/dev/null)"; then
+      BREV_CONTEXT_PROBLEM="${_ctx} is not readable by $(id -un) and \`sudo -n cat\` failed"
+      return 1
+    fi
+  else
+    BREV_CONTEXT_PROBLEM="${_ctx} does not exist"
+    return 1
+  fi
+
+  # A jq failure means the file is not the JSON we expect; that is a different
+  # problem from a port with no link, and the caller reports them differently.
+  if ! _result="$(printf '%s' "${_raw}" | jq -r --arg p "${_port}" '
+    first(
+      .ports[]?
+      | select(((.destination_port // .destinationPort // .target_port // .port) | tostring) == $p)
+      | select((.fqdn // .hostname // .host // "") != "")
+      | "\((.fqdn // .hostname // .host) | sub("^[a-zA-Z]+://"; "") | split("/")[0]) \(.public_port // .publicPort // 443)"
+    ) // empty' 2>/dev/null)"; then
+    BREV_CONTEXT_PROBLEM="${_ctx} is not valid JSON, or does not have the expected shape"
+    return 1
+  fi
+  if [[ -z "${_result}" ]]; then
+    return 1
+  fi
+
+  BREV_LINK_FQDN="${_result%% *}"
+  BREV_LINK_PUBLIC_PORT="${_result##* }"
+  return 0
+}
+
 function get_env_value() {
   local _env_file="${1}"
   local _var_name="${2}"
@@ -1636,33 +1711,45 @@ function state_up() {
   fi
 
   # ===== Brev secure links =====
-  # Brev secure links use <prefix>-<env>.<domain>. During the phased tunnel
-  # migration, Brev-managed NetBird details identify Skybridge; a generic
-  # healthy NetBird client is insufficient. An explicit domain always wins.
+  # The hostname is read from Brev's environment context file, never constructed,
+  # so a Brev secure-link domain migration needs no change here. BREV_PUBLIC_HOST
+  # is the escape hatch, and it has to be the whole hostname copied from the Brev
+  # console: the secure-link prefix is a NAME the creator chooses, not the port
+  # number, so "<port>-<env>.<domain>" is a convention rather than a rule.
   if [[ -n "${BREV_ENV_ID:-}" ]]; then
     local _proxy_port="${PROXY_PORT:-7777}"
-    local _link_prefix="${BREV_LINK_PREFIX:-${_proxy_port}}"
-    local _link_domain _netbird_status=""
-    if [[ -n "${BREV_LINK_DOMAIN:-}" ]]; then
-      _link_domain="${BREV_LINK_DOMAIN}"
-    elif _netbird_status="$(netbird status -d 2>&1)" &&
-         [[ "${_netbird_status,,}" == *"skybridge"* ||
-            "${_netbird_status,,}" == *"brev.nvidia.com"* ||
-            "${_netbird_status,,}" == *"brev.dev"* ]]; then
-      _link_domain="apps.run.brev.nvidia.com"
+    local _secure_link_host="${BREV_PUBLIC_HOST:-}"
+    local _public_port="${BREV_PUBLIC_PORT:-}"
+    local _ctx
+    _ctx="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
+    if [[ -n "${_secure_link_host}" ]]; then
+      _public_port="${_public_port:-443}"
+    elif brev_link_for_port "${_proxy_port}"; then
+      _secure_link_host="${BREV_LINK_FQDN}"
+      _public_port="${BREV_LINK_PUBLIC_PORT}"
     else
-      _link_domain="brevlab.com"
+      # A context file we could not read is a different problem from a port with
+      # no link, and only one of the two is fixed in the Brev console.
+      if [[ -n "${BREV_CONTEXT_PROBLEM:-}" ]]; then
+        echo "[ERROR] Could not resolve the Brev secure link for port ${_proxy_port}: ${BREV_CONTEXT_PROBLEM}."
+        echo "[ERROR] Make that file readable (e.g. sudo chmod a+r ${_ctx}) and re-run."
+      else
+        echo "[ERROR] Could not resolve the Brev secure link for port ${_proxy_port}: no entry for destination port ${_proxy_port} in ${_ctx}."
+        echo "[ERROR] Create the link in the Brev console: Secure Links -> + HTTP port -> destination port ${_proxy_port}."
+      fi
+      echo "[ERROR] Or copy the endpoint from the Secure Links page and export it verbatim, e.g. export BREV_PUBLIC_HOST=7777-abcd1234.gobrev.dev"
+      echo "[ERROR] Do not assemble the hostname from a pattern: a wrong value is baked into VSS_PUBLIC_HOST, after which HAProxy rejects the correct URL too."
+      exit 1
     fi
-    local _secure_link_host="${_link_prefix}-${BREV_ENV_ID}.${_link_domain}"
-    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to ${_secure_link_host}..."
+    echo "[INFO] Brev environment detected (${BREV_ENV_ID}). Setting HAProxy ingress to ${_secure_link_host}:${_public_port}..."
     set_env_var "BREV_ENV_ID" "${BREV_ENV_ID}"
-    set_env_var "BREV_LINK_PREFIX" "${_link_prefix}"
-    set_env_var "BREV_LINK_DOMAIN" "${_link_domain}"
+    # Informational only — nothing builds a hostname out of it any more.
+    set_env_var "BREV_LINK_DOMAIN" "${_secure_link_host#*.}"
     set_env_var "HAPROXY_PORT" "${_proxy_port}"
     set_env_var "VSS_PUBLIC_HTTP_PROTOCOL" "https"
     set_env_var "VSS_PUBLIC_WS_PROTOCOL" "wss"
     set_env_var "VSS_PUBLIC_HOST" "${_secure_link_host}"
-    set_env_var "VSS_PUBLIC_PORT" "443"
+    set_env_var "VSS_PUBLIC_PORT" "${_public_port}"
   fi
 
   set_env_var "NGC_CLI_API_KEY" "${ngc_cli_api_key}" "true"

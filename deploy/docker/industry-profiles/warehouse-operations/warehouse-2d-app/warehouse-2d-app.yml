@@ -34,6 +34,8 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+      bp-configurator-2d:
+        condition: service_healthy
 
   vss-behavior-analytics-playback-2d:
     extends:
@@ -105,8 +107,8 @@ services:
         condition: service_started
       broker-health-check:
         condition: service_completed_successfully
-      # bp-configurator:
-      #   condition: service_started
+      bp-configurator-2d:
+        condition: service_healthy
 
   kibana-init-container-2d:
     build:
@@ -132,6 +134,9 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
     command: bash /opt/vss/init-scripts/calibration-import.sh
     restart: on-failure:5
+    depends_on:
+      bp-configurator-2d:
+        condition: service_healthy
 
 volumes:
   perception-2d:

@@ -10,7 +10,7 @@
  *
  * Each repair swaps the incomplete fragment for a placeholder that renders
  * cleanly, and marks the still-open element with `data-streaming="true"` so the
- * component can show a spinner. Ported from the toolkit's `fixMalformedHtml`.
+ * component can show a spinner.
  *
  * Pure string functions, kept out of the components so they can be tested.
  */

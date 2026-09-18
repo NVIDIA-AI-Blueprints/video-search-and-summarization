@@ -86,8 +86,7 @@ function_groups:
         # Keys define the set of supported hardware profiles.
         # Values are env overrides (empty/null = supported, no overrides).
         hardware_profiles:
-          # RTVI_VLLM_GPU_MEMORY_UTILIZATION mirrors dev-profile.sh's
-          # get_rtvi_vllm_gpu_memory_utilization, local_shared column
+          # Default RTVI local-shared VLM memory utilization by hardware.
           H100:
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.4"
           L40S:

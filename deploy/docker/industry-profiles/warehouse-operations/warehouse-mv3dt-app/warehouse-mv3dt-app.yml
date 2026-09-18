@@ -33,6 +33,8 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
+      bp-configurator-mv3dt:
+        condition: service_healthy
 
   vss-behavior-analytics-playback-mv3dt:
     extends:
@@ -101,6 +103,9 @@ services:
       - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/images:/opt/vss/images/
     command: bash /opt/vss/init-scripts/calibration-import.sh
     restart: on-failure:5
+    depends_on:
+      bp-configurator-mv3dt:
+        condition: service_healthy
 
   # One-shot: populates $VSS_DATA_DIR/models/reid with the SigLIP secondary
   # embedding model (NGC) and the CLIP-ReID tracker ONNX.
@@ -312,6 +317,8 @@ services:
       DOWNLOAD_MODELS_SCRIPT: /opt/scripts/download-models.sh
     command: ["./ds-start-mv3dt.sh"]
     depends_on:
+      bp-configurator-mv3dt:
+        condition: service_healthy
       sensor-ms-mv3dt:
         condition: service_started
       broker-health-check:

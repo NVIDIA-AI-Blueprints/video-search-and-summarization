@@ -43,7 +43,7 @@
 # Layers are split for cacheability, which preserves execution order; the
 # sequence itself is untouched.
 # -----------------------------------------------------------------------------
-ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255"
+ARG BASE_IMAGE="nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-262"
 ARG DS_VERSION=9.1
 
 # =============================================================================
@@ -56,6 +56,7 @@ ARG DS_VERSION
 # SBSA always takes prebuilts/sbsa.
 ADD prebuilts/sbsa/libmsda_fp16.so /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so
 ADD prebuilts/sbsa/libnvds_infercustomparser_tao.so /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so
+ADD prebuilts/sbsa/libnvds_infercustomparser.so /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so
 RUN ldconfig
 
 # Copy sources
@@ -116,6 +117,7 @@ COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/sparse4d/configs/
 # Prebuilt libs + ldconfig so the loader can resolve them at runtime
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so /opt/nvidia/deepstream/deepstream/sources/sparse4d/libmsda_fp16.so
 COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser_tao.so
+COPY --from=ds-devel /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so /opt/nvidia/deepstream/deepstream/lib/libnvds_infercustomparser.so
 RUN ldconfig
 
 # Third-party licence text, at the path the compliance scan expects
