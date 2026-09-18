@@ -18,30 +18,6 @@
 # This YAML file defines hardware-specific configurations for GPU profiles and deployment modes.
 # It controls how the Configurator generates configuration files based on provided profile
 
-# Example: Custom profile for L4 GPU with specific tuning for 3D mode and default tuning for 2D mode
-#
-# L4:
-#   2d:
-#     max_streams_supported: 4
-#
-#   3d:
-#     max_streams_supported: 2
-#     use_commons:
-#       variables: true        # Use commons 3d variables
-#       file_operations: true  # Use commons 3d file_operations
-#     variables:
-#       # Additional L4-specific variables (appended to commons)
-#       - timeout_multiplier: "2"
-#       - adjusted_timeout: "${timeout_multiplier} * 25000"
-#     file_operations:
-#       # Additional L4-specific operations (appended to commons)
-#       - operation_type: "text_config_update"
-#         target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
-#         backup: true        # Create backup before updating (optional, default: true)
-#         updates:
-#           batched-push-timeout: "${adjusted_timeout}"
-#           enable-gpu-utilization-check: "1"
-#
 # ========================================================================================================
 # COMMONS
 # ========================================================================================================
@@ -142,14 +118,14 @@ commons:
         disallowed_values: ["bp_wh_redis"]
         error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
-      # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
+      # SBSA hardware profiles require SBSA image tags.
       - variable: VSS_RT_CV_TAG
         condition:
           variable: HARDWARE_PROFILE
-          equals: "DGX-SPARK"
+          in: ["GB300", "DGX-SPARK"]
         allowed_patterns:
           - "*sbsa*"
-        error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
+        error_message: "When HARDWARE_PROFILE is GB300 or DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
       # SAMPLE_VIDEO_DATASET selects a directory under
       # <app>/calibration/sample-data/, and only matters when the sample videos
@@ -245,14 +221,14 @@ commons:
         disallowed_values: ["bp_wh_redis"]
         error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
-      # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
+      # SBSA hardware profiles require SBSA image tags.
       - variable: VSS_RT_CV_TAG
         condition:
           variable: HARDWARE_PROFILE
-          equals: "DGX-SPARK"
+          in: ["GB300", "DGX-SPARK"]
         allowed_patterns:
           - "*sbsa*"
-        error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
+        error_message: "When HARDWARE_PROFILE is GB300 or DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
       # SAMPLE_VIDEO_DATASET selects a directory under
       # <app>/calibration/sample-data/, and only matters when the sample videos
@@ -338,14 +314,14 @@ commons:
         disallowed_values: ["bp_wh_redis"]
         error_message: "STREAM_TYPE=kafka is not valid with BP_PROFILE=bp_wh_redis"
 
-      # When HARDWARE_PROFILE=DGX-SPARK, image tags must contain 'sbsa'
+      # SBSA hardware profiles require SBSA image tags.
       - variable: VSS_RT_CV_TAG
         condition:
           variable: HARDWARE_PROFILE
-          equals: "DGX-SPARK"
+          in: ["GB300", "DGX-SPARK"]
         allowed_patterns:
           - "*sbsa*"
-        error_message: "When HARDWARE_PROFILE is DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
+        error_message: "When HARDWARE_PROFILE is GB300 or DGX-SPARK, VSS_RT_CV_TAG must contain 'sbsa'"
 
       # SAMPLE_VIDEO_DATASET selects a directory under
       # <app>/calibration/sample-data/, and only matters when the sample videos
@@ -725,10 +701,11 @@ commons:
 # sets interval: "1", in which case the effective inference rate is 15 FPS.
 
 H100:
+  # H100 NVL and H100 80GB HBM3 share this profile. The 2D and 3D limits use
+  # the lower H100 NVL results.
   2d:
-    max_streams_supported: 77
+    max_streams_supported: 61
   3d:
-    # H100 NVL and H100 80GB HBM3 share this profile; use the lower NVL limit.
     max_streams_supported: 19
   mv3dt:
     max_streams_supported: 61

@@ -152,7 +152,7 @@ targets covered here:
 
 | `HARDWARE_PROFILE` | `2d` | `3d` |
 |---|---:|---:|
-| H100 | 77 | 19 |
+| H100 | 61 | 19 |
 | L40S | 28 | 9 |
 | GB300 | 161 | 71 |
 | RTXPRO6000BW | 52 | 21 |
