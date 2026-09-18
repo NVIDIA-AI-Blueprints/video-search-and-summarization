@@ -60,7 +60,7 @@ const EXTENSIONS: Record<string, string> = {
 };
 
 // Highlighting a large block costs more than it is worth, and re-running it on
-// every token during a stream is what makes the toolkit's chat stutter.
+// every token during a stream stutters the chat.
 const VERY_LARGE_CONTENT_THRESHOLD = 50_000;
 const CONTENT_STABLE_DELAY_MS = 500;
 

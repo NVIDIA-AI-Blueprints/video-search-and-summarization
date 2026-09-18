@@ -40,8 +40,8 @@ unset _ARCH
 
 # HARDWARE_PROFILE names each Thor board separately (IGX-THOR, AGX-THOR,
 # DGX-THOR, ...) but the DeepStream tuning below is identical across the
-# family. Match on the family the same way dev-profile.sh canonicalizes it
-# (case-insensitive *thor*) so a new board name needs no change here.
+# family. Use a case-insensitive *thor* match so a new board name needs no
+# change here.
 is_thor_profile() {
     local profile="${HARDWARE_PROFILE:-}"
     [[ "${profile,,}" == *thor* ]]

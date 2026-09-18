@@ -38,10 +38,9 @@ export interface ChatMessageProps {
 }
 
 /**
- * The toolkit rendered `public/nvidia.jpg` here, and the VSS app still ships
- * that asset, so the answer header looks unchanged. The initials block is the
- * error fallback rather than the default: a deployment that drops the image
- * should degrade to something legible, not to a broken-image glyph.
+ * The VSS app ships `public/nvidia.jpg` for the answer header. The initials
+ * block is the error fallback rather than the default: a deployment that drops
+ * the image should degrade to something legible, not to a broken-image glyph.
  */
 const BotAvatar: React.FC = () => {
   const [failed, setFailed] = useState(false);

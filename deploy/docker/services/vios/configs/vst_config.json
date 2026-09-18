@@ -178,6 +178,8 @@
 	{
 		"video_metadata_server": "elasticsearch:9200/mdx-raw*",
 		"video_metadata_query_batch_size_num_frames": 300,
+		"video_metadata_query_max_threads": 2,
+		"video_metadata_wait_timeout_ms": 1000,
 		"use_video_metadata_protobuf": true,
 		"enable_gem_drawing": true,
 		"analytic_server_address": "",

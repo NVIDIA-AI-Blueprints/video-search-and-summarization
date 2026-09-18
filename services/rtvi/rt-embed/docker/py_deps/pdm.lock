@@ -5,7 +5,7 @@
 groups = ["default", "amd64"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.1"
-content_hash = "sha256:1b76d3abdd1a6d859405f27a6eb3a68acb5113c74bffe4520cb556e3157d5f68"
+content_hash = "sha256:35da584a09370699b38c57dff596190b26994ea23f0ec26abbb975df7cfe6276"
 
 [[metadata.targets]]
 requires_python = "==3.12.*"
@@ -727,7 +727,7 @@ files = [
 
 [[package]]
 name = "hydra-core"
-version = "1.3.2"
+version = "1.3.4"
 summary = "A framework for elegantly configuring complex applications"
 groups = ["default"]
 dependencies = [
@@ -737,8 +737,8 @@ dependencies = [
     "packaging",
 ]
 files = [
-    {file = "hydra-core-1.3.2.tar.gz", hash = "sha256:8a878ed67216997c3e9d88a8e72e7b4767e81af37afb4ea3334b269a4390a824"},
-    {file = "hydra_core-1.3.2-py3-none-any.whl", hash = "sha256:fa0238a9e31df3373b35b0bfb672c34cc92718d21f81311d8996a16de1141d8b"},
+    {file = "hydra_core-1.3.4-py3-none-any.whl", hash = "sha256:e58683692904a09f1fdfffa1a9b86bfd94e215b59f1ee17e7cd7d92738090d33"},
+    {file = "hydra_core-1.3.4.tar.gz", hash = "sha256:ad0f7b05a0242255a8984d5a4ed2f6847f7b783ed727368a2c0155ec52d6c34c"},
 ]
 
 [[package]]
@@ -838,12 +838,12 @@ files = [
 
 [[package]]
 name = "kafka-python"
-version = "2.2.15"
+version = "2.3.2"
 summary = "Pure Python client for Apache Kafka"
 groups = ["default"]
 files = [
-    {file = "kafka_python-2.2.15-py2.py3-none-any.whl", hash = "sha256:84c0993cd4f7f2f01e92d8104ea9bdf631aff72fc5e6ea62eb3bdf1d56528fc3"},
-    {file = "kafka_python-2.2.15.tar.gz", hash = "sha256:e0f480a45f3814cb0eb705b8b4f61069e1be61dae0d8c69d0f1f2da33eea1bd5"},
+    {file = "kafka_python-2.3.2-py2.py3-none-any.whl", hash = "sha256:e8a5e6f2c4ce13a8041669337038d5125e0e09e6d6f0911902ae5939e5b9595e"},
+    {file = "kafka_python-2.3.2.tar.gz", hash = "sha256:2d2469bcabc2551be7eaf7fb512e1241484d358800f2665b90e7e24fea84259d"},
 ]
 
 [[package]]

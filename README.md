@@ -148,4 +148,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, branch nami
 
 
 ## License
-Refer to [LICENSE](LICENSE)
+
+This project's licensing is documented across the following files:
+
+- [`LICENSE`](LICENSE) — Apache-2.0 governs the repository overall (with file-level exceptions listed inside).
+- [`LICENSE-3rd-party.txt`](LICENSE-3rd-party.txt) — index of per-service third-party attribution files.
+- [`LICENSE.DATA`](LICENSE.DATA) — NVIDIA Asset License.
+- [`services/ui/LICENSE`](services/ui/LICENSE) — MIT for the original UI code (derived from upstream projects; see MIT appendix in root LICENSE).

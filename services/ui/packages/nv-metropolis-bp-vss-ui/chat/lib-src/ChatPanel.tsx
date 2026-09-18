@@ -18,8 +18,8 @@ import type {
 
 /**
  * Defaults chosen to match what the VSS deployment actually sets in
- * `deploy/docker/resolved.yml`, so an unconfigured embed behaves like the
- * toolkit chat bar it replaces rather than like a bare component.
+ * `deploy/docker/resolved.yml`, so an unconfigured embed matches the
+ * deployed chat rather than a bare component.
  */
 const DEFAULT_FEATURES: Required<ChatFeatureFlags> = {
   chatHistory: true,
@@ -270,7 +270,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   );
 
   // Hand conversation controls to the host so it can render them in its own
-  // sidebar, the way the toolkit's onControlsReady did.
+  // sidebar.
   //
   // Keyed on what the list actually displays — ids, names, selection, search,
   // busy — rather than on the conversation objects. Those change on every

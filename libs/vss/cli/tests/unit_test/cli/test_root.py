@@ -11,13 +11,17 @@ import vss_cli as cli
 
 def test_root_help_lists_registered_domains(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["--help"]) == 0
-    assert "search" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "search" in out
+    assert "analytics" in out
 
 
 def test_root_help_renders_declared_summary(capsys: pytest.CaptureFixture[str]) -> None:
     """The summary comes from the entry point, not from importing the group."""
     assert cli.main(["--help"]) == 0
-    assert "Search indexed video" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Search indexed video" in out
+    assert "Read incidents and video analytics metrics" in out
 
 
 def test_unknown_root_command_returns_usage_error(capsys: pytest.CaptureFixture[str]) -> None:

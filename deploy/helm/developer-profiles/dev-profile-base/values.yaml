@@ -590,4 +590,4 @@ rtvi:
       - name: VLM_TRUST_REMOTE_CODE
         value: "false"
       - name: VLM_VIDEO_PRUNING_RATE
-        value: "0.0"
+        value: ""

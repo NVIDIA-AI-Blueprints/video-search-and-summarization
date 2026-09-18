@@ -118,7 +118,12 @@ Offloading a model to a remote endpoint frees capacity on a shared GPU without c
 
 Single-GPU hosts are the exception. On GB300, DGX Spark and AGX Thor the profile collapses every local service onto the one GPU. The two edge boards go further and require both models to be remote, since their GPU is already carrying the perception pipeline.
 
-`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=search
@@ -1396,26 +1401,9 @@ MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 The Real-Time Video Intelligence CV microservice ([RTVI-CV](/vss/system-components/vision-microservices/object-detection-and-tracking#supported-models)) supports CLIP-style image (vision encoder) and text embedder models.
 `SigLIP2` is the default model deployed with the VSS search profile.
 
-To use a different model, for example, `RADIO-CLIP` set the environment `VISION_ENCODER_MODEL` and `VISION_ENCODER_VERSION` variables as follows:
-
-```bash
-VISION_ENCODER_MODEL=radio-clip
-VISION_ENCODER_VERSION=v1.0
-```
-
-- `VISION_ENCODER_MODEL` — Identifier for the vision encoder model used by RTVI-CV
-- `VISION_ENCODER_VERSION` — The release version on NGC catalog
-
 **Output Embedding Dimension**
 
-The object embeddings are stored in elasticsearch as vector embeddings. The dimension must be specified at the time of deployment.
-The output embedding model for `SigLIP2` is `1152`, while it's `1536` for `radio-clip`; can be changed using the environment variable `ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM`:
-
-```bash
-ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=1536
-```
-
-- `ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM` — Used by RTVI-CV for object embeddings (default: SigLIP v2, 1152). If you change the RTVI-CV model, set this to the new model's embedding dimension.
+The object embeddings are stored in elasticsearch as vector embeddings, using a fixed dimension of `1152` for `SigLIP2`.
 
 ## Known Issues
 

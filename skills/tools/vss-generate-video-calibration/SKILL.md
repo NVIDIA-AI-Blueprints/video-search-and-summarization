@@ -3,15 +3,18 @@ name: vss-generate-video-calibration
 description: Use this skill when running AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, or when deploying vss-auto-calibration. Do not use for non-AMC calibration or runtime analytics.
 license: Apache-2.0
 metadata:
+  author: "Harshal Nishar <hnishar@nvidia.com>"
   version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
 ---
-## Purpose
+## When to Use This Skill
 
 Run AutoMagicCalib end-to-end on local files, RTSP streams, or the bundled sample dataset and (when needed) deploy the AMC microservice.
 
-## Instructions
+Do not use for non-AMC camera calibration or runtime analytics.
+
+## Workflow
 
 Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`; load only the reference needed for the selected input mode.
 
@@ -75,7 +78,7 @@ AMC v3.3.0 cannot calibrate raw media. After the mode-specific workflow has uplo
 - **Already-linear/pinhole media** — call `POST /v1/linear_media/<project_id>` and require `rectification_state == "COMPLETED"`.
 - **Distorted media** — open AMC UI Step 4: Rectification; select Auto, Manual, or Videos Are Rectified; review the estimate; then click Generate Rectified Videos. Auto supports `simple_divisional` (default), `simple_radial`, and `radial`; Manual supports per-camera `model`, `k1`, and `k2` for `radial`. `READY_FOR_REVIEW` is not complete: require `rectification_state == "COMPLETED"` before continuing. Re-rectification invalidates verification, calibration, and post-processing outputs.
 
-For REST-only rectification, use the running AMC service contract exposed by `<MS_URL>/docs` (OpenAPI: `<MS_URL>/openapi.json`):
+For REST-only rectification, use the running AMC service contract exposed by `<MS_URL>/docs` (OpenAPI: `<MS_URL>/openapi.yaml`):
 
 1. **Auto** — `POST /v1/rectification/<project_id>` starts frame-0 estimation. Poll `GET /v1/rectification/<project_id>` until `READY_FOR_REVIEW`; then `GET /v1/rectification/<project_id>/cameras`, review every `auto_estimate`, and commit all camera parameters with `POST /v1/rectification/<project_id>/manual` using `{"cameras":{"cam_00":{"model":"...","k1":0.0,"k2":0.0},...}}`. This explicit commit generates full rectified videos.
 2. **Manual** — `POST /v1/rectification/<project_id>/manual/start`; optionally preview each adjustment through `POST /v1/rectification/<project_id>/preview/<camera_id>`; then commit a complete per-camera `cameras` map to `POST /v1/rectification/<project_id>/manual`.
@@ -182,7 +185,7 @@ After `COMPLETED`, always give the user a way to review the result for that exac
 
 ## Settings File + Detector Pattern
 
-Optional across all three modes. Before using a JSON settings file, retrieve `GET /v1/config/defaults` and inspect `<MS_URL>/openapi.json` (or `<MS_URL>/docs`) from the running AMC version. Parse the file, reject known-invalid legacy `skip` rather than silently translating it to `skip_frame`, then submit the JSON unchanged in meaning. Do not treat `/config/defaults` as a complete allow-list: the running API is the authoritative schema validator.
+Optional across all three modes. Before using a JSON settings file, retrieve `GET /v1/config/defaults` and inspect `<MS_URL>/openapi.yaml` (or `<MS_URL>/docs`) from the running AMC version. Parse the file, reject known-invalid legacy `skip` rather than silently translating it to `skip_frame`, then submit the JSON unchanged in meaning. Do not treat `/config/defaults` as a complete allow-list: the running API is the authoritative schema validator.
 
 ```
 POST /v1/config/<project_id>

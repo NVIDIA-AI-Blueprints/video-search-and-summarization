@@ -2500,23 +2500,53 @@ else
 fi
 
 # --- Brev: HAProxy + VSS_PUBLIC_HOST in generated.env (agent_ui uses HAPROXY_* / VSS_PUBLIC_HOST only; no BREV_* compose vars) ---
-# Brev resolves secure-link vars at generation time. Pin BREV_LINK_DOMAIN so this test is deterministic on hosts with NetBird/Skybridge configured.
-BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com run_dry_run_up_and_check_generated_env "generated.env Brev HAProxy + VSS_PUBLIC_HOST" "base" \
+# The secure-link hostname is read from Brev's environment context file and never
+# constructed from <port>-<env>.<domain>, so these tests point
+# BREV_ENVIRONMENT_CONTEXT_PATH at a fixture rather than pinning a domain.
+brev_ctx_fixture="$(mktemp)"
+cat > "${brev_ctx_fixture}" <<'JSON'
+{
+  "environment_id": "test-env",
+  "ports": [
+    {"destination_port": 7777, "public_port": 443, "fqdn": "7777-test-env.gobrev.dev"},
+    {"destination_port": 8080, "public_port": 8443, "fqdn": "ingress-test-env.brevlab.com"}
+  ]
+}
+JSON
+
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${brev_ctx_fixture}" run_dry_run_up_and_check_generated_env "generated.env Brev HAProxy + VSS_PUBLIC_HOST from environment-context.json" "base" \
  -i 127.0.0.1 -d -- \
   "HAPROXY_PORT" "7777" \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
-  "VSS_PUBLIC_HOST" "7777-test-env.brevlab.com" \
-  "VSS_PUBLIC_PORT" "443"
+  "VSS_PUBLIC_HOST" "7777-test-env.gobrev.dev" \
+  "VSS_PUBLIC_PORT" "443" \
+  "BREV_LINK_DOMAIN" "gobrev.dev"
 
-# Brev with custom PROXY_PORT in env: generated.env records the resolved proxy port and secure-link host.
-BREV_ENV_ID=test-env BREV_LINK_DOMAIN=brevlab.com PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT" "base" \
+# Brev with custom PROXY_PORT in env: generated.env records that proxy port and the
+# link published for it — hostname and public_port both, since the link's port is
+# not always 443 and is read rather than assumed.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${brev_ctx_fixture}" PROXY_PORT=8080 run_dry_run_up_and_check_generated_env "generated.env Brev with custom PROXY_PORT" "base" \
  -i 127.0.0.1 -d -- \
   "HAPROXY_PORT" "8080" \
   "VSS_PUBLIC_HTTP_PROTOCOL" "https" \
   "VSS_PUBLIC_WS_PROTOCOL" "wss" \
-  "VSS_PUBLIC_HOST" "8080-test-env.brevlab.com" \
+  "VSS_PUBLIC_HOST" "ingress-test-env.brevlab.com" \
+  "VSS_PUBLIC_PORT" "8443"
+
+# BREV_PUBLIC_HOST is the escape hatch for a host the context file does not carry,
+# and it wins over the file.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${brev_ctx_fixture}" BREV_PUBLIC_HOST=copied-from-console.gobrev.dev run_dry_run_up_and_check_generated_env "generated.env Brev BREV_PUBLIC_HOST override wins over context file" "base" \
+ -i 127.0.0.1 -d -- \
+  "VSS_PUBLIC_HOST" "copied-from-console.gobrev.dev" \
   "VSS_PUBLIC_PORT" "443"
+
+# No link published for the proxy port: stop with the reason rather than write a
+# guessed hostname, which HAProxy's known_host ACL would then 404 in the browser.
+BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${brev_ctx_fixture}" PROXY_PORT=9999 run_negative_test "Brev secure link missing for proxy port fails fast" 1 \
+  up -p base -i 127.0.0.1 -d
+
+rm -f "${brev_ctx_fixture}"
 
 # Non-Brev: profile HAProxy defaults (script does not inject https/wss or Brev host templates)
 run_dry_run_up_and_check_generated_env "generated.env no Brev HAProxy overrides when BREV_ENV_ID unset" "base" \

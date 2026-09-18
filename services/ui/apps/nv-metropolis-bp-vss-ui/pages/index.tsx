@@ -12,9 +12,6 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const { serverSideTranslations } = await import('next-i18next/pages/serverSideTranslations');
     const { fetchAlertsData, fetchSearchData, fetchDashboardData, fetchMapData, fetchVideoManagementData } = await import('@nv-metropolis-bp-vss-ui/all/server');
 
-    // Was getNemoAgentToolkitSSProps. Only `common` is requested now: the
-    // toolkit's other namespaces (chat, sidebar, markdown, promptbar,
-    // settings) described its own components and went with them.
     const i18nProps = await serverSideTranslations(context.locale ?? 'en', ['common']);
     
     // Fetch data for our new components in parallel for better performance

@@ -3,17 +3,16 @@
 /**
  * Conversation list logic, kept free of React so it can be unit tested.
  *
- * Export/import stay wire-compatible with the toolkit's v4 format
- * (`{version: 4, history, folders, prompts}`) so a file exported from the old
- * chat bar imports into this one. Folders and prompts are accepted and
- * round-tripped but not rendered — VSS never surfaced either.
+ * Export/import stay wire-compatible with the v4 format
+ * (`{version: 4, history, folders, prompts}`). Folders and prompts are accepted
+ * and round-tripped but not rendered — VSS never surfaced either.
  */
 import { createRandomId } from './id';
 import type { ChatMessage, Conversation } from './types';
 
 export const NEW_CONVERSATION_NAME = 'New Conversation';
 
-/** Export envelope, matching the toolkit's `ExportFormatV4`. */
+/** Export envelope (`ExportFormatV4`). */
 export interface ChatExportV4 {
   version: 4;
   history: Conversation[];
@@ -37,8 +36,7 @@ export function createConversation(name = NEW_CONVERSATION_NAME): Conversation {
 /**
  * Name a conversation after its first user message.
  *
- * The toolkit truncates at 30 characters; matched here so titles look the same
- * in a sidebar that may show both during the migration.
+ * Truncate at 30 characters so titles stay short in the sidebar.
  */
 export function titleFromMessage(content: string): string {
   const trimmed = content.trim();
@@ -96,8 +94,7 @@ const DANGEROUS_KEYS = ['__proto__', 'constructor', 'prototype'];
  * Recursively drop prototype-pollution keys.
  *
  * Imports are user-supplied JSON that we spread into React state; without this
- * a crafted file can reach `Object.prototype`. Ported from the toolkit's
- * `utils/security/import-validation.ts` rather than reinvented.
+ * a crafted file can reach `Object.prototype`.
  */
 function sanitizeObject(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
@@ -124,8 +121,8 @@ function normalizeMessages(messages: unknown[]): ChatMessage[] {
   return messages
     .filter((m): m is Record<string, unknown> => !!m && typeof m === 'object')
     .map((m) => ({
-      // Keep fields from older toolkit exports even when this UI does not
-      // render them. That makes an import/export migration non-destructive.
+      // Keep fields from older exports even when this UI does not
+      // render them. That makes an import/export round-trip non-destructive.
       ...m,
       id: typeof m.id === 'string' ? m.id : newId(),
       role:
@@ -155,7 +152,7 @@ function invalidImport(error: string): ImportResult {
   return { conversations: null, folders: [], prompts: [], error };
 }
 
-/** Merge the way the toolkit did: retain the first object with a given id. */
+/** Merge by retaining the first object with a given id. */
 function mergeById<T>(existing: T[], incoming: T[]): T[] {
   const seen = new Set<unknown>();
   let sawMissingId = false;
@@ -195,9 +192,8 @@ export function mergeExportAuxiliary(
 /**
  * Parse an exported file back into conversations.
  *
- * Accepts every format the toolkit accepted (v1 bare array through v4) so old
- * exports still load, and returns a message rather than throwing so the caller
- * can toast it.
+ * Accepts v1 (bare array) through v4 so old exports still load, and returns a
+ * message rather than throwing so the caller can toast it.
  */
 export function parseImport(rawJson: string): ImportResult {
   if (!rawJson || typeof rawJson !== 'string') {
@@ -269,8 +265,8 @@ export function parseImport(rawJson: string): ImportResult {
   }
 
   const conversations = history.filter(isConversationLike).map((c) => ({
-    // Preserve unrendered, sanitized toolkit fields (for example folderId)
-    // so migration through this UI is lossless.
+    // Preserve unrendered, sanitized fields (for example folderId)
+    // so a round-trip import/export is lossless.
     ...c,
     id: String(c.id),
     name: c.name,
