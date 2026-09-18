@@ -3,7 +3,7 @@
   "version": "3.3-dev",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build --webpack",
     "bundle": "cp -r .next/static .next/standalone/apps/nv-metropolis-bp-vss-ui/.next/ && cp -r public .next/standalone/apps/nv-metropolis-bp-vss-ui/ && cp next-i18next.config.js .next/standalone/apps/nv-metropolis-bp-vss-ui/",
     "start": "node .next/standalone/apps/nv-metropolis-bp-vss-ui/server.js",
