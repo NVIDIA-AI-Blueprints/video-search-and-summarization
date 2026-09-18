@@ -44,15 +44,16 @@ def client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def _clear_version_env(monkeypatch) -> None:
-    """Start every test from a deployment that configures no version at all.
+    """Start every test from a deployment that resolves no version at all.
 
-    The git-tag fallback is neutralised too: these tests are about what the
-    endpoint does with its environment, and the test process runs inside a
-    checkout that ``git describe`` would happily answer for. The fallback has
-    its own tests below, and :mod:`vss_core.version` covers the derivation.
+    The installed-library and git-tag sources are neutralised too: these tests
+    are about what the endpoint does with what it is given, and the test
+    process both imports an installed ``nvidia-vss-core`` and sits inside a
+    checkout that ``git describe`` would happily answer for. Each source has
+    its own tests below, and :mod:`vss_core.version` covers the derivations.
     """
     monkeypatch.delenv("VSS_DEPLOYMENT_VERSION", raising=False)
-    monkeypatch.delenv("VSS_AGENT_VERSION", raising=False)
+    monkeypatch.setattr(vss_core.version, "library_version", lambda: None)
     monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: None)
 
 
@@ -78,11 +79,25 @@ def test_version_endpoint_rejects_invalid_semver(client: TestClient, monkeypatch
 
 
 def test_version_endpoint_503s_when_nothing_can_be_resolved(client: TestClient) -> None:
-    """No deployment environment and no git tags to fall back on: a container."""
+    """No override, no install metadata and no git tags: nothing to answer with."""
     response = client.get("/api/v1/version")
 
     assert response.status_code == 503
     assert response.json() == {"detail": _UNAVAILABLE_DETAIL}
+
+
+def test_unconfigured_deployment_reports_the_library_version(client: TestClient, monkeypatch) -> None:
+    """Nothing sets the override any more, so this is the ordinary path.
+
+    A deployment reports the version of the VSS library it imported, which the
+    build stamps with the release line and the source tree that produced it.
+    """
+    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0+tree.c85c4a4e8")
+
+    response = client.get("/api/v1/version")
+
+    assert response.status_code == 200
+    assert response.json() == {"service": "vss", "version": "3.3.0+tree.c85c4a4e8"}
 
 
 def test_unconfigured_checkout_reports_its_derived_version(client: TestClient, monkeypatch) -> None:
@@ -99,39 +114,19 @@ def test_unconfigured_checkout_reports_its_derived_version(client: TestClient, m
     assert response.json() == {"service": "vss", "version": "3.2.1-dev.1519+gc85c4a4e8"}
 
 
-def test_configured_version_outranks_the_derived_one(client: TestClient, monkeypatch) -> None:
-    """A deployment's own statement wins: its image need not match this checkout."""
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "3.3.0")
-    monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: "3.2.1-dev.1519+gc85c4a4e8")
-
-    response = client.get("/api/v1/version")
-
-    assert response.json() == {"service": "vss", "version": "3.3.0"}
-
-
-def test_dedicated_variable_wins_over_legacy(client: TestClient, monkeypatch) -> None:
+def test_override_outranks_the_library_version(client: TestClient, monkeypatch) -> None:
+    """The override exists to correct a wrong stamp, so it has to outrank it."""
     monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "3.4.0")
-    monkeypatch.setenv("VSS_AGENT_VERSION", "3.3.0")
+    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0+tree.c85c4a4e8")
 
     response = client.get("/api/v1/version")
 
-    assert response.status_code == 200
     assert response.json() == {"service": "vss", "version": "3.4.0"}
 
 
-def test_legacy_variable_is_used_when_dedicated_one_is_unset(client: TestClient, monkeypatch) -> None:
-    """Helm and bare ``nat serve`` deployments that only set VSS_AGENT_VERSION keep working."""
-    monkeypatch.setenv("VSS_AGENT_VERSION", "3.3.0-65576357eb80")
-
-    response = client.get("/api/v1/version")
-
-    assert response.status_code == 200
-    assert response.json() == {"service": "vss", "version": "3.3.0-65576357eb80"}
-
-
-def test_empty_dedicated_variable_falls_through_to_legacy(client: TestClient, monkeypatch) -> None:
+def test_empty_override_falls_through_to_the_library_version(client: TestClient, monkeypatch) -> None:
     monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "  ")
-    monkeypatch.setenv("VSS_AGENT_VERSION", "3.3.0")
+    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0")
 
     response = client.get("/api/v1/version")
 
@@ -139,30 +134,15 @@ def test_empty_dedicated_variable_falls_through_to_legacy(client: TestClient, mo
     assert response.json() == {"service": "vss", "version": "3.3.0"}
 
 
-def test_invalid_dedicated_variable_does_not_fall_through_to_legacy(client: TestClient, monkeypatch) -> None:
-    """A set-but-wrong value is reported as a problem, not masked by the fallback."""
+def test_invalid_override_does_not_fall_through(client: TestClient, monkeypatch) -> None:
+    """A set-but-wrong override is reported as a problem, not masked by the stamp."""
     monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "develop-latest")
-    monkeypatch.setenv("VSS_AGENT_VERSION", "3.3.0")
+    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0")
 
     response = client.get("/api/v1/version")
 
     assert response.status_code == 503
     assert response.json() == {"detail": _UNAVAILABLE_DETAIL}
-
-
-def test_legacy_variable_carrying_an_image_tag_503s(client: TestClient, monkeypatch) -> None:
-    """VSS_AGENT_VERSION also drives image-tag resolution, so it often holds a tag.
-
-    A set-but-unusable variable does not reach the git fallback either: the
-    deployment stated a version and the statement is wrong, which is worth
-    surfacing rather than papering over with the checkout's version.
-    """
-    monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: "3.2.1-dev.1519+gc85c4a4e8")
-    monkeypatch.setenv("VSS_AGENT_VERSION", "develop-8f4eb94707ba")
-
-    response = client.get("/api/v1/version")
-
-    assert response.status_code == 503
 
 
 def _load_checker_script() -> ModuleType:

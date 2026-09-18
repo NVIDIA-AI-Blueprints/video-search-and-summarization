@@ -61,11 +61,33 @@ jobs:
       native-matrix: ${{ steps.detect.outputs.native_matrix }}
       native-platform-matrix: ${{ steps.detect.outputs.native_platform_matrix }}
       native-count: ${{ steps.detect.outputs.native_count }}
+      release-line: ${{ steps.release.outputs.line }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      # The agent chart's top-level `version:` is the repository's one declared
+      # release line -- Helm reads that exact field -- and it is now baked into
+      # the built packages, so it is what GET /api/v1/version reports. Read once
+      # here rather than per build job: it is a property of the commit, not of a
+      # matrix entry. An unreadable or malformed value must stop the run: an
+      # empty string would publish an immutable image claiming no release, and
+      # a chart version already carrying `+build` metadata would collide with
+      # the `+tree.<sha>` segment the build jobs append.
+      - name: Read the declared release line
+        id: release
+        run: |
+          set -euo pipefail
+          chart=deploy/helm/services/agent/Chart.yaml
+          line="$(grep -m1 -E '^version:' "$chart" | cut -d: -f2- | tr -d "\"' \r")"
+          if ! printf '%s' "$line" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error file=${chart}::no usable top-level 'version:' (read '${line}')"
+            exit 1
+          fi
+          echo "release line: ${line}"
+          echo "line=${line}" >> "$GITHUB_OUTPUT"
 
       # detect_changed_images.py owns the range semantics (event.before for
       # develop pushes, merge-base for PR branches, build-everything on
@@ -219,15 +241,16 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
-          # VSS_SOURCE_TREE_SHA stamps the built packages with the source tree
-          # they came from, so metadata inside an image is provenance rather
-          # than a made-up version. Passed to every build and consumed by the
-          # Dockerfiles that declare the ARG; the rest ignore it. Tree-derived
-          # on purpose: the re-tag path above reuses a manifest across commits
-          # with an identical tree, and a commit-derived stamp would go stale.
+          # VSS_PACKAGE_VERSION stamps the built packages, and for the agent
+          # that is the version GET /api/v1/version reports -- the declared
+          # release line plus the source tree the image was built from. Passed
+          # to every build and consumed by the Dockerfiles that declare the
+          # ARG; the rest ignore it. Tree-derived on purpose: the re-tag path
+          # above reuses a manifest across commits with an identical tree, so
+          # a commit-derived stamp would go stale while this one stays true.
           build-args: |
             ${{ matrix.build_args }}
-            VSS_SOURCE_TREE_SHA=${{ steps.meta.outputs.tree_sha }}
+            VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
           push: true
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
@@ -473,7 +496,7 @@ jobs:
           # See the standard build above.
           build-args: |
             ${{ matrix.build_args }}
-            VSS_SOURCE_TREE_SHA=${{ steps.meta.outputs.tree_sha }}
+            VSS_PACKAGE_VERSION=${{ needs.changes.outputs.release-line }}+tree.${{ steps.meta.outputs.tree_sha }}
           push: true
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}

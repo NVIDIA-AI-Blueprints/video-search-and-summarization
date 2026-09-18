@@ -16,18 +16,10 @@ INDUSTRY_AGENT_CONFIGS = (
     ROOT / "deploy/docker/industry-profiles/smartcities/vss-agent/configs/config.yml",
 )
 
-# Compose has no equivalent of Helm's `.Chart.Version`, so the version a stock
-# Compose deployment reports from GET /api/v1/version is written out by hand in
-# two places. Helm derives it, so only Compose can drift; this keeps the
-# hand-written pair pinned to the chart the Helm path uses.
+# The chart's top-level `version:` is the one declared release line: Helm reads
+# it, and build-dev-images.yml bakes it into every image as the version
+# GET /api/v1/version reports.
 AGENT_CHART = ROOT / "deploy/helm/services/agent/Chart.yaml"
-COMPOSE_VERSION_DEFAULTS = (
-    (ROOT / "deploy/docker/containers.env", 'VSS_DEPLOYMENT_VERSION="${VSS_DEPLOYMENT_VERSION:-%s}"'),
-    (
-        ROOT / "deploy/docker/services/agent/compose.yml",
-        "VSS_DEPLOYMENT_VERSION: ${VSS_DEPLOYMENT_VERSION:-%s}",
-    ),
-)
 # vss_core.version.SEMVER_PATTERN, the contract the endpoint enforces. Spelled
 # out because these script tests run on a bare python3 with no VSS installed.
 SEMVER = re.compile(
@@ -54,21 +46,10 @@ class AgentConfigDefaultsTest(unittest.TestCase):
                 self.assertNotIn("agent_version: ${VSS_AGENT_VERSION}", lines)
 
 
-class ComposeReportedVersionTest(unittest.TestCase):
-    def test_compose_default_tracks_the_agent_chart_version(self) -> None:
-        expected = chart_version()
-        for path, template in COMPOSE_VERSION_DEFAULTS:
-            with self.subTest(path=path):
-                self.assertIn(
-                    template % expected,
-                    path.read_text(),
-                    f"{path} must default VSS_DEPLOYMENT_VERSION to the agent chart version "
-                    f"({expected}, from {AGENT_CHART.relative_to(ROOT)}), or a stock Compose "
-                    "deployment reports a version it is not running.",
-                )
-
+class ChartVersionTest(unittest.TestCase):
     def test_chart_version_is_strict_semver(self) -> None:
-        """Whatever the chart says ends up served, so it has to satisfy the contract."""
+        """Whatever the chart says is baked into every image and served, so it
+        has to satisfy the contract."""
         self.assertRegex(chart_version(), SEMVER)
 
 

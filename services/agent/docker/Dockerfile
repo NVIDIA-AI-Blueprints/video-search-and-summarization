@@ -32,25 +32,23 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # below name individual paths and never .git, so there is no history to derive
 # one from and the install fails without it.
 #
-# `0.0.0` states plainly that this image claims no release -- the previous
-# `0.1.0`/`0.1.1` looked like one, and `importlib.metadata` inside the
-# container reported it as fact. The local segment names the source tree the
-# image was built from: the same value carried by the
-# com.nvidia.vss.source_tree_sha label and keyed on by the content-addressed
-# re-tagging in build-dev-images.yml. Deriving it from the tree rather than the
-# commit is what keeps that reuse honest -- two commits with an identical tree
-# bake an identical version, so a re-tagged image cannot report the commit it
-# was first built from.
+# What lands here is <release line>+tree.<source tree sha>: the release line
+# declared by deploy/helm/services/agent/Chart.yaml, and the git tree hash of
+# the image's source folder, composed by build-dev-images.yml. This is not
+# provenance metadata any more -- GET /api/v1/version reports the installed
+# nvidia-vss-core version, so this string is what a deployment tells the world
+# it is running, and it has to satisfy both PEP 440 and strict SemVer.
 #
-# This is image provenance, not the version a deployment reports: that comes
-# from VSS_DEPLOYMENT_VERSION or the checkout's tags (vss_core.version).
+# The local segment must stay TREE-derived, never commit-derived:
+# build-dev-images.yml re-tags an already-published manifest onto a later
+# commit whose source tree is identical, so a commit-derived stamp would be
+# stale the moment that reuse happens, while a tree-derived one stays true.
 #
-# The per-distribution override that used to sit here,
-# SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VSS_AGENT, named a distribution called
-# `vss-agent`, which this repo does not build -- the packages are nvidia-vss,
-# nvidia-vss-agents, nvidia-vss-core and nvidia-vss-cli. It set nothing.
-ARG VSS_SOURCE_TREE_SHA=unknown
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0+tree.${VSS_SOURCE_TREE_SHA}
+# The default is for local `docker build` only. It keeps a `0.0.0` release so
+# it cannot be mistaken for a shipped build and cannot satisfy any skill's
+# version range, and says `local` rather than naming a tree it did not verify.
+ARG VSS_PACKAGE_VERSION=0.0.0+local
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${VSS_PACKAGE_VERSION}
 ENV GIT_LFS_SKIP_SMUDGE=1
 
 WORKDIR /src/services/agent
