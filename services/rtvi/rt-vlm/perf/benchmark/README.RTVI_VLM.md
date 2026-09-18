@@ -24,7 +24,7 @@ and `VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true` unless those keys are explicitly
 exported in the shell for a non-standard experiment.
 
 ```bash
-export ARTIFACTORY_USER=<your-username>  # required when benchmark videos must download
+export ARTIFACTORY_USER=<your-username>  # required when VST must download
 export ARTIFACTORY_TOKEN=<your-api-token>
 
 # Optional overrides (defaults shown):
@@ -41,8 +41,8 @@ bash perf/setup_perf_env.sh
 
 If `perf/vst_package.tar.gz` exists, the setup script uses that checked-in
 package instead of downloading VST from Artifactory. Set `VST_LOCAL_PACKAGE` to
-point at a different local tarball. Artifactory credentials are required when
-any benchmark video is missing from `PERF_VIDEOS_DIR`.
+point at a different local tarball. Artifactory credentials are only required
+when the VST package must be downloaded.
 
 By default, the setup script patches the extracted VST package to use
 `nvcr.io/rxczgrvsg8nx/vst-dev` images tagged `2.1.0-26.04.1` for
@@ -217,24 +217,23 @@ cd <repo-root>
 Use `perf/benchmark/rtvi_vlm_bcd_3_2_config.yaml` for VSS 3.2 BCD runs. This
 profile uses 640x640 model input and fixed frame-count sweeps of 10, 20, and 40
 frames per 10 second chunk for approximately 2K, 4K, and 8K vision tokens.
-For BCD 3 non-streaming throughput and latency, setup downloads the BCD 10 FPS
-clips from `${VIDEOS_URL}` in Artifactory:
+For BCD 3 non-streaming throughput and latency, setup fetches the public LVS
+warehouse source from NGC and derives the required 1080p, 10 FPS clips:
 
 ```bash
 bash perf/setup_perf_env.sh
 ```
 
-Setup downloads all three 10 s clips (`FPS10_Res1080p_Dur10sec_1.mp4`,
-`FPS10_Res1080p_Dur10sec_2.mp4`, `FPS10_Res1080p_Dur10sec_3.mp4`) plus
-`warehouse_gopro_10m_10fps.mp4` and `warehouse_gopro_60m_10fps.mp4`. The BCD
-3.2 config uses `FPS10_Res1080p_Dur10sec_1.mp4` for 10 s scenarios and the
-uploaded 10 FPS long warehouse clips for latency scenarios. The older
+Setup reuses the LVS `fetch-videos.sh` script and converts its
+`warehouse_10min.mp4` source into `FPS10_Res1080p_Dur10sec_1.mp4`,
+`warehouse_gopro_10m_10fps.mp4`, and `warehouse_gopro_60m_10fps.mp4`; the
+one-hour clip loops the source. The older
 `warehouse_gopro_10s.mp4`, `warehouse_gopro_10m.mp4`, and
 `warehouse_gopro_60m.mp4` assets are legacy 29.97 FPS clips and should not be
 used for BCD 3 10 FPS results.
 
-If same-named local files already exist and should be replaced by the uploaded
-Artifactory copies, run setup with:
+If same-named local files already exist and should be regenerated, run setup
+with:
 
 ```bash
 REFRESH_BCD_VIDEOS=true bash perf/setup_perf_env.sh

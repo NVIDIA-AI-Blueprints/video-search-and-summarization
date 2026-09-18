@@ -23,7 +23,7 @@
 #   3. Detects platform and starts sys_cache_cleaner (DGX Spark / Jetson Thor only)
 #   4. Downloads and extracts the VST package from Artifactory
 #   5. Patches VST image tags and makes Redis port configurable via $REDIS_PORT
-#   6. Downloads benchmark test videos
+#   6. Fetches the LVS warehouse video and derives benchmark test videos
 #   7. Detects the host IP for RTSP stream URLs
 #   8. Starts nvstreamer, waits for health at http://localhost:${NVSTREAMER_HTTP_PORT}, then starts VST
 #   9. Polls VST sensor streams API until live streams with /live/ paths appear
@@ -33,8 +33,8 @@
 #  12. Generates .env.perf from env vars and starts RTVI VLM via compose.perf.yaml
 #
 # Required environment variables:
-#   ARTIFACTORY_USER    — Artifactory username (required for benchmark video downloads)
-#   ARTIFACTORY_TOKEN   — Artifactory API token / password (required for benchmark video downloads)
+#   ARTIFACTORY_USER    — Artifactory username (required when VST must be downloaded)
+#   ARTIFACTORY_TOKEN   — Artifactory API token / password (required when VST must be downloaded)
 #   NGC_API_KEY         — NGC API key for model download (nvapi-...)
 #   NVIDIA_VISIBLE_DEVICES — GPU index(es) to expose to the RTVI container and DCGM exporter
 #                            e.g. export NVIDIA_VISIBLE_DEVICES=0
@@ -60,12 +60,13 @@
 #   VST_SENSOR_IMAGE    — Full image override for sensor-ms
 #   VST_INGRESS_IMAGE   — Full image override for ingress/nginx
 #   VST_NVSTREAMER_IMAGE — Full image override for nvstreamer
-#   VIDEOS_URL          — Base URL for benchmark video downloads
 #   BCD_10S_VIDEO_SOURCE_PATH — Optional local override for the canonical 10 s clip
-#   BCD_10S_VIDEO_FILENAME — Canonical Artifactory 10 s / 10 FPS clip filename
-#   BCD_10M_VIDEO_FILENAME — Artifactory 10 min / 10 FPS warehouse clip filename
-#   BCD_60M_VIDEO_FILENAME — Artifactory 60 min / 10 FPS warehouse clip filename
-#   REFRESH_BCD_VIDEOS — Force re-download of Artifactory BCD 10 FPS clips
+#   BCD_10S_VIDEO_FILENAME — Canonical 10 s / 10 FPS clip filename
+#   BCD_10M_VIDEO_FILENAME — Canonical 10 min / 10 FPS warehouse clip filename
+#   BCD_60M_VIDEO_FILENAME — Canonical 60 min / 10 FPS warehouse clip filename
+#   LVS_VIDEO_VERSION  — NGC VSS warehouse asset version used as the source
+#   LVS_VIDEO_DATA_DIR — Local cache for the LVS warehouse source videos
+#   REFRESH_BCD_VIDEOS — Force re-fetch and regeneration of BCD 10 FPS clips
 #   VST_DIR             — Local directory to extract VST package into
 #   VENV_DIR            — Python virtual environment directory
 #   REDIS_PORT          — Redis port (default: 6379); change if 6379 is in use
@@ -94,8 +95,8 @@ Runs 12 steps: VST download → nvstreamer → VST → test videos → .env.perf
 generation → RTVI VLM startup → Python venv → RTSP URL injection.
 
 Required environment variables (must be exported before running):
-  ARTIFACTORY_USER      Artifactory username (required for benchmark video downloads)
-  ARTIFACTORY_TOKEN     Artifactory API token / password (required for benchmark video downloads)
+  ARTIFACTORY_USER      Artifactory username (required when VST must be downloaded)
+  ARTIFACTORY_TOKEN     Artifactory API token / password (required when VST must be downloaded)
   NGC_API_KEY           NGC API key for model download (nvapi-...)
   NVIDIA_VISIBLE_DEVICES  GPU index(es) for RTVI container + DCGM exporter
                           Can be set inline: NVIDIA_VISIBLE_DEVICES=3 bash perf/setup_perf_env.sh
@@ -136,21 +137,24 @@ Optional environment variables (sensible defaults shown):
   VST_SENSOR_IMAGE      Full sensor-ms image override
   VST_INGRESS_IMAGE     Full ingress image override
   VST_NVSTREAMER_IMAGE  Full nvstreamer image override
-  VIDEOS_URL            Base URL for benchmark video downloads
   BCD_10S_VIDEO_SOURCE_PATH
                         Optional local path to a 10 s, 10 FPS BCD clip.
                         When set, setup copies it to PERF_VIDEOS_DIR under
                         BCD_10S_VIDEO_FILENAME.
   BCD_10S_VIDEO_FILENAME
-                        Canonical Artifactory BCD 10 s clip filename
+                        Canonical BCD 10 s clip filename
                         (default: FPS10_Res1080p_Dur10sec_1.mp4)
   BCD_10M_VIDEO_FILENAME
-                        Artifactory 10 min / 10 FPS warehouse clip
+                        Canonical 10 min / 10 FPS warehouse clip
                         (default: warehouse_gopro_10m_10fps.mp4)
   BCD_60M_VIDEO_FILENAME
-                        Artifactory 60 min / 10 FPS warehouse clip
+                        Canonical 60 min / 10 FPS warehouse clip
                         (default: warehouse_gopro_60m_10fps.mp4)
-  REFRESH_BCD_VIDEOS    Force re-download of Artifactory BCD 10 FPS clips
+  LVS_VIDEO_VERSION     NGC VSS warehouse asset version
+                        (default: v3.3.0-09152026)
+  LVS_VIDEO_DATA_DIR    Local cache for LVS warehouse source videos
+                        (default: \$VST_DIR/lvs-benchmark-data)
+  REFRESH_BCD_VIDEOS    Force re-fetch and regeneration of BCD 10 FPS clips
                         even when same-named local files exist (default: false)
   VST_DIR               Local directory for VST package    (default: ~/rtvi-perf/vst_package)
   VST_COMPOSE_PROJECT         Docker Compose project name for VST and nvstreamer containers
@@ -330,8 +334,10 @@ BCD_10S_VIDEO_SOURCE_PATH="${BCD_10S_VIDEO_SOURCE_PATH:-}"
 BCD_10S_VIDEO_FILENAME="${BCD_10S_VIDEO_FILENAME:-FPS10_Res1080p_Dur10sec_1.mp4}"
 BCD_10M_VIDEO_FILENAME="${BCD_10M_VIDEO_FILENAME:-warehouse_gopro_10m_10fps.mp4}"
 BCD_60M_VIDEO_FILENAME="${BCD_60M_VIDEO_FILENAME:-warehouse_gopro_60m_10fps.mp4}"
+LVS_VIDEO_VERSION="${LVS_VIDEO_VERSION:-v3.3.0-09152026}"
 REFRESH_BCD_VIDEOS="${REFRESH_BCD_VIDEOS:-false}"
 VST_DIR="${VST_DIR:-${HOME}/rtvi-perf/vst_package}"
+LVS_VIDEO_DATA_DIR="${LVS_VIDEO_DATA_DIR:-${VST_DIR}/lvs-benchmark-data}"
 # Project name passed to docker compose for both VST and nvstreamer containers.
 # Prefixes all container names (e.g. rtvi-perf-vst-redis-server-1) so they don't
 # conflict with other VST deployments on the same host.
@@ -361,16 +367,8 @@ BENCHMARK_VIDEOS=(
     "warehouse_gopro_10m.mp4"
     "warehouse_gopro_60m.mp4"
 )
-BCD_10S_VIDEO_FILENAMES=(
-    "${BCD_10S_VIDEO_FILENAME}"
-    "FPS10_Res1080p_Dur10sec_2.mp4"
-    "FPS10_Res1080p_Dur10sec_3.mp4"
-)
-BCD_BENCHMARK_VIDEOS=(
-    "${BCD_10S_VIDEO_FILENAMES[@]}"
-    "${BCD_10M_VIDEO_FILENAME}"
-    "${BCD_60M_VIDEO_FILENAME}"
-)
+LVS_VIDEO_FETCH_SCRIPT="${SCRIPT_DIR}/../../../../skills/benchmarking/benchmark-video-summarization/scripts/fetch-videos.sh"
+LVS_VIDEO_SOURCE_PATH="${LVS_VIDEO_DATA_DIR}/videos/warehouse_10min.mp4"
 
 BENCHMARK_DIR="${SCRIPT_DIR}/benchmark"
 BENCHMARK_CONFIG="${BENCHMARK_DIR}/rtvi_vlm_config_test.yaml"
@@ -586,6 +584,23 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not found. Please install it."
 }
 
+validate_bcd_video() {
+    local video="$1"
+    local expected_duration="$2"
+    local resolution fps actual_duration
+
+    [[ -s "${video}" ]] || return 1
+    resolution="$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "${video}")" \
+        || return 1
+    fps="$(ffprobe -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of default=nw=1:nk=1 "${video}")" \
+        || return 1
+    actual_duration="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "${video}")" \
+        || return 1
+    [[ "${resolution}" == "1920x1080" && "${fps}" == "10/1" ]] \
+        && awk -v actual="${actual_duration}" -v expected="${expected_duration}" \
+            'BEGIN { exit !(actual >= expected - 0.1 && actual <= expected + 0.1) }'
+}
+
 # Returns 0 (true) if the given TCP port is already bound on the host.
 port_in_use() {
     ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE ":${1}$"
@@ -659,27 +674,6 @@ _needs_artifactory=false
 if [[ ! -f "${VST_LOCAL_PACKAGE}" && ! -f "${VST_DIR}/vst_package.tar.gz" ]]; then
     _needs_artifactory=true
 fi
-if [[ "${REFRESH_BCD_VIDEOS}" == "true" ]]; then
-    _needs_artifactory=true
-fi
-for _video in "${BENCHMARK_VIDEOS[@]}"; do
-    if [[ ! -f "${PERF_VIDEOS_DIR}/${_video}" ]]; then
-        _needs_artifactory=true
-        break
-    fi
-done
-if [[ "${_needs_artifactory}" != "true" ]]; then
-    for _video in "${BCD_BENCHMARK_VIDEOS[@]}"; do
-        if [[ -n "${BCD_10S_VIDEO_SOURCE_PATH}" \
-              && " ${BCD_10S_VIDEO_FILENAMES[*]} " == *" ${_video} "* ]]; then
-            continue
-        fi
-        if [[ ! -f "${PERF_VIDEOS_DIR}/${_video}" ]]; then
-            _needs_artifactory=true
-            break
-        fi
-    done
-fi
 if [[ "${_needs_artifactory}" == "true" ]]; then
     [[ -n "${ARTIFACTORY_USER}" ]]      || _missing+=("ARTIFACTORY_USER")
     [[ -n "${ARTIFACTORY_TOKEN}" ]]     || _missing+=("ARTIFACTORY_TOKEN")
@@ -737,6 +731,23 @@ require_cmd jq
 require_cmd tar
 require_cmd python3
 require_cmd sed
+require_cmd ffprobe
+_needs_lvs_generation="${REFRESH_BCD_VIDEOS}"
+if [[ -z "${BCD_10S_VIDEO_SOURCE_PATH}" ]] \
+    && ! validate_bcd_video "${PERF_VIDEOS_DIR}/${BCD_10S_VIDEO_FILENAME}" 10; then
+    _needs_lvs_generation=true
+fi
+validate_bcd_video "${PERF_VIDEOS_DIR}/${BCD_10M_VIDEO_FILENAME}" 600 \
+    || _needs_lvs_generation=true
+validate_bcd_video "${PERF_VIDEOS_DIR}/${BCD_60M_VIDEO_FILENAME}" 3600 \
+    || _needs_lvs_generation=true
+if [[ "${_needs_lvs_generation}" == "true" ]]; then
+    require_cmd ffmpeg
+    if [[ ! -f "${LVS_VIDEO_SOURCE_PATH}" || "${REFRESH_BCD_VIDEOS}" == "true" ]]; then
+        require_cmd ngc
+    fi
+    [[ -f "${LVS_VIDEO_FETCH_SCRIPT}" ]] || die "LVS video fetch script not found: ${LVS_VIDEO_FETCH_SCRIPT}"
+fi
 
 # Check that the current user can run docker without sudo.
 # Running docker commands as root (via sudo) causes containers and volumes to be
@@ -1367,9 +1378,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: Download benchmark test videos
+# Step 6: Prepare benchmark test videos
 # ---------------------------------------------------------------------------
-log "Step 6/12: Downloading benchmark test videos..."
+log "Step 6/12: Preparing benchmark test videos..."
 # Videos are stored in PERF_VIDEOS_DIR (default: ${VST_DIR}/videos).
 # nvstreamer (VST) reads from this directory for RTSP streaming.
 # compose.perf.yaml mounts it into the RTVI container at
@@ -1413,21 +1424,73 @@ download_video() {
 }
 
 for video in "${BENCHMARK_VIDEOS[@]}"; do
-    download_video "${video}" false
+    if [[ -n "${ARTIFACTORY_USER}" && -n "${ARTIFACTORY_TOKEN}" ]]; then
+        download_video "${video}" false
+    elif [[ ! -f "${PERF_VIDEOS_DIR}/${video}" ]]; then
+        log "  Skipping optional legacy video ${video} (Artifactory credentials not set)."
+    fi
 done
+
+if [[ "${_needs_lvs_generation}" == "true" \
+      && ( ! -f "${LVS_VIDEO_SOURCE_PATH}" || "${REFRESH_BCD_VIDEOS}" == "true" ) ]]; then
+    log "  Fetching LVS warehouse videos from NGC..."
+    FORCE="$([[ "${REFRESH_BCD_VIDEOS}" == "true" ]] && echo 1 || echo 0)" \
+        VSS_BENCHMARK_DATA_DIR="${LVS_VIDEO_DATA_DIR}" \
+        bash "${LVS_VIDEO_FETCH_SCRIPT}" "${LVS_VIDEO_VERSION}"
+fi
+
+generate_bcd_video() {
+    local duration="$1"
+    local filename="$2"
+    local dest="${PERF_VIDEOS_DIR}/${filename}"
+    local tmp="${dest}.tmp.mp4"
+
+    if [[ "${REFRESH_BCD_VIDEOS}" != "true" ]] \
+        && validate_bcd_video "${dest}" "${duration}"; then
+        log "  ${filename} already present, skipping."
+        return
+    fi
+    [[ ! -e "${dest}" ]] || warn "  ${filename} is invalid; regenerating it."
+
+    log "  Generating ${filename} (${duration} s, 1080p, 10 FPS)..."
+    rm -f "${tmp}"
+    if ! ffmpeg -hide_banner -loglevel error -y -stream_loop -1 \
+        -i "${LVS_VIDEO_SOURCE_PATH}" -map 0:v:0 -an -sn -dn -t "${duration}" \
+        -vf fps=10 -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p \
+        -movflags +faststart -map_metadata -1 "${tmp}"; then
+        rm -f "${tmp}"
+        die "Failed to generate ${filename} from ${LVS_VIDEO_SOURCE_PATH}"
+    fi
+
+    if ! validate_bcd_video "${tmp}" "${duration}"; then
+        rm -f "${tmp}"
+        die "Generated ${filename} failed 1080p/10 FPS/${duration} s validation"
+    fi
+    mv -f "${tmp}" "${dest}"
+}
 
 _bcd_10s_dest="${PERF_VIDEOS_DIR}/${BCD_10S_VIDEO_FILENAME}"
 if [[ -n "${BCD_10S_VIDEO_SOURCE_PATH}" ]]; then
-    cp -f "${BCD_10S_VIDEO_SOURCE_PATH}" "${_bcd_10s_dest}" \
-        || die "Failed to stage BCD 10 FPS clip from ${BCD_10S_VIDEO_SOURCE_PATH}"
-    log "  Staged BCD 10 s / 10 FPS clip → ${_bcd_10s_dest}"
+    if [[ "${REFRESH_BCD_VIDEOS}" != "true" ]] \
+        && validate_bcd_video "${_bcd_10s_dest}" 10; then
+        log "  ${BCD_10S_VIDEO_FILENAME} already present, skipping."
+    else
+        _bcd_10s_tmp="${_bcd_10s_dest}.tmp.mp4"
+        rm -f "${_bcd_10s_tmp}"
+        cp "${BCD_10S_VIDEO_SOURCE_PATH}" "${_bcd_10s_tmp}" \
+            || die "Failed to stage BCD 10 FPS clip from ${BCD_10S_VIDEO_SOURCE_PATH}"
+        if ! validate_bcd_video "${_bcd_10s_tmp}" 10; then
+            rm -f "${_bcd_10s_tmp}"
+            die "BCD_10S_VIDEO_SOURCE_PATH must be 1920x1080, 10 FPS, and 10 seconds"
+        fi
+        mv -f "${_bcd_10s_tmp}" "${_bcd_10s_dest}"
+        log "  Staged BCD 10 s / 10 FPS clip → ${_bcd_10s_dest}"
+    fi
 else
-    for video in "${BCD_10S_VIDEO_FILENAMES[@]}"; do
-        download_video "${video}" true "${REFRESH_BCD_VIDEOS}"
-    done
+    generate_bcd_video 10 "${BCD_10S_VIDEO_FILENAME}"
 fi
-download_video "${BCD_10M_VIDEO_FILENAME}" true "${REFRESH_BCD_VIDEOS}"
-download_video "${BCD_60M_VIDEO_FILENAME}" true "${REFRESH_BCD_VIDEOS}"
+generate_bcd_video 600 "${BCD_10M_VIDEO_FILENAME}"
+generate_bcd_video 3600 "${BCD_60M_VIDEO_FILENAME}"
 
 # ---------------------------------------------------------------------------
 # Step 7: Detect host IP
