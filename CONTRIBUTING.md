@@ -20,11 +20,16 @@ If you are interested in contributing to Video Search and Summarization (VSS), y
 
 ## Licensing
 
-This project is licensed under **Apache-2.0**. Elasticsearch, Kibana, and Redis configuration files are separately dual-licensed under SSPLv1 or AGPLv3 as described in [LICENSE](LICENSE).
+This project uses a content-based licensing model:
 
-**All contributions to this repository are accepted under the Apache-2.0 license.**
+- **Apache-2.0** — applies to repository code except the original code under `services/ui/` and the separately licensed configuration files described below.
+- **CC-BY-4.0** — applies to documentation-only skill packages whose `SKILL.md` frontmatter identifies that license.
+- **MIT** — applies to the original code under the `services/ui/` directory, which is derived from [NVIDIA NeMo Agent Toolkit UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI/).
+- **SSPLv1 or AGPLv3** — applies, at your choice, to the Elasticsearch, Kibana, and Redis configuration files identified in [LICENSE](LICENSE).
 
-See the [LICENSE](LICENSE) file for the full license texts.
+Contributions to documentation-only skills are accepted under CC-BY-4.0. All other contributions are accepted under Apache-2.0. Even if you are contributing changes to the `services/ui/` directory, your contribution will be licensed under Apache-2.0. The original `services/ui/` code retains its MIT license, but additions and modifications contributed through this repository are Apache-2.0.
+
+See [LICENSE](LICENSE) for the Apache-2.0, MIT, SSPLv1, and AGPLv3 terms and [LICENSE-CC-BY-4.0](LICENSE-CC-BY-4.0) for the CC-BY-4.0 terms.
 
 ## File-level license headers
 

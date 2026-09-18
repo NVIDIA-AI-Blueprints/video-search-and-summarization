@@ -8,7 +8,7 @@ description: >
   bring-your-own-model (BYOM) custom embedding backends, with VideoPrism as an example.
   Do not use for RT-CV, RT-VLM, VSS Agent, or general VSS deployment work
   that does not include RT-Embed.
-license: Apache-2.0
+license: CC-BY-4.0
 metadata:
   version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"

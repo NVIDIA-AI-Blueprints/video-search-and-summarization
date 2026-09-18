@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+CC-BY-4.0 <br>
 ## Use Case: <br>
 Developers and engineers who need to generate video summary reports enhanced with Enterprise RAG document grounding using the NVIDIA VSS blueprint's LVS profile. <br>
 

@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+CC-BY-4.0 <br>
 ## Use Case: <br>
 Developers and engineers querying read-only video analytics through the configured VSS Video Analytics API, without an MCP or in-stack agent dependency. <br>
 

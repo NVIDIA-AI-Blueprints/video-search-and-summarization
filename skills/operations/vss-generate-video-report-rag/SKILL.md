@@ -1,7 +1,7 @@
 ---
 name: vss-generate-video-report-rag
 description: Generates VSS video summary reports with LVS HITL and optional Enterprise RAG document grounding. Trigger when the user asks for a frag/RAG-assisted video report, knowledge-enhanced analysis, or Enterprise RAG context in a video summary.
-license: Apache-2.0
+license: CC-BY-4.0
 metadata:
   version: "3.2.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
@@ -261,4 +261,3 @@ curl -sS -X POST "http://${HOST_IP}:${VSS_AGENT_PORT:-8000}/v1/chat" \
 - HTTP HITL requires explicit `HITL_ENABLED=true`; the shipped config derives
   its `hitl_enabled` field from that variable and defaults it to false.
 - See also: `video-summarization`, `video-understanding`, `report`, `vios`, `deploy`
-
