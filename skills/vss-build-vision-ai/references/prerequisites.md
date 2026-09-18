@@ -585,7 +585,7 @@ Single source of truth for **every** dependency the deploy assumes. Sourced from
 
 | Component | Required version | Notes |
 |---|---|---|
-| OS — x86 host | Ubuntu 24.04 | |
+| OS — x86 host | Ubuntu 24.04 recommended | Ubuntu 22.04 does **not** block deployment. Warn the user that it is not the recommended OS and unforeseen issues may occur, then continue |
 | OS — DGX Station GB300 | DGX OS 7.6.0 | |
 | OS — DGX-SPARK | DGX OS 7.5.0 | |
 | OS — IGX-THOR | IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04) | |
@@ -603,4 +603,4 @@ Single source of truth for **every** dependency the deploy assumes. Sourced from
 ## Summary
 
 - All pass → "System ready. You can deploy base, lvs, search, or alerts."
-- Any fail → report the item, provide the fix, re-run that check before continuing.
+- Any fail → report the item, provide the fix, re-run that check before continuing. Ubuntu 22.04 is a warning, not a failure.
