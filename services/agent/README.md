@@ -191,7 +191,8 @@ pre-configured.
 ### Deployment version API
 
 `GET /api/v1/version` exposes the version of the deployed VSS release for
-automated compatibility checks. It is served by the agent, so it is reachable
+automated compatibility checks. Only `GET` is served; other methods answer 405.
+It is served by the agent, so it is reachable
 wherever the agent is — directly at the agent service, and through the
 deployment origin on profiles whose ingress routes `/api` to the agent. Some
 profiles do not: the warehouse Helm ingress
