@@ -310,9 +310,7 @@ def _apply_vlm_policy(inputs: VlmInput, deployment: config_mod.Deployment) -> Vl
     try:
         return VlmInput.model_validate(merged)
     except ValidationError as exc:
-        raise InvalidInput(
-            f"configured VLM policy and run arguments are incompatible: {exc}"
-        ) from exc
+        raise InvalidInput(f"configured VLM policy and run arguments are incompatible: {exc}") from exc
 
 
 def _resolve_vios_clip(
@@ -443,6 +441,12 @@ def _build_vllm_request(
                 "do_sample_frames": True,
             }
         )
+    else:
+        request["media_io_kwargs"] = {
+            "video": {
+                "num_frames": inputs.num_frames or _DEFAULT_FIXED_FRAME_BUDGET,
+            }
+        }
     size = _processor_size(inputs)
     if size:
         mm_processor_kwargs["size"] = size

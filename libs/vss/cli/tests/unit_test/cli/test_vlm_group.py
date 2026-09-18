@@ -633,6 +633,46 @@ def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch
     assert "use_fps_for_chunking" not in captured["json"]
 
 
+@pytest.mark.parametrize(
+    ("num_frames", "expected"),
+    [
+        (16, 16),
+        (None, 8),
+    ],
+)
+def test_standalone_vllm_translates_fixed_frame_count(
+    monkeypatch: pytest.MonkeyPatch,
+    num_frames: int | None,
+    expected: int,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kwargs: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(backend="vllm"))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            media_url="http://h/clip.mp4",
+            num_frames=num_frames,
+        ),
+        ctx,
+    )
+
+    assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": expected}}
+
+
 def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
@@ -762,9 +802,7 @@ def test_policy_shortest_edge_and_call_longest_edge_are_revalidated() -> None:
     from vss_cli.group import InvalidInput
     from vss_cli.vlm.group import VlmGroup
 
-    deployment = _deployment(
-        vlm=config_mod.VlmConfig(shortest_edge=16777216, locked=True)
-    )
+    deployment = _deployment(vlm=config_mod.VlmConfig(shortest_edge=16777216, locked=True))
     ctx = Context(deployment=deployment)
     ctx.extra = {"no_persist": True}
 
@@ -788,9 +826,7 @@ def test_policy_longest_edge_and_call_shortest_edge_are_revalidated() -> None:
     from vss_cli.group import InvalidInput
     from vss_cli.vlm.group import VlmGroup
 
-    deployment = _deployment(
-        vlm=config_mod.VlmConfig(longest_edge=8000000, locked=True)
-    )
+    deployment = _deployment(vlm=config_mod.VlmConfig(longest_edge=8000000, locked=True))
     ctx = Context(deployment=deployment)
     ctx.extra = {"no_persist": True}
 
