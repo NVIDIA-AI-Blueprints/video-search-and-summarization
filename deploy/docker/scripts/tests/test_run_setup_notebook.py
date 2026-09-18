@@ -1,10 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import ast
+import builtins
 import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import unittest
 from contextlib import redirect_stdout
@@ -23,6 +26,44 @@ SCRIPTS_DIR = RUNNER_PATH.parent
 
 def marker_cell(*sources: str) -> dict:
     return {"cells": [{"source": source} for source in sources]}
+
+
+def without_ipython_magics(source: str) -> str:
+    """*source* with IPython's `!` and `%` lines reduced to plain Python."""
+
+    kept = []
+    for line in source.splitlines():
+        if re.match(r"\s*[!%]", line):
+            continue
+        kept.append(re.sub(r"=\s*!.*", "= None", line))
+    return "\n".join(kept)
+
+
+def bound_names(tree: ast.AST) -> set[str]:
+    """Every name *tree* binds: targets, defs, imports, handlers, and arguments."""
+
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(
+                alias.asname or alias.name.split(".")[0] for alias in node.names
+            )
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.arguments):
+            arguments = [
+                *node.posonlyargs,
+                *node.args,
+                *node.kwonlyargs,
+                node.vararg,
+                node.kwarg,
+            ]
+            names.update(argument.arg for argument in arguments if argument)
+    return names
 
 
 class ParameterContractTests(unittest.TestCase):
@@ -435,6 +476,76 @@ class NemoClawNotebookContractTests(unittest.TestCase):
             self.assertNotIn("NEMOCLAW_TOOL_DISCLOSURE", os.environ)
         self.assertEqual(namespace["NEMOCLAW_TOOL_DISCLOSURE"], "")
 
+    def _run_settings_cell(self, shell_env: dict[str, str]) -> dict[str, object]:
+        """Execute the settings cell with *shell_env* standing in for the shell."""
+
+        notebook = json.loads(
+            (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
+        )
+        settings = next(
+            "".join(cell.get("source", []))
+            for cell in notebook["cells"]
+            if "_agent_adapter_raw = (" in "".join(cell.get("source", []))
+        )
+        namespace: dict[str, object] = {
+            "_NOTEBOOK_SHELL_ENV": shell_env,
+            "NVIDIA_API_KEY": "",
+            "NEMOCLAW_PROVIDER": "",
+            "NEMOCLAW_ENDPOINT_URL": "",
+            "NEMOCLAW_MODEL": "anthropic/claude-opus",
+            "COMPATIBLE_API_KEY": "",
+        }
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch("subprocess.check_output", return_value="test-token"),
+            redirect_stdout(io.StringIO()),
+        ):
+            exec(  # noqa: S102 - executes a checked-in notebook settings cell.
+                compile(settings, "deploy_nemoclaw.ipynb:settings", "exec"), namespace
+            )
+        return namespace
+
+    def test_the_settings_cell_defaults_the_adapter_flag_off(self) -> None:
+        namespace = self._run_settings_cell({})
+        self.assertIs(namespace["VSS_AGENT_ADAPTER_ENABLED"], False)
+
+    def test_the_shell_can_turn_the_adapter_flag_on(self) -> None:
+        # The harness documentation tells operators to export this before running the
+        # notebook, so the settings cell has to read it the way HITL_ENABLED does.
+        namespace = self._run_settings_cell({"VSS_AGENT_ADAPTER_ENABLED": "true"})
+        self.assertIs(namespace["VSS_AGENT_ADAPTER_ENABLED"], True)
+
+    def test_a_non_boolean_adapter_flag_is_rejected(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "VSS_AGENT_ADAPTER_ENABLED must be true or false"
+        ):
+            self._run_settings_cell({"VSS_AGENT_ADAPTER_ENABLED": "maybe"})
+
+    def test_the_ui_cell_reads_no_name_the_notebook_never_binds(self) -> None:
+        """Section 3.5 inherits the namespace the earlier cells built, so a name none
+        of them binds is a NameError for every operator. Stubbing such a name into the
+        cell's namespace makes a unit test pass over a notebook that cannot run."""
+
+        notebook = json.loads(
+            (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
+        )
+        available = set(dir(builtins)) | {"get_ipython", "In", "Out"}
+        for cell in notebook["cells"]:
+            if cell.get("cell_type") != "code":
+                continue
+            tree = ast.parse(without_ipython_magics("".join(cell["source"])))
+            if cell.get("id") != "s37-ui-code":
+                available |= bound_names(tree)
+                continue
+            read = {
+                node.id
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            }
+            self.assertEqual(sorted(read - bound_names(tree) - available), [])
+            return
+        self.fail("deploy_nemoclaw.ipynb has no s37-ui-code cell")
+
 
 class NemoClawForwardContractTests(unittest.TestCase):
     HOST_GATEWAY = "192.0.2.44"
@@ -553,6 +664,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
         )
         self.assertEqual(namespace["_desired_bind"], "127.0.0.1")
         self.assertEqual(namespace["_health"], f"http://127.0.0.1:{self.PORT}/health")
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
         self.assertEqual(starts, [])
         self.assertFalse(any(command[0] == "docker" for command in calls))
 
@@ -586,6 +698,10 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertEqual(
             namespace["_health"], f"http://{self.HOST_GATEWAY}:{self.PORT}/health"
         )
+        # The printed link has to name the interface the forward actually binds; a
+        # loopback URL is unreachable once the forward moves off loopback.
+        self.assertEqual(namespace["origin"], f"http://{self.HOST_GATEWAY}:{self.PORT}")
+        self.assertEqual(namespace["agent_ui_url"], namespace["origin"])
         self.assertEqual(starts, [])
         inspect = next(
             command for command in calls if command[:3] == ("docker", "inspect", "--format")
