@@ -2730,6 +2730,19 @@ class VllmCompatible(BaseVlmModel):
         )
         return True
 
+    def is_healthy(self) -> bool:
+        """Return false after the independently-running vLLM engine dies."""
+        engine = getattr(self, "_llm", None)
+        if engine is None:
+            return False
+        errored = getattr(engine, "errored", None)
+        if errored is not None:
+            return not bool(errored() if callable(errored) else errored)
+        is_stopped = getattr(engine, "is_stopped", None)
+        if is_stopped is not None:
+            return not bool(is_stopped() if callable(is_stopped) else is_stopped)
+        return True
+
     def warmup(self):
         """Warm up the model with dummy tensors to initialize CUDA kernels and memory."""
         logger.info("Starting model warmup...")
