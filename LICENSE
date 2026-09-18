@@ -17,10 +17,6 @@ File-level exceptions:
     WebRTC/V4L2 codec headers under services/vios/src/framework/webrtc_streamer/inc/
     are provided under BSD-3-Clause.
 
-  - Logstash pipeline configs under
-    deploy/docker/services/infra/elk/logstash/pipelines/kafka/ and
-    deploy/helm/services/infra/charts/logstash/files/ are provided under
-    LicenseRef-NvidiaProprietary.
   - Container-only NVIDIA proprietary artifacts packaged into GHCR images at
     build time (not licensing claims over repository files) — the following
     are included in the repo for build/packaging purposes only:
