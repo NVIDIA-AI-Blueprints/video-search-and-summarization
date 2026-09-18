@@ -205,11 +205,31 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                 va_tool = await builder.get_tool(va_tool_ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
 
                 if input_data.incident_id:
-                    va_input = {
-                        "id": input_data.incident_id,
-                        "includes": ["category", "info"],
-                        "vlm_verified": input_data.vlm_verified,
-                    }
+
+                    async def _fetch_incident(vlm_verified: bool | None) -> dict | None:
+                        va_input = {
+                            "id": input_data.incident_id,
+                            "includes": ["category", "info"],
+                            "vlm_verified": vlm_verified,
+                        }
+                        fetched = await va_tool.ainvoke(input=va_input)
+                        if isinstance(fetched, str):
+                            fetched = json.loads(fetched)
+                        return fetched or None
+
+                    # Exact IDs can live in incidents-* or vlm-incidents-*. When
+                    # vlm_verified is omitted, VA falls back to server config
+                    # (true on the alerts profile), so retry the other index.
+                    incident = await _fetch_incident(input_data.vlm_verified)
+                    if not incident and input_data.vlm_verified is None:
+                        logger.info(
+                            "Incident %s not found in default index; retrying get_incident on the alternate index",
+                            input_data.incident_id,
+                        )
+                        for alt_vlm_verified in (False, True):
+                            incident = await _fetch_incident(alt_vlm_verified)
+                            if incident:
+                                break
                 else:
                     # When sensor_name is provided to RTVI-VLM, it is used as
                     # sensor_id in Kafka messages. Ask for alert metadata beyond
@@ -227,15 +247,14 @@ async def rtvi_vlm_alert(config: RTVIVLMAlertConfig, builder: Builder) -> AsyncG
                         va_input["start_time"] = input_data.start_time
                         va_input["end_time"] = input_data.end_time
 
-                result = await va_tool.ainvoke(input=va_input)
+                    result = await va_tool.ainvoke(input=va_input)
 
-                if isinstance(result, str):
-                    result = json.loads(result)
+                    if isinstance(result, str):
+                        result = json.loads(result)
 
                 if input_data.incident_id:
                     # get_incident returns one document rather than an incidents
                     # envelope. Keep this tool's output shape stable for callers.
-                    incident = result or None
                     if incident and incident.get("sensorId") != sensor_name:
                         logger.warning(
                             "Incident %s belongs to sensor %s, not requested sensor %s",
