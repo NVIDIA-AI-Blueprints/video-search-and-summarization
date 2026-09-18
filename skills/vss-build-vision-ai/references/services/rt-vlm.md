@@ -67,8 +67,8 @@ Notes on choosing a row:
   override the constraint anyway. Only proceed with Super after the user overrides
   it knowingly — never assume the request itself is the override, and never
   silently downgrade to Nano either.
-- Only the BF16 tag differs in shape between families (`bf16-final` for Nano,
-  `modelopt-bf16-final` for Super). Copy tags verbatim rather than deriving them.
+- The BF16 tag is `bf16-final` for both Nano and Super. Copy tags verbatim from
+  the table rather than deriving them.
 - `RTVI_VLM_MODEL_TO_USE=cosmos-reason3` for all six rows, and the served
   endpoint stays `http://rtvi-vlm:8000`; neither changes with the variant.
 
