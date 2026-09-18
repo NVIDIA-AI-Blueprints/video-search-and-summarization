@@ -98,8 +98,9 @@ COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui
 # Copy custom server (read-only)
 COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=555 /repo/services/ui/custom-server.js ./custom-server.js
 
-# Copy license files (read-only): LICENSE.md (Apache-2.0) and LICENSE-3rd-party.txt.
-COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/LICENSE* ./
+# Copy license files (read-only): repository Apache-2.0 LICENSE and third-party notices.
+COPY --chown=${USER_ID}:${GROUP_ID} --chmod=444 LICENSE ./
+COPY --from=builder --chown=${USER_ID}:${GROUP_ID} --chmod=444 /repo/services/ui/LICENSE-3rd-party.txt ./
 
 # The NVIDIA Software License Agreement is not vendored in this source tree.
 # BuildKit performs this download itself, so no HTTP client is needed in any

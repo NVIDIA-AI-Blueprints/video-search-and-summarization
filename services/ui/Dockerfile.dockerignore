@@ -2,7 +2,6 @@ Dockerfile
 **/.gitignore
 .git
 **/*.md
-!**/LICENSE.md
 .idea
 **/.turbo/
 **/.turbo/**

@@ -179,8 +179,8 @@ This module contains source under file-level open-source licenses and a
 separately licensed pre-built container distribution:
 
 - **Source code:** NVIDIA copyright, Apache-2.0. The SPDX header on each file
-  is authoritative; see the repository [contributor guide](../../CONTRIBUTING.md),
-  the repository [`LICENSE`](../../LICENSE), and the UI [`LICENSE.md`](./LICENSE.md).
+  is authoritative; see the repository [contributor guide](../../CONTRIBUTING.md)
+  and the repository [`LICENSE`](../../LICENSE).
 
 - **The pre-built VSS Agent UI container images distributed by NVIDIA via NGC**
   (`nvcr.io/nvidia/blueprint/vss-agent-ui` and related tags) **are licensed under the NVIDIA Software
@@ -191,7 +191,7 @@ separately licensed pre-built container distribution:
 Third-party open-source components bundled in the container image are attributed in
 [`LICENSE-3rd-party.txt`](./LICENSE-3rd-party.txt).
 
-The container image carries `LICENSE.md` (Apache-2.0), `LICENSE-3rd-party.txt`, and
+The container image carries `LICENSE` (Apache-2.0), `LICENSE-3rd-party.txt`, and
 `NVIDIA-Software-License-Agreement.pdf` under `/repo`. The agreement is **not** vendored in this
 source tree — the Dockerfile's `ADD` instruction fetches it from `nvidia.com` at build time with a
 pinned SHA-256, which keeps the repository free of a proprietary EULA and needs no HTTP client in
