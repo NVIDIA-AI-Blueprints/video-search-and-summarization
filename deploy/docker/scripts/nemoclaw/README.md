@@ -64,10 +64,18 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 # with the same skills, docs and CLI. Nothing is installed into the sandbox
 # afterwards except the policy and, for Kubernetes, a rendered ENV.md.
 BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
-# /etc/brev is 0700 root:root, hence the sudo read.
-CHAT_UI_URL="https://$(sudo -n cat "$BREV_CTX" | jq -er '[.ports[]?|select(.destination_port==18789)|.fqdn][0]')" \
-  nemoclaw onboard --non-interactive --agent "$RUNTIME" --name "$SB" \
-    --from "$REPO/.$RUNTIME/Dockerfile"
+# /etc/brev is 0700 root:root, hence the sudo read. Resolve the fqdn in its own
+# command and check it before onboarding: as a `VAR=$(...) cmd` prefix, a failed
+# substitution still runs the command, so a missing link would bake
+# "https://null" in as the allowed origin for the sandbox's lifetime.
+CHAT_UI_FQDN="$(sudo -n cat "$BREV_CTX" | jq -er '[.ports[]?|select(.destination_port==18789)|.fqdn][0]')"
+if [ -z "$CHAT_UI_FQDN" ] || [ "$CHAT_UI_FQDN" = null ]; then
+  echo "No secure link published for destination port 18789. Create it in the Brev console (Secure Links -> + HTTP port -> 18789) and re-run, or drop CHAT_UI_URL to onboard without a remote origin."
+else
+  CHAT_UI_URL="https://$CHAT_UI_FQDN" \
+    nemoclaw onboard --non-interactive --agent "$RUNTIME" --name "$SB" \
+      --from "$REPO/.$RUNTIME/Dockerfile"
+fi
 
 # 3. Apply the VSS sandbox policy (merges into the base OpenShell policy)
 nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --yes
