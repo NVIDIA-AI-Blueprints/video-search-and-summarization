@@ -62,7 +62,7 @@ class _Ref:
 
 def test_the_group_carries_none_of_the_job_grammar(cli: click.Group) -> None:
     """VIOS is not processing, so run/status/get/list must not exist."""
-    assert set(cli.commands) == {"list", "timeline", "clip", "snapshot", "add", "delete"}
+    assert set(cli.commands) == {"list", "timeline", "clip", "snapshot", "add", "delete", "readiness"}
     for job_verb in ("run", "status", "get"):
         assert job_verb not in cli.commands
 
@@ -223,6 +223,56 @@ def test_clip_rebase_flags_must_be_given_together(
         ["clip", "--sensor", "warehouse_safety_0001", "--rebase-from", "2025-01-01T00:00:00Z"],
     )
     assert result.exit_code == int(Exit.INVALID_INPUT)
+
+
+def test_readiness_counts_the_search_indexes_and_reports_ready(
+    cli: click.Group, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`vss vios readiness` counts embed/behavior/raw docs and reports ready when all > 0."""
+
+    class _ES:
+        url = "https://vss.test/elasticsearch"
+        indices = [
+            "mdx-embed-filtered-2025-01-01",
+            "mdx-behavior-2025-01-01",
+            "mdx-raw-2025-01-01",
+        ]
+
+    class _Deployment:
+        base_url = "https://vss.test"
+        services: ClassVar[dict[str, object]] = {"vst": object(), "elasticsearch": _ES()}
+
+        def has(self, name: str) -> bool:
+            return name in self.services
+
+    monkeypatch.setattr(vios_group, "context_from", lambda values: _ctx(_Deployment(), values))
+
+    calls: list[Any] = []
+    counts = [5, 3, 2]  # embed, behavior, raw — the order _readiness calls them
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()  # resolve_sensor
+        return counts[len(calls) - 2]  # count_documents: embed, then behavior, then raw
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    result = CliRunner().invoke(cli, ["readiness", "--sensor", "warehouse_safety_0001"])
+
+    body = json.loads(result.stdout)
+    assert body["ready"] is True
+    assert body["counts"] == {"embed": 5, "behavior": 3, "raw": 2}
+    assert body["name"] == "warehouse_safety_0001"
+
+
+def test_readiness_requires_elasticsearch_to_be_configured(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without elasticsearch in the recorded deployment, readiness is a usage error (exit 2)."""
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])
+    result = CliRunner().invoke(cli, ["readiness", "--sensor", "warehouse_safety_0001"])
+    assert result.exit_code != 0  # elasticsearch missing -> preflight ConfigError (non-zero)
 
 
 def test_delete_refuses_a_type_mismatch(cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch) -> None:

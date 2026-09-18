@@ -727,6 +727,43 @@ async def _get_json(url: str, timeout_seconds: float, what: str) -> object:
     return None  # unreachable; satisfies mypy
 
 
+async def count_documents(
+    es_url: str,
+    index: str,
+    field: str,
+    value: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> int:
+    """``POST {es_url}/{index}/_count`` with a term query → document count.
+
+    A read-only readiness/cleanup probe for the search indexes: counts
+    documents in one Elasticsearch index matching one ``field=value`` term. Used by
+    ``vss vios readiness`` so the skill can tell ingest-ready (count > 0) from
+    delete-clean (count == 0) without hand-rolling ``curl`` against ES. A 404
+    (index not yet created) counts as 0, not an error -- a lazy index that has
+    not been populated is the same as empty for readiness purposes.
+    """
+    url = f"{es_url.rstrip('/')}/{index}/_count"
+    body = {"query": {"term": {field: value}}}
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session, session.post(url, json=body) as response:
+            if response.status == 404:
+                return 0
+            if response.status != 200:
+                raise VSTError(f"Elasticsearch _count on {index} returned status {response.status}")
+            try:
+                payload = json.loads(await response.text())
+            except Exception as e:
+                raise VSTError(f"Error parsing ES _count on {index}: {e}") from e
+            count = payload.get("count") if isinstance(payload, dict) else None
+            if not isinstance(count, int):
+                raise VSTError(f"ES _count on {index} returned non-integer count: {count!r}")
+            return count
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError(f"Failed to reach Elasticsearch for _count on {index}", e) from e
+
+
 async def list_sensors(
     vst_internal_url: str,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,

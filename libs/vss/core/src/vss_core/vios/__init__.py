@@ -14,6 +14,7 @@ from .client import build_screenshot_url
 from .client import classify_media_source
 from .client import classify_source
 from .client import confirm_absent
+from .client import count_documents
 from .client import delete_media
 from .client import get_name_to_stream_id_map
 from .client import get_sensor_id_from_stream_id
@@ -52,6 +53,7 @@ __all__ = [
     "classify_media_source",
     "classify_source",
     "confirm_absent",
+    "count_documents",
     "delete_media",
     "get_name_to_stream_id_map",
     "get_sensor_id_from_stream_id",

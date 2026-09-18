@@ -13,7 +13,7 @@ What it keeps from the framework is the part that should be uniform: a missing
 backend is reported by :func:`vss_cli.group.require_services` with the same
 wording every other group uses, and results leave through the same emitter.
 
-Six commands::
+Seven commands::
 
     vss vios list     [--type video|stream] [--sensor NAME]
     vss vios timeline --sensor NAME
@@ -21,6 +21,7 @@ Six commands::
     vss vios snapshot --sensor NAME [--at T]
     vss vios add      --type video|stream SOURCE [--name NAME]
     vss vios delete   --type video|stream --sensor NAME
+    vss vios readiness --sensor NAME [--type video|stream] [--timeout S]
 
 Media is addressed by sensor **name**; id resolution happens inside
 :mod:`vss_core.vios`.
@@ -73,19 +74,21 @@ def _sensor_option(required: bool = True) -> click.Option:
     )
 
 
-def _command(name: str, help_text: str, extra: list[click.Parameter], fn: Any) -> click.Command:
+def _command(
+    name: str, help_text: str, extra: list[click.Parameter], fn: Any, requires: frozenset[str] = REQUIRES
+) -> click.Command:
     """One vios command, wired to the shared context/preflight/emit path."""
 
     def callback(**values: Any) -> None:
         ctx = context_from(values)
-        require_services(f"vios {name}", REQUIRES, ctx)
+        require_services(f"vios {name}", requires, ctx)
         emit(guarded(lambda: fn(ctx, values)), ctx)
 
     return click.Command(
         name=name,
         callback=callback,
         params=[*extra, *params_mod.shared_options()],
-        help=help_text + requires_note(REQUIRES),
+        help=help_text + requires_note(requires),
         short_help=help_text.split("\n")[0],
     )
 
@@ -284,6 +287,63 @@ def _delete(ctx: Any, values: dict[str, Any]) -> Result:
     return Result(body=_run(vios.delete_media(origin, ref, keep_recordings=bool(values.get("keep_recordings")))))
 
 
+def _readiness(ctx: Any, values: dict[str, Any]) -> Result:
+    """ "D3: per-tuple ES document counts + a `ready` verdict for `vss vios readiness`.
+
+    The one new CLI verb the search-archive mutation path needs: the fan-out
+    itself is VIOS-webhook-driven, so the CLI only has to report whether the
+    embedding/behavior/raw indexes have landed for this sensor (ingest-ready)
+    or drained (delete-clean) without the skill hand-rolling `curl` against ES.
+    """
+    import time
+
+    from vss_core import vios
+
+    origin = _origin(ctx)
+    ref = _run(vios.resolve_sensor(origin, values["sensor"]))
+    es = ctx.deployment.services.get("elasticsearch")
+    if not es or not es.url:
+        raise InvalidInput("elasticsearch is not configured; run `vss configure --base-url <origin>`")
+    indices = list(es.indices or [])
+
+    # The fixed epoch anchors uploads land in; for a live stream, embed readiness
+    # uses the family wildcard (wall-clock docs land in any date shard). Read these from the
+    # recorded inventory, not a guess.
+    def _pick(prefix: str) -> str | None:
+        return next((i for i in indices if i == prefix), None)
+
+    embed_anchor = _pick("mdx-embed-filtered-2025-01-01")
+    behavior_index = _pick("mdx-behavior-2025-01-01")
+    raw_index = _pick("mdx-raw-2025-01-01")
+    source_type = values.get("type") or ref.kind
+    embed_target = "mdx-embed-filtered-*" if source_type == "rtsp" else embed_anchor
+    if embed_target is None:
+        raise InvalidInput(
+            f"embed index not found in the recorded inventory; re-run `vss configure --base-url {origin}`"
+        )
+    timeout_s = float(values["timeout"]) if values.get("timeout") else None
+    deadline = (time.monotonic() + timeout_s) if timeout_s is not None else None
+    counts: dict[str, int] = {}
+    while True:
+        counts = {
+            "embed": _run(vios.count_documents(es.url, embed_target, "sensor.id.keyword", ref.sensor_id)),
+            "behavior": _run(vios.count_documents(es.url, behavior_index, "sensor.id.keyword", ref.name))
+            if behavior_index
+            else 0,
+            "raw": _run(vios.count_documents(es.url, raw_index, "sensorId.keyword", ref.name)) if raw_index else 0,
+        }
+        ready = counts["embed"] > 0 and counts["behavior"] > 0 and counts["raw"] > 0
+        if ready or deadline is None:
+            break
+        if time.monotonic() >= deadline:
+            return Result(
+                body=_with_ref(ref, {"ready": False, "counts": counts, "type": source_type}),
+                exit=Exit.TIMEOUT,
+            )
+        time.sleep(5)
+    return Result(body=_with_ref(ref, {"ready": ready, "counts": counts, "type": source_type}))
+
+
 def _fallback_name(source: str) -> str:
     """What we called it, when VIOS's response does not say."""
     return pathlib.PurePosixPath(urllib.parse.urlparse(source).path).name or pathlib.Path(source).name
@@ -457,6 +517,40 @@ def _build() -> click.Group:
                 ),
             ],
             _delete,
+        )
+    )
+    group.add_command(
+        _command(
+            "readiness",
+            "Report search-index readiness for a sensor.\n"
+            "\n"
+            "Counts documents in the embedding, behavior, and raw indexes for the\n"
+            "resolved sensor and returns a `ready` verdict (all three > 0). For a\n"
+            "live stream (`--type rtsp`) the embedding count uses the family wildcard\n"
+            "`mdx-embed-filtered-*` because wall-clock docs land in any date shard.\n"
+            "With `--timeout`, polls until ready or the timeout (exit 7); without it,\n"
+            "one-shot. Index names are read from `vss configure show`'s inventory.\n"
+            "\n"
+            "\b\n"
+            "  vss vios readiness --sensor warehouse_safety_0001\n"
+            "  vss vios readiness --sensor dock-cam --type rtsp --timeout 600\n",
+            [
+                _sensor_option(),
+                click.Option(
+                    ["--type"],
+                    type=_TYPES,
+                    default=None,
+                    help="Override the sensor provenance to pick the embed index (uploads anchor vs family wildcard).",
+                ),
+                click.Option(
+                    ["--timeout"],
+                    type=click.FloatRange(0.1, 7200.0),
+                    default=None,
+                    help="Poll until ready or this many seconds (exit 7 on timeout). Omit for a one-shot count.",
+                ),
+            ],
+            _readiness,
+            requires=frozenset({"vst", "elasticsearch"}),
         )
     )
     return group
