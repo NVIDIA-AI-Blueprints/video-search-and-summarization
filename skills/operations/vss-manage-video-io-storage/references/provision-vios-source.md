@@ -146,9 +146,10 @@ The equivalent raw call is
 no detections or embeddings.
 
 There is no live proxy on this path. Where a caller drives RT-VLM by hand, the
-media URL is `vss vios clip --sensor <name>` → `media_url`, which the CLI
-re-anchors on the deployment origin so it resolves from inside the consumer's
-container. RT-VLM also accepts `file://`, but only under `FILE_URL_ALLOWED_DIRS`
+media URL is `vss vios clip --sensor <name>` → `media_url`, carried on whatever
+origin `vss configure` recorded — so record one the consumer can reach
+(`http://$HOST_IP:<origin-port>`, **not** loopback, which RT-VLM resolves to
+itself). RT-VLM also accepts `file://`, but only under `FILE_URL_ALLOWED_DIRS`
 (unset by default), so the HTTP URL is the reliable form.
 
 **Live (RTSP).** Register the RTSP URL — an external camera as-is, or a local file

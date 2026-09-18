@@ -2792,7 +2792,7 @@ EOF
     echo "SKIP: runtime webhook fan-out (VSS_TEST_RTVI_CV_URL port ${_wh_probe_port} is not the config's RT-CV receiver port ${_wh_port})"
   else
     _wh_sensor_id=""
-    _wh_sensor_id="$(curl -sf -X POST "${VSS_TEST_VST_API_BASE%/}/sensor/add" \
+    _wh_sensor_id="$(curl -sf --connect-timeout 5 --max-time 60 -X POST "${VSS_TEST_VST_API_BASE%/}/sensor/add" \
       -H 'Content-Type: application/json' \
       -d "{\"sensorUrl\":\"${VSS_TEST_RTSP_URL}\",\"name\":\"webhook-fanout-test\",\"username\":\"\",\"password\":\"\"}" \
       | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sensorId",""))' 2>/dev/null || true)"
@@ -2805,17 +2805,24 @@ EOF
       # responded, so an unreachable receiver times out rather than reporting
       # the stream withdrawn.
       function await_rtvi_cv_stream() {
-        local _want_present="${1}" _deadline=$(( $(date +%s) + _wh_bound )) _streams
+        local _want_present="${1}" _deadline=$(( $(date +%s) + _wh_bound )) _streams _left
         while :; do
-          if _streams="$(curl -sf "${VSS_TEST_RTVI_CV_URL%/}/api/v1/stream/get-stream-info" 2>/dev/null)"; then
+          # Each wait is cut to what is left of the bound. A receiver that
+          # accepts the connection and never answers would otherwise block the
+          # request past the deadline, and the delete below would never run.
+          _left=$(( _deadline - $(date +%s) ))
+          [[ ${_left} -le 0 ]] && return 1
+          if _streams="$(curl -sf --connect-timeout 5 --max-time "${_left}" \
+            "${VSS_TEST_RTVI_CV_URL%/}/api/v1/stream/get-stream-info" 2>/dev/null)"; then
             if grep -q "${_wh_sensor_id}" <<<"${_streams}"; then
               [[ "${_want_present}" == "present" ]] && return 0
             else
               [[ "${_want_present}" == "absent" ]] && return 0
             fi
           fi
-          [[ $(date +%s) -ge ${_deadline} ]] && return 1
-          sleep 10
+          _left=$(( _deadline - $(date +%s) ))
+          [[ ${_left} -le 0 ]] && return 1
+          sleep $(( _left < 10 ? _left : 10 ))
         done
       }
       _wh_added=0
@@ -2827,7 +2834,7 @@ EOF
         echo "FAIL: camera_streaming webhook did not deliver the registered source to RT-CV within ${_wh_bound}s"
         ((TESTS_FAILED++)) || true
       fi
-      if curl -sf -X DELETE "${VSS_TEST_VST_API_BASE%/}/sensor/${_wh_sensor_id}" >/dev/null 2>&1; then
+      if curl -sf --connect-timeout 5 --max-time 60 -X DELETE "${VSS_TEST_VST_API_BASE%/}/sensor/${_wh_sensor_id}" >/dev/null 2>&1; then
         if [[ "${_wh_added}" -eq 0 ]]; then
           # The stream never reached RT-CV, so its absence proves no teardown.
           echo "SKIP: camera_remove webhook (the source never reached RT-CV; nothing to withdraw)"
