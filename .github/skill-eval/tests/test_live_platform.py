@@ -64,6 +64,30 @@ def test_unreadable_gpu_blocks_rather_than_guessing() -> None:
     assert "nvidia-smi" in error
 
 
+def test_empty_probe_says_which_of_its_four_causes_it_was() -> None:
+    """"returned nothing" alone cannot be acted on by an operator."""
+    missing = mock.patch.object(
+        live_platform.subprocess, "run", side_effect=FileNotFoundError()
+    )
+    with missing:
+        assert live_platform.live_gpu_names() == []
+    with missing:
+        _, error = live_platform.resolve_sizing_platform(None)
+    assert "not on PATH" in error
+    assert "/usr/bin/nvidia-smi" in error
+
+    broken = mock.Mock(returncode=9, stdout="", stderr="driver/library mismatch")
+    with mock.patch.object(live_platform.subprocess, "run", return_value=broken):
+        _, error = live_platform.resolve_sizing_platform(None)
+    assert "exited 9" in error
+    assert "driver/library mismatch" in error
+
+    empty = mock.Mock(returncode=0, stdout="\n", stderr="")
+    with mock.patch.object(live_platform.subprocess, "run", return_value=empty):
+        _, error = live_platform.resolve_sizing_platform(None)
+    assert "no card visible" in error
+
+
 def test_explicit_request_overrides_the_live_card() -> None:
     """The operator override exists for cards the table does not cover."""
     platform, error = live_platform.resolve_from_names("L40S", ["NVIDIA T4"])
@@ -84,6 +108,19 @@ def test_cli_prints_the_platform_and_fails_closed() -> None:
     assert subprocess.run(
         [sys.executable, script], capture_output=True, text=True
     ).returncode in (0, 3)
+
+
+def test_probe_finds_the_driver_binary_off_a_clobbered_path() -> None:
+    """An overlay PATH without /usr/bin must not read as "no GPU"."""
+    with mock.patch.object(live_platform.shutil, "which", return_value=None):
+        with mock.patch.object(live_platform.os, "access", return_value=True):
+            assert live_platform.nvidia_smi_command() == "/usr/bin/nvidia-smi"
+        with mock.patch.object(live_platform.os, "access", return_value=False):
+            assert live_platform.nvidia_smi_command() == "nvidia-smi"
+    with mock.patch.object(
+        live_platform.shutil, "which", return_value="/opt/bin/nvidia-smi"
+    ):
+        assert live_platform.nvidia_smi_command() == "/opt/bin/nvidia-smi"
 
 
 def test_openshell_adapter_resolves_from_the_same_table() -> None:

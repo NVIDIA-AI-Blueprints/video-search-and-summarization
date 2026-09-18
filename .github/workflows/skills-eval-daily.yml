@@ -223,10 +223,22 @@ jobs:
             }
           done
           IFS=$oifs
-          gpu_names=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || true)
+          # The agent step sizes NIM from this card (live_platform.py). Prove
+          # it is readable here, where the diagnostics are, instead of failing
+          # a quarter-hour later with "nvidia-smi returned nothing".
+          gpu_rc=0
+          gpu_names=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>&1) || gpu_rc=$?
           case "$gpu_names" in
             *L40S*) reject_l40s_runner "$gpu_names" ;;
           esac
+          if [ "$gpu_rc" != 0 ] || [ -z "${gpu_names//[[:space:]]/}" ]; then
+            echo "no GPU visible to this job (runner=$RUNNER_NAME, nvidia-smi rc=$gpu_rc)" >&2
+            echo "nvidia-smi: $(command -v nvidia-smi || echo 'not on PATH')" >&2
+            echo "PATH=$PATH" >&2
+            printf '%s\n' "$gpu_names" >&2
+            ls -l /dev/nvidia* >&2 2>&1 || echo "no /dev/nvidia* device nodes" >&2
+            [ "${{ matrix.gpu_count }}" = "0" ] || exit 1
+          fi
           # Harbor/GHA call `uvx --python` and `uvx --version`. A symlink
           # uvx -> uv exposes the full uv CLI and those flags fail.
           # The GHA workload namespace is often no_new_privs, so sudo cannot
@@ -355,11 +367,13 @@ jobs:
           fi
           # A guest overlay may define PATH. Reassert the per-leg runtime
           # afterwards so Claude's Bash children use the same Python for
-          # adapters and run_leg.py.
+          # adapters and run_leg.py. /usr/bin and /bin are appended, not
+          # prepended: an overlay PATH without them hides nvidia-smi, and
+          # live_platform.py then reads the guest as having no GPU at all.
           export SKILL_EVAL_VENV="$skill_eval_venv_dir"
           export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
           export VIRTUAL_ENV="$skill_eval_venv_dir"
-          export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:$PATH"
+          export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:${PATH:+$PATH:}/usr/bin:/bin"
           hash -r
           "$skill_eval_venv_dir/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
           # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use

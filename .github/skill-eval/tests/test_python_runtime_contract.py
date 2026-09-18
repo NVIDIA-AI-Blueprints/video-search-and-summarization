@@ -28,13 +28,20 @@ def test_pr_and_daily_workflows_pin_every_python_job() -> None:
         assert SDK_REQUIREMENT in workflow
         assert 'export PATH=' in workflow
         assert "$skill_eval_venv_dir/bin" in workflow
+        # A guest ~/.eval_env is sourced with `set -a`, so its PATH can drop
+        # /usr/bin and hide nvidia-smi from the live GPU probe. Appended,
+        # never prepended: the per-leg venv still wins.
+        assert (
+            'export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:'
+            '${PATH:+$PATH:}/usr/bin:/bin"'
+        ) in workflow
         if relative_path.endswith("skills-eval.yml"):
-            assert 'export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:$PATH"' in workflow
             assert '"$skill_eval_venv_dir/bin/python" .github/skill-eval/skills_eval_agent.py' in workflow
             assert "python3 .github/skill-eval/skills_eval_agent.py" not in workflow
             assert "Assert OpenShell GPU runtime" in workflow
             assert "matrix.local_gpu" in workflow
             assert "rejected OpenShell guest that also has the l40s label" in workflow
+            assert "no GPU visible to this job" in workflow
             assert "openshell-eval" not in workflow
             assert "startsWith(runner.name, 'vss-skill-eval-gpu-a40-')" not in workflow
             assert "uv tool run" in workflow
@@ -72,6 +79,7 @@ def test_openshell_sweep_runs_the_daily_jobs_on_openshell_guests() -> None:
     assert "runs-on: ${{ matrix.runs_on }}" in daily
     assert "Assert OpenShell GPU runtime" in daily
     assert "rejected OpenShell guest that also has the l40s label" in daily
+    assert "no GPU visible to this job" in daily
     assert "openshell-eval" not in daily
     assert "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s" in daily
     assert "unset BREV_INSTANCE" in daily

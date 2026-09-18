@@ -28,6 +28,8 @@ CLI:
 """
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import sys
 
@@ -53,6 +55,39 @@ _NO_GPU_ERROR = (
     "to override."
 )
 
+# Why the last probe came back empty. "returned nothing" has four very
+# different causes on a guest — the binary is off PATH, the driver is not
+# talking, the call hung, or the host really has no card — and an operator
+# cannot tell them apart from the sentence above. Recorded here rather than
+# returned, so `live_gpu_names()` keeps its signature for the adapter and
+# for tests that patch it.
+_last_probe_detail: str | None = None
+
+# Where the driver installs `nvidia-smi`. The eval leg sources the guest's
+# `~/.eval_env` with `set -a`, so an overlay that exports its own PATH can
+# leave the harness unable to find a binary that is sitting right there —
+# a GPU-less-looking guest with a perfectly good card. Look in the usual
+# places before concluding the host cannot answer.
+_NVIDIA_SMI_FALLBACKS: tuple[str, ...] = (
+    "/usr/bin/nvidia-smi",
+    "/usr/local/bin/nvidia-smi",
+    "/bin/nvidia-smi",
+)
+_PROBE_HINT = (
+    "Tried PATH and " + ", ".join(_NVIDIA_SMI_FALLBACKS) + "."
+)
+
+
+def nvidia_smi_command() -> str:
+    """Path to `nvidia-smi`, PATH first then the driver's usual locations."""
+    found = shutil.which("nvidia-smi")
+    if found:
+        return found
+    for candidate in _NVIDIA_SMI_FALLBACKS:
+        if os.access(candidate, os.X_OK):
+            return candidate
+    return "nvidia-smi"
+
 # Count-only OpenShell jobs still match `openshell-runner`. Guests that
 # also carry the `l40s` label (and the L40S card that label marks) must
 # not size a task; the eval workflow rejects them for the same reason.
@@ -64,22 +99,48 @@ _L40S_OPENSHELL_ERROR = (
 
 
 def live_gpu_names() -> list[str]:
-    """Names `nvidia-smi` reports for this host, or [] when unreadable."""
+    """Names `nvidia-smi` reports for this host, or [] when unreadable.
+
+    Records why an empty answer was empty in `_last_probe_detail`.
+    """
+    global _last_probe_detail
+    _last_probe_detail = None
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            [nvidia_smi_command(), "--query-gpu=name", "--format=csv,noheader"],
             check=False,
             capture_output=True,
             text=True,
             timeout=30,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except FileNotFoundError:
+        _last_probe_detail = (
+            f"nvidia-smi is not on PATH ({os.environ.get('PATH', '')!r}) and "
+            f"the driver's usual locations are absent, so this host has no "
+            f"NVIDIA driver installed. {_PROBE_HINT}"
+        )
+        return []
+    except OSError as exc:
+        _last_probe_detail = f"could not execute nvidia-smi: {exc}"
+        return []
+    except subprocess.TimeoutExpired:
+        _last_probe_detail = "nvidia-smi did not answer within 30s"
         return []
     if result.returncode != 0:
+        _last_probe_detail = (
+            f"nvidia-smi exited {result.returncode}: "
+            f"{(result.stderr or result.stdout or '').strip() or 'no output'}"
+        )
         return []
-    return [
+    names = [
         line.strip() for line in (result.stdout or "").splitlines() if line.strip()
     ]
+    if not names:
+        _last_probe_detail = (
+            "nvidia-smi succeeded but listed no GPUs; this guest has no card "
+            "visible to the job"
+        )
+    return names
 
 
 def detect_platform(names: list[str]) -> str | None:
@@ -94,7 +155,7 @@ def detect_platform(names: list[str]) -> str | None:
 
 
 def resolve_from_names(
-    requested: str | None, names: list[str]
+    requested: str | None, names: list[str], detail: str | None = None
 ) -> tuple[str | None, str | None]:
     """Sizing platform for these GPU names, or a reason it cannot size.
 
@@ -111,6 +172,8 @@ def resolve_from_names(
     if platform:
         return platform, None
     if not names:
+        if detail:
+            return None, f"{_NO_GPU_ERROR} Probe said: {detail}"
         return None, _NO_GPU_ERROR
     return None, (
         "unrecognised GPU on this host: "
@@ -127,7 +190,8 @@ def resolve_sizing_platform(
     """`resolve_from_names` against this host's live `nvidia-smi` output."""
     if requested:
         return requested, None
-    return resolve_from_names(requested, live_gpu_names())
+    names = live_gpu_names()
+    return resolve_from_names(requested, names, _last_probe_detail)
 
 
 def main() -> int:
