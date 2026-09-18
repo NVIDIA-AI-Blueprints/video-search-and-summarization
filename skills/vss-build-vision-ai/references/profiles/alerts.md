@@ -24,6 +24,11 @@ vss-behavior-analytics-alerts,nvstreamer-alerts,perception-alerts,kibana-init-co
 nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-va-mcp,vss-agent,alert-bridge,phoenix,elasticsearch,elasticsearch-init-container,kafka,kafka-topic-init-container,redis,kibana,logstash,broker-health-check,vss-haproxy-ingress,rtvi-vlm,vss-ui,centralizedb,vst-ingress,sensor-ms,streamprocessing-ms,llm_${LLM_MODE}_${LLM_NAME_SLUG}
 ```
 
+Stock modes keep `vss-va-mcp` because `vss-agent` still calls
+`video_analytics_mcp` from `incident_report_agent` and `rtvi_vlm_alert`. A
+NemoClaw or host-CLI delta removes both keys; SOP-report deltas that need MCP
+without the agent add `vss-va-mcp` explicitly (`services/sop.md`).
+
 ## Capability owners present
 
 | Owner | Service profile keys |
@@ -34,7 +39,8 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-va-mc
 | RT-VLM | `rtvi-vlm` (both modes: `2d_cv` per-clip verification, `2d_vlm` real-time) |
 | ELK | `elasticsearch`, `elasticsearch-init-container`, `kafka`, `kafka-topic-init-container`, `redis`, `kibana`, `logstash`, `broker-health-check`, `kibana-init-container-alerts` |
 | VIOS | `nvstreamer-alerts`, `centralizedb`, `vst-ingress`, `sensor-ms`, `streamprocessing-ms` |
-| Agent | `vss-agent`, `vss-ui`, `vss-va-mcp`, `phoenix` |
+| Agent/UI | `vss-agent`, `vss-ui`, `phoenix` |
+| Video-analytics MCP (required while stock agent configs use it) | `vss-va-mcp` |
 | Ingress | `vss-haproxy-ingress` |
 | LLM NIM | `llm_${LLM_MODE}_${LLM_NAME_SLUG}` |
 
@@ -49,7 +55,8 @@ nvstreamer-alerts,kibana-init-container-alerts,vss-video-analytics-api,vss-va-mc
 | `DS_MODEL_FAMILY`, `MODEL_NAME_2D`, `RT_CV_DEVICE_ID`, `VSS_RT_CV_TAG` | Configure RT-CV in `2d_cv`. |
 | `VLM_NAME`, `VLM_MODE`, `VLM_BASE_URL`, `RTVI_VLM_*` | Configure verification or real-time VLM routing. |
 | `VLM_AS_VERIFIER_CONFIG_FILE*` | Select mounted alert verifier and real-time rule configs. |
-| `ALERT_BRIDGE_HOST_PORT`, `VSS_VA_MCP_HOST_PORT`, `RTVI_CV_HOST_PORT`, `RTVI_VLM_PORT` | Change alert-facing host ports. |
+| `ALERT_BRIDGE_HOST_PORT`, `VIDEO_ANALYTICS_API_HOST_PORT`, `RTVI_CV_HOST_PORT`, `RTVI_VLM_PORT` | Change alert-facing host ports. |
+| `VSS_VA_MCP_HOST_PORT` | Change the optional legacy VA-MCP host port when that service is explicitly selected. |
 | `NVSTREAMER_HTTP_HOST_PORT` | Select source playback host port. |
 
 ## Efficient Video Sampling
@@ -72,14 +79,30 @@ tradeoff. Do not enable EVS++ unless the user requests it.
 
 ## Stock readiness checks
 
-Both modes (`rtvi-vlm` is stock in `2d_cv` and `2d_vlm`):
+Derive probes from `resolved.yml`; do not probe an omitted service. Both stock
+modes select the Agent, analytics API, Alert Bridge, UI, and RT-VLM:
 
 ```bash
-curl -sf "http://${HOST_IP}:8000/health"
-curl -sf "http://${HOST_IP}:9080/health"
-curl -sf "http://${HOST_IP}:9901/health"
-curl -sf "http://${HOST_IP}:3000/"
+services=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services)
+if grep -qx vss-agent <<<"$services"; then
+  curl -sf "http://${HOST_IP}:8000/health"
+fi
+if grep -qx vss-video-analytics-api <<<"$services"; then
+  curl -sf "http://${HOST_IP}:${VIDEO_ANALYTICS_API_HOST_PORT:-8081}/livez"
+fi
+if grep -qx alert-bridge <<<"$services"; then
+  curl -sf "http://${HOST_IP}:${ALERT_BRIDGE_HOST_PORT:-9080}/health"
+fi
+if grep -qx vss-va-mcp <<<"$services"; then
+  curl -sf "http://${HOST_IP}:${VSS_VA_MCP_HOST_PORT:-9901}/health"
+fi
+if grep -qx vss-ui <<<"$services"; then
+  curl -sf "http://${HOST_IP}:3000/"
+fi
 ```
+
+A NemoClaw or host-CLI delta omits both `vss-agent` and `vss-va-mcp`, so neither
+`:8000` nor `:9901` is probed. The API and Alert Bridge probes still apply.
 
 For `2d_cv`, also require `vss-rtvi-cv`, `vss-behavior-analytics`, and the
 verification `rtvi-vlm` to resolve; probe

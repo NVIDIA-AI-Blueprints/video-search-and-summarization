@@ -90,8 +90,8 @@ pipefail`, or capture and check before piping.
    flight, and `get` returns the summary once it lands. `vss summarize list`
    finds the id, which `run` itself only prints when it exits.
 
-Per-command detail — sensor addressing, `--type`, window rules, what `vios`
-covers and what it does not — is in
+Per-command detail — analytics reads, the analytics/VIOS sensor distinction,
+sensor addressing, `--type`, window rules, and what `vios` covers — is in
 [`libs/vss/cli/AGENTS.md`](libs/vss/cli/AGENTS.md).
 
 ## Skills
