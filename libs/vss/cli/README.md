@@ -41,6 +41,37 @@ Being NAT-free is a property of the workspace, not of a lane you have to
 remember to run — nothing in `libs/vss` may depend on the agent stack, so
 `import nat` fails here by construction. CI asserts it on every run.
 
+## Optional command lifecycle events
+
+An evaluation harness can opt into CLI lifecycle records by setting all three
+environment variables for a trial:
+
+- `VSS_RELAY_URL`: the full HTTP(S) URL of its existing Relay event sink.
+- `VSS_RELAY_RUN`: the run identifier.
+- `VSS_RELAY_TRIAL`: the trial identifier.
+
+Unset or invalid context disables capture. This collector URL is observability
+configuration, not a VSS backend override: operational endpoints still come
+from `vss configure`. This feature deploys no collector and opens no sandbox
+egress rules. The harness must already permit access to its supplied sink.
+
+Each invocation posts a `kind=scope`, `category=tool` start/end pair with one
+UUID, timestamps, trial identity, and the public command words. The end carries
+elapsed milliseconds and the CLI exit code. Nonzero exits have a generic error
+label; they are not a task-quality score. Arguments, prompts, command output,
+credentials and exception messages are never included. Tool events describe
+VSS CLI invocations, not other agent tools or a parent model-call relationship.
+
+Delivery is best effort, with no retries or redirects. One daemon worker sends
+the records in order; each HTTP operation has a 200 ms socket timeout and the
+dispatcher waits at most 250 ms for final delivery. Even DNS or collector stalls
+must not prevent command completion. Output and exit/exception behavior are
+unchanged. Process termination or slow/unavailable sinks can lose events; a
+missing end record is incomplete evidence, not command success.
+
+Older CLIs ignore these variables, and consumers must tolerate absent lifecycle
+records. Platform updates do not depend on this optional producer being installed.
+
 ## Point it at a deployment
 
 Once per deployment. Everything after this takes no host, port, or endpoint.
