@@ -338,6 +338,63 @@ def test_stream_readiness_uses_all_three_index_families(
     ]
 
 
+def test_readiness_timeout_bounds_requests_and_final_sleep(
+    cli: click.Group, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A short timeout is a deadline, not permission for one five-second sleep per poll."""
+
+    class _ES:
+        url = "https://vss.test/elasticsearch"
+        indices: ClassVar[list[str]] = [
+            "mdx-embed-filtered-2025-01-01",
+            "mdx-behavior-2025-01-01",
+            "mdx-raw-2025-01-01",
+        ]
+
+    class _Deployment:
+        base_url = "https://vss.test"
+        services: ClassVar[dict[str, object]] = {"vst": object(), "elasticsearch": _ES()}
+
+        def has(self, name: str) -> bool:
+            return name in self.services
+
+    from vss_core import vios as vios_lib
+
+    request_timeouts: list[float] = []
+
+    async def resolve_sensor(_origin: str, _sensor: str) -> _Ref:
+        return _Ref()
+
+    async def count_documents(
+        _url: str,
+        _index: str,
+        _field: str,
+        _value: str,
+        timeout_seconds: float,
+    ) -> int:
+        request_timeouts.append(timeout_seconds)
+        return 0
+
+    now = [100.0]
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(vios_group, "context_from", lambda values: _ctx(_Deployment(), values))
+    monkeypatch.setattr(vios_group, "_monotonic", lambda: now[0])
+    monkeypatch.setattr(vios_group, "_sleep", sleep)
+    monkeypatch.setattr(vios_lib, "resolve_sensor", resolve_sensor)
+    monkeypatch.setattr(vios_lib, "count_documents", count_documents)
+
+    result = CliRunner().invoke(cli, ["readiness", "--sensor", _Ref.name, "--timeout", "0.1"])
+
+    assert result.exit_code == int(Exit.TIMEOUT)
+    assert sleeps == pytest.approx([0.1])
+    assert request_timeouts == pytest.approx([0.1, 0.1, 0.1])
+
+
 def test_readiness_requires_elasticsearch_to_be_configured(
     cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

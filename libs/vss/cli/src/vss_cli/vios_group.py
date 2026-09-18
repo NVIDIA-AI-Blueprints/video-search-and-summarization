@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
+import time
 from typing import Any
 import urllib.parse
 
@@ -50,6 +51,9 @@ from .group import requires_note
 REQUIRES = frozenset({"vst"})
 
 _TYPES = click.Choice(["video", "stream"])
+
+_monotonic = time.monotonic
+_sleep = time.sleep
 
 
 def _origin(ctx: Any) -> str:
@@ -291,8 +295,6 @@ def _readiness(ctx: Any, values: dict[str, Any]) -> Result:
     embedding/behavior/raw indexes have landed for this sensor (ingest-ready)
     or drained (delete-clean) without the skill hand-rolling `curl` against ES.
     """
-    import time
-
     from vss_core import vios
 
     origin = _origin(ctx)
@@ -337,23 +339,38 @@ def _readiness(ctx: Any, values: dict[str, Any]) -> Result:
         )
     assert embed_target and behavior_target and raw_target
     timeout_s = float(values["timeout"]) if values.get("timeout") else None
-    deadline = (time.monotonic() + timeout_s) if timeout_s is not None else None
+    deadline = (_monotonic() + timeout_s) if timeout_s is not None else None
     counts: dict[str, int] = {}
+
+    def timed_out() -> Result:
+        return Result(
+            body=_with_ref(ref, {"ready": False, "counts": counts, "type": source_type}),
+            exit=Exit.TIMEOUT,
+        )
+
     while True:
-        counts = {
-            "embed": _run(vios.count_documents(es.url, embed_target, "sensor.id.keyword", ref.stream_id)),
-            "behavior": _run(vios.count_documents(es.url, behavior_target, "sensor.id.keyword", ref.name)),
-            "raw": _run(vios.count_documents(es.url, raw_target, "sensorId.keyword", ref.name)),
-        }
+        counts = {}
+        for label, index, field, value in (
+            ("embed", embed_target, "sensor.id.keyword", ref.stream_id),
+            ("behavior", behavior_target, "sensor.id.keyword", ref.name),
+            ("raw", raw_target, "sensorId.keyword", ref.name),
+        ):
+            if deadline is None:
+                counts[label] = _run(vios.count_documents(es.url, index, field, value))
+                continue
+            remaining = deadline - _monotonic()
+            if remaining <= 0:
+                return timed_out()
+            counts[label] = _run(
+                vios.count_documents(es.url, index, field, value, timeout_seconds=remaining)
+            )
         ready = counts["embed"] > 0 and counts["behavior"] > 0 and counts["raw"] > 0
         if ready or deadline is None:
             break
-        if time.monotonic() >= deadline:
-            return Result(
-                body=_with_ref(ref, {"ready": False, "counts": counts, "type": source_type}),
-                exit=Exit.TIMEOUT,
-            )
-        time.sleep(5)
+        remaining = deadline - _monotonic()
+        if remaining <= 0:
+            return timed_out()
+        _sleep(min(5.0, remaining))
     return Result(body=_with_ref(ref, {"ready": ready, "counts": counts, "type": source_type}))
 
 
@@ -539,14 +556,14 @@ def _build() -> click.Group:
             "\n"
             "Counts documents in the embedding, behavior, and raw indexes for the\n"
             "resolved sensor and returns a `ready` verdict (all three > 0). For a\n"
-            "live stream (`--type rtsp`) the embedding count uses the family wildcard\n"
+            "live stream (`--type stream`) the embedding count uses the family wildcard\n"
             "`mdx-embed-filtered-*` because wall-clock docs land in any date shard.\n"
             "With `--timeout`, polls until ready or the timeout (exit 7); without it,\n"
             "one-shot. Index names are read from `vss configure show`'s inventory.\n"
             "\n"
             "\b\n"
             "  vss vios readiness --sensor warehouse_safety_0001\n"
-            "  vss vios readiness --sensor dock-cam --type rtsp --timeout 600\n",
+            "  vss vios readiness --sensor dock-cam --type stream --timeout 600\n",
             [
                 _sensor_option(),
                 click.Option(
