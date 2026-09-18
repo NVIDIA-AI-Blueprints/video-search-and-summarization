@@ -119,18 +119,20 @@ after deployment (below).
 Applies to **both** Q3 answers — a `yes` and a `no` alike — and not to a build
 whose request named the in-stack agent.
 
-**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`, then prune what
-only it consumed.** The `llm_*` peer is the in-stack agent's LLM: of the `base`
-services only `vss-agent` reads `LLM_*` (`services/agent/compose.yml`; the other
-readers are `alert-bridge` and `vss-lvs`, outside `base`), and the harness brings
-its own model provider. Drop the key - it is the build's largest GPU claim and
-image pull - unless an enabled service still consumes it (an `alerts`, `lvs` or
-combined build keeps it for `alert-bridge` / `vss-lvs`) or the harness LLM is
-route (a) *against the build's own LLM NIM*, which needs the NIM resident. This
-is [`composition.md`](composition.md)'s forward closure applied to the agent's
-own peer, not a harness rule. `vss-ui` and `phoenix` stay: pruning them is a
-capability decision, not a harness one - leave them and report `phoenix` as
-idle, since it collects the agent's traces and has no other client.
+**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES` together with the
+two peers only it uses: the `llm_*` key and `phoenix`.** They go as one unit.
+The `llm_*` peer is the in-stack agent's LLM: of the `base` services only
+`vss-agent` reads `LLM_*` (`services/agent/compose.yml`; the other readers are
+`alert-bridge` and `vss-lvs`, outside `base`), and the harness brings its own
+model provider - the NIM is the build's largest GPU claim and image pull.
+`phoenix` collects the agent's traces and has no other client; `haproxy` only
+routes to it, and tolerates an absent backend exactly as it does the absent
+agent. Keep `llm_*` only when an enabled service still consumes it (an
+`alerts`, `lvs` or combined build keeps it for `alert-bridge` / `vss-lvs`) or
+the harness LLM is route (a) *against the build's own LLM NIM*, which needs the
+NIM resident. This is [`composition.md`](composition.md)'s forward closure
+applied to the agent's own peers, not a harness rule. `vss-ui` stays: pruning
+it is a capability decision, not a harness one.
 
 `vss-ui`'s dependency on the agent ships as `required: false` so the filtered
 project still resolves, and `scripts/normalize_resolved_yml.py` drops the
