@@ -1,11 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 /**
- * VSS chat interface.
+ * VSS chat interface for the chat tab and docked sidebar.
  *
- * Replaces the NeMo Agent Toolkit chat UI for the chat tab and docked sidebar.
- * It depends on no toolkit code and consumes the backend-neutral VSS agent
- * agent API contract directly, with legacy chat-SSE compatibility.
+ * Consumes the VSS agent API contract, with legacy chat-SSE compatibility.
  */
 export { ChatPanel, default as default } from './ChatPanel';
 export { ConversationList } from './ConversationList';

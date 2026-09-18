@@ -37,10 +37,9 @@ export interface ChatMessageProps {
 }
 
 /**
- * The toolkit rendered `public/nvidia.jpg` here, and the VSS app still ships
- * that asset, so the answer header looks unchanged. The initials block is the
- * error fallback rather than the default: a deployment that drops the image
- * should degrade to something legible, not to a broken-image glyph.
+ * The VSS app ships `public/nvidia.jpg` for the answer header. The initials
+ * block is the error fallback rather than the default: a deployment that drops
+ * the image should degrade to something legible, not to a broken-image glyph.
  */
 const BotAvatar: React.FC = () => {
   const [failed, setFailed] = useState(false);
@@ -264,8 +263,8 @@ export const ChatMessageView: React.FC<ChatMessageProps> = memo(
                     {content}
                   </ReactMarkdown>
                   {isStreaming && !content ? (
-                    // Matches the toolkit's ChatLoader: a caret alone reads as
-                    // a rendering glitch, the word is what says "it heard you".
+                    // A caret alone reads as a rendering glitch; the word says
+                    // "it heard you".
                     <span className="cursor-default text-gray-500 dark:text-gray-400">
                       Thinking…
                       <span className="animate-pulse text-[#76b900]">▍</span>
