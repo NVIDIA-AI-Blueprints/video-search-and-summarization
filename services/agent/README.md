@@ -246,14 +246,15 @@ $ python3 libs/vss/core/src/vss_core/version.py
 ```
 
 The agent's *own installed package metadata* is deliberately not a source. The
-image builds with `SETUPTOOLS_SCM_PRETEND_VERSION=0.1.0` and copies individual
-paths rather than `.git`, so in a container `importlib.metadata` reports
-`0.1.x` — confidently wrong, which a compatibility check cannot recover from,
-where a missing version at least stops the caller honestly. Baking the real
-version in as a build argument is no better: agent images are content-addressed
-and re-tagged across commits with an identical source tree, so a
-commit-derived build argument would both defeat that reuse and let a re-tagged
-image report the commit it was first built from.
+image build copies individual paths and never `.git`, so there is no history to
+version from; the Dockerfile stamps the packages `0.0.0+tree.<source tree sha>`
+instead. That is image provenance and says so — `0.0.0` claims no release, and
+the local segment names the exact source tree, matching the
+`com.nvidia.vss.source_tree_sha` label. Baking a real version in as a build
+argument is not an option either: agent images are content-addressed and
+re-tagged across commits with an identical source tree, so a commit-derived
+stamp would both defeat that reuse and let a re-tagged image report the commit
+it was first built from.
 
 `VSS_DEPLOYMENT_VERSION` exists because `VSS_AGENT_VERSION` also resolves the
 agent's container image tag
@@ -287,6 +288,13 @@ check is aimed at an origin that does not route `/api` to the agent.
 |--------|-------|-----------------|
 | `404` | The deployment predates this endpoint and cannot report a version at all, **or** this origin's ingress does not route `/api` to the agent (the warehouse Helm ingress does not). | Upgrade the deployment, or point the check at the agent's own origin. |
 | `503` | No source produced a usable version: the winning variable is set but is not strict SemVer, or nothing is set and there are no git tags to derive from (a container, or a shallow clone). | Set `VSS_DEPLOYMENT_VERSION` (`vssDeploymentVersion` on Helm) to a strict SemVer value. |
+
+**Seeing it.** `vss configure check` reports the version alongside its route
+probes, or says why the deployment cannot report one — a lean stack without the
+agent, an origin that does not route `/api`, or a misconfigured version. It
+does not fail on that: a stack without the agent is a legitimate deployment,
+and the point is that an operator finds out there rather than from an aborted
+benchmark.
 
 **Checking it.** [`scripts/check_vss_version.py`](scripts/check_vss_version.py)
 checks the endpoint on any deployment — standard library only, so it can be
