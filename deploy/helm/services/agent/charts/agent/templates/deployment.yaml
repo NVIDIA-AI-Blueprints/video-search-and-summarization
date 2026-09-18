@@ -112,7 +112,7 @@ spec:
             {{- end }}
           env:
             - name: HITL_ENABLED
-              value: {{ .Values.hitlEnabled | default false | quote }}
+              value: {{ .Values.hitlEnabled | default true | quote }}
             {{- /*
               Option B: container env is the explicit list `env` (each value may use Helm `tpl` with .Values / .Release).
               `extraEnv` entries override same-named entries from `env` and from the generated
