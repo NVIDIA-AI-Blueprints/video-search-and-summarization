@@ -119,7 +119,7 @@ export const ChatSteps: React.FC<ChatStepsProps> = ({ steps, streaming, expandBy
       {open && (
         <ul className="mt-2 flex flex-col gap-1">
           {tree.map((step) => (
-            <StepNode key={step.id} step={step} defaultOpen={!!streaming} />
+            <StepNode key={step.id} step={step} defaultOpen={false} />
           ))}
         </ul>
       )}
