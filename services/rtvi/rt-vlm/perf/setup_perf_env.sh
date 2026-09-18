@@ -75,6 +75,7 @@
 #   VST_SENSOR_PORT     — VST sensor service HTTP port (default: 30000)
 #   VST_STREAM_PROC_PORT — VST stream processor HTTP port (default: 30001)
 #   VST_RTSP_PORT       — VST RTSP server port (default: 30554)
+#   VST_ENVOY_BASE_ID   — Envoy shared-memory base ID (default: 1)
 #   DISABLE_IPV6        — Set to 'true' to add IPv6-disable sysctl entries (default: false)
 #                          WARNING: disables IPv6 system-wide; may break other services
 #   VST_API_BASE        — VST HTTP API base URL (default: http://localhost:${VST_INGRESS_PORT})
@@ -111,6 +112,7 @@ Optional environment variables (sensible defaults shown):
   VST_SENSOR_PORT       VST sensor service HTTP port       (default: 30000)
   VST_STREAM_PROC_PORT  VST stream processor HTTP port     (default: 30001)
   VST_RTSP_PORT         VST RTSP server port               (default: 30554)
+  VST_ENVOY_BASE_ID     Envoy shared-memory base ID        (default: 1)
   DISABLE_IPV6          Set to 'true' to add IPv6-disable  (default: false)
                         sysctl entries (net.ipv6.conf.*).
                         WARNING: disables IPv6 system-wide and persists across
@@ -350,6 +352,7 @@ VST_INGRESS_PORT="${VST_INGRESS_PORT:-30888}"
 VST_SENSOR_PORT="${VST_SENSOR_PORT:-30000}"
 VST_STREAM_PROC_PORT="${VST_STREAM_PROC_PORT:-30001}"
 VST_RTSP_PORT="${VST_RTSP_PORT:-30554}"
+VST_ENVOY_BASE_ID="${VST_ENVOY_BASE_ID:-1}"
 NVSTREAMER_HTTP_PORT="${NVSTREAMER_HTTP_PORT:-31000}"
 NVSTREAMER_RTSP_PORT="${NVSTREAMER_RTSP_PORT:-31554}"
 DISABLE_IPV6="${DISABLE_IPV6:-false}"
@@ -725,6 +728,8 @@ log "  VST_INGRESS_PORT     = ${VST_INGRESS_PORT}"
 log "  VST_SENSOR_PORT      = ${VST_SENSOR_PORT}"
 log "  VST_STREAM_PROC_PORT = ${VST_STREAM_PROC_PORT}"
 log "  VST_RTSP_PORT        = ${VST_RTSP_PORT}"
+[[ "${VST_ENVOY_BASE_ID}" =~ ^[0-9]+$ ]] || die "VST_ENVOY_BASE_ID must be a non-negative integer"
+log "  VST_ENVOY_BASE_ID    = ${VST_ENVOY_BASE_ID}"
 
 require_cmd curl
 require_cmd jq
@@ -1200,7 +1205,10 @@ _sdr_compose="${VST_DIR}/stream-processing/sdr-streamprocessing/sdr-compose.yaml
 if [[ -f "${_sdr_compose}" ]]; then
     sed -i "s|http://localhost:30000/api/v1/sensor|http://localhost:${VST_SENSOR_PORT}/api/v1/sensor|g" \
         "${_sdr_compose}" || true
+    sed -i -E "s|--base-id[[:space:]]+[0-9]+|--base-id ${VST_ENVOY_BASE_ID}|g" \
+        "${_sdr_compose}" || true
     log "  Patched sdr-compose.yaml: VST_STREAMS/STATUS_ENDPOINT → localhost:${VST_SENSOR_PORT}"
+    log "  Patched sdr-compose.yaml: Envoy base ID → ${VST_ENVOY_BASE_ID}"
 else
     warn "  ${_sdr_compose} not found — sdr-compose.yaml sensor port patch skipped."
 fi

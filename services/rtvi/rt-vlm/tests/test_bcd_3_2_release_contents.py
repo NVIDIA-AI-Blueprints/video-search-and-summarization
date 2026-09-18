@@ -136,6 +136,8 @@ def test_setup_derives_bcd_videos_from_lvs_source():
     assert 'generate_bcd_video 3600 "${BCD_60M_VIDEO_FILENAME}"' in setup
     assert 'download_video "${BCD_10M_VIDEO_FILENAME}"' not in setup
     assert 'download_video "${BCD_60M_VIDEO_FILENAME}"' not in setup
+    assert 'VST_ENVOY_BASE_ID="${VST_ENVOY_BASE_ID:-1}"' in setup
+    assert '--base-id ${VST_ENVOY_BASE_ID}' in setup
 
 
 def test_lvs_fetch_configures_ngc_scope_and_accepts_download_layout(tmp_path):
