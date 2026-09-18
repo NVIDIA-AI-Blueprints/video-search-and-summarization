@@ -17,11 +17,6 @@ File-level exceptions:
     WebRTC/V4L2 codec headers under services/vios/src/framework/webrtc_streamer/inc/
     are provided under BSD-3-Clause.
 
-  - Triton model configs under services/rtvi/rt-cv/TritonGdino/triton_model_repo/
-    and services/rtvi/rt-cv/TritonMaskGdino/triton_model_repo/, and alert
-    configs under
-    deploy/helm/developer-profiles/dev-profile-alerts/configs/vss-rtvi-cv/alerts/
-    are provided under LicenseRef-NvidiaProprietary.
   - Logstash pipeline configs under
     deploy/docker/services/infra/elk/logstash/pipelines/kafka/ and
     deploy/helm/services/infra/charts/logstash/files/ are provided under
