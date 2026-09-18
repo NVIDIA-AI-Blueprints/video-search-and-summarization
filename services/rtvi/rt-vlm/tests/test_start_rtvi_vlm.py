@@ -11,13 +11,22 @@
 ######################################################################################################
 
 import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
 
 START_SCRIPT = Path(__file__).parents[1] / "start_rtvi_vlm.sh"
 REPO_ROOT = START_SCRIPT.parent
+RUNTIME_VALIDATOR_PATH = "rtvi/utils/env_validation.py"
+
+
+def _create_runtime_layout(root: Path) -> None:
+    validator = root / RUNTIME_VALIDATOR_PATH
+    validator.parent.mkdir(parents=True)
+    shutil.copy2(REPO_ROOT / "src/utils/env_validation.py", validator)
 
 
 def _run_entrypoint_defaults(
@@ -29,12 +38,14 @@ def _run_entrypoint_defaults(
     video_pruning_rate: str | None = None,
     check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    prefix = START_SCRIPT.read_text(encoding="utf-8").split("mkdir -p /tmp/rtvi-logs/", 1)[0]
+    prefix = START_SCRIPT.read_text(encoding="utf-8").split(
+        "mkdir -p /tmp/rtvi-logs/", 1
+    )[0]
     stubs = r"""
 nvdec_get_count() { echo 8; }
 python3() {
-    if [ "$1" = "src/utils/env_validation.py" ]; then
-        command python3 "$@"
+    if [ "$1" = "rtvi/utils/env_validation.py" ]; then
+        command python3 "__VALIDATOR_PATH__"
     else
         return 0
     fi
@@ -47,7 +58,9 @@ nvidia-smi() {
         *name*) echo "__GPU_NAME__" ;;
     esac
 }
-""".replace("__GPU_NAME__", gpu_name)
+""".replace("__GPU_NAME__", gpu_name).replace(
+        "__VALIDATOR_PATH__", str(REPO_ROOT / "src/utils/env_validation.py")
+    )
     env = os.environ.copy()
     env.update(
         {
@@ -129,7 +142,8 @@ def test_cr3_nano_non_gb300_does_not_default_to_triton_attention() -> None:
 
 def test_explicit_attention_backend_is_preserved() -> None:
     output = _run_entrypoint_defaults(
-        "FLASHINFER", model_path="ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-test"
+        "FLASHINFER",
+        model_path="ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-test",
     ).stdout
 
     assert output.endswith("FLASHINFER")
@@ -143,7 +157,9 @@ def test_empty_graph_and_gemm_overrides_are_unset() -> None:
 
 
 def test_explicit_graph_and_gemm_overrides_are_preserved() -> None:
-    output = _run_entrypoint_defaults(cudagraph_mode="NONE", gemm_backend="cutlass").stdout
+    output = _run_entrypoint_defaults(
+        cudagraph_mode="NONE", gemm_backend="cutlass"
+    ).stdout
 
     assert output.endswith("x:NONE|x:cutlass|TRITON_ATTN")
 
@@ -156,7 +172,9 @@ def test_non_gb300_empty_cudagraph_behavior_is_unchanged() -> None:
     assert output.endswith("x:|:|")
 
 
-@pytest.mark.parametrize("value", ["-0.5", "0", "1", "1.5", "nan", "inf", "not-a-number"])
+@pytest.mark.parametrize(
+    "value", ["-0.5", "0", "1", "1.5", "nan", "inf", "not-a-number"]
+)
 def test_invalid_video_pruning_rate_stops_entrypoint(value: str) -> None:
     result = _run_entrypoint_defaults(video_pruning_rate=value, check=False)
 
@@ -173,18 +191,25 @@ def test_valid_or_unset_video_pruning_rate_allows_entrypoint(value: str | None) 
 
 
 @pytest.mark.parametrize("value", ["-0.5", "1.5"])
-def test_full_entrypoint_rejects_reported_invalid_video_pruning_rates(value: str) -> None:
+def test_full_entrypoint_rejects_reported_invalid_video_pruning_rates(
+    value: str,
+) -> None:
     env = os.environ.copy()
     env["VLM_VIDEO_PRUNING_RATE"] = value
 
-    result = subprocess.run(
-        ["bash", str(START_SCRIPT)],
-        check=False,
-        capture_output=True,
-        cwd=START_SCRIPT.parent,
-        env=env,
-        text=True,
-    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        runtime_root = Path(temp_dir)
+        _create_runtime_layout(runtime_root)
+        runtime_entrypoint = runtime_root / START_SCRIPT.name
+        shutil.copy2(START_SCRIPT, runtime_entrypoint)
+        result = subprocess.run(
+            ["bash", str(runtime_entrypoint)],
+            check=False,
+            capture_output=True,
+            cwd=runtime_root,
+            env=env,
+            text=True,
+        )
 
     assert result.returncode == 2
     assert "VLM_VIDEO_PRUNING_RATE" in result.stderr
@@ -202,3 +227,6 @@ def test_environment_validator_is_packaged_for_runtime_and_public_release() -> N
 
     assert "utils/env_validation.py" in runtime_files.splitlines()
     assert "src/utils/env_validation.py" in release_files.splitlines()
+    assert f"python3 {RUNTIME_VALIDATOR_PATH}" in START_SCRIPT.read_text(
+        encoding="utf-8"
+    )
