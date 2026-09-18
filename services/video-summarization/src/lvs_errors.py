@@ -36,6 +36,8 @@ from __future__ import annotations
 import logging
 from typing import Tuple
 
+from elasticsearch_shard_retry import is_shard_unavailable_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -110,6 +112,11 @@ def _looks_like_shard_cap(exc: BaseException) -> bool:
     return False
 
 
+def _looks_like_unavailable_shard(exc: BaseException) -> bool:
+    """Identify a transient search failure caused by an inactive shard."""
+    return any(is_shard_unavailable_error(link) for link in _walk_causes(exc))
+
+
 def classify_es_error(exc: BaseException) -> Tuple[int, str]:
     """Map an Elasticsearch / Logstash dependency exception to an HTTP
     response shape suitable for surfacing through ``/v1/summarize`` and
@@ -139,6 +146,9 @@ def classify_es_error(exc: BaseException) -> Tuple[int, str]:
 
     if _looks_like_shard_cap(exc):
         return 503, _SHARD_LIMIT_USER_MESSAGE
+
+    if _looks_like_unavailable_shard(exc):
+        return 503, _GENERIC_ES_USER_MESSAGE.format(status=503)
 
     if isinstance(status, int) and 400 <= status < 600:
         return 503, _GENERIC_ES_USER_MESSAGE.format(status=status)

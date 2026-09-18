@@ -59,6 +59,9 @@ vios:
 # Remote endpoints: use global.llmBaseUrl / global.vlmBaseUrl.
 # LVS backend routes VLM calls through vss-rtvi-vlm by default (RTVI_VLM_URL set in values.yaml extraEnv). Override only to bypass RTVI.
 vss-summarization:
+  # Size at one summarization replica per two RTVI-VLM replicas. Keep the
+  # default for the single-VLM profile; use 2 for 3X/4X scale testing.
+  replicas: 1
   vlmService: "vss-rtvi-vlm"
 
 # LVS always enables vss-rtvi-vlm (integrated checkpoint, Kafka enabled in values.yaml). Override here only when
