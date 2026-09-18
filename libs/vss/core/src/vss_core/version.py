@@ -31,16 +31,15 @@ Resolution order, most authoritative first:
    no deployment environment at all (``nat serve`` from a clone). Answers with
    the source it is actually running rather than nothing.
 
-Deliberately NOT consulted: this package's own installed metadata.
-``services/agent/docker/Dockerfile`` builds with
-``SETUPTOOLS_SCM_PRETEND_VERSION=0.1.0`` and copies individual paths rather
-than ``.git``, so in a container ``importlib.metadata`` reports ``0.1.x`` —
-confidently wrong, which a compatibility check cannot recover from, where a
-missing version at least stops the caller honestly. Baking the real version in
-at build time is no better: agent images are content-addressed and re-tagged
-across commits with an identical source tree (``build-dev-images.yml``), so a
-commit-derived build arg would both defeat that reuse and let a re-tagged image
-report the commit it was first built from.
+Deliberately NOT consulted: this package's own installed metadata. The build
+context copies individual paths and never ``.git``, so there is no history to
+version from; ``services/agent/docker/Dockerfile`` stamps the packages
+``0.0.0+tree.<source tree sha>`` instead, which is image provenance and says so
+— ``0.0.0`` claims no release. Baking a real version in at build time is not an
+option either: agent images are content-addressed and re-tagged across commits
+with an identical source tree (``build-dev-images.yml``), so a commit-derived
+stamp would both defeat that reuse and let a re-tagged image report the commit
+it was first built from.
 """
 
 from __future__ import annotations

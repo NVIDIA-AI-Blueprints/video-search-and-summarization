@@ -28,9 +28,29 @@ RUN mkdir -p /src/services/agent && \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Set version for setuptools-scm
-ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VSS_AGENT=0.1.1
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.1.0
+# Version for hatch-vcs/setuptools-scm. A value is mandatory: the COPY lines
+# below name individual paths and never .git, so there is no history to derive
+# one from and the install fails without it.
+#
+# `0.0.0` states plainly that this image claims no release -- the previous
+# `0.1.0`/`0.1.1` looked like one, and `importlib.metadata` inside the
+# container reported it as fact. The local segment names the source tree the
+# image was built from: the same value carried by the
+# com.nvidia.vss.source_tree_sha label and keyed on by the content-addressed
+# re-tagging in build-dev-images.yml. Deriving it from the tree rather than the
+# commit is what keeps that reuse honest -- two commits with an identical tree
+# bake an identical version, so a re-tagged image cannot report the commit it
+# was first built from.
+#
+# This is image provenance, not the version a deployment reports: that comes
+# from VSS_DEPLOYMENT_VERSION or the checkout's tags (vss_core.version).
+#
+# The per-distribution override that used to sit here,
+# SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VSS_AGENT, named a distribution called
+# `vss-agent`, which this repo does not build -- the packages are nvidia-vss,
+# nvidia-vss-agents, nvidia-vss-core and nvidia-vss-cli. It set nothing.
+ARG VSS_SOURCE_TREE_SHA=unknown
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0+tree.${VSS_SOURCE_TREE_SHA}
 ENV GIT_LFS_SKIP_SMUDGE=1
 
 WORKDIR /src/services/agent

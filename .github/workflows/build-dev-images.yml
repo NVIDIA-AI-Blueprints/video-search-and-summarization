@@ -219,7 +219,15 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
-          build-args: ${{ matrix.build_args }}
+          # VSS_SOURCE_TREE_SHA stamps the built packages with the source tree
+          # they came from, so metadata inside an image is provenance rather
+          # than a made-up version. Passed to every build and consumed by the
+          # Dockerfiles that declare the ARG; the rest ignore it. Tree-derived
+          # on purpose: the re-tag path above reuses a manifest across commits
+          # with an identical tree, and a commit-derived stamp would go stale.
+          build-args: |
+            ${{ matrix.build_args }}
+            VSS_SOURCE_TREE_SHA=${{ steps.meta.outputs.tree_sha }}
           push: true
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
@@ -462,7 +470,10 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
-          build-args: ${{ matrix.build_args }}
+          # See the standard build above.
+          build-args: |
+            ${{ matrix.build_args }}
+            VSS_SOURCE_TREE_SHA=${{ steps.meta.outputs.tree_sha }}
           push: true
           cache-from: ${{ steps.cache.outputs.from }}
           cache-to: ${{ steps.cache.outputs.to }}
