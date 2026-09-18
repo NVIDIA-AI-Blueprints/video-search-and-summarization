@@ -720,46 +720,33 @@ commons:
 # ========================================================================================================
 # HARDWARE PROFILES
 # ========================================================================================================
+# 3D stream limits use the lower result across Sparse4D v2.3 and v3.0 when
+# the model versions differ. Profiles run at 30 FPS unless their tuning below
+# sets interval: "1", in which case the effective inference rate is 15 FPS.
 
 H100:
   2d:
     max_streams_supported: 77
   3d:
+    # H100 NVL and H100 80GB HBM3 share this profile; use the lower NVL limit.
     max_streams_supported: 19
   mv3dt:
     max_streams_supported: 61
 
-L4:
+GB300:
   2d:
-    max_streams_supported: 9
+    max_streams_supported: 161
   3d:
-    max_streams_supported: 3
-  mv3dt:
-    max_streams_supported: 7
+    # Conservative limit: Sparse4D v2.3 supports 74 and v3.0 supports 71.
+    max_streams_supported: 71
 
 L40S:
   2d:
-    max_streams_supported: 29
-  3d:
-    max_streams_supported: 10
-  mv3dt:
-    max_streams_supported: 23
-
-RTXA6000:
-  2d:
-    max_streams_supported: 15
-  3d:
-    max_streams_supported: 4
-  mv3dt:
-    max_streams_supported: 4
-
-RTXA6000ADA:
-  2d:
     max_streams_supported: 28
   3d:
-    max_streams_supported: 8
+    max_streams_supported: 9
   mv3dt:
-    max_streams_supported: 22
+    max_streams_supported: 23
 
 RTXPRO6000BW:
   2d:
@@ -806,6 +793,7 @@ IGX-THOR:
           VisualTracker.vpiBackend4DcfTracker: 1
 
   3d:
+    # interval: 1 below runs Sparse4D at an effective 15 FPS.
     max_streams_supported: 8
     file_operations:
       # Update DeepStream main config
@@ -869,6 +857,7 @@ DGX-SPARK:
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
 
   3d:
+    # interval: 1 below runs Sparse4D at an effective 15 FPS.
     max_streams_supported: 7
     file_operations:
       # Update DeepStream main config
