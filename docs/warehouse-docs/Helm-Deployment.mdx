@@ -50,11 +50,9 @@ git lfs install
 git lfs pull
 ```
 
-### Change into the Chart Directory
+### Stay at the Repository Root
 
-```bash
-cd deploy/helm/industry-profiles/warehouse-operations
-```
+Run the chart README commands from the `video-search-and-summarization` repository root; their paths are relative to that directory.
 
 ### Follow the Chart README
 
@@ -68,10 +66,10 @@ Open the chart README for the profile you are deploying and follow its installat
 | 3D Vision AI Profile | [warehouse-3d-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/README.md) |
 | MV3DT Vision AI Profile | [warehouse-mv3dt-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/README.md) |
 
-Each README covers, in order, prerequisites and GPU requirements, required secrets, web UI and ingress configuration, the full `values.yaml` reference, installation and post-install validation, the alerts stack, monitoring, stream scaling by GPU, and upgrade and uninstall instructions.
+Each README covers, in order, prerequisites and GPU requirements, required secrets, web UI and ingress configuration, the full `values.yaml` reference, installation and post-install validation, the alerts stack (2D only), monitoring, stream scaling by GPU, and upgrade and uninstall instructions.
 
 <Note>
-After running `helm upgrade --install`, wait until all pods in the release namespace are in the **Running** state and show **Ready** (check with `kubectl get pods -n <NAMESPACE> -w`) before opening the UI or sending requests. Image pulls, persistent volume binding, and the NGC model and app-data download job all add to the startup time.
+After running `helm upgrade --install`, wait until service pods are **Running**/**Ready** and init Jobs (e.g. the NGC download job) show **Completed** (check with `kubectl get pods -n <NAMESPACE> -w`) before opening the UI.
 </Note>
 
 ## Common Configuration
