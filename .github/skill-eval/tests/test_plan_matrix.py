@@ -176,6 +176,32 @@ class EvalScope(unittest.TestCase):
                 (plan_matrix.REPO_ROOT / "skills" / name / "SKILL.md").is_file(),
                 f"{name!r} is in EVAL_SKILL_NAMES but is not a skill dir")
 
+    def test_named_root_bundled_snapshots_are_not_discovered_as_skills(self):
+        skills_root = plan_matrix.REPO_ROOT / "skills"
+        carrier = skills_root / plan_matrix.OPENSHELL_CARRIER_SKILL
+        snapshots = {
+            child.name
+            for child in carrier.iterdir()
+            if child.is_dir() and (child / "SKILL.md").is_file()
+        }
+        self.assertTrue(snapshots)
+        discovered = plan_matrix.discover_skills()
+        self.assertEqual(
+            discovered[plan_matrix.OPENSHELL_CARRIER_SKILL], carrier
+        )
+        for name in snapshots:
+            self.assertNotEqual(discovered.get(name), carrier / name)
+        listed = plan_matrix.list_skill_file_paths()
+        self.assertFalse(
+            any(
+                path.startswith(
+                    f"skills/{plan_matrix.OPENSHELL_CARRIER_SKILL}/{name}/"
+                )
+                for name in snapshots
+                for path in listed
+            )
+        )
+
     def test_a_category_root_holds_no_skill_md_of_its_own(self):
         for cat in plan_matrix.EVAL_SKILL_CATEGORIES:
             self.assertFalse(
@@ -342,6 +368,8 @@ class RealSpecCorpus(unittest.TestCase):
             )
             self.assertNotIn("openshell-h200-active", leg["runs_on"])
             self.assertNotIn("gpu-h200", leg["runs_on"])
+            self.assertNotIn("gpu-l40s", leg["runs_on"])
+            self.assertNotIn("l40s", leg["runs_on"])
             self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
             self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
 
@@ -772,6 +800,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             "h200", "a16", "a40", "rtx-pro-6000",
             "gpu-h200", "gpu-nvidia-h200", "gpu-rtxpro6000bw",
             "gpu-a16", "gpu-a40", "gpu-nvidia-a16", "gpu-nvidia-a40",
+            "l40s", "gpu-l40s", "openshell-l40s-active",
             "openshell-h200-active", "openshell-a16-active",
             "openshell-a40-active", "openshell-rtxpro6000-active",
             "vram-15gb", "vram-46gb", "video-codec",
@@ -787,8 +816,16 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.OPENSHELL_RTXPRO6000_LABELS,
         ):
             self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, labels)
+            self.assertTrue(
+                plan_matrix.OPENSHELL_REJECTED_LABELS.isdisjoint(labels)
+            )
+            self.assertNotIn("gpu-l40s", labels)
+            self.assertNotIn("l40s", labels)
         for cohort in plan_matrix.OPENSHELL_COHORTS:
             self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, cohort.labels)
+            self.assertTrue(
+                plan_matrix.OPENSHELL_REJECTED_LABELS.isdisjoint(cohort.labels)
+            )
 
     def test_only_gpu_count_is_consumed(self):
         """A SKU declaration cannot move, block, or size an OpenShell leg."""

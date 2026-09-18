@@ -91,29 +91,41 @@ SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def discover_skills() -> dict[str, Path]:
-    """Map leaf skill-name -> skill dir for every dir holding a SKILL.md under
-    an EVAL_SKILL_ROOTS root — the root itself (skills/<name>/) or one category
-    level down (skills/<category>/<name>/). Leaf names are the identity and must
-    be unique. Adapters stay keyed by this leaf name (the adapters/ tree is flat)."""
+    """Map covered leaf skill names to their skill directories.
+
+    Category roots contribute immediate children; named roots contribute only
+    themselves. A named carrier may contain bundled skill snapshots, but those
+    are payload, not independently dispatched skills.
+    """
     out: dict[str, Path] = {}
     skills_root = REPO_ROOT / "skills"
     if not skills_root.is_dir():
         return out
-    for root_name in EVAL_SKILL_ROOTS:
-        root = skills_root / root_name
-        if not root.is_dir():
+    candidates: list[Path] = []
+    for category in EVAL_SKILL_CATEGORIES:
+        root = skills_root / category
+        if root.is_dir():
+            candidates.extend(
+                child
+                for child in sorted(root.iterdir())
+                if child.is_dir() and (child / "SKILL.md").is_file()
+            )
+    candidates.extend(
+        root
+        for name in EVAL_SKILL_NAMES
+        if (root := skills_root / name).is_dir()
+        and (root / "SKILL.md").is_file()
+    )
+    for d in candidates:
+        rel = d.relative_to(skills_root)
+        if any(part.startswith(".") or part.startswith("_") for part in rel.parts):
             continue
-        for md in sorted(root.rglob("SKILL.md")):
-            d = md.parent
-            rel = d.relative_to(skills_root)
-            if any(part.startswith(".") or part.startswith("_") for part in rel.parts):
-                continue
-            if d.name in out and out[d.name] != d:
-                raise ValueError(
-                    f"duplicate skill name {d.name!r}: {out[d.name]} and {d} — "
-                    f"skill leaf names must be unique across categories"
-                )
-            out[d.name] = d
+        if d.name in out and out[d.name] != d:
+            raise ValueError(
+                f"duplicate skill name {d.name!r}: {out[d.name]} and {d} — "
+                f"skill leaf names must be unique across categories"
+            )
+        out[d.name] = d
     return out
 
 
@@ -192,10 +204,16 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # `gpus-N`. Register replacements without a cohort active label (or keep
 # listeners down) until canaries pass.
 #
+# GitHub `runs-on` is AND-only — there is no way to say "openshell-runner
+# AND NOT l40s". Count-only jobs still match `openshell-runner`. L40S VMs
+# carry an extra `l40s` label that other `openshell-runner` guests do not;
+# the eval workflow rejects that guest after it claims the job.
+#
 # Post-job destroy/recreate is host-side: the OpenShell VM orchestrator
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
 # This workflow does not implement KVM/VFIO.
 OPENSHELL_RUNNER_LABEL = "openshell-runner"
+OPENSHELL_REJECTED_LABELS = frozenset({"l40s"})
 OPENSHELL_FLEET_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
@@ -417,11 +435,13 @@ def _gpu_count(config: dict) -> int:
 def openshell_job_labels(gpu_count: int) -> list[str]:
     """GitHub `runs-on` for a count-only OpenShell leg.
 
-    Fleet tags only — no SKU (`gpu-h200`, `gpu-rtxpro6000bw`), no cohort
-    active label (`openshell-h200-active`), no VRAM/codec tags. `gpus-N`
-    is the GPU-count demand so 1-GPU and 2-GPU jobs stay on matching
-    guests. A zero-GPU declaration may use any OpenShell guest. Operators
-    can still register SKU labels on the VMs; count-only jobs do not require
+    Fleet tags only — no SKU (`gpu-h200`, `gpu-rtxpro6000bw`, `l40s`),
+    no cohort active label (`openshell-h200-active`), no VRAM/codec tags.
+    `gpus-N` is the GPU-count demand so 1-GPU and 2-GPU jobs stay on
+    matching guests. A zero-GPU declaration may use any OpenShell guest.
+    Jobs still match `openshell-runner`; L40S VMs that also carry `l40s`
+    are rejected in the eval workflow, not at `runs-on`. Operators can
+    still register SKU labels on the VMs; count-only jobs do not require
     them.
     """
     if gpu_count == 0:
@@ -597,10 +617,15 @@ def adapter_exists(skill: str) -> bool:
 
 
 def list_skill_file_paths(skills_dir: Path | None = None) -> list[str]:
-    """Repo-relative paths to every SKILL.md under `skills/`."""
+    """Repo-relative paths to covered skills, or every skill under a test root."""
     root = skills_dir or (REPO_ROOT / "skills")
     if not root.is_dir():
         return []
+    if skills_dir is None:
+        return sorted(
+            (skill_dir / "SKILL.md").relative_to(root.parent).as_posix()
+            for skill_dir in discover_skills().values()
+        )
     out: list[str] = []
     for p in sorted(root.rglob("SKILL.md")):
         if not p.is_file():

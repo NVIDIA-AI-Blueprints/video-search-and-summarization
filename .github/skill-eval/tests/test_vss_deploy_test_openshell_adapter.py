@@ -11,6 +11,7 @@ GPU and refuses to generate for a card it does not recognise.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -150,9 +151,9 @@ def test_every_instruction_opens_with_the_mandated_preamble() -> None:
         source_skill="vss-manage-alerts", step_index=2, step_count=2,
     )
     assert "bare" in first and "LLM_REMOTE_URL" in first
-    assert "are unset on this guest" in first
+    assert "are configured via OpenShell egress" in first
     assert "LLM_MODE=remote" in first
-    assert "are configured via" not in first
+    assert "are unset on this guest" not in first
     assert "already deployed by step 1" in later
     assert "do not redeploy" in later
 
@@ -194,6 +195,10 @@ def test_explicit_platform_overrides_detection() -> None:
     with mock.patch.object(adapter, "live_gpu_names", return_value=["NVIDIA T4"]):
         platform, error = adapter.resolve_sizing_platform("L40S")
     assert (platform, error) == ("L40S", None)
+    with mock.patch.object(adapter, "live_gpu_names", return_value=["NVIDIA L40S"]):
+        platform, error = adapter.resolve_sizing_platform(None)
+    assert platform is None
+    assert "l40s label" in error
 
 
 def test_spec_platform_keys_do_not_gate_generation(tmp_path: Path) -> None:
@@ -325,6 +330,59 @@ def test_every_eval_spec_stem_is_a_profile() -> None:
     assert stems == set(adapter.PROFILES)
 
 
+def _tree_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def test_bundled_skill_snapshots_match_the_canonical_skills() -> None:
+    adapter = _load_adapter()
+    carrier = REPO_ROOT / "skills" / "vss-deploy-test-openshell"
+    skills_root = carrier.parent
+    snapshots = sorted(
+        child
+        for child in carrier.iterdir()
+        if child.is_dir() and (child / "SKILL.md").is_file()
+    )
+    assert snapshots
+    assert set(adapter.ALWAYS_BUNDLED_SKILLS).issubset(
+        {snapshot.name for snapshot in snapshots}
+    )
+    assert {
+        skill.name for skill in adapter._iter_operations_skills(skills_root)
+    }.issubset({snapshot.name for snapshot in snapshots})
+    for snapshot in snapshots:
+        canonical = adapter._find_bundled_skill(skills_root, snapshot.name)
+        assert canonical is not None, snapshot.name
+        assert canonical != snapshot
+        assert _tree_digest(snapshot) == _tree_digest(canonical), snapshot.name
+
+
+def test_generated_task_flattens_snapshots_into_top_level_skills(
+    tmp_path: Path,
+) -> None:
+    adapter = _load_adapter()
+    carrier = REPO_ROOT / "skills" / "vss-deploy-test-openshell"
+    adapter.generate_task(
+        "base",
+        "H200",
+        adapter.PROFILES["base"],
+        tmp_path,
+        skill_dir=carrier,
+        gpu_count=1,
+    )
+    generated = tmp_path / "base" / "h200" / "skills"
+    assert (generated / "vss-deploy-test-openshell" / "SKILL.md").is_file()
+    assert not list(
+        (generated / "vss-deploy-test-openshell").glob("*/SKILL.md")
+    )
+    for name in adapter.ALWAYS_BUNDLED_SKILLS:
+        assert (generated / name / "SKILL.md").is_file(), name
+
+
 def test_generate_task_does_not_write_a_guest_marker(tmp_path: Path) -> None:
     """Harbor task generation stays a dataset write; the marker is CI-only."""
     adapter = _load_adapter()
@@ -379,21 +437,20 @@ def test_main_refreshes_the_marker_with_the_live_profile(
     assert calls[-1]["extra"] == {"hardware_profile": "H200"}
 
 
-def test_daily_ported_specs_do_not_ask_for_remote_nims() -> None:
-    """OpenShell guests have LLM_REMOTE_URL/VLM_REMOTE_URL unset.
-
-    A query that still says 'using remote LLM and remote VLM' makes
-    /vss-build-vision-ai write LLM_MODE=remote and never start local NIMs.
-    """
-    banned = (
+def test_daily_ported_specs_use_remote_nims() -> None:
+    """OpenShell guests now reach the same remote NIM endpoints as Brev."""
+    required = (
         "using remote LLM and remote VLM",
         "configured remote model endpoints",
         "remote-all",
-        "full-remote",
-        "remote launchpad",
+    )
+    banned = (
+        "do not use remote endpoints; they are unset",
+        "using local LLM and VLM NIMs on this host",
     )
     evals = REPO_ROOT / "skills" / "vss-deploy-test-openshell" / "evals"
     offenders: list[str] = []
+    remote_hits = 0
     for path in sorted(evals.rglob("*.json")):
         if path.name == "evals.json" or path.parent.name == "openshell":
             continue
@@ -401,4 +458,7 @@ def test_daily_ported_specs_do_not_ask_for_remote_nims() -> None:
         for phrase in banned:
             if phrase in text:
                 offenders.append(f"{path.relative_to(evals)}: {phrase}")
+        if any(phrase in text for phrase in required):
+            remote_hits += 1
     assert offenders == []
+    assert remote_hits > 0

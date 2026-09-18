@@ -380,7 +380,7 @@ class HarborEnvironment(unittest.TestCase):
             run_leg.HARBOR_TRANSFER_OPERATION_BUDGET_SEC,
         )
 
-    def test_local_gpu_strips_remote_placement_and_raises_agent_budget(self):
+    def test_local_gpu_keeps_remote_placement_and_raises_agent_budget(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/base"),
             include_task_name="rtxpro6000bw",
@@ -414,10 +414,10 @@ class HarborEnvironment(unittest.TestCase):
                 ]
             )
 
-        self.assertNotIn("LLM_REMOTE_URL", env)
-        self.assertNotIn("LLM_REMOTE_MODEL", env)
-        self.assertNotIn("VLM_REMOTE_URL", env)
-        self.assertNotIn("VLM_REMOTE_MODEL", env)
+        self.assertEqual(env["LLM_REMOTE_URL"], "http://10.86.6.50:32081")
+        self.assertEqual(env["LLM_REMOTE_MODEL"], "remote-llm")
+        self.assertEqual(env["VLM_REMOTE_URL"], "http://10.86.6.50:32086")
+        self.assertEqual(env["VLM_REMOTE_MODEL"], "remote-vlm")
         self.assertEqual(int(env["BREV_EXEC_TIMEOUT"]), 7830)
         self.assertEqual(
             cmd[cmd.index("--agent-timeout-multiplier") + 1],

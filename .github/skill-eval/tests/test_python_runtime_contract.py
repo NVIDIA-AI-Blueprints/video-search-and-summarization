@@ -34,6 +34,8 @@ def test_pr_and_daily_workflows_pin_every_python_job() -> None:
             assert "python3 .github/skill-eval/skills_eval_agent.py" not in workflow
             assert "Assert OpenShell GPU runtime" in workflow
             assert "matrix.local_gpu" in workflow
+            assert "rejected OpenShell guest that also has the l40s label" in workflow
+            assert "openshell-eval" not in workflow
             assert "startsWith(runner.name, 'vss-skill-eval-gpu-a40-')" not in workflow
             assert "uv tool run" in workflow
             assert "base64 -d" in workflow
@@ -69,6 +71,8 @@ def test_openshell_sweep_runs_the_daily_jobs_on_openshell_guests() -> None:
     assert "TRIGGER_OPENSHELL_EVAL" not in daily
     assert "runs-on: ${{ matrix.runs_on }}" in daily
     assert "Assert OpenShell GPU runtime" in daily
+    assert "rejected OpenShell guest that also has the l40s label" in daily
+    assert "openshell-eval" not in daily
     assert "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s" in daily
     assert "unset BREV_INSTANCE" in daily
     assert "/home/ubuntu/eval-coordinator/.env" not in daily

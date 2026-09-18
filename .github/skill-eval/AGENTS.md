@@ -543,12 +543,15 @@ things:
 
 - **Placement** is GitHub labels plus GPU count, and nothing else.
   `openshell_job_labels()` emits `vss-skill-eval-gpu` +
-  `openshell-runner` + `openshell` + `gpus-N` and no SKU;
+  `openshell-runner` + `openshell` + `gpus-N` and no SKU. GitHub cannot
+  AND-NOT `l40s`, so jobs still match `openshell-runner`; the eval step
+  rejects a guest that also carries the `l40s` label.
   `openshell_requirements()` reads `openshell.gpu_count` and ignores the
   rest; `brev_env` gates the guest on live `gpu_count` only — no
   `gpu_type`, no VRAM floor. The matrix leg therefore carries an **empty**
   `platform` and `hardware_profile`, and its `cohort` is the flat tag
-  `openshell`. Any OpenShell guest with that many GPUs may claim the job,
+  `openshell`. Any eligible OpenShell guest with that many GPUs may claim
+  the job (A16/A40/H200/RTX; a guest that also has `l40s` is rejected),
   and none of them is the wrong one. Every cohort carries those fleet
   tags, so a `gpus-1` leg can land on a 15 GB A16 as easily as on a
   141 GB H200. A profile that does not fit the card it got fails as a

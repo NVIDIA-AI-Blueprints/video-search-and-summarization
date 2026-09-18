@@ -45,6 +45,12 @@ def test_blackwell_server_card_is_not_read_as_an_older_sku() -> None:
     assert live_platform.detect_platform(["NVIDIA L40S"]) == "L40S"
 
 
+def test_live_l40s_is_blocked_for_openshell_sizing() -> None:
+    platform, error = live_platform.resolve_from_names(None, ["NVIDIA L40S"])
+    assert platform is None
+    assert "this OpenShell runner also has the l40s label" in error
+
+
 def test_unrecognised_card_blocks_rather_than_guessing() -> None:
     platform, error = live_platform.resolve_from_names(None, ["NVIDIA T4"])
     assert platform is None

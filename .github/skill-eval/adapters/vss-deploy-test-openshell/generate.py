@@ -11,12 +11,11 @@ recognise has no measured `hw-<profile>.env` sizing, so it exits 2 naming
 the card instead of guessing. `--platform` overrides detection for local
 runs.
 
-OpenShell guests cannot reach corp remote NIM URLs, so the workflow
-unsets `LLM_REMOTE_URL`/`VLM_REMOTE_URL`. Step-1 instructions for a
-ported daily spec therefore tell the agent those remotes are unset and
-to deploy local NIMs; a query that still says "using remote LLM and
-remote VLM" would write `LLM_MODE=remote` and never start local NIMs.
-`openshell.gpu_count` is the only trial-level resource hint.
+OpenShell guests now reach the same remote NIM endpoints as Brev
+through egress. Step-1 instructions therefore tell the agent
+`LLM_REMOTE_URL` / `VLM_REMOTE_URL` are configured and to use them the
+same way the daily operations specs do. `openshell.gpu_count` is the
+only trial-level resource hint.
 
 Matrix:
     Profiles : openshell/{base,warehouse,report-rag} plus one spec per
@@ -257,6 +256,17 @@ PLATFORMS: dict[str, dict] = {
 # spec author knows their profile's always-local GPUs (RT-CV for alerts,
 # Cosmos Embed1 for search) and writes the total.
 
+ALWAYS_BUNDLED_SKILLS = (
+    "vss-build-vision-ai",
+    "vss-deploy-dense-captioning",
+    "vss-deploy-detection-tracking-2d",
+    "vss-deploy-detection-tracking-3d",
+    "vss-deploy-video-embedding",
+    "vss-deploy-warehouse-helm",
+    "vss-setup-behavior-analytics",
+    "vss-setup-video-analytics-api",
+)
+
 PROFILES: dict[str, dict] = {
     "base": {
         "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
@@ -405,8 +415,14 @@ PROFILES: dict[str, dict] = {
 }
 
 
-def _find_bundled_skill(skills_root: Path, name: str) -> Path | None:
-    """Locate a sibling skill directory by leaf name."""
+def _find_bundled_skill(
+    skills_root: Path, name: str, carrier_dir: Path | None = None
+) -> Path | None:
+    """Locate a bundled snapshot, falling back to the canonical skill tree."""
+    if carrier_dir is not None:
+        snapshot = carrier_dir / name
+        if snapshot.is_dir() and (snapshot / "SKILL.md").is_file():
+            return snapshot
     direct = skills_root / name
     if direct.is_dir() and (direct / "SKILL.md").is_file():
         return direct
@@ -433,6 +449,29 @@ def _copy_skill_dir(src: Path, dest: Path) -> None:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
+
+
+def _copy_carrier_skill_dir(src: Path, dest: Path) -> None:
+    """Copy the carrier without embedding its bundled skill snapshots.
+
+    Snapshots live under the carrier in the repository for a self-contained
+    OpenShell bundle. Harbor needs each one as a top-level `/skills/<name>`
+    directory, so they are copied separately below.
+    """
+    if dest.exists():
+        shutil.rmtree(dest)
+    source_root = src.resolve()
+
+    def _ignore(path: str, names: list[str]) -> set[str]:
+        if Path(path).resolve() != source_root:
+            return set()
+        return {
+            name
+            for name in names
+            if (source_root / name / "SKILL.md").is_file()
+        }
+
+    shutil.copytree(src, dest, ignore=_ignore)
 
 
 def deploy_profile(eval_profile: str) -> str:
@@ -516,9 +555,9 @@ def generate_instruction(
                 f"`{platform}` host.",
                 "Docker + NVIDIA Container Toolkit are available and "
                 "`NGC_CLI_API_KEY` is set. `LLM_REMOTE_URL` / "
-                "`VLM_REMOTE_URL` are unset on this guest — deploy local "
-                "LLM and VLM NIMs sized for this host; do not write "
-                "`LLM_MODE=remote` / `VLM_MODE=remote`.",
+                "`VLM_REMOTE_URL` are configured via OpenShell egress — "
+                "use those remote NIM endpoints (`LLM_MODE=remote` / "
+                "`VLM_MODE=remote`) the same way Brev daily evals do.",
             ]
         else:
             leading = [
@@ -900,17 +939,28 @@ def generate_task(
 
         if skill_dir and skill_dir.exists():
             skills_root = skill_dir.parent
-            _copy_skill_dir(
+            _copy_carrier_skill_dir(
                 skill_dir, task_dir / "skills" / "vss-deploy-test-openshell"
             )
             copied: set[str] = {"vss-deploy-test-openshell"}
             for extra in _iter_operations_skills(skills_root):
-                _copy_skill_dir(extra, task_dir / "skills" / extra.name)
+                src = _find_bundled_skill(
+                    skills_root, extra.name, carrier_dir=skill_dir
+                )
+                if src is None:
+                    continue
+                _copy_skill_dir(src, task_dir / "skills" / extra.name)
                 copied.add(extra.name)
-            for extra in profile_def.get("bundled_skills") or ():
+            requested = (
+                *ALWAYS_BUNDLED_SKILLS,
+                *(profile_def.get("bundled_skills") or ()),
+            )
+            for extra in requested:
                 if extra in copied:
                     continue
-                src = _find_bundled_skill(skills_root, extra)
+                src = _find_bundled_skill(
+                    skills_root, extra, carrier_dir=skill_dir
+                )
                 if src is None:
                     print(
                         f"WARN: bundled skill {extra!r} not found under {skills_root}",
@@ -918,6 +968,7 @@ def generate_task(
                     )
                     continue
                 _copy_skill_dir(src, task_dir / "skills" / extra)
+                copied.add(extra)
 
 
 # ---------------------------------------------------------------------------

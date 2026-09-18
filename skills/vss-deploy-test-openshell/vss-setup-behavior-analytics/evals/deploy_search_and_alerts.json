@@ -1,0 +1,22 @@
+{
+  "skills": [
+    "vss-setup-behavior-analytics"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Using the `/vss-setup-behavior-analytics` skill, end-to-end and autonomously, deploy the `vss-behavior-analytics` service on this host in a **single container that performs BOTH video-search AND alerting at the same time** — produces behaviors + embeddings (for search) AND generates incidents (for alerts).\n\n**Environment & prerequisites:** A bare Brev host with Docker + `NGC_CLI_API_KEY` for image pull. `vss-behavior-analytics` is **CPU-only** (`gpu_count: 0` = skip GPU-type / count enforcement; `ANY` = no-constraint pool selector). A live message broker / perception input is NOT required — this task verifies the service is **deployed with the correct app + configuration**, so it is fine if the container restart-loops waiting for a broker.",
+      "checks": [
+        "`docker ps -a --format '{{.Names}}' | grep -q vss-behavior-analytics` returns exit 0 (a single behavior-analytics container was created)",
+        "`docker inspect $(docker ps -aq --filter name=vss-behavior-analytics | head -1) --format '{{json .Config.Cmd}}' | grep -q main_search_and_alerts_app.py` returns exit 0 (the combined search/alerts app entrypoint is used)",
+        "The config the container actually mounts (resolve it via `docker inspect <container> --format '{{json .Mounts}}'` and read the host source, or read `/resources/*config.json` inside the container) enables ALL THREE processors so the one container does both search and alerts simultaneously: `numWorkersForIncidentGeneration`, `numWorkersForBehaviorCreation`, and `numWorkersForEmbedFiltering` are each set to a non-zero worker count (none left at \"0\")."
+      ]
+    }
+  ]
+}

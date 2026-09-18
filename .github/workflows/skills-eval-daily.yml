@@ -197,12 +197,36 @@ jobs:
 
       - name: Assert OpenShell GPU runtime
         # Planner sets matrix.local_gpu on every OpenShell leg, whichever
-        # guest claims it (A16/A40/H200/RTX). Do not key this on runner.name:
-        # H200 registrations are h200-N-g<gen>-<id>, not
+        # guest claims it (A16/A40/H200/RTX, never L40S). Do not key this
+        # on runner.name: H200 registrations are h200-N-g<gen>-<id>, not
         # vss-skill-eval-gpu-h200-*.
         if: ${{ matrix.local_gpu }}
         run: |
           export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+          # GitHub `runs-on` still matches `openshell-runner`. L40S VMs also
+          # carry `l40s`; other openshell-runner guests do not. Reject here.
+          reject_l40s_runner() {
+            echo "rejected OpenShell guest that also has the l40s label (runner=$RUNNER_NAME)" >&2
+            [ -n "${1:-}" ] && printf '%s\n' "$1" >&2
+            exit 1
+          }
+          label_blob=$(printf '%s\n' \
+            "${RUNNER_LABELS:-}" \
+            "${ACTIONS_RUNNER_INPUT_LABELS:-}" \
+            "${ACTIONS_RUNNER_LABELS:-}")
+          oifs=$IFS
+          IFS=$' \t\n,;|'
+          for tok in $label_blob; do
+            [ "$(printf '%s' "$tok" | tr 'A-Z' 'a-z')" = "l40s" ] && {
+              IFS=$oifs
+              reject_l40s_runner
+            }
+          done
+          IFS=$oifs
+          gpu_names=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || true)
+          case "$gpu_names" in
+            *L40S*) reject_l40s_runner "$gpu_names" ;;
+          esac
           # Harbor/GHA call `uvx --python` and `uvx --version`. A symlink
           # uvx -> uv exposes the full uv CLI and those flags fail.
           # The GHA workload namespace is often no_new_privs, so sudo cannot
@@ -271,13 +295,9 @@ jobs:
           if [ "${{ matrix.local_gpu }}" = "true" ]; then
             printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
             printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"
-            # Do not persist corp remote LLM/VLM URLs into GITHUB_ENV.
-            # Guests cannot reach 10.86.6.50; the skill then deploys
-            # remote mode and local NIMs never occupy VRAM.
-            printf "LLM_REMOTE_URL=\n" >> "$GITHUB_ENV"
-            printf "LLM_REMOTE_MODEL=\n" >> "$GITHUB_ENV"
-            printf "VLM_REMOTE_URL=\n" >> "$GITHUB_ENV"
-            printf "VLM_REMOTE_MODEL=\n" >> "$GITHUB_ENV"
+            # Remote NIM endpoints are reachable through OpenShell egress.
+            # Keep LLM_REMOTE_* / VLM_REMOTE_* from ~/.eval_env or repository
+            # secrets so deploys use the same remote placement as Brev.
             # sample-deployment judge requires a harness-provided NGC
             # resource (WAREHOUSE_APP_DATA_DIR or WAREHOUSE_APP_DATA_NGC).
             # Pin matches deploy/docker and helm 3.2.0 defaults.
@@ -305,6 +325,10 @@ jobs:
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
           CI_NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
           CI_HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          CI_LLM_REMOTE_URL: ${{ secrets.LLM_REMOTE_URL }}
+          CI_LLM_REMOTE_MODEL: ${{ secrets.LLM_REMOTE_MODEL }}
+          CI_VLM_REMOTE_URL: ${{ secrets.VLM_REMOTE_URL }}
+          CI_VLM_REMOTE_MODEL: ${{ secrets.VLM_REMOTE_MODEL }}
           CODEX_MODEL: ${{ vars.CODEX_MODEL }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -351,6 +375,18 @@ jobs:
           if [ -n "${CI_HF_TOKEN:-}" ]; then
             export HF_TOKEN="$CI_HF_TOKEN"
           fi
+          if [ -n "${CI_LLM_REMOTE_URL:-}" ]; then
+            export LLM_REMOTE_URL="$CI_LLM_REMOTE_URL"
+          fi
+          if [ -n "${CI_LLM_REMOTE_MODEL:-}" ]; then
+            export LLM_REMOTE_MODEL="$CI_LLM_REMOTE_MODEL"
+          fi
+          if [ -n "${CI_VLM_REMOTE_URL:-}" ]; then
+            export VLM_REMOTE_URL="$CI_VLM_REMOTE_URL"
+          fi
+          if [ -n "${CI_VLM_REMOTE_MODEL:-}" ]; then
+            export VLM_REMOTE_MODEL="$CI_VLM_REMOTE_MODEL"
+          fi
           # The repo secret is the NVIDIA inference-api key (same as helm-sync).
           # Hitting api.anthropic.com with it returns 401. Default the gateway
           # when the secret/base is unset so OpenShell jobs use the same path.
@@ -360,20 +396,14 @@ jobs:
           if [ -z "${ANTHROPIC_MODEL:-}" ]; then
             export ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
           fi
-          # OpenShell local-GPU legs must not inherit corp remote LLM/VLM URLs
-          # from ~/.eval_env. Those endpoints time out from the guests; the
-          # skill then writes LLM_MODE=remote and never starts local NIMs.
+          # OpenShell guests now use the same remote NIM endpoints as Brev.
+          # Keep LLM_REMOTE_* / VLM_REMOTE_* from ~/.eval_env or secrets.
           if [ -n "${SKILL_EVAL_LOCAL_GPU_INSTANCE:-}" ]; then
-            unset LLM_REMOTE_URL LLM_REMOTE_MODEL VLM_REMOTE_URL VLM_REMOTE_MODEL
-            # Same inheritance trap: a BREV_INSTANCE left in ~/.eval_env names
-            # a coordinator pool box, and brev_env fails the leg in seconds
-            # with "BREV_INSTANCE does not match SKILL_EVAL_LOCAL_GPU_INSTANCE".
+            # A BREV_INSTANCE left in ~/.eval_env names a coordinator pool
+            # box, and brev_env fails the leg in seconds with
+            # "BREV_INSTANCE does not match SKILL_EVAL_LOCAL_GPU_INSTANCE".
             # Harbor is pinned to this guest; nothing here may name another box.
             unset BREV_INSTANCE
-            # These guests run local NIMs against wiped model volumes, so a
-            # cold weight download routinely exceeds the 18-minute default
-            # and the run is cancelled mid-deploy. DEFAULT_HARD_CEILING_SEC
-            # (7200s) is not env-driven, so a hung run is still bounded.
             export DIRECT_AGENT_IDLE_TIMEOUT_SEC="${DIRECT_AGENT_IDLE_TIMEOUT_SEC:-2700}"
           fi
           # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`

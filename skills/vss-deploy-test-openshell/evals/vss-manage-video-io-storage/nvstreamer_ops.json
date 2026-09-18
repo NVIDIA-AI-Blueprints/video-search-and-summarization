@@ -18,7 +18,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the prerequisites for the following video-I/O operations on `{{platform}}`: VIOS in SDRC-routed mode and NvStreamer, using local LLM and VLM NIMs on this host (do not use remote endpoints; they are unset). Do not upload the evaluation video during setup. Run autonomously.",
+      "query": "Deploy the prerequisites for the following video-I/O operations on `{{platform}}`: VIOS in SDRC-routed mode and NvStreamer, using remote LLM and remote VLM endpoints. Do not upload the evaluation video during setup. Run autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version | jq -e '.type == \"vst\"'` returns exit 0.",
         "`curl -sf --max-time 15 http://localhost:${NVSTREAMER_HTTP_PORT:-31000}/api/v1/sensor/version | jq -e '.type == \"streamer\"'` returns exit 0."

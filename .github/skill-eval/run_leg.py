@@ -100,12 +100,6 @@ NEMOCLAW_SETUP_AGENT_BUDGET_SEC = int(
 # weights into VRAM. The Brev remote-endpoint path stays at 9.0.
 LOCAL_GPU_AGENT_TIMEOUT_MULTIPLIER = 12.0
 HARBOR_VERIFIER_TIMEOUT_MULTIPLIER = 3.0
-_REMOTE_PLACEMENT_KEYS = frozenset({
-    "LLM_REMOTE_URL",
-    "LLM_REMOTE_MODEL",
-    "VLM_REMOTE_URL",
-    "VLM_REMOTE_MODEL",
-})
 HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC = int(
     HARBOR_BASE_PHASE_TIMEOUT_SEC
     * HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
@@ -476,8 +470,6 @@ def harbor_env(instance: str) -> dict[str, str]:
                 env.pop(key, None)
         env.pop("SSH_AGENT_PID", None)
         env.pop("SSH_AUTH_SOCK", None)
-        for key in _REMOTE_PLACEMENT_KEYS:
-            env.pop(key, None)
     workspace = env.get("GITHUB_WORKSPACE") or str(REPO_ROOT)
     skill_eval_path = str(Path(workspace) / ".github" / "skill-eval")
     pythonpath = env.get("PYTHONPATH", "")

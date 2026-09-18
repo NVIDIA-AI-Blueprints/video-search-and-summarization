@@ -1,6 +1,6 @@
 ---
 name: vss-deploy-test-openshell
-description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, or two-GPU warehouse agents profile on OpenShell, then chain to operations skills (vss-ask-video, vss-search-archive, vss-summarize-video, vss-manage-video-io-storage, vss-query-analytics, vss-manage-alerts, vss-generate-video-report, vss-generate-video-report-rag). For other warehouse variants or standalone microservices, use vss-deploy-profile or the matching vss-deploy-* skill.
+description: Use when the user asks to select, configure, deploy, verify, debug, or tear down the VSS base, lvs, search, or two-GPU warehouse agents profile on OpenShell, then chain to the bundled build, deployment, and operations skills. OpenShell eval tasks include vss-build-vision-ai, standalone deployment skills, and every operations skill as top-level skills.
 license: Apache-2.0
 metadata:
   version: "3.2.2"
@@ -10,7 +10,7 @@ metadata:
 ---
 # VSS Deploy on OpenShell (base, lvs, search, and warehouse agents)
 
-This skill is a subset of `vss-deploy-profile`. It deploys the **base**,
+This is the OpenShell-specific deploy entry point. It deploys the **base**,
 **lvs**, and **search** compose profiles, plus the two-GPU **warehouse agents**
 variant (`BP_PROFILE=bp_wh`, `MODE=2d`, remote LLM, local RT-CV and RTVI VLM).
 After the matching profile is up, chain to the operations skill rather than
@@ -25,11 +25,12 @@ hand-rolling HTTP:
 
 Do not use this skill for:
 
-- Other warehouse variants (Kafka/Redis-only, 3D, MV3DT, auto-calibration) or
-  the full alerts *profile* catalog — use `vss-deploy-profile`. Warehouse
-  agents on OpenShell still chain to `vss-manage-alerts` for the alert-bridge
-  already in `bp_wh`.
-- Standalone microservice deployment outside a compose profile — use the matching skill: `vss-deploy-dense-captioning`, `vss-deploy-detection-tracking-2d`, `vss-deploy-detection-tracking-3d`, or `vss-deploy-video-embedding`.
+- Composing a different stock or custom profile — use the bundled
+  `vss-build-vision-ai` skill. Warehouse agents on OpenShell still chain to
+  `vss-manage-alerts` for the alert bridge already in `bp_wh`.
+- Standalone microservice deployment outside a compose profile — use the
+  matching bundled skill listed in
+  [§ Bundled build and deployment skills](#bundled-build-and-deployment-skills).
 - NGC CLI install/configure in isolation — see [`references/ngc.md`](references/ngc.md), or this skill will run it as part of the credential gate.
 
 ## Available Scripts
@@ -71,6 +72,28 @@ uses the industry-profile directory, three env files, and two compose files.
 **Edge hardware routing** (DGX Spark, AGX/IGX Thor): see [`references/edge.md`](references/edge.md). DGX Spark uses the Spark Nano 9B standalone local LLM on port `30081`; AGX/IGX Thor uses the Edge 4B standalone vLLM fallback.
 
 **Each profile's reference owns its sizing table.** Don't pick a deployment shape from this file — open the profile reference and check minimum GPU count for the host's hardware against the (mode × platform) matrix there.
+
+## Bundled build and deployment skills
+
+OpenShell Harbor tasks install these snapshots as top-level skills. Load the
+matching `/skills/<name>/SKILL.md` instead of forcing the request through this
+skill's stock-profile flow.
+
+| Request | Bundled skill |
+|---|---|
+| Compose a stock or custom vision stack | `vss-build-vision-ai` |
+| Standalone dense captioning / RT-VLM | `vss-deploy-dense-captioning` |
+| Standalone 2D detection and tracking / RT-CV | `vss-deploy-detection-tracking-2d` |
+| Standalone 3D or MV3DT perception | `vss-deploy-detection-tracking-3d` |
+| Standalone video embedding / RT-Embed | `vss-deploy-video-embedding` |
+| Warehouse deployment through Kubernetes/Helm | `vss-deploy-warehouse-helm` |
+| Standalone behavior analytics | `vss-setup-behavior-analytics` |
+| Standalone Video Analytics API | `vss-setup-video-analytics-api` |
+
+`vss-deploy-profile` is not bundled because it was retired; profile
+composition now belongs to `vss-build-vision-ai`. Every skill under
+`skills/operations/` is also installed at the task's top-level `/skills`
+directory for post-deployment work.
 
 ## Instructions
 

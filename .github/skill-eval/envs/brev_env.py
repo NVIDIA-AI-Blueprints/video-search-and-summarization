@@ -85,10 +85,8 @@ def _openshell_count_only() -> bool:
     )
 
 
-# Corp remote LLM/VLM endpoints are optional on coordinator Brev boxes.
-# OpenShell guests cannot reach 10.86.6.50, and forwarding these keys
-# makes /vss-deploy-profile write LLM_MODE=remote / VLM_MODE=remote so
-# local NIMs never start and VRAM stays empty.
+# Corp remote LLM/VLM endpoints are used on coordinator Brev boxes and
+# on OpenShell guests now that those NIMs are reachable through egress.
 _REMOTE_PLACEMENT_KEYS = (
     "LLM_REMOTE_URL",
     "LLM_REMOTE_MODEL",
@@ -197,8 +195,6 @@ def _eval_env_forward_keys() -> tuple[str, ...]:
         "GITHUB_RUN_ID",
         "VSS_VIOS_PREBAKE_PACKAGES",
     )
-    if _local_gpu_instance():
-        return tuple(key for key in keys if key not in _REMOTE_PLACEMENT_KEYS)
     return keys
 
 # Keep every file-transfer API bounded below run_leg.py's recovery headroom.
