@@ -1,6 +1,6 @@
 Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-This project is licensed under Apache-2.0, including services/ui/.
+This project is licensed under Apache-2.0.
 
 This project also contains Elasticsearch, Kibana and Redis configuration files, which are dual-licensed and may be used under your choice of either:
    - Server Side Public License v1 (SSPLv1)
