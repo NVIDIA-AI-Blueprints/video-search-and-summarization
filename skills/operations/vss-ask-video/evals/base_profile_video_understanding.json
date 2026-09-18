@@ -85,14 +85,14 @@
     {
       "query": "Was a forklift blocking the fire exit on warehouse_sample in the first 10 seconds?",
       "checks": [
-        "It makes at most one vss vlm run, and any such run targets warehouse_sample over that exact window.",
-        "It does not broaden or invent scope."
+        "It consults VSS memory first with vss memory query or vss memory introspect, before any VLM call.",
+        "It makes at most one vss vlm run, and any such run targets warehouse_sample over that exact window without broadening or inventing scope."
       ]
     },
     {
       "query": "Did a forklift enter the loading area on warehouse_sample last week?",
       "checks": [
-        "It does not turn \"last week\" into concrete UTC timestamps of its own.",
+        "It does not pass a window it derived from \"last week\" to any VSS command.",
         "It does not run vss vlm run over an invented window."
       ]
     },
