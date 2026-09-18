@@ -40,8 +40,7 @@ is the normal case in this repo, so a green run is not proof of parity.
 from __future__ import annotations
 
 import copy
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 #: Ground truth is annotated on a 5-second grid, so retrieved windows are split

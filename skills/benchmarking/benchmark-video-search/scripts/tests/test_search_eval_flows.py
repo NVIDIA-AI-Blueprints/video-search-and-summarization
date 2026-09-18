@@ -27,11 +27,10 @@ routing, and VST name matching.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sys
 import tempfile
-from typing import Any
-from typing import ClassVar
+from pathlib import Path
+from typing import Any, ClassVar
 
 import pytest
 
@@ -455,6 +454,23 @@ def test_sensor_list_url_does_not_double_the_vst_prefix() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("data", [[{}], "not-a-list", ["not-an-object"]])
+def test_live_decomposer_rejects_malformed_model_inventory(monkeypatch: pytest.MonkeyPatch, data: Any) -> None:
+    """Malformed OpenAI-compatible inventories must enter the normal fallback path."""
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"data": data}
+
+    monkeypatch.setattr("flows.decompose.requests.get", lambda *_args, **_kwargs: _Response())
+
+    with pytest.raises(flows.DecompositionError, match="malformed model list|without an id"):
+        flows.LiveDecomposer("http://llm", repo_root=flows.REPO_ROOT)
+
+
 def test_routing_rule_matches_the_four_cli_paths() -> None:
     """Derived from the paths' input models, not invented.
 
@@ -659,9 +675,8 @@ def test_the_flag_matches_the_field_the_cli_actually_declares() -> None:
     not prove the flag exists, only that it has not been renamed underneath us.
     """
     try:
-        from vss_cli.search.group import SearchGroup
-        from vss_cli.search.group import _Common
-    except Exception as error:  # pragma: no cover - depends on the environment
+        from vss_cli.search.group import SearchGroup, _Common
+    except Exception as error:  # pragma: no cover - depends on the environment  # noqa: BLE001
         pytest.skip(f"vss_cli is not importable here: {error}")
 
     assert "original_query" in _Common.model_fields, (
@@ -743,20 +758,20 @@ def test_explicit_cmd_wins_and_is_shell_split() -> None:
 
 
 def test_repo_root_without_the_cli_package_is_rejected(tmp_path: Path) -> None:
-    """The submodule pin is exactly this case -- it predates the CLI split."""
+    """A checkout without the current CLI workspace is rejected explicitly."""
     (tmp_path / "services/agent").mkdir(parents=True)
     try:
         flows.resolve_vss_cmd(repo_root=str(tmp_path))
     except FileNotFoundError as e:
-        assert "packages/vss_cli" in str(e)
+        assert "libs/vss/cli" in str(e)
         return
     raise AssertionError("expected FileNotFoundError for a checkout without the CLI")
 
 
 def test_repo_root_with_the_cli_package_is_accepted(tmp_path: Path) -> None:
-    (tmp_path / "services/agent/packages/vss_cli").mkdir(parents=True)
+    (tmp_path / "libs/vss/cli").mkdir(parents=True)
     argv, how = flows.resolve_vss_cmd(repo_root=str(tmp_path))
-    assert argv[:3] == ["uv", "run", "--project"]
+    assert argv == ["uv", "run", "--project", f"{tmp_path}/libs/vss", "vss"]
     assert "--vss-repo-root" in how
 
 
@@ -790,7 +805,7 @@ def _legacy():
     """Import run_eval.py, or skip if it has already been removed."""
     try:
         from search_eval import run_eval
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     return run_eval
 
@@ -1341,10 +1356,7 @@ def test_an_unreachable_vst_is_unchecked_not_a_passing_anchor(monkeypatch: Any) 
 
 def test_default_vss_cmd_uses_the_project_local_cli() -> None:
     cmd = flows.default_vss_cmd("/home/me/vss")
-    assert cmd[:3] == ["uv", "run", "--project"]
-    assert "/home/me/vss/services/agent" in cmd
-    # --extra cli ships the `vss` executable; the base distribution does not.
-    assert "--extra" in cmd and "cli" in cmd
+    assert cmd == ["uv", "run", "--project", "/home/me/vss/libs/vss", "vss"]
 
 
 # ---------------------------------------------------------------------------
@@ -1693,7 +1705,7 @@ _F = "%Y-%m-%dT%H:%M:%SZ"
 def _window(video: str, start_s: int, length_s: int = 5) -> dict[str, str]:
     import datetime
 
-    base = datetime.datetime(2025, 1, 1) + datetime.timedelta(seconds=start_s)
+    base = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC) + datetime.timedelta(seconds=start_s)
     return {
         "video_name": video,
         "start_time": base.strftime(_F),

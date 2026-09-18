@@ -47,8 +47,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import TYPE_CHECKING
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
 
@@ -82,8 +81,8 @@ def load_prompt(repo_root: Path) -> tuple[str, str]:
             "This skill must run from inside a VSS checkout."
         )
     text = src.read_text()
-    prompt = re.search(r'QUERY_DECOMPOSITION_PROMPT = """(.*?)"""', text, re.S)
-    few_shot = re.search(r'DEFAULT_FEW_SHOT_EXAMPLES = """(.*?)"""', text, re.S)
+    prompt = re.search(r'QUERY_DECOMPOSITION_PROMPT = """(.*?)"""', text, re.DOTALL)
+    few_shot = re.search(r'DEFAULT_FEW_SHOT_EXAMPLES = """(.*?)"""', text, re.DOTALL)
     if prompt is None or few_shot is None:
         raise DecompositionError(
             f"QUERY_DECOMPOSITION_PROMPT / DEFAULT_FEW_SHOT_EXAMPLES not found in {src}; "
@@ -128,14 +127,17 @@ class LiveDecomposer:
             resp = requests.get(f"{self._url}/v1/models", timeout=self._timeout)
             resp.raise_for_status()
             data = resp.json()["data"]
-        except (requests.RequestException, KeyError, ValueError) as e:
+        except (requests.RequestException, KeyError, TypeError, ValueError) as e:
             raise DecompositionError(
                 f"could not list models at {self._url}/v1/models: {e}. "
                 "Check --llm-url, or pass --llm-model to skip discovery."
             ) from e
-        if not data:
-            raise DecompositionError(f"{self._url} served an empty model list.")
-        return str(data[0]["id"])
+        if not isinstance(data, list) or not data:
+            raise DecompositionError(f"{self._url} served an empty or malformed model list.")
+        first = data[0]
+        if not isinstance(first, dict) or not first.get("id"):
+            raise DecompositionError(f"{self._url} served a model entry without an id.")
+        return str(first["id"])
 
     def describe(self) -> dict[str, Any]:
         return {
