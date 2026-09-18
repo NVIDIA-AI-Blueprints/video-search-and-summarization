@@ -234,7 +234,8 @@ class VSSSearch:
             verdict.result == CriticAgentResult.UNVERIFIED for verdict in critic_output.video_results
         ):
             extra_messages.append(
-                "Visual verification ran but produced no verdict for any hit; check the configured RT-VLM service."
+                "Visual verification ran but produced no verdict for any evaluated hit; "
+                "check the configured RT-VLM service."
             )
 
         update: dict[str, Any] = {"data": verified_results}
