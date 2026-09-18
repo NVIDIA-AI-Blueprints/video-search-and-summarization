@@ -722,6 +722,33 @@ def _build_stream_search(embed_run: Any, **config_overrides: Any) -> Search:
     )
 
 
+def test_direct_search_defaults_disable_tag_and_use_legacy_rrf() -> None:
+    async def embed_run(_inp: Any) -> EmbedSearchOutput:
+        return _embed_output([])
+
+    search = _build_stream_search(embed_run)
+
+    assert search._config.w_tag == 0.0
+    assert search._config.fusion_method == "rrf"
+
+
+def test_direct_search_tag_weight_auto_selects_weighted_rrf() -> None:
+    async def embed_run(_inp: Any) -> EmbedSearchOutput:
+        return _embed_output([])
+
+    search = _build_stream_search(embed_run, w_tag=0.2)
+
+    assert search._config.fusion_method == "weighted_rrf"
+
+
+def test_direct_search_rejects_explicit_rrf_with_tag_weight() -> None:
+    async def embed_run(_inp: Any) -> EmbedSearchOutput:
+        return _embed_output([])
+
+    with pytest.raises(ConfigurationError, match="has no VLM tag leg"):
+        _build_stream_search(embed_run, fusion_method="rrf", w_tag=0.2)
+
+
 class TestStreamContract:
     @pytest.mark.asyncio
     async def test_stream_success_yields_single_final_event(self):
