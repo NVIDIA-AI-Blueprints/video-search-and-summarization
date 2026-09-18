@@ -43,17 +43,17 @@ Unless the user says otherwise, this is the run. Ask which dataset; do not ask
 about the rest.
 
 ```bash
-python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
+uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET \
-    --only-dataset --name RUN_NAME
+    --skip-existing --name RUN_NAME
 ```
 
 Three defaults, each load-bearing:
 
-- **`--only-dataset`** deletes every source that is not one of this dataset's
-  videos, then ingests. A foreign source cannot be retrieved by any query in the
-  dataset, so it adds nothing but false-positive surface and ingest time. Report
-  how many sources will be deleted before it runs.
+- **`--skip-existing`** is non-destructive and avoids duplicate uploads on a
+  shared deployment. `--only-dataset` and `--clear` are explicit destructive
+  maintenance modes; use either only when the user requested deletion, include
+  `--confirm-delete`, and report the printed deletion inventory.
 - **Live decomposition is on by default.** The LLM origin is derived from
   `--endpoint` (same host, port 30081), so there is no flag to forget. Every
   query is decomposed the way the deployed agent decomposes it, and that choice
@@ -150,7 +150,7 @@ nothing but a routable address works in the first place.
 Reports what would happen and contacts nothing.
 
 ```bash
-python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
+uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET --dry-run
 ```
 
@@ -176,7 +176,7 @@ URL, the chunked upload, then `POST /api/v1/videos/{sensor_id}/complete`, which
 is what triggers perception.
 
 ```bash
-python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
+uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET --skip-download --skip-existing
 ```
 
@@ -186,11 +186,11 @@ Expect this to be slow and occasionally noisy:
   succeeds is a success — do not report it as a failure.
 - `Duplicate Camera id` from RT-CV does **not** mean the ingest failed;
   embeddings still generate.
-- `--only-dataset` is the default and deletes only foreign sources. On a shared
-  deployment say what it will delete before it runs.
-- `--clear` deletes **every** source including other people's. Only on request.
-- `--skip-existing` is the conservative middle: ingest what is missing, delete
-  nothing.
+- `--skip-existing` is the default: ingest what is missing and delete nothing.
+- `--only-dataset` deletes foreign sources only when explicitly requested with
+  `--confirm-delete`; report its candidate inventory before it runs.
+- `--clear --confirm-delete` deletes **every** source including other people's.
+  Use it only on explicit request.
 
 Then re-run Step 3. Indices are lazy; they appear after `/complete`, not after
 upload.
@@ -198,7 +198,7 @@ upload.
 ## Step 5 — Run the benchmark
 
 ```bash
-python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
+uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET --subset SUBSET \
     --skip-download --skip-ingest --name RUN_NAME
 ```
