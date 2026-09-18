@@ -962,6 +962,21 @@ class TestTagOnlyDeploymentAndFusionWeights:
             )
 
     @pytest.mark.asyncio
+    async def test_weighted_rrf_preserves_failure_from_only_positive_weight_provider(self):
+        """A failed tag-only configuration is a backend outage, not bad weights."""
+        failure = BackendUnreachableError("tag", "service unavailable")
+
+        with pytest.raises(BackendUnreachableError, match="service unavailable") as caught:
+            await _run(
+                SearchInput(query="red", source_type="video_file", search_mode="fusion"),
+                embed_search=_FakeEmbed([_embed_output([_embed_item()])]),
+                tag_search=_FakeTag(error=failure),
+                config=_config(fusion_method="weighted_rrf", w_tag=1, w_embed=0, w_attribute=0),
+            )
+
+        assert caught.value is failure
+
+    @pytest.mark.asyncio
     async def test_legacy_rrf_fusion_uses_old_pipeline_no_tag(self) -> None:
         # The default fusion_method is now the legacy `rrf` (embed + optional
         # attribute, no VLM tag leg). With no --attribute and no tag, it
