@@ -25,6 +25,16 @@ class _Echo(socketserver.BaseRequestHandler):
             self.request.sendall(data)
 
 
+class _ReplyAfterEof(socketserver.BaseRequestHandler):
+    """Reads to EOF, then answers: the reply only exists after the client half-closes."""
+
+    def handle(self) -> None:
+        received = b""
+        while data := self.request.recv(65536):
+            received += data
+        self.request.sendall(b"got:" + received)
+
+
 class _ThreadedServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
@@ -82,6 +92,19 @@ class RelayProcessTests(unittest.TestCase):
         with socket.create_connection(("127.0.0.1", relay_port), timeout=5) as client:
             client.sendall(b"GET /health HTTP/1.1\r\n\r\n")
             self.assertEqual(client.recv(65536), b"GET /health HTTP/1.1\r\n\r\n")
+
+    def test_a_client_half_close_still_receives_the_reply(self) -> None:
+        server = _ThreadedServer(("127.0.0.1", 0), _ReplyAfterEof)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        _, relay_port = self._start(server.server_address[1])
+        with socket.create_connection(("127.0.0.1", relay_port), timeout=5) as client:
+            client.sendall(b"ping")
+            client.shutdown(socket.SHUT_WR)
+            reply = b""
+            while chunk := client.recv(65536):
+                reply += chunk
+            self.assertEqual(reply, b"got:ping")
 
     def test_a_dead_upstream_closes_the_client_instead_of_hanging(self) -> None:
         process, relay_port = self._start(_free_port())

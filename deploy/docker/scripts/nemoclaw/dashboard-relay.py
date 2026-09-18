@@ -66,15 +66,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 async def _pump(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Copy one direction, then pass EOF on as a half-close so the other direction
+    keeps flowing (a client may shut its write side and still expect the reply)."""
     try:
         while chunk := await reader.read(65536):
             writer.write(chunk)
             await writer.drain()
+        if writer.can_write_eof():
+            writer.write_eof()
     except (ConnectionError, asyncio.IncompleteReadError):
-        pass
-    finally:
         if not writer.is_closing():
             writer.close()
+
+
+async def _close(writer: asyncio.StreamWriter) -> None:
+    if not writer.is_closing():
+        writer.close()
+    try:
+        await writer.wait_closed()
+    except (ConnectionError, OSError):
+        pass
 
 
 async def relay(client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter, upstream: tuple[str, int]) -> None:
@@ -85,12 +96,15 @@ async def relay(client_reader: asyncio.StreamReader, client_writer: asyncio.Stre
         # The forward is down (kernel gone, sandbox rebuilt): refuse the client cleanly
         # instead of holding it open; section 3.5 re-establishes the forward.
         _log(f"{peer} -> {upstream[0]}:{upstream[1]} unavailable: {exc}")
-        client_writer.close()
+        await _close(client_writer)
         return
-    await asyncio.gather(
-        _pump(client_reader, upstream_writer),
-        _pump(upstream_reader, client_writer),
-    )
+    try:
+        await asyncio.gather(
+            _pump(client_reader, upstream_writer),
+            _pump(upstream_reader, client_writer),
+        )
+    finally:
+        await asyncio.gather(_close(upstream_writer), _close(client_writer))
 
 
 async def serve(hosts: list[str], port: int, upstream: tuple[str, int]) -> None:
