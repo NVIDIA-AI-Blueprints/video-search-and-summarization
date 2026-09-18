@@ -1,0 +1,22 @@
+{
+  "skills": [
+    "profile-vllm-performance"
+  ],
+  "resources": {
+    "platforms": {
+      "ANY": {
+        "gpu_count": 0
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Backend A is configured for max_tokens=100 but stops naturally after 18 tokens. Backend B generates exactly 100 tokens. A reports more streams. Can I conclude A has better OSL-100 capacity?",
+      "checks": [
+        "The response classifies the comparison as invalid rather than a confirmed capacity improvement.",
+        "The response distinguishes the max_tokens configuration from the actual number of generated output tokens.",
+        "The response requires matched generated-token counts or an explicit fixed-length EOS policy before profiling or comparing capacity."
+      ]
+    }
+  ]
+}

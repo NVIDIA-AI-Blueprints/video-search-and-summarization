@@ -107,6 +107,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`benchmark-vlm-qa`](benchmarking/benchmark-vlm-qa/SKILL.md) |
 | Benchmark LVS summarization latency and burst throughput | [`benchmark-video-summarization`](benchmarking/benchmark-video-summarization/SKILL.md) |
 | Check an RT-VLM config change for a caption-accuracy regression | [`vss-evaluate-caption-accuracy`](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) |
+| Diagnose idle GPU gaps or underfilled vLLM/RT-VLM execution | [`profile-vllm-performance`](benchmarking/profile-vllm-performance/SKILL.md) |
 
 **Skills chain.** Skills auto-invoke each other when a prerequisite is missing — e.g. `vss-deploy-detection-tracking-3d` calls `vss-generate-video-calibration` when calibration data is absent. When a request spans layers (deploy a profile *and* add a camera *and* run a search), the agent composes several skills in sequence — or `vss-build-vision-ai` composes the deploy half for you. The catalog below is grouped by directory, with each skill's pipeline layer in its own column.
 
@@ -173,6 +174,7 @@ repository organisation only and never appears in the installed path or in the
 |---|---|---|
 | [benchmark-vlm-qa](benchmarking/benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
 | [benchmark-video-summarization](benchmarking/benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
+| [profile-vllm-performance](benchmarking/profile-vllm-performance/SKILL.md) | 1 | Attribute GPU-idle gaps, underfilled batches, serialized multimodal work, transfer stalls, scheduler gaps, and KV pressure with correlated profiler evidence before changing vLLM or RT-VLM. |
 | [vss-evaluate-caption-accuracy](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | — | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
 Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
@@ -239,7 +241,7 @@ it, ask questions of it, manage its alerts, and read its analytics.
 |---|---|
 | `skills/deployment/` | You want one microservice on its own — RT-VLM, RT-CV, RT-Embed, behavior analytics, the analytics API — or Helm/Kubernetes rather than Compose. |
 | `skills/tools/` | You are calibrating multi-camera datasets directly. (3D tracking pulls this in automatically when calibration is missing, so you only need it standalone.) |
-| `skills/benchmarking/` | You are measuring VLM Q&A accuracy/latency, LVS throughput, or caption-accuracy regressions. |
+| `skills/benchmarking/` | You are measuring VLM Q&A accuracy/latency, profiling vLLM or RT-VLM execution, measuring LVS throughput, or checking caption-accuracy regressions. |
 
 > Also install every skill under `skills/deployment/` the same way.
 
