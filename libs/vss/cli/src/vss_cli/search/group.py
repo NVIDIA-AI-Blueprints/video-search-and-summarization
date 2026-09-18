@@ -483,13 +483,16 @@ class SearchGroup(CommandGroup):
         # (the only method that fuses a tag leg). An explicit
         # `--fusion-method rrf` with `--w-tag > 0` is a contradiction —
         # surface it as an input error rather than silently dropping the tag leg.
-        if tuning.get("fusion_method") is None:
-            if (tuning.get("w_tag") or 0.0) > 0:
-                tuning["fusion_method"] = "weighted_rrf"
-            else:
-                tuning["fusion_method"] = "rrf"
-        elif tuning["fusion_method"] == "rrf" and (tuning.get("w_tag") or 0.0) > 0:
-            raise InvalidInput("`rrf` fusion has no VLM tag leg; use `weighted_rrf` or set `--w-tag 0`.")
+        from vss_core.search_core.errors import ConfigurationError
+        from vss_core.search_core.runtime import resolve_fusion_method
+
+        try:
+            tuning["fusion_method"] = resolve_fusion_method(
+                tuning.get("fusion_method"),
+                tuning.get("w_tag") or 0.0,
+            )
+        except ConfigurationError as error:
+            raise InvalidInput(str(error)) from error
         # The library still selects a path by `search_mode`; the CLI just no
         # longer asks the caller to name it. The sub-action is the mode.
         payload["search_mode"] = action
