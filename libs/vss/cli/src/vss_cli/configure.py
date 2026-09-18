@@ -497,14 +497,7 @@ def configure_memory(
             )
             resolved_detail = f" (endpoint reported {resolved_model})" if resolved_model is not None else ""
             click.echo(f"discovered embedding dimensions: {dimensions}{resolved_detail}", err=True)
-        path = config_mod.save(
-            config_mod.Deployment(
-                base_url=deployment.base_url,
-                services=deployment.services,
-                memory=candidate,
-                written_at=deployment.written_at,
-            )
-        )
+        path = config_mod.save(replace(deployment, memory=candidate))
     except config_mod.ConfigError as error:
         _memory_config_error(str(error))
     click.echo(f"wrote memory configuration to {path}", err=True)
@@ -612,14 +605,7 @@ def configure_memory_introspection(
     )
     try:
         candidate.validate()
-        path = config_mod.save(
-            config_mod.Deployment(
-                base_url=deployment.base_url,
-                services=deployment.services,
-                memory=candidate,
-                written_at=deployment.written_at,
-            )
-        )
+        path = config_mod.save(replace(deployment, memory=candidate))
     except config_mod.ConfigError as error:
         _memory_config_error(str(error))
     click.echo(f"wrote introspection judge configuration to {path}", err=True)
