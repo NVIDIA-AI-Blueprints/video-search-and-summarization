@@ -266,10 +266,10 @@ class Search:
         behavior_index: str,
         tag: TagSearch | None = None,
         behavior_index_wildcard: str = "mdx-behavior-*",
-        fusion_method: FusionMethod = "weighted_rrf",
+        fusion_method: FusionMethod | None = None,
         w_attribute: float = 0.55,
         w_embed: float = 0.35,
-        w_tag: float = 0.45,
+        w_tag: float = 0.0,
         rrf_k: int = 60,
         rrf_w: float = 0.5,
         top_percent_filter: float | None = None,
@@ -302,12 +302,14 @@ class Search:
         # Pre-build the duck-typed config that execute_core_search reads by
         # attribute. All fields are determined at construction; no per-call
         # mutation.
+        from ..runtime import resolve_fusion_method
+
         self._config = SimpleNamespace(
             attribute_search_tool="attribute_search",
             embed_confidence_threshold=embed_confidence_threshold,
             merge_adjacent=merge_adjacent,
             default_max_results=default_max_results,
-            fusion_method=fusion_method,
+            fusion_method=resolve_fusion_method(fusion_method, w_tag),
             w_attribute=w_attribute,
             w_embed=w_embed,
             w_tag=w_tag,
