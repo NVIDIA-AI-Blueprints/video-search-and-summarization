@@ -96,7 +96,7 @@ Important defaults and requirements:
 - `NVIDIA_VISIBLE_DEVICES` selects GPUs for the stack and benchmark.
 - `VLM_MODEL_PRESET=cr3-nano-reasoner-fp8` selects CR3 Nano Reasoner FP8 and fills `VLM_MODEL_TO_USE=cosmos-reason3` plus `MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` unless those variables are explicitly exported. `VLM_MODEL_PRESET=cr3-nano-reasoner-nvfp4` selects the Blackwell-oriented CR3 Nano Reasoner NVFP4 path `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` with the same model key.
 - `VST_LOCAL_PACKAGE` defaults to `perf/vst_package.tar.gz`; setup prefers it over cached or downloaded VST packages.
-- `ARTIFACTORY_USER` and `ARTIFACTORY_TOKEN` are required when the VST package must be downloaded or when any benchmark videos are missing locally.
+- `ARTIFACTORY_USER` and `ARTIFACTORY_TOKEN` are required only when the VST package must be downloaded.
 - Current VST image defaults are `nvcr.io/rxczgrvsg8nx/vst-dev/vst-streamprocessing:2.1.0-26.04.1`, `vst-sensor:2.1.0-26.04.1`, `vst-ingress:2.1.0-26.04.1`, and `nvstreamer:2.1.0-26.04.1`; override with `VST_IMAGE_TAG`, `VST_IMAGE_REGISTRY`, or per-image variables.
 - Published RTVI VLM benchmarks must run with `VLLM_ENABLE_PREFIX_CACHING=false` and `VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true`. `perf/setup_perf_env.sh` writes these values by default and ignores stale generated `.env.perf` values for those two keys unless they are explicitly exported in the shell for a non-standard experiment.
 - `RTVI_ENABLE_GOP_DECODE_OPT` defaults to `true` and only affects file-based decoding. It attaches a GOP-aware probe that skips delta frames for GOPs without selected target timestamps; disable with `false`, `0`, `no`, or `off` when isolating file-decode behavior. It has no effect on live RTSP or when all frames are selected.
@@ -114,7 +114,7 @@ Important defaults and requirements:
 - For utilization, prefer benchmark DCGM summaries or `nvidia-smi dmon`; avoid regular `nvidia-smi` polling in perf loops.
 - Resolve container-to-host telemetry port mappings and fetch the exact configured DCGM or Prometheus URL before launch. Fail early when telemetry is required and unreachable; otherwise record the missing telemetry before the run instead of silently reporting zeroes.
 
-Expected benchmark videos live under the configured `PERF_VIDEOS_DIR`. Missing videos are downloaded with Artifactory credentials during setup.
+Expected benchmark videos live under the configured `PERF_VIDEOS_DIR`. Setup fetches the LVS warehouse source from NGC and derives missing 1080p, 10 FPS benchmark clips with FFmpeg.
 
 ## Setup And Teardown
 

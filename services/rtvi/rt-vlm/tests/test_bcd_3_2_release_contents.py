@@ -15,6 +15,8 @@
 # limitations under the License.
 ######################################################################################################
 
+import os
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -114,3 +116,51 @@ def test_perf_compose_tracks_github_runtime_controls():
     )
     assert all(f"\n{key}=" in setup for key in setup_keys)
     assert "\nVLLM_MM_PROCESSOR_CACHE_GB=" not in setup
+
+
+def test_setup_derives_bcd_videos_from_lvs_source():
+    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+
+    assert "benchmark-video-summarization/scripts/fetch-videos.sh" in setup
+    assert "\nVIDEOS_URL=" in setup
+    assert (
+        'LVS_VIDEO_SOURCE_PATH="${LVS_VIDEO_DATA_DIR}/videos/warehouse_10min.mp4"'
+        in setup
+    )
+    assert '-stream_loop -1' in setup
+    assert '-vf fps=10' in setup
+    assert 'validate_bcd_video "${dest}" "${duration}"' in setup
+    assert '_bcd_10s_tmp="${_bcd_10s_dest}.tmp.mp4"' in setup
+    assert 'generate_bcd_video 10 "${BCD_10S_VIDEO_FILENAME}"' in setup
+    assert 'generate_bcd_video 600 "${BCD_10M_VIDEO_FILENAME}"' in setup
+    assert 'generate_bcd_video 3600 "${BCD_60M_VIDEO_FILENAME}"' in setup
+    assert 'download_video "${BCD_10M_VIDEO_FILENAME}"' not in setup
+    assert 'download_video "${BCD_60M_VIDEO_FILENAME}"' not in setup
+
+
+def test_bcd_video_validation_rejects_wrong_duration(tmp_path):
+    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    start = setup.index("validate_bcd_video() {")
+    end = setup.index("\n}\n\n# Returns", start) + 3
+    validator = setup[start:end]
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ffprobe = bin_dir / "ffprobe"
+    ffprobe.write_text(
+        "#!/bin/sh\n"
+        'case "$*" in\n'
+        '  *"stream=width,height"*) echo 1920x1080 ;;\n'
+        '  *"stream=avg_frame_rate"*) echo 10/1 ;;\n'
+        '  *"format=duration"*) echo "${FAKE_DURATION:-10}" ;;\n'
+        "esac\n"
+    )
+    ffprobe.chmod(0o755)
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"video")
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    command = f'{validator}\nvalidate_bcd_video "{video}" 10'
+
+    subprocess.run(["bash", "-c", command], check=True, env=env)
+    env["FAKE_DURATION"] = "9"
+    assert subprocess.run(["bash", "-c", command], env=env).returncode != 0
