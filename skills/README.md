@@ -32,7 +32,7 @@ VSS-based deployments are multi-layer systems. Most skills map to exactly one la
                          │  3. AGENT & OFFLINE PROCESSING               │
                          │     Reason over results for users            │
                          │     • Search, Summarize, Ask, Report         │
-                         │     • Query analytics  (via VA-MCP)          │
+                         │     • Query analytics  (via VSS CLI)         │
                          └──────────────────────────────────────────────┘
 
   MIDDLEWARE (cross-cutting): Video IO & Storage (VIOS) · API Gateway / MCP ·
@@ -60,9 +60,10 @@ Mode A. LVS operate uses `/lvs/v1/ready` and `/lvs/v1/summarize` for
 `vss-summarize-video` (and report Mode A when LVS is ready), with RT-VLM at the
 same `/rtvi-vlm/v1` as everywhere else. Nothing is published at the origin root
 `/v1`. Alerts operate
-uses `/vst`, `/alert-bridge` (rules + incidents; never Agent `/generate` for
-rule CRUD), and `/va-mcp` for `vss-manage-alerts` / `vss-query-analytics` —
-not Elasticsearch `:9200` or RT-VLM `:8018` through Ingress. Search archive
+uses `/vst`, `/alert-bridge` for `vss-manage-alerts` (rules + incidents; never
+Agent `/generate` for rule CRUD), and `/video-analytics-api` through
+`vss analytics` for `vss-query-analytics` — not Elasticsearch `:9200`,
+VA-MCP `:9901`, or RT-VLM `:8018` through Ingress. Search archive
 operate uses `/generate` and `/api/v1` via `vss-search-archive`. NvStreamer
 requires a separate `VSS_STREAMER_URL`. When `VSS_PUBLIC_URL` is unset, each
 skill retains its documented Docker Compose discovery or `HOST_IP` fallback.
@@ -156,7 +157,7 @@ repository organisation only and never appears in the installed path or in the
 | [vss-ask-video](operations/vss-ask-video/SKILL.md) | 3 | Route video questions through hot conversation context, agent Markdown memory, structured VSS memory, bounded memory introspection, or a direct `vss vlm run` for an explicitly scoped fresh inspection. |
 | [vss-generate-video-report](operations/vss-generate-video-report/SKILL.md) | 3 | Produce a formatted markdown report through one of three backends — per-clip VLM, delegating to `vss-summarize-video` when LVS is ready or the clip is 120 seconds or longer (Mode A), incident-range via `vss-query-analytics` (Mode B), or SOP compliance via the SOP tools (Mode C). Never via the VSS agent's `/generate`. |
 | [vss-generate-video-report-rag](operations/vss-generate-video-report-rag/SKILL.md) | 3 | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
-| [vss-query-analytics](operations/vss-query-analytics/SKILL.md) | 3 | Query analytics metrics, incidents, alerts, and sensor data from Elasticsearch via VA-MCP (`:9901` on Docker; `${VSS_PUBLIC_URL}/va-mcp` on Kubernetes). |
+| [vss-query-analytics](operations/vss-query-analytics/SKILL.md) | 3 | Query analytics metrics, incidents, alerts, and analytics sensor data through the project-local `vss analytics` CLI and configured Video Analytics API. |
 | [vss-manage-alerts](operations/vss-manage-alerts/SKILL.md) | 2 | Add, manage, and monitor alerts on streamed video — CV verification mode or VLM real-time mode, Alert-Bridge subscriptions, Slack notifications, camera onboarding. |
 | [vss-manage-video-io-storage](operations/vss-manage-video-io-storage/SKILL.md) | middleware | Video/stream management, recording timelines, clip extraction, snapshots, and add/delete sensors via the Video IO & Storage (VIOS) microservices. |
 

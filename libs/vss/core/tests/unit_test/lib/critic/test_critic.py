@@ -18,6 +18,7 @@ the contract may evolve before v1 stable.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC
 from datetime import datetime
 
@@ -42,6 +43,9 @@ class _FakeVST:
         timeline: tuple[str, str] = ("2025-01-01T00:00:00Z", "2025-01-01T00:01:00Z"),
     ) -> None:
         self._timeline = timeline
+        # Count of get_timeline calls, to prove the critic caches one fetch per
+        # sensor instead of one per candidate.
+        self.timeline_calls = 0
 
     def build_screenshot_url(self, *, sensor_id, timestamp, internal=False) -> str:
         return ""
@@ -50,7 +54,30 @@ class _FakeVST:
         return f"stream-{sensor_id}"
 
     async def get_timeline(self, stream_id: str) -> tuple[str, str]:
+        self.timeline_calls += 1
         return self._timeline
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _FailingVST:
+    """VST whose ``get_timeline`` always raises; counts the calls to prove the
+    failure is shared once per run, not retried per candidate."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.timeline_calls = 0
+
+    def build_screenshot_url(self, *, sensor_id, timestamp, internal=False) -> str:
+        return ""
+
+    async def resolve_stream_id(self, sensor_id: str) -> str:
+        return f"stream-{sensor_id}"
+
+    async def get_timeline(self, stream_id: str) -> tuple[str, str]:
+        self.timeline_calls += 1
+        raise self.error
 
     async def aclose(self) -> None:
         return None
@@ -421,6 +448,124 @@ class TestCriticTimeFormat:
         )
         await c.run(CriticAgentInput(query="q", videos=[v]))
         assert vlm.calls[0]["end_timestamp"] == "60.0"
+
+    @pytest.mark.asyncio
+    async def test_iso_rebases_file_bounds_once_per_sensor(self):
+        """iso + file source rebases onto the real timeline, cached per sensor."""
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST(timeline=("2026-07-31T12:00:00Z", "2026-07-31T12:01:00Z"))
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="iso")
+        videos = [
+            _video(start=10, end=20, source_type="video_file"),
+            _video(start=30, end=40, source_type="video_file"),
+        ]
+        await c.run(CriticAgentInput(query="q", videos=videos))
+        # Rebated real ISO bounds are passed through (synthetic 00:00:10 +60s timeline start).
+        assert vlm.calls[0]["time_format"] == "iso"
+        assert vlm.calls[0]["start_timestamp"] == "2026-07-31T12:00:10.000Z"
+        assert vlm.calls[0]["end_timestamp"] == "2026-07-31T12:00:20.000Z"
+        assert vlm.calls[1]["start_timestamp"] == "2026-07-31T12:00:30.000Z"
+        # Two candidates, same sensor -> one timeline fetch, not two.
+        assert vst.timeline_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_iso_live_bounds_do_not_fetch_timeline(self):
+        """iso + non-file source passes wall-clock bounds through with no VST timeline call."""
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST()
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="iso")
+        await c.run(CriticAgentInput(query="q", videos=[_video(start=10, end=20, source_type="rtsp")]))
+        assert vlm.calls[0]["time_format"] == "iso"
+        assert vlm.calls[0]["start_timestamp"] == "2025-01-01T00:00:10Z"
+        assert vst.timeline_calls == 0
+
+    @pytest.mark.asyncio
+    async def test_failed_timeline_lookup_is_shared_once_per_run(self):
+        """A failed lookup is cached for the run: N same-sensor candidates incur
+        one VST call, not N, and all fail open to ``unverified``."""
+        vlm = _FakeVLM("{}")
+        vst = _FailingVST(VSTError("timeline unavailable"))
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="iso")
+        videos = [
+            _video(start=10, end=20, source_type="video_file"),
+            _video(start=30, end=40, source_type="video_file"),
+        ]
+        out = await c.run(CriticAgentInput(query="q", videos=videos))
+        # One lookup shared across both candidates — no VLM calls, both unverified.
+        assert vst.timeline_calls == 1
+        assert vlm.calls == []
+        assert all(r.result == CriticAgentResult.UNVERIFIED for r in out.video_results)
+
+    @pytest.mark.asyncio
+    async def test_same_sensor_timeline_waiters_do_not_starve_healthy_vlm_work(self):
+        """Followers of one slow timeline lookup wait outside the VLM semaphore."""
+
+        class _BlockingVST(_FakeVST):
+            def __init__(self) -> None:
+                super().__init__()
+                self.bad_lookup_started = asyncio.Event()
+                self.release_bad_lookup = asyncio.Event()
+
+            async def get_timeline(self, sensor_id: str) -> tuple[str, str]:
+                self.timeline_calls += 1
+                if sensor_id == "bad":
+                    self.bad_lookup_started.set()
+                    await self.release_bad_lookup.wait()
+                    raise VSTError("timeline unavailable")
+                return self._timeline
+
+        class _SignallingVLM(_FakeVLM):
+            def __init__(self) -> None:
+                super().__init__('{"forklift": true}')
+                self.healthy_call = asyncio.Event()
+
+            async def analyze(self, *, sensor_id: str, **kwargs) -> str:
+                if sensor_id == "healthy":
+                    self.healthy_call.set()
+                return await super().analyze(sensor_id=sensor_id, **kwargs)
+
+        vst = _BlockingVST()
+        vlm = _SignallingVLM()
+        critic = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="iso", max_concurrent_verifications=2)
+        run = asyncio.create_task(
+            critic.run(
+                CriticAgentInput(
+                    query="q",
+                    videos=[
+                        _video("bad", start=10, end=20, source_type="video_file"),
+                        _video("bad", start=30, end=40, source_type="video_file"),
+                        _video("healthy", start=10, end=20, source_type="video_file"),
+                    ],
+                )
+            )
+        )
+
+        await vst.bad_lookup_started.wait()
+        await asyncio.wait_for(vlm.healthy_call.wait(), timeout=1)
+        vst.release_bad_lookup.set()
+        out = await run
+
+        assert vst.timeline_calls == 2  # one failed bad-sensor lookup and one healthy lookup
+        assert [result.result for result in out.video_results] == [
+            CriticAgentResult.UNVERIFIED,
+            CriticAgentResult.UNVERIFIED,
+            CriticAgentResult.CONFIRMED,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_timeline_cache_is_run_scoped(self):
+        """A reused CriticAgent re-fetches the timeline on each run, so a recording
+        whose replay range grew or moved after re-ingest is seen on the next
+        search rather than clamped against a stale cached end."""
+        vlm = _FakeVLM("{}")
+        vst = _FakeVST(timeline=("2026-07-31T12:00:00Z", "2026-07-31T12:01:00Z"))
+        c = CriticAgent(vlm_analyzer=vlm, vst=vst, time_format="iso")
+        videos = [_video(start=10, end=20, source_type="video_file")]
+        await c.run(CriticAgentInput(query="q", videos=videos))
+        await c.run(CriticAgentInput(query="q", videos=videos))
+        # The cache is not retained on the instance: one fetch per run, not one
+        # total across both runs.
+        assert vst.timeline_calls == 2
 
 
 class TestCriticOutputShape:
