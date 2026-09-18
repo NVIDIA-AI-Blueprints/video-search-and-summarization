@@ -84,7 +84,7 @@ def inventory_snapshot(vst_url: str) -> dict[str, Any]:
     try:
         names = sorted(list_sensor_names(vst_url))
         return {"ok": True, "count": len(names), "names": names}
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": f"{type(e).__name__}: {e}", "names": []}
 
 
@@ -159,7 +159,7 @@ def wait_for_sources(
                     "waited_s": round(time.time() - started, 1),
                     "missing": [],
                 }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             missing = list(expected_names)
             print(f"  VST sensor list not readable yet ({type(e).__name__}: {e})")
 
