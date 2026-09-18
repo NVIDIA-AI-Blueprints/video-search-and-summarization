@@ -17,6 +17,7 @@
 
 import os
 import subprocess
+import tarfile
 from pathlib import Path
 
 import yaml
@@ -120,7 +121,6 @@ def test_perf_compose_tracks_github_runtime_controls():
 
 def test_setup_derives_bcd_videos_from_lvs_source():
     setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
-
     assert "benchmark-video-summarization/scripts/fetch-videos.sh" in setup
     assert "\nVIDEOS_URL=" in setup
     assert (
@@ -136,6 +136,62 @@ def test_setup_derives_bcd_videos_from_lvs_source():
     assert 'generate_bcd_video 3600 "${BCD_60M_VIDEO_FILENAME}"' in setup
     assert 'download_video "${BCD_10M_VIDEO_FILENAME}"' not in setup
     assert 'download_video "${BCD_60M_VIDEO_FILENAME}"' not in setup
+
+
+def test_lvs_fetch_configures_ngc_scope_and_accepts_download_layout(tmp_path):
+    fetch = (
+        Path(__file__).resolve().parents[4]
+        / "skills/benchmarking/benchmark-video-summarization/scripts/fetch-videos.sh"
+    )
+    fixture = tmp_path / "warehouse.tar.gz"
+    source_root = tmp_path / "fixture" / "vss-warehouse-app-data" / "videos"
+    sources = (
+        "warehouse-loading-dock-3cams-synthetic/Camera_01.mp4",
+        "warehouse-4cams-20mx20m-synthetic/Camera_01.mp4",
+        "nv-warehouse-4cams/Camera_01.mp4",
+    )
+    for source in sources:
+        path = source_root / source
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(source.encode())
+    with tarfile.open(fixture, "w:gz") as archive:
+        archive.add(source_root.parent, arcname="vss-warehouse-app-data")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    ngc = bin_dir / "ngc"
+    ngc.write_text(
+        "#!/bin/sh\n"
+        'printf "%s %s\\n" "$NGC_CLI_ORG" "$NGC_CLI_TEAM" > "$FAKE_NGC_LOG"\n'
+        'while [ "$#" -gt 0 ]; do\n'
+        '  if [ "$1" = --dest ]; then dest=$2; shift 2; else shift; fi\n'
+        "done\n"
+        'mkdir -p "$dest/unexpected-layout"\n'
+        'cp "$FAKE_TARBALL" "$dest/unexpected-layout/payload.tar.gz"\n'
+    )
+    ngc.chmod(0o755)
+    hostname = bin_dir / "hostname"
+    hostname.write_text("#!/bin/sh\necho 127.0.0.1\n")
+    hostname.chmod(0o755)
+
+    for index, (org, team) in enumerate(((None, None), ("custom-org", "custom-team"))):
+        data_dir = tmp_path / f"data-{index}"
+        log = tmp_path / f"ngc-{index}.log"
+        env = {
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "NGC_API_KEY": "test-key",
+            "VSS_BENCHMARK_DATA_DIR": str(data_dir),
+            "FAKE_NGC_LOG": str(log),
+            "FAKE_TARBALL": str(fixture),
+        }
+        env.pop("NGC_CLI_ORG", None)
+        env.pop("NGC_CLI_TEAM", None)
+        if org:
+            env.update(NGC_CLI_ORG=org, NGC_CLI_TEAM=team)
+        subprocess.run(["bash", str(fetch)], check=True, env=env)
+        assert len(list((data_dir / "videos").glob("*.mp4"))) == 3
+        assert log.read_text().strip() == f"{org or 'nvstaging'} {team or 'vss-warehouse'}"
 
 
 def test_bcd_video_validation_rejects_wrong_duration(tmp_path):
