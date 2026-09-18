@@ -35,7 +35,7 @@ When enabled, it runs before the API server starts and adjusts configuration fil
 
 **Key Features:**
 
-- Detects your GPU type (H100, L40S, L4, RTXA6000, RTXA6000ADA, RTXPRO6000BW, RTXPRO6000BW-SE, RTXPRO4500BW, IGX-THOR, DGX-SPARK). There is no `L40` slug.
+- Detects your GPU type (H100, GB300, L40S, RTXPRO6000BW, RTXPRO6000BW-SE, RTXPRO4500BW, IGX-THOR, DGX-SPARK). There is no `L40` slug.
 - Adjusts settings based on 2D or 3D deployment mode
 - Updates YAML, JSON, and text configuration files
 - Validates that your environment is configured correctly
@@ -84,25 +84,25 @@ commons:
 # GPU-specific settings
 H100:
   2d:
-    max_streams_supported: 77
+    max_streams_supported: 61
   3d:
     max_streams_supported: 19
 
-L4:
+GB300:
   2d:
-    max_streams_supported: 9
+    max_streams_supported: 161
   3d:
-    max_streams_supported: 3   # L4 is less powerful in 3D mode
+    max_streams_supported: 71
 ```
 
 **What happens:**
 
-1. User sets `HARDWARE_PROFILE=L4` and `MODE=3d` and `NUM_STREAMS=8`
-2. Configurator looks up L4's 3D limit: `max_streams_supported=3`
-3. Computes: `final_stream_count = min(8, 3) = 3`
-4. Updates `config.yaml` with `num_sensors: 3`
+1. User sets `HARDWARE_PROFILE=GB300`, `MODE=3d`, and `NUM_STREAMS=80`
+2. Configurator looks up GB300's 3D limit: `max_streams_supported=71`
+3. Computes: `final_stream_count = min(80, 71) = 71`
+4. Updates `config.yaml` with `num_sensors: 71`
 
-**That's it!** The L4 GPU won't be overloaded because the system automatically capped the streams.
+**That's it!** The GB300 GPU won't be overloaded because the system automatically capped the streams.
 
 ### Core Concepts
 
@@ -111,7 +111,7 @@ L4:
 | Section | Purpose | Analogy |
 | --- | --- | --- |
 | `commons` | Shared rules for ALL GPUs | Company-wide policies |
-| `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK` | GPU-specific overrides/limits | Department-specific rules |
+| `H100`, `GB300`, `L40S`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK` | GPU-specific overrides/limits | Department-specific rules |
 
 **How they work together:**
 
@@ -127,10 +127,10 @@ H100:
     max_streams_supported: 19   # H100's limit
     # Uses commons formula → final_stream_count = min(NUM_STREAMS, 19)
 
-L4:
+GB300:
   3d:
-    max_streams_supported: 3   # L4's limit
-    # Uses commons formula → final_stream_count = min(NUM_STREAMS, 3)
+    max_streams_supported: 71   # GB300's limit
+    # Uses commons formula → final_stream_count = min(NUM_STREAMS, 71)
 ```
 
 The same formula produces different results based on each GPU's capabilities.
@@ -145,7 +145,7 @@ The warehouse configuration has separate rules for each deployment mode:
 | `3d` | 3D Warehouse Blueprint (depth, positioning) | Higher GPU load → fewer streams |
 | `mv3dt` | Multi-view 3D tracking with BEV fusion | Capacity is defined independently per hardware profile |
 
-**Example:** The shipped L4 profile supports 9 streams in 2D mode but only 3 in 3D mode.
+**Example:** The shipped GB300 profile supports 161 streams in 2D mode but 71 in 3D mode.
 
 #### Inheritance Model
 
@@ -164,7 +164,7 @@ The following environment variables **must** be set to use the Profile Configura
 | Variable | Default | Possible Values | Description |
 | --- | --- | --- | --- |
 | `ENABLE_PROFILE_CONFIGURATOR` | `false` | `true`, `false` | \| **Must be set to** `true` **to activate the Profile Configurator.** \| **true**: Run profile configurator before starting API server, adjusts config files based on detected GPU \| **false**: Skip profile configuration entirely (default) |
-| `HARDWARE_PROFILE` | `default` | Warehouse: `H100`, `L4`, `L40S`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`. Developer NIM env files also use `OTHER`. There is no `L40` profile. | GPU slug matching a `blueprint_config.yml` hardware block (warehouse) or `hw-<HARDWARE_PROFILE>.env` (developer NIMs). Unknown slugs do not load those files. |
+| `HARDWARE_PROFILE` | `default` | Warehouse: `H100`, `GB300`, `L40S`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`. Developer NIM env files also use `OTHER`. There is no `L40` profile. | GPU slug matching a `blueprint_config.yml` hardware block (warehouse) or `hw-<HARDWARE_PROFILE>.env` (developer NIMs). Unknown slugs do not load those files. |
 | `MODE` | `3d` | `2d`, `3d`, `mv3dt` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D tracking and detection \| **3d**: depth-aware tracking and positioning \| **mv3dt**: multi-view 3D tracking with BEV fusion |
 | `NUM_STREAMS` | (user-defined) | Non-negative integer | \| Desired number of video streams for profile formulas such as `final_stream_count = min(${NUM_STREAMS}, ${max_streams_supported})`. \| The Sensor Configuration Manager also reads this value when `SENSOR_INFO_SOURCE=nvstreamer`: it is the expected camera count to wait for before VST registration (`0` = wait for a stable non-empty list instead). |
 
@@ -194,7 +194,7 @@ commons:
         num_sensors: ${final_stream_count}
 
 H100:
-  max_streams_supported: 77
+  max_streams_supported: 61
 ```
 
 `MODE` is ignored in this layout. Warehouse blueprints keep `DEPLOYMENT_MODES_ENABLED=true`.
@@ -260,7 +260,7 @@ HARDWARE_PROFILE:
 **Purpose:** Maximum concurrent streams this GPU can handle
 
 ```yaml
-L4:
+CUSTOM_GPU:
   2d:
     max_streams_supported: 9
   3d:
@@ -280,16 +280,14 @@ The following hardware profiles are defined in `blueprint_config.yml`. Names and
 
 | Profile | 2D max streams | 3D max streams | MV3DT max streams | Notes |
 | --- | --- | --- | --- | --- |
-| `H100` | 77 | 19 | 61 | Stream limits only; inherits commons. |
-| `L40S` | 29 | 10 | 23 | Stream limits only; inherits commons. |
-| `L4` | 9 | 3 | 7 | Stream limits only; inherits commons. |
-| `RTXA6000` | 15 | 4 | 4 | Stream limits only; inherits commons. |
-| `RTXA6000ADA` | 28 | 8 | 22 | Stream limits only; inherits commons. |
+| `H100` | 61 | 19 | 61 | Stream limits only; inherits commons. |
+| `GB300` | 161 | 71 | — | Stream limits only; inherits commons. |
+| `L40S` | 28 | 9 | 23 | Stream limits only; inherits commons. |
 | `RTXPRO6000BW` | 52 | 21 | 39 | Stream limits only; inherits commons. |
 | `RTXPRO6000BW-SE` | 47 | 20 | 39 | RTX PRO 6000 Blackwell Server Edition. |
 | `RTXPRO4500BW` | 20 | 9 | — | Stream limits only; inherits commons. |
-| `IGX-THOR` | 9 | 8 | 7 | Extra file_operations (DeepStream / VST). |
-| `DGX-SPARK` | 7 | 7 | 7 | Extra file_operations; image tags must contain `sbsa`. |
+| `IGX-THOR` | 9 | 8 | 7 | Extra file operations (DeepStream / VST). |
+| `DGX-SPARK` | 7 | 7 | 7 | Extra file operations; image tags must contain `sbsa`. |
 
 **use_commons**
 
@@ -899,12 +897,12 @@ Just specify stream limits; inherit everything else:
 ```yaml
 H100:
   2d:
-    max_streams_supported: 77
+    max_streams_supported: 61
   3d:
     max_streams_supported: 19
 ```
 
-"I'm an H100. I can handle 77 streams in 2D and 19 in 3D. Use all standard rules from commons."
+"I'm an H100. I can handle 61 streams in 2D and 19 in 3D. Use all standard rules from commons."
 
 ##### Example 2: Profile with Extra Operations
 
@@ -913,7 +911,7 @@ Inherit commons but add GPU-specific operations:
 ```yaml
 IGX-THOR:
   2d:
-    max_streams_supported: 7
+    max_streams_supported: 9
     file_operations:
       - operation_type: "text_config_update"
         target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
@@ -924,7 +922,7 @@ IGX-THOR:
           low-latency-mode: "0"
       # ... ds-main-redis-config.txt, ds-nvdcf-accuracy-tracker-config.yml
   3d:
-    max_streams_supported: 6
+    max_streams_supported: 8
     file_operations:
       # These APPEND to commons.file_operations.3d
       - operation_type: "text_config_update"
@@ -959,7 +957,7 @@ IGX-THOR:
 Add calculated variables for a less powerful GPU:
 
 ```yaml
-L4:
+CUSTOM_GPU:
   3d:
     max_streams_supported: 2
     variables:
@@ -973,7 +971,7 @@ L4:
           batched-push-timeout: "${adjusted_timeout}"
 ```
 
-"I'm an L4 (slower GPU). I need 2× longer timeouts."
+"I'm a CUSTOM_GPU (slower GPU). I need 2× longer timeouts."
 
 ##### Example 4: Complete Override
 
@@ -1043,7 +1041,7 @@ commons:
 
 H100:
   2d:
-    max_streams_supported: 77
+    max_streams_supported: 61
   3d:
     max_streams_supported: 19
 ```
@@ -1101,51 +1099,51 @@ commons:
 # Hardware profiles
 H100:
   2d:
-    max_streams_supported: 77
+    max_streams_supported: 61
   3d:
     max_streams_supported: 19
+  mv3dt:
+    max_streams_supported: 61
+
+GB300:
+  2d:
+    max_streams_supported: 161
+  3d:
+    max_streams_supported: 71
 
 L40S:
   2d:
-    max_streams_supported: 29
+    max_streams_supported: 28
   3d:
-    max_streams_supported: 10
-
-L4:
-  2d:
     max_streams_supported: 9
-  3d:
-    max_streams_supported: 3
-    variables:
-      - timeout_multiplier: "2"
-      - adjusted_timeout: "${timeout_multiplier} * 25000"
-    file_operations:
-      - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
-        updates:
-          batched-push-timeout: "${adjusted_timeout}"
-
-RTXA6000:
-  2d:
-    max_streams_supported: 4
-  3d:
-    max_streams_supported: 2
-
-RTXA6000ADA:
-  2d:
-    max_streams_supported: 8
-  3d:
-    max_streams_supported: 7
+  mv3dt:
+    max_streams_supported: 23
 
 RTXPRO6000BW:
   2d:
-    max_streams_supported: 16
+    max_streams_supported: 52
   3d:
-    max_streams_supported: 14
+    max_streams_supported: 21
+  mv3dt:
+    max_streams_supported: 39
+
+RTXPRO6000BW-SE:
+  2d:
+    max_streams_supported: 47
+  3d:
+    max_streams_supported: 20
+  mv3dt:
+    max_streams_supported: 39
+
+RTXPRO4500BW:
+  2d:
+    max_streams_supported: 20
+  3d:
+    max_streams_supported: 9
 
 IGX-THOR:
   2d:
-    max_streams_supported: 7
+    max_streams_supported: 9
     file_operations:
       - operation_type: "text_config_update"
         target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
@@ -1169,7 +1167,7 @@ IGX-THOR:
           VisualTracker.visualTrackerType: 2
           VisualTracker.vpiBackend4DcfTracker: 2
   3d:
-    max_streams_supported: 6
+    max_streams_supported: 8
     file_operations:
       - operation_type: "text_config_update"
         target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
@@ -1208,7 +1206,7 @@ DGX-SPARK:
         updates:
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
   3d:
-    max_streams_supported: 6
+    max_streams_supported: 7
     file_operations:
       - operation_type: "text_config_update"
         target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
@@ -1235,7 +1233,7 @@ DGX-SPARK:
 
 #### Adding a New Hardware Profile
 
-You do not always need to add a profile for hardware that is not in the predefined list (H100, L40S, L4, etc.). If the shared `commons` configuration can resolve all variables for the selected mode, the Configurator preserves the requested `HARDWARE_PROFILE` value and applies commons-only configuration.
+You do not always need to add a profile for hardware that is not in the predefined list (H100, GB300, L40S, etc.). If the shared `commons` configuration can resolve all variables for the selected mode, the Configurator preserves the requested `HARDWARE_PROFILE` value and applies commons-only configuration.
 
 Add a profile in `blueprint_config.yml` when the hardware needs profile-specific values, such as stream limits, timeouts, or file updates. Commons-only custom hardware also needs either no profile-specific variable references, or fallback variables such as `effective_max_streams_supported`. If commons validation restricts `HARDWARE_PROFILE` to an allowed list, update that validation before using a new custom value.
 
@@ -1252,7 +1250,7 @@ Add a profile in `blueprint_config.yml` when the hardware needs profile-specific
 **Minimal new hardware (stream limits only):**
 
 ```yaml
-# In blueprint_config.yml - add alongside H100, L4, etc.
+# In blueprint_config.yml - add alongside H100, GB300, etc.
 MY-GPU:
   2d:
     max_streams_supported: 6
@@ -1299,7 +1297,7 @@ Here the profile inherits commons and adds longer timeouts and extra file update
    ```yaml
    H100:
      2d:
-       max_streams_supported: 77
+       max_streams_supported: 61
      3d:
        max_streams_supported: 19
    ```
@@ -1349,11 +1347,11 @@ Here the profile inherits commons and adds longer timeouts and extra file update
    Add comments explaining why profile-specific overrides are needed:
 
    ```yaml
-   L4:
+   CUSTOM_GPU:
      3d:
        max_streams_supported: 2
        variables:
-         # L4 needs longer timeouts due to slower processing
+         # CUSTOM_GPU needs longer timeouts due to slower processing
          - timeout_multiplier: "2"
    ```
 
@@ -1853,7 +1851,7 @@ services:
     environment:
       # Profile Configurator
       ENABLE_PROFILE_CONFIGURATOR: "true"
-      HARDWARE_PROFILE: "L4"
+      HARDWARE_PROFILE: "CUSTOM_GPU"
       MODE: "3d"
 
       # Calibration

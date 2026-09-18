@@ -125,6 +125,6 @@ VLM real-time prompts are **not** configured in a file — they are per-request,
 ## Routing guards
 
 - *Was it confirmed / show verdicts / verification results* → **this workflow (B)**: ES probe on `mdx-vlm-alerts-*`, never the rules list. *Exception:* a follow-up to an on-demand verification just run → **Workflow F**, poll `/realtime/incidents` by `correlationId` (that result is incident-kind, not in this store).
-- *What happened / any alerts today* on a CV deployment → **this workflow (B)**: query `mdx-vlm-alerts-*`. On VLM real-time → **Workflow C** (`GET /api/v1/realtime/incidents`).
+- *What happened / any alerts today* → **Workflow C** (`GET /api/v1/realtime/incidents`), even on a CV deployment.
 - *Verify this specific clip/image URL right now* → **Workflow F** (on-demand verification) — its default (incident-kind) result surfaces via `GET /api/v1/realtime/incidents`, NOT this store; it lands here only when the submission carried `notification_type: "alert"`.
 - Verdict-keyword asks on a **VLM** deployment: explain-only → answer from this reference; execution → the VLM-mode refusal text in SKILL.md (redeploy hint `-m verification`); no auto-redeploy.

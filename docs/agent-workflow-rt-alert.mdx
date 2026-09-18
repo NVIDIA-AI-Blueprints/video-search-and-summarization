@@ -140,7 +140,7 @@ curl -sS -X POST "http://<HOST_IP>:9080/api/v1/realtime" \
 | `prompt` | Yes | — | Natural-language condition evaluated for each chunk. |
 | `sensor_id` | No | VIOS sensor UUID | Lets rules share the same underlying RT-VLM stream. |
 | `sensor_name` | No | VIOS sensor name | Human-readable source name. |
-| `system_prompt` | No | `"Answer yes or no"` | Evaluation instruction used by the VLM. |
+| `system_prompt` | No | Empty string | Optional evaluation instruction used by the VLM. The example supplies `"Answer yes or no"` explicitly. |
 | `chunk_duration` | No | `30` seconds | Video duration evaluated per inference. |
 | `chunk_overlap_duration` | No | `5` seconds | Overlap between consecutive chunks. |
 

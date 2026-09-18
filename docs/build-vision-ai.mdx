@@ -106,7 +106,7 @@ The credential gate is determined by those answers:
 
 | Choice | Credential |
 | --- | --- |
-| Any standard VSS deployment | `NGC_CLI_API_KEY`; the Skill also authenticates Docker to `nvcr.io`. |
+| Any standard VSS deployment | `NGC_CLI_API_KEY`; authenticate Docker to `nvcr.io` separately before running the Skill. |
 | Default NemoClaw remote endpoint, or another public OpenAI-compatible harness endpoint | `COMPATIBLE_API_KEY` (no default value). |
 | `build.nvidia.com` model endpoint | `NVIDIA_API_KEY`. |
 | Gated or rate-limited Hugging Face model download | `HF_TOKEN`. |
