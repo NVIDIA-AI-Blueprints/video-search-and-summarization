@@ -177,7 +177,7 @@ class HitlLaunchContractTests(unittest.TestCase):
         settings = sources["20b35654"]
         server = sources["042eabd1"]
 
-        self.assertIn("HITL_ENABLED = False", settings)
+        self.assertIn("HITL_ENABLED = True", settings)
         self.assertIn(
             "if VSS_AGENT_ADAPTER_ENABLED:\n    HITL_ENABLED = False",
             settings,
@@ -307,7 +307,7 @@ class HitlLaunchContractTests(unittest.TestCase):
         self.assertIn("never invoke `AskUserQuestion`", instructions)
         self.assertIn("ordinary assistant text", instructions)
 
-    def test_every_shipped_hitl_tool_config_is_opt_in(self) -> None:
+    def test_every_shipped_hitl_tool_config_defaults_on(self) -> None:
         repo = runner.repo_root()
         found_types: set[str] = set()
 
@@ -335,14 +335,14 @@ class HitlLaunchContractTests(unittest.TestCase):
                             break
                     block = "\n".join(lines[index:block_end])
                     self.assertIn(
-                        "hitl_enabled: ${HITL_ENABLED:-false}",
+                        "hitl_enabled: ${HITL_ENABLED:-true}",
                         block,
                         f"{path.relative_to(repo)}:{index + 1}",
                     )
 
         self.assertEqual(found_types, self.HITL_TOOL_TYPES)
 
-    def test_docker_uses_one_opt_in_for_agent_and_both_ui_surfaces(self) -> None:
+    def test_docker_defaults_hitl_on_for_agent_and_both_ui_surfaces(self) -> None:
         repo = runner.repo_root()
         agent_compose = (
             repo / "deploy" / "docker" / "services" / "agent" / "compose.yml"
@@ -351,16 +351,16 @@ class HitlLaunchContractTests(unittest.TestCase):
             repo / "deploy" / "docker" / "services" / "ui" / "compose.yml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("HITL_ENABLED: ${HITL_ENABLED:-false}", agent_compose)
+        self.assertIn("HITL_ENABLED: ${HITL_ENABLED:-true}", agent_compose)
         self.assertIn(
             "NEXT_PUBLIC_ENABLE_HITL: "
-            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-false}}",
+            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-true}}",
             ui_compose,
         )
         self.assertIn(
             "NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL: "
             "${NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL:-"
-            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-false}}}",
+            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-true}}}",
             ui_compose,
         )
 
@@ -373,7 +373,7 @@ class HitlLaunchContractTests(unittest.TestCase):
         self.assertTrue(override_paths)
         for path in override_paths:
             self.assertIn(
-                "HITL_ENABLED=${HITL_ENABLED:-false}",
+                "HITL_ENABLED=${HITL_ENABLED:-true}",
                 path.read_text(encoding="utf-8"),
                 str(path.relative_to(repo)),
             )
