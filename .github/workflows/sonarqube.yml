@@ -210,9 +210,9 @@ jobs:
             {
               echo "sonar.issue.ignore.multicriteria=lvsbench1,lvsbench2"
               echo "sonar.issue.ignore.multicriteria.lvsbench1.ruleKey=python:S5332"
-              echo "sonar.issue.ignore.multicriteria.lvsbench1.resourceKey=skills/benchmarking/benchmark-video-summarization/scripts/base.py"
+              echo "sonar.issue.ignore.multicriteria.lvsbench1.resourceKey=skills/benchmarking/vss-benchmark-video-summarization/scripts/base.py"
               echo "sonar.issue.ignore.multicriteria.lvsbench2.ruleKey=shell:S5332"
-              echo "sonar.issue.ignore.multicriteria.lvsbench2.resourceKey=skills/benchmarking/benchmark-video-summarization/scripts/fetch-videos.sh"
+              echo "sonar.issue.ignore.multicriteria.lvsbench2.resourceKey=skills/benchmarking/vss-benchmark-video-summarization/scripts/fetch-videos.sh"
             } >> sonar-project.properties
           fi
 
