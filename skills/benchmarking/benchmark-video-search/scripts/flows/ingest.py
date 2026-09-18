@@ -25,19 +25,20 @@ from __future__ import annotations
 
 import json
 import time
-from typing import TYPE_CHECKING
-from typing import Any
 import uuid
+from typing import TYPE_CHECKING, Any
 
 import requests
 
-from .base import COMPLETE_TIMEOUT
-from .base import CONTENT_TYPES
-from .base import DEFAULT_UPLOAD_TIMESTAMP
-from .base import UPLOAD_TIMEOUT
-from .base import UPLOAD_URL_TIMEOUT
-from .base import base_record
-from .base import finish_record
+from .base import (
+    COMPLETE_TIMEOUT,
+    CONTENT_TYPES,
+    DEFAULT_UPLOAD_TIMESTAMP,
+    UPLOAD_TIMEOUT,
+    UPLOAD_URL_TIMEOUT,
+    base_record,
+    finish_record,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -121,7 +122,7 @@ class LegacyPutIngest:
         except requests.Timeout:
             record["success"] = False
             record["error"] = "Request timeout"
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             record["success"] = False
             record["error"] = f"{type(e).__name__}: {e}"
         return record
@@ -293,7 +294,7 @@ class AgentThreeStepIngest:
             record["error"] = "Request timeout"
             record["phases"] = phases
             finish_record(record, time.time() - overall_start)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             record["success"] = False
             record["error"] = f"{type(e).__name__}: {e}"
             record["phases"] = phases
@@ -392,7 +393,7 @@ class VstDirectIngest:
             resp = requests.get(url, timeout=timeout)
             resp.raise_for_status()
             timelines = (resp.json() or {}).get(sensor_id) or []
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return {"checked": False, "error": f"{type(e).__name__}: {e}"}
         if not timelines:
             return {"checked": True, "found": False, "sensor_id": sensor_id}
@@ -455,7 +456,7 @@ class VstDirectIngest:
             record["success"] = False
             record["error"] = "Request timeout"
             finish_record(record, time.time() - overall_start)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             record["success"] = False
             record["error"] = f"{type(e).__name__}: {e}"
             finish_record(record, time.time() - overall_start)

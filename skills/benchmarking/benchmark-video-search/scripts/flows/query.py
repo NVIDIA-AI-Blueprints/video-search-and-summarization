@@ -249,6 +249,7 @@ class CliQueryBackend:
             proc = subprocess.run(
                 argv,
                 capture_output=True,
+                check=False,
                 text=True,
                 timeout=self.timeout,
                 cwd=self.cwd,
