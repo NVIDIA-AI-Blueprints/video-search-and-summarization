@@ -52,7 +52,11 @@ from utils.media_file_info import MediaFileInfo
 from utils.otel_helper import create_historical_span, get_tracer
 from utils.request_profiler import GPUMonitor, RequestMetrics
 
-from vlm_pipeline import VlmPipeline, PipelineChunkResult  # isort:skip
+from vlm_pipeline import (  # isort:skip
+    MODEL_BACKEND_UNAVAILABLE_MESSAGE,
+    PipelineChunkResult,
+    VlmPipeline,
+)
 from vlm_pipeline.errors import is_cuda_oom_error  # isort:skip
 
 REASONING_INFO_KEY = "reasoning"
@@ -2961,27 +2965,38 @@ class RTVIStreamHandler:
 
         self._update_stream_fps(chunk_result, req_info)
 
+        terminal_backend_error = bool(
+            chunk_result.error_status_code == 503
+            and chunk_result.error == MODEL_BACKEND_UNAVAILABLE_MESSAGE
+        )
         if chunk_result.error:
-            if not req_info.is_live:
+            if not req_info.is_live or terminal_backend_error:
                 # Error was encountered while processing a chunk,
                 # mark the request as failed for files
                 # For live streams, continue processing new chunks
                 req_info.status = RequestInfo.Status.FAILED
                 req_info.error_message = chunk_result.error
                 req_info.error_status_code = chunk_result.error_status_code
-                self._vlm_pipeline.abort_chunks(req_info.assets[0].asset_id)
-                req_info.status_event.set()
+                if req_info.is_live:
+                    Thread(
+                        target=self._remove_terminal_live_stream,
+                        args=(req_info.assets[0],),
+                        daemon=True,
+                    ).start()
+                else:
+                    self._vlm_pipeline.abort_chunks(req_info.assets[0].asset_id)
+                    req_info.status_event.set()
                 # The all-chunks-processed close below is unreachable now: the
                 # aborted chunks never arrive, so processed_chunk_list can never
                 # reach chunk_count. Without this the request's EVS sessions
                 # leak for the life of the process, until session creation
                 # fails with "max sessions reached". Threaded because
                 # send_command blocks on the worker's response queue.
-                Thread(
-                    target=self._vlm_pipeline.close_evs_sessions,
-                    args=(req_info.stream_id,),
-                    daemon=True,
-                ).start()
+                    Thread(
+                        target=self._vlm_pipeline.close_evs_sessions,
+                        args=(req_info.stream_id,),
+                        daemon=True,
+                    ).start()
 
             self._send_error_message_to_kafka(chunk_result.error, req_info.stream_id)
             logger.error(
@@ -2993,6 +3008,9 @@ class RTVIStreamHandler:
 
         if self._vlm_admission_mode != "off":
             self._complete_admitted_chunk(chunk_result, req_info)
+
+        if terminal_backend_error:
+            return
 
         if req_info.is_live:
             live_stream_id = req_info.assets[0].asset_id
@@ -3208,7 +3226,14 @@ class RTVIStreamHandler:
             except Exception as exc:
                 logger.exception("Failed to enqueue admitted chunk %r", chunk)
                 self._on_vlm_chunk_response(
-                    PipelineChunkResult(chunk=chunk, error=str(exc)), req_info
+                    PipelineChunkResult(
+                        chunk=chunk,
+                        error=(exc.message if isinstance(exc, ServiceException) else str(exc)),
+                        error_status_code=(
+                            exc.status_code if isinstance(exc, ServiceException) else 500
+                        ),
+                    ),
+                    req_info,
                 )
 
     def _dispatch_pending_file_chunks(self) -> None:
@@ -3428,6 +3453,8 @@ class RTVIStreamHandler:
             query: VlmQuery object with query parameters
         """
 
+        self._vlm_pipeline.ensure_model_available()
+
         locked_assets = []
         try:
             for asset in assets:
@@ -3521,10 +3548,16 @@ class RTVIStreamHandler:
                 self._vlm_admission_active_cost = max(
                     0.0, self._vlm_admission_active_cost - released_cost
                 )
-            self._metrics._queries_pending_counter.add(-1)
+            try:
+                self._metrics._queries_pending_counter.add(-1)
+            except Exception:
+                logger.warning("Failed to roll back pending-query metric", exc_info=True)
             self._finalize_stream_fps_tracking(req_info)
             if req_info._monitor:
-                self.stop_request_profiling(req_info, [])
+                try:
+                    self.stop_request_profiling(req_info, [])
+                except Exception:
+                    logger.warning("Failed to stop profiling during query rollback", exc_info=True)
             if req_info.vlm_pipeline_span:
                 try:
                     req_info.vlm_pipeline_span.set_attribute("setup_failed", True)
@@ -3543,10 +3576,16 @@ class RTVIStreamHandler:
                     nvtx.end_range(req_info.nvtx_summarization_start)
                 except Exception as nvtx_error:
                     logger.warning("Failed to end summarization NVTX range: %s", nvtx_error)
-            self._cleanup_request_files(req_info)
+            try:
+                self._cleanup_request_files(req_info)
+            except Exception:
+                logger.warning("Failed to clean files during query rollback", exc_info=True)
             for asset in locked_assets:
-                if asset.use_count > 0:
-                    asset.unlock()
+                try:
+                    if asset.use_count > 0:
+                        asset.unlock()
+                except Exception:
+                    logger.warning("Failed to unlock asset during query rollback", exc_info=True)
             raise
         return req_info.request_id
 
@@ -3611,6 +3650,8 @@ class RTVIStreamHandler:
         self, asset: Asset, query: VlmQuery, is_chat_completion: bool = False
     ):
         """Create a VLM captions request for RTSP streams without requiring summary_duration."""
+
+        self._vlm_pipeline.ensure_model_available()
 
         # Validate chunk_duration parameter
         if query.chunk_duration <= 0:
@@ -3709,9 +3750,15 @@ class RTVIStreamHandler:
             with self._lock:
                 self._request_info_map.pop(req_info.request_id, None)
             if active_counted:
-                self._metrics._active_live_streams_counter.add(-1)
+                try:
+                    self._metrics._active_live_streams_counter.add(-1)
+                except Exception:
+                    logger.warning("Failed to roll back active-stream metric", exc_info=True)
             if req_info._monitor:
-                self.stop_request_profiling(req_info, [])
+                try:
+                    self.stop_request_profiling(req_info, [])
+                except Exception:
+                    logger.warning("Failed to stop profiling during stream rollback", exc_info=True)
             if req_info.vlm_pipeline_span:
                 try:
                     req_info.vlm_pipeline_span.set_attribute("setup_failed", True)
@@ -3726,9 +3773,16 @@ class RTVIStreamHandler:
                     req_info._e2e_span.end()
                 except Exception as span_error:
                     logger.warning("Failed to end e2e OTEL span: %s", span_error)
-            self._cleanup_request_files(req_info)
-            if asset_locked and asset.use_count > 0:
-                asset.unlock()
+            try:
+                self._cleanup_request_files(req_info)
+            except Exception:
+                logger.warning("Failed to clean files during stream rollback", exc_info=True)
+            if asset_locked:
+                try:
+                    if asset.use_count > 0:
+                        asset.unlock()
+                except Exception:
+                    logger.warning("Failed to unlock asset during stream rollback", exc_info=True)
             if is_cuda_oom_error(e):
                 memory_info = self._get_gpu_memory_info_bytes()
                 free_memory = (
@@ -3927,6 +3981,17 @@ class RTVIStreamHandler:
         # Phase B (lock released): no pipeline drain for files today, but keeping
         # the pop-then-release structure mirrors remove_rtsp_stream so any future
         # lock-escaping cleanup can be added below without reshuffling.
+
+    def _remove_terminal_live_stream(self, asset: Asset) -> None:
+        try:
+            self.remove_rtsp_stream(asset, abort_inflight=True)
+        except ServiceException as error:
+            if error.status_code != 409:
+                logger.error(
+                    "Failed to remove terminal live stream %s: %s",
+                    asset.asset_id,
+                    error,
+                )
 
     def remove_rtsp_stream(
         self,

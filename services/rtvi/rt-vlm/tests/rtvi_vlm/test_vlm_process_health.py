@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import concurrent.futures
+import queue
 from threading import Event, Lock
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -101,7 +102,7 @@ def test_engine_dead_detection_is_qualified_and_cancelled_future_is_safe():
     assert VlmProcess._engine_dead_error_signals(custom_error("dead"))[0] is False
 
     process = _make_process(True)
-    process._final_output_queue = MagicMock()
+    process._final_output_queue = queue.Queue()
     future = concurrent.futures.Future()
     future.cancel()
     process._handle_result(
@@ -111,7 +112,29 @@ def test_engine_dead_detection_is_qualified_and_cancelled_future_is_safe():
         is_live_stream=[False],
         request_id=["cancelled-request"],
     )
+    routed = process._final_output_queue.get_nowait()
+    assert routed["is_live_stream"] is False
+    assert routed["request_id"] == "cancelled-request"
 
     model = object.__new__(VllmCompatible)
     model._llm = SimpleNamespace(errored=False)
     assert model.is_healthy() is True
+
+
+@pytest.mark.no_gpu
+@pytest.mark.parametrize("healthy_after_signal", [True, False])
+def test_engine_dead_message_requires_authoritative_health_confirmation(healthy_after_signal):
+    process = _make_process(healthy_after_signal)
+    process._final_output_queue = queue.Queue()
+
+    process._handle_result(
+        RuntimeError("EngineCore encountered an issue while serving a request"),
+        chunk=[ChunkInfo(chunkIdx=9)],
+        chunk_id=[9],
+        is_live_stream=[False],
+        request_id=["message-only-request"],
+    )
+
+    process._model.is_healthy.assert_called_with()
+    assert process.is_model_healthy() is healthy_after_signal
+    assert process._final_output_queue.get_nowait()["request_id"] == "message-only-request"

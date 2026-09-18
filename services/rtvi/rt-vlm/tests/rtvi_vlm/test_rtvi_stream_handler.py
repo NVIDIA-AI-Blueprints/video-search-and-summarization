@@ -1480,6 +1480,59 @@ class TestUtilityMethods:
         assert result is None
 
 
+def test_backend_death_terminalizes_live_request(stream_handler):
+    asset = Asset(
+        asset_id="stream-engine-dead",
+        path="rtsp://example/stream",
+        purpose="",
+        media_type="",
+        asset_dir="",
+    )
+    req_info = RequestInfo(request_id="request-engine-dead", assets=[asset], is_live=True)
+    req_info.status = RequestInfo.Status.PROCESSING
+    stream_handler._remove_terminal_live_stream = MagicMock()
+
+    stream_handler._on_vlm_chunk_response(
+        PipelineChunkResult(
+            chunk=ChunkInfo(file=asset.path, chunkIdx=4),
+            error="VLM model backend is unavailable",
+            error_status_code=503,
+        ),
+        req_info,
+    )
+
+    deadline = monotonic() + 5
+    while not stream_handler._remove_terminal_live_stream.called and monotonic() < deadline:
+        sleep(0.01)
+    assert req_info.status == RequestInfo.Status.FAILED
+    assert req_info.error_status_code == 503
+    stream_handler._remove_terminal_live_stream.assert_called_once_with(asset)
+
+
+def test_unhealthy_backend_is_rejected_before_file_or_live_mutation(stream_handler):
+    asset = Asset(
+        asset_id="unhealthy-admission",
+        path="rtsp://example/stream",
+        purpose="",
+        media_type="",
+        asset_dir="",
+    )
+    unavailable = ServiceException(
+        "VLM model backend is unavailable", "ServiceUnavailable", 503
+    )
+    stream_handler._vlm_pipeline.ensure_model_available.side_effect = unavailable
+
+    with pytest.raises(ServiceException) as file_error:
+        stream_handler.query([asset], MagicMock())
+    with pytest.raises(ServiceException) as live_error:
+        stream_handler._create_rtsp_vlm_captions_request(asset, MagicMock())
+
+    assert file_error.value.status_code == 503
+    assert live_error.value.status_code == 503
+    assert asset.use_count == 0
+    assert stream_handler._request_info_map == {}
+
+
 class TestRequestManagement:
     """Test request management"""
 

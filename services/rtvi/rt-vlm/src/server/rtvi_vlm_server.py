@@ -671,6 +671,21 @@ class RTVIServer:
                 500,
             ) from ex
 
+        def raise_for_pipeline_error():
+            chunk_result = result_holder.get("result")
+            if chunk_result and chunk_result.error:
+                raise ServiceException(
+                    chunk_result.error,
+                    (
+                        "ServiceUnavailable"
+                        if chunk_result.error_status_code == 503
+                        else "InternalServerError"
+                    ),
+                    chunk_result.error_status_code,
+                )
+
+        raise_for_pipeline_error()
+
         loop = asyncio.get_running_loop()
 
         if request_body.stream:
@@ -705,6 +720,23 @@ class RTVIServer:
                         yield json.dumps(warning_response)
 
                     while True:
+                        chunk_result = result_holder.get("result")
+                        if chunk_result and chunk_result.error:
+                            yield json.dumps(
+                                {
+                                    "error": {
+                                        "code": (
+                                            "ServiceUnavailable"
+                                            if chunk_result.error_status_code == 503
+                                            else "InternalServerError"
+                                        ),
+                                        "message": chunk_result.error,
+                                        "status": chunk_result.error_status_code,
+                                    }
+                                }
+                            )
+                            break
+
                         # Overall streaming timeout
                         if time.time() - stream_start > max_streaming_duration:
                             logger.warning(
@@ -794,6 +826,7 @@ class RTVIServer:
                 )
 
             chunk_result = result_holder.get("result")
+            raise_for_pipeline_error()
             content = ""
             reasoning_description = ""
             input_tokens = 0

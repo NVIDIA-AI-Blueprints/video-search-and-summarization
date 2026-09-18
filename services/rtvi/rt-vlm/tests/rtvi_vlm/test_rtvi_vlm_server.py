@@ -47,6 +47,7 @@ from fastapi.testclient import TestClient
 
 import server.rtvi_vlm_server as rtvi_vlm_server
 from api_models.captions import VlmQuery
+from api_models.nim_compat import ChatCompletionRequest
 from common.chunk_info import ChunkInfo
 from common.service_exception import ServiceException
 from models.base_vlm_model import VlmModelOutput
@@ -384,10 +385,11 @@ class TestHealthEndpoints:
         deadline = time.monotonic() + 10
         while not tcp_server.started and time.monotonic() < deadline:
             time.sleep(0.01)
+        assert tcp_server.started
 
         try:
             with pytest.raises(urllib.error.HTTPError) as exc_info:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}{API_PREFIX}/ready")
+                urllib.request.urlopen(f"http://127.0.0.1:{port}{API_PREFIX}/ready", timeout=5)
             assert exc_info.value.code == 503
         finally:
             tcp_server.should_exit = True
@@ -2074,6 +2076,34 @@ class TestNIMCompatibleEndpoints:
         # Text-only request routes through VLM pipeline.
         # In test env (no model), it times out (504) or succeeds (200).
         assert response.status_code in (200, 504)
+
+    def test_chat_completions_returns_backend_unavailable(self, test_client, rtvi_server):
+        pipeline = rtvi_server._stream_handler._vlm_pipeline
+        pipeline.enqueue_vlm_text_chunk.side_effect = lambda **kwargs: kwargs[
+            "on_chunk_result"
+        ](PipelineChunkResult(error="VLM model backend is unavailable", error_status_code=503))
+
+        response = test_client.post(
+            f"{API_PREFIX}/chat/completions",
+            json={"model": "test-model", "messages": [{"role": "user", "content": "Test"}]},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["message"] == "VLM model backend is unavailable"
+
+    def test_streaming_chat_rejects_backend_unavailable_before_sse(self, rtvi_server):
+        pipeline = rtvi_server._stream_handler._vlm_pipeline
+        pipeline.enqueue_vlm_text_chunk.side_effect = lambda **kwargs: kwargs[
+            "on_chunk_result"
+        ](PipelineChunkResult(error="VLM model backend is unavailable", error_status_code=503))
+        request = ChatCompletionRequest(
+            model="test-model", stream=True, messages=[{"role": "user", "content": "Test"}]
+        )
+
+        with pytest.raises(ServiceException) as exc_info:
+            asyncio.run(rtvi_server._handle_text_only_chat(request, "", "Test"))
+
+        assert exc_info.value.status_code == 503
 
     def test_chat_completions_missing_messages(self, test_client):
         """Test chat completions without messages"""
