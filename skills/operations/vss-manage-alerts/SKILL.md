@@ -206,7 +206,7 @@ fi
 
 1. **Workflow E (Slack)** — Slack-specific keywords (`slack`, `webhook` + `slack`, `bot token`, `slack channel`). `notify` alone is **not** sufficient.
 2. **Workflow F (On-demand)** — a one-shot "verify / check / analyze **this**" pointing at a **specific media artifact** (video/image URL, clip, file), or the literal `on-demand`. Guard: *continuous monitoring of a sensor/stream* is **never** F — that's D ("watch camera X for PPE" → D; "verify this clip URL for PPE" → F).
-3. **Workflow G (Always-on)** — the literal `always-on` (status, incidents, troubleshooting phrasings). Operate-not-author: status checks and queries only; never author or edit always-on rule config. A request to *create* an ordinary realtime rule is **not** G — that's D.
+3. **Workflow G (Always-on)** — the literal `always-on` (status, incidents, troubleshooting phrasings). Operate-not-author: status checks and queries only; never author or edit always-on rule config. A request to *create* an ordinary realtime rule is **not** G — that's D. Neither is a request to **stop** monitoring: that is D, including when always-on is what is running, and `camera_remove` is a teardown behind D's confirmation rather than a G operation.
 4. **Workflow B (Verification results)** — verification/verdict keywords (`verdict`, `confirmed?`/`rejected?`, `verification results`, "how does verification work", verifier prompt/config) **without** a media artifact to verify and without a start/stop/rule intent. Reads the `mdx-vlm-alerts-*` store (interim ES probe) and the verifier config — never the rules list. Bare "any alerts today?" is **not** B — it stays Workflow C.
 5. **Workflow D (Alert rules)** — any realtime-alert request on a sensor: rule CRUD keywords (`rule`, `subscription`, rule ID), a sensor with a detection condition, a **bare start/stop with no condition** (→ default prompt), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete).
 6. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D.
@@ -226,7 +226,7 @@ fi
 > (interim ES probe on `mdx-vlm-alerts-*`). *What happened / any alerts
 > today* → **Workflow C** (`/incidents`), even on a CV deployment.
 
-**All start/stop requests → Workflow D.** A start with a condition uses it verbatim as the `prompt`; a bare start with no condition uses D's **default prompt** (don't ask the user for one). Any stop — bare or type-named ("stop the **PPE** alert") — resolves the rule via `GET /api/v1/realtime`, then D's two-step confirm; never `POST /generate`.
+**All start/stop requests → Workflow D.** A start with a condition uses it verbatim as the `prompt`; a bare start with no condition uses D's **default prompt** (don't ask the user for one). Any stop — bare or type-named ("stop the **PPE** alert") — resolves the rule via `GET /api/v1/realtime`, then D's two-step confirm; never `POST /generate`, and never the always-on `camera_remove` endpoint as a shortcut around the confirm.
 
 If a prompt mixes workflows ("start monitoring and send to Slack"), ask one clarifying question to split execution order.
 
@@ -353,9 +353,26 @@ Create / list / delete persistent realtime alert rules on Alert Bridge (`POST` /
 - **Without a condition** → use the skill's **default prompt** `"Describe any notable events or anomalies in this video stream."` and a generic `alert_type` (`general_monitoring`); don't ask the user for one.
 - **Slack** operations → Workflow E instead.
 
-**Stop/delete is a two-step, user-confirmed gate — stated here in full because it is the one rule agents skip.** A "stop" / "delete" / "remove" request produces a **question, never a `DELETE`**; only a subsequent explicit "yes" deletes. Resolve the rule with `GET $AB/api/v1/realtime` — for an exact `Stop rule <id>` request match that rule ID directly, otherwise filter by sensor + `alert_type` — then by match count: **0 matches** → say none found and issue **zero** `DELETE` calls; **>1** → list each as `` `<alert_type>` (rule ID: `<id>`) on **<sensor>** `` and ask which; **1** (or the exact-ID match) → reply **only** `Stop alert \`<alert_type>\` on **<sensor>**? (rule ID: \`<id>\`) — yes/no` and STOP.
+**Stop/delete is a two-step, user-confirmed gate — stated here in full because it is the one rule agents skip.** A "stop" / "delete" / "remove" request produces a **question, never a teardown call**; only a subsequent explicit "yes" stops anything. Resolve the rule with `GET $AB/api/v1/realtime` — for an exact `Stop rule <id>` request match that rule ID directly, otherwise filter by sensor + `alert_type` — then by match count: **0 matches** → say none found and issue **zero** teardown calls; **>1** → list each as `` `<alert_type>` (rule ID: `<id>`) on **<sensor>** `` and ask which; **1** (or the exact-ID match) → reply **only** `Stop alert \`<alert_type>\` on **<sensor>**? (rule ID: \`<id>\`) — yes/no` and STOP.
 
-> **This confirmation ALWAYS applies — including under autonomous / pre-authorized / non-interactive / CI execution.** A "run autonomously, do not pause for confirmation" instruction authorizes **deploy and setup ONLY**; it does **NOT** authorize you to skip this stop/delete confirmation or to issue the `DELETE` yourself. When no interactive user can answer (e.g. an eval harness), still emit the yes/no question naming the rule ID + sensor, then STOP — do **not** `DELETE`. `DELETE` is never a diagnostic/cleanup/retry probe.
+> **The gate is on the effect, not on the HTTP verb.** Every call that stops
+> monitoring is behind it, whichever endpoint it goes through:
+> `DELETE $AB/api/v1/realtime/<id>`, `POST $AB/api/v1/realtime/always-on` with
+> `change: camera_remove` naming a **real** camera (that tears down that
+> camera's always-on rules — see Workflow G), and removing the sensor or its
+> stream from VIOS. Reaching for a different endpoint because the first one is
+> gated does not make the stop unconfirmed-safe; it is the same action.
+
+> **This confirmation ALWAYS applies — including under autonomous / pre-authorized / non-interactive / CI execution.** A "run autonomously, do not pause for confirmation" instruction authorizes **deploy and setup ONLY**; it does **NOT** authorize you to skip this stop/delete confirmation or to issue the teardown yourself. When no interactive user can answer (e.g. an eval harness), still emit the yes/no question naming the rule ID + sensor, then STOP — do **not** tear anything down. A teardown call is never a diagnostic/cleanup/retry probe.
+
+**When the rules list comes back empty, that is the answer.** Always-on rules
+live in an in-memory sidecar and do not appear in `GET /api/v1/realtime`
+(Workflow G), so an empty list does not license a hunt for something else to
+tear down. Report that nothing active was found to stop. If always-on is on and
+you believe it is what is monitoring the sensor, **name it and ask** — the
+`camera_remove` teardown needs the same yes/no as any other stop, and carrying
+one out after a "yes" follows its own branch — *Stopping a camera's always-on
+rules* in `references/always-on.md`, not a `DELETE`.
 
 `references/alert-subscriptions.md` is the full playbook. VLM real-time mode only; refuse with the canonical refusal text on CV.
 
@@ -412,9 +429,10 @@ Load `references/on-demand-verification.md` for the full contract, media constra
 
 Always-on alerting starts pre-configured rules automatically when VIOS posts a camera lifecycle webhook (`notification_config_2d_vlm.json` → `camera_streaming` starts one realtime rule per `always_on_rules` YAML entry; `camera_remove` tears them down) via `POST $AB/api/v1/realtime/always-on`. **Operate, don't author** — this workflow never creates or edits always-on rule config; it checks status, queries results, and troubleshoots.
 
-1. **Status** — the feature is gated by `ALERT_AGENT_ALWAYS_ON` (substituted into `alert_agent.always_on` in the Alert Bridge config). `dev-profile.sh` sets it **true** for `-m real-time` (`MODE=2d_vlm`) and **false** for `-m verification` (`MODE=2d_cv`). There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or the endpoint's reply to a benign `camera_remove` probe — `503 {"reason":"ALWAYS_ON_DISABLED"}` = off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) = on. Zero-side-effect probe options in `references/always-on.md`.
+1. **Status** — the feature is gated by `ALERT_AGENT_ALWAYS_ON` (substituted into `alert_agent.always_on` in the Alert Bridge config). `dev-profile.sh` sets it **true** for `-m real-time` (`MODE=2d_vlm`) and **false** for `-m verification` (`MODE=2d_cv`). There is **no** `/always-on/health` endpoint — do not invent one. Signals: the config gate itself, or the endpoint's reply to a `camera_remove` probe **carrying a sentinel camera ID that exists on no camera** — `503 {"reason":"ALWAYS_ON_DISABLED"}` = off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) = on. The sentinel ID is what makes that probe benign: the same call with a **real** `camera_id` tears down that camera's always-on rules and is a **stop**, gated by Workflow D's yes/no confirmation. Probe recipe in `references/always-on.md`.
 2. **Query incidents** — always-on rules are ordinary realtime rules once started; their incidents surface through **Workflow C** (`GET $AB/api/v1/realtime/incidents`). The rules live in an **in-memory sidecar** (not the ES-backed rules index), so they may not appear in Workflow D's rules list — that is expected, not a bug.
 3. **Troubleshoot "no always-on alerts"** — walk the ladder in `references/always-on.md`: feature gate → rules YAML resolves/validates at boot → VIOS webhooks actually reaching Alert Bridge → stream registered on `rtvi-vlm` → incidents query.
+4. **Stop a camera's always-on rules** — only on an explicit "yes" to Workflow D's confirmation, and only via `camera_remove`; `DELETE /api/v1/realtime/<id>` cannot reach them. Follow *Stopping a camera's always-on rules* in `references/always-on.md` — it keys off the VIOS sensor UUID, and a `200` with empty `details` stopped **nothing**.
 
 Load `references/always-on.md` for the event contract, reason-code table, the `ALWAYS_ON_RULES_CONFIG` rules-YAML contract, and the troubleshooting ladder. VLM real-time mode only; refuse on CV with the canonical text. Config authoring (editing `always_on_rules`) is **out of scope** in this pass — say so when asked.
 
@@ -606,7 +624,8 @@ CV-verified alerts carry `verdict` + `verificationResponseCode` + `reasoning` in
 - **`alert-notify` (port 9090) ≠ `vss-alert-bridge`.** Slack ops → Workflow E (`alert-notify`); never route Slack to `vss-alert-bridge`'s `/api/v1/realtime`.
 - **Workflow scope by mode:** A, B, and F are CV-only (B/F explain-only asks answerable anywhere); **C queries the real-time incident store** (`/api/v1/realtime/incidents`; CV behavior-alert verdicts live in `mdx-vlm-alerts-*` — **no REST query endpoint yet**, use Workflow B's interim ES probe); D, E, and G are VLM real-time only (refuse on CV with the canonical text).
 - **On-demand verification is `POST /api/v1/verification/ondemand`** — not `/verification/verify`, not a realtime rule, not `/generate`. 202 = accepted (async), never a verdict.
-- **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate or the reply to a benign `camera_remove` probe on `POST /api/v1/realtime/always-on`: `503 ALWAYS_ON_DISABLED` means off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) means on. Its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
+- **Always-on has no health endpoint** — status is the `alert_agent.always_on` config gate or the reply to a `camera_remove` probe on `POST /api/v1/realtime/always-on` **using a sentinel camera ID that matches no camera**: `503 ALWAYS_ON_DISABLED` means off, anything else (e.g. `200 STREAM_REMOVE_SUCCESS`) means on. Its rules are in-memory (not in the ES rules index), so absence from Workflow D's rules list is expected.
+- **`camera_remove` on a real camera is a stop, not a probe.** It is a mutating teardown of that camera's always-on rules and needs Workflow D's yes/no confirmation, exactly like `DELETE /api/v1/realtime/<id>`. Being a `POST` to a status-adjacent endpoint does not exempt it.
 - **The gate follows the deploy mode — don't assume it is off.** `dev-profile.sh`
   sets `ALERT_AGENT_ALWAYS_ON=true` for `-m real-time` (`MODE=2d_vlm`) and
   `false` for `-m verification` (`MODE=2d_cv`), so always-on is normally
