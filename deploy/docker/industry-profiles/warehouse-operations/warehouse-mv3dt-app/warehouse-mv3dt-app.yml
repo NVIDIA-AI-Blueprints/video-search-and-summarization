@@ -319,6 +319,9 @@ services:
       DOWNLOAD_MODELS_SCRIPT: /opt/scripts/download-models.sh
     command: ["./ds-start-mv3dt.sh"]
     depends_on:
+      bp-configurator-mv3dt:
+        condition: service_healthy
+        required: false
       sensor-ms-mv3dt:
         condition: service_started
       broker-health-check:
