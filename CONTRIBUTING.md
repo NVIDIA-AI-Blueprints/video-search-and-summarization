@@ -20,7 +20,7 @@ If you are interested in contributing to Video Search and Summarization (VSS), y
 
 ## Licensing
 
-This project is licensed under **Apache-2.0**, including `services/ui/`. Elasticsearch, Kibana, and Redis configuration files are separately dual-licensed under SSPLv1 or AGPLv3 as described in [LICENSE](LICENSE).
+This project is licensed under **Apache-2.0**. Elasticsearch, Kibana, and Redis configuration files are separately dual-licensed under SSPLv1 or AGPLv3 as described in [LICENSE](LICENSE).
 
 **All contributions to this repository are accepted under the Apache-2.0 license.**
 
