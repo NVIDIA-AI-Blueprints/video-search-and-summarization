@@ -35,9 +35,11 @@ def write_calibration(path: Path, sensor_ids):
     return data
 
 
-def make_operation(video_dir: Path, calibration_file: Path, expected_count=0):
+def make_operation(
+    video_dir: Path, calibration_file: Path, expected_count=0, required_mode="3d"
+):
     return {
-        "required_mode": "3d",
+        "required_mode": required_mode,
         "required_calibration_mode": "mount",
         "video_directories": [str(video_dir)],
         "video_patterns": ["*.mp4", "*.mkv"],
@@ -108,6 +110,36 @@ def test_recompute_uses_filename_stems_and_preserves_inode(tmp_path):
     assert result["sensorGroups"][0]["sensors"] == ["Camera", "Camera_01"]
     assert list(tmp_path.glob("calibration.backup_*.json"))
     assert not list(tmp_path.glob(".calibration.bev_*.json"))
+
+
+def test_recompute_runs_for_matching_mv3dt_mode(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera"])
+
+    calls = []
+
+    def fake_recompute(path, sensor_names, n_sensor_groups, max_sensors_per_group):
+        calls.append((sensor_names, n_sensor_groups, max_sensors_per_group))
+        return path
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"}, mode="mv3dt")
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ):
+        assert manager._execute_recompute_bev_groups(
+            make_operation(
+                video_dir,
+                calibration_file,
+                expected_count=1,
+                required_mode="mv3dt",
+            )
+        )
+
+    assert calls == [(["Camera"], 1, 1)]
 
 
 def test_recompute_accepts_and_filters_calibration_superset(tmp_path):
