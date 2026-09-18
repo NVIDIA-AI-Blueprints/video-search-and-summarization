@@ -130,6 +130,9 @@ function normalizeMessages(messages: unknown[]): ChatMessage[] {
           ? ('assistant' as const)
           : ('user' as const),
       content: typeof m.content === 'string' ? m.content : '',
+      artifacts: Array.isArray(m.artifacts)
+        ? m.artifacts.filter((artifact): artifact is string => typeof artifact === 'string')
+        : undefined,
       steps: Array.isArray(m.steps) ? (m.steps as ChatMessage['steps']) : undefined,
       callerInfo: typeof m.callerInfo === 'string' ? m.callerInfo : undefined,
       hidden: m.hidden === true,

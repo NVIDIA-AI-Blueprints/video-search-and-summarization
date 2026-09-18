@@ -393,22 +393,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         aria-live="polite"
         aria-busy={busy}
       >
-        {!hydrated ? null : visibleMessages.length === 0 && !features.headerMenu ? (
+        {hydrated && visibleMessages.length === 0 && !features.headerMenu ? (
           <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
             {placeholder ?? 'Ask about your video…'}
           </p>
-        ) : (
-          visibleMessages.map((message) => (
-            <ChatMessageView
-              key={message.id}
-              message={message}
-              features={features}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onNotify={notify}
-            />
-          ))
-        )}
+        ) : null}
+        {hydrated
+          ? visibleMessages.map((message) => (
+              <ChatMessageView
+                key={message.id}
+                message={message}
+                features={features}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onNotify={notify}
+                mediaProxyUrl={endpoint.mediaProxyUrl}
+              />
+            ))
+          : null}
         {/* Keeps the last message clear of the floating composer. */}
         <div className="h-[162px]" ref={endRef} />
       </div>

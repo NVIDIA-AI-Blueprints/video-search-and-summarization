@@ -11,6 +11,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
+import { VssUiArtifact } from '../lib-src/markdown/components';
 
 jest.mock('../lib-src/storage', () => ({
   initConversationSessionLifecycle: jest.fn(),
@@ -63,6 +64,26 @@ async function typeAndSend(text: string) {
 
 describe('ChatPanel', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('renders a validated inline raster image artifact', () => {
+    render(
+      <VssUiArtifact
+        value={{
+          version: '1.0',
+          kind: 'vss.media.image',
+          payload: {
+            media_url: 'data:image/jpeg;base64,/9j/2Q==',
+            alt: 'Warehouse snapshot',
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('img', { name: 'Warehouse snapshot' })).toHaveAttribute(
+      'src',
+      'data:image/jpeg;base64,/9j/2Q==',
+    );
+  });
 
   it('streams an answer and renders it as markdown', async () => {
     global.fetch = jest.fn().mockResolvedValue(
@@ -453,6 +474,63 @@ describe('ChatPanel', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/api/agent/runs/run_1/events');
     expect(onAnswer.mock.calls[0][0]).toContain('<vss-ui-artifact>');
     expect(onAnswer.mock.calls[0][0]).toContain('vss.search.results');
+  });
+
+  it('renders a snapshot artifact with same-origin download support', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          run_id: 'run_1',
+          events_url: '/api/agent/runs/run_1/events',
+          cancel_url: '/api/agent/runs/run_1/cancel',
+        }),
+      })
+      .mockResolvedValueOnce(
+        sseResponse([
+          agentApiFrame('run.started', {}, 1),
+          agentApiFrame('message.delta', { delta: 'Snapshot ready.' }, 2),
+          agentApiFrame(
+            'artifact.created',
+            {
+              version: '1.0',
+              kind: 'vss.media.image',
+              payload: {
+                media_url: '/vst/storage/temp/snapshot.jpg?token=one',
+                alt: 'Snapshot of warehouse_safety_0001 at 0:05',
+              },
+            },
+            3,
+          ),
+          agentApiFrame('run.completed', {}, 4),
+        ]),
+      );
+    global.fetch = fetchMock as any;
+    const onAnswer = jest.fn();
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          surface: 'vss-ui-main',
+          conversationId: 'thread_1',
+          mediaProxyUrl: '/media',
+        }}
+        features={noHeader}
+        onAnswer={onAnswer}
+      />,
+    );
+    await act(async () => typeAndSend('take a snapshot'));
+
+    const image = await screen.findByRole('img', {
+      name: 'Snapshot of warehouse_safety_0001 at 0:05',
+    });
+    expect(image).toHaveAttribute('src', '/media/vst/storage/temp/snapshot.jpg?token=one');
+    expect(screen.getByRole('button', { name: 'Download image' })).toBeInTheDocument();
+    expect(onAnswer.mock.calls[0][0]).toContain('vss.media.image');
   });
 
   it('folds a context chip into the request and clears it after sending', async () => {

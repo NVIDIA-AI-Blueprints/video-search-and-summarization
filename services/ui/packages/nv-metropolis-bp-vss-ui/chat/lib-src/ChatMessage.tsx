@@ -17,7 +17,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 
 import { ChatSteps } from './ChatSteps';
-import { getMarkdownComponents } from './markdown/components';
+import { getMarkdownComponents, VssUiArtifact } from './markdown/components';
 import { fixMalformedHtml } from './markdown/streaming';
 import type { ChatFeatureFlags, ChatMessage as ChatMessageType } from './types';
 
@@ -34,6 +34,7 @@ export interface ChatMessageProps {
   onEdit?: (message: ChatMessageType) => void;
   onDelete?: (messageId: string) => void;
   onNotify?: (message: string) => void;
+  mediaProxyUrl?: string;
 }
 
 /**
@@ -66,96 +67,336 @@ const BotAvatar: React.FC = () => {
   );
 };
 
+interface UserMessageContentProps {
+  message: ChatMessageType;
+  features: ChatFeatureFlags;
+  content: string;
+  onEdit?: ChatMessageProps['onEdit'];
+  onDelete?: ChatMessageProps['onDelete'];
+}
+
+const UserMessageContent: React.FC<UserMessageContentProps> = ({
+  message,
+  features,
+  content,
+  onEdit,
+  onDelete,
+}) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => setDraft(message.content), [message.content]);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'inherit';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [isEditing, draft]);
+
+  const handleSaveEdit = () => {
+    // Everything from this message on is replaced by the new turn.
+    if (draft !== message.content) onEdit?.({ ...message, content: draft });
+    setIsEditing(false);
+  };
+
+  const handleCancelEdit = () => {
+    setDraft(message.content);
+    setIsEditing(false);
+  };
+
+  return (
+    <div className="flex w-full">
+      {isEditing ? (
+        <div className="flex w-full flex-col">
+          <textarea
+            ref={textareaRef}
+            className="w-full resize-none whitespace-pre-wrap border-none bg-transparent outline-none dark:bg-black"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onCompositionStart={() => setIsTyping(true)}
+            onCompositionEnd={() => setIsTyping(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !isTyping && !event.shiftKey) {
+                event.preventDefault();
+                handleSaveEdit();
+              }
+            }}
+            style={{ font: 'inherit', padding: 0, margin: 0, overflow: 'hidden' }}
+          />
+          <div className="mt-6 flex justify-center space-x-4">
+            <button
+              type="button"
+              className="h-[40px] rounded-md border border-neutral-300 px-4 py-1 text-sm font-medium text-neutral-700 enabled:hover:bg-[#76b900] enabled:hover:text-white disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300"
+              onClick={handleSaveEdit}
+              disabled={!draft.trim()}
+            >
+              Save &amp; Submit
+            </button>
+            <button
+              type="button"
+              className="h-[40px] rounded-md border border-neutral-300 px-4 py-1 text-sm font-medium text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              onClick={handleCancelEdit}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="w-full flex-1 whitespace-pre-wrap break-words">{content}</div>
+      )}
+
+      {!isEditing && (
+        <div className="absolute right-2 flex flex-col items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 md:flex-row md:items-start">
+          {features.messageEdit && (
+            <button
+              type="button"
+              aria-label="Edit message"
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+              onClick={() => setIsEditing(true)}
+            >
+              <IconEdit size={20} />
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Delete message"
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+            onClick={() => onDelete?.(message.id)}
+          >
+            <IconTrash size={20} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface CopyActionProps {
+  content: string;
+}
+
+const CopyAction: React.FC<CopyActionProps> = ({ content }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!navigator.clipboard) return;
+    void navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  if (copied) return <IconCheck size={20} className="text-[#76b900]" />;
+  return (
+    <button
+      type="button"
+      className="text-[#76b900] hover:text-gray-700 dark:hover:text-gray-300"
+      onClick={handleCopy}
+      title="Copy to clipboard"
+      aria-label="Copy to clipboard"
+    >
+      <IconCopy size={20} />
+    </button>
+  );
+};
+
+interface SpeakerActionProps {
+  content: string;
+  onNotify?: ChatMessageProps['onNotify'];
+}
+
+const SpeakerAction: React.FC<SpeakerActionProps> = ({ content, onNotify }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(
+    () => () => {
+      if ('speechSynthesis' in globalThis) globalThis.speechSynthesis.cancel();
+    },
+    [],
+  );
+
+  const handleSpeak = () => {
+    if (!('speechSynthesis' in globalThis)) {
+      onNotify?.('Text-to-speech is not supported in this browser');
+      return;
+    }
+    if (isPlaying) {
+      globalThis.speechSynthesis.cancel();
+      setIsPlaying(false);
+      return;
+    }
+    // URLs read aloud character by character are unbearable; drop them.
+    const utterance = new SpeechSynthesisUtterance(content.replace(/(https?:\/\/[^\s]+)/g, ''));
+    utterance.onend = () => setIsPlaying(false);
+    utterance.onerror = () => setIsPlaying(false);
+    setIsPlaying(true);
+    globalThis.speechSynthesis.speak(utterance);
+  };
+
+  return (
+    <button
+      type="button"
+      className="text-[#76b900] hover:text-gray-700 dark:hover:text-gray-300"
+      onClick={handleSpeak}
+      aria-label={isPlaying ? 'Stop speaking' : 'Start speaking'}
+    >
+      {isPlaying ? (
+        <IconPlayerPause size={20} className="animate-pulse text-red-400" />
+      ) : (
+        <IconVolume2 size={20} />
+      )}
+    </button>
+  );
+};
+
+interface AssistantActionsProps {
+  content: string;
+  features: ChatFeatureFlags;
+  isStreaming: boolean;
+  onNotify?: ChatMessageProps['onNotify'];
+}
+
+const AssistantActions: React.FC<AssistantActionsProps> = ({
+  content,
+  features,
+  isStreaming,
+  onNotify,
+}) => {
+  if (isStreaming || (!features.messageCopy && !features.messageSpeaker)) return null;
+
+  return (
+    <div className="mt-1 flex gap-1">
+      {features.messageCopy && <CopyAction content={content} />}
+      {features.messageSpeaker && <SpeakerAction content={content} onNotify={onNotify} />}
+    </div>
+  );
+};
+
+interface AssistantMessageContentProps {
+  message: ChatMessageType;
+  features: ChatFeatureFlags;
+  content: string;
+  isStreaming: boolean;
+  mediaProxyUrl?: string;
+  onNotify?: ChatMessageProps['onNotify'];
+}
+
+const AssistantMessageContent: React.FC<AssistantMessageContentProps> = ({
+  message,
+  features,
+  content,
+  isStreaming,
+  mediaProxyUrl,
+  onNotify,
+}) => {
+  // `messageIsStreaming` is deliberately outside the dep list: including it
+  // rebuilds the whole component map the moment a stream ends, unmounting
+  // every image and code block in the answer at once.
+  const markdownComponents = useMemo(
+    () =>
+      getMarkdownComponents({
+        messageIsStreaming: isStreaming,
+        mediaProxyUrl,
+        onDownloadError: onNotify,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mediaProxyUrl, message.id, onNotify],
+  );
+
+  // callerInfo is HTML supplied by the embedding app, not by the model, but
+  // it still goes through DOMPurify — the app builds it from search results
+  // that originate upstream.
+  const safeCallerInfo = useMemo(
+    () => DOMPurify.sanitize(message.callerInfo || ''),
+    [message.callerInfo],
+  );
+
+  return (
+    <div className="w-full min-w-0 max-w-full">
+      {features.intermediateSteps && message.steps?.length ? (
+        <ChatSteps
+          steps={message.steps}
+          streaming={isStreaming}
+          expandByDefault={features.expandIntermediateSteps}
+        />
+      ) : null}
+
+      {message.error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          ⚠ {message.error}
+        </div>
+      ) : null}
+
+      <div className="prose max-w-none break-words dark:prose-invert">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+          rehypePlugins={[rehypeRaw] as any}
+          components={markdownComponents as any}
+        >
+          {content}
+        </ReactMarkdown>
+        {message.artifacts?.map((artifact, index) => (
+          <VssUiArtifact
+            key={`${message.id}-artifact-${index}`}
+            value={artifact}
+            mediaProxyUrl={mediaProxyUrl}
+            onDownloadError={onNotify}
+          />
+        ))}
+        {isStreaming && !content ? (
+          // Matches the toolkit's ChatLoader: a caret alone reads as a
+          // rendering glitch, the word is what says "it heard you".
+          <span className="cursor-default text-gray-500 dark:text-gray-400">
+            Thinking…
+            <span className="animate-pulse text-[#76b900]">▍</span>
+          </span>
+        ) : null}
+      </div>
+
+      {message.callerInfo ? (
+        <div className="mt-2 rounded-md border border-black/10 bg-neutral-100 px-4 py-2.5 text-sm text-neutral-800 dark:border-white/10 dark:bg-transparent dark:text-neutral-200">
+          <div
+            className="[&_ul]:mt-2 [&_ul]:list-disc [&_ul]:space-y-0.5 [&_ul]:pl-5"
+            dangerouslySetInnerHTML={{ __html: safeCallerInfo }}
+          />
+        </div>
+      ) : null}
+
+      <AssistantActions
+        content={message.content}
+        features={features}
+        isStreaming={isStreaming}
+        onNotify={onNotify}
+      />
+    </div>
+  );
+};
+
+const shouldHideMessage = (
+  message: ChatMessageType,
+  isAssistant: boolean,
+  content: string,
+  isStreaming: boolean,
+): boolean =>
+  Boolean(
+    message.hidden ||
+      (isAssistant && !content && !message.steps?.length && !message.error && !isStreaming),
+  );
+
 export const ChatMessageView: React.FC<ChatMessageProps> = memo(
-  ({ message, features, onEdit, onDelete, onNotify }) => {
-    const [isEditing, setIsEditing] = useState(false);
-    const [isTyping, setIsTyping] = useState(false);
-    const [draft, setDraft] = useState(message.content);
-    const [copied, setCopied] = useState(false);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
-
+  ({ message, features, onEdit, onDelete, onNotify, mediaProxyUrl }) => {
     const isAssistant = message.role === 'assistant';
-    const isStreaming = !!message.streaming;
-
-    // `messageIsStreaming` is deliberately outside the dep list: including it
-    // rebuilds the whole component map the moment a stream ends, unmounting
-    // every image and code block in the answer at once.
-    const markdownComponents = useMemo(
-      () => getMarkdownComponents({ messageIsStreaming: isStreaming, onDownloadError: onNotify }),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [message.id, onNotify],
-    );
-
-    // callerInfo is HTML supplied by the embedding app, not by the model, but
-    // it still goes through DOMPurify — the app builds it from search results
-    // that originate upstream.
-    const safeCallerInfo = useMemo(
-      () => DOMPurify.sanitize(message.callerInfo || ''),
-      [message.callerInfo],
-    );
-
-    const content = useMemo(
-      () => (isAssistant ? fixMalformedHtml(message.content).trim() : message.content.trim()),
-      [isAssistant, message.content],
-    );
-
-    useEffect(() => setDraft(message.content), [message.content]);
-
-    useEffect(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'inherit';
-        textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-      }
-    }, [isEditing, draft]);
-
-    useEffect(
-      () => () => {
-        if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel();
-      },
-      [],
-    );
+    const isStreaming = Boolean(message.streaming);
+    const content = isAssistant
+      ? fixMalformedHtml(message.content).trim()
+      : message.content.trim();
 
     // Hidden messages (upload auto-prompts) are sent but never shown, and an
     // assistant turn with neither text nor steps is just noise.
-    if (message.hidden) return null;
-    if (isAssistant && !content && !message.steps?.length && !message.error && !isStreaming) {
-      return null;
-    }
-
-    const handleCopy = () => {
-      if (!navigator.clipboard) return;
-      void navigator.clipboard.writeText(message.content).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      });
-    };
-
-    const handleSpeak = () => {
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-        onNotify?.('Text-to-speech is not supported in this browser');
-        return;
-      }
-      if (isPlaying) {
-        window.speechSynthesis.cancel();
-        setIsPlaying(false);
-        return;
-      }
-      // URLs read aloud character by character are unbearable; drop them.
-      const utterance = new SpeechSynthesisUtterance(
-        message.content.replace(/(https?:\/\/[^\s]+)/g, ''),
-      );
-      utterance.onend = () => setIsPlaying(false);
-      utterance.onerror = () => setIsPlaying(false);
-      setIsPlaying(true);
-      window.speechSynthesis.speak(utterance);
-    };
-
-    const handleSaveEdit = () => {
-      // Everything from this message on is replaced by the new turn.
-      if (draft !== message.content) onEdit?.({ ...message, content: draft });
-      setIsEditing(false);
-    };
+    if (shouldHideMessage(message, isAssistant, content, isStreaming)) return null;
 
     return (
       <div
@@ -171,149 +412,23 @@ export const ChatMessageView: React.FC<ChatMessageProps> = memo(
           </div>
 
           <div className="w-full min-w-0 overflow-hidden">
-            {!isAssistant ? (
-              <div className="flex w-full">
-                {isEditing ? (
-                  <div className="flex w-full flex-col">
-                    <textarea
-                      ref={textareaRef}
-                      className="w-full resize-none whitespace-pre-wrap border-none bg-transparent outline-none dark:bg-black"
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onCompositionStart={() => setIsTyping(true)}
-                      onCompositionEnd={() => setIsTyping(false)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !isTyping && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSaveEdit();
-                        }
-                      }}
-                      style={{ font: 'inherit', padding: 0, margin: 0, overflow: 'hidden' }}
-                    />
-                    <div className="mt-6 flex justify-center space-x-4">
-                      <button
-                        type="button"
-                        className="h-[40px] rounded-md border border-neutral-300 px-4 py-1 text-sm font-medium text-neutral-700 enabled:hover:bg-[#76b900] enabled:hover:text-white disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300"
-                        onClick={handleSaveEdit}
-                        disabled={!draft.trim()}
-                      >
-                        Save &amp; Submit
-                      </button>
-                      <button
-                        type="button"
-                        className="h-[40px] rounded-md border border-neutral-300 px-4 py-1 text-sm font-medium text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                        onClick={() => {
-                          setDraft(message.content);
-                          setIsEditing(false);
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="w-full flex-1 whitespace-pre-wrap break-words">{content}</div>
-                )}
-
-                {!isEditing && (
-                  <div className="absolute right-2 flex flex-col items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 md:flex-row md:items-start">
-                    {features.messageEdit && (
-                      <button
-                        type="button"
-                        aria-label="Edit message"
-                        className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                        onClick={() => setIsEditing(true)}
-                      >
-                        <IconEdit size={20} />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      aria-label="Delete message"
-                      className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                      onClick={() => onDelete?.(message.id)}
-                    >
-                      <IconTrash size={20} />
-                    </button>
-                  </div>
-                )}
-              </div>
+            {isAssistant ? (
+              <AssistantMessageContent
+                message={message}
+                features={features}
+                content={content}
+                isStreaming={isStreaming}
+                mediaProxyUrl={mediaProxyUrl}
+                onNotify={onNotify}
+              />
             ) : (
-              <div className="w-full min-w-0 max-w-full">
-                {features.intermediateSteps && message.steps?.length ? (
-                  <ChatSteps
-                    steps={message.steps}
-                    streaming={isStreaming}
-                    expandByDefault={features.expandIntermediateSteps}
-                  />
-                ) : null}
-
-                {message.error ? (
-                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-                    ⚠ {message.error}
-                  </div>
-                ) : null}
-
-                <div className="prose max-w-none break-words dark:prose-invert">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
-                    rehypePlugins={[rehypeRaw] as any}
-                    components={markdownComponents as any}
-                  >
-                    {content}
-                  </ReactMarkdown>
-                  {isStreaming && !content ? (
-                    // A caret alone reads as a rendering glitch; the word says
-                    // "it heard you".
-                    <span className="cursor-default text-gray-500 dark:text-gray-400">
-                      Thinking…
-                      <span className="animate-pulse text-[#76b900]">▍</span>
-                    </span>
-                  ) : null}
-                </div>
-
-                {message.callerInfo ? (
-                  <div className="mt-2 rounded-md border border-black/10 bg-neutral-100 px-4 py-2.5 text-sm text-neutral-800 dark:border-white/10 dark:bg-transparent dark:text-neutral-200">
-                    <div
-                      className="[&_ul]:mt-2 [&_ul]:list-disc [&_ul]:space-y-0.5 [&_ul]:pl-5"
-                      dangerouslySetInnerHTML={{ __html: safeCallerInfo }}
-                    />
-                  </div>
-                ) : null}
-
-                {!isStreaming && (features.messageCopy || features.messageSpeaker) ? (
-                  <div className="mt-1 flex gap-1">
-                    {features.messageCopy &&
-                      (copied ? (
-                        <IconCheck size={20} className="text-[#76b900]" />
-                      ) : (
-                        <button
-                          type="button"
-                          className="text-[#76b900] hover:text-gray-700 dark:hover:text-gray-300"
-                          onClick={handleCopy}
-                          title="Copy to clipboard"
-                          aria-label="Copy to clipboard"
-                        >
-                          <IconCopy size={20} />
-                        </button>
-                      ))}
-                    {features.messageSpeaker && (
-                      <button
-                        type="button"
-                        className="text-[#76b900] hover:text-gray-700 dark:hover:text-gray-300"
-                        onClick={handleSpeak}
-                        aria-label={isPlaying ? 'Stop speaking' : 'Start speaking'}
-                      >
-                        {isPlaying ? (
-                          <IconPlayerPause size={20} className="animate-pulse text-red-400" />
-                        ) : (
-                          <IconVolume2 size={20} />
-                        )}
-                      </button>
-                    )}
-                  </div>
-                ) : null}
-              </div>
+              <UserMessageContent
+                message={message}
+                features={features}
+                content={content}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
             )}
           </div>
         </div>

@@ -22,6 +22,11 @@ import { CustomIncidents } from './Incidents';
 import { MarkdownImage, MarkdownVideo } from './Media';
 
 const sameChildren = (prev: any, next: any) => isEqual(prev.children, next.children);
+const ARTIFACT_OPEN = '<vss-ui-artifact>';
+const ARTIFACT_CLOSE = '</vss-ui-artifact>';
+const INLINE_IMAGE_DATA_URL =
+  /^data:image\/(?:bmp|gif|jpeg|png|webp);base64,(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const MAX_INLINE_IMAGE_URL_LENGTH = 1_000_100;
 
 /**
  * Large `src` values (base64 frames) make a full compare expensive, so match
@@ -53,14 +58,95 @@ function parseJsonChild(children: unknown): any | null {
   }
 }
 
+function parseArtifact(value: unknown): Record<string, unknown> | null {
+  let candidate: unknown = value;
+  if (Array.isArray(candidate)) candidate = candidate[0];
+  if (typeof candidate === 'string') {
+    let encoded = candidate.trim();
+    if (encoded.startsWith(ARTIFACT_OPEN)) {
+      const closing = encoded.indexOf(ARTIFACT_CLOSE, ARTIFACT_OPEN.length);
+      if (closing < 0) return null;
+      encoded = encoded.slice(ARTIFACT_OPEN.length, closing).trim();
+    }
+    try {
+      candidate = JSON.parse(encoded);
+    } catch {
+      return null;
+    }
+  }
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
+  return candidate as Record<string, unknown>;
+}
+
+function vssImageSource(value: unknown, mediaProxyUrl?: string): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const normalized = value.trim();
+  if (normalized.startsWith('data:')) {
+    return normalized.length <= MAX_INLINE_IMAGE_URL_LENGTH && INLINE_IMAGE_DATA_URL.test(normalized)
+      ? normalized
+      : null;
+  }
+  try {
+    const parsed = new URL(normalized, 'https://vss-ui.invalid');
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    let path = parsed.pathname;
+    if (path === '/storage' || path.startsWith('/storage/')) path = `/vst${path}`;
+    const proxyPath = mediaProxyUrl
+      ? new URL(mediaProxyUrl, 'https://vss-ui.invalid').pathname.replace(/\/$/, '')
+      : '';
+    if (!path.startsWith('/vst/') && (!proxyPath || !path.startsWith(`${proxyPath}/vst/`))) {
+      return null;
+    }
+    return `${path}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+export interface VssUiArtifactProps {
+  value: unknown;
+  mediaProxyUrl?: string;
+  onDownloadError?: (message: string) => void;
+}
+
+/** Render the presentation kinds understood by chat; feature-tab artifacts stay hidden. */
+export const VssUiArtifact = memo(
+  ({ value, mediaProxyUrl, onDownloadError }: VssUiArtifactProps) => {
+    const artifact = parseArtifact(value);
+    if (
+      artifact?.version !== '1.0' ||
+      artifact.kind !== 'vss.media.image' ||
+      !artifact.payload ||
+      typeof artifact.payload !== 'object' ||
+      Array.isArray(artifact.payload)
+    ) {
+      return null;
+    }
+    const payload = artifact.payload as Record<string, unknown>;
+    const src = vssImageSource(payload.media_url ?? payload.url, mediaProxyUrl);
+    if (!src) return null;
+    const alt =
+      typeof payload.alt === 'string' &&
+      payload.alt.trim() &&
+      payload.alt.length <= 256 &&
+      !/\p{Cc}/u.test(payload.alt)
+        ? payload.alt.trim()
+        : 'VSS snapshot';
+    return <MarkdownImage src={src} alt={alt} showDownload onDownloadError={onDownloadError} />;
+  },
+);
+VssUiArtifact.displayName = 'VssUiArtifact';
+
 export interface MarkdownComponentOptions {
   /** True while the message these components belong to is still streaming. */
   messageIsStreaming?: boolean;
+  mediaProxyUrl?: string;
   onDownloadError?: (message: string) => void;
 }
 
 export function getMarkdownComponents({
   messageIsStreaming = false,
+  mediaProxyUrl,
   onDownloadError,
 }: MarkdownComponentOptions = {}) {
   return {
@@ -198,6 +284,17 @@ export function getMarkdownComponents({
 
     // The agent wraps answers in <workflow> metadata that is not for the user.
     workflow: memo(() => null, () => true),
+
+    'vss-ui-artifact': memo(
+      ({ children }: any) => (
+        <VssUiArtifact
+          value={parseJsonChild(children)}
+          mediaProxyUrl={mediaProxyUrl}
+          onDownloadError={onDownloadError}
+        />
+      ),
+      sameChildren,
+    ),
 
     'agent-think': memo(
       ({ children, ...props }: any) => (
