@@ -83,7 +83,7 @@ services:
       VSS_AGENT_CONFIG_FILE: ${VSS_AGENT_CONFIG_FILE}
       VSS_AGENT_HOST: ${VSS_AGENT_HOST}
       VSS_AGENT_PORT: ${VSS_AGENT_PORT}
-      # Structured NAT interactions are opt-in and must match the UI flag.
+      # Structured NAT interactions are on by default and must match the UI flag.
       HITL_ENABLED: ${HITL_ENABLED:-true}
       LVS_BACKEND_URL: ${LVS_BACKEND_URL}
       RTVI_EMBED_MODEL: ${RTVI_EMBED_MODEL:-cosmos-embed1-448p}

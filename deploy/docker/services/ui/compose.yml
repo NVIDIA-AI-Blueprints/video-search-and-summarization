@@ -71,8 +71,9 @@ services:
       NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON: ${NEXT_PUBLIC_SIDEBAR_CHAT_WEB_SOCKET_DEFAULT_ON:-false}
       NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_HISTORY_DEFAULT_ON: ${NEXT_PUBLIC_SIDEBAR_CHAT_CHAT_HISTORY_DEFAULT_ON:-true}
       NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_INTERMEDIATE_STEPS: ${NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_INTERMEDIATE_STEPS:-true}
-      # Structured interactions are opt-in for every backend. OpenClaw keeps
-      # this false and collects follow-ups through ordinary chat turns.
+      # Structured interactions are on by default to match vss-agent. The UI
+      # forces this off for an adapter-enabled surface (NEXT_PUBLIC_AGENT_ADAPTER_ENABLED)
+      # regardless of this value, since OpenClaw doesn't emit interaction frames.
       NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL: ${NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL:-${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-true}}}
       NEXT_PUBLIC_SIDEBAR_CHAT_DARK_THEME_DEFAULT: ${NEXT_PUBLIC_SIDEBAR_CHAT_DARK_THEME_DEFAULT:-true}
       NEXT_PUBLIC_SIDEBAR_CHAT_SIDE_CHATBAR_COLLAPSED: ${NEXT_PUBLIC_SIDEBAR_CHAT_SIDE_CHATBAR_COLLAPSED:-true}

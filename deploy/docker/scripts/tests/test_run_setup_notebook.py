@@ -393,7 +393,10 @@ class HitlLaunchContractTests(unittest.TestCase):
 
         self.assertIn("hitlEnabled: true", agent_values)
         self.assertIn("- name: HITL_ENABLED", agent_deployment)
-        self.assertIn(".Values.hitlEnabled | default true", agent_deployment)
+        # No `| default true`: Sprig's `default` treats an explicit `false`
+        # as empty and silently discards it, so a values override could
+        # never disable HITL. values.yaml already declares the base default.
+        self.assertIn(".Values.hitlEnabled | quote", agent_deployment)
         self.assertIn('- name: NEXT_PUBLIC_ENABLE_HITL\n    value: "true"', ui_values)
         self.assertIn(
             '- name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL\n    value: "true"',

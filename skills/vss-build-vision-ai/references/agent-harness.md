@@ -87,19 +87,12 @@ the placeholder or assuming the default:
 | `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
 | `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<dashboard-port>` |
 | `VSS_AGENT_BACKEND_TOKEN` | output of `nemoclaw <sandbox> gateway-token --quiet` |
-| `HITL_ENABLED` | `false` |
 
 Leave `VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default. The
 token does not exist until onboarding. Capture it without printing it, keep it
 only in the ignored build artifacts, then repeat Step 8 and recreate `vss-ui`
 from the regenerated `resolved.yml`. Confirm the container has the four
 corresponding `AGENT_*` values without printing the token.
-
-`vss-ui`'s `NEXT_PUBLIC_ENABLE_HITL`/`NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL`
-default on to match the in-stack `vss-agent`, but `openclaw-ws` does not emit
-`vss-agent`'s structured-HITL interaction frames. Without this override the
-chat sidebar would wait on a dialog NemoClaw never sends. Set it explicitly on
-every NemoClaw-adapter build; do not rely on the compose default.
 
 This restores the chat sidebar and Chat tab. It does not restore the Search tab
 or the ingress `/api`, `/chat`, `/websocket` routes, which address the in-stack
