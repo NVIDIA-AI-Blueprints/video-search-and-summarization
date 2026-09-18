@@ -204,16 +204,15 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # `gpus-N`. Register replacements without a cohort active label (or keep
 # listeners down) until canaries pass.
 #
-# GitHub `runs-on` is AND-only — there is no way to say "openshell-runner
-# AND NOT l40s". Count-only jobs still match `openshell-runner`. L40S VMs
-# carry an extra `l40s` label that other `openshell-runner` guests do not;
-# the eval workflow rejects that guest after it claims the job.
+# GitHub `runs-on` is AND-only. Count-only jobs still match
+# `openshell-runner` plus `gpus-N`; extra SKU labels on a guest (including
+# `l40s`) do not keep it from claiming the job.
 #
 # Post-job destroy/recreate is host-side: the OpenShell VM orchestrator
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
 # This workflow does not implement KVM/VFIO.
 OPENSHELL_RUNNER_LABEL = "openshell-runner"
-OPENSHELL_REJECTED_LABELS = frozenset({"l40s"})
+OPENSHELL_REJECTED_LABELS = frozenset()
 OPENSHELL_FLEET_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
@@ -439,10 +438,9 @@ def openshell_job_labels(gpu_count: int) -> list[str]:
     no cohort active label (`openshell-h200-active`), no VRAM/codec tags.
     `gpus-N` is the GPU-count demand so 1-GPU and 2-GPU jobs stay on
     matching guests. A zero-GPU declaration may use any OpenShell guest.
-    Jobs still match `openshell-runner`; L40S VMs that also carry `l40s`
-    are rejected in the eval workflow, not at `runs-on`. Operators can
-    still register SKU labels on the VMs; count-only jobs do not require
-    them.
+    Extra SKU labels on a guest (including `l40s`) are ignored at `runs-on`.
+    Operators can still register SKU labels on the VMs; count-only jobs do
+    not require them.
     """
     if gpu_count == 0:
         return list(OPENSHELL_FLEET_LABELS)

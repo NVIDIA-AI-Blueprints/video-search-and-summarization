@@ -87,9 +87,7 @@ env:
   # with local_gpu=false. Harness-only diffs still get one RTX PRO 6000 smoke leg.
   # Every OpenShell matrix job requires only the shared fleet tags
   # (`vss-skill-eval-gpu`, `openshell-runner`, `openshell`) plus `gpus-N`.
-  # GitHub cannot AND-NOT `l40s`; jobs still match `openshell-runner` and
-  # the eval step rejects a guest that also carries `l40s`. SKU labels stay
-  # on the VMs for operators; this workflow does not AND them.
+  # SKU labels stay on the VMs for operators; this workflow does not AND them.
   # These OpenShell VMs are registered from the GitLab fleet repo
   # (brev-openshell-gpu-runners); they are GitHub Actions runners, not
   # GitLab CI runners. After each job the host-side OpenShell VM
@@ -227,40 +225,17 @@ jobs:
 
       - name: Assert OpenShell GPU runtime
         # Planner sets matrix.local_gpu on every OpenShell leg, whichever
-        # guest claims it (A16/A40/H200/RTX, never L40S). Do not key this
+        # guest claims it (A16/A40/H200/RTX/L40S). Do not key this
         # on runner.name: H200 registrations are h200-N-g<gen>-<id>, not
         # vss-skill-eval-gpu-h200-*.
         if: ${{ matrix.local_gpu }}
         run: |
           export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
-          # GitHub `runs-on` still matches `openshell-runner`. L40S VMs also
-          # carry `l40s`; other openshell-runner guests do not. Reject here.
-          reject_l40s_runner() {
-            echo "rejected OpenShell guest that also has the l40s label (runner=$RUNNER_NAME)" >&2
-            [ -n "${1:-}" ] && printf '%s\n' "$1" >&2
-            exit 1
-          }
-          label_blob=$(printf '%s\n' \
-            "${RUNNER_LABELS:-}" \
-            "${ACTIONS_RUNNER_INPUT_LABELS:-}" \
-            "${ACTIONS_RUNNER_LABELS:-}")
-          oifs=$IFS
-          IFS=$' \t\n,;|'
-          for tok in $label_blob; do
-            [ "$(printf '%s' "$tok" | tr 'A-Z' 'a-z')" = "l40s" ] && {
-              IFS=$oifs
-              reject_l40s_runner
-            }
-          done
-          IFS=$oifs
           # The agent step sizes NIM from this card (live_platform.py). Prove
           # it is readable here, where the diagnostics are, instead of failing
           # a quarter-hour later with "nvidia-smi returned nothing".
           gpu_rc=0
           gpu_names=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>&1) || gpu_rc=$?
-          case "$gpu_names" in
-            *L40S*) reject_l40s_runner "$gpu_names" ;;
-          esac
           if [ "$gpu_rc" != 0 ] || [ -z "${gpu_names//[[:space:]]/}" ]; then
             echo "no GPU visible to this job (runner=$RUNNER_NAME, nvidia-smi rc=$gpu_rc)" >&2
             echo "nvidia-smi: $(command -v nvidia-smi || echo 'not on PATH')" >&2

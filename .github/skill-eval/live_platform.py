@@ -5,9 +5,7 @@
 
 A count-only OpenShell leg carries no SKU: placement is fleet labels plus a
 GPU count (`plan_matrix.openshell_job_labels`), so the guest that claims the
-job owns its own hardware. L40S is not an OpenShell eval SKU: live sizing
-blocks it rather than generating an L40S task on a machine that should not
-have claimed the job. Sizing cannot be taken from the spec, because
+job owns its own hardware. Sizing cannot be taken from the spec, because
 `hw-<profile>.env` values are measured per card — `hw-H200-shared.env` sets
 NIM_KVCACHE_PERCENT=0.5, the value measured to leave 1682 MiB free on an RTX
 PRO 6000. A spec that declares `RTXPRO6000BW` and lands on an H200 guest must
@@ -88,16 +86,6 @@ def nvidia_smi_command() -> str:
             return candidate
     return "nvidia-smi"
 
-# Count-only OpenShell jobs still match `openshell-runner`. Guests that
-# also carry the `l40s` label (and the L40S card that label marks) must
-# not size a task; the eval workflow rejects them for the same reason.
-OPENSHELL_BLOCKED_LIVE_PLATFORMS = frozenset({"L40S"})
-_L40S_OPENSHELL_ERROR = (
-    "this OpenShell runner also has the l40s label; count-only jobs "
-    "match openshell-runner but reject guests that carry l40s"
-)
-
-
 def live_gpu_names() -> list[str]:
     """Names `nvidia-smi` reports for this host, or [] when unreadable.
 
@@ -167,8 +155,6 @@ def resolve_from_names(
     if requested:
         return requested, None
     platform = detect_platform(names)
-    if platform in OPENSHELL_BLOCKED_LIVE_PLATFORMS:
-        return None, _L40S_OPENSHELL_ERROR
     if platform:
         return platform, None
     if not names:

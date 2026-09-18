@@ -197,8 +197,7 @@ def test_explicit_platform_overrides_detection() -> None:
     assert (platform, error) == ("L40S", None)
     with mock.patch.object(adapter, "live_gpu_names", return_value=["NVIDIA L40S"]):
         platform, error = adapter.resolve_sizing_platform(None)
-    assert platform is None
-    assert "l40s label" in error
+    assert (platform, error) == ("L40S", None)
 
 
 def test_spec_platform_keys_do_not_gate_generation(tmp_path: Path) -> None:
