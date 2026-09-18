@@ -51,7 +51,7 @@ import '@nv-metropolis-bp-vss-ui/chat/lib/chat.css';
 | Conversations | multiple threads, new / rename / delete / clear | — |
 | | tab-scoped IndexedDB persistence, `storageKeyPrefix` | — |
 | | search over names and message text | — |
-| | export / import (v1–v4 files load) | — |
+| | export / import (conversation JSON v1–v4) | — |
 | | send full thread vs. latest turn | `CHAT_HISTORY_DEFAULT_ON` |
 | | legacy `vss-agent` human-in-the-loop response modal | `ENABLE_HITL` |
 | Input | context chips + `[Context: …]` prefix | — |
