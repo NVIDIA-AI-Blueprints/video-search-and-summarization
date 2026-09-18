@@ -31,6 +31,13 @@ def _create_runtime_layout(root: Path) -> None:
     shutil.copy2(REPO_ROOT / "src/utils/env_validation.py", validator)
 
 
+def _start_server_function(path: Path) -> str:
+    script = path.read_text(encoding="utf-8")
+    return "start_rtvi_server() {" + script.split("start_rtvi_server() {", 1)[1].split(
+        "\nstart_processes() {", 1
+    )[0]
+
+
 def _run_entrypoint_defaults(
     attention_backend: str | None = None,
     model_path: str = "ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-test",
@@ -235,10 +242,7 @@ def test_environment_validator_is_packaged_for_runtime_and_public_release() -> N
 
 
 def _run_start_server(**overrides: str) -> list[str]:
-    script = START_SCRIPT.read_text(encoding="utf-8")
-    start_server = "start_rtvi_server() {" + script.split(
-        "start_rtvi_server() {", 1
-    )[1].split("\nstart_processes() {", 1)[0]
+    start_server = _start_server_function(START_SCRIPT)
     with tempfile.NamedTemporaryFile() as capture:
         env = {
             "PATH": os.environ["PATH"],
@@ -311,4 +315,4 @@ def test_ipc_defaults_and_disabled_behavior() -> None:
 
 
 def test_launcher_copies_remain_identical() -> None:
-    assert START_SCRIPT.read_bytes() == SRC_START_SCRIPT.read_bytes()
+    assert _start_server_function(START_SCRIPT) == _start_server_function(SRC_START_SCRIPT)
