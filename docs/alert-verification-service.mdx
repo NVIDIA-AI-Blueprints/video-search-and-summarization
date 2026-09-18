@@ -1140,6 +1140,30 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 | `alert_agent.enrichment.enabled` | `false` | Enable alert enrichment for generating detailed event descriptions after verification. |
 | `alert_agent.metrics.per_sensor_labels` | `false` | When `true`, emits the opt-in `sensorId` histogram and counter variants documented under [Metrics](#metrics). |
 
+#### Event filter settings
+
+The Alerts developer profile ships the following
+`alert_agent.event_filters` values for the upstream alert-verification pipeline.
+Durations are in seconds unless noted otherwise.
+
+| Parameter | Shipped value | Description |
+| --- | --- | --- |
+| `dedup_ttl_seconds` | `5` | Retain an in-process deduplication key for this many seconds. |
+| `protect_confirmed_verdicts.enabled` | `true` | Skip re-verification when Elasticsearch contains a confirmed-verdict marker. |
+| `protect_confirmed_verdicts.ttl_seconds` | `600` | Lifetime of a confirmed-verdict marker. |
+| `protect_confirmed_verdicts.es_retry_backoff_seconds` | `30` | Cooldown before retrying Elasticsearch verdict checks after a store failure. |
+| `protect_confirmed_verdicts.retention_interval_seconds` | `3600` | Interval between expired-marker retention runs. |
+| `protect_confirmed_verdicts.retention_requests_per_second` | `50` requests/s | Maximum deletion request rate used by the retention job. |
+| `end_time_delta_filter.enabled` | `true` | Drop a repeated incident unless its end time has changed by the configured threshold. |
+| `end_time_delta_filter.threshold_seconds` | `3` | Minimum end-time change required to pass the filter. |
+| `end_time_delta_filter.ttl_seconds` | `3600` | Lifetime of end-time filter state. |
+| `end_time_in_dedup_key_categories` | `[]` | Alert categories whose deduplication key retains the incident end timestamp. Other categories omit it. |
+
+These are service-level verification filters, not tuning fields for
+`POST /api/v1/realtime`. Real-time VLM rules tune their prompt and chunk cadence
+in the request payload. Edit the profile `config.yml` and restart Alert Bridge
+after changing event filters.
+
 ### Elasticsearch Configuration
 
 | Parameter | Default | Description |

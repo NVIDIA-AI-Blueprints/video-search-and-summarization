@@ -32,8 +32,7 @@ Override **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** and **`vios.vss-vios-n
 - **Kubernetes cluster** with `kubectl` configured to reach its API server.
 
 - **NVIDIA GPU Operator** — installs the driver and device plugin so pods can request `nvidia.com/gpu`. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html). Recommended driver versions (x86):
-  - **580.105.08** — Ubuntu 24.04
-  - **580.65.06** — Ubuntu 22.04
+  - **595.58.03** — Ubuntu 24.04
 
 - **Volume provisioner** — the chart creates PVCs for VST, Elasticsearch, and related storage. A StorageClass must exist on the cluster. Set **`global.storageClass`** to its name in your values override. On bare-metal clusters with no provisioner yet, install [local-path-provisioner](https://github.com/rancher/local-path-provisioner) via Helm:
 

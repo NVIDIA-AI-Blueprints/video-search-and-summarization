@@ -39,7 +39,8 @@ Use `vss-build-vision-ai` when you want to:
 - Build a custom stack from capabilities such as dense captioning, object
   detection and tracking, semantic search, alerting, video summarization, or SOP
   compliance monitoring.
-- Extend a running deployment with additional vision capabilities.
+- Rebuild a running deployment with additional vision capabilities in one
+  resolved stack.
 - Tear down a stack that was created by the Skill.
 
 Do not use this Skill for ordinary runtime operations after deployment. Once the
@@ -97,9 +98,28 @@ are working with a separate custom or headless deployment.
 The host must satisfy [Prerequisites](/vss/getting-started/prerequisites) (Linux, GPU, Docker, NVIDIA Container Toolkit, NGC). The Skill's own checks in `skills/vss-build-vision-ai/references/prerequisites.md` also require:
 
 - A Python runner for helper scripts: **`uv` preferred**, or `python3` with **PyYAML**. A host can pass every system prerequisite and still fail during Compose normalization without this.
-- `curl`, `docker`, and NGC CLI access (`NGC_CLI_API_KEY`).
+- `curl`, `docker`, and NGC CLI access.
 
 The Skill asks which developer workflow or warehouse variant you want, LLM/VLM locality (local vs remote), and hardware. Defaults follow the selected profile (for example alerts `2d_vlm` vs `2d_cv`). Each answer changes the composed stack (services, `MODE`, GPU placement).
+
+The credential gate is determined by those answers:
+
+| Choice | Credential |
+| --- | --- |
+| Any standard VSS deployment | `NGC_CLI_API_KEY`; the Skill also authenticates Docker to `nvcr.io`. |
+| Default NemoClaw remote endpoint, or another public OpenAI-compatible harness endpoint | `COMPATIBLE_API_KEY` (no default value). |
+| `build.nvidia.com` model endpoint | `NVIDIA_API_KEY`. |
+| Gated or rate-limited Hugging Face model download | `HF_TOKEN`. |
+| Self-hosted harness endpoint or no harness | No harness key. Stack-level NGC/model credentials still apply. |
+
+The Skill blocks before deploying when a required key is missing. It does not
+silently change the provider or disable the harness.
+
+During host preflight the Skill runs
+`deploy/docker/scripts/pin_docker_version.sh` with approval when needed. The
+script enforces the supported Docker range and `cgroupfs` setting and can restart
+Docker. Run it before starting containers, not on a host where unrelated running
+containers may be interrupted without review.
 
 ## Custom capability builds
 
@@ -112,6 +132,44 @@ The Skill includes VIOS as the video input and storage layer for guided custom
 builds. It retains ingress only when the requested capability or harness needs a
 single public origin, and adds ELK/Kafka only for capabilities that publish to
 Kafka or index into Elasticsearch.
+
+### Combine real-time alerting and video summarization
+
+Request the capabilities as one custom build; do not bring up the stock alerts
+and LVS profiles separately:
+
+```text title="Combined deployment prompt"
+Use the vss-build-vision-ai skill to build and deploy one VSS stack that combines
+real-time VLM alerting (2d_vlm) with long-video summarization. Show the resolved
+services, GPU placement, and teardown impact before deploying.
+```
+
+The resolved stack contains one `alert-bridge`, one `lvs-server`, and shared
+instances of RT-VLM, VIOS, Kafka, Redis, Elasticsearch, Logstash, ingress, and
+any selected agent or harness. It must set the alerts mode to `2d_vlm`, enable
+always-on alerting and RT-VLM Kafka output, and retain the LVS server and its
+Kafka summary path. The Skill writes the exact `COMPOSE_PROFILES` and dependent
+environment values to `_builds/<name>/override.env`; do not assemble that list
+by concatenating the two stock profile files.
+
+This combination adds no second LLM or RT-VLM process. Use the real-time alerts
+GPU row as the starting model-placement cost: on H100 or RTX PRO 6000 Blackwell,
+plan for two GPUs in the shared layout or three with dedicated model placement.
+LVS work and continuous alert inference contend for the same RT-VLM, so the
+Skill must still validate measured memory headroom and stream/request capacity
+on the target host. A stock sizing row is not a throughput guarantee for the
+combined workload.
+
+<Warning>
+Developer profiles default to the same Compose project name, `vss`, and also use
+singleton container names and host ports. Running stock alerts and LVS commands
+side by side on one host is not supported; changing only
+`COMPOSE_PROJECT_NAME` does not remove those collisions. A custom combined build
+replaces the existing same-project deployment after confirmation. The default
+Skill teardown includes `down -v`, which removes that project's named volumes,
+so review the teardown plan and preserve or back up required data before
+proceeding.
+</Warning>
 
 ## Agent harness
 

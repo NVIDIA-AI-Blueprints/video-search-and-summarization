@@ -185,7 +185,7 @@ Replace `HOST_IP`, `VIDEO_NAME`, `SENSOR_ID`, `MEDIA_URL`, and `START_TIME` with
 #### Step 1: Deploy the Agent
 
 <Note>
-- Set the NGC CLI API key, then run the deploy commands for your GPU type.
+- Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/vss/getting-started/prerequisites#verify-your-ngc-access).
 - Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
@@ -851,7 +851,7 @@ For full RTVI-VLM environment variable reference, see [Real-Time VLM Microservic
 
 ## Next steps
 
-Once you've familiarized yourself with the Video Summarization workflow, you can explore adding other agent workflows, such as search and alerting.
+To run long-video summarization and real-time VLM alerting in one deployment, use the documented [combined custom build](/vss/vision-agent/build-vision-ai#combine-real-time-alerting-and-video-summarization). Do not start the stock LVS and alerts profiles as separate stacks on the same host.
 
 Additionally, you can dive deeper into the agent tools for video management, report generation, and video understanding.
 

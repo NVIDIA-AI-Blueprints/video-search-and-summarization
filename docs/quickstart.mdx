@@ -102,7 +102,7 @@ Perform this on the machine where you intend to deploy the agent.
 </Note>
 
 ```bash
-git clone --branch develop https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
 git lfs install
 git lfs pull
@@ -123,8 +123,8 @@ Run the coding agent in an environment that can access the VSS Blueprint checkou
 and run deployment commands on the target host. For the Docker Compose
 quickstart, the deployment host must meet the supported Linux platform,
 GPU, Docker, and NVIDIA Container Toolkit requirements in
-[Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use Ubuntu
-22.04 or Ubuntu 24.04.
+[Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use the
+Ubuntu version listed there; do not substitute a different release.
 
 You can use a remote development environment such as a Brev or Omnistation
 sandbox when that environment exposes the required GPU, Docker Engine, network
@@ -154,6 +154,20 @@ The standard Skill locations are:
 
 After installation, start a new coding-agent session from this checkout so the
 agent discovers `vss-build-vision-ai`.
+
+Before deployment, have the credentials required by your choices available:
+
+| Credential | When the Skill asks for it |
+| --- | --- |
+| `NGC_CLI_API_KEY` | Standard VSS image, model, and sample-data access. |
+| `COMPATIBLE_API_KEY` | The default NemoClaw remote endpoint, or another token-protected OpenAI-compatible endpoint. There is no default key. |
+| `NVIDIA_API_KEY` | A model served from `build.nvidia.com`. |
+| `HF_TOKEN` | Gated or rate-limited model downloads from Hugging Face. |
+
+A self-hosted endpoint or **no harness** needs no harness key, although the VSS
+stack can still require NGC and model-download credentials. See
+[Credentials used by the Build Vision AI Skill](/vss/getting-started/prerequisites#credentials-used-by-the-build-vision-ai-skill)
+for the complete decision table.
 
 ## Deploy the base profile
 
@@ -205,6 +219,10 @@ the base profile from the command line.
 # Set NGC CLI API key and Hugging Face access token (HF_TOKEN)
 export NGC_CLI_API_KEY='<your-ngc-api-key>'
 export HF_TOKEN='<hf-token>'
+
+# Authenticate Docker before Compose pulls nvcr.io images.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
 
 # View all available options
 # See developer-profiles/dev-profile-base/overrides.env for supported settings.
