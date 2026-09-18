@@ -225,6 +225,36 @@ def test_clip_rebase_flags_must_be_given_together(
     assert result.exit_code == int(Exit.INVALID_INPUT)
 
 
+def test_clip_rebase_rejects_a_non_positive_source_window(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()
+        return [("2026-08-01T12:00:00.000Z", "2026-08-01T12:01:00.000Z")]
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "clip",
+            "--sensor",
+            "warehouse_safety_0001",
+            "--rebase-from",
+            "2025-01-01T00:00:20Z",
+            "--rebase-from-end",
+            "2025-01-01T00:00:10Z",
+        ],
+    )
+
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+    assert "must be after" in result.output
+
+
 def test_readiness_counts_the_search_indexes_and_reports_ready(
     cli: click.Group, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -232,7 +262,7 @@ def test_readiness_counts_the_search_indexes_and_reports_ready(
 
     class _ES:
         url = "https://vss.test/elasticsearch"
-        indices = [
+        indices: ClassVar[list[str]] = [
             "mdx-embed-filtered-2025-01-01",
             "mdx-behavior-2025-01-01",
             "mdx-raw-2025-01-01",
@@ -264,6 +294,48 @@ def test_readiness_counts_the_search_indexes_and_reports_ready(
     assert body["ready"] is True
     assert body["counts"] == {"embed": 5, "behavior": 3, "raw": 2}
     assert body["name"] == "warehouse_safety_0001"
+
+
+def test_stream_readiness_uses_all_three_index_families(
+    cli: click.Group, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _ES:
+        url = "https://vss.test/elasticsearch"
+        indices: ClassVar[list[str]] = []
+
+    class _Deployment:
+        base_url = "https://vss.test"
+        services: ClassVar[dict[str, object]] = {"vst": object(), "elasticsearch": _ES()}
+
+        def has(self, name: str) -> bool:
+            return name in self.services
+
+    class _StreamRef(_Ref):
+        kind = "stream"
+
+    calls: list[tuple[str, str, str]] = []
+
+    async def resolve_sensor(_origin: str, _sensor: str) -> _StreamRef:
+        return _StreamRef()
+
+    async def count_documents(_url: str, index: str, field: str, value: str) -> int:
+        calls.append((index, field, value))
+        return 1
+
+    from vss_core import vios as vios_lib
+
+    monkeypatch.setattr(vios_group, "context_from", lambda values: _ctx(_Deployment(), values))
+    monkeypatch.setattr(vios_lib, "resolve_sensor", resolve_sensor)
+    monkeypatch.setattr(vios_lib, "count_documents", count_documents)
+
+    result = CliRunner().invoke(cli, ["readiness", "--sensor", "warehouse_safety_0001"])
+
+    assert result.exit_code == 0
+    assert calls == [
+        ("mdx-embed-filtered-*", "sensor.id.keyword", _StreamRef.stream_id),
+        ("mdx-behavior-*", "sensor.id.keyword", _StreamRef.name),
+        ("mdx-raw-*", "sensorId.keyword", _StreamRef.name),
+    ]
 
 
 def test_readiness_requires_elasticsearch_to_be_configured(

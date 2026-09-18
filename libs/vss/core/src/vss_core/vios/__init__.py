@@ -29,6 +29,7 @@ from .client import list_sensors
 from .client import map_interval_to_timeline
 from .client import map_timestamp_to_timeline
 from .client import normalise_media_url
+from .client import rebase_interval_to_segments
 from .client import recorded_segments
 from .client import recorded_span
 from .client import resolve_sensor
@@ -68,6 +69,7 @@ __all__ = [
     "map_interval_to_timeline",
     "map_timestamp_to_timeline",
     "normalise_media_url",
+    "rebase_interval_to_segments",
     "recorded_segments",
     "recorded_span",
     "resolve_sensor",
