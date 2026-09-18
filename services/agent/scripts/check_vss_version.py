@@ -57,7 +57,7 @@ from urllib.error import HTTPError
 from urllib.error import URLError
 from urllib.request import urlopen
 
-# Source of truth: vss_agents.api.version.SEMVER_PATTERN (the official Semantic
+# Source of truth: vss_core.version.SEMVER_PATTERN (the official Semantic
 # Versioning 2.0.0 grammar). Duplicated rather than imported so this script
 # needs nothing but Python and can be copied to any machine; the agent's
 # test_version.py asserts the two expressions are identical so they cannot
@@ -220,7 +220,8 @@ def check(base_url: str, timeout: float) -> str:
         if error.code == 503:
             raise IndeterminateError(
                 f"{url} returned 503: the deployment has no usable VSS_DEPLOYMENT_VERSION "
-                "(or legacy VSS_AGENT_VERSION), so its version cannot be determined."
+                "(or legacy VSS_AGENT_VERSION) and no git tags to derive one from, so its "
+                "version cannot be determined."
             ) from error
         raise IndeterminateError(f"{url} returned HTTP {error.code} {error.reason}.") from error
     except (URLError, TimeoutError) as error:

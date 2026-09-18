@@ -211,17 +211,49 @@ must be strict [Semantic Versioning 2.0.0](https://semver.org/):
 metadata (for example, `3.3.0-rc.1+build.42`). The official SemVer grammar is
 enforced, so `03.3.0`, `3.3.0-01`, `3.3.0-.` and `v1.0.0` are all rejected.
 
-**Which variable supplies it.** Two are consulted, in order:
+**Where it comes from.** Resolution lives in the library,
+[`vss_core.version`](../../libs/vss/core/src/vss_core/version.py), and three
+sources are consulted in order:
 
-| Order | Variable | Notes |
-|-------|----------|-------|
-| 1 | `VSS_DEPLOYMENT_VERSION` | Dedicated to the reported version. Feeds nothing else. |
+| Order | Source | Notes |
+|-------|--------|-------|
+| 1 | `VSS_DEPLOYMENT_VERSION` | Dedicated to the reported version. Feeds nothing else. Set by both deployment paths. |
 | 2 | `VSS_AGENT_VERSION` | Legacy fallback. Also used for telemetry project naming and as the fallback container image tag. |
+| 3 | The checkout's git tags | Derived with `git describe`, for a run with no deployment environment at all — `nat serve` from a clone. |
 
-The first of the two that is set to a non-empty value wins. If that value is not
+The first variable that is set to a non-empty value wins. If that value is not
 valid SemVer the endpoint returns HTTP 503 rather than falling through to the
-other variable, so a misconfigured deployment reports a problem instead of
-silently serving a different variable's value.
+next source, so a misconfigured deployment reports a problem instead of
+silently serving something else.
+
+The derived version (source 3) is the last `v[0-9]*` tag reachable from `HEAD`,
+its commit distance as a prerelease, and the short SHA as build metadata —
+`3.2.1-dev.1519+gc85c4a4e8`, suffixed `.dirty` for a tree with uncommitted
+changes, or bare `3.2.1` when sitting on the tag with a clean tree. This is the
+same `git describe` invocation the packages' `hatch-vcs` versioning uses, so
+the derived version and an installed package's version describe the same
+commit. Note that the release is the last tag **reached**, not the next one: a
+develop commit heading for 3.3.0 derives `3.2.1-dev.N`, because 3.3.0 is not a
+fact yet. A deployment that knows its release says so via
+`VSS_DEPLOYMENT_VERSION`, which outranks the derivation.
+
+The module is standard-library only and runs as a file, so tooling on a host
+without VSS installed can ask for the same value the endpoint would derive:
+
+```console
+$ python3 libs/vss/core/src/vss_core/version.py
+3.2.1-dev.1519+gc85c4a4e8
+```
+
+The agent's *own installed package metadata* is deliberately not a source. The
+image builds with `SETUPTOOLS_SCM_PRETEND_VERSION=0.1.0` and copies individual
+paths rather than `.git`, so in a container `importlib.metadata` reports
+`0.1.x` — confidently wrong, which a compatibility check cannot recover from,
+where a missing version at least stops the caller honestly. Baking the real
+version in as a build argument is no better: agent images are content-addressed
+and re-tagged across commits with an identical source tree, so a
+commit-derived build argument would both defeat that reuse and let a re-tagged
+image report the commit it was first built from.
 
 `VSS_DEPLOYMENT_VERSION` exists because `VSS_AGENT_VERSION` also resolves the
 agent's container image tag
@@ -254,7 +286,7 @@ check is aimed at an origin that does not route `/api` to the agent.
 | Status | Means | Operator action |
 |--------|-------|-----------------|
 | `404` | The deployment predates this endpoint and cannot report a version at all, **or** this origin's ingress does not route `/api` to the agent (the warehouse Helm ingress does not). | Upgrade the deployment, or point the check at the agent's own origin. |
-| `503` | The deployment is new enough to serve the endpoint but is misconfigured: neither variable is set to a non-empty value (for example a bare `nat serve` with no deployment environment), or the winning value is not strict SemVer. | Set `VSS_DEPLOYMENT_VERSION` (`vssDeploymentVersion` on Helm) to a strict SemVer value. |
+| `503` | No source produced a usable version: the winning variable is set but is not strict SemVer, or nothing is set and there are no git tags to derive from (a container, or a shallow clone). | Set `VSS_DEPLOYMENT_VERSION` (`vssDeploymentVersion` on Helm) to a strict SemVer value. |
 
 **Checking it.** [`scripts/check_vss_version.py`](scripts/check_vss_version.py)
 checks the endpoint on any deployment — standard library only, so it can be
@@ -367,7 +399,7 @@ or are only needed for specific features.
 | `VSS_AGENT_PORT` | no | `8000` | Agent HTTP port |
 | `VSS_AGENT_OBJECT_STORE_TYPE` | no | `local_object_store` | Object store: `local_object_store` (in-memory) or `s3` |
 | `VSS_AGENT_REPORTS_BASE_URL` | no | — | Base URL for generated report assets |
-| `VSS_DEPLOYMENT_VERSION` | no | `3.3.0` (Compose), `3.3.0-65576357eb80` (Helm, via `vssAgentVersion`) | Strict SemVer version reported by `GET /api/v1/version`; feeds no image tag |
+| `VSS_DEPLOYMENT_VERSION` | no | `3.3.0` (Compose), `3.3.0-65576357eb80` (Helm, via `vssAgentVersion`); a checkout with neither variable derives its version from git tags | Strict SemVer version reported by `GET /api/v1/version`; feeds no image tag |
 | `VSS_AGENT_VERSION` | no | — | Telemetry project naming and fallback container image tag; also the fallback for `GET /api/v1/version` |
 | `PHOENIX_ENDPOINT` | no | — | Phoenix tracing endpoint (e.g. `http://HOST:6006`) |
 | `EVAL_LLM_JUDGE_NAME` | no | same as `LLM_NAME` | Model used for evaluation judge |

@@ -25,6 +25,7 @@ import pytest
 
 from vss_agents.api.version import SEMVER_PATTERN
 from vss_agents.api.version import register_version_route
+import vss_core.version
 
 _UNAVAILABLE_DETAIL = "The deployed VSS version is unavailable or is not valid Semantic Versioning 2.0.0."
 
@@ -43,9 +44,16 @@ def client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def _clear_version_env(monkeypatch) -> None:
-    """Start every test from a deployment that configures no version at all."""
+    """Start every test from a deployment that configures no version at all.
+
+    The git-tag fallback is neutralised too: these tests are about what the
+    endpoint does with its environment, and the test process runs inside a
+    checkout that ``git describe`` would happily answer for. The fallback has
+    its own tests below, and :mod:`vss_core.version` covers the derivation.
+    """
     monkeypatch.delenv("VSS_DEPLOYMENT_VERSION", raising=False)
     monkeypatch.delenv("VSS_AGENT_VERSION", raising=False)
+    monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: None)
 
 
 @pytest.mark.parametrize("version", ACCEPTED_VERSIONS)
@@ -69,11 +77,36 @@ def test_version_endpoint_rejects_invalid_semver(client: TestClient, monkeypatch
     assert response.json() == {"detail": _UNAVAILABLE_DETAIL}
 
 
-def test_version_endpoint_503s_when_no_variable_is_set(client: TestClient) -> None:
+def test_version_endpoint_503s_when_nothing_can_be_resolved(client: TestClient) -> None:
+    """No deployment environment and no git tags to fall back on: a container."""
     response = client.get("/api/v1/version")
 
     assert response.status_code == 503
     assert response.json() == {"detail": _UNAVAILABLE_DETAIL}
+
+
+def test_unconfigured_checkout_reports_its_derived_version(client: TestClient, monkeypatch) -> None:
+    """A bare ``nat serve`` from a clone answers with the source it is running.
+
+    Without this it answered 503, which a benchmark reads as indeterminate and
+    stops on — even though the version was sitting right there in git.
+    """
+    monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: "3.2.1-dev.1519+gc85c4a4e8")
+
+    response = client.get("/api/v1/version")
+
+    assert response.status_code == 200
+    assert response.json() == {"service": "vss", "version": "3.2.1-dev.1519+gc85c4a4e8"}
+
+
+def test_configured_version_outranks_the_derived_one(client: TestClient, monkeypatch) -> None:
+    """A deployment's own statement wins: its image need not match this checkout."""
+    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "3.3.0")
+    monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: "3.2.1-dev.1519+gc85c4a4e8")
+
+    response = client.get("/api/v1/version")
+
+    assert response.json() == {"service": "vss", "version": "3.3.0"}
 
 
 def test_dedicated_variable_wins_over_legacy(client: TestClient, monkeypatch) -> None:
@@ -118,7 +151,13 @@ def test_invalid_dedicated_variable_does_not_fall_through_to_legacy(client: Test
 
 
 def test_legacy_variable_carrying_an_image_tag_503s(client: TestClient, monkeypatch) -> None:
-    """VSS_AGENT_VERSION also drives image-tag resolution, so it often holds a tag."""
+    """VSS_AGENT_VERSION also drives image-tag resolution, so it often holds a tag.
+
+    A set-but-unusable variable does not reach the git fallback either: the
+    deployment stated a version and the statement is wrong, which is worth
+    surfacing rather than papering over with the checkout's version.
+    """
+    monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: "3.2.1-dev.1519+gc85c4a4e8")
     monkeypatch.setenv("VSS_AGENT_VERSION", "develop-8f4eb94707ba")
 
     response = client.get("/api/v1/version")
@@ -139,9 +178,9 @@ def _load_checker_script() -> ModuleType:
 def test_standalone_checker_uses_the_same_pattern() -> None:
     """scripts/check_vss_version.py duplicates the pattern to stay stdlib-only.
 
-    It is the benchmark team's copy-and-run tool, so it must not import
-    ``vss_agents``. This asserts the duplicate cannot drift from the source of
-    truth in ``vss_agents.api.version``.
+    It is the benchmark team's copy-and-run tool, so it must not import VSS.
+    This asserts the duplicate cannot drift from the source of truth in
+    ``vss_core.version``.
     """
     assert _load_checker_script().SEMVER_PATTERN.pattern == SEMVER_PATTERN.pattern
 

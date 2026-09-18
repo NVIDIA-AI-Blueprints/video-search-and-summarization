@@ -4,11 +4,12 @@ description: Benchmark video Q&A accuracy and latency of a deployed RT-VLM (Cosm
 license: Apache-2.0
 metadata:
   version: "3.3.0"
-  # Deployment versions this skill supports. Floor is 3.3.0 because the
-  # published baselines, Cosmos Reason 3 RT-VLM stack, and the replacement of
-  # the deprecated `nat eval` / vss-agent QA path were written for 3.3.
-  # `vss vlm run` itself ships with this checkout (`uv run --project libs/vss
-  # vss`), not with the deployment. Upper bound excludes a major.
+  # Deployment versions this skill supports. Floor is 3.3.0 because that is the
+  # Cosmos Reason 3 RT-VLM stack the published baselines were measured on, and
+  # this skill replaces the deprecated `nat eval` / vss-agent QA path. Not a CLI
+  # capability claim: `vss vlm run` comes from this checkout, not the deployment,
+  # so it is present whatever the deployment reports. Upper bound excludes a
+  # major, which may change the service contract the CLI drives.
   requires-vss: ">=3.3.0,<4.0.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
@@ -50,10 +51,12 @@ score tool-calling or trajectories.
   `vss configure --base-url http://<host-ip>:7777` avoids that — `--base-url` is a
   `vss configure` flag, not a benchmark one. `--inline-media` *is* a benchmark flag; it
   forces the old inline behaviour and is only safe for clips under ~10 MB.
-- `uv` and this checkout (CLI via `uv run --project libs/vss vss`).
-- A deployment inside this skill's `requires-vss` range (`>=3.3.0,<4.0.0` — the
-  3.3 floor is the stack and baselines this skill was written against, not a
-  CLI presence check). **This is not enforced automatically.** Unlike
+- `uv` and this checkout. `benchmark_vlm_qa.py` runs the CLI as
+  `uv run --project services/agent --no-dev --extra cli vss`.
+- A deployment inside this skill's `requires-vss` range (`>=3.3.0,<4.0.0` — the floor
+  is the Cosmos Reason 3 stack the published baselines were measured on, not a CLI
+  capability: the CLI comes from this checkout either way). **This is not enforced
+  automatically.** Unlike
   `benchmark-video-summarization`, this skill has no `preflight.sh`, and adding one
   just to carry a single check would be out of proportion; `vss configure check` is
   already the gate it runs. Verify by hand when in doubt:
