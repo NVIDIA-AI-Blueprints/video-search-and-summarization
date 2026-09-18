@@ -61,8 +61,8 @@ AGENT_BACKEND_TOKEN=replace-with-the-harness-token
 
 # Server-only targets used by the same-origin media and chat proxy routes.
 VSS_PROXY_BASE_URL=http://vss-haproxy-ingress:7777
-VSS_CHAT_BACKEND_MAIN=http://vss-agent:8000/chat/stream
-VSS_CHAT_BACKEND_SIDEBAR=http://vss-agent:8000/chat/stream
+VSS_CHAT_BACKEND_MAIN=http://vss-agent:8000/v1/chat/stream
+VSS_CHAT_BACKEND_SIDEBAR=http://vss-agent:8000/v1/chat/stream
 
 NEXT_PUBLIC_ENABLE_CHAT_TAB=true
 NEXT_PUBLIC_WORKFLOW=Warehouse Management Agent
