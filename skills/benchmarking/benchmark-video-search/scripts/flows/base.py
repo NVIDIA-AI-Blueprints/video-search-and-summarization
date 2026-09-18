@@ -17,15 +17,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import json
-from pathlib import Path
 import shlex
 import shutil
 import subprocess
 import time
-from typing import Any
-from typing import Protocol
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 # Timeouts (seconds). Mirror the upstream defaults documented in
@@ -74,7 +73,7 @@ def base_record(video_path: Path) -> dict[str, Any]:
         "video_name": video_path.stem,
         "video_path": str(video_path),
         "file_size_mb": round(file_size_mb, 2) if file_size_mb is not None else None,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
 
@@ -120,17 +119,17 @@ DEFAULT_VSS_ORIGIN_PORT = 7777
 
 def has_cli_package(repo_root: Path | str) -> bool:
     """True when a checkout actually ships the ``vss`` CLI package."""
-    return (Path(repo_root) / "services/agent/packages/vss_cli").is_dir()
+    return (Path(repo_root) / "libs/vss/cli").is_dir()
 
 
 def default_vss_cmd(repo_root: str) -> list[str]:
     """The project-local CLI invocation the upstream skill mandates.
 
-    ``--extra cli`` is required: the base distribution ships the libraries,
-    while the ``nvidia-vss-cli`` extra ships the ``vss`` executable.
+    ``libs/vss`` is the CLI's NAT-free workspace and exposes the ``vss``
+    executable directly; no agent extra is required.
     """
-    project = f"{repo_root.rstrip('/')}/services/agent"
-    return ["uv", "run", "--project", project, "--no-dev", "--extra", "cli", "vss"]
+    project = f"{repo_root.rstrip('/')}/libs/vss"
+    return ["uv", "run", "--project", project, "vss"]
 
 
 def resolve_vss_cmd(
@@ -156,9 +155,8 @@ def resolve_vss_cmd(
     if repo_root:
         if not has_cli_package(repo_root):
             raise FileNotFoundError(
-                f"--vss-repo-root {repo_root} has no services/agent/packages/vss_cli.\n"
-                "  That checkout predates the core/agents/cli split, so it cannot "
-                "provide the vss CLI."
+                f"--vss-repo-root {repo_root} has no libs/vss/cli.\n"
+                "  Pass the root of a current VSS checkout."
             )
         return default_vss_cmd(repo_root), f"--vss-repo-root {repo_root}"
 
@@ -174,13 +172,13 @@ def resolve_vss_cmd(
         f"  1. --vss-cmd                 (not given)\n"
         f"  2. --vss-repo-root           (not given)\n"
         f"  3. submodule                 {SUBMODULE_ROOT}\n"
-        f"     -> {'no services/agent/packages/vss_cli (pin predates the CLI split)'}\n"
+        f"     -> {'no libs/vss/cli'}\n"
         f"  4. vss on PATH               (not found)\n\n"
         "Fix by either:\n"
-        "  * passing --vss-repo-root <checkout with services/agent/packages/vss_cli>, or\n"
+        "  * passing --vss-repo-root <checkout with libs/vss/cli>, or\n"
         "  * installing the CLI standalone (needs Python 3.13/3.14):\n"
-        "      pip install <checkout>/services/agent/packages/vss_core \\\n"
-        "                  <checkout>/services/agent/packages/vss_cli"
+        "      pip install <checkout>/libs/vss/core \\\n"
+        "                  <checkout>/libs/vss/cli"
     )
 
 
@@ -195,6 +193,7 @@ def preflight_vss_cmd(vss_cmd: list[str], timeout: int = 300) -> str:
         proc = subprocess.run(
             [*vss_cmd, "--version"],
             capture_output=True,
+            check=False,
             text=True,
             timeout=timeout,
         )
@@ -233,6 +232,7 @@ def cli_supports_flag(vss_cmd: list[str], flag: str, path: str = "embed", timeou
         proc = subprocess.run(
             [*vss_cmd, "search", "run", path, "--help"],
             capture_output=True,
+            check=False,
             text=True,
             timeout=timeout,
         )
@@ -283,6 +283,7 @@ def ensure_vss_configured(vss_cmd: list[str], base_url: str, timeout: int = 300)
     proc = subprocess.run(
         [*vss_cmd, "configure", "--base-url", base_url],
         capture_output=True,
+        check=False,
         text=True,
         timeout=timeout,
     )
