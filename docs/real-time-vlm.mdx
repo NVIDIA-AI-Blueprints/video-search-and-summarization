@@ -283,7 +283,7 @@ container used by this release is tagged `3.3.0-26.08.2`.
    ```bash
    cat > .env << EOF
    BACKEND_PORT=8000
-   RTVI_IMAGE=nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2
+   RTVI_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0-26.08.2
    VLM_MODEL_TO_USE=cosmos-reason3
    MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
    MESSAGE_BUS=kafka
@@ -413,7 +413,7 @@ docker buildx build --platform linux/arm64 \
 
 For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set
 `IS_SBSA`. The default base image
-(`nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2`) is multi-arch, so a
+(`nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0-26.08.2`) is multi-arch, so a
 `linux/arm64` build pulls the Thor-compatible arm64 variant automatically:
 
 ```bash
@@ -1361,7 +1361,7 @@ standalone Helm override.
 
 | Variable | Description | Standalone default |
 | --- | --- | --- |
-| `RTVI_IMAGE` | Docker Compose image to run | `nvcr.io/nvstaging/vss-core/vss-rt-vlm:3.3.0-26.08.2` |
+| `RTVI_IMAGE` | Docker Compose image to run. Override the checked-in development default with this public release image. | `nvcr.io/nvidia/vss-core/vss-rt-vlm:3.3.0-26.08.2` |
 | `MODEL_PATH` (Helm: `modelPath`) | Model source | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | `MODEL_IMPLEMENTATION_PATH` | Custom model implementation path | Empty |
 | `NGC_API_KEY` | NGC API key | Compose: Empty; Helm: `ngc-api/NGC_API_KEY` secret |
@@ -1488,7 +1488,7 @@ The chart injects `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`,
   `true`.
 * `image.repository`, `image.tag`, and `image.pullPolicy`: Image
   settings. For 3.3.0 RTVI-VLM, use
-  `nvcr.io/nvstaging/vss-core/vss-rt-vlm`, `3.3.0-26.08.2`, and
+  `nvcr.io/nvidia/vss-core/vss-rt-vlm`, `3.3.0-26.08.2`, and
   `IfNotPresent`. The image tag supports the supported x86 and ARM64
   platforms.
 * `replicas`: Number of replicas. Default: `1`.

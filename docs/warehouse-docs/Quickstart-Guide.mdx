@@ -529,9 +529,9 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 
 | Workload | Streams | Input frame rate |
 | --- | ---: | ---: |
-| 2D | 26 | 30 FPS |
-| 3D | 16 | 30 FPS |
-| MV3DT | 13 | 30 FPS |
+| 2D | 61 | 30 FPS |
+| 3D | 19 | 30 FPS |
+| MV3DT | 61 | 30 FPS |
 
 ```ini
 # The current Warehouse configurator maps H100 NVL and H100 SXM HBM3
@@ -583,7 +583,10 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 
 **Published performance**
 
-Published performance figures are not currently listed for this hardware profile.
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 161 | 30 FPS |
+| 3D | 71 | 30 FPS |
 
 Before deployment, run the following command to export the SBSA image-tag suffix:
 
@@ -648,9 +651,9 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 
 | Workload | Streams | Input frame rate |
 | --- | ---: | ---: |
-| 2D | 12 | 30 FPS |
-| 3D | 6 | 30 FPS |
-| MV3DT | 7 | 30 FPS |
+| 2D | 28 | 30 FPS |
+| 3D | 9 | 30 FPS |
+| MV3DT | 23 | 30 FPS |
 
 ```ini
 HARDWARE_PROFILE=L40S
@@ -700,9 +703,9 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 
 | Workload | Streams | Input frame rate |
 | --- | ---: | ---: |
-| 2D | 7 | 30 FPS |
-| 3D | 7 | 15 FPS |
-| MV3DT | 4 | 30 FPS |
+| 2D | 9 | 30 FPS |
+| 3D | 8 | 15 FPS |
+| MV3DT | 7 | 30 FPS |
 
 ```ini
 # The bp_wh agent profile is not supported on IGX-THOR.
@@ -756,7 +759,8 @@ Published performance figures are not currently listed on this page for these pr
 ```ini
 # Select a HARDWARE_PROFILE that exists in
 # industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml.
-# Shipped x86_64 profiles include L4, L40S, RTXA6000, and RTXA6000ADA.
+# Other shipped x86_64 profiles include RTXPRO6000BW,
+# RTXPRO6000BW-SE, and RTXPRO4500BW.
 # There is no L40 profile. Do not invent a slug.
 HARDWARE_PROFILE=L40S
 ```
