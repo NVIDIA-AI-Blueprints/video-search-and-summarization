@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+CC-BY-4.0 <br>
 ## Use Case: <br>
 Developers and engineers deploying multi-camera 3D detection and tracking (MV3DT) using the NVIDIA VSS warehouse blueprint without the full agent, LLM, or VLM stack. <br>
 
