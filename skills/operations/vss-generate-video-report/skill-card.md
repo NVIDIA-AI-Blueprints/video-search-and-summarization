@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+CC-BY-4.0 <br>
 ## Use Case: <br>
 Developers and engineers use this skill to generate structured video analysis reports — either per-clip VLM analysis or incident-range narrative reports — from NVIDIA Video Search and Summarization (VSS) deployments. <br>
 

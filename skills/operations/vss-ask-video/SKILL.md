@@ -1,7 +1,7 @@
 ---
 name: vss-ask-video
 description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video. Route through hot context, agent Markdown memory, structured VSS memory, bounded introspection, or an exact-window vss vlm run. Not for retrieval or metadata-answerable questions.
-license: Apache-2.0
+license: CC-BY-4.0
 metadata:
   version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"

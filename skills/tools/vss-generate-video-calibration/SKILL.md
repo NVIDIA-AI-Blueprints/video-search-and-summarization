@@ -1,7 +1,7 @@
 ---
 name: vss-generate-video-calibration
 description: Use this skill when running AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, or when deploying vss-auto-calibration. Do not use for non-AMC calibration or runtime analytics.
-license: Apache-2.0
+license: CC-BY-4.0
 metadata:
   author: "Harshal Nishar <hnishar@nvidia.com>"
   version: "3.3.0"

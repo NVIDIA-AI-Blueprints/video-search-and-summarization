@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache-2.0 <br>
+CC-BY-4.0 <br>
 ## Use Case: <br>
 Developers and engineers deploying the VSS video-analytics-api REST service standalone against existing Elasticsearch and optional Kafka infrastructure, outside the full warehouse blueprint stack. <br>
 

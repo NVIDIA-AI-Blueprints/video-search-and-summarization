@@ -475,6 +475,7 @@ jobs:
             deploy/docker/scripts/tests/test_run_setup_notebook.py \
             skills/vss-build-vision-ai/scripts/tests/test_sync_skills.py \
             skills/vss-build-vision-ai/scripts/tests/test_stage_vss_src.py \
+            skills/vss-build-vision-ai/scripts/tests/test_script_help.py \
             -q
 
       - name: Skill eval harness contracts
