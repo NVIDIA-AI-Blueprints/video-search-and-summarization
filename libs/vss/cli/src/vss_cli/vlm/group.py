@@ -191,6 +191,22 @@ class VlmInput(BaseModel):
     )
     max_tokens: int | None = Field(None, ge=1, le=1_000_000, description="Maximum tokens to generate.")
     temperature: float | None = Field(None, ge=0.0, le=1.0, description="Sampling temperature.")
+    seed: int | None = Field(
+        None,
+        ge=1,
+        le=2**32 - 1,
+        description="Sampling seed for reproducible generation.",
+    )
+    enable_reasoning: bool | None = Field(
+        None,
+        description="Enable or disable reasoning output from the VLM.",
+    )
+    chunk_duration: int | None = Field(
+        None,
+        ge=0,
+        le=3600,
+        description="Video chunk duration in seconds. Set 0 to disable chunking.",
+    )
     num_frames: int | None = Field(
         None,
         ge=1,
@@ -300,6 +316,9 @@ def _build_vlm_request(
     model: str,
     max_tokens: int | None,
     temperature: float | None,
+    seed: int | None,
+    enable_reasoning: bool | None,
+    chunk_duration: int | None,
     num_frames: int | None,
     fps: float | None,
     duration_seconds: float | None = None,
@@ -324,6 +343,12 @@ def _build_vlm_request(
         request["max_tokens"] = max_tokens
     if temperature is not None:
         request["temperature"] = temperature
+    if seed is not None:
+        request["seed"] = seed
+    if enable_reasoning is not None:
+        request["enable_reasoning"] = enable_reasoning
+    if chunk_duration is not None:
+        request["chunk_duration"] = chunk_duration
     return request
 
 
@@ -334,6 +359,9 @@ def _iter_base64_json(
     model: str,
     max_tokens: int | None,
     temperature: float | None,
+    seed: int | None,
+    enable_reasoning: bool | None,
+    chunk_duration: int | None,
     num_frames: int | None,
     fps: float | None,
     duration_seconds: float | None = None,
@@ -365,6 +393,12 @@ def _iter_base64_json(
         payload["max_tokens"] = max_tokens
     if temperature is not None:
         payload["temperature"] = temperature
+    if seed is not None:
+        payload["seed"] = seed
+    if enable_reasoning is not None:
+        payload["enable_reasoning"] = enable_reasoning
+    if chunk_duration is not None:
+        payload["chunk_duration"] = chunk_duration
 
     raw = _json_mod.dumps(payload)
     # json.dumps quotes the sentinel; partition on the quoted form.
@@ -422,6 +456,12 @@ class VlmGroup(CommandGroup):
             model_params["max_tokens"] = inputs.max_tokens
         if inputs.temperature is not None:
             model_params["temperature"] = inputs.temperature
+        if inputs.seed is not None:
+            model_params["seed"] = inputs.seed
+        if inputs.enable_reasoning is not None:
+            model_params["enable_reasoning"] = inputs.enable_reasoning
+        if inputs.chunk_duration is not None:
+            model_params["chunk_duration"] = inputs.chunk_duration
 
         # Initialise memory before media resolution so any failure path (including
         # the loopback clip-fetch timeout below) can write a terminal record. A
@@ -627,6 +667,9 @@ class VlmGroup(CommandGroup):
                         model=model,
                         max_tokens=inputs.max_tokens,
                         temperature=inputs.temperature,
+                        seed=inputs.seed,
+                        enable_reasoning=inputs.enable_reasoning,
+                        chunk_duration=inputs.chunk_duration,
                         num_frames=inputs.num_frames,
                         fps=inputs.fps,
                         duration_seconds=clip_duration,
@@ -643,6 +686,9 @@ class VlmGroup(CommandGroup):
                         model=model,
                         max_tokens=inputs.max_tokens,
                         temperature=inputs.temperature,
+                        seed=inputs.seed,
+                        enable_reasoning=inputs.enable_reasoning,
+                        chunk_duration=inputs.chunk_duration,
                         num_frames=inputs.num_frames,
                         fps=inputs.fps,
                         duration_seconds=_clip_duration_seconds(resolved_start, resolved_end),
