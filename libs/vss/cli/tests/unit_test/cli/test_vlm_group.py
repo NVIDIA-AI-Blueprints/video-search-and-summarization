@@ -757,6 +757,58 @@ def test_locked_processor_size_policy_rejects_conflicting_override() -> None:
         )
 
 
+def test_policy_shortest_edge_and_call_longest_edge_are_revalidated() -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(
+        vlm=config_mod.VlmConfig(shortest_edge=16777216, locked=True)
+    )
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(
+        InvalidInput,
+        match="configured VLM policy and run arguments are incompatible",
+    ):
+        VlmGroup().run(
+            "",
+            VlmInput(
+                prompt="What?",
+                media_url="http://h/clip.mp4",
+                longest_edge=8000000,
+            ),
+            ctx,
+        )
+
+
+def test_policy_longest_edge_and_call_shortest_edge_are_revalidated() -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(
+        vlm=config_mod.VlmConfig(longest_edge=8000000, locked=True)
+    )
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(
+        InvalidInput,
+        match="configured VLM policy and run arguments are incompatible",
+    ):
+        VlmGroup().run(
+            "",
+            VlmInput(
+                prompt="What?",
+                media_url="http://h/clip.mp4",
+                shortest_edge=16777216,
+            ),
+            ctx,
+        )
+
+
 def test_unlocked_vlm_policy_allows_override(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 

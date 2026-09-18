@@ -51,6 +51,7 @@ import click
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import ValidationError
 from pydantic import model_validator
 
 from vss_cli import config as config_mod
@@ -304,7 +305,14 @@ def _apply_vlm_policy(inputs: VlmInput, deployment: config_mod.Deployment) -> Vl
             continue
         updates[name] = configured
 
-    return inputs.model_copy(update=updates)
+    merged = inputs.model_dump()
+    merged.update(updates)
+    try:
+        return VlmInput.model_validate(merged)
+    except ValidationError as exc:
+        raise InvalidInput(
+            f"configured VLM policy and run arguments are incompatible: {exc}"
+        ) from exc
 
 
 def _resolve_vios_clip(
