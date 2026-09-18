@@ -80,6 +80,11 @@ def test_validate_ipc_socket_template_rejects_path_separators():
         ipc_frame_source.resolve_ipc_socket_path("camera-1", socket_template="../{camera_id}.sock")
 
 
+def test_validate_ipc_socket_template_rejects_unsupported_placeholders():
+    with pytest.raises(ValueError, match="unsupported placeholder"):
+        ipc_frame_source.resolve_ipc_socket_path("camera-1", socket_template="{camera_id}_{bogus}.sock")
+
+
 def test_select_ipc_stream_identity_prefers_camera_then_sensor_then_asset():
     select = ipc_frame_source.select_ipc_stream_identity
     assert select("camera-1", "sensor-1", "asset-1") == "camera-1"
