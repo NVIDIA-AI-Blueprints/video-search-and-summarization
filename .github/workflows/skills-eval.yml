@@ -47,7 +47,7 @@ on:
           - claude-code
           - codex
       coding_model:
-        description: "CODING · Model ID from https://inference.nvidia.com/. Blank preserves the configured default."
+        description: "CODING · Model ID from https://inference.nvidia.com/ (for example, azure/openai/gpt-6-astra). Blank preserves the configured default."
         required: false
         default: ""
         type: string
