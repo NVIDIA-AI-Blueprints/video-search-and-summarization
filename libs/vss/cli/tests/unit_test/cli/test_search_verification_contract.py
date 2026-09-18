@@ -68,6 +68,16 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     assert "VERIFY_PIXELS" not in main
 
 
+def test_search_skill_passes_the_exact_original_query_to_every_path() -> None:
+    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    cli_usage = (SEARCH_SKILL / "references/cli_usage.md").read_text(encoding="utf-8")
+
+    assert ': "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"' in main
+    assert '--original-query "${ORIGINAL_QUERY}"' in main
+    assert 'search run "${SEARCH_PATH}"' in main
+    assert "pre-decomposition user sentence" in cli_usage
+
+
 def test_zero_candidates_may_not_be_reported_as_absence() -> None:
     """An empty result set is a fact about retrieval, not about the recording.
 
