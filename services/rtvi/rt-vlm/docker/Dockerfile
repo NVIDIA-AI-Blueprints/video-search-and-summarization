@@ -29,6 +29,24 @@ FROM ${SBSA_MEDIA_IMAGE} AS media-runtime-sbsa
 FROM media-runtime-${MEDIA_PLATFORM} AS media-runtime
 FROM ${SBSA_MEDIA_IMAGE} AS sbsa-media-runtime
 
+# Use the SEI-capable nvunixfd plugin published by the RTVI DeepStream images.
+# Pin each source stage to its architecture so multi-platform builds resolve
+# the correct image even when the build host has a different architecture.
+FROM --platform=linux/amd64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111@sha256:de434d6dc97158b64bb6ee04fcc79796b0321932548742d0299c2b61541f063f AS nvunixfd-amd64
+FROM --platform=linux/arm64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255@sha256:a1bb05d3fa6259c56fcf0a009cda1ece566749c413a4e3ea110c64e2e9f0df58 AS nvunixfd-arm64
+FROM nvunixfd-${TARGETARCH} AS nvunixfd-prebuilt
+ARG TARGETARCH
+# The arm64 image installs the plugin in the system GStreamer directory while
+# the amd64 image installs it in the DeepStream plugin directory. Normalize
+# both layouts for the runtime stage below.
+RUN if [ "$TARGETARCH" = "arm64" ] && [ ! -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so ]; then \
+        test -s /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvunixfd.so \
+        && mkdir -p /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins \
+        && cp /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvunixfd.so \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so; \
+    fi \
+    && test -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so
+
 # DeepStream 9.1's x86 plugins require CUDA 13 NPP/NVJPEG libraries. They are
 # present in Triton 26.03 but intentionally absent from the lean vLLM image.
 FROM ${TRITON_CUDA_IMAGE} AS triton-cuda-runtime
@@ -291,11 +309,34 @@ RUN env -u PIP_CONSTRAINT -u PIP_BUILD_CONSTRAINT \
 # source trees in the runtime image.
 RUN --mount=from=media-runtime,source=/tmp99,target=/tmp/ds-gst,readonly \
     --mount=from=native-builder,source=/opt/native-artifacts/libgsttimestampfilter.so,target=/tmp/libgsttimestampfilter.so,readonly \
+    --mount=from=nvunixfd-prebuilt,source=/opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so,target=/tmp/libgstnvunixfd.so,readonly \
     multiarch=$(dpkg-architecture -qDEB_HOST_MULTIARCH) \
     && install -Dm755 /tmp/ds-gst/libgstrtpmanager.so /usr/lib/${multiarch}/gstreamer-1.0/libgstrtpmanager.so \
     && install -Dm755 /tmp/ds-gst/libgstrtsp.so /usr/lib/${multiarch}/gstreamer-1.0/libgstrtsp.so \
     && install -Dm755 /tmp/ds-gst/libgstvideoparsersbad.so /usr/lib/${multiarch}/gstreamer-1.0/libgstvideoparsersbad.so \
-    && install -Dm755 /tmp/libgsttimestampfilter.so /usr/lib/${multiarch}/gstreamer-1.0/libgsttimestampfilter.so
+    && install -Dm755 /tmp/libgsttimestampfilter.so /usr/lib/${multiarch}/gstreamer-1.0/libgsttimestampfilter.so \
+    && install -Dm755 /tmp/libgstnvunixfd.so \
+        /opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so
+
+# GStreamer resolves duplicate plugin names by scan order. Fail the build if a
+# different libgstnvunixfd.so on GST_PLUGIN_PATH could shadow the SEI-capable
+# plugin installed above. This runtime does not install gst-inspect-1.0, and
+# DeepStream plugins require GPU-mounted driver libraries that are unavailable
+# during docker build, so live element loading is validated at runtime rather
+# than in this static image-construction step.
+RUN installed=/opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so \
+    && test -s "$installed" \
+    && installed_sum="$(sha256sum "$installed" | cut -d' ' -f1)" \
+    && for gst_plugin_dir in $(echo "$GST_PLUGIN_PATH" | tr ':' '\n'); do \
+           other="$gst_plugin_dir/libgstnvunixfd.so"; \
+           [ "$other" = "$installed" ] && continue; \
+           [ -s "$other" ] || continue; \
+           other_sum="$(sha256sum "$other" | cut -d' ' -f1)"; \
+           if [ "$other_sum" != "$installed_sum" ]; then \
+               echo "libgstnvunixfd.so at $other differs from the SEI-capable plugin installed at $installed and could shadow it" >&2; \
+               exit 1; \
+           fi; \
+       done
 
 # Intelligent Frame Selection (IFS): nvdsframeselector.
 #
