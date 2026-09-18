@@ -29,6 +29,12 @@ describe('ChatSteps spinner', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
+  it('stops spinning on a step the cancelled stream never settled', () => {
+    render(<ChatSteps steps={[step('search', 'in_progress')]} expandByDefault />);
+    expect(screen.getByText('search')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('spins only on the step still running, not on finished siblings', () => {
     render(
       <ChatSteps

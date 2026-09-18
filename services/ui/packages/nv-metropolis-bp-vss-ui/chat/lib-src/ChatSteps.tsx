@@ -29,13 +29,17 @@ const Spinner: React.FC<{ size: number; label: string }> = ({ size, label }) => 
   />
 );
 
-const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean }> = ({ step, defaultOpen }) => {
+const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean; streaming: boolean }> = ({
+  step,
+  defaultOpen,
+  streaming,
+}) => {
   const [manual, setManual] = useState<boolean | null>(null);
   const hasDetail = !!step.payload || !!step.children?.length;
   const open = manual ?? defaultOpen;
 
   return (
-    <li className="relative">
+    <li className="relative" data-status={step.status}>
       <div className="flex items-start gap-2">
         <span className={`mt-[7px] h-2 w-2 flex-shrink-0 rounded-full ${STATUS_DOT[step.status]}`} />
         {hasDetail ? (
@@ -51,7 +55,9 @@ const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean }> = ({ step, de
         ) : (
           <span className="pl-[18px] text-sm text-gray-700 dark:text-gray-300">{step.name}</span>
         )}
-        {step.status === 'in_progress' ? (
+        {/* Tied to the turn, not just the status: a cancelled step keeps its
+            `in_progress` status if the stream died before settling it. */}
+        {streaming && step.status === 'in_progress' ? (
           <span className="ml-auto mt-[3px] flex-shrink-0">
             <Spinner size={16} label={`${step.name} running`} />
           </span>
@@ -68,7 +74,12 @@ const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean }> = ({ step, de
           {step.children?.length ? (
             <ul className="flex flex-col gap-1">
               {step.children.map((child) => (
-                <StepNode key={child.id} step={child} defaultOpen={defaultOpen} />
+                <StepNode
+                  key={child.id}
+                  step={child}
+                  defaultOpen={defaultOpen}
+                  streaming={streaming}
+                />
               ))}
             </ul>
           ) : null}
@@ -119,7 +130,7 @@ export const ChatSteps: React.FC<ChatStepsProps> = ({ steps, streaming, expandBy
       {open && (
         <ul className="mt-2 flex flex-col gap-1">
           {tree.map((step) => (
-            <StepNode key={step.id} step={step} defaultOpen={false} />
+            <StepNode key={step.id} step={step} defaultOpen={false} streaming={!!streaming} />
           ))}
         </ul>
       )}

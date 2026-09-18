@@ -619,6 +619,39 @@ describe('ChatPanel', () => {
     expect(screen.getByText('vss-search-archive')).toBeInTheDocument();
   });
 
+  it('settles an unfinished step when the stream dies mid-turn', async () => {
+    const encoder = new TextEncoder();
+    let reads = 0;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (reads++ > 0) throw new Error('stream died');
+            return {
+              done: false,
+              value: encoder.encode(
+                'intermediate_data: {"id":"1","name":"vss-search-archive","status":"in_progress"}\n',
+              ),
+            };
+          },
+          releaseLock: () => {},
+        }),
+      },
+    } as unknown as Response) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('search'));
+
+    await waitFor(() => expect(screen.getByText(/stream died/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/Intermediate steps \(1\)/));
+    expect(screen.getByText('vss-search-archive').closest('li')).toHaveAttribute(
+      'data-status',
+      'error',
+    );
+  });
+
   it('keeps workflow children visible when a start frame is replaced by completion', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       sseResponse([
