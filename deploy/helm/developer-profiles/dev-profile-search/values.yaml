@@ -585,7 +585,7 @@ rtvi:
       - name: VLM_TRUST_REMOTE_CODE
         value: "false"
       - name: VLM_VIDEO_PRUNING_RATE
-        value: "0.0"
+        value: ""
 # Analytics umbrella: Search uses search_and_alerts behavior analytics (incident generation disabled) + video-analytics-api (REST API for raw/analytics data).
 analytics:
   enabled: true

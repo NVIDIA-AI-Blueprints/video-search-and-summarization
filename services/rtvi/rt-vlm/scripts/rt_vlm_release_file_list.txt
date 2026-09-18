@@ -47,6 +47,7 @@ src/server/rtvi_stream_handler.py
 src/server/rtvi_vlm_server.py
 src/utils/asset_manager.py
 src/utils/dense_caption_serializer.py
+src/utils/env_validation.py
 src/utils/file_splitter.py
 src/utils/__init__.py
 src/utils/media_file_info.py

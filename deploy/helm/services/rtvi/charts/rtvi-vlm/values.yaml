@@ -243,9 +243,9 @@ env:
     value: "false"
   - name: RTVI_ALLOW_UNSAFE_MODEL_CONFIG
     value: "false"
-  # EVS pruning rate 0.0-1.0.
+  # EVS pruning rate. Leave empty to disable; configured values must satisfy 0 < rate < 1.
   - name: VLM_VIDEO_PRUNING_RATE
-    value: "0.0"
+    value: ""
   # API cap on output tokens.
   - name: VLM_MAX_GENERATION_TOKENS
     value: "16384"
