@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import ast
 import builtins
 import importlib.util
 import io
@@ -9,8 +8,8 @@ import json
 import os
 import re
 import subprocess
+import symtable
 import unittest
-from collections.abc import Iterator
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -34,57 +33,43 @@ def without_ipython_magics(source: str) -> str:
 
     kept = []
     for line in source.splitlines():
-        if re.match(r"\s*[!%]", line):
+        if line.lstrip().startswith(("!", "%")):
             continue
         kept.append(re.sub(r"=\s*!.*", "= None", line))
     return "\n".join(kept)
 
 
-OWN_SCOPE = (
-    ast.FunctionDef,
-    ast.AsyncFunctionDef,
-    ast.ClassDef,
-    ast.Lambda,
-    ast.ListComp,
-    ast.SetComp,
-    ast.DictComp,
-    ast.GeneratorExp,
-)
+def referenced_globals(table: symtable.SymbolTable) -> set[str]:
+    """Names *table* and its nested scopes read from the enclosing namespace.
 
-
-def module_scope_nodes(node: ast.AST) -> Iterator[ast.AST]:
-    """*node*'s descendants that run at module scope, nested scopes excluded."""
-
-    for child in ast.iter_child_nodes(node):
-        yield child
-        if not isinstance(child, OWN_SCOPE):
-            yield from module_scope_nodes(child)
-
-
-def module_scope_names(source: str) -> tuple[set[str], set[str]]:
-    """The names *source* reads and the names it binds, both at module scope.
-
-    A local, an argument, or a comprehension target is not a module-level
-    binding, so counting one would let a genuinely undefined global pass the
-    caller's check. Reads inside those scopes are excluded for the same
-    reason: they resolve against the local scope, not the notebook's.
+    A function's own locals and parameters are not global, so they drop out
+    here while a global the body reads is kept, whichever scope reads it.
     """
 
-    read: set[str] = set()
-    bound: set[str] = set()
-    for node in module_scope_nodes(ast.parse(without_ipython_magics(source))):
-        if isinstance(node, ast.Name):
-            names = bound if isinstance(node.ctx, (ast.Store, ast.Del)) else read
-            names.add(node.id)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            bound.add(node.name)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            bound.update(
-                alias.asname or alias.name.split(".")[0] for alias in node.names
-            )
-        elif isinstance(node, ast.ExceptHandler) and node.name:
-            bound.add(node.name)
-    return read, bound
+    names = {
+        symbol.get_name()
+        for symbol in table.get_symbols()
+        if symbol.is_referenced() and symbol.is_global()
+    }
+    for child in table.get_children():
+        names |= referenced_globals(child)
+    return names
+
+
+def notebook_names(source: str) -> tuple[set[str], set[str]]:
+    """The global names *source* reads and the names it binds at module scope.
+
+    Bindings stay at module scope, so a local or a parameter never stands in
+    for a notebook-level definition.
+    """
+
+    table = symtable.symtable(without_ipython_magics(source), "notebook", "exec")
+    bound = {
+        symbol.get_name()
+        for symbol in table.get_symbols()
+        if symbol.is_assigned() or symbol.is_imported()
+    }
+    return referenced_globals(table), bound
 
 
 class ParameterContractTests(unittest.TestCase):
@@ -465,40 +450,14 @@ class HitlLaunchContractTests(unittest.TestCase):
 
 
 class NemoClawNotebookContractTests(unittest.TestCase):
-    def test_blank_tool_disclosure_clears_a_previous_notebook_run(self) -> None:
-        notebook = json.loads(
-            (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
-        )
-        settings = next(
-            "".join(cell.get("source", []))
-            for cell in notebook["cells"]
-            if "NEMOCLAW_TOOL_DISCLOSURE = SHELL_ENV.get" in "".join(
-                cell.get("source", [])
-            )
-        )
-        namespace = {
-            "_NOTEBOOK_SHELL_ENV": {},
-            "NVIDIA_API_KEY": "",
-            "NEMOCLAW_PROVIDER": "",
-            "NEMOCLAW_ENDPOINT_URL": "",
-            "NEMOCLAW_MODEL": "anthropic/claude-opus",
-            "COMPATIBLE_API_KEY": "",
-        }
-        with (
-            mock.patch.dict(
-                os.environ, {"NEMOCLAW_TOOL_DISCLOSURE": "direct"}, clear=True
-            ),
-            mock.patch("subprocess.check_output", return_value="test-token"),
-            redirect_stdout(io.StringIO()),
-        ):
-            exec(  # noqa: S102 - executes a checked-in notebook settings cell.
-                compile(settings, "deploy_nemoclaw.ipynb:settings", "exec"), namespace
-            )
-            self.assertNotIn("NEMOCLAW_TOOL_DISCLOSURE", os.environ)
-        self.assertEqual(namespace["NEMOCLAW_TOOL_DISCLOSURE"], "")
+    def _run_settings_cell(
+        self, shell_env: dict[str, str], environ: dict[str, str] | None = None
+    ) -> tuple[dict[str, object], dict[str, str]]:
+        """Execute the settings cell with *shell_env* standing in for the shell.
 
-    def _run_settings_cell(self, shell_env: dict[str, str]) -> dict[str, object]:
-        """Execute the settings cell with *shell_env* standing in for the shell."""
+        Returns the cell's namespace and the environment as the cell left it,
+        which is only observable while the patched environment is still up.
+        """
 
         notebook = json.loads(
             (SCRIPTS_DIR / "deploy_nemoclaw.ipynb").read_text(encoding="utf-8")
@@ -517,23 +476,30 @@ class NemoClawNotebookContractTests(unittest.TestCase):
             "COMPATIBLE_API_KEY": "",
         }
         with (
-            mock.patch.dict(os.environ, {}, clear=True),
+            mock.patch.dict(os.environ, environ or {}, clear=True),
             mock.patch("subprocess.check_output", return_value="test-token"),
             redirect_stdout(io.StringIO()),
         ):
             exec(  # noqa: S102 - executes a checked-in notebook settings cell.
                 compile(settings, "deploy_nemoclaw.ipynb:settings", "exec"), namespace
             )
-        return namespace
+            return namespace, dict(os.environ)
+
+    def test_blank_tool_disclosure_clears_a_previous_notebook_run(self) -> None:
+        namespace, environ = self._run_settings_cell(
+            {}, {"NEMOCLAW_TOOL_DISCLOSURE": "direct"}
+        )
+        self.assertNotIn("NEMOCLAW_TOOL_DISCLOSURE", environ)
+        self.assertEqual(namespace["NEMOCLAW_TOOL_DISCLOSURE"], "")
 
     def test_the_settings_cell_defaults_the_adapter_flag_off(self) -> None:
-        namespace = self._run_settings_cell({})
+        namespace, _ = self._run_settings_cell({})
         self.assertIs(namespace["VSS_AGENT_ADAPTER_ENABLED"], False)
 
     def test_the_shell_can_turn_the_adapter_flag_on(self) -> None:
         # The harness documentation tells operators to export this before running the
         # notebook, so the settings cell has to read it the way HITL_ENABLED does.
-        namespace = self._run_settings_cell({"VSS_AGENT_ADAPTER_ENABLED": "true"})
+        namespace, _ = self._run_settings_cell({"VSS_AGENT_ADAPTER_ENABLED": "true"})
         self.assertIs(namespace["VSS_AGENT_ADAPTER_ENABLED"], True)
 
     def test_a_non_boolean_adapter_flag_is_rejected(self) -> None:
@@ -554,7 +520,7 @@ class NemoClawNotebookContractTests(unittest.TestCase):
         for cell in notebook["cells"]:
             if cell.get("cell_type") != "code":
                 continue
-            read, bound = module_scope_names("".join(cell["source"]))
+            read, bound = notebook_names("".join(cell["source"]))
             if cell.get("id") != "s37-ui-code":
                 available |= bound
                 continue
