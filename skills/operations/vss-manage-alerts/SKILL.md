@@ -192,7 +192,7 @@ fi
 | **CV verification** | always-on operation | Refuse — always-on rides the realtime rule engine; canonical refusal text below |
 | **VLM real-time** | rule CRUD, or start/stop a realtime alert on a sensor (with **or without** a detection condition — no condition → default prompt), or stop/delete a named alert (by `alert_type`/condition or rule ID) | **Workflow D** — `references/alert-subscriptions.md` (incl. two-step stop/confirm) |
 | **CV verification** | subscription/rule CRUD or Slack/notification setup | Refuse — see canonical refusal text below |
-| **CV or VLM** | incident lookup / *what happened* (recent alerts, time-range, casual "any alerts today?"); on VLM real-time also *how many events / times* something happened **in a stated period** | **Workflow C (Query)** — works on both; **always run the query, never answer from memory**. A period-bounded *how many events* ask uses C's consolidated view (RT-VLM chunks only, so not for CV behaviour alerts); everything else stays raw |
+| **CV or VLM** | incident lookup / *what happened* (recent alerts, time-range, casual "any alerts today?"); on VLM real-time also *how many events / times* something happened **in a stated period** | **Workflow C (Query)** — works on both; **always run the query, never answer from memory**. A period-bounded *how many events* ask uses C's consolidated view (RT-VLM chunks only, so not for CV behaviour alerts): `GET /api/v1/realtime/incidents` with `consolidate=true`, `start_time` + `end_time`, and `sensor_id` (stored name) / `category` when the ask names them; report the response `total` as the events — never fold raw chunks by hand. Everything else stays raw |
 | **CV** | verification results / verdicts ("was it confirmed?", "show verification results"), *how does verification work*, verifier-prompt customization | **Workflow B (Verification)** — `references/verification.md`. **But** a verdict/result **follow-up to an on-demand verification just run** ("was it confirmed?", "what was the result?") → stay in **Workflow F**: poll `/realtime/incidents` by the `correlationId` (that result is incident-kind, not in `mdx-vlm-alerts-*`) |
 | **CV** | one-shot "verify **this** clip/image" with a media URL, or the literal "on-demand" | **Workflow F (On-demand)** — `references/on-demand-verification.md` |
 | **CV** | static CV alert onboarding | **Workflow A (CV)** — onboard RTSP via `vss-manage-video-io-storage`; VIOS webhook registers it with RT-CV |
@@ -209,7 +209,7 @@ fi
 3. **Workflow G (Always-on)** — the literal `always-on` (status, incidents, troubleshooting phrasings). Operate-not-author: status checks and queries only; never author or edit always-on rule config. A request to *create* an ordinary realtime rule is **not** G — that's D.
 4. **Workflow B (Verification results)** — verification/verdict keywords (`verdict`, `confirmed?`/`rejected?`, `verification results`, "how does verification work", verifier prompt/config) **without** a media artifact to verify and without a start/stop/rule intent. Reads the `mdx-vlm-alerts-*` store (interim ES probe) and the verifier config — never the rules list. Bare "any alerts today?" is **not** B — it stays Workflow C, and so does "confirmed" used as an adjective in an event count ("how many confirmed intrusion events in the last hour").
 5. **Workflow D (Alert rules)** — any realtime-alert request on a sensor: rule CRUD keywords (`rule`, `subscription`, rule ID), a sensor with a detection condition, a **bare start/stop with no condition** (→ default prompt), **or stopping/deleting a named alert by type/condition** ("stop the PPE alert", "delete the collision rule"). A named `alert_type`/condition = an existing **rule** → D's two-step stop protocol (`GET /api/v1/realtime` → yes/no confirm → delete). A *how many / what happened* question about a sensor is never D, even when it names a condition ("how many intrusion events on warehouse_sample…") — that is C.
-6. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D. A period-bounded **"how many events / times"** ask is also C — in its consolidated view on VLM real-time, raw on CV.
+6. **Workflow C (Query)** — incident lookup / *what happened* (`show/list incidents`, `recent alerts`, time-range queries, **and casual "any alerts…?" / "any alerts so far today?" / "what's been triggered?" phrasings**). Bare `alerts` (without `rule`/`subscription`/`active rules`) means **incidents** → Workflow C, never Workflow D. A period-bounded **"how many events / times"** ask is also C — in its consolidated view on VLM real-time (`consolidate=true` with `start_time` + `end_time`; the API folds the chunks, you do not), raw on CV.
 7. **Workflow A (CV)** — CV deployment handling for anything not matched above.
 
 > **`alerts` vs `alert rules` (C vs D) — pick exactly one, never both:**
@@ -422,13 +422,19 @@ Load `references/always-on.md` for the event contract, reason-code table, the `A
 
 ## Workflow C — Query Incidents (real-time incident store)
 
-Query past incidents **directly** from Alert Bridge — no `/generate`:
+Query past incidents **directly** from Alert Bridge — no `/generate`. Two views, one decision
+before the first call: a *how many events / times* ask **in a stated period** on VLM real-time
+→ block (c), `consolidate=true` with `start_time` + `end_time`, answer = the response `total`;
+every other ask → raw (a)/(b). The API does the folding — never merge raw chunks into events
+yourself.
 
 **The only parameter that scopes by sensor is `sensor_id`.** Any other spelling (e.g.
-`?sensor=`) is silently ignored by the API (`realtime_routes.py:577` declares `sensor_id`;
-FastAPI drops undeclared params), so `incident_service.py` builds no term clause and falls
-through to `match_all` — the request looks sensor-scoped but returns the **whole store's**
-total. Scope only with `--data-urlencode "sensor_id=..."`.
+`?sensor=`, camelCase `sensorId`) is silently ignored by the API (`realtime_routes.py:577`
+declares `sensor_id`; FastAPI drops undeclared params), so `incident_service.py` builds no term
+clause and falls through to `match_all` — the request looks sensor-scoped but returns the
+**whole store's** total. Scope only with `--data-urlencode "sensor_id=..."`. The same applies to
+the window: the declared names are `start_time` and `end_time` (ISO-8601 UTC); `since`, `until`,
+`from`/`to` are dropped, and the response then silently covers all time.
 
 **Every `curl` in this workflow is an assertion, not a fetch.** `curl -sf`'s exit status is
 swallowed by a `| jq` pipe, and `jq` exits `0` on empty input — so an unreachable Alert
