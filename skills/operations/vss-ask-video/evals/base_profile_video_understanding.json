@@ -57,7 +57,7 @@
     {
       "query": "Introspection is turned off on this deployment. Read the stored VSS job for the most recent warehouse_sample analysis.",
       "checks": [
-        "It reads the record with vss memory get --job-id for ordinary structured retrieval.",
+        "It retrieves the stored record through vss memory - get or query - for ordinary structured retrieval.",
         "It never calls vss memory introspect, never enables it, and never runs vss vlm run when the records are thin."
       ]
     },
@@ -90,10 +90,10 @@
       ]
     },
     {
-      "query": "Did a forklift enter the loading area on warehouse_sample last week?",
+      "query": "Was anyone smoking near the loading bay?",
       "checks": [
-        "It does not pass a window it derived from \"last week\" to any VSS command.",
-        "It does not run vss vlm run over an invented window."
+        "It asks which recorded sensor to read and for the exact UTC start and end bounds.",
+        "It does not run vss vlm run and does not invent a sensor or time range."
       ]
     },
     {
