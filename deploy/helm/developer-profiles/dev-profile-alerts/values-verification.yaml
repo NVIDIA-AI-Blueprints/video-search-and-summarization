@@ -84,8 +84,8 @@ rtvi:
     useSharedNim: false
     kafkaBootstrapServers: ""
     redisHost: ""
-    # Override only the launcher-mode deltas; the leaf chart retains all newer
-    # Compose defaults instead of this profile replacing the full env list.
+    # Override only the verification-mode deltas; the leaf chart retains its
+    # defaults instead of this profile replacing the full env list.
     envOverrides:
       VLM_MODEL_TO_USE: "cosmos-reason3"
       KAFKA_ENABLED: "false"

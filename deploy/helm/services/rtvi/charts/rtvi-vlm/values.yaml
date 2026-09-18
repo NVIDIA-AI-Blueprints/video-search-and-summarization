@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# vss-rtvi-vlm: Real-time VLM for alerts profile (2d_vlm). Compose: deploy/docker/services/rtvi/vss-rtvi-vlm/vss-rtvi-vlm-docker-compose.yml
+# vss-rtvi-vlm: Real-time VLM for the alerts profile (2d_vlm).
 enabled: false
 global: {}
 
@@ -80,7 +80,7 @@ service:
 # outlasts it.
 ingressTimeoutServer: ""
 
-# Compose: user 1001:1001, shm 16gb, GPU
+# Container identity, shared memory, and GPU defaults.
 securityContext:
   runAsUser: 1001
   runAsGroup: 1001
@@ -101,9 +101,12 @@ resources:
   requests:
     nvidia.com/gpu: 1
 
-# Env (Compose parity). Template injects KAFKA_BOOTSTRAP_SERVERS, REDIS_*, VIA_VLM_ENDPOINT/MODEL_PATH/VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME when useSharedNim.
-# Align with helm-work/docker-compose-out-alert-realtime.yaml vss-rtvi-vlm.service.environment
-# Edge (DGX-SPARK, IGX-THOR, AGX-THOR): set VLM_INPUT_WIDTH=860, VLM_INPUT_HEIGHT=467, VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=20 to match dev-profile.sh.
+# Environment defaults. The template injects KAFKA_BOOTSTRAP_SERVERS, REDIS_*,
+# VIA_VLM_ENDPOINT, MODEL_PATH, and VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME when
+# useSharedNim is enabled.
+# Edge (DGX-SPARK, IGX-THOR, AGX-THOR): set VLM_INPUT_WIDTH=860,
+# VLM_INPUT_HEIGHT=467, and
+# VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK=20.
 env:
   - name: OPENAI_API_KEY
     value: "NOAPIKEYSET"
@@ -218,7 +221,8 @@ env:
     value: ""
   - name: VLM_BATCH_SIZE
     value: ""
-  # For edge (DGX-SPARK, IGX-THOR, AGX-THOR): dev-profile.sh sets 860, 467, 20. Override when using edge hardware.
+  # For edge (DGX-SPARK, IGX-THOR, AGX-THOR), override the frame chunk,
+  # input width, and input height with 20, 860, and 467 respectively.
   - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
     value: "1"
   - name: VLM_INPUT_WIDTH
