@@ -1,0 +1,22 @@
+[
+  {
+    "id": "compare-caption-accuracy",
+    "question": "Compare baseline and candidate RT-VLM caption accuracy after my frame-selection change.",
+    "expected_skill": "vss-evaluate-caption-accuracy",
+    "ground_truth": "Run the paired caption-regression evaluation workflow.",
+    "expected_behavior": [
+      "Activates vss-evaluate-caption-accuracy.",
+      "Compares paired captions against ground truth and reports timing."
+    ]
+  },
+  {
+    "id": "deploy-dense-captioning",
+    "question": "Deploy dense captioning for a live RTSP stream.",
+    "expected_skill": null,
+    "ground_truth": "Route to dense-captioning deployment, not caption-regression evaluation.",
+    "expected_behavior": [
+      "Does not activate vss-evaluate-caption-accuracy.",
+      "Routes the request to vss-deploy-dense-captioning."
+    ]
+  }
+]

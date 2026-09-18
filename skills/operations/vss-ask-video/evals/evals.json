@@ -139,5 +139,15 @@
       "Uses uv run --project against libs/vss.",
       "Does not depend on a shell function or array from an earlier call."
     ]
+  },
+  {
+    "id": "archive-search-non-activation",
+    "question": "Search the video archive for every clip containing a red truck.",
+    "expected_skill": null,
+    "ground_truth": "This is an archive-wide retrieval request for vss-search-archive, not a question about one specified video.",
+    "expected_behavior": [
+      "Does not activate vss-ask-video for an archive search request.",
+      "Routes the request to vss-search-archive."
+    ]
   }
 ]

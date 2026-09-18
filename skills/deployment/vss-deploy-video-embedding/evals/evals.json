@@ -23,5 +23,17 @@
       "Identifies RT-Embed or Cosmos-Embed1 as the embedding microservice, not the full Elasticsearch search profile.",
       "Does not invoke vss-build-vision-ai for this standalone embedding request."
     ]
+  },
+  {
+    "id": "rtvi-embed-search-profile-non-activation",
+    "question": "Build the complete VSS search profile with archive ingestion and retrieval.",
+    "expected_skill": null,
+    "expected_script": null,
+    "should_trigger": false,
+    "ground_truth": "This is an integrated search-profile request for vss-build-vision-ai, not a standalone RT-Embed deployment request.",
+    "expected_behavior": [
+      "Does not activate vss-deploy-video-embedding for a complete search profile.",
+      "Routes the request to vss-build-vision-ai."
+    ]
   }
 ]
