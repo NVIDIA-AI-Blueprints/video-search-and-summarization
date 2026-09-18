@@ -199,7 +199,7 @@ kubectl port-forward -n vss-rtvi svc/vss-rtvi-vlm 8000:8000
 
 The API is available at `http://localhost:8000/docs`.
 
-Common service variables and chart values are listed in [Docker Compose and Helm Variables](#docker-compose-and-helm-variables).
+Common service variables and chart values are listed in the [RTVI-VLM configuration reference](../../../docs/real-time-vlm.mdx#docker-compose-and-helm-variables).
 
 ## Optional: Run RT-VLM on an NVIDIA MIG slice
 
