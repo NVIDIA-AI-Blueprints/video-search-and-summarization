@@ -57,7 +57,8 @@ gpuProfiles:
       NIM_KVCACHE_PERCENT: "0.3"
       NIM_GPU_MEM_FRACTION: "0.3"
       NIM_MAX_MODEL_LEN: "65536"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
+      MAX_JOBS: "4"
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
@@ -72,7 +73,8 @@ gpuProfiles:
       NIM_KVCACHE_PERCENT: "0.3"
       NIM_GPU_MEM_FRACTION: "0.3"
       NIM_MAX_MODEL_LEN: "65536"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
+      MAX_JOBS: "4"
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
@@ -113,18 +115,22 @@ gpuProfiles:
       NIM_KVCACHE_PERCENT: "0.3"
       NIM_GPU_MEM_FRACTION: "0.3"
       NIM_MAX_MODEL_LEN: "65536"
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
+      MAX_JOBS: "4"
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3:
       NIM_GPU_MEMORY_UTILIZATION: "0.9"
       NIM_DISABLE_MM_PREPROCESSOR_CACHE: "1"
       NIM_DELETE_LAST_FRAMES: "1"
 
-  # Generic fallback for GPUs outside the validated list. Model-specific parser
-  # arguments are retained, but no GPU memory tuning is imposed.
+  # Generic fallback; kept in lockstep with Docker's hw-OTHER.env.
   OTHER:
     nemotron35:
-      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --default-chat-template-kwargs {\"enable_thinking\":true}'
       NIM_MODEL_PROFILE: "2ef85c7286907e706eb0d6c4750a1aefa719447097d151ab34c7837fc02bdac4"
+      NIM_KVCACHE_PERCENT: "0.3"
+      NIM_GPU_MEM_FRACTION: "0.3"
+      NIM_MAX_MODEL_LEN: "65536"
+      MAX_JOBS: "4"
+      NIM_PASSTHROUGH_ARGS: '--reasoning-parser nemotron_v3 --enable-auto-tool-choice --tool-call-parser qwen3_coder --max-num-seqs 8 --default-chat-template-kwargs {\"enable_thinking\":true}'
     cosmos3: {}
 
 
@@ -153,6 +159,17 @@ nemotron35:
     pvc:
       storageClass: ""
       size: "100Gi"
+    sharedMemorySizeLimit: "16Gi"
+
+  # Imported from <nemotron35-fullname>-nim-env ConfigMap into
+  # NIMService.spec.env. Missing keys are ignored (optional: true).
+  envConfigMapKeys:
+    - NIM_PASSTHROUGH_ARGS
+    - NIM_MODEL_PROFILE
+    - NIM_KVCACHE_PERCENT
+    - NIM_GPU_MEM_FRACTION
+    - NIM_MAX_MODEL_LEN
+    - MAX_JOBS
 
   metrics:
     enabled: false
