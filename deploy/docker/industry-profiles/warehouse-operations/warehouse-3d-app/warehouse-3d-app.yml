@@ -81,16 +81,6 @@ services:
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import socket; s=socket.create_connection((\"127.0.0.1\", 5001), 3); s.close()"
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
 
   ds-configurator-3d:
     image: ${VSS_RT_CONFIG_ADAPTOR_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-rt-config-adaptor}:${VSS_RT_CONFIG_ADAPTOR_TAG:-${VSS_CONTAINER_TAG:-develop-latest}}
