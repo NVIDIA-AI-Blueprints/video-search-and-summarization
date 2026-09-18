@@ -97,6 +97,9 @@ never because the Foundation happened to ship it.
 When more than one requested capability maps to the same owner, converge on a
 single instance (one service key, one variant, one config), never two variants
 of one owner for the same role (for example, one detector feeding two pipelines).
+Where a shared singleton's behavior lives in a mounted config, that config
+converges too: decide it against the build's service set rather than inheriting
+a Foundation's by default (VIOS's `notification_config.json`, for one).
 If that owner's output feeds another service, align the consumer's config to the
 variant you selected, not to the one its Foundation shipped. Owner contracts
 state which owners are singletons, what output each fixes, and which consumer
@@ -159,8 +162,13 @@ _builds/<name>/
 ├── override.env
 ├── compose.yml
 ├── resolved.yml
-└── patches/               # optional; changed or new services only
+└── patches/         # optional; service definitions this build changes or adds,
+                     # and the payload files it mounts
 ```
+
+Nothing else sits beside the three primary files: every build-local payload
+lives in `patches/`, whether a `.yml` patch mounts it or an environment variable
+selects it (see the patch rules below).
 
 `<name>` is a filesystem label supplied by the user or a neutral description of
 the requested build. It is never a Compose profile. If the user supplies no
@@ -213,7 +221,7 @@ include:
 The ordered `path` list merges the patch into the included root model before
 including it in the build. Use Docker Compose 2.20.3 or newer.
 
-Create a file under `patches/` only when:
+Create a `.yml` patch under `patches/` only when:
 
 - a requested service does not exist in the root Compose graph; or
 - an existing service definition must change in a way Compose env interpolation
@@ -226,8 +234,7 @@ in `COMPOSE_PROFILES`, not a shortened or generic name. Do not copy unchanged
 services, volumes, networks, or profile files. Add multiple patch paths after
 the root file when multiple service definitions change.
 
-A build-local file a patch bind-mounts (e.g. a curated `haproxy.cfg`) lives in
-`patches/` beside its `.yml` and is referenced by an absolute
+A build-local payload is referenced by an absolute
 `${BUILD_DIR}/patches/<file>` source, with `BUILD_DIR` set to the build's
 absolute path in `override.env`. A relative `./` source would resolve against the
 root Compose file's directory (`deploy/docker/`), not the patch's — the ordered
@@ -235,6 +242,13 @@ root Compose file's directory (`deploy/docker/`), not the patch's — the ordere
 Docker would create a stray root-owned directory there at `up`. A checked-in repo
 file a patch mounts is likewise bound by its absolute repo path, never copied into
 the build.
+
+Most payloads sit beside the patch that mounts them — a curated `haproxy.cfg`
+next to `patches/vss-haproxy-ingress.yml`. Some are instead selected by an
+environment variable the root Compose file already interpolates into a mount and
+need no patch: a projected `notification_config.json` chosen by
+`VST_NOTIFICATION_CONFIG_PATH` ([`services/vios.md`](services/vios.md)). A
+payload with no `.yml` beside it is expected, not an error.
 
 `resolved.yml` is the fully interpolated output of `docker compose config`.
 Resolution filters the root graph through `COMPOSE_PROFILES`, so only the

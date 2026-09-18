@@ -30,7 +30,9 @@ an agent `/api` route**; on a build without one, they belong to
   storage-ms, or VST. Two paths are sanctioned, and the deployment picks which:
   the Agent upload/delete lifecycle where an agent `/api` route answers, and
   `vss-manage-video-io-storage` `references/provision-vios-source.md` where none
-  does. That recipe owns the direct calls this rule otherwise forbids.
+  does. That recipe owns VIOS registration and the hand-driven RT-VLM legs;
+  nothing sanctions a direct call to RTVI-CV or RTVI-Embed, which receive every
+  source from VIOS.
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
 - The CLI attempts critic verification by default. Do not separately inspect
