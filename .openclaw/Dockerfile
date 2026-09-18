@@ -51,7 +51,7 @@ ARG NGC_CLI_VERSION=4.10.0
 # `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise).
 # Override with --build-arg VSS_REF=<sha>; bump the default when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
+ARG VSS_REF=cde4cee694f2a4da5ca0e2cbb1579d59102b471d
 
 # ── VSS source checkout ────────────────────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
