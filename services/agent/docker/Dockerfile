@@ -28,9 +28,27 @@ RUN mkdir -p /src/services/agent && \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Set version for setuptools-scm
-ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_VSS_AGENT=0.1.1
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=0.1.0
+# Version for hatch-vcs/setuptools-scm. A value is mandatory: the COPY lines
+# below name individual paths and never .git, so there is no history to derive
+# one from and the install fails without it.
+#
+# What lands here is <release line>+tree.<source tree sha>: the release line
+# declared by deploy/helm/services/agent/Chart.yaml, and the git tree hash of
+# the image's source folder, composed by build-dev-images.yml. This is not
+# provenance metadata any more -- GET /api/v1/version reports the installed
+# nvidia-vss-core version, so this string is what a deployment tells the world
+# it is running, and it has to satisfy both PEP 440 and strict SemVer.
+#
+# The local segment must stay TREE-derived, never commit-derived:
+# build-dev-images.yml re-tags an already-published manifest onto a later
+# commit whose source tree is identical, so a commit-derived stamp would be
+# stale the moment that reuse happens, while a tree-derived one stays true.
+#
+# The default is for local `docker build` only. It keeps a `0.0.0` release so
+# it cannot be mistaken for a shipped build and cannot satisfy any skill's
+# version range, and says `local` rather than naming a tree it did not verify.
+ARG VSS_PACKAGE_VERSION=0.0.0+local
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${VSS_PACKAGE_VERSION}
 ENV GIT_LFS_SKIP_SMUDGE=1
 
 WORKDIR /src/services/agent
