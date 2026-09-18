@@ -974,6 +974,7 @@ class TestCaptionGeneration:
         req_info = RequestInfo()
         req_info.is_live = True
         req_info.status = RequestInfo.Status.PROCESSING
+        req_info._live_active_accounted = True
         req_info.assets = [asset]
         asset.lock()
 
@@ -982,10 +983,7 @@ class TestCaptionGeneration:
         rtvi_server._stream_handler.stop_request_profiling = MagicMock()
 
         rtvi_server._stream_handler._process_output(req_info, True, [])
-        rtvi_server._stream_handler._finish_stopped_live_caption_request(
-            req_info,
-            was_processing=True,
-        )
+        rtvi_server._stream_handler._finish_stopped_live_caption_request(req_info)
 
         active_counter.add.assert_called_once_with(-1)
         assert asset.use_count == 0
@@ -1051,6 +1049,7 @@ class TestCaptionGeneration:
         req_info = RequestInfo()
         req_info.is_live = True
         req_info.status = RequestInfo.Status.PROCESSING
+        req_info._live_active_accounted = True
         req_info.assets = [asset]
         req_info._request_metrics = object()
         asset.lock()
@@ -1058,10 +1057,7 @@ class TestCaptionGeneration:
             side_effect=RuntimeError("profiling export failed")
         )
 
-        rtvi_server._stream_handler._finish_stopped_live_caption_request(
-            req_info,
-            was_processing=True,
-        )
+        rtvi_server._stream_handler._finish_stopped_live_caption_request(req_info)
 
         assert asset.use_count == 0
         assert req_info.status == RequestInfo.Status.SUCCESSFUL
