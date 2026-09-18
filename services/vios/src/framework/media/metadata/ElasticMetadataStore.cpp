@@ -58,8 +58,10 @@ namespace
     // a rate-limited server never sees the full fan-out again. Once parallelism
     // is down to 1 the remaining attempts back off from
     // PREFETCH_RETRY_BASE_DELAY_MS, doubling each time; after
-    // PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS rejections at parallelism 1 the
-    // prefetch gives up on the slices still outstanding.
+    // PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS consecutive rejections at parallelism
+    // 1 the prefetch gives up on the slices still outstanding. A successful
+    // wave resets the count, so intermittent rejections never accumulate into
+    // a give-up.
     constexpr int PREFETCH_RETRY_REDUCE_PAUSE_MS     = 10;
     constexpr int PREFETCH_RETRY_BASE_DELAY_MS       = 200;
     constexpr int PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS = 3;
@@ -411,7 +413,7 @@ void ElasticMetadataStore::prefetchRange()
 
             std::vector<Json::Value> all;
             bool anyReachable = false;
-            int  serialRejects = 0;   // rejected waves at parallel == 1 (budget per prefetch)
+            int  serialRejects = 0;   // consecutive rejected waves at parallel == 1
             bool gaveUp = false;
 
             while (!todo.empty())
@@ -451,7 +453,14 @@ void ElasticMetadataStore::prefetchRange()
                     done[idx] = true;
                 }
 
-                if (!rejected.empty())
+                if (rejected.empty())
+                {
+                    // A clean wave means ES is accepting requests again; an
+                    // isolated rejection later should get a fresh retry budget
+                    // rather than inherit rejections from earlier in the clip.
+                    serialRejects = 0;
+                }
+                else
                 {
                     if (parallel > 1)
                     {
