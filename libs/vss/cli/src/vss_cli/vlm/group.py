@@ -198,6 +198,7 @@ class VlmInput(BaseModel):
     enable_reasoning: bool | None = Field(
         None,
         description="Enable or disable reasoning output from the VLM.",
+        json_schema_extra={params_mod.NEGATIVE_FLAG_KEY: "--disable-reasoning"},
     )
     chunk_duration: int | None = Field(
         None,

@@ -375,6 +375,37 @@ def test_cli_help_shows_required_flags() -> None:
     assert "--no-persist" in result.output
     assert "--use-base64" in result.output
     assert "--num-frames" in result.output
+    assert "--enable-reasoning" in result.output
+    assert "--disable-reasoning" in result.output
+    assert "--no-enable-reasoning" not in result.output
+
+
+def test_cli_disable_reasoning_sends_false(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+    result = CliRunner().invoke(
+        VLM.cli(),
+        [
+            "run",
+            "--prompt",
+            "What?",
+            "--media-url",
+            "http://h/clip.mp4",
+            "--disable-reasoning",
+            "--no-persist",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["json"]["enable_reasoning"] is False
 
 
 def test_cli_mutually_exclusive_sensor_url(
