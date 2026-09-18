@@ -676,6 +676,16 @@ def check_memory() -> None:
     help="Video chunk duration in seconds; 0 disables chunking.",
 )
 @click.option("--fps", type=click.FloatRange(min=0, min_open=True, max=256), help="Frames sampled per second.")
+@click.option(
+    "--shortest-edge",
+    type=click.IntRange(1, 2**31 - 1),
+    help="Minimum processor pixel budget passed as mm_processor_kwargs.size.shortest_edge.",
+)
+@click.option(
+    "--longest-edge",
+    type=click.IntRange(1, 2**31 - 1),
+    help="Maximum processor pixel budget passed as mm_processor_kwargs.size.longest_edge.",
+)
 @click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
 @click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
 def configure_vlm(
@@ -687,6 +697,8 @@ def configure_vlm(
     enable_reasoning: bool | None,
     chunk_duration: int | None,
     fps: float | None,
+    shortest_edge: int | None,
+    longest_edge: int | None,
     locked: bool | None,
     reset: bool,
 ) -> None:
@@ -698,7 +710,19 @@ def configure_vlm(
 
     supplied = any(
         value is not None
-        for value in (backend, timeout, temperature, max_tokens, seed, enable_reasoning, chunk_duration, fps, locked)
+        for value in (
+            backend,
+            timeout,
+            temperature,
+            max_tokens,
+            seed,
+            enable_reasoning,
+            chunk_duration,
+            fps,
+            shortest_edge,
+            longest_edge,
+            locked,
+        )
     )
     if reset:
         if supplied:
@@ -725,6 +749,8 @@ def configure_vlm(
             enable_reasoning=current.enable_reasoning if enable_reasoning is None else enable_reasoning,
             chunk_duration=current.chunk_duration if chunk_duration is None else chunk_duration,
             fps=current.fps if fps is None else fps,
+            shortest_edge=current.shortest_edge if shortest_edge is None else shortest_edge,
+            longest_edge=current.longest_edge if longest_edge is None else longest_edge,
             locked=current.locked if locked is None else locked,
         ).validate()
     except config_mod.ConfigError as exc:

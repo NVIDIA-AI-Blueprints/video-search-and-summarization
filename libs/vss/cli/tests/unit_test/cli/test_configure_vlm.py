@@ -44,6 +44,8 @@ def _locked_policy() -> config_mod.VlmConfig:
         enable_reasoning=False,
         chunk_duration=0,
         fps=4,
+        shortest_edge=262144,
+        longest_edge=16777216,
         locked=True,
     )
 
@@ -65,6 +67,10 @@ def test_configure_vlm_writes_complete_locked_policy(config_home: Path) -> None:
         "0",
         "--fps",
         "4",
+        "--shortest-edge",
+        "262144",
+        "--longest-edge",
+        "16777216",
         "--lock",
     )
     assert result.exit_code == 0, result.output
@@ -110,6 +116,8 @@ def test_configure_vlm_updates_only_supplied_values(config_home: Path) -> None:
         enable_reasoning=False,
         chunk_duration=0,
         fps=4,
+        shortest_edge=262144,
+        longest_edge=16777216,
         locked=False,
     )
 
@@ -161,3 +169,10 @@ def test_locked_policy_requires_at_least_one_value(config_home: Path) -> None:
     result = _invoke("--lock")
     assert result.exit_code != 0
     assert "must configure at least one" in result.output
+
+
+def test_configure_vlm_rejects_inverted_processor_size(config_home: Path) -> None:
+    result = _invoke("--shortest-edge", "16777216", "--longest-edge", "262144")
+
+    assert result.exit_code != 0
+    assert "shortest_edge must be no greater than longest_edge" in result.output

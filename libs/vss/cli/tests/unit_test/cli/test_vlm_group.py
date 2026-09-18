@@ -559,6 +559,8 @@ def test_run_request_carries_vlm_controls(
             enable_reasoning=False,
             chunk_duration=0,
             fps=4,
+            shortest_edge=262144,
+            longest_edge=16777216,
         ),
         ctx,
     )
@@ -571,6 +573,12 @@ def test_run_request_carries_vlm_controls(
     assert captured["json"]["chunk_duration"] == 0
     assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
     assert captured["json"]["use_fps_for_chunking"] is True
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        }
+    }
 
 
 def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -601,6 +609,8 @@ def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch
             enable_reasoning=False,
             chunk_duration=0,
             fps=4,
+            shortest_edge=262144,
+            longest_edge=16777216,
         ),
         ctx,
     )
@@ -613,6 +623,10 @@ def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch
     assert captured["json"]["mm_processor_kwargs"] == {
         "fps": 4,
         "do_sample_frames": True,
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        },
     }
     assert "enable_reasoning" not in captured["json"]
     assert "chunk_duration" not in captured["json"]
@@ -641,6 +655,8 @@ def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPa
             enable_reasoning=False,
             chunk_duration=0,
             fps=4,
+            shortest_edge=262144,
+            longest_edge=16777216,
             locked=True,
         )
     )
@@ -656,6 +672,12 @@ def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPa
     assert captured["json"]["chunk_duration"] == 0
     assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
     assert captured["json"]["use_fps_for_chunking"] is True
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        }
+    }
 
 
 def test_cli_run_uses_locked_policy_without_per_call_flags(
@@ -714,6 +736,23 @@ def test_locked_vlm_policy_rejects_conflicting_override() -> None:
         VlmGroup().run(
             "",
             VlmInput(prompt="What?", media_url="http://h/clip.mp4", temperature=0.5),
+            ctx,
+        )
+
+
+def test_locked_processor_size_policy_rejects_conflicting_override() -> None:
+    from vss_cli.group import Context
+    from vss_cli.group import InvalidInput
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(longest_edge=16777216, locked=True))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+
+    with pytest.raises(InvalidInput, match="--longest-edge is locked to 16777216"):
+        VlmGroup().run(
+            "",
+            VlmInput(prompt="What?", media_url="http://h/clip.mp4", longest_edge=8000000),
             ctx,
         )
 
@@ -921,6 +960,8 @@ def test_standalone_vllm_base64_uses_backend_translation(
             enable_reasoning=False,
             chunk_duration=0,
             fps=4,
+            shortest_edge=262144,
+            longest_edge=16777216,
         ),
         ctx,
     )
@@ -929,6 +970,10 @@ def test_standalone_vllm_base64_uses_backend_translation(
     assert captured["json"]["mm_processor_kwargs"] == {
         "fps": 4,
         "do_sample_frames": True,
+        "size": {
+            "shortest_edge": 262144,
+            "longest_edge": 16777216,
+        },
     }
     assert "enable_reasoning" not in captured["json"]
     assert "chunk_duration" not in captured["json"]

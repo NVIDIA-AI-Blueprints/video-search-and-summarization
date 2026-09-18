@@ -107,9 +107,7 @@ def _is_loopback_url(url: str) -> bool:
         host = urllib.parse.urlparse(url).hostname or ""
     except Exception:
         return False
-    return host in ("localhost", "127.0.0.1", "::1", "host.openshell.internal") or host.startswith(
-        "127."
-    )
+    return host in ("localhost", "127.0.0.1", "::1", "host.openshell.internal") or host.startswith("127.")
 
 
 def _vios_exit_for(exc: Exception) -> tuple[Exit, str]:
@@ -221,6 +219,18 @@ class VlmInput(BaseModel):
         le=256,
         description="Frames sampled per second across the clip. Mutually exclusive with --num-frames.",
     )
+    shortest_edge: int | None = Field(
+        None,
+        ge=1,
+        le=2**31 - 1,
+        description="Minimum processor pixel budget sent as mm_processor_kwargs.size.shortest_edge.",
+    )
+    longest_edge: int | None = Field(
+        None,
+        ge=1,
+        le=2**31 - 1,
+        description="Maximum processor pixel budget sent as mm_processor_kwargs.size.longest_edge.",
+    )
 
     @model_validator(mode="after")
     def _validate_media_source(self) -> VlmInput:
@@ -234,6 +244,8 @@ class VlmInput(BaseModel):
             raise ValueError("--start-time / --end-time require --sensor")
         if self.num_frames is not None and self.fps is not None:
             raise ValueError("--num-frames and --fps are mutually exclusive")
+        if self.shortest_edge is not None and self.longest_edge is not None and self.shortest_edge > self.longest_edge:
+            raise ValueError("--shortest-edge must be no greater than --longest-edge")
         return self
 
 
@@ -260,6 +272,8 @@ _VLM_POLICY_FIELDS = (
     "enable_reasoning",
     "chunk_duration",
     "fps",
+    "shortest_edge",
+    "longest_edge",
 )
 
 
@@ -368,6 +382,16 @@ def _base_request(
     return request
 
 
+def _processor_size(inputs: VlmInput) -> dict[str, int]:
+    """Return configured Qwen processor size controls in request-schema form."""
+    size: dict[str, int] = {}
+    if inputs.shortest_edge is not None:
+        size["shortest_edge"] = inputs.shortest_edge
+    if inputs.longest_edge is not None:
+        size["longest_edge"] = inputs.longest_edge
+    return size
+
+
 def _build_rt_vlm_request(
     *,
     prompt: str,
@@ -384,6 +408,9 @@ def _build_rt_vlm_request(
         request["enable_reasoning"] = inputs.enable_reasoning
     if inputs.chunk_duration is not None:
         request["chunk_duration"] = inputs.chunk_duration
+    size = _processor_size(inputs)
+    if size:
+        request["mm_processor_kwargs"] = {"size": size}
     return request
 
 
@@ -400,11 +427,19 @@ def _build_vllm_request(
         raise InvalidInput("positive --chunk-duration is not supported by the standalone vLLM backend")
     if inputs.enable_reasoning is not None:
         request["chat_template_kwargs"] = {"enable_thinking": inputs.enable_reasoning}
+    mm_processor_kwargs: dict[str, Any] = {}
     if inputs.fps is not None:
-        request["mm_processor_kwargs"] = {
-            "fps": inputs.fps,
-            "do_sample_frames": True,
-        }
+        mm_processor_kwargs.update(
+            {
+                "fps": inputs.fps,
+                "do_sample_frames": True,
+            }
+        )
+    size = _processor_size(inputs)
+    if size:
+        mm_processor_kwargs["size"] = size
+    if mm_processor_kwargs:
+        request["mm_processor_kwargs"] = mm_processor_kwargs
     return request
 
 
@@ -512,6 +547,9 @@ class VlmGroup(CommandGroup):
             model_params["enable_reasoning"] = inputs.enable_reasoning
         if inputs.chunk_duration is not None:
             model_params["chunk_duration"] = inputs.chunk_duration
+        size = _processor_size(inputs)
+        if size:
+            model_params["mm_processor_kwargs"] = {"size": size}
 
         # Initialise memory before media resolution so any failure path (including
         # the loopback clip-fetch timeout below) can write a terminal record. A

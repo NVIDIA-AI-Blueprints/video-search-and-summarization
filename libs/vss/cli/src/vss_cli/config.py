@@ -612,6 +612,8 @@ class VlmConfig:
     enable_reasoning: bool | None = None
     chunk_duration: int | None = None
     fps: float | None = None
+    shortest_edge: int | None = None
+    longest_edge: int | None = None
     locked: bool = False
 
     def validate(self) -> VlmConfig:
@@ -624,6 +626,8 @@ class VlmConfig:
             ("max_tokens", self.max_tokens, 1, 1_000_000),
             ("seed", self.seed, 1, 2**32 - 1),
             ("chunk_duration", self.chunk_duration, 0, 3600),
+            ("shortest_edge", self.shortest_edge, 1, 2**31 - 1),
+            ("longest_edge", self.longest_edge, 1, 2**31 - 1),
         ):
             if value is not None and (
                 isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high
@@ -641,6 +645,8 @@ class VlmConfig:
             raise ConfigError("VLM fps must be a number greater than 0 and no greater than 256")
         if self.enable_reasoning is not None and not isinstance(self.enable_reasoning, bool):
             raise ConfigError("VLM enable_reasoning must be true, false, or null")
+        if self.shortest_edge is not None and self.longest_edge is not None and self.shortest_edge > self.longest_edge:
+            raise ConfigError("VLM shortest_edge must be no greater than longest_edge")
         if not isinstance(self.locked, bool):
             raise ConfigError("VLM locked state must be true or false")
         if self.locked and not any(
@@ -653,6 +659,8 @@ class VlmConfig:
                 self.enable_reasoning,
                 self.chunk_duration,
                 self.fps,
+                self.shortest_edge,
+                self.longest_edge,
             )
         ):
             raise ConfigError("a locked VLM policy must configure at least one request value")
@@ -669,6 +677,8 @@ class VlmConfig:
             "enable_reasoning": self.enable_reasoning,
             "chunk_duration": self.chunk_duration,
             "fps": self.fps,
+            "shortest_edge": self.shortest_edge,
+            "longest_edge": self.longest_edge,
         }
         return {name: value for name, value in values.items() if value is not None} | {"locked": self.locked}
 
@@ -685,6 +695,8 @@ class VlmConfig:
             "enable_reasoning",
             "chunk_duration",
             "fps",
+            "shortest_edge",
+            "longest_edge",
             "locked",
         }
         unknown = sorted(set(raw) - expected)
