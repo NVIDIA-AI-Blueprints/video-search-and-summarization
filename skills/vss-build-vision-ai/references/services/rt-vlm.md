@@ -39,7 +39,7 @@ a mismatch makes consumers fail with `400 BadParameters: No such model`.
 | CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
 | CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
-| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_modelopt-bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-bf16-final` |
+| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final` |
 | CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
 | CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 
@@ -67,8 +67,8 @@ Notes on choosing a row:
   override the constraint anyway. Only proceed with Super after the user overrides
   it knowingly — never assume the request itself is the override, and never
   silently downgrade to Nano either.
-- Only the BF16 tag differs in shape between families (`bf16-final` for Nano,
-  `modelopt-bf16-final` for Super). Copy tags verbatim rather than deriving them.
+- The BF16 tag is `bf16-final` for both Nano and Super. Copy tags verbatim from
+  the table rather than deriving them.
 - `RTVI_VLM_MODEL_TO_USE=cosmos-reason3` for all six rows, and the served
   endpoint stays `http://rtvi-vlm:8000`; neither changes with the variant.
 
