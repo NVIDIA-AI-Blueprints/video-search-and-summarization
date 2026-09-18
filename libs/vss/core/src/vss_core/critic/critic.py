@@ -210,6 +210,57 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
         return CriticAgentResult.UNVERIFIED, {}
 
 
+class _TimelineCache:
+    """Per-run sensor -> replay-timeline cache.
+
+    Bounded to a single ``CriticAgent.run`` so a later search re-fetches a
+    recording whose replay range grew or moved after re-ingest (the cache is
+    not retained on the reusable ``CriticAgent`` instance). Within a run, one
+    lookup per sensor feeds every candidate on that sensor — and a failed
+    lookup is shared too: N hits on one bad sensor incur one VST request, not N,
+    and do not stall healthy sensors queued behind the verification semaphore.
+    A later run builds a fresh cache and retries.
+    """
+
+    def __init__(self, vst: VSTSnapshot) -> None:
+        self._vst = vst
+        self._values: dict[str, tuple[str, str]] = {}
+        self._errors: dict[str, Exception] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    async def get(self, sensor_id: str) -> tuple[str, str]:
+        """Return the (start_iso, end_iso) replay timeline for a sensor."""
+        cached = self._values.get(sensor_id)
+        if cached is not None:
+            return cached
+        err = self._errors.get(sensor_id)
+        if err is not None:
+            raise err
+        # A per-sensor lock keeps the first concurrent batch on a sensor from
+        # each refetching before the cache is warm.
+        lock = self._locks.setdefault(sensor_id, asyncio.Lock())
+        async with lock:
+            cached = self._values.get(sensor_id)
+            if cached is not None:
+                return cached
+            err = self._errors.get(sensor_id)
+            if err is not None:
+                raise err
+            # ``VSTClient.get_timeline`` takes a sensor_id and resolves the
+            # stream_id internally; it raises VSTError (a
+            # BackendUnreachableError) on a missing/short timeline. Cache the
+            # failure so concurrent same-sensor candidates share it instead of
+            # each retrying under the verification semaphore; a later run
+            # starts with an empty cache and retries.
+            try:
+                timeline = await self._vst.get_timeline(sensor_id)
+            except Exception as e:
+                self._errors[sensor_id] = e
+                raise
+            self._values[sensor_id] = timeline
+            return timeline
+
+
 class CriticAgent:
     """VLM-backed verification of search results."""
 
@@ -235,10 +286,18 @@ class CriticAgent:
         self._max_concurrent = max_concurrent_verifications
         self._time_format = time_format
         self._default_eval_count = num_videos_to_evaluate
+        # The per-sensor replay-timeline cache is run-scoped (see _TimelineCache):
+        # a fresh one is built per ``run`` so a reused critic re-fetches a
+        # recording whose replay range grew or moved after re-ingest, while still
+        # fetching each sensor at most once within a single run.
 
     async def run(self, inp: CriticAgentInput) -> CriticAgentOutput:
         """Verify each input video with the VLM; return per-video verdicts."""
         semaphore = asyncio.Semaphore(self._max_concurrent)
+        # Run-scoped: a fresh cache per run so a reused critic sees a grown or
+        # re-ingested recording's current replay range, while still fetching
+        # each sensor at most once (success or failure) within this run.
+        timeline_cache = _TimelineCache(self._vst)
 
         # Filter out entries without a sensor_id BEFORE applying the eval cap, so
         # the cap counts only genuinely verifiable videos. Slicing first would let
@@ -254,7 +313,7 @@ class CriticAgent:
         )
         candidates = verifiable[:video_count]
 
-        tasks = [self._evaluate_video(semaphore, v, inp.query) for v in candidates]
+        tasks = [self._evaluate_video(semaphore, timeline_cache, v, inp.query) for v in candidates]
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
         results: list[VideoResult] = []
         for index, (video, outcome) in enumerate(zip(candidates, outcomes, strict=True)):
@@ -284,28 +343,56 @@ class CriticAgent:
     async def _evaluate_video(
         self,
         semaphore: asyncio.Semaphore,
+        timeline_cache: _TimelineCache,
         video: VideoInfo,
         query: str,
     ) -> VideoResult:
         """Evaluate a single video against the user query via the VLM."""
-        async with semaphore:
-            formatted_prompt = self._prompt.format(user_prompt=query)
-            logger.debug(f"Formatted prompt: {formatted_prompt}")
+        formatted_prompt = self._prompt.format(user_prompt=query)
+        logger.debug(f"Formatted prompt: {formatted_prompt}")
 
-            try:
-                if self._time_format == "iso":
-                    # Emit the VSS-canonical 'Z'-suffixed ISO form (what the
-                    # rest of the system and the legacy critic used), not
-                    # datetime.isoformat()'s '+00:00' form, so a downstream
-                    # video-analysis tool doing exact-string handling matches.
+        try:
+            if self._time_format == "iso":
+                # Emit the VSS-canonical 'Z'-suffixed ISO form (what the
+                # rest of the system and the legacy critic used), not
+                # datetime.isoformat()'s '+00:00' form, so a downstream
+                # video-analysis tool doing exact-string handling matches.
+                start_iso = datetime_to_iso8601(video.start_timestamp)
+                end_iso = datetime_to_iso8601(video.end_timestamp)
+                if video.source_type == "video_file":
+                    # File hits are indexed on the synthetic midnight epoch
+                    # while VST records the file at ingestion wall-clock, so
+                    # the bounds must be rebased onto the real replay timeline
+                    # before the VLM fetches the clip.  This happens before
+                    # taking the VLM semaphore: same-sensor followers await the
+                    # shared cache outside that semaphore, so one slow VST
+                    # lookup cannot consume every verification slot.
+                    clip_start_iso, clip_end_iso = await timeline_cache.get(video.sensor_id)
+                    start_iso, end_iso = map_interval_to_timeline(
+                        start_iso,
+                        end_iso,
+                        clip_start_iso,
+                        clip_end_iso,
+                    )
+                    if _parse_iso(end_iso) <= _parse_iso(start_iso):
+                        raise BackendUnreachableError(
+                            "vst",
+                            f"rebased file interval is empty for sensor {video.sensor_id}",
+                        )
+                    # Live/rtsp bounds are real wall-clock and pass through
+                    # unchanged. An interval outside the recording is rejected by
+                    # VST at clip-URL time and fails open to `unverified` — the
+                    # honest answer.
+                async with semaphore:
                     vlm_response = await self._vlm.analyze(
                         sensor_id=video.sensor_id,
-                        start_timestamp=datetime_to_iso8601(video.start_timestamp),
-                        end_timestamp=datetime_to_iso8601(video.end_timestamp),
+                        start_timestamp=start_iso,
+                        end_timestamp=end_iso,
                         prompt=formatted_prompt,
                         time_format="iso",
                     )
-                else:
+            else:
+                async with semaphore:
                     # offset-time: convert ISO timestamps to seconds-since-stream-start
                     # using VST's timeline endpoint.
                     stream_id = await self._vst.resolve_stream_id(video.sensor_id)
@@ -359,18 +446,18 @@ class CriticAgent:
                         prompt=formatted_prompt,
                         time_format="offset",
                     )
-            except BackendUnreachableError as e:
-                logger.error(f"Error calling VLM analyzer: {e}")
-                return VideoResult(
-                    video_info=video,
-                    result=CriticAgentResult.UNVERIFIED,
-                    criteria_met={},
-                )
+        except BackendUnreachableError as e:
+            logger.error(f"Error calling VLM analyzer: {e}")
+            return VideoResult(
+                video_info=video,
+                result=CriticAgentResult.UNVERIFIED,
+                criteria_met={},
+            )
 
-            logger.info(f"VLM response for {video.sensor_id}: {vlm_response}")
-            verdict, criteria = _parse_criteria(vlm_response)
-            logger.debug(f"Video {video.sensor_id} verdict={verdict.value} criteria={criteria}")
-            return VideoResult(video_info=video, result=verdict, criteria_met=criteria)
+        logger.info(f"VLM response for {video.sensor_id}: {vlm_response}")
+        verdict, criteria = _parse_criteria(vlm_response)
+        logger.debug(f"Video {video.sensor_id} verdict={verdict.value} criteria={criteria}")
+        return VideoResult(video_info=video, result=verdict, criteria_met=criteria)
 
     async def aclose(self) -> None:
         return None

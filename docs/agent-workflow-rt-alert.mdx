@@ -359,6 +359,7 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
@@ -369,6 +370,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -383,6 +385,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -401,6 +404,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=GB300
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
@@ -417,6 +421,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=GB300
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
@@ -441,6 +446,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 ALERT_AGENT_ALWAYS_ON=true
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
@@ -451,6 +457,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -465,6 +472,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -484,6 +492,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO4500BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -502,6 +511,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -516,6 +526,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -535,6 +546,7 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=DGX-SPARK
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
 VSS_RT_CV_TAG=develop-latest-sbsa
@@ -560,6 +572,7 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=IGX-THOR
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
@@ -584,6 +597,7 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=AGX-THOR
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
@@ -611,6 +625,7 @@ for known limitations and configuration constraints.
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 ALERT_AGENT_ALWAYS_ON=true
 LLM_ENV_FILE=/path/to/llm.env
@@ -623,6 +638,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -639,6 +655,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none

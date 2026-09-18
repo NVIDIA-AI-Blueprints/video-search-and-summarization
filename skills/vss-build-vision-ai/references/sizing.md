@@ -147,29 +147,28 @@ dataset (`profiles/warehouse.md`), so the question is not "how many streams fit"
 but "does this hardware support the count this dataset requires".
 
 `blueprint_config.yml` is authoritative for that ceiling. `HARDWARE_PROFILE`
-selects the section; `MODE` selects the row:
+selects the section; `MODE` selects the row. For the supported deployment
+targets covered here:
 
 | `HARDWARE_PROFILE` | `2d` | `3d` |
 |---|---:|---:|
-| H100 | 77 | 19 |
+| H100 | 61 | 19 |
+| L40S | 28 | 9 |
+| GB300 | 161 | 71 |
 | RTXPRO6000BW | 52 | 21 |
 | RTXPRO6000BW-SE | 47 | 20 |
-| L40S | 29 | 10 |
-| RTXA6000ADA | 28 | 8 |
 | RTXPRO4500BW | 20 | 9 |
-| RTXA6000 | 15 | **4** |
-| L4 | 9 | **3** |
 | IGX-THOR | 9 | 8 |
 | DGX-SPARK | 7 | 7 |
 
 Check the dataset's stream count against the cell before deploying:
 
-- `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile.
+- `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile listed
+  above.
 - `warehouse-loading-dock-3cams-synthetic` (2D kafka/redis) — 3 streams. Fits
-  every profile.
-- `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. **Exceeds `L4` (3).**
-  Exactly saturates `RTXA6000` (4), which leaves no margin for a second workload
-  on that GPU.
+  every profile listed above.
+- `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. Fits every profile
+  listed above.
 
 `NUM_STREAMS` is an input and is never rewritten — the file-count prerequisite
 that would recompute it from the video directory is `enabled: false` in every

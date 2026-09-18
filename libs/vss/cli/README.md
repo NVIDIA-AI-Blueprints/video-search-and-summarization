@@ -30,7 +30,7 @@ cd libs/vss
 uv sync --frozen
 uv run --no-sync pytest core/tests/unit_test cli/tests/unit_test -q
 uv run --no-sync ruff check core cli
-uv run --no-sync mypy cli/src/vss_cli core/src/vss_core/vios
+uv run --no-sync mypy cli/src/vss_cli core/src/vss_core
 ```
 
 The `dev` group carries the test tooling and is included by default. Keep
@@ -79,6 +79,7 @@ rather than a typed-in value.
 |-------------|-------|---------|
 | `agent` | `/api` | URL only |
 | `vst` | `/vst` | URL only |
+| `video_analytics` | `/video-analytics-api` | URL only |
 | `elasticsearch` | `/elasticsearch` | URL + index names |
 | `rt_embed` | `/rtvi-embed` | URL + model ids |
 | `rtvi_cv` | `/rtvi-cv` | URL only (no introspection endpoint) |
@@ -119,12 +120,56 @@ Elasticsearch, embeddings, the text judge, and optional Markdown notes.
 | `vss summarize` | VLM summarization of stored video | `run`, `status`, `get`, `list` |
 | `vss vlm` | One VLM answer from a recorded sensor window | `run`, `status`, `get`, `list` |
 | `vss memory` | Unified-memory access, embeddings backfill, introspection | `upsert`, `get`, `query`, `events`, `introspect`, `embeddings backfill` |
+| `vss analytics` | Read-only incidents, analytics sensors/places, and metrics | `incidents`, `incident`, `sensors`, `places`, `fov-histogram`, `average-speed`, `analyze` |
 | `vss vios` | Media plane: sensors, timelines, clip and snapshot URLs | `list`, `timeline`, `clip`, `snapshot`, `add`, `delete` |
 | `vss configure` | Resolve a deployment and set static memory policy | `show`, `check`, `memory`, `memory show`, `memory check`, `memory introspection` |
 
 `search`, `summarize`, and `vlm` are **job groups**: every run mints a `job_id`, and the
-result stays retrievable by that id. `vios` is **not** — it resolves handles and
-mints URLs, so it has no job verbs. See [AGENTS.md](AGENTS.md#the-two-shapes).
+result stays retrievable by that id. `analytics` and `vios` are **not**:
+analytics performs direct read-only queries, while VIOS resolves handles and
+mints URLs. Neither has job verbs or writes memory. See
+[AGENTS.md](AGENTS.md#the-two-shapes).
+
+## Read video analytics
+
+Configure the deployment once, then query the Video Analytics API through its
+recorded ingress route:
+
+```bash
+vss configure --base-url <origin>
+vss configure check
+vss analytics incidents --limit 10
+vss analytics incident --incident-id <id>
+vss analytics sensors
+vss analytics places
+vss analytics fov-histogram \
+  --source <sensor-id> --source-type sensor \
+  --start-time <ISO-8601> --end-time <ISO-8601> --bucket-count 10
+vss analytics average-speed \
+  --source <sensor-id-or-place> --source-type sensor \
+  --start-time <ISO-8601> --end-time <ISO-8601>
+vss analytics analyze \
+  --source <sensor-id-or-place> --source-type sensor \
+  --start-time <ISO-8601> --end-time <ISO-8601> \
+  --analysis-type max-min-incidents
+```
+
+`vss analytics sensors` lists sensor IDs represented in analytics calibration
+data. `vss vios list` lists sensors registered in VIOS; they are intentionally
+separate inventories. Empty arrays and zero counts are successful results.
+
+### VA-MCP parity
+
+| VA-MCP tool | CLI command | Video Analytics API route | Parity gap |
+|---|---|---|---|
+| `get_incidents` | `analytics incidents` | `GET /incidents` | Requested includes are normalized client-side because the route returns complete records |
+| `get_incident` | `analytics incident` | `GET /incidents` with an exact ID query | Composed from the list route; a miss exits 5 |
+| `get_sensor_ids` | `analytics sensors` | `GET /config/calibration` | Returns analytics calibration sensors only; VIOS registration remains `vios list` |
+| `get_places` | `analytics places` | `GET /config/calibration` | Place hierarchy is normalized from calibration sensors |
+| `get_fov_histogram` | `analytics fov-histogram` | `GET /metrics/occupancy/fov/histogram` | Place input composes per-sensor histograms from calibration |
+| `get_average_speeds` | `analytics average-speed` | `GET /metrics/average-speed` | None |
+| `analyze` | `analytics analyze` | Composed from the routes above | Deterministic structured JSON replaces bare prose |
+| `vst_sensor_list` | `vios list` | Existing VIOS client | None |
 
 There is no per-request `--persist` flag and no `--memory-index` on job or
 memory commands. Persistence defaults come from static config; opt out of one

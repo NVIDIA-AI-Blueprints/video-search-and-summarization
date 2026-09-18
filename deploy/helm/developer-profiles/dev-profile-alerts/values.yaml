@@ -352,6 +352,9 @@ agent:
         value: '{{ .Values.vssAgentVersion | default "3.3.0-65576357eb80" }}'
     waitForDependencies:
       enabled: true
+  # Stock Alerts still ships vss-agent, whose config.yml routes incident
+  # listing/reporting through video_analytics_mcp. Keep this enabled with the
+  # agent; host-CLI/NemoClaw deltas disable both.
   vss-va-mcp:
     enabled: true
     vstIngressUrl: ""
