@@ -2621,6 +2621,7 @@ nvcr.io/nvidia/tritonserver,26.03-py3,UNKNOWN,services/rtvi/rt-embed,container,c
 nvcr.io/nvidia/tritonserver,26.03-py3@sha256:72d1d796b49a17e6432d4908c95969be0dded2f4d06469fa0824a71ecf0b895b,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/vllm,26.03-py3@sha256:13e327dad79e6e417f6687fec2ba76b0386d597082ec0ee003c1e964ec6ad0e7,UNKNOWN,services/rtvi/rt-vlm,container,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 nvcr.io/nvidia/vllm,26.07-py3,UNKNOWN,deploy,container,compose,deploy/docker/services/nim/nvidia-nemotron-nano-9b-v2-fp8/compose.yml,runtime,no,no,yes,container-image,Unknown
+nvdataset,UNKNOWN,UNKNOWN,skills/benchmarking,python,usage,skills/benchmarking/benchmark-video-search/scripts/flows/dataset.py,runtime,no,no,no,imported-only,Unknown
 NVIDIA-AI-Blueprints/video-search-and-summarization,UNKNOWN,UNKNOWN,.hermes,source,container,.hermes/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA-AI-Blueprints/video-search-and-summarization,UNKNOWN,UNKNOWN,.openclaw,source,container,.openclaw/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA-AI-IOT/deepstream_python_apps,UNKNOWN,Apache-2.0,services/rtvi/rt-embed,source,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,no,build-fetch,None
