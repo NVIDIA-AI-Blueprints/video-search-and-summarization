@@ -650,14 +650,14 @@ async def execute_core_search(
         )
         outcomes = await asyncio.gather(*provider_calls, return_exceptions=True)
         provider_results: dict[str, list[SearchResult]] = {}
-        failures: list[Exception] = []
+        failures: list[tuple[str, Exception]] = []
         malformed_documents = 0
         for provider, outcome in zip(provider_names, outcomes, strict=True):
             if isinstance(outcome, BaseException):
                 if not isinstance(outcome, Exception):
                     raise outcome
                 if isinstance(outcome, BackendUnreachableError):
-                    failures.append(outcome)
+                    failures.append((provider, outcome))
                     search_messages.append(f"{provider.capitalize()} provider degraded: {outcome}")
                     continue
                 raise outcome
@@ -669,7 +669,7 @@ async def execute_core_search(
 
         if not provider_results:
             if failures:
-                raise failures[0]
+                raise failures[0][1]
             raise BackendUnreachableError("search", "all fusion providers failed")
         if malformed_documents:
             search_messages.append(
@@ -683,10 +683,20 @@ async def execute_core_search(
         # does not catch the per-request case where the only positive-weight leg
         # (typically attribute) is not active for this request. Surface it as an
         # input error (exit 2) rather than a misleading "no matches".
+        weights = {"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute}
         if config.fusion_method == "weighted_rrf" and not any(
-            {"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute}.get(provider, 0.0) > 0
-            for provider in provider_results
+            weights.get(provider, 0.0) > 0 for provider in provider_results
         ):
+            # A configured positive-weight provider may have disappeared from
+            # provider_results because its backend failed. That is a backend
+            # outage, not an invalid set of weights. Preserve the typed failure
+            # so the CLI exits 3 and tells the caller what is actually down.
+            failed_positive_provider = next(
+                (error for provider, error in failures if weights.get(provider, 0.0) > 0),
+                None,
+            )
+            if failed_positive_provider is not None:
+                raise failed_positive_provider
             raise InvalidInputError(
                 "fusion has no positively-weighted active provider for this request "
                 "(w_tag, w_embed, w_attribute are all <= 0 for the active legs); "
