@@ -270,6 +270,19 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
 
 
 class OpenShellCountOnlyGpuGate(unittest.TestCase):
+    def test_remote_placement_keys_are_forwarded_on_guest(self):
+        env = {
+            "SKILL_EVAL_LOCAL_GPU_INSTANCE": "openshell-guest",
+            "EVAL_SKILL": "vss-deploy-test-openshell",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            forwarded = brev_env._eval_env_forward_keys()
+
+        self.assertIn("LLM_REMOTE_URL", forwarded)
+        self.assertIn("LLM_REMOTE_MODEL", forwarded)
+        self.assertIn("VLM_REMOTE_URL", forwarded)
+        self.assertIn("VLM_REMOTE_MODEL", forwarded)
+
     def test_sku_mismatch_is_ignored_when_count_is_met(self):
         async def fake_exec(command, timeout=30):
             if "nvidia-smi -L" in command:

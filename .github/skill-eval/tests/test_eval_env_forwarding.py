@@ -88,3 +88,16 @@ def test_prebake_flag_is_wired_end_to_end():
     """The specific knob this test file was added for, asserted both sides."""
     assert "VSS_VIOS_PREBAKE_PACKAGES" in _workflow_env_keys()
     assert "VSS_VIOS_PREBAKE_PACKAGES" in _forwarded_keys()
+
+
+def test_openshell_workflow_preserves_remote_placement():
+    """OpenShell guests have egress to the same remote endpoints as Brev."""
+    workflow = WORKFLOW.read_text()
+    for key in (
+        "LLM_REMOTE_URL",
+        "LLM_REMOTE_MODEL",
+        "VLM_REMOTE_URL",
+        "VLM_REMOTE_MODEL",
+    ):
+        assert f'printf "{key}=\\n"' not in workflow
+        assert not re.search(rf"\bunset\b[^\n]*\b{key}\b", workflow)
