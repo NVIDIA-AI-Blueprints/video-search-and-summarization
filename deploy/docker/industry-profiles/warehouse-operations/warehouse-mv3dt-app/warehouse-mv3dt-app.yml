@@ -35,7 +35,6 @@ services:
         condition: service_completed_successfully
       bp-configurator-mv3dt:
         condition: service_healthy
-        required: false
 
   vss-behavior-analytics-playback-mv3dt:
     extends:
@@ -107,7 +106,6 @@ services:
     depends_on:
       bp-configurator-mv3dt:
         condition: service_healthy
-        required: false
 
   # One-shot: populates $VSS_DATA_DIR/models/reid with the SigLIP secondary
   # embedding model (NGC) and the CLIP-ReID tracker ONNX.
@@ -321,7 +319,6 @@ services:
     depends_on:
       bp-configurator-mv3dt:
         condition: service_healthy
-        required: false
       sensor-ms-mv3dt:
         condition: service_started
       broker-health-check:

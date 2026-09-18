@@ -36,7 +36,6 @@ services:
         condition: service_completed_successfully
       bp-configurator-3d:
         condition: service_healthy
-        required: false
 
   vss-behavior-analytics-playback-3d:
     extends:
@@ -201,7 +200,6 @@ services:
     depends_on:
       bp-configurator-3d:
         condition: service_healthy
-        required: false
 
 volumes:
   vss-behavior-analytics-3d:
