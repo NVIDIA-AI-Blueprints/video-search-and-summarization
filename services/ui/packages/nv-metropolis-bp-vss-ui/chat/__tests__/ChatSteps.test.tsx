@@ -50,6 +50,57 @@ describe('ChatSteps spinner', () => {
   });
 });
 
+describe('ChatSteps running step', () => {
+  /** Expanded, so a nested spinner is actually rendered. */
+  const openTree = (steps: ChatStep[]) =>
+    render(<ChatSteps steps={steps} streaming expandByDefault />);
+
+  it('stops a parent spinning once every child has settled', () => {
+    openTree([
+      step('search', 'in_progress'),
+      { ...step('fetch-clip', 'complete'), parentId: 'search' },
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: /search/ }));
+    expect(screen.getByText('fetch-clip')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'search running' })).not.toBeInTheDocument();
+  });
+
+  it('spins the parent and its newest child while that child works', () => {
+    openTree([
+      step('search', 'in_progress'),
+      { ...step('fetch-clip', 'in_progress'), parentId: 'search' },
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: /search/ }));
+    expect(screen.getByRole('status', { name: 'search running' })).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'fetch-clip running' })).toBeInTheDocument();
+  });
+
+  it('stops a step the agent moved past, even if it never settled', () => {
+    // `Reasoning` is emitted in_progress on every delta and never completed.
+    openTree([step('Reasoning', 'in_progress'), step('vss-search-archive', 'in_progress')]);
+
+    expect(screen.queryByRole('status', { name: 'Reasoning running' })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('status', { name: 'vss-search-archive running' }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not spin a nested step under a superseded parent', () => {
+    openTree([
+      step('search', 'in_progress'),
+      { ...step('fetch-clip', 'in_progress'), parentId: 'search' },
+      step('summarize', 'in_progress'),
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: /search/ }));
+    expect(screen.getByText('fetch-clip')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'fetch-clip running' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'summarize running' })).toBeInTheDocument();
+  });
+});
+
 describe('ChatSteps default expansion', () => {
   const nestedSteps: ChatStep[] = [
     step('search', 'in_progress', { payload: '{"query":"forklift"}' }),

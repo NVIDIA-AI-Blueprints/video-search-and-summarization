@@ -29,11 +29,34 @@ const Spinner: React.FC<{ size: number; label: string }> = ({ size, label }) => 
   />
 );
 
-const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean; streaming: boolean }> = ({
-  step,
-  defaultOpen,
-  streaming,
-}) => {
+/**
+ * Whether a step is the one the agent is working on right now.
+ *
+ * Status alone does not answer this. Backends settle a step by sending a
+ * closing frame for its id, and several never do — the agent API's
+ * `Reasoning` step, for instance, is emitted `in_progress` on every delta and
+ * gets no completion of its own. Spinning on status alone leaves those
+ * animating for the rest of the turn, long after work moved on.
+ *
+ * So take the stream's trailing edge as the answer, the way the pre-#2001 UI
+ * did with `isLast = isLastInArray && isParentLast`: a step is running while
+ * it is the newest among its siblings and nothing below it has finished the
+ * subtree off. A step with a younger sibling has been superseded, and a step
+ * whose children have all settled is no longer waiting on them.
+ */
+function isStepRunning(step: ChatStep, isLastSibling: boolean): boolean {
+  if (!isLastSibling || step.status !== 'in_progress') return false;
+  const children = step.children ?? [];
+  if (!children.length) return true;
+  return children.some((child, i) => isStepRunning(child, i === children.length - 1));
+}
+
+const StepNode: React.FC<{
+  step: ChatStep;
+  defaultOpen: boolean;
+  /** False once an ancestor is no longer on the trailing edge. */
+  running: boolean;
+}> = ({ step, defaultOpen, running }) => {
   const [manual, setManual] = useState<boolean | null>(null);
   const hasDetail = !!step.payload || !!step.children?.length;
   const open = manual ?? defaultOpen;
@@ -55,9 +78,7 @@ const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean; streaming: bool
         ) : (
           <span className="pl-[18px] text-sm text-gray-700 dark:text-gray-300">{step.name}</span>
         )}
-        {/* Tied to the turn, not just the status: a cancelled step keeps its
-            `in_progress` status if the stream died before settling it. */}
-        {streaming && step.status === 'in_progress' ? (
+        {running ? (
           <span className="ml-auto mt-[3px] flex-shrink-0">
             <Spinner size={16} label={`${step.name} running`} />
           </span>
@@ -73,12 +94,12 @@ const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean; streaming: bool
           ) : null}
           {step.children?.length ? (
             <ul className="flex flex-col gap-1">
-              {step.children.map((child) => (
+              {step.children.map((child, i) => (
                 <StepNode
                   key={child.id}
                   step={child}
                   defaultOpen={defaultOpen}
-                  streaming={streaming}
+                  running={running && isStepRunning(child, i === step.children!.length - 1)}
                 />
               ))}
             </ul>
@@ -129,8 +150,15 @@ export const ChatSteps: React.FC<ChatStepsProps> = ({ steps, streaming, expandBy
       </button>
       {open && (
         <ul className="mt-2 flex flex-col gap-1">
-          {tree.map((step) => (
-            <StepNode key={step.id} step={step} defaultOpen={false} streaming={!!streaming} />
+          {tree.map((step, i) => (
+            <StepNode
+              key={step.id}
+              step={step}
+              defaultOpen={false}
+              // A step only runs while the turn does: a cancelled stream
+              // leaves its last step `in_progress` for good.
+              running={!!streaming && isStepRunning(step, i === tree.length - 1)}
+            />
           ))}
         </ul>
       )}
