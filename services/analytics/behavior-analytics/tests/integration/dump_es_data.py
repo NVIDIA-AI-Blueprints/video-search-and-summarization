@@ -25,6 +25,49 @@ import urllib.error
 import urllib.request
 
 
+interval_based_indices = frozenset({
+    "mdx-behavior*",
+    "mdx-incidents*",
+    "mdx-vlm-incidents*",
+    "mdx-events*",
+})
+
+
+def is_interval_index(index):
+    """Return whether an index stores records with start and end timestamps."""
+    return index in interval_based_indices
+
+
+def build_search_body(index, from_timestamp=None, to_timestamp=None, size=1000):
+    """Build the time filter and descending sort appropriate for an index."""
+    interval_index = is_interval_index(index)
+    sort_field = "end" if interval_index else "timestamp"
+    body = {"size": size, "sort": [{sort_field: {"order": "desc"}}]}
+
+    if from_timestamp is None:
+        body["query"] = {"match_all": {}}
+    elif interval_index:
+        body["query"] = {
+            "bool": {
+                "must": [
+                    {"range": {"timestamp": {"lte": to_timestamp}}},
+                    {"range": {"end": {"gte": from_timestamp}}},
+                ]
+            }
+        }
+    else:
+        body["query"] = {
+            "range": {
+                "timestamp": {
+                    "gte": from_timestamp,
+                    "lte": to_timestamp,
+                }
+            }
+        }
+
+    return body
+
+
 def main():
     parser = argparse.ArgumentParser(description="Dump ES index data to NDJSON")
     parser.add_argument("--url", default="http://localhost:9200", help="Elasticsearch URL")
@@ -32,10 +75,14 @@ def main():
     parser.add_argument("--output", required=True, help="Output file path")
     parser.add_argument("--limit", type=int, default=None, help="Max documents to dump (default: all)")
     parser.add_argument("--scroll", default="10m", help="Scroll timeout")
+    parser.add_argument("--from-timestamp", help="Inclusive beginning of the dump window")
+    parser.add_argument("--to-timestamp", help="Inclusive end of the dump window")
     args = parser.parse_args()
 
     if args.limit is not None and args.limit <= 0:
         parser.error("--limit must be a positive integer")
+    if (args.from_timestamp is None) != (args.to_timestamp is None):
+        parser.error("--from-timestamp and --to-timestamp must be provided together")
 
     base = args.url.rstrip("/")
     index_url = f"{base}/{args.index}/_search"
@@ -61,7 +108,7 @@ def main():
     try:
         with open(args.output, "w") as out:
             # Initial search
-            body = {"size": 1000, "sort": ["_doc"]}
+            body = build_search_body(args.index, args.from_timestamp, args.to_timestamp)
             req = urllib.request.Request(
                 f"{index_url}?scroll={args.scroll}",
                 data=json.dumps(body).encode(),
