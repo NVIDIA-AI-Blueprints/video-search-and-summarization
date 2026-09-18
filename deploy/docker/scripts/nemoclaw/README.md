@@ -53,8 +53,9 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 #    NEMOCLAW_PROVIDER=build|custom, NEMOCLAW_MODEL, NEMOCLAW_ENDPOINT_URL, COMPATIBLE_API_KEY / NVIDIA_API_KEY
 # CHAT_UI_URL bakes gateway.controlUi.allowedOrigins (gateway.* cannot be
 # edited afterwards) — set it to the dashboard origin before onboarding.
-# <brev-link-domain>: apps.run.brev.nvidia.com on Skybridge instances,
-# brevlab.com on legacy ones (see orchestrator_mcp_helper.detect_brev_link_domain).
+# On Brev, read that origin from the environment context file instead of
+# assembling it: the secure-link domain varies per instance (gobrev.dev,
+# brevlab.com, ...), and a wrong one is baked in for the sandbox's lifetime.
 # The sandbox image is built from the repo's own harness Dockerfile (NemoClaw's
 # custom-image workflow, `--from`; the Dockerfile's directory is the build
 # context). .openclaw extends NemoClaw's managed OpenClaw runtime
@@ -62,7 +63,9 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 # the workspace docs); .hermes extends the managed Hermes runtime
 # with the same skills, docs and CLI. Nothing is installed into the sandbox
 # afterwards except the policy and, for Kubernetes, a rendered ENV.md.
-CHAT_UI_URL="https://18789-${BREV_ENV_ID}.<brev-link-domain>" \
+BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
+# /etc/brev is 0700 root:root, hence the sudo read.
+CHAT_UI_URL="https://$(sudo -n cat "$BREV_CTX" | jq -er '[.ports[]?|select(.destination_port==18789)|.fqdn][0]')" \
   nemoclaw onboard --non-interactive --agent "$RUNTIME" --name "$SB" \
     --from "$REPO/.$RUNTIME/Dockerfile"
 
