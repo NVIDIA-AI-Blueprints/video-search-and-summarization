@@ -189,6 +189,8 @@ services:
         soft: 65535
         hard: 65535
 
+    # Keep vLLM's POSIX SHM cache in this container's IPC namespace.
+    ipc: private
     stdin_open: true
     tty: true
 
