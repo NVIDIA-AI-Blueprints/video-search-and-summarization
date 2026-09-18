@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import statistics
 import sys
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -287,7 +287,7 @@ def sidecar_decompositions_for(data_dir: Path, dataset: str) -> Path | None:
         return None
     try:
         payload = json.loads(path.read_text())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     return path if isinstance(payload.get("expected_decomposition"), dict) else None
 

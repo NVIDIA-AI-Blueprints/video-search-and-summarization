@@ -59,17 +59,16 @@ from __future__ import annotations
 
 import argparse
 import collections
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import as_completed
 import contextlib
-from datetime import datetime
 import json
 import os
-from pathlib import Path
 import statistics
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -86,7 +85,7 @@ RESULTS_DIR = SCRIPT_DIR / "cli_eval_result"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import flows  # noqa: E402  (imported after SCRIPT_DIR joins sys.path, above)
+import flows
 
 # =============================================================================
 # Backend construction
@@ -225,7 +224,7 @@ def clear_all_videos(agent_endpoint: str, vst_url: str) -> dict[str, Any]:
             resp.raise_for_status()
             deleted += 1
             print(f"    deleted {name} -> {resp.status_code}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             failed.append(name)
             print(f"    FAILED {name}: {e}")
 
@@ -316,7 +315,7 @@ def probe_index_coverage(
                 match = next((n for n in names if n.lower() in variants), None)
                 if match:
                     registered[source] = match
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"  (could not resolve VST source names, per-source probing off: {e})")
 
     broad = _probe_backend(query_backend, min(1000, max(50, top_k_per_source * len(expected_sources))))
@@ -344,7 +343,7 @@ def probe_index_coverage(
                 if not scoped_hits:
                     confirmed_missing.append(source)
             missing = confirmed_missing
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # An environment fault is worth reporting as itself rather than as
             # an empty index -- exit 4 means misconfigured, not unindexed.
             return {
@@ -475,7 +474,7 @@ def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> 
             resp.raise_for_status()
             deleted += 1
             print(f"    deleted {name} -> {resp.status_code}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             failed.append(name)
             print(f"    FAILED {name}: {e}")
 
@@ -516,7 +515,7 @@ def ingest_videos(
             video_files = keep
             if skipped:
                 print(f"  Already registered, skipping ingest: {skipped}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"  WARNING: could not read VST sensor list ({type(e).__name__}: {e}); ingesting all")
 
     if not video_files:
@@ -717,7 +716,7 @@ def run_evaluation(
                 qi = futures[future]
                 unanswered.append({"index": qi, "query": queries[qi], "reason": str(exc)[:300]})
                 print(f"  Query {qi} unanswerable: {exc}", file=sys.stderr)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 # Same rule for anything else that stopped this query from
                 # producing a result: scoring is only valid for queries the
                 # backend actually answered.
@@ -793,7 +792,7 @@ def run_evaluation(
         # Beside the script rather than relative to the caller's cwd: the old
         # default wrote to "eval/results/..." resolved from wherever you happened
         # to be, so the same command scattered results across directories.
-        name = run_name or f"{dataset}_{subset or 'default'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        name = run_name or f"{dataset}_{subset or 'default'}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
         output_file = str(RESULTS_DIR / f"{name}.json")
     out_path = Path(output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1045,7 +1044,7 @@ def _summarize(
     if upload_stats and upload_stats.get("total_uploads"):
         summary["upload"] = upload_stats
 
-    summary["timestamp"] = datetime.now().isoformat()
+    summary["timestamp"] = datetime.now(UTC).isoformat()
     return summary
 
 
@@ -1203,7 +1202,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     cli.add_argument(
         "--vss-repo-root",
         help=(
-            "Checkout containing services/agent/packages/vss_cli. Optional -- "
+            "Checkout containing libs/vss/cli. Optional -- "
             "falls back to the vendored submodule, then `vss` on PATH."
         ),
     )
