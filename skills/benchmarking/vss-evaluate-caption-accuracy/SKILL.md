@@ -4,6 +4,11 @@ description: Measure whether an RT-VLM configuration change altered caption qual
 license: Apache-2.0
 metadata:
   version: "3.2.0"
+  # Deployment versions this skill supports. Wide because it talks to RT-VLM
+  # over its OpenAI-compatible surface only (/v1/chat/completions, /v1/files,
+  # /v1/generate, /v1/health/ready) and uses no `vss` CLI command, so nothing it
+  # depends on changed between 3.2 and 3.3; upper bound excludes a major.
+  requires-vss: ">=3.2.0,<4.0.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint rt-vlm captions accuracy evaluation frame-selection"
@@ -32,6 +37,7 @@ needs a GPU, the model on disk, and the `nvdsframeselector` DeepStream plugin
 | Source videos | A directory of `.mp4` files. Point `DEDUP_DIR` at it |
 | `OPENAI_API_KEY` | In the deployment `.env`. Only needed for the `gt` stage (ground truth is gpt-4.1) |
 | `claude` CLI on the **host** | The judge shells out to it. It is **not** installed in the container |
+| Deployment inside `requires-vss` | `>=3.2.0,<4.0.0`, from this skill's front matter. **Not enforced automatically** — this skill has no `preflight.sh`, and it drives RT-VLM's OpenAI-compatible HTTP surface directly rather than a VSS deployment origin, so there is no origin here to check. Verify by hand if a deployment's version is in doubt: `python3 <repo>/services/agent/scripts/check_vss_version.py <deployment-origin> --skill <this SKILL.md>` (0 = compatible, 3 = incompatible, 1 = indeterminate) |
 
 ### Video paths and the scene map
 
