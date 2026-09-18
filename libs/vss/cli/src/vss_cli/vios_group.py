@@ -148,11 +148,7 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
     if rebase_from is not None and (values.get("start_time") is not None or values.get("end_time") is not None):
         raise InvalidInput("--rebase-from/--rebase-from-end are mutually exclusive with --start-time/--end-time")
     if rebase_from is not None:
-        if not segments:
-            raise InvalidInput("cannot rebase: no recorded timeline for this sensor")
-        timeline_start = segments[0][0]
-        timeline_end = segments[-1][1]
-        start, end = vios.map_interval_to_timeline(rebase_from, rebase_from_end, timeline_start, timeline_end)
+        start, end = vios.rebase_interval_to_segments(rebase_from, rebase_from_end, segments)
     else:
         start, end = vios.resolve_window(segments, values.get("start_time"), values.get("end_time"), ref.kind)
     url = _run(
@@ -306,31 +302,48 @@ def _readiness(ctx: Any, values: dict[str, Any]) -> Result:
         raise InvalidInput("elasticsearch is not configured; run `vss configure --base-url <origin>`")
     indices = list(es.indices or [])
 
-    # The fixed epoch anchors uploads land in; for a live stream, embed readiness
-    # uses the family wildcard (wall-clock docs land in any date shard). Read these from the
-    # recorded inventory, not a guess.
+    # Uploaded files land in fixed epoch anchors. Live streams use wall-clock
+    # shards, so all three readiness checks must query their index families.
     def _pick(prefix: str) -> str | None:
         return next((i for i in indices if i == prefix), None)
 
     embed_anchor = _pick("mdx-embed-filtered-2025-01-01")
-    behavior_index = _pick("mdx-behavior-2025-01-01")
-    raw_index = _pick("mdx-raw-2025-01-01")
+    behavior_anchor = _pick("mdx-behavior-2025-01-01")
+    raw_anchor = _pick("mdx-raw-2025-01-01")
     source_type = values.get("type") or ref.kind
-    embed_target = "mdx-embed-filtered-*" if source_type == "rtsp" else embed_anchor
-    if embed_target is None:
-        raise InvalidInput(
-            f"embed index not found in the recorded inventory; re-run `vss configure --base-url {origin}`"
+    if source_type != ref.kind:
+        raise InvalidInput(f"{ref.name!r} is a {ref.kind}, not a {source_type}")
+    if source_type == "stream":
+        embed_target = "mdx-embed-filtered-*"
+        behavior_target = "mdx-behavior-*"
+        raw_target = "mdx-raw-*"
+    else:
+        embed_target = embed_anchor
+        behavior_target = behavior_anchor
+        raw_target = raw_anchor
+    missing = [
+        name
+        for name, target in (
+            ("embed", embed_target),
+            ("behavior", behavior_target),
+            ("raw", raw_target),
         )
+        if target is None
+    ]
+    if missing:
+        raise InvalidInput(
+            f"{', '.join(missing)} index anchor(s) not found in the recorded inventory; "
+            f"re-run `vss configure --base-url {origin}`"
+        )
+    assert embed_target and behavior_target and raw_target
     timeout_s = float(values["timeout"]) if values.get("timeout") else None
     deadline = (time.monotonic() + timeout_s) if timeout_s is not None else None
     counts: dict[str, int] = {}
     while True:
         counts = {
-            "embed": _run(vios.count_documents(es.url, embed_target, "sensor.id.keyword", ref.sensor_id)),
-            "behavior": _run(vios.count_documents(es.url, behavior_index, "sensor.id.keyword", ref.name))
-            if behavior_index
-            else 0,
-            "raw": _run(vios.count_documents(es.url, raw_index, "sensorId.keyword", ref.name)) if raw_index else 0,
+            "embed": _run(vios.count_documents(es.url, embed_target, "sensor.id.keyword", ref.stream_id)),
+            "behavior": _run(vios.count_documents(es.url, behavior_target, "sensor.id.keyword", ref.name)),
+            "raw": _run(vios.count_documents(es.url, raw_target, "sensorId.keyword", ref.name)),
         }
         ready = counts["embed"] > 0 and counts["behavior"] > 0 and counts["raw"] > 0
         if ready or deadline is None:

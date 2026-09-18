@@ -179,6 +179,42 @@ def map_interval_to_timeline(
     )
 
 
+def rebase_interval_to_segments(
+    start_timestamp: str,
+    end_timestamp: str,
+    segments: list[tuple[str, str]],
+) -> tuple[str, str]:
+    """Rebase an interval and require the result to fit one recorded segment.
+
+    Unlike :func:`map_interval_to_timeline`, this is a strict command-boundary
+    helper: malformed or non-positive source ranges and ranges that would be
+    truncated, land in a gap, or cross a gap are caller errors.
+    """
+    if not segments:
+        raise VIOSInvalidInputError("cannot rebase: no recorded timeline for this sensor")
+    try:
+        source_start = iso8601_to_datetime(start_timestamp)
+        source_end = iso8601_to_datetime(end_timestamp)
+    except (TypeError, ValueError) as exc:
+        raise VIOSInvalidInputError(
+            "--rebase-from and --rebase-from-end must be ISO-8601 timestamps"
+        ) from exc
+    duration = source_end - source_start
+    if duration.total_seconds() <= 0:
+        raise VIOSInvalidInputError("--rebase-from-end must be after --rebase-from")
+
+    timeline_start, timeline_end = segments[0][0], segments[-1][1]
+    mapped_start_text = map_timestamp_to_timeline(start_timestamp, timeline_start, timeline_end)
+    mapped_start = iso8601_to_datetime(mapped_start_text)
+    mapped_end = mapped_start + duration
+    return resolve_window(
+        segments,
+        _isoformat(mapped_start),
+        _isoformat(mapped_end),
+        "video",
+    )
+
+
 async def get_timelines_map(
     vst_internal_url: str,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
@@ -747,7 +783,9 @@ async def count_documents(
     body = {"query": {"term": {field: value}}}
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session, session.post(url, json=body) as response:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session, session.post(
+            url, json=body
+        ) as response:
             if response.status == 404:
                 return 0
             if response.status != 200:
