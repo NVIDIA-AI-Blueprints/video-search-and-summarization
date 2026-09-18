@@ -6,19 +6,20 @@
 Run:
     python3 .github/skill-eval/tests/test_run_leg.py
 """
+
 from __future__ import annotations
 
 import contextlib
 import importlib.util
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 # run_leg imports its sibling `leg_timing`, and spec_from_file_location does
@@ -63,7 +64,9 @@ class DiscoverInvocations(unittest.TestCase):
             invocations = run_leg.discover_invocations(root)
 
         self.assertEqual(len(invocations), 2)
-        self.assertEqual([i.include_task_name for i in invocations], ["step-1", "step-2"])
+        self.assertEqual(
+            [i.include_task_name for i in invocations], ["step-1", "step-2"]
+        )
         self.assertTrue(all(i.harbor_root.name == "l40s" for i in invocations))
         self.assertEqual([i.step_index for i in invocations], [1, 2])
         self.assertEqual([i.step_count for i in invocations], [2, 2])
@@ -124,8 +127,12 @@ class HarborCommand(unittest.TestCase):
         self.assertIn("--include-task-name", cmd)
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
         self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
-        self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
-        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
+        self.assertEqual(
+            cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6"
+        )
+        self.assertEqual(
+            cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1"
+        )
         self.assertEqual(cmd[cmd.index("-o") + 1], "/tmp/results")
         self.assertEqual(
             cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
@@ -159,7 +166,9 @@ class HarborCommand(unittest.TestCase):
         # endpoint via --ak api_base, key from the env (not on the CLI).
         self.assertEqual(cmd[cmd.index("-a") + 1], "agents.nv_codex:NvCodex")
         self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
-        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
+        self.assertEqual(
+            cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1"
+        )
         # The key must never be passed on the command line.
         self.assertFalse(any("OPENAI_API_KEY" in part for part in cmd))
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
@@ -241,26 +250,22 @@ class PhaseBudgets(unittest.TestCase):
 
     def test_timeout_validation_rejects_boundary_and_accepts_default(self):
         with self.assertRaisesRegex(ValueError, "cleanup/recovery"):
-            run_leg.validate_harbor_timeout_sec(
-                run_leg.MIN_HARBOR_BACKSTOP_SEC
-            )
+            run_leg.validate_harbor_timeout_sec(run_leg.MIN_HARBOR_BACKSTOP_SEC)
 
         self.assertEqual(
-            run_leg.validate_harbor_timeout_sec(
-                run_leg.DEFAULT_HARBOR_TIMEOUT_SEC
-            ),
+            run_leg.validate_harbor_timeout_sec(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC),
             run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
         )
 
     def test_parse_args_uses_validated_default_and_rejects_short_override(self):
         required = [
-            "--dataset-root", "/tmp/data",
-            "--results-root", "/tmp/results",
+            "--dataset-root",
+            "/tmp/data",
+            "--results-root",
+            "/tmp/results",
         ]
         args = run_leg.parse_args(required)
-        self.assertEqual(
-            args.harbor_timeout_sec, run_leg.DEFAULT_HARBOR_TIMEOUT_SEC
-        )
+        self.assertEqual(args.harbor_timeout_sec, run_leg.DEFAULT_HARBOR_TIMEOUT_SEC)
 
         with mock.patch.object(run_leg.sys, "stderr"):
             with self.assertRaises(SystemExit) as raised:
@@ -486,9 +491,7 @@ class RunCommand(unittest.TestCase):
 
     def test_external_sigterm_is_forwarded_and_preserves_signal_status(self):
         proc = mock.Mock(pid=4321)
-        proc.wait.side_effect = run_leg._RunCommandInterrupted(
-            run_leg.signal.SIGTERM
-        )
+        proc.wait.side_effect = run_leg._RunCommandInterrupted(run_leg.signal.SIGTERM)
         with (
             mock.patch.object(run_leg.subprocess, "Popen", return_value=proc),
             mock.patch.object(
@@ -533,9 +536,7 @@ class RunCommand(unittest.TestCase):
             mock.patch.object(
                 run_leg, "_registered_transport_groups", return_value=[999]
             ),
-            mock.patch.object(
-                run_leg, "_cancel_process_tree", return_value=False
-            ),
+            mock.patch.object(run_leg, "_cancel_process_tree", return_value=False),
         ):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
@@ -550,9 +551,7 @@ class RunCommand(unittest.TestCase):
             mock.patch.object(
                 run_leg, "_registered_transport_groups", return_value=[999]
             ),
-            mock.patch.object(
-                run_leg, "_cancel_process_tree", return_value=True
-            ),
+            mock.patch.object(run_leg, "_cancel_process_tree", return_value=True),
         ):
             rc = run_leg.run_command(self.COMMAND, self.ENV, timeout_sec=42)
 
@@ -566,9 +565,7 @@ class RunCommand(unittest.TestCase):
             mock.patch.object(
                 run_leg,
                 "_registered_transport_groups",
-                side_effect=run_leg._RunCommandInterrupted(
-                    run_leg.signal.SIGTERM
-                ),
+                side_effect=run_leg._RunCommandInterrupted(run_leg.signal.SIGTERM),
             ),
             mock.patch.object(
                 run_leg, "_cancel_process_tree", return_value=True
@@ -776,19 +773,30 @@ class RunInvocations(unittest.TestCase):
             include_task_name="l40s",
             chain_key="build_l40s",
         )
-        env = {**self.ENV, "EVAL_AGENT": "nemoclaw", "EVAL_SKILL": "vss-build-vision-ai"}
+        env = {
+            **self.ENV,
+            "EVAL_AGENT": "nemoclaw",
+            "EVAL_SKILL": "vss-build-vision-ai",
+        }
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             with (
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
-                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ) as command,
                 mock.patch.object(run_leg, "run_command", return_value=0) as run,
                 mock.patch.object(run_leg, "publish_trace", return_value=None),
             ):
                 rc = run_leg.run_invocations(
-                    [invocation], "vss-eval-box", root / "results", root / "scratch",
-                    "build", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "build",
+                    "L40S",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
                 )
 
         self.assertEqual(rc, 0)
@@ -823,15 +831,24 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(run_leg, "prepare_nemoclaw_setup_task") as prepare,
-                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]) as command,
-                mock.patch.object(run_leg, "run_command", side_effect=run_command) as run,
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ) as command,
+                mock.patch.object(
+                    run_leg, "run_command", side_effect=run_command
+                ) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
                 mock.patch.object(run_leg, "publish_trace", return_value=None),
                 mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
             ):
                 rc = run_leg.run_invocations(
-                    invocations, "vss-eval-box", root / "results", root / "scratch",
-                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    invocations,
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "alerts",
+                    "L40S",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
                 )
 
         self.assertEqual(rc, 0)
@@ -882,21 +899,30 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.dict(run_leg.os.environ, env, clear=True),
                 mock.patch.object(run_leg, "harbor_env", return_value={}),
                 mock.patch.object(run_leg, "prepare_nemoclaw_setup_task"),
-                mock.patch.object(run_leg, "build_harbor_command", return_value=["harbor"]),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ),
                 mock.patch.object(run_leg, "run_command", return_value=0) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="0.5"),
                 mock.patch.object(run_leg, "publish_trace", return_value=None),
                 mock.patch.object(run_leg, "cleanup_deferred_agent_run") as cleanup,
             ):
                 rc = run_leg.run_invocations(
-                    [invocation], "vss-eval-box", root / "results", root / "scratch",
-                    "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "alerts",
+                    "L40S",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
                 )
 
             self.assertEqual(rc, 1)
             self.assertEqual(run.call_count, 1)
             cleanup.assert_called_once()
-            self.assertTrue((root / "scratch" / "skipped-alerts-L40S-step-2.txt").is_file())
+            self.assertTrue(
+                (root / "scratch" / "skipped-alerts-L40S-step-2.txt").is_file()
+            )
 
     def test_prepare_nemoclaw_setup_task_preserves_query_and_adds_build_vision(self):
         with tempfile.TemporaryDirectory() as td:
@@ -929,7 +955,9 @@ class RunInvocations(unittest.TestCase):
                 instruction,
             )
             self.assertNotIn("HARBOR_SKILL_EVAL_AGENT_RUN", instruction)
-            self.assertTrue((task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file())
+            self.assertTrue(
+                (task / "skills" / "vss-build-vision-ai" / "SKILL.md").is_file()
+            )
 
     def test_passing_step_lets_the_chain_continue(self):
         """reward 1.0 and rc 0 must run step 2 and write no skip markers.
@@ -961,9 +989,7 @@ class RunInvocations(unittest.TestCase):
                 mock.patch.object(run_leg, "run_command", return_value=0) as run,
                 mock.patch.object(run_leg, "latest_reward", return_value="1.0"),
                 mock.patch.object(run_leg, "publish_trace", return_value=None),
-                mock.patch.object(
-                    run_leg, "write_skip_markers"
-                ) as skip_markers,
+                mock.patch.object(run_leg, "write_skip_markers") as skip_markers,
             ):
                 rc = run_leg.run_invocations(
                     invocations,
@@ -1047,9 +1073,7 @@ class RunInvocations(unittest.TestCase):
                     "RTXPRO6000BW",
                     run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
                     100.0
-                    + run_leg.invocation_reserve_sec(
-                        run_leg.DEFAULT_HARBOR_TIMEOUT_SEC
-                    )
+                    + run_leg.invocation_reserve_sec(run_leg.DEFAULT_HARBOR_TIMEOUT_SEC)
                     - 1,
                 )
 
@@ -1228,36 +1252,61 @@ class TraceUrls(unittest.TestCase):
 
 class PoolCandidates(unittest.TestCase):
     FLEET = [
-        {"name": "vss-eval-rtx-1g-2", "status": "RUNNING",
-         "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
-        {"name": "vss-eval-rtx-1g-3", "status": "STOPPED",
-         "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
-        {"name": "vss-eval-rtx-2g-2", "status": "RUNNING",
-         "gpu": "RTX PRO Server 6000", "instance_type": "g7e.12xlarge"},
-        {"name": "vss-eval-l40s", "status": "RUNNING",
-         "gpu": "L40S", "instance_type": "massedcompute_L40Sx2"},
+        {
+            "name": "vss-eval-rtx-1g-2",
+            "status": "RUNNING",
+            "gpu": "RTX PRO Server 6000",
+            "instance_type": "g7e.4xlarge",
+        },
+        {
+            "name": "vss-eval-rtx-1g-3",
+            "status": "STOPPED",
+            "gpu": "RTX PRO Server 6000",
+            "instance_type": "g7e.4xlarge",
+        },
+        {
+            "name": "vss-eval-rtx-2g-2",
+            "status": "RUNNING",
+            "gpu": "RTX PRO Server 6000",
+            "instance_type": "g7e.12xlarge",
+        },
+        {
+            "name": "vss-eval-l40s",
+            "status": "RUNNING",
+            "gpu": "L40S",
+            "instance_type": "massedcompute_L40Sx2",
+        },
         # gpu flake: catalog refresh returns "-" but instance_type carries it
-        {"name": "vss-eval-l40s-2", "status": "RUNNING",
-         "gpu": "-", "instance_type": "massedcompute_L40Sx2"},
-        {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
-         "gpu": "RTX PRO 6000",
-         "instance_type": "registered-external-node", "_registered": True},
-        {"name": "not-a-pool-box", "status": "RUNNING",
-         "gpu": "RTX PRO Server 6000", "instance_type": "g7e.4xlarge"},
+        {
+            "name": "vss-eval-l40s-2",
+            "status": "RUNNING",
+            "gpu": "-",
+            "instance_type": "massedcompute_L40Sx2",
+        },
+        {
+            "name": "vss-eval-rtx-2g-VM1b",
+            "status": "RUNNING",
+            "gpu": "RTX PRO 6000",
+            "instance_type": "registered-external-node",
+            "_registered": True,
+        },
+        {
+            "name": "not-a-pool-box",
+            "status": "RUNNING",
+            "gpu": "RTX PRO Server 6000",
+            "instance_type": "g7e.4xlarge",
+        },
     ]
 
     def setUp(self):
         self._orig = run_leg._list_pool_instances
-        run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: self.FLEET
-        )
+        run_leg._list_pool_instances = lambda _skill=None, _spec_stem=None: self.FLEET
 
     def tearDown(self):
         run_leg._list_pool_instances = self._orig
 
     def test_filters_running_pool_and_gpu_type(self):
-        names = run_leg.pool_candidates(
-            {"gpu_type": "RTX PRO 6000", "gpu_count": 1})
+        names = run_leg.pool_candidates({"gpu_type": "RTX PRO 6000", "gpu_count": 1})
         self.assertEqual(
             names,
             [
@@ -1278,7 +1327,8 @@ class PoolCandidates(unittest.TestCase):
         run_leg._CATALOG_GPU_COUNTS = {"g7e.4xlarge": 1, "g7e.12xlarge": 2}
         try:
             names = run_leg.pool_candidates(
-                {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
+                {"gpu_type": "RTX PRO 6000", "gpu_count": 2}
+            )
             self.assertEqual(names, ["vss-eval-rtx-2g-VM1b", "vss-eval-rtx-2g-2"])
         finally:
             run_leg._CATALOG_GPU_COUNTS = orig
@@ -1290,10 +1340,11 @@ class PoolCandidates(unittest.TestCase):
         slow schedule into a hard blocker, which is worse than the bug.
         """
         orig = run_leg._CATALOG_GPU_COUNTS
-        run_leg._CATALOG_GPU_COUNTS = {}          # catalog says nothing
+        run_leg._CATALOG_GPU_COUNTS = {}  # catalog says nothing
         try:
             names = run_leg.pool_candidates(
-                {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
+                {"gpu_type": "RTX PRO 6000", "gpu_count": 2}
+            )
             # Every managed box stays eligible -- brev_env validates the pick,
             # and a refusal is recoverable. Filtering on a stale name here is
             # what would starve the leg.
@@ -1305,8 +1356,7 @@ class PoolCandidates(unittest.TestCase):
             run_leg._CATALOG_GPU_COUNTS = orig
 
     def test_exact_count_hint_sorts_first(self):
-        names = run_leg.pool_candidates(
-            {"gpu_type": "RTX PRO 6000", "gpu_count": 2})
+        names = run_leg.pool_candidates({"gpu_type": "RTX PRO 6000", "gpu_count": 2})
         self.assertEqual(names[0], "vss-eval-rtx-2g-VM1b")
 
     def test_gpu_flake_accepted_via_instance_type(self):
@@ -1325,9 +1375,7 @@ class PoolCandidates(unittest.TestCase):
             "RTX PRO 6000",
         )
         self.assertEqual(
-            run_leg._registered_gpu_hint(
-                "vss-eval-geforce-rtx4090-vm1"
-            ),
+            run_leg._registered_gpu_hint("vss-eval-geforce-rtx4090-vm1"),
             "GEFORCE RTX 4090",
         )
         self.assertEqual(run_leg._registered_gpu_hint("vss-eval-mystery"), "")
@@ -1364,17 +1412,14 @@ class PoolCandidates(unittest.TestCase):
         orig_managed = run_leg._list_brev_instances
         orig_registered = run_leg._list_registered_nodes
         try:
-            run_leg._list_brev_instances = lambda: []
+            run_leg._list_brev_instances = list
             run_leg._list_registered_nodes = lambda: [
                 {"name": "vss-eval-rtx-2g-VM1b", "status": "Connected"},
                 {"name": "vss-eval-rtx-2g-skybridge", "status": "Connected"},
             ]
             with mock.patch.dict(
                 run_leg.os.environ,
-                {
-                    "BREV_REGISTERED_POOL":
-                        "vss-eval-rtx-2g-VM1b, vss-eval-rtx-2g-VM2b"
-                },
+                {"BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b, vss-eval-rtx-2g-VM2b"},
             ):
                 instances = self._orig()
         finally:
@@ -1397,8 +1442,7 @@ class PoolCandidates(unittest.TestCase):
         env = {
             "BREV_REGISTERED_POOL": "vss-eval-rtx-2g-VM1b",
             "BREV_RTX4090_POOL": (
-                "vss-eval-geforce-rtx4090-vm1,"
-                "vss-eval-geforce-rtx4090-vm2"
+                "vss-eval-geforce-rtx4090-vm1,vss-eval-geforce-rtx4090-vm2"
             ),
         }
         with mock.patch.dict(run_leg.os.environ, env, clear=True):
@@ -1447,7 +1491,7 @@ class PoolCandidates(unittest.TestCase):
         weight until a spec-level `gpu_type` route is wired to it, and no
         `gpu_type` a spec declares can resurrect it.
         """
-        run_leg._list_pool_instances = self._orig          # undo setUp stub
+        run_leg._list_pool_instances = self._orig  # undo setUp stub
         orig_managed = run_leg._list_brev_instances
         orig_registered = run_leg._list_registered_nodes
         env = {
@@ -1455,18 +1499,22 @@ class PoolCandidates(unittest.TestCase):
             "BREV_RTX4090_POOL": "vss-eval-geforce-rtx4090-vm1",
         }
         try:
-            run_leg._list_brev_instances = lambda: []
+            run_leg._list_brev_instances = list
             run_leg._list_registered_nodes = lambda: [
                 {"name": "vss-eval-geforce-rtx4090-vm1", "status": "Connected"},
             ]
             with mock.patch.dict(run_leg.os.environ, env, clear=True):
                 discovered = run_leg._list_pool_instances(
-                    "vss-deploy-dense-captioning", "alerts_profile_api")
-                candidates = run_leg.pool_candidates({
-                    "gpu_type": "GEFORCE RTX 4090",
-                    "gpu_count": 1,
-                    "skill": "vss-deploy-dense-captioning",
-                }, "alerts_profile_api")
+                    "vss-deploy-dense-captioning", "alerts_profile_api"
+                )
+                candidates = run_leg.pool_candidates(
+                    {
+                        "gpu_type": "GEFORCE RTX 4090",
+                        "gpu_count": 1,
+                        "skill": "vss-deploy-dense-captioning",
+                    },
+                    "alerts_profile_api",
+                )
         finally:
             run_leg._list_brev_instances = orig_managed
             run_leg._list_registered_nodes = orig_registered
@@ -1481,26 +1529,36 @@ class PoolCandidates(unittest.TestCase):
         is the one path on which a 24 GB card can legitimately serve a leg:
         the spec has to ask for that GPU.
         """
-        run_leg._list_pool_instances = self._orig          # undo setUp stub
+        run_leg._list_pool_instances = self._orig  # undo setUp stub
         orig_managed = run_leg._list_brev_instances
         orig_registered = run_leg._list_registered_nodes
         try:
-            run_leg._list_brev_instances = lambda: [{
-                "name": "vss-eval-geforce-rtx4090-vm1",
-                "status": "RUNNING",
-                "gpu": "GEFORCE RTX 4090",
-                "instance_type": "geforce_rtx4090",
-            }]
-            run_leg._list_registered_nodes = lambda: []
+            run_leg._list_brev_instances = lambda: [
+                {
+                    "name": "vss-eval-geforce-rtx4090-vm1",
+                    "status": "RUNNING",
+                    "gpu": "GEFORCE RTX 4090",
+                    "instance_type": "geforce_rtx4090",
+                }
+            ]
+            run_leg._list_registered_nodes = list
             with mock.patch.dict(run_leg.os.environ, {}, clear=True):
-                asked = run_leg.pool_candidates({
-                    "gpu_type": "GEFORCE RTX 4090", "gpu_count": 1,
-                    "skill": "vss-deploy-dense-captioning",
-                }, "alerts_profile_api")
-                not_asked = run_leg.pool_candidates({
-                    "gpu_type": "RTX PRO 6000", "gpu_count": 1,
-                    "skill": "vss-ask-video",
-                }, "base_profile_video_understanding")
+                asked = run_leg.pool_candidates(
+                    {
+                        "gpu_type": "GEFORCE RTX 4090",
+                        "gpu_count": 1,
+                        "skill": "vss-deploy-dense-captioning",
+                    },
+                    "alerts_profile_api",
+                )
+                not_asked = run_leg.pool_candidates(
+                    {
+                        "gpu_type": "RTX PRO 6000",
+                        "gpu_count": 1,
+                        "skill": "vss-ask-video",
+                    },
+                    "base_profile_video_understanding",
+                )
         finally:
             run_leg._list_brev_instances = orig_managed
             run_leg._list_registered_nodes = orig_registered
@@ -1510,21 +1568,30 @@ class PoolCandidates(unittest.TestCase):
 
     def test_underprovisioned_registered_node_is_filtered(self):
         fleet = [
-            {"name": "vss-eval-geforce-rtx4090-vm1", "status": "RUNNING",
-             "gpu": "GEFORCE RTX 4090", "_registered": True,
-             "_rtx4090_capability_routed": True},
-            {"name": "vss-eval-rtx-2g-VM1b", "status": "RUNNING",
-             "gpu": "RTX PRO 6000", "_registered": True},
+            {
+                "name": "vss-eval-geforce-rtx4090-vm1",
+                "status": "RUNNING",
+                "gpu": "GEFORCE RTX 4090",
+                "_registered": True,
+                "_rtx4090_capability_routed": True,
+            },
+            {
+                "name": "vss-eval-rtx-2g-VM1b",
+                "status": "RUNNING",
+                "gpu": "RTX PRO 6000",
+                "_registered": True,
+            },
         ]
-        run_leg._list_pool_instances = (
-            lambda _skill=None, _spec_stem=None: fleet
-        )
+        run_leg._list_pool_instances = lambda _skill=None, _spec_stem=None: fleet
 
-        names = run_leg.pool_candidates({
-            "skill": "vss-ask-video",
-            "gpu_type": "RTX PRO 6000",
-            "gpu_count": 2,
-        }, "base_profile_video_understanding")
+        names = run_leg.pool_candidates(
+            {
+                "skill": "vss-ask-video",
+                "gpu_type": "RTX PRO 6000",
+                "gpu_count": 2,
+            },
+            "base_profile_video_understanding",
+        )
 
         self.assertEqual(names, ["vss-eval-rtx-2g-VM1b"])
 
@@ -1596,13 +1663,15 @@ class TheHeartbeatNamesTheRightPhase(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self._run_main_far_enough()
         self.assertEqual(
-            seen, ["lock-wait"],
+            seen,
+            ["lock-wait"],
             "the heartbeat would report 'startup' for the whole wait",
         )
 
     def test_the_label_is_restored_when_the_lock_raises(self):
         """A stuck `lock-wait` misreports every later tick for the rest of the
         leg, which is worse than the missing label it replaced."""
+
         @contextlib.contextmanager
         def exploding_lock(*_args, **_kwargs):
             raise OSError("bad lock dir")
@@ -1620,19 +1689,33 @@ class TheHeartbeatNamesTheRightPhase(unittest.TestCase):
             dataset = Path(tmp) / "dataset" / "platform" / "step-1"
             dataset.mkdir(parents=True)
             (dataset / "task.toml").write_text("step_count = 1\n", encoding="utf-8")
-            with mock.patch.object(
-                run_leg, "SKILL_EVAL_PYTHON_VERSION", sys.version_info[:2]
-            ), mock.patch.object(
-                run_leg, "run_invocations", side_effect=SystemExit(0)
-            ), mock.patch.object(leg_timing, "start_heartbeat",
-                                 return_value=(mock.Mock(), mock.Mock())):
-                run_leg.main([
-                    "--dataset-root", str(Path(tmp) / "dataset"),
-                    "--results-root", str(Path(tmp) / "results"),
-                    "--scratch", str(Path(tmp) / "scratch"),
-                    "--spec-stem", "spec",
-                    "--platform", "L40S",
-                ])
+            with (
+                mock.patch.object(
+                    run_leg, "SKILL_EVAL_PYTHON_VERSION", sys.version_info[:2]
+                ),
+                mock.patch.object(
+                    run_leg, "run_invocations", side_effect=SystemExit(0)
+                ),
+                mock.patch.object(
+                    leg_timing,
+                    "start_heartbeat",
+                    return_value=(mock.Mock(), mock.Mock()),
+                ),
+            ):
+                run_leg.main(
+                    [
+                        "--dataset-root",
+                        str(Path(tmp) / "dataset"),
+                        "--results-root",
+                        str(Path(tmp) / "results"),
+                        "--scratch",
+                        str(Path(tmp) / "scratch"),
+                        "--spec-stem",
+                        "spec",
+                        "--platform",
+                        "L40S",
+                    ]
+                )
 
 
 class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
@@ -1640,11 +1723,16 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
 
     def _argv(self, tmp: str) -> list[str]:
         return [
-            "--dataset-root", str(Path(tmp) / "dataset"),
-            "--results-root", str(Path(tmp) / "results"),
-            "--scratch", str(Path(tmp) / "scratch"),
-            "--spec-stem", "spec",
-            "--platform", "L40S",
+            "--dataset-root",
+            str(Path(tmp) / "dataset"),
+            "--results-root",
+            str(Path(tmp) / "results"),
+            "--scratch",
+            str(Path(tmp) / "scratch"),
+            "--spec-stem",
+            "spec",
+            "--platform",
+            "L40S",
         ]
 
     def setUp(self):
@@ -1657,7 +1745,9 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self._saved_phases = list(leg_timing._PHASES)
         leg_timing._PHASES.clear()
-        self.addCleanup(lambda: leg_timing._PHASES.__setitem__(slice(None), self._saved_phases))
+        self.addCleanup(
+            lambda: leg_timing._PHASES.__setitem__(slice(None), self._saved_phases)
+        )
 
     def _dataset(self, tmp: str) -> None:
         task_dir = Path(tmp) / "dataset" / "chain" / "l40s"
@@ -1674,10 +1764,13 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
     def test_exit_code_survives_a_failing_phase_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             self._dataset(tmp)
-            with self._held_lock(), \
-                 mock.patch.object(run_leg, "run_invocations", return_value=42), \
-                 mock.patch.object(leg_timing, "write_phase_timings", side_effect=RuntimeError("boom")
-                 ):
+            with (
+                self._held_lock(),
+                mock.patch.object(run_leg, "run_invocations", return_value=42),
+                mock.patch.object(
+                    leg_timing, "write_phase_timings", side_effect=RuntimeError("boom")
+                ),
+            ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 42)
 
     def test_instrumentation_logging_swallows_a_broken_pipe(self):
@@ -1704,9 +1797,7 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
             ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 1)
 
-        self.assertEqual(
-            [e["phase"] for e in leg_timing._PHASES], ["lock-wait-failed"]
-        )
+        self.assertEqual([e["phase"] for e in leg_timing._PHASES], ["lock-wait-failed"])
 
     def test_a_dead_heartbeat_thread_does_not_fail_the_leg(self):
         """The name used to contradict the body: it asserted RuntimeError
@@ -1717,13 +1808,15 @@ class InstrumentationNeverChangesTheVerdict(unittest.TestCase):
         visibility; raising costs the leg, and the leg is worth more."""
         with tempfile.TemporaryDirectory() as tmp:
             self._dataset(tmp)
-            with self._held_lock(), \
-                 mock.patch.object(run_leg, "run_invocations", return_value=0), \
-                 mock.patch.object(
-                     run_leg.threading.Thread,
-                     "start",
-                     side_effect=RuntimeError("no threads"),
-                 ):
+            with (
+                self._held_lock(),
+                mock.patch.object(run_leg, "run_invocations", return_value=0),
+                mock.patch.object(
+                    run_leg.threading.Thread,
+                    "start",
+                    side_effect=RuntimeError("no threads"),
+                ),
+            ):
                 self.assertEqual(run_leg.main(self._argv(tmp)), 0)
 
     def test_sigterm_unwinds_so_a_cancelled_leg_still_writes_its_timings(self):
@@ -1762,10 +1855,15 @@ run_leg.main(sys.argv[2:])
             script = Path(tmp) / "driver.py"
             script.write_text(driver, encoding="utf-8")
             completed = subprocess.run(
-                [sys.executable, str(script),
-                 str(Path(__file__).resolve().parents[1] / "run_leg.py"),
-                 *self._argv(tmp)],
-                capture_output=True, text=True, timeout=60,
+                [
+                    sys.executable,
+                    str(script),
+                    str(Path(__file__).resolve().parents[1] / "run_leg.py"),
+                    *self._argv(tmp),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             written = Path(tmp) / "results" / leg_timing.PHASE_TIMINGS_NAME
             self.assertTrue(
@@ -1791,10 +1889,22 @@ run_leg.main(sys.argv[2:])
             results.mkdir()
             destination = results / leg_timing.PHASE_TIMINGS_NAME
             destination.write_text('{"phases": ["previous"]}\n', encoding="utf-8")
-            with mock.patch.object(leg_timing, "_PHASES",
-                [{"phase": "lock-wait", "start_s": 0.0, "end_s": 1.0, "seconds": 1.0}],
-            ), mock.patch.object(
-                run_leg.os, "replace", side_effect=OSError("interrupted")
+            with (
+                mock.patch.object(
+                    leg_timing,
+                    "_PHASES",
+                    [
+                        {
+                            "phase": "lock-wait",
+                            "start_s": 0.0,
+                            "end_s": 1.0,
+                            "seconds": 1.0,
+                        }
+                    ],
+                ),
+                mock.patch.object(
+                    run_leg.os, "replace", side_effect=OSError("interrupted")
+                ),
             ):
                 leg_timing.write_phase_timings(results)
             # The previous artifact survives intact rather than being truncated.
@@ -1802,7 +1912,8 @@ run_leg.main(sys.argv[2:])
                 json.loads(destination.read_text())["phases"], ["previous"]
             )
             self.assertEqual(
-                list(results.glob("*.partial")), [],
+                list(results.glob("*.partial")),
+                [],
                 "a half-written sibling was left to be collected as an artifact",
             )
 
@@ -1811,6 +1922,7 @@ run_leg.main(sys.argv[2:])
         in-flight legs and the cancellation lands as KeyboardInterrupt. Under
         `except Exception` the wait was dropped from the artifact for exactly
         the legs that had spent longest in it."""
+
         @contextlib.contextmanager
         def cancelled_lock(*_args, **_kwargs):
             raise KeyboardInterrupt
@@ -1818,12 +1930,15 @@ run_leg.main(sys.argv[2:])
 
         with tempfile.TemporaryDirectory() as tmp:
             self._dataset(tmp)
-            with mock.patch.object(run_leg, "hold_pool_lock", cancelled_lock), \
-                 mock.patch.object(leg_timing, "_PHASES", []) as phases:
+            with (
+                mock.patch.object(run_leg, "hold_pool_lock", cancelled_lock),
+                mock.patch.object(leg_timing, "_PHASES", []) as phases,
+            ):
                 with contextlib.suppress(KeyboardInterrupt):
                     run_leg.main(self._argv(tmp))
         self.assertEqual(
-            [entry["phase"] for entry in phases], ["lock-wait-failed"],
+            [entry["phase"] for entry in phases],
+            ["lock-wait-failed"],
             "a cancelled lock wait left no interval in the artifact",
         )
 
@@ -1861,7 +1976,11 @@ class BoxRejectedForCapacity(unittest.TestCase):
     """A refused box is not a failed trial -- nothing ran."""
 
     def _trial(self, payload: dict, age_sec: float = 0.0) -> Path:
-        import tempfile, os, time as _t, json as _json
+        import json as _json
+        import os
+        import tempfile
+        import time as _t
+
         root = Path(tempfile.mkdtemp())
         f = root / "result.json"
         f.write_text(_json.dumps(payload), encoding="utf-8")
@@ -1871,19 +1990,28 @@ class BoxRejectedForCapacity(unittest.TestCase):
         return root
 
     def test_detects_live_nvidia_smi_refusal(self):
-        root = self._trial({"exception_info": {"message":
-            "Brev instance 'vss-eval-rtx-1g-1' has 1 GPU(s) (live "
-            "nvidia-smi); task requires at least 2."}})
+        root = self._trial(
+            {
+                "exception_info": {
+                    "message": "Brev instance 'vss-eval-rtx-1g-1' has 1 GPU(s) (live "
+                    "nvidia-smi); task requires at least 2."
+                }
+            }
+        )
         self.assertIsNotNone(run_leg.box_rejected_for_capacity(root, 0))
 
     def test_detects_requirement_mismatch_refusal(self):
-        root = self._trial({"exception_info":
-            "Brev instance 'vss-eval-l40s' does not meet task requirements"})
+        root = self._trial(
+            {
+                "exception_info": "Brev instance 'vss-eval-l40s' does not meet task requirements"
+            }
+        )
         self.assertIsNotNone(run_leg.box_rejected_for_capacity(root, 0))
 
     def test_ignores_an_ordinary_trial_failure(self):
-        root = self._trial({"exception_info": None,
-                            "verifier_result": {"rewards": {"reward": 0.83}}})
+        root = self._trial(
+            {"exception_info": None, "verifier_result": {"rewards": {"reward": 0.83}}}
+        )
         self.assertIsNone(run_leg.box_rejected_for_capacity(root, 0))
 
     def test_agent_quoting_the_error_is_not_a_refusal(self):
@@ -1893,24 +2021,34 @@ class BoxRejectedForCapacity(unittest.TestCase):
         the message verbatim. A trial that reached the agent produced a real
         result and must never be retried as a refused box.
         """
-        root = self._trial({
-            "exception_info": "Brev instance 'x' does not meet task reqs",
-            "agent_execution": {"started_at": "2026-08-27T00:00:00Z",
-                                "transcript": "the box does not meet task "
-                                              "requirements, so I checked ..."},
-        })
+        root = self._trial(
+            {
+                "exception_info": "Brev instance 'x' does not meet task reqs",
+                "agent_execution": {
+                    "started_at": "2026-08-27T00:00:00Z",
+                    "transcript": "the box does not meet task "
+                    "requirements, so I checked ...",
+                },
+            }
+        )
         self.assertIsNone(run_leg.box_rejected_for_capacity(root, 0))
 
     def test_ignores_a_refusal_from_an_earlier_attempt(self):
         import time as _t
-        root = self._trial({"exception_info":
-            "Brev instance 'old' has 1 GPU(s) (live nvidia-smi); task "
-            "requires at least 2."}, age_sec=600)
+
+        root = self._trial(
+            {
+                "exception_info": "Brev instance 'old' has 1 GPU(s) (live nvidia-smi); task "
+                "requires at least 2."
+            },
+            age_sec=600,
+        )
         self.assertIsNone(run_leg.box_rejected_for_capacity(root, _t.time() - 60))
 
     def test_unreadable_results_root_is_not_a_refusal(self):
         self.assertIsNone(
-            run_leg.box_rejected_for_capacity(Path("/nonexistent-xyz"), 0))
+            run_leg.box_rejected_for_capacity(Path("/nonexistent-xyz"), 0)
+        )
 
 
 class NemoClawSandboxName(unittest.TestCase):
