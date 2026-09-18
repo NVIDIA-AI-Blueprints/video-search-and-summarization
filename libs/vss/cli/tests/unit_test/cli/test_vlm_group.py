@@ -681,7 +681,7 @@ def test_locked_fps_policy_rejects_num_frames() -> None:
         )
 
 
-def test_run_request_caps_fps_on_long_sensor_window(
+def test_run_request_preserves_fps_on_long_sensor_window(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -714,8 +714,8 @@ def test_run_request_caps_fps_on_long_sensor_window(
         ctx,
     )
 
-    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 60
-    assert captured["json"].get("use_fps_for_chunking") is False
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 2.0
+    assert captured["json"].get("use_fps_for_chunking") is True
 
 
 def test_num_frames_and_fps_are_mutually_exclusive() -> None:
