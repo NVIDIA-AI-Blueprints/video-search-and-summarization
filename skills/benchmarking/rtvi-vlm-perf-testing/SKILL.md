@@ -1,6 +1,6 @@
 ---
 name: rtvi-vlm-perf-testing
-description: Plan, run, and diagnose reproducible RT-VLM GPU performance canaries and benchmarks. Use for fresh-container stream-capacity, semantic-isolation, latency, throughput, or regression experiments against an RTVI microservices checkout.
+description: Plan, run, and diagnose reproducible RT-VLM GPU performance canaries and benchmarks. Use for fresh-container stream-capacity, semantic-isolation, latency, throughput, RT-CV shared-decoder IPC versus direct RTSP decode, or regression experiments against an RTVI microservices checkout.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -354,6 +354,17 @@ git diff -- perf/benchmark/rtvi_vlm_config_*.yaml perf/benchmark/rtvi_vlm_bcd_3_
 
 Do not commit hard-coded lab RTSP URLs, local backend ports, generated report directories, memory logs, XLSX files, or hardware metric outputs. Keep `RTSP_STREAM_URL` placeholders in checked-in template configs unless the user explicitly requests a committed machine-specific config.
 
+## Compare RT-CV IPC With Direct Decode
+
+For a matched single-decode comparison, read
+[`references/ipc-ab-benchmark.md`](references/ipc-ab-benchmark.md) and use
+`scripts/ipc_ab_benchmark.py`. It validates that the only intended difference is the decode path,
+runs each arm in a fresh runtime, alternates arm order across repetitions, rejects RTSP fallback or
+cleanup residue, and writes JSON, TSV, Markdown, and XLSX reports. The IPC arm must prove one RT-CV
+RTSP connection, one bind-mounted Unix socket, private RT-VLM IPC, and zero RT-VLM RTSP connections;
+environment-variable intent without launched CLI flags and the runtime IPC-source log marker is not
+proof.
+
 ## Regression Analysis
 
 When comparing reports, align results by platform, scenario, token budget, resolution, model, and stream source. Report max-stream deltas first, then latency percentiles, throughput, GPU memory, power, NVDEC utilization, and failure counts when available.
@@ -383,7 +394,7 @@ When this skill itself changes, update both the repo copy under
 `skills/benchmarking/rtvi-vlm-perf-testing/SKILL.md` and the installed Codex copy under
 `~/.codex/skills/rtvi-vlm-perf-testing/SKILL.md` when that local copy exists.
 
-After changing the plan or canary contract, run
-`(cd skills/benchmarking/rtvi-vlm-perf-testing/scripts && python3 -m unittest -v test_perf_plan.py test_canary_executor.py && python3 -m py_compile perf_plan.py container_guard.py canary_executor.py)`.
+After changing the plan, canary, or IPC A/B contract, run
+`(cd skills/benchmarking/rtvi-vlm-perf-testing/scripts && python3 -m unittest -v test_perf_plan.py test_canary_executor.py test_ipc_ab_benchmark.py && python3 -m py_compile perf_plan.py container_guard.py canary_executor.py ipc_ab_benchmark.py)`.
 
 Finish with the commands run, report paths inspected or generated, clear regression findings, and any validation that was skipped because it would require starting services or running long benchmarks.
