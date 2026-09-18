@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for profile-driven, filename-based BEV group recomputation."""
+"""Tests for profile-driven BEV group recomputation."""
 
 import json
 import os
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from profile_configurator.profile_config_manager import ProfileConfigManager
 
@@ -373,3 +375,128 @@ def test_unexpected_output_path_preserves_original(tmp_path):
         )
 
     assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+
+
+@pytest.mark.parametrize("mode", ["3d", "mv3dt"])
+def test_file_sensor_source_uses_camera_names_without_video_directory(tmp_path, mode):
+    sensor_file = tmp_path / "sensors.json"
+    sensor_file.write_text(
+        json.dumps(
+            {
+                "sensors": [
+                    {
+                        "camera_name": "Camera_02",
+                        "rtsp_url": "rtsp://camera-02",
+                    },
+                    {"camera_name": "Camera", "rtsp_url": "rtsp://camera"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera", "Camera_02", "UnusedCamera"])
+    calls = []
+
+    def fake_recompute(path, sensor_names, n_sensor_groups, max_sensors_per_group):
+        calls.append((sensor_names, n_sensor_groups, max_sensors_per_group))
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        selected = set(sensor_names)
+        data["sensors"] = [
+            sensor for sensor in data["sensors"] if sensor["id"] in selected
+        ]
+        data["sensorGroups"] = [{"name": "bev-sensor-1", "sensors": sensor_names}]
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    manager = make_manager(
+        {
+            "CALIBRATION_MODE": "mount",
+            "SENSOR_INFO_SOURCE": "file",
+            "SENSOR_FILE_PATH": str(sensor_file),
+        },
+        mode=mode,
+    )
+    operation = make_operation(
+        tmp_path / "missing-videos",
+        calibration_file,
+        expected_count=2,
+        required_mode=mode,
+    )
+    operation["sensor_file"] = "${SENSOR_FILE_PATH}"
+
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ):
+        assert manager._execute_recompute_bev_groups(operation)
+
+    assert calls == [(["Camera", "Camera_02"], 1, 2)]
+    result = json.loads(calibration_file.read_text(encoding="utf-8"))
+    assert [sensor["id"] for sensor in result["sensors"]] == [
+        "Camera",
+        "Camera_02",
+    ]
+
+
+def test_duplicate_file_camera_name_fails_before_backup(tmp_path):
+    sensor_file = tmp_path / "sensors.json"
+    sensor_file.write_text(
+        json.dumps(
+            {
+                "sensors": [
+                    {"camera_name": "Camera", "rtsp_url": "rtsp://camera-01"},
+                    {"camera_name": "Camera", "rtsp_url": "rtsp://camera-02"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+    manager = make_manager(
+        {
+            "CALIBRATION_MODE": "mount",
+            "SENSOR_INFO_SOURCE": "file",
+            "SENSOR_FILE_PATH": str(sensor_file),
+        }
+    )
+
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers"
+    ) as recompute:
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(tmp_path / "missing", calibration_file)
+        )
+
+    recompute.assert_not_called()
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+    assert not list(tmp_path.glob("calibration.backup_*.json"))
+
+
+def test_file_sensor_source_rejects_missing_rtsp_url(tmp_path):
+    sensor_file = tmp_path / "sensors.json"
+    sensor_file.write_text(
+        json.dumps({"sensors": [{"camera_name": "Camera"}]}),
+        encoding="utf-8",
+    )
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+    manager = make_manager(
+        {
+            "CALIBRATION_MODE": "mount",
+            "SENSOR_INFO_SOURCE": "file",
+            "SENSOR_FILE_PATH": str(sensor_file),
+        }
+    )
+
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers"
+    ) as recompute:
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(tmp_path / "missing", calibration_file)
+        )
+
+    recompute.assert_not_called()
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+    assert not list(tmp_path.glob("calibration.backup_*.json"))

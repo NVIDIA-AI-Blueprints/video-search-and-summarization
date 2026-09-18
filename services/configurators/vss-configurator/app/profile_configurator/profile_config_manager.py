@@ -1246,6 +1246,104 @@ class ProfileConfigManager:
         logger.info("Camera IDs derived from video filenames: %s", camera_names)
         return camera_names
 
+    def _discover_camera_names_from_sensor_file(
+        self,
+        raw_sensor_file: Any,
+    ) -> List[str]:
+        """Return validated camera IDs from a file-based RTSP sensor config."""
+        if not raw_sensor_file:
+            raise ValueError(
+                "sensor_file is required when SENSOR_INFO_SOURCE=file"
+            )
+
+        sensor_file_value = self._substitute_env_vars(raw_sensor_file)
+        if not isinstance(sensor_file_value, str) or not sensor_file_value.strip():
+            raise ValueError(
+                "sensor_file must resolve to a non-empty path when "
+                "SENSOR_INFO_SOURCE=file"
+            )
+        if "${" in sensor_file_value:
+            raise ValueError(
+                f"sensor_file contains an unresolved variable: {sensor_file_value}"
+            )
+
+        sensor_file = Path(sensor_file_value)
+        if not sensor_file.exists():
+            raise FileNotFoundError(f"Sensor file not found: {sensor_file}")
+        if not sensor_file.is_file():
+            raise ValueError(f"Sensor path is not a file: {sensor_file}")
+        if not os.access(sensor_file, os.R_OK):
+            raise PermissionError(f"Sensor file is not readable: {sensor_file}")
+
+        with sensor_file.open("r", encoding="utf-8") as file:
+            sensor_data = json.load(file)
+        if not isinstance(sensor_data, dict):
+            raise ValueError(
+                f"Sensor file root must be a JSON object: {sensor_file}"
+            )
+        sensors = sensor_data.get("sensors")
+        if not isinstance(sensors, list) or not sensors:
+            raise ValueError(
+                f"Sensor file must contain a non-empty sensors list: {sensor_file}"
+            )
+
+        camera_names: List[str] = []
+        seen_camera_names: set[str] = set()
+        for index, sensor in enumerate(sensors):
+            if not isinstance(sensor, dict):
+                raise ValueError(
+                    f"Sensor at index {index} is not an object: {sensor_file}"
+                )
+
+            camera_name = sensor.get("camera_name")
+            if (
+                not isinstance(camera_name, str)
+                or not camera_name.strip()
+                or camera_name != camera_name.strip()
+            ):
+                raise ValueError(
+                    f"Sensor at index {index} has an invalid camera_name: "
+                    f"{sensor_file}"
+                )
+            rtsp_url = sensor.get("rtsp_url")
+            if not isinstance(rtsp_url, str) or not rtsp_url.strip():
+                raise ValueError(
+                    f"Sensor '{camera_name}' has an invalid rtsp_url: {sensor_file}"
+                )
+            if camera_name in seen_camera_names:
+                raise ValueError(
+                    f"Duplicate camera_name '{camera_name}' in sensor file: "
+                    f"{sensor_file}"
+                )
+            seen_camera_names.add(camera_name)
+            camera_names.append(camera_name)
+
+        camera_names.sort()
+        logger.info(
+            "Camera IDs derived from SENSOR_INFO_SOURCE=file config %s: %s",
+            sensor_file,
+            camera_names,
+        )
+        return camera_names
+
+    def _resolve_recompute_camera_names(
+        self,
+        operation: Dict[str, Any],
+    ) -> List[str]:
+        sensor_info_source = str(
+            self.env_vars.get("SENSOR_INFO_SOURCE", "nvstreamer")
+        ).strip().lower()
+        if sensor_info_source == "file":
+            return self._discover_camera_names_from_sensor_file(
+                operation.get("sensor_file")
+                or self.env_vars.get("SENSOR_FILE_PATH")
+            )
+
+        return self._discover_camera_names(
+            operation.get("video_directories", []),
+            operation.get("video_patterns", ["*.mp4", "*.mkv"]),
+        )
+
     @staticmethod
     def _validate_calibration_data(
         data: Any,
@@ -1288,7 +1386,7 @@ class ProfileConfigManager:
         return set(sensor_ids)
 
     def _execute_recompute_bev_groups(self, operation: Dict[str, Any]) -> bool:
-        """Transactionally recompute BEV groups from video filename stems."""
+        """Safely recompute BEV groups from the configured camera source."""
         temp_path: Optional[Path] = None
         try:
             required_mode = str(
@@ -1317,10 +1415,7 @@ class ProfileConfigManager:
                         f"{actual_calibration_mode or '<unset>'}"
                     )
 
-            camera_names = self._discover_camera_names(
-                operation.get("video_directories", []),
-                operation.get("video_patterns", ["*.mp4", "*.mkv"]),
-            )
+            camera_names = self._resolve_recompute_camera_names(operation)
 
             expected_count_raw = operation.get("expected_camera_count")
             if expected_count_raw is not None:
@@ -1337,7 +1432,7 @@ class ProfileConfigManager:
                     )
                 if expected_count > 0 and expected_count != len(camera_names):
                     raise ValueError(
-                        f"Discovered {len(camera_names)} camera(s) from video files, "
+                        f"Discovered {len(camera_names)} camera(s), "
                         f"but expected {expected_count}"
                     )
 
