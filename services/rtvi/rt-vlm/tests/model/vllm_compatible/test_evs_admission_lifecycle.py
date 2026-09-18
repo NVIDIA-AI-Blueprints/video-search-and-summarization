@@ -105,10 +105,21 @@ def test_encode_done_does_not_admit_another_clip_while_generation_owns_frames(ev
     assert model.can_enqueue_requests() is True
 
 
-def test_evs_default_caps_outstanding_clips_below_the_generic_batch_size(monkeypatch):
-    """Four concurrent EVS clips leave safe unified-memory headroom on Thor."""
+def test_evs_unset_clip_limit_preserves_generic_batch_size(monkeypatch):
     monkeypatch.setenv("VIA_EVS_SESSION", "true")
     monkeypatch.delenv("VIA_EVS_MAX_INFLIGHT_CLIPS", raising=False)
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._max_batch_size = 32
+    model._multimodal_preprocess_limiter = None
+    model._use_cuda_mm_tensor_ipc = False
+    model._inflight_req_ids = [f"clip-{index}" for index in range(4)]
+
+    assert model.can_enqueue_requests() is True
+
+
+def test_evs_explicit_clip_limit_caps_outstanding_clips(monkeypatch):
+    monkeypatch.setenv("VIA_EVS_SESSION", "true")
+    monkeypatch.setenv("VIA_EVS_MAX_INFLIGHT_CLIPS", "4")
     model = VllmCompatible.__new__(VllmCompatible)
     model._max_batch_size = 32
     model._multimodal_preprocess_limiter = None

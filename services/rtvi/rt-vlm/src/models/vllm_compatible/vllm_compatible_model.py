@@ -534,12 +534,6 @@ _EVS_MM_PROCESSOR_DEFAULTS = {
 # clip is padded up to this many frames before it is handed to the session.
 _EVS_MIN_CLIP_FRAMES = 2
 
-# EVS clips retain their decoded CPU frame arrays through event-triggered
-# generation.  A generic batch of 32 such clips can exhaust unified memory on
-# Thor, so keep a conservative independent bound on outstanding clip futures.
-_DEFAULT_EVS_MAX_INFLIGHT_CLIPS = 4
-
-
 _DEFAULT_MAX_VIDEO_FRAMES = "256"
 
 
@@ -673,10 +667,11 @@ def _is_evs_session_enabled() -> bool:
     return os.environ.get("VIA_EVS_SESSION", "").lower() in ("1", "true")
 
 
-def _get_evs_max_inflight_clips() -> int:
-    max_inflight = _parse_int_env(
-        "VIA_EVS_MAX_INFLIGHT_CLIPS", _DEFAULT_EVS_MAX_INFLIGHT_CLIPS
-    )
+def _get_evs_max_inflight_clips() -> int | None:
+    env_name = "VIA_EVS_MAX_INFLIGHT_CLIPS"
+    if not (_get_rtvi_vllm_env(env_name, "") or "").strip():
+        return None
+    max_inflight = _parse_int_env(env_name, 0)
     if max_inflight < 1:
         raise ValueError(
             "Invalid value for VIA_EVS_MAX_INFLIGHT_CLIPS: "
@@ -2689,7 +2684,9 @@ class VllmCompatible(BaseVlmModel):
                     return False
         max_inflight = self._max_batch_size
         if _is_evs_session_enabled():
-            max_inflight = min(max_inflight, _get_evs_max_inflight_clips())
+            evs_max_inflight = _get_evs_max_inflight_clips()
+            if evs_max_inflight is not None:
+                max_inflight = min(max_inflight, evs_max_inflight)
         return len(self._inflight_req_ids) < max_inflight
 
     def release_idle_resources(self, wait_timeout_sec: float = 0.0):
