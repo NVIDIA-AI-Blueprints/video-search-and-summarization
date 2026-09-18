@@ -31,6 +31,7 @@ import os
 from pathlib import Path
 import re
 from typing import Any
+from typing import Literal
 from urllib.parse import urlsplit
 
 #: Where the resolved deployment lives. Override for tests or for a second
@@ -596,10 +597,14 @@ class MemoryConfig:
         ).validate()
 
 
+VlmBackend = Literal["rt_vlm", "vllm"]
+
+
 @dataclass(frozen=True)
 class VlmConfig:
     """Client-side defaults and optional lock for direct VLM requests."""
 
+    backend: VlmBackend = "rt_vlm"
     timeout: int | None = None
     temperature: float | None = None
     max_tokens: int | None = None
@@ -610,6 +615,10 @@ class VlmConfig:
     locked: bool = False
 
     def validate(self) -> VlmConfig:
+        if self.backend not in {"rt_vlm", "vllm"}:
+            raise ConfigError("VLM backend must be 'rt_vlm' or 'vllm'")
+        if self.backend == "vllm" and self.chunk_duration not in (None, 0):
+            raise ConfigError("positive chunk_duration is supported only by RT-VLM")
         for name, value, low, high in (
             ("timeout", self.timeout, 1, 3600),
             ("max_tokens", self.max_tokens, 1, 1_000_000),
@@ -652,6 +661,7 @@ class VlmConfig:
     def to_json(self) -> dict[str, Any]:
         self.validate()
         values = {
+            "backend": self.backend,
             "timeout": self.timeout,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -667,6 +677,7 @@ class VlmConfig:
         if not isinstance(raw, dict):
             raise ConfigError("config 'vlm' must be a JSON object")
         expected = {
+            "backend",
             "timeout",
             "temperature",
             "max_tokens",
@@ -679,8 +690,12 @@ class VlmConfig:
         unknown = sorted(set(raw) - expected)
         if unknown:
             raise ConfigError(f"config 'vlm' contains unknown fields: {', '.join(unknown)}")
-        values = {name: raw.get(name) for name in expected if name != "locked"}
-        return cls(**values, locked=raw.get("locked", False)).validate()
+        values = {name: raw.get(name) for name in expected if name not in {"backend", "locked"}}
+        return cls(
+            backend=raw.get("backend", "rt_vlm"),
+            **values,
+            locked=raw.get("locked", False),
+        ).validate()
 
 
 @dataclass(frozen=True)

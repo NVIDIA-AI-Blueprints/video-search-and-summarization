@@ -378,6 +378,7 @@ def test_cli_help_shows_required_flags() -> None:
     assert "--enable-reasoning" in result.output
     assert "--disable-reasoning" in result.output
     assert "--no-enable-reasoning" not in result.output
+    assert "--backend" not in result.output
 
 
 def test_cli_disable_reasoning_sends_false(
@@ -570,6 +571,52 @@ def test_run_request_carries_vlm_controls(
     assert captured["json"]["chunk_duration"] == 0
     assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
     assert captured["json"]["use_fps_for_chunking"] is True
+
+
+def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, timeout: float, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(backend="vllm"))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            media_url="http://h/clip.mp4",
+            timeout=600,
+            temperature=0,
+            max_tokens=8192,
+            seed=1,
+            enable_reasoning=False,
+            chunk_duration=0,
+            fps=4,
+        ),
+        ctx,
+    )
+
+    assert captured["timeout"] == 600
+    assert captured["json"]["temperature"] == 0
+    assert captured["json"]["max_tokens"] == 8192
+    assert captured["json"]["seed"] == 1
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "fps": 4,
+        "do_sample_frames": True,
+    }
+    assert "enable_reasoning" not in captured["json"]
+    assert "chunk_duration" not in captured["json"]
+    assert "use_fps_for_chunking" not in captured["json"]
 
 
 def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -842,6 +889,50 @@ def test_run_file_source_uses_base64(
     assert captured["json"]["seed"] == 1
     assert captured["json"]["enable_reasoning"] is False
     assert captured["json"]["chunk_duration"] == 0
+
+
+def test_standalone_vllm_base64_uses_backend_translation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import json as _json
+
+    video_file = tmp_path / "clip.mp4"
+    video_file.write_bytes(b"\x00\x01\x02video")
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, content: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = _json.loads(b"".join(content))
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(backend="vllm"))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            file=str(video_file),
+            enable_reasoning=False,
+            chunk_duration=0,
+            fps=4,
+        ),
+        ctx,
+    )
+
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["json"]["mm_processor_kwargs"] == {
+        "fps": 4,
+        "do_sample_frames": True,
+    }
+    assert "enable_reasoning" not in captured["json"]
+    assert "chunk_duration" not in captured["json"]
+    assert "use_fps_for_chunking" not in captured["json"]
 
 
 def test_run_file_not_found_exits_invalid_input(

@@ -339,21 +339,14 @@ def _rt_vlm_sampling(
     return num_frames or _DEFAULT_FIXED_FRAME_BUDGET, False
 
 
-def _build_vlm_request(
+def _base_request(
     *,
     prompt: str,
     media_url: str,
     model: str,
-    max_tokens: int | None,
-    temperature: float | None,
-    seed: int | None,
-    enable_reasoning: bool | None,
-    chunk_duration: int | None,
-    num_frames: int | None,
-    fps: float | None,
+    inputs: VlmInput,
 ) -> dict[str, Any]:
-    """Build an OpenAI-compatible /v1/chat/completions payload for a URL source."""
-    budget, use_fps = _rt_vlm_sampling(fps, num_frames)
+    """Build the request fields shared by RT-VLM and standalone vLLM."""
     request: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -365,34 +358,79 @@ def _build_vlm_request(
                 ],
             }
         ],
-        "num_frames_per_second_or_fixed_frames_chunk": budget,
-        "use_fps_for_chunking": use_fps,
     }
-    if max_tokens is not None:
-        request["max_tokens"] = max_tokens
-    if temperature is not None:
-        request["temperature"] = temperature
-    if seed is not None:
-        request["seed"] = seed
-    if enable_reasoning is not None:
-        request["enable_reasoning"] = enable_reasoning
-    if chunk_duration is not None:
-        request["chunk_duration"] = chunk_duration
+    if inputs.temperature is not None:
+        request["temperature"] = inputs.temperature
+    if inputs.max_tokens is not None:
+        request["max_tokens"] = inputs.max_tokens
+    if inputs.seed is not None:
+        request["seed"] = inputs.seed
     return request
+
+
+def _build_rt_vlm_request(
+    *,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """Translate one request to RT-VLM's OpenAI-compatible extensions."""
+    request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    budget, use_fps = _rt_vlm_sampling(inputs.fps, inputs.num_frames)
+    request["num_frames_per_second_or_fixed_frames_chunk"] = budget
+    request["use_fps_for_chunking"] = use_fps
+    if inputs.enable_reasoning is not None:
+        request["enable_reasoning"] = inputs.enable_reasoning
+    if inputs.chunk_duration is not None:
+        request["chunk_duration"] = inputs.chunk_duration
+    return request
+
+
+def _build_vllm_request(
+    *,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """Translate one request to standalone vLLM's Qwen processor controls."""
+    request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    if inputs.chunk_duration is not None and inputs.chunk_duration != 0:
+        raise InvalidInput("positive --chunk-duration is not supported by the standalone vLLM backend")
+    if inputs.enable_reasoning is not None:
+        request["chat_template_kwargs"] = {"enable_thinking": inputs.enable_reasoning}
+    if inputs.fps is not None:
+        request["mm_processor_kwargs"] = {
+            "fps": inputs.fps,
+            "do_sample_frames": True,
+        }
+    return request
+
+
+def _build_vlm_request(
+    *,
+    backend: str,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """Build a backend-specific OpenAI-compatible request."""
+    if backend == "rt_vlm":
+        return _build_rt_vlm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    if backend == "vllm":
+        return _build_vllm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    raise config_mod.ConfigError(f"unsupported VLM backend: {backend}")
 
 
 def _iter_base64_json(
     *,
+    backend: str,
     prompt: str,
     file_path: str,
     model: str,
-    max_tokens: int | None,
-    temperature: float | None,
-    seed: int | None,
-    enable_reasoning: bool | None,
-    chunk_duration: int | None,
-    num_frames: int | None,
-    fps: float | None,
+    inputs: VlmInput,
 ) -> Any:
     """Yield the VLM request body as a JSON byte stream, reading the file in 192 KB chunks.
 
@@ -401,32 +439,14 @@ def _iter_base64_json(
     memory simultaneously with the joined string, the data-URI f-string, and the
     json.dumps output -- typically 4-5x the encoded file size.
     """
-    budget, use_fps = _rt_vlm_sampling(fps, num_frames)
     sentinel = f"__b64_{secrets.token_hex(8)}__"
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "video_url", "video_url": {"url": sentinel}},
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
-        "num_frames_per_second_or_fixed_frames_chunk": budget,
-        "use_fps_for_chunking": use_fps,
-    }
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
-    if temperature is not None:
-        payload["temperature"] = temperature
-    if seed is not None:
-        payload["seed"] = seed
-    if enable_reasoning is not None:
-        payload["enable_reasoning"] = enable_reasoning
-    if chunk_duration is not None:
-        payload["chunk_duration"] = chunk_duration
+    payload = _build_vlm_request(
+        backend=backend,
+        prompt=prompt,
+        media_url=sentinel,
+        model=model,
+        inputs=inputs,
+    )
 
     raw = _json_mod.dumps(payload)
     # json.dumps quotes the sentinel; partition on the quoted form.
@@ -461,6 +481,7 @@ class VlmGroup(CommandGroup):
 
         deployment = ctx.deployment or config_mod.load()
         inputs = _apply_vlm_policy(inputs, deployment)
+        backend = deployment.vlm.backend if deployment.vlm is not None else "rt_vlm"
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
 
         if options.use_base64 and inputs.sensor:
@@ -690,16 +711,11 @@ class VlmGroup(CommandGroup):
                 response = httpx.post(
                     vlm_url,
                     content=_iter_base64_json(
+                        backend=backend,
                         prompt=inputs.prompt,
                         file_path=file_to_read,
                         model=model,
-                        max_tokens=inputs.max_tokens,
-                        temperature=inputs.temperature,
-                        seed=inputs.seed,
-                        enable_reasoning=inputs.enable_reasoning,
-                        chunk_duration=inputs.chunk_duration,
-                        num_frames=inputs.num_frames,
-                        fps=inputs.fps,
+                        inputs=inputs,
                     ),
                     headers={"Content-Type": "application/json"},
                     timeout=float(inputs.timeout),
@@ -708,16 +724,11 @@ class VlmGroup(CommandGroup):
                 response = httpx.post(
                     vlm_url,
                     json=_build_vlm_request(
+                        backend=backend,
                         prompt=inputs.prompt,
                         media_url=media_url,
                         model=model,
-                        max_tokens=inputs.max_tokens,
-                        temperature=inputs.temperature,
-                        seed=inputs.seed,
-                        enable_reasoning=inputs.enable_reasoning,
-                        chunk_duration=inputs.chunk_duration,
-                        num_frames=inputs.num_frames,
-                        fps=inputs.fps,
+                        inputs=inputs,
                     ),
                     timeout=float(inputs.timeout),
                 )

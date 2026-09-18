@@ -26,6 +26,7 @@ import json
 from pathlib import Path
 from typing import Any
 from typing import NoReturn
+from typing import cast
 
 import click
 
@@ -655,6 +656,11 @@ def check_memory() -> None:
 
 
 @configure.command("vlm")
+@click.option(
+    "--backend",
+    type=click.Choice(["rt-vlm", "vllm"]),
+    help="VLM request backend.",
+)
 @click.option("--timeout", type=click.IntRange(1, 3600), help="VLM HTTP timeout in seconds.")
 @click.option("--temperature", type=click.FloatRange(0, 1), help="VLM sampling temperature.")
 @click.option("--max-tokens", type=click.IntRange(1, 1_000_000), help="Maximum generated tokens.")
@@ -673,6 +679,7 @@ def check_memory() -> None:
 @click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
 @click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
 def configure_vlm(
+    backend: str | None,
     timeout: int | None,
     temperature: float | None,
     max_tokens: int | None,
@@ -691,7 +698,7 @@ def configure_vlm(
 
     supplied = any(
         value is not None
-        for value in (timeout, temperature, max_tokens, seed, enable_reasoning, chunk_duration, fps, locked)
+        for value in (backend, timeout, temperature, max_tokens, seed, enable_reasoning, chunk_duration, fps, locked)
     )
     if reset:
         if supplied:
@@ -706,7 +713,11 @@ def configure_vlm(
         return
 
     try:
+        resolved_backend = (
+            current.backend if backend is None else cast("config_mod.VlmBackend", backend.replace("-", "_"))
+        )
         policy = config_mod.VlmConfig(
+            backend=resolved_backend,
             timeout=current.timeout if timeout is None else timeout,
             temperature=current.temperature if temperature is None else temperature,
             max_tokens=current.max_tokens if max_tokens is None else max_tokens,

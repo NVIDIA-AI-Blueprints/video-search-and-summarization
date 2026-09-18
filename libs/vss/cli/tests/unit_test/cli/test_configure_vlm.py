@@ -50,6 +50,8 @@ def _locked_policy() -> config_mod.VlmConfig:
 
 def test_configure_vlm_writes_complete_locked_policy(config_home: Path) -> None:
     result = _invoke(
+        "--backend",
+        "rt-vlm",
         "--timeout",
         "600",
         "--temperature",
@@ -68,6 +70,31 @@ def test_configure_vlm_writes_complete_locked_policy(config_home: Path) -> None:
     assert result.exit_code == 0, result.output
     assert config_mod.load().vlm == _locked_policy()
     assert config_home.joinpath("config.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_configure_vlm_writes_standalone_vllm_backend(config_home: Path) -> None:
+    result = _invoke("--backend", "vllm", "--chunk-duration", "0", "--fps", "4")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm == config_mod.VlmConfig(
+        backend="vllm",
+        chunk_duration=0,
+        fps=4,
+    )
+
+
+def test_vlm_config_without_backend_defaults_to_rt_vlm() -> None:
+    policy = config_mod.VlmConfig.from_json({"fps": 4, "locked": True})
+
+    assert policy.backend == "rt_vlm"
+    assert policy.to_json()["backend"] == "rt_vlm"
+
+
+def test_standalone_vllm_rejects_positive_chunk_duration(config_home: Path) -> None:
+    result = _invoke("--backend", "vllm", "--chunk-duration", "5")
+
+    assert result.exit_code != 0
+    assert "positive chunk_duration is supported only by RT-VLM" in result.output
 
 
 def test_configure_vlm_updates_only_supplied_values(config_home: Path) -> None:
