@@ -298,7 +298,7 @@ def parse_cli_output(stdout: str) -> tuple[list[dict[str, Any]], list[str], dict
     """
     text = (stdout or "").strip()
     if not text:
-        return [], [], {}
+        raise QueryUnanswerableError("CLI produced empty stdout; no search result envelope was returned")
 
     documents: list[Any] = []
 

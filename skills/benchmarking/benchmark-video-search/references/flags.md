@@ -58,13 +58,13 @@ one moves a run further from the baseline everything else is compared against.
 # Use a local dataset instead of DSS
 --data-dir ~/Desktop/vss-eval-datasets --dataset warehouse --skip-download
 
-# Default: index holds exactly this dataset
---dataset warehouse --only-dataset
+# Isolate this dataset by deleting foreign sources (explicit and destructive)
+--dataset warehouse --only-dataset --confirm-delete
 
 # Fresh index, wipes everyone's data (destructive)
---dataset warehouse --clear
+--dataset warehouse --clear --confirm-delete
 
-# Shared box — do not touch others' data
+# Default/shared box — do not touch others' data
 --dataset warehouse --skip-existing
 
 # One fixed path instead of routing (baseline only -- not an eval)
@@ -93,4 +93,3 @@ want wall-clock and are reporting retrieval quality alone — CLI queries take
 ~8 s each, so a 673-query set is hours at 1.
 
 ---
-

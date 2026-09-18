@@ -382,6 +382,15 @@ def probe_index_coverage(
     }
 
 
+def expected_sources_from_upload(upload_stats: dict[str, Any]) -> list[str]:
+    """Sources post-ingest probes cover even when the VST wait is skipped."""
+    return [
+        row["video_name"]
+        for row in upload_stats.get("per_file", [])
+        if row.get("success")
+    ] + list(upload_stats.get("skipped_existing") or [])
+
+
 def describe_query_flow(
     query_backend: Any,
     decomposer: Any,
@@ -1245,10 +1254,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     dataset.add_argument("--skip-ingest", action="store_true", help="Assume videos are already indexed")
     dataset.add_argument(
         "--skip-existing",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
-            "Do not re-upload fixtures VST already lists. Use on shared "
-            "deployments, where re-uploading creates a duplicate sensor."
+            "Do not re-upload fixtures VST already lists (default: enabled). "
+            "Use --no-skip-existing only on an isolated deployment."
         ),
     )
 
@@ -1334,7 +1344,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=15.0,
         help="Seconds between index probes (default: 15). Webhook-driven perception is async.",
     )
-    ingest.add_argument(
+    destructive = ingest.add_mutually_exclusive_group()
+    destructive.add_argument(
         "--only-dataset",
         action="store_true",
         help=(
@@ -1343,13 +1354,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "on a shared deployment, and enough to make a run reproducible."
         ),
     )
-    ingest.add_argument(
+    destructive.add_argument(
         "--clear",
         action="store_true",
         help=(
             "Delete ALL videos on the endpoint before ingest -- including any "
             "you did not upload. Do not use on a shared deployment."
         ),
+    )
+    ingest.add_argument(
+        "--confirm-delete",
+        action="store_true",
+        help="Required with --only-dataset or --clear to acknowledge the printed deletion inventory.",
     )
 
     p.add_argument(
@@ -1409,7 +1425,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print the resolved backends and a sample CLI invocation, then exit",
     )
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if (args.only_dataset or args.clear) and not args.confirm_delete:
+        p.error("--only-dataset and --clear require --confirm-delete")
+    if (args.only_dataset or args.clear) and args.skip_ingest:
+        p.error("destructive cleanup cannot be combined with --skip-ingest")
+    if args.confirm_delete and not (args.only_dataset or args.clear):
+        p.error("--confirm-delete requires --only-dataset or --clear")
+    return args
 
 
 def main() -> None:
@@ -1570,13 +1593,14 @@ def main() -> None:
                 "Scoring against a partial index would misreport retrieval quality."
             )
 
+        # Needed by both the optional VST wait and the mandatory index probe.
+        # Defining it inside the wait made --skip-readiness-wait crash later.
+        expected = expected_sources_from_upload(upload_stats)
+
         if not args.skip_readiness_wait:
             # Every fixture must be queryable, not just the ones uploaded this
             # run -- with --skip-existing the rest were skipped precisely
             # because they are already there, and they still get searched.
-            expected = [
-                r["video_name"] for r in upload_stats.get("per_file", []) if r.get("success")
-            ] + list(upload_stats.get("skipped_existing") or [])
             print(f"\nWaiting for {len(expected)} source(s) to register in VST...")
             readiness = flows.wait_for_sources(
                 vst_url, expected, timeout_s=args.readiness_timeout

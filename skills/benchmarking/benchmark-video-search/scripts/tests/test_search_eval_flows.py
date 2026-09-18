@@ -233,9 +233,11 @@ def test_parses_bare_list() -> None:
     assert messages == []
 
 
-def test_parses_empty_and_null_payloads() -> None:
-    assert flows.parse_cli_output("")[0] == []
-    assert flows.parse_cli_output("   \n ")[0] == []
+def test_empty_stdout_is_unanswerable_but_empty_data_is_a_real_zero() -> None:
+    with pytest.raises(flows.QueryUnanswerableError, match="empty stdout"):
+        flows.parse_cli_output("")
+    with pytest.raises(flows.QueryUnanswerableError, match="empty stdout"):
+        flows.parse_cli_output("   \n ")
     assert flows.parse_cli_output('{"data": [], "search_messages": []}')[0] == []
     assert flows.parse_cli_output('{"data": null}')[0] == []
 
@@ -917,6 +919,44 @@ def test_the_default_ingest_flow_is_the_one_the_product_uses() -> None:
     parsed = rf.parse_args(["--endpoint", "http://host:8000"])
     assert parsed.ingest_flow == "vst-direct"
     assert parsed.skip_index_probe is False
+    assert parsed.skip_existing is True
+
+
+@pytest.mark.parametrize("flag", ["--only-dataset", "--clear"])
+def test_destructive_modes_require_confirmation(flag: str) -> None:
+    import run_eval_flows as rf
+
+    with pytest.raises(SystemExit):
+        rf.parse_args(["--endpoint", "http://host:8000", flag])
+    parsed = rf.parse_args(["--endpoint", "http://host:8000", flag, "--confirm-delete"])
+    assert getattr(parsed, flag.removeprefix("--").replace("-", "_")) is True
+
+
+def test_destructive_modes_are_mutually_exclusive_and_cannot_skip_ingest() -> None:
+    import run_eval_flows as rf
+
+    with pytest.raises(SystemExit):
+        rf.parse_args(
+            ["--endpoint", "http://host:8000", "--clear", "--only-dataset", "--confirm-delete"]
+        )
+    with pytest.raises(SystemExit):
+        rf.parse_args(
+            ["--endpoint", "http://host:8000", "--clear", "--confirm-delete", "--skip-ingest"]
+        )
+
+
+def test_expected_sources_exist_even_when_readiness_wait_is_skipped() -> None:
+    import run_eval_flows as rf
+
+    assert rf.expected_sources_from_upload(
+        {
+            "per_file": [
+                {"video_name": "uploaded.mp4", "success": True},
+                {"video_name": "failed.mp4", "success": False},
+            ],
+            "skipped_existing": ["existing.mp4"],
+        }
+    ) == ["uploaded.mp4", "existing.mp4"]
 
 
 # ---------------------------------------------------------------------------
@@ -1776,4 +1816,3 @@ def test_the_absent_sentinel_is_not_mistaken_for_a_real_source() -> None:
     assert _summary(
         {flows.VERIFICATION_ABSENT, "verification"}, {"confirmed": 5}
     )["critic"]["status"] == "ok"
-
