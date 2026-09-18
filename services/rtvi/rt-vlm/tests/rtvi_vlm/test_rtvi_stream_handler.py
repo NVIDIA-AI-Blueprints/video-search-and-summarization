@@ -1494,12 +1494,21 @@ def test_backend_death_terminalizes_all_live_subscribers(stream_handler):
     ]
     for request in requests:
         request.status = RequestInfo.Status.PROCESSING
+        request._live_active_accounted = True
         asset.lock()
         stream_handler._request_info_map[request.request_id] = request
     stream_handler._metrics._active_live_streams_counter = MagicMock()
     stream_handler._cleanup_request_files = MagicMock()
     stream_handler._safe_rmtree = MagicMock()
-    stream_handler._vlm_pipeline.remove_live_stream.return_value = 0.0
+
+    def finish_subscribers_before_remove_returns(*_args, **_kwargs):
+        for request in requests:
+            stream_handler._process_output(request, True, [])
+        return 0.0
+
+    stream_handler._vlm_pipeline.remove_live_stream.side_effect = (
+        finish_subscribers_before_remove_returns
+    )
 
     stream_handler._on_vlm_chunk_response(
         PipelineChunkResult(

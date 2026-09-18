@@ -206,6 +206,7 @@ class RequestInfo:
     status: "RequestInfo.Status" = field(default_factory=lambda: RequestInfo.Status.QUEUED)
     status_event: Event = field(default_factory=Event)
     _live_stop_finalized: bool = False
+    _live_active_accounted: bool = False
 
     # Metrics and monitoring
     _request_metrics: object | None = None
@@ -1621,11 +1622,7 @@ class RTVIStreamHandler:
 
         if req_info.is_live:
             if is_live_stream_ended:
-                was_processing = req_info.status == RequestInfo.Status.PROCESSING
-                self._finish_stopped_live_caption_request(
-                    req_info,
-                    was_processing=was_processing,
-                )
+                self._finish_stopped_live_caption_request(req_info)
                 # End OTEL end-to-end pipeline span
                 if req_info._e2e_span:
                     try:
@@ -3705,6 +3702,7 @@ class RTVIStreamHandler:
 
             self._metrics._active_live_streams_counter.add(1)
             active_counted = True
+            req_info._live_active_accounted = True
 
             # Open vlm_testdata_file once for writing if profiling is enabled
             if self._profile_requests:
@@ -3753,6 +3751,7 @@ class RTVIStreamHandler:
             with self._lock:
                 self._request_info_map.pop(req_info.request_id, None)
             if active_counted:
+                req_info._live_active_accounted = False
                 try:
                     self._metrics._active_live_streams_counter.add(-1)
                 except Exception:
@@ -4027,17 +4026,7 @@ class RTVIStreamHandler:
                 owns_stop = True
                 existing_requests = self._get_registered_live_stream_requests(stream_id)
                 cleanup_required = stream_id in self._live_streams_cleanup_required
-                requests_to_finish = [
-                    (
-                        req_info,
-                        req_info.status == RequestInfo.Status.PROCESSING
-                        or (
-                            req_info.status == RequestInfo.Status.FAILED
-                            and req_info.error_message == MODEL_BACKEND_UNAVAILABLE_MESSAGE
-                        ),
-                    )
-                    for req_info in existing_requests
-                ]
+                requests_to_finish = list(existing_requests)
 
             # Phase B (lock released): drain the pipeline. A retry after a
             # partial failure must call remove_live_stream again even when EOS
@@ -4061,17 +4050,14 @@ class RTVIStreamHandler:
                         self._live_streams_cleanup_required.add(stream_id)
                     raise
 
-                request_ids_to_remove = {req_info.request_id for req_info, _ in requests_to_finish}
+                request_ids_to_remove = {req_info.request_id for req_info in requests_to_finish}
                 with self._lock:
                     for request_id in request_ids_to_remove:
                         self._request_info_map.pop(request_id, None)
                     self._live_streams_cleanup_required.discard(stream_id)
 
-                for req_info, was_processing in requests_to_finish:
-                    self._finish_stopped_live_caption_request(
-                        req_info,
-                        was_processing=was_processing,
-                    )
+                for req_info in requests_to_finish:
+                    self._finish_stopped_live_caption_request(req_info)
 
                 if drain_latency is not None:
                     self._metrics._delete_drain_latency.record(drain_latency)
@@ -4095,7 +4081,6 @@ class RTVIStreamHandler:
         self,
         req_info: RequestInfo,
         *,
-        was_processing: bool,
         release_assets: bool = True,
     ) -> None:
         # EOS and DELETE can race while remove_live_stream() is draining. Claim
@@ -4105,12 +4090,14 @@ class RTVIStreamHandler:
             if req_info._live_stop_finalized:
                 return
             req_info._live_stop_finalized = True
+            decrement_active_count = req_info._live_active_accounted
+            req_info._live_active_accounted = False
             req_info.end_time = time.time()
             if req_info.status not in (RequestInfo.Status.SUCCESSFUL, RequestInfo.Status.FAILED):
                 req_info.status = RequestInfo.Status.SUCCESSFUL
 
         try:
-            if was_processing:
+            if decrement_active_count:
                 try:
                     self._metrics._active_live_streams_counter.add(-1)
                 except Exception:
@@ -4202,7 +4189,6 @@ class RTVIStreamHandler:
                         400,
                     )
 
-                was_processing = matching_request.status == RequestInfo.Status.PROCESSING
                 active_requests = [
                     req_info
                     for req_info in existing_requests
@@ -4257,10 +4243,7 @@ class RTVIStreamHandler:
                 if is_last_request:
                     self._live_streams_cleanup_required.discard(stream_id)
 
-            self._finish_stopped_live_caption_request(
-                matching_request,
-                was_processing=was_processing,
-            )
+            self._finish_stopped_live_caption_request(matching_request)
 
             if is_last_request:
                 if drain_latency is not None:
