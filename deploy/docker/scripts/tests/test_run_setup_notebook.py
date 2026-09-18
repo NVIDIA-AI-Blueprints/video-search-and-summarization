@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import unittest
+from collections.abc import Iterator
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -39,31 +40,51 @@ def without_ipython_magics(source: str) -> str:
     return "\n".join(kept)
 
 
-def bound_names(tree: ast.AST) -> set[str]:
-    """Every name *tree* binds: targets, defs, imports, handlers, and arguments."""
+OWN_SCOPE = (
+    ast.FunctionDef,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+    ast.Lambda,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
 
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+
+def module_scope_nodes(node: ast.AST) -> Iterator[ast.AST]:
+    """*node*'s descendants that run at module scope, nested scopes excluded."""
+
+    for child in ast.iter_child_nodes(node):
+        yield child
+        if not isinstance(child, OWN_SCOPE):
+            yield from module_scope_nodes(child)
+
+
+def module_scope_names(source: str) -> tuple[set[str], set[str]]:
+    """The names *source* reads and the names it binds, both at module scope.
+
+    A local, an argument, or a comprehension target is not a module-level
+    binding, so counting one would let a genuinely undefined global pass the
+    caller's check. Reads inside those scopes are excluded for the same
+    reason: they resolve against the local scope, not the notebook's.
+    """
+
+    read: set[str] = set()
+    bound: set[str] = set()
+    for node in module_scope_nodes(ast.parse(without_ipython_magics(source))):
+        if isinstance(node, ast.Name):
+            names = bound if isinstance(node.ctx, (ast.Store, ast.Del)) else read
             names.add(node.id)
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names.add(node.name)
+            bound.add(node.name)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            names.update(
+            bound.update(
                 alias.asname or alias.name.split(".")[0] for alias in node.names
             )
         elif isinstance(node, ast.ExceptHandler) and node.name:
-            names.add(node.name)
-        elif isinstance(node, ast.arguments):
-            arguments = [
-                *node.posonlyargs,
-                *node.args,
-                *node.kwonlyargs,
-                node.vararg,
-                node.kwarg,
-            ]
-            names.update(argument.arg for argument in arguments if argument)
-    return names
+            bound.add(node.name)
+    return read, bound
 
 
 class ParameterContractTests(unittest.TestCase):
@@ -533,16 +554,11 @@ class NemoClawNotebookContractTests(unittest.TestCase):
         for cell in notebook["cells"]:
             if cell.get("cell_type") != "code":
                 continue
-            tree = ast.parse(without_ipython_magics("".join(cell["source"])))
+            read, bound = module_scope_names("".join(cell["source"]))
             if cell.get("id") != "s37-ui-code":
-                available |= bound_names(tree)
+                available |= bound
                 continue
-            read = {
-                node.id
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
-            }
-            self.assertEqual(sorted(read - bound_names(tree) - available), [])
+            self.assertEqual(sorted(read - bound - available), [])
             return
         self.fail("deploy_nemoclaw.ipynb has no s37-ui-code cell")
 
