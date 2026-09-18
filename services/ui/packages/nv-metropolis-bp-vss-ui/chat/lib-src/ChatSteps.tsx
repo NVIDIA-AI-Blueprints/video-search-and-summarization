@@ -8,7 +8,7 @@
  * markdown HTML and re-parsing them would turn a half-written step into a
  * half-written HTML tag.
  */
-import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
+import { IconChevronDown, IconChevronRight, IconLoader } from '@tabler/icons-react';
 import React, { useState } from 'react';
 
 import { buildDisplayStepTree, countDisplaySteps } from './sse';
@@ -19,6 +19,15 @@ const STATUS_DOT: Record<ChatStep['status'], string> = {
   complete: 'bg-gray-400 dark:bg-gray-500',
   error: 'bg-red-500',
 };
+
+const Spinner: React.FC<{ size: number; label: string }> = ({ size, label }) => (
+  <IconLoader
+    size={size}
+    role="status"
+    aria-label={label}
+    className="animate-spin text-[#76b900]"
+  />
+);
 
 const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean }> = ({ step, defaultOpen }) => {
   const [manual, setManual] = useState<boolean | null>(null);
@@ -42,6 +51,11 @@ const StepNode: React.FC<{ step: ChatStep; defaultOpen: boolean }> = ({ step, de
         ) : (
           <span className="pl-[18px] text-sm text-gray-700 dark:text-gray-300">{step.name}</span>
         )}
+        {step.status === 'in_progress' ? (
+          <span className="ml-auto mt-[3px] flex-shrink-0">
+            <Spinner size={16} label={`${step.name} running`} />
+          </span>
+        ) : null}
       </div>
 
       {open && (
@@ -95,6 +109,12 @@ export const ChatSteps: React.FC<ChatStepsProps> = ({ steps, streaming, expandBy
         <span>
           Intermediate steps ({displayedStepCount}){streaming ? ' — running' : ''}
         </span>
+        {/* Collapsed hides every per-step spinner, so the header carries one too. */}
+        {streaming ? (
+          <span className="ml-auto flex-shrink-0">
+            <Spinner size={16} label="Intermediate steps running" />
+          </span>
+        ) : null}
       </button>
       {open && (
         <ul className="mt-2 flex flex-col gap-1">
