@@ -596,8 +596,8 @@ sandbox during that first task. Specs outside `skills/operations/`, including
 `vss-build-vision-ai`, use the coding route throughout. Worker selection and
 locking remain route-independent.
 
-Manual dispatch exposes matching `coding_*` and `operational_*` harness,
-provider, and model inputs. Both NVIDIA inference routes use the fixed public
+Manual dispatch exposes matching `coding_*` and `operational_*` harness and
+model inputs. Both routes use the fixed public
 `https://inference.nvidia.com/v1` API base; there is no endpoint input that can
 redirect a runner credential. `model_config.py` validates both routes before
 `run_leg.py` waits for a worker. One route must never inherit an override from
