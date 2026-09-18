@@ -202,82 +202,79 @@ agent service rather than the deployment origin.
 
 ```console
 $ curl -sS http://localhost:8000/api/v1/version
-{"service":"vss","version":"3.3.0"}
+{"service":"vss","version":"3.3.0+tree.4d9b2c1"}
 ```
 
-`service` is always `vss`. `version` is the configured deployment version and
-must be strict [Semantic Versioning 2.0.0](https://semver.org/):
+`service` is always `vss`. `version` is the deployed version and must be strict
+[Semantic Versioning 2.0.0](https://semver.org/):
 `MAJOR.MINOR.PATCH`, optionally followed by a prerelease suffix and build
 metadata (for example, `3.3.0-rc.1+build.42`). The official SemVer grammar is
 enforced, so `03.3.0`, `3.3.0-01`, `3.3.0-.` and `v1.0.0` are all rejected.
 
-**Where it comes from.** Resolution lives in the library,
-[`vss_core.version`](../../libs/vss/core/src/vss_core/version.py), and three
-sources are consulted in order:
+**Where it comes from.** One version, not several: what a deployment reports is
+the version of the `nvidia-vss-core` library the running process imported.
+Resolution lives in that library,
+[`vss_core.version`](../../libs/vss/core/src/vss_core/version.py):
 
 | Order | Source | Notes |
 |-------|--------|-------|
-| 1 | `VSS_DEPLOYMENT_VERSION` | Dedicated to the reported version. Feeds nothing else. Set by both deployment paths. |
-| 2 | `VSS_AGENT_VERSION` | Legacy fallback. Also used for telemetry project naming and as the fallback container image tag. |
-| 3 | The checkout's git tags | Derived with `git describe`, for a run with no deployment environment at all — `nat serve` from a clone. |
+| 1 | `VSS_DEPLOYMENT_VERSION` | An operator override. Nothing sets it by default; it exists only to correct a wrong stamp without a rebuild. |
+| 2 | The installed `nvidia-vss-core` version | The unified source, and what every deployed stack answers from. |
+| 3 | The checkout's git tags | Derived with `git describe`, only for a run with no install metadata at all — `nat serve` against a source tree on `PYTHONPATH`. |
 
-The first variable that is set to a non-empty value wins. If that value is not
-valid SemVer the endpoint returns HTTP 503 rather than falling through to the
-next source, so a misconfigured deployment reports a problem instead of
-silently serving something else.
+The override wins outright when it is set to a non-empty value. If that value
+is not strict SemVer the endpoint returns HTTP 503 rather than falling through
+to the installed version: an operator correcting a stamp wrongly should see the
+problem, not the value they were trying to replace.
+
+`VSS_AGENT_VERSION` is **not** consulted. It carries the Phoenix telemetry
+project name and doubles as the fallback container image tag
+(`${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}` in
+[`compose.yml`](../../deploy/docker/services/agent/compose.yml)), so it
+routinely holds something tag-shaped like `develop-latest` rather than a
+version. Those uses remain; the version endpoint ignores it.
+
+**How the stamp is made.** The image build has no `.git` to version from — the
+Dockerfile copies individual paths and never the history — so it passes the
+version in explicitly as `<release line>+tree.<source tree sha>`: the release
+line declared by
+[`Chart.yaml`](../../deploy/helm/services/agent/Chart.yaml), with the git tree
+hash of the image's source folder as build metadata. Hence `3.3.0+tree.<sha>`.
+The local segment must stay a function of the source *tree* and never of the
+commit, because `build-dev-images.yml` re-tags an already-published manifest
+onto a later commit whose tree is identical; a commit-derived stamp would both
+defeat that reuse and let a re-tagged image report the commit it was first
+built from.
+
+SemVer precedence ignores build metadata, which is what makes the stamp usable
+for range checks: `3.3.0+tree.<sha>` satisfies `>=3.3.0,<4.0.0` exactly as a
+bare `3.3.0` does.
+
+Neither deployment path sets anything, and neither needs to: a stock Compose or
+Helm deployment answers 200 from the stamp. Compose passes
+`VSS_DEPLOYMENT_VERSION` through with no default, and the Helm chart renders it
+from `vssDeploymentVersion` alone — deliberately not from the chart version,
+which would let a chart upgraded ahead of the image report a release the image
+does not contain.
 
 The derived version (source 3) is the last `v[0-9]*` tag reachable from `HEAD`,
 its commit distance as a prerelease, and the short SHA as build metadata —
 `3.2.1-dev.1519+gc85c4a4e8`, suffixed `.dirty` for a tree with uncommitted
 changes, or bare `3.2.1` when sitting on the tag with a clean tree. This is the
-same `git describe` invocation the packages' `hatch-vcs` versioning uses, so
-the derived version and an installed package's version describe the same
-commit. Note that the release is the last tag **reached**, not the next one: a
-develop commit heading for 3.3.0 derives `3.2.1-dev.N`, because 3.3.0 is not a
-fact yet. A deployment that knows its release says so via
-`VSS_DEPLOYMENT_VERSION`, which outranks the derivation.
+same `git describe` invocation the packages' `hatch-vcs` versioning uses, so a
+source run and an installed package built from the same commit agree. Note that
+the release is the last tag **reached**, not the next one: a develop commit
+heading for 3.3.0 derives `3.2.1-dev.N`, because 3.3.0 is not a fact yet. An
+installed package states its release line instead of deriving it, which is why
+this source is last.
 
 The module is standard-library only and runs as a file, so tooling on a host
-without VSS installed can ask for the same value the endpoint would derive:
+without VSS installed can ask for the same value the endpoint would report:
 
 ```console
 $ python3 libs/vss/core/src/vss_core/version.py
 3.2.1-dev.1519+gc85c4a4e8
 ```
-
-The agent's *own installed package metadata* is deliberately not a source. The
-image build copies individual paths and never `.git`, so there is no history to
-version from; the Dockerfile stamps the packages `0.0.0+tree.<source tree sha>`
-instead. That is image provenance and says so — `0.0.0` claims no release, and
-the local segment names the exact source tree, matching the
-`com.nvidia.vss.source_tree_sha` label. Baking a real version in as a build
-argument is not an option either: agent images are content-addressed and
-re-tagged across commits with an identical source tree, so a commit-derived
-stamp would both defeat that reuse and let a re-tagged image report the commit
-it was first built from.
-
-`VSS_DEPLOYMENT_VERSION` exists because `VSS_AGENT_VERSION` also resolves the
-agent's container image tag
-(`${VSS_CONTAINER_TAG:-${VSS_AGENT_VERSION:-develop-latest}}` in
-[`compose.yml`](../../deploy/docker/services/agent/compose.yml)). Giving that
-variable a default would change which image a deployment pulls;
-`VSS_DEPLOYMENT_VERSION` appears in no `image:` line, so defaulting it cannot.
-
-Both deployment paths default it, so a stock deployment answers 200 with no
-operator action. An operator override can take that away — the 503 rules below
-still apply to whatever the override sets:
-
-- **Docker Compose** — [`containers.env`](../../deploy/docker/containers.env)
-  and the inline default in
-  [`compose.yml`](../../deploy/docker/services/agent/compose.yml) set `3.3.0`.
-- **Helm** — the agent chart sets
-  `vssDeploymentVersion | default vssAgentVersion | default .Chart.Version`, and
-  the stock `vssAgentVersion` is `3.3.0-65576357eb80`, which is valid SemVer. A
-  chart that pins `vssAgentVersion` keeps reporting that value **only when the
-  pinned value is itself strict SemVer**. `vssAgentVersion` is also the fallback
-  container image tag, so an image-tag-shaped value such as `develop-latest` is
-  routine there and makes the endpoint answer 503. Whenever `vssAgentVersion`
-  carries anything that is not a version, set `vssDeploymentVersion` explicitly.
 
 **404 versus 503.** Both are failures to report a version, but they mean
 different things and call for different operator actions. Reading 503 as the
@@ -287,7 +284,7 @@ check is aimed at an origin that does not route `/api` to the agent.
 | Status | Means | Operator action |
 |--------|-------|-----------------|
 | `404` | The deployment predates this endpoint and cannot report a version at all, **or** this origin's ingress does not route `/api` to the agent (the warehouse Helm ingress does not). | Upgrade the deployment, or point the check at the agent's own origin. |
-| `503` | No source produced a usable version: the winning variable is set but is not strict SemVer, or nothing is set and there are no git tags to derive from (a container, or a shallow clone). | Set `VSS_DEPLOYMENT_VERSION` (`vssDeploymentVersion` on Helm) to a strict SemVer value. |
+| `503` | No source produced a usable version: `VSS_DEPLOYMENT_VERSION` is set but is not strict SemVer, or nothing is set and there is neither an installed `nvidia-vss-core` nor a reachable git tag to derive from (a source run in a shallow clone). | Fix or clear `VSS_DEPLOYMENT_VERSION` (`vssDeploymentVersion` on Helm); if nothing is set, the image is missing its stamp and needs rebuilding — override it to a strict SemVer value meanwhile. |
 
 **Seeing it.** `vss configure check` reports the version alongside its route
 probes, or says why the deployment cannot report one — a lean stack without the
@@ -370,11 +367,11 @@ A range is a comma-separated list of comparators, **all** of which must hold —
 `>=`, `>`, `<`, `<=` and `==`, each followed by a bare `MAJOR.MINOR.PATCH` bound
 with no prerelease or build metadata (`>=3.2.0,<4.0.0`). Comparison uses those
 three numbers only: **prerelease and build metadata are ignored, so a prerelease
-of X.Y.Z counts as X.Y.Z.** That is deliberate. Helm defaults the deployment to
-`3.3.0-65576357eb80` and Compose to a bare `3.3.0`, and under semver.org
-precedence a prerelease precedes its release, so `>=3.3.0` would otherwise
-reject the stock Helm deployment. The same skill must behave identically on
-Compose and Helm, so the suffix is not considered.
+of X.Y.Z counts as X.Y.Z.** That is deliberate, and it is what lets a stamped
+image be range-checked at all: a deployment reporting `3.3.0+tree.<sha>` or a
+`3.3.0-rc.1` prerelease of the same release line satisfies `>=3.3.0,<4.0.0`,
+where under semver.org precedence a prerelease would otherwise be rejected. A
+skill's range names release lines, not individual builds.
 
 **Who bumps a range.** The skill's own owner — the VSS benchmarking skill owner
 named in the `author` field of its front matter (currently "NVIDIA Video Search
@@ -407,8 +404,8 @@ or are only needed for specific features.
 | `VSS_AGENT_PORT` | no | `8000` | Agent HTTP port |
 | `VSS_AGENT_OBJECT_STORE_TYPE` | no | `local_object_store` | Object store: `local_object_store` (in-memory) or `s3` |
 | `VSS_AGENT_REPORTS_BASE_URL` | no | — | Base URL for generated report assets |
-| `VSS_DEPLOYMENT_VERSION` | no | `3.3.0` (Compose), `3.3.0-65576357eb80` (Helm, via `vssAgentVersion`); a checkout with neither variable derives its version from git tags | Strict SemVer version reported by `GET /api/v1/version`; feeds no image tag |
-| `VSS_AGENT_VERSION` | no | — | Telemetry project naming and fallback container image tag; also the fallback for `GET /api/v1/version` |
+| `VSS_DEPLOYMENT_VERSION` | no | — (unset; the installed `nvidia-vss-core` version is reported) | Strict SemVer override for `GET /api/v1/version`, for correcting a wrong image stamp; feeds no image tag |
+| `VSS_AGENT_VERSION` | no | — | Telemetry project naming and fallback container image tag; not consulted by `GET /api/v1/version` |
 | `PHOENIX_ENDPOINT` | no | — | Phoenix tracing endpoint (e.g. `http://HOST:6006`) |
 | `EVAL_LLM_JUDGE_NAME` | no | same as `LLM_NAME` | Model used for evaluation judge |
 | `EVAL_LLM_JUDGE_BASE_URL` | no | same as `LLM_BASE_URL` | Endpoint for evaluation judge |

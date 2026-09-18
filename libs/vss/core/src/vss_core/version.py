@@ -20,30 +20,35 @@ VSS installed can still ask for the derived version::
 
     python3 libs/vss/core/src/vss_core/version.py
 
+One version, not several: what a deployment reports is the version of the
+``nvidia-vss-core`` library the running process imported.
+
 Resolution order, most authoritative first:
 
-1. ``VSS_DEPLOYMENT_VERSION`` — set by Compose and Helm; the deployment's own
-   statement of what it is.
-2. ``VSS_AGENT_VERSION`` — legacy fallback, for deployments predating the
-   dedicated variable. Also feeds image tags, so it often holds a tag rather
-   than a version; a non-SemVer value is rejected, not worked around.
+1. ``VSS_DEPLOYMENT_VERSION`` — an operator override. Nothing sets it by
+   default; it exists only so a deployment carrying a wrong stamp can be
+   corrected without a rebuild. A value that is set but is not strict SemVer
+   yields ``None`` rather than falling through, because a stated version that
+   is wrong is worth surfacing.
+2. :func:`library_version` — the installed ``nvidia-vss-core`` distribution.
+   The unified source.
 3. :func:`describe_version` — the checkout's ``git describe``, for a run with
-   no deployment environment at all (``nat serve`` from a clone). Answers with
+   no install metadata at all (``nat serve`` from a source tree). Answers with
    the source it is actually running rather than nothing.
 
-Deliberately NOT consulted: this package's own installed metadata. The build
-context copies individual paths and never ``.git``, so there is no history to
-version from; ``services/agent/docker/Dockerfile`` stamps the packages
-``0.0.0+tree.<source tree sha>`` instead, which is image provenance and says so
-— ``0.0.0`` claims no release. Baking a real version in at build time is not an
-option either: agent images are content-addressed and re-tagged across commits
-with an identical source tree (``build-dev-images.yml``), so a commit-derived
-stamp would both defeat that reuse and let a re-tagged image report the commit
-it was first built from.
+The build stamps the packages ``<release line>+tree.<source tree sha>``: a real
+release line, with the tree that produced it as build metadata. The stamp must
+remain a function of the source *tree* and never of the commit, because
+``build-dev-images.yml`` re-tags an existing image across commits whose tree is
+identical — a commit-derived stamp would both defeat that reuse and let a
+re-tagged image report the commit it was first built from. SemVer precedence
+ignores build metadata, so ``3.3.0+tree.<sha>`` still satisfies a range like
+``>=3.3.0,<4.0.0``.
 """
 
 from __future__ import annotations
 
+import importlib.metadata
 import os
 from pathlib import Path
 import re
@@ -74,8 +79,8 @@ SEMVER_PATTERN = re.compile(
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
 
-#: Checked in order; the first one set to a non-empty value wins outright.
-DEPLOYMENT_VERSION_ENV_VARS = ("VSS_DEPLOYMENT_VERSION", "VSS_AGENT_VERSION")
+#: The operator override; set to a non-empty value it wins outright.
+DEPLOYMENT_VERSION_ENV_VAR = "VSS_DEPLOYMENT_VERSION"
 
 # `git describe --long` output: <tag>-<distance>-g<sha>, plus `-dirty` when the
 # working tree has uncommitted changes. The tag match and the flags are those
@@ -156,8 +161,8 @@ def describe_version(repo_root: Path | None = None) -> str | None:
 
     Note the release is the *last tag reached*, not the next one: a develop
     commit heading for 3.3.0 derives ``3.2.1-dev.N``, because 3.3.0 is not a
-    fact yet. A deployment that knows better says so via
-    ``VSS_DEPLOYMENT_VERSION``, which outranks this.
+    fact yet. Only reached when there is no installed ``nvidia-vss-core`` to
+    ask, which states the release line rather than deriving it.
     """
     root = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parent
     described = _run_git(root, *GIT_DESCRIBE_COMMAND)
@@ -177,19 +182,38 @@ def describe_version(repo_root: Path | None = None) -> str | None:
     return _compose(release, match.group("distance"), build)
 
 
+def library_version() -> str | None:
+    """Return the installed ``nvidia-vss-core`` version as SemVer, or ``None``.
+
+    The version of the VSS library the running process imported, which is what
+    the whole deployment reports: in an image the build stamps it with the
+    release line, in a checkout install ``hatch-vcs`` derives it from the tags.
+
+    ``None`` when the package is not installed (a source tree on
+    ``PYTHONPATH``) or when its metadata cannot be normalised to SemVer.
+    """
+    try:
+        installed = importlib.metadata.version("nvidia-vss-core")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    return pep440_to_semver(installed)
+
+
 def resolve_deployment_version(repo_root: Path | None = None) -> str | None:
     """Return the version this deployment should report, or ``None``.
 
-    Applies the order in the module docstring. An environment variable that is
-    set but not valid SemVer yields ``None`` rather than falling through to the
-    next source: a misconfigured deployment should surface the problem, not
-    quietly report something else.
+    Applies the order in the module docstring. An override that is set but not
+    valid SemVer yields ``None`` rather than falling through to the installed
+    version: an operator correcting a stamp wrongly should see the problem, not
+    the value they were trying to replace.
     """
-    for name in DEPLOYMENT_VERSION_ENV_VARS:
-        configured = os.getenv(name, "").strip()
-        if not configured:
-            continue
+    configured = os.getenv(DEPLOYMENT_VERSION_ENV_VAR, "").strip()
+    if configured:
         return configured if SEMVER_PATTERN.fullmatch(configured) else None
+
+    installed = library_version()
+    if installed is not None:
+        return installed
     return describe_version(repo_root)
 
 
@@ -198,9 +222,9 @@ def main() -> int:
     resolved = resolve_deployment_version()
     if resolved is None:
         print(
-            "error: no VSS version to report: neither "
-            f"{' nor '.join(DEPLOYMENT_VERSION_ENV_VARS)} is set to a valid Semantic Versioning "
-            "2.0.0 value, and this tree has no reachable 'v*' tag to derive one from.",
+            f"error: no VSS version to report: {DEPLOYMENT_VERSION_ENV_VAR} is not set to a valid "
+            "Semantic Versioning 2.0.0 value, nvidia-vss-core is not installed with a usable "
+            "version, and this tree has no reachable 'v*' tag to derive one from.",
             file=sys.stderr,
         )
         return 1
