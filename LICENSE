@@ -12,7 +12,9 @@ File-level exceptions:
     Apache-2.0 is licensed as stated in that file, which prevails over this
     notice for that file. In particular, vendored NVIDIA SDK headers under
     services/vios/src/framework/webrtc_streamer/inc/nvmultimedia/ and the
-    DeepStream schema services/vios/src/framework/notification/ds_schema_2d.proto
+    DeepStream schema services/vios/src/framework/notification/ds_schema_2d.proto,
+    and the vendored NVIDIA proprietary license text at
+    services/vios/LICENSE_libnvjpeg
     are provided under LicenseRef-NvidiaProprietary, and NVIDIA-authored
     WebRTC/V4L2 codec headers under services/vios/src/framework/webrtc_streamer/inc/
     are provided under BSD-3-Clause.
@@ -23,7 +25,6 @@ File-level exceptions:
       - assets/NVIDIA-Software-License-Agreement.pdf
       - services/rtvi/rt-embed/docker/NVIDIA-Software-License-Agreement.pdf
       - services/rtvi/rt-vlm/docker/NVIDIA-Software-License-Agreement.pdf
-      - services/vios/LICENSE_libnvjpeg
 
 This project also contains Elasticsearch, Kibana and Redis configuration files, which are dual-licensed and may be used under your choice of either:
    - Server Side Public License v1 (SSPLv1)
