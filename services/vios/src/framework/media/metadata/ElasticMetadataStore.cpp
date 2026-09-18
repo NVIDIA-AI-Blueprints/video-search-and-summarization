@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iterator>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -50,6 +51,26 @@ namespace
     // overlay.video_metadata_wait_timeout_ms; this constant is the fallback
     // when the config value is not positive.
     constexpr int      GET_WAIT_BUDGET_MS = 1000;
+
+    // Adaptive retry for the parallel slice fetch in prefetchRange. When
+    // Elasticsearch rejects a slice (HTTP 429 / 503) the wave's parallelism is
+    // halved after a short pause and only the rejected slices are re-fetched, so
+    // a rate-limited server never sees the full fan-out again. Once parallelism
+    // is down to 1 the remaining attempts back off from
+    // PREFETCH_RETRY_BASE_DELAY_MS, doubling each time; after
+    // PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS rejections at parallelism 1 the
+    // prefetch gives up on the slices still outstanding.
+    constexpr int PREFETCH_RETRY_REDUCE_PAUSE_MS     = 10;
+    constexpr int PREFETCH_RETRY_BASE_DELAY_MS       = 200;
+    constexpr int PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS = 3;
+
+    // HTTP statuses Elasticsearch uses to refuse (rather than fail) a request:
+    // 429 = request circuit breaker / too many requests, 503 = thread pool queue
+    // full. Both are transient and worth retrying at lower load.
+    bool isEsRejected(int httpStatus)
+    {
+        return httpStatus == 429 || httpStatus == 503;
+    }
 }
 
 ElasticMetadataStore::ElasticMetadataStore(MetadataParams& params, bool use_frameid)
@@ -358,25 +379,53 @@ void ElasticMetadataStore::prefetchRange()
                                     convertEpocToISO8601_2(endBoundMs * 1000));
             }
 
-            // Fetch the slices in parallel, at most maxParallel at a time (same
-            // idiom as streamrecorder's parallel duration retrieval). The cap
-            // (overlay.video_metadata_query_max_threads, clamped 1..10 by the
-            // config parser) keeps concurrent full-source fetches under the
-            // Elasticsearch request circuit breaker.
+            // Fetch the slices in parallel, at most `parallel` at a time (same
+            // idiom as streamrecorder's parallel duration retrieval). The
+            // starting cap (overlay.video_metadata_query_max_threads, clamped
+            // 1..10 by the config parser) keeps concurrent full-source fetches
+            // under the Elasticsearch request circuit breaker. If Elasticsearch
+            // still rejects a slice (HTTP 429/503) the parallelism is halved and
+            // only the rejected slices are re-fetched.
             const size_t maxParallel = static_cast<size_t>(
                 std::max(1, GET_CONFIG().video_metadata_query_max_threads));
+            size_t parallel = maxParallel;
+
+            // Per-slice results, indexed like `slices`. `done` marks slices with
+            // a final result (fetched, or given up on).
+            std::vector<std::vector<Json::Value>> perSlice(slices.size());
+            std::vector<bool> done(slices.size(), false);
+
+            // Work list of slice indices still to fetch, kept in time order.
+            // Rejected slices are re-queued at the front so they are retried
+            // before any later slice is dispatched.
+            std::vector<size_t> todo(slices.size());
+            for (size_t i = 0; i < slices.size(); ++i)
+            {
+                todo[i] = i;
+            }
+
+            // Publish watermark: index of the next slice to push to the queue.
+            // Slices are pushed strictly in index (time) order so the queue
+            // stays globally ascending even while a middle slice is retried.
+            size_t published = 0;
 
             std::vector<Json::Value> all;
             bool anyReachable = false;
-            for (size_t base = 0; base < slices.size(); base += maxParallel)
+            int  serialRejects = 0;   // rejected waves at parallel == 1 (budget per prefetch)
+            bool gaveUp = false;
+
+            while (!todo.empty())
             {
-                const size_t batchEnd = std::min(slices.size(), base + maxParallel);
-                std::vector<async::task<std::pair<bool, std::vector<Json::Value>>>> tasks;
-                tasks.reserve(batchEnd - base);
-                for (size_t i = base; i < batchEnd; ++i)
+                const size_t waveSize = std::min(todo.size(), parallel);
+                std::vector<size_t> wave(todo.begin(), todo.begin() + waveSize);
+                todo.erase(todo.begin(), todo.begin() + waveSize);
+
+                std::vector<async::task<elasticSearch::RangeFetchResult>> tasks;
+                tasks.reserve(wave.size());
+                for (size_t idx : wave)
                 {
-                    const std::string sStart = slices[i].first;
-                    const std::string sEnd   = slices[i].second;
+                    const std::string sStart = slices[idx].first;
+                    const std::string sEnd   = slices[idx].second;
                     tasks.push_back(async::spawn([sensor, sStart, sEnd]
                     {
                         return elasticSearch::fetchRangeHits(sensor, sStart, sEnd,
@@ -384,44 +433,112 @@ void ElasticMetadataStore::prefetchRange()
                     }));
                 }
 
-                std::vector<Json::Value> batch;
-                for (auto& t : tasks)
+                std::vector<size_t> rejected;
+                for (size_t k = 0; k < wave.size(); ++k)
                 {
-                    std::pair<bool, std::vector<Json::Value>> part = t.get();
-                    anyReachable = anyReachable || part.first;
-                    batch.insert(batch.end(),
-                                 std::make_move_iterator(part.second.begin()),
-                                 std::make_move_iterator(part.second.end()));
-                }
-
-                // Slices within a batch arrive out of order; the consumer needs
-                // ascending timestamps. Batches are dispatched in time order, so
-                // sorting each batch and pushing it keeps the queue globally
-                // ascending.
-                std::sort(batch.begin(), batch.end(),
-                          [](const Json::Value& a, const Json::Value& b)
-                          {
-                              return a["epocTime"].asUInt64() < b["epocTime"].asUInt64();
-                          });
-
-                // Publish this batch now so frames blocked in getMetadata can
-                // start drawing while later batches are still being fetched.
-                // The queue mutex is the only lock taken here and is released
-                // before signaling (SyncObject has its own internal mutex).
-                {
-                    std::lock_guard<std::mutex> guard(metadataQueueMutex());
-                    for (auto& h : batch)
+                    elasticSearch::RangeFetchResult res = tasks[k].get();
+                    const size_t idx = wave[k];
+                    if (isEsRejected(res.httpStatus))
                     {
-                        metadataQueue().push(h);
+                        // ES answered but refused the request: it is reachable,
+                        // the slice just needs to be retried at lower load.
+                        anyReachable = true;
+                        rejected.push_back(idx);
+                        continue;
                     }
+                    anyReachable = anyReachable || res.reachable;
+                    perSlice[idx] = std::move(res.hits);
+                    done[idx] = true;
                 }
-                m_dataReady.signal();
 
-                // Keep the full, ordered record list for the bookkeeping below
-                // (size, search_after seed, empty-range handling).
-                all.insert(all.end(),
-                           std::make_move_iterator(batch.begin()),
-                           std::make_move_iterator(batch.end()));
+                if (!rejected.empty())
+                {
+                    if (parallel > 1)
+                    {
+                        parallel = parallel / 2;
+                        LOG(warning) << "prefetchRange: Elasticsearch rejected "
+                                     << rejected.size() << " slice(s) for camera "
+                                     << sensor << "; reducing parallel fetches to "
+                                     << parallel << endl;
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(PREFETCH_RETRY_REDUCE_PAUSE_MS));
+                    }
+                    else if (++serialRejects <= PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS)
+                    {
+                        const int delayMs = PREFETCH_RETRY_BASE_DELAY_MS << (serialRejects - 1);
+                        LOG(warning) << "prefetchRange: Elasticsearch still rejecting at "
+                                        "parallel=1 for camera " << sensor
+                                     << "; retry " << serialRejects << "/"
+                                     << PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS
+                                     << " in " << delayMs << " ms" << endl;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+                    }
+                    else
+                    {
+                        // ES keeps rejecting even one request at a time. Give up
+                        // on everything still outstanding (rejected + not yet
+                        // dispatched); those slices publish as empty so the
+                        // watermark can drain.
+                        LOG(error) << "prefetchRange: giving up on "
+                                   << (rejected.size() + todo.size())
+                                   << " slice(s) for camera " << sensor
+                                   << " after repeated Elasticsearch rejections" << endl;
+                        for (size_t idx : rejected)
+                        {
+                            done[idx] = true;
+                        }
+                        for (size_t idx : todo)
+                        {
+                            done[idx] = true;
+                        }
+                        todo.clear();
+                        rejected.clear();
+                        gaveUp = true;
+                    }
+                    // Everything left in todo was dispatched after this wave, so
+                    // every rejected index precedes it; prepending keeps order.
+                    todo.insert(todo.begin(), rejected.begin(), rejected.end());
+                }
+
+                // Publish every finished slice up to the first unfinished one.
+                // Each slice comes back ascending from ES; the sort only covers
+                // the 3D-sensor case where epocTime is taken from a different
+                // field. Pushing in index order keeps the queue globally
+                // ascending, so frames blocked in getMetadata can start drawing
+                // while later (or retried) slices are still being fetched.
+                bool advanced = false;
+                while (published < slices.size() && done[published])
+                {
+                    std::vector<Json::Value>& hits = perSlice[published];
+                    std::sort(hits.begin(), hits.end(),
+                              [](const Json::Value& a, const Json::Value& b)
+                              {
+                                  return a["epocTime"].asUInt64() < b["epocTime"].asUInt64();
+                              });
+
+                    // The queue mutex is the only lock taken here and is released
+                    // before signaling (SyncObject has its own internal mutex).
+                    {
+                        std::lock_guard<std::mutex> guard(metadataQueueMutex());
+                        for (auto& h : hits)
+                        {
+                            metadataQueue().push(h);
+                        }
+                    }
+
+                    // Keep the full, ordered record list for the bookkeeping
+                    // below (size, search_after seed, empty-range handling).
+                    all.insert(all.end(),
+                               std::make_move_iterator(hits.begin()),
+                               std::make_move_iterator(hits.end()));
+                    hits.clear();
+                    ++published;
+                    advanced = true;
+                }
+                if (advanced)
+                {
+                    m_dataReady.signal();
+                }
             }
 
             if (!all.empty())
@@ -475,8 +592,19 @@ void ElasticMetadataStore::prefetchRange()
                     std::min<size_t>(all.size(), PREFETCH_DATASIZE_CAP));
             }
 
+            if (gaveUp)
+            {
+                // Elasticsearch kept rejecting requests and some slices were
+                // never fetched. Stop the per-frame blocking wait so frames past
+                // the missing slices are emitted immediately instead of each
+                // stalling for the wait budget (same degradation as ES down).
+                m_blockingGet = false;
+            }
+
             LOG(info) << "prefetchRange: loaded " << all.size() << " records over "
                       << slices.size() << " slice(s), maxParallel=" << maxParallel
+                      << ", finalParallel=" << parallel
+                      << ", gaveUp=" << gaveUp
                       << ", fullRange=" << coversWholeRange
                       << ", camera=" << sensor << endl;
         }
