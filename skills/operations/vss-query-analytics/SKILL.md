@@ -125,6 +125,12 @@ vss vios list
 Choose the command matching the user's wording. If the distinction is unclear,
 explain it and ask which inventory they mean.
 
+Whenever the final reply reports both inventories, state their different
+meanings in that reply: the analytics inventory is sensors observed in
+analytics/event data, and the VIOS inventory is sensors registered in Video
+Storage. The inventories can differ. Matching counts, including two empty
+lists, do not make them the same inventory.
+
 ### Metrics
 
 ```bash

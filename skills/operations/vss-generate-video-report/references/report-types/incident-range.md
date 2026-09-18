@@ -36,9 +36,17 @@ vss analytics incidents \
 ```
 
 `--source` and `--source-type` go together: keep both for a sensor scope, omit
-BOTH for an all-sensors query. Always keep `--vlm-verdict all`: Alerts stores
-the incidents used by this report in the VLM-verified incident index, including
-both confirmed and rejected verdicts.
+BOTH for an all-sensors query. Always keep `--vlm-verdict all`, including a
+latest-incident lookup: Alerts stores the incidents used by this report in the
+VLM-verified incident index, including both confirmed and rejected verdicts.
+Never omit `--vlm-verdict all` (that queries the raw incident index). Do not
+add unsupported sort flags; the API already returns newest-`end` first. For
+“last / latest / most recent incident”, omit the time bounds unless the user
+named a range, use `--limit 1`, and generate the report only from that returned
+incident. If the command exits 0 with `count` 0 / `incidents` `[]`, STOP and
+return the Mode B empty-range line; never invent an incident, safety concerns,
+severity, or corrective actions, and never fall back to raw Elasticsearch,
+VA-MCP, Mode A, or fabricated data.
 
 Read-only boundary (mandatory):
 - Mode B is strictly read-only analytics retrieval. Never write, seed, backfill, or mutate Elasticsearch/VA data.
