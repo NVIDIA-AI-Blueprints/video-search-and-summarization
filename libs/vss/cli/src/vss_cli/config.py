@@ -597,20 +597,105 @@ class MemoryConfig:
 
 
 @dataclass(frozen=True)
+class VlmConfig:
+    """Client-side defaults and optional lock for direct VLM requests."""
+
+    timeout: int | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    seed: int | None = None
+    enable_reasoning: bool | None = None
+    chunk_duration: int | None = None
+    fps: float | None = None
+    locked: bool = False
+
+    def validate(self) -> VlmConfig:
+        for name, value, low, high in (
+            ("timeout", self.timeout, 1, 3600),
+            ("max_tokens", self.max_tokens, 1, 1_000_000),
+            ("seed", self.seed, 1, 2**32 - 1),
+            ("chunk_duration", self.chunk_duration, 0, 3600),
+        ):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high
+            ):
+                raise ConfigError(f"VLM {name} must be an integer between {low} and {high}")
+        if self.temperature is not None and (
+            isinstance(self.temperature, bool)
+            or not isinstance(self.temperature, int | float)
+            or not 0 <= self.temperature <= 1
+        ):
+            raise ConfigError("VLM temperature must be a number between 0 and 1")
+        if self.fps is not None and (
+            isinstance(self.fps, bool) or not isinstance(self.fps, int | float) or not 0 < self.fps <= 256
+        ):
+            raise ConfigError("VLM fps must be a number greater than 0 and no greater than 256")
+        if self.enable_reasoning is not None and not isinstance(self.enable_reasoning, bool):
+            raise ConfigError("VLM enable_reasoning must be true, false, or null")
+        if not isinstance(self.locked, bool):
+            raise ConfigError("VLM locked state must be true or false")
+        if self.locked and not any(
+            value is not None
+            for value in (
+                self.timeout,
+                self.temperature,
+                self.max_tokens,
+                self.seed,
+                self.enable_reasoning,
+                self.chunk_duration,
+                self.fps,
+            )
+        ):
+            raise ConfigError("a locked VLM policy must configure at least one request value")
+        return self
+
+    def to_json(self) -> dict[str, Any]:
+        self.validate()
+        values = {
+            "timeout": self.timeout,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "seed": self.seed,
+            "enable_reasoning": self.enable_reasoning,
+            "chunk_duration": self.chunk_duration,
+            "fps": self.fps,
+        }
+        return {name: value for name, value in values.items() if value is not None} | {"locked": self.locked}
+
+    @classmethod
+    def from_json(cls, raw: object) -> VlmConfig:
+        if not isinstance(raw, dict):
+            raise ConfigError("config 'vlm' must be a JSON object")
+        expected = {
+            "timeout",
+            "temperature",
+            "max_tokens",
+            "seed",
+            "enable_reasoning",
+            "chunk_duration",
+            "fps",
+            "locked",
+        }
+        unknown = sorted(set(raw) - expected)
+        if unknown:
+            raise ConfigError(f"config 'vlm' contains unknown fields: {', '.join(unknown)}")
+        values = {name: raw.get(name) for name in expected if name != "locked"}
+        return cls(**values, locked=raw.get("locked", False)).validate()
+
+
+@dataclass(frozen=True)
 class Deployment:
     """A resolved deployment: the answer ``vss configure`` recorded.
 
-    Purely descriptive: every field is something a backend reported about
-    itself. Nothing here encodes CLI or command-group policy -- request
-    timeouts, result caps and fallback behaviour are caller preferences, not
-    facts about a deployment, and putting them here would couple the two
-    domains. A second CLI reading this file should be able to talk to the
-    deployment without inheriting our defaults.
+    Service fields describe what the deployment reported. Optional memory and
+    VLM fields are explicit client-side policies retained across route
+    rediscovery; they are never inferred from the deployment.
     """
 
     base_url: str
     services: dict[str, Service] = field(default_factory=dict)
     memory: MemoryConfig | None = None
+    vlm: VlmConfig | None = None
     #: ISO-8601. Purely informational, but the thing to quote when a stale
     #: config sends someone chasing a connection error.
     written_at: str = ""
@@ -651,6 +736,8 @@ class Deployment:
         }
         if self.memory is not None:
             payload["memory"] = self.memory.to_json()
+        if self.vlm is not None:
+            payload["vlm"] = self.vlm.to_json()
         return payload
 
     @classmethod
@@ -688,10 +775,12 @@ class Deployment:
             for name, body in raw_services.items()
         }
         raw_memory = raw.get("memory")
+        raw_vlm = raw.get("vlm")
         return cls(
             base_url=base_url,
             services=services,
             memory=MemoryConfig.from_json(raw_memory) if raw_memory is not None else None,
+            vlm=VlmConfig.from_json(raw_vlm) if raw_vlm is not None else None,
             written_at=raw.get("written_at", ""),
         )
 

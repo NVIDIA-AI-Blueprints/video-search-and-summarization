@@ -253,6 +253,47 @@ class VlmOptions(BaseModel):
     )
 
 
+_VLM_POLICY_FIELDS = (
+    "timeout",
+    "temperature",
+    "max_tokens",
+    "seed",
+    "enable_reasoning",
+    "chunk_duration",
+    "fps",
+)
+
+
+def _apply_vlm_policy(inputs: VlmInput, deployment: config_mod.Deployment) -> VlmInput:
+    """Apply configured defaults and reject overrides when the policy is locked."""
+    policy = deployment.vlm
+    if policy is None:
+        return inputs
+
+    explicit = inputs.model_fields_set
+    if policy.locked and policy.fps is not None and "num_frames" in explicit:
+        raise InvalidInput(
+            f"--num-frames conflicts with the locked VLM fps policy ({policy.fps}); use the configured fps"
+        )
+
+    updates: dict[str, Any] = {}
+    for name in _VLM_POLICY_FIELDS:
+        configured = getattr(policy, name)
+        if configured is None:
+            continue
+        if name in explicit:
+            requested = getattr(inputs, name)
+            if policy.locked and requested != configured:
+                flag = name.replace("_", "-")
+                raise InvalidInput(f"--{flag} is locked to {configured!r}; received {requested!r}")
+            continue
+        if name == "fps" and "num_frames" in explicit:
+            continue
+        updates[name] = configured
+
+    return inputs.model_copy(update=updates)
+
+
 def _resolve_vios_clip(
     deployment: config_mod.Deployment,
     sensor: str,
@@ -432,6 +473,7 @@ class VlmGroup(CommandGroup):
             raise TypeError(f"expected VlmInput, got {type(inputs).__name__}")
 
         deployment = ctx.deployment or config_mod.load()
+        inputs = _apply_vlm_policy(inputs, deployment)
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
 
         if options.use_base64 and inputs.sensor:

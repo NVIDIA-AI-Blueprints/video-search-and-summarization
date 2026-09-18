@@ -140,6 +140,7 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         base_url=base_url.rstrip("/"),
         services=services,
         memory=_configured_memory_or_none(),
+        vlm=_configured_vlm_or_none(),
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     path = config_mod.save(deployment)
@@ -166,6 +167,14 @@ def _configured_memory_or_none() -> config_mod.MemoryConfig | None:
     """Preserve valid static memory policy when deployment routes are refreshed."""
     try:
         return config_mod.load().memory
+    except config_mod.ConfigError:
+        return None
+
+
+def _configured_vlm_or_none() -> config_mod.VlmConfig | None:
+    """Preserve valid VLM request policy when deployment routes are refreshed."""
+    try:
+        return config_mod.load().vlm
     except config_mod.ConfigError:
         return None
 
@@ -657,6 +666,64 @@ def check_memory() -> None:
                 f"Markdown memory workspace is invalid; re-run `vss configure memory --workspace /absolute/path` ({error})"
             )
         click.echo(f"OpenClaw Markdown cache enabled at {memory_config.markdown.workspace}/memory/YYYY-MM-DD-vss.md")
+
+
+@configure.command("vlm")
+@click.option("--timeout", type=click.IntRange(1, 3600), help="VLM HTTP timeout in seconds.")
+@click.option("--temperature", type=click.FloatRange(0, 1), help="VLM sampling temperature.")
+@click.option("--max-tokens", type=click.IntRange(1, 1_000_000), help="Maximum generated tokens.")
+@click.option("--seed", type=click.IntRange(1, 2**32 - 1), help="Sampling seed.")
+@click.option(
+    "--enable-reasoning/--disable-reasoning",
+    default=None,
+    help="Enable or disable VLM reasoning output.",
+)
+@click.option(
+    "--chunk-duration",
+    type=click.IntRange(0, 3600),
+    help="Video chunk duration in seconds; 0 disables chunking.",
+)
+@click.option("--fps", type=click.FloatRange(min=0, min_open=True, max=256), help="Frames sampled per second.")
+@click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
+def configure_vlm(
+    timeout: int | None,
+    temperature: float | None,
+    max_tokens: int | None,
+    seed: int | None,
+    enable_reasoning: bool | None,
+    chunk_duration: int | None,
+    fps: float | None,
+    locked: bool | None,
+) -> None:
+    """Configure reusable defaults for ``vss vlm run``."""
+    try:
+        deployment = config_mod.load()
+    except config_mod.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    current = deployment.vlm or config_mod.VlmConfig()
+    if all(
+        value is None
+        for value in (timeout, temperature, max_tokens, seed, enable_reasoning, chunk_duration, fps, locked)
+    ):
+        click.echo(json.dumps(current.to_json(), indent=2))
+        return
+
+    try:
+        policy = config_mod.VlmConfig(
+            timeout=current.timeout if timeout is None else timeout,
+            temperature=current.temperature if temperature is None else temperature,
+            max_tokens=current.max_tokens if max_tokens is None else max_tokens,
+            seed=current.seed if seed is None else seed,
+            enable_reasoning=current.enable_reasoning if enable_reasoning is None else enable_reasoning,
+            chunk_duration=current.chunk_duration if chunk_duration is None else chunk_duration,
+            fps=current.fps if fps is None else fps,
+            locked=current.locked if locked is None else locked,
+        ).validate()
+    except config_mod.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    path = config_mod.save(replace(deployment, vlm=policy))
+    click.echo(f"wrote VLM request policy to {path}", err=True)
 
 
 @configure.command("show")
