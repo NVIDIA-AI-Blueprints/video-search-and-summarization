@@ -435,20 +435,43 @@ void ElasticMetadataStore::prefetchRange()
                     }));
                 }
 
+                // Collect the wave first so the retry decision below can use
+                // what the whole wave (and earlier waves) proved about ES.
+                std::vector<elasticSearch::RangeFetchResult> results;
+                results.reserve(wave.size());
+                for (auto& t : tasks)
+                {
+                    results.push_back(t.get());
+                    const elasticSearch::RangeFetchResult& res = results.back();
+                    // A rejection (429/503) is still an answer from ES.
+                    anyReachable = anyReachable || res.reachable
+                                || isEsRejected(res.httpStatus);
+                }
+
                 std::vector<size_t> rejected;
                 for (size_t k = 0; k < wave.size(); ++k)
                 {
-                    elasticSearch::RangeFetchResult res = tasks[k].get();
+                    elasticSearch::RangeFetchResult& res = results[k];
                     const size_t idx = wave[k];
                     if (isEsRejected(res.httpStatus))
                     {
-                        // ES answered but refused the request: it is reachable,
-                        // the slice just needs to be retried at lower load.
-                        anyReachable = true;
+                        // ES answered but refused the request: retry at lower
+                        // load.
                         rejected.push_back(idx);
                         continue;
                     }
-                    anyReachable = anyReachable || res.reachable;
+                    if (!res.reachable && anyReachable)
+                    {
+                        // Transport failure (timeout / reset, status 0) on this
+                        // slice while ES has demonstrably answered other slices
+                        // of this prefetch: treat it as transient and retry it
+                        // the same way, instead of silently publishing a hole.
+                        // If nothing has been reachable at all, ES is down and
+                        // the slice completes empty so the ES-down handling
+                        // below runs without multiplying the curl timeout.
+                        rejected.push_back(idx);
+                        continue;
+                    }
                     perSlice[idx] = std::move(res.hits);
                     done[idx] = true;
                 }
@@ -465,7 +488,7 @@ void ElasticMetadataStore::prefetchRange()
                     if (parallel > 1)
                     {
                         parallel = parallel / 2;
-                        LOG(warning) << "prefetchRange: Elasticsearch rejected "
+                        LOG(warning) << "prefetchRange: Elasticsearch rejected/failed "
                                      << rejected.size() << " slice(s) for camera "
                                      << sensor << "; reducing parallel fetches to "
                                      << parallel << endl;
@@ -475,7 +498,7 @@ void ElasticMetadataStore::prefetchRange()
                     else if (++serialRejects <= PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS)
                     {
                         const int delayMs = PREFETCH_RETRY_BASE_DELAY_MS << (serialRejects - 1);
-                        LOG(warning) << "prefetchRange: Elasticsearch still rejecting at "
+                        LOG(warning) << "prefetchRange: Elasticsearch still rejecting/failing at "
                                         "parallel=1 for camera " << sensor
                                      << "; retry " << serialRejects << "/"
                                      << PREFETCH_RETRY_MAX_SERIAL_ATTEMPTS
@@ -484,14 +507,14 @@ void ElasticMetadataStore::prefetchRange()
                     }
                     else
                     {
-                        // ES keeps rejecting even one request at a time. Give up
+                        // ES keeps refusing even one request at a time. Give up
                         // on everything still outstanding (rejected + not yet
                         // dispatched); those slices publish as empty so the
                         // watermark can drain.
                         LOG(error) << "prefetchRange: giving up on "
                                    << (rejected.size() + todo.size())
                                    << " slice(s) for camera " << sensor
-                                   << " after repeated Elasticsearch rejections" << endl;
+                                   << " after repeated Elasticsearch rejections/failures" << endl;
                         for (size_t idx : rejected)
                         {
                             done[idx] = true;
@@ -608,6 +631,17 @@ void ElasticMetadataStore::prefetchRange()
                 // the missing slices are emitted immediately instead of each
                 // stalling for the wait budget (same degradation as ES down).
                 m_blockingGet = false;
+                // The unfetched slices are always a contiguous tail (rejected
+                // slices are the earliest unfinished ones and everything after
+                // them was never dispatched), and search_after already points
+                // at the last published record. Leave the range not-fully-
+                // prefetched and seed the tail so the incremental refill can
+                // recover it non-blockingly if ES starts accepting again.
+                m_fullyPrefetched = false;
+                if (m_bboxMetadata.m_dataSize == 0)
+                {
+                    m_bboxMetadata.m_dataSize = PREFETCH_TAIL_BOOTSTRAP;
+                }
             }
 
             LOG(info) << "prefetchRange: loaded " << all.size() << " records over "
