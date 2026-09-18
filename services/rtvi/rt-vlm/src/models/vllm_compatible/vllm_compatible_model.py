@@ -399,7 +399,7 @@ def _apply_attention_backend_override(
     if not attention_backend:
         if not _is_cosmos3_edge_arch(model_architecture):
             return False
-        attention_backend = "CUSTOM"
+        attention_backend = "TRITON_ATTN"
         logger.info("Defaulting Cosmos3 Edge attention backend to %s", attention_backend)
     if "attention_backend" not in supported_params:
         logger.warning(

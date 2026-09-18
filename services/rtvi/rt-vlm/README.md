@@ -987,6 +987,7 @@ The table lists variables in the standalone Docker Compose stack and the standal
 | `VIA_EVS_SESSION` | Enable the optional EVS++ session path when set to `true` or `1` | Empty (disabled) |
 | `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ is enabled |
 | `VLLM_NUM_PREPROCESS_WORKERS` | vLLM multimodal preprocessing worker count | `16` |
+| `RTVI_VLLM_ATTENTION_BACKEND` (Compose/Helm env: `VLLM_ATTENTION_BACKEND`) | vLLM text attention backend override | `TRITON_ATTN` for Cosmos3 Edge; empty for other models |
 | `VIA_EVS_TOKEN_BUDGET` | Visual-token budget accumulated by an EVS++ session | `1` |
 | `VIA_EVS_MAX_SESSIONS` | Maximum concurrent EVS++ video sessions | `256` |
 | `RTVI_VLLM_MOE_BACKEND` (Helm env: `VLLM_MOE_BACKEND`) | vLLM MoE backend override | Empty |

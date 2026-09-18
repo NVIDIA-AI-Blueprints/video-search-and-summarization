@@ -748,8 +748,11 @@ def test_kv_cache_dtype_override_is_forwarded_when_supported(monkeypatch):
     assert engine_args["kv_cache_dtype"] == "auto"
 
 
-def test_attention_backend_override_is_forwarded_when_supported(monkeypatch):
-    monkeypatch.setenv("VLLM_ATTENTION_BACKEND", "TRITON_ATTN")
+@pytest.mark.parametrize("attention_backend", ["CUSTOM", "TRITON_ATTN"])
+def test_attention_backend_override_is_forwarded_when_supported(
+    monkeypatch, attention_backend
+):
+    monkeypatch.setenv("VLLM_ATTENTION_BACKEND", attention_backend)
     engine_args = {}
 
     applied = vllm_compatible_model._apply_attention_backend_override(
@@ -758,10 +761,10 @@ def test_attention_backend_override_is_forwarded_when_supported(monkeypatch):
     )
 
     assert applied is True
-    assert engine_args["attention_backend"] == "TRITON_ATTN"
+    assert engine_args["attention_backend"] == attention_backend
 
 
-def test_cosmos3_edge_defaults_to_custom_attention_backend(monkeypatch):
+def test_cosmos3_edge_defaults_to_triton_attention_backend(monkeypatch):
     monkeypatch.delenv("VLLM_ATTENTION_BACKEND", raising=False)
     monkeypatch.delenv("RTVI_VLLM_ATTENTION_BACKEND", raising=False)
     engine_args = {}
@@ -773,7 +776,22 @@ def test_cosmos3_edge_defaults_to_custom_attention_backend(monkeypatch):
     )
 
     assert applied is True
-    assert engine_args["attention_backend"] == "CUSTOM"
+    assert engine_args["attention_backend"] == "TRITON_ATTN"
+
+
+def test_non_edge_model_does_not_default_attention_backend(monkeypatch):
+    monkeypatch.delenv("VLLM_ATTENTION_BACKEND", raising=False)
+    monkeypatch.delenv("RTVI_VLLM_ATTENTION_BACKEND", raising=False)
+    engine_args = {}
+
+    applied = vllm_compatible_model._apply_attention_backend_override(
+        engine_args,
+        {"attention_backend"},
+        "Qwen3VLForConditionalGeneration",
+    )
+
+    assert applied is False
+    assert "attention_backend" not in engine_args
 
 
 def test_num_preprocess_workers_defaults_to_parallel_video_value(monkeypatch):
