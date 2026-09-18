@@ -85,7 +85,7 @@
     {
       "query": "Was a forklift blocking the fire exit on warehouse_sample in the first 10 seconds?",
       "checks": [
-        "When stored memory does not cover the question, it allows exactly one vss vlm run for warehouse_sample and that exact window.",
+        "It makes at most one vss vlm run, and any such run targets warehouse_sample over that exact window.",
         "It does not broaden or invent scope."
       ]
     },
@@ -105,7 +105,7 @@
       ]
     },
     {
-      "query": "Freshly inspect the local video file /app/warehouse_safety_0001.mp4 using the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: is the worker wearing PPE?",
+      "query": "Freshly inspect the local video file warehouse_safety_0001.mp4 using the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: is the worker wearing PPE?",
       "checks": [
         "It uses the complete uv run project-local invocation of vss vlm run --file against that file in one shell call and returns its answer.",
         "It does not search Markdown, introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent."

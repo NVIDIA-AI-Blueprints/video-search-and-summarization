@@ -274,8 +274,9 @@ Handle the result fields `status`, `sufficient_from_memory`, `answer`,
 - **`partial` without an answer**: explain the failure or unresolved gaps; do
   not invent an answer or repeat internal VLM calls.
 - **`no_memory`**: treat it as expected not-found output. Only one direct VLM
-  fallback is allowed, and only when an exact sensor plus exact UTC start/end
-  range were grounded before introspection. Otherwise the reply is a request,
+  fallback is allowed, and only when an exact sensor plus an exact window were
+  grounded before introspection - a window the CLI can take, meaning ISO-8601
+  UTC bounds or seconds from the start of a recording, not a vague phrase. Otherwise the reply is a request,
   not a status: ask the user which exact recorded sensor to read and which
   exact UTC start and end bounds to use, and state that the question stays open
   until they supply them. "No memory was found, no action taken" is not an
