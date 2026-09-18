@@ -56,7 +56,10 @@ that VST cannot resolve narrows to an empty result rather than failing.
 ## Query controls
 
 Shared by every path: `--source-type`, `--video-source` (repeatable),
-`--timestamp-start`, `--timestamp-end`, `--top-k`.
+`--timestamp-start`, `--timestamp-end`, `--top-k`, and `--original-query`.
+When a caller decomposes the request, `--original-query` carries the exact
+pre-decomposition user sentence to the critic; retrieval continues to use the
+path-specific query, attributes, or object IDs.
 
 ```bash
 # Embed-only
