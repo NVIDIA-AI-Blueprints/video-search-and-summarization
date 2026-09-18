@@ -3552,7 +3552,10 @@ class RTVIStreamHandler:
                 self._metrics._queries_pending_counter.add(-1)
             except Exception:
                 logger.warning("Failed to roll back pending-query metric", exc_info=True)
-            self._finalize_stream_fps_tracking(req_info)
+            try:
+                self._finalize_stream_fps_tracking(req_info)
+            except Exception:
+                logger.warning("Failed to finalize FPS tracking during query rollback", exc_info=True)
             if req_info._monitor:
                 try:
                     self.stop_request_profiling(req_info, [])
@@ -3983,6 +3986,12 @@ class RTVIStreamHandler:
         # lock-escaping cleanup can be added below without reshuffling.
 
     def _remove_terminal_live_stream(self, asset: Asset) -> None:
+        with self._lock:
+            for request in self._get_registered_live_stream_requests(asset.asset_id):
+                if request.status == RequestInfo.Status.PROCESSING:
+                    request.status = RequestInfo.Status.FAILED
+                    request.error_message = MODEL_BACKEND_UNAVAILABLE_MESSAGE
+                    request.error_status_code = 503
         try:
             self.remove_rtsp_stream(asset, abort_inflight=True)
         except ServiceException as error:
@@ -4021,7 +4030,11 @@ class RTVIStreamHandler:
                 requests_to_finish = [
                     (
                         req_info,
-                        req_info.status == RequestInfo.Status.PROCESSING,
+                        req_info.status == RequestInfo.Status.PROCESSING
+                        or (
+                            req_info.status == RequestInfo.Status.FAILED
+                            and req_info.error_message == MODEL_BACKEND_UNAVAILABLE_MESSAGE
+                        ),
                     )
                     for req_info in existing_requests
                 ]
