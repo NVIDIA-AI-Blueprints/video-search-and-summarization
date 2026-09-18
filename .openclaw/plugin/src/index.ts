@@ -33,6 +33,8 @@ import { fileURLToPath } from "node:url";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import { Type } from "typebox";
 
+import { beginToolEvent } from "./relay.js";
+
 // Output is capped so a chatty subcommand cannot blow the model's context.
 const MAX_CAPTURE = 200_000;
 
@@ -89,6 +91,7 @@ const vssPlugin = defineToolPlugin({
         const bin = config.vssBin ?? "/usr/local/bin/vss";
         const timeoutMs = 1000 * (timeoutSec ?? config.defaultTimeoutSec ?? 600);
         const command = [bin, ...args].join(" ");
+        const finishEvent = beginToolEvent();
 
         return await new Promise((resolve) => {
           const child = execFile(
@@ -100,6 +103,11 @@ const vssPlugin = defineToolPlugin({
               const err = clip(String(stderr ?? ""));
               const e = error as (NodeJS.ErrnoException & { killed?: boolean; signal?: string; code?: number | string }) | null;
               const spawnFailure = e && typeof e.code === "string" ? `${e.code}: ${e.message}` : "";
+              finishEvent?.({
+                exitCode: e ? (typeof e.code === "number" ? e.code : null) : (child.exitCode ?? 0),
+                signal: e?.signal ?? null,
+                failed: Boolean(e),
+              });
               resolve({
                 command,
                 exitCode: e ? (typeof e.code === "number" ? e.code : null) : (child.exitCode ?? 0),
@@ -111,6 +119,9 @@ const vssPlugin = defineToolPlugin({
               });
             },
           );
+        }).catch((error: unknown) => {
+          finishEvent?.({ exitCode: null, signal: null, failed: true });
+          throw error;
         });
       },
     }),
@@ -191,7 +202,7 @@ export function seedWorkspace(api: WorkspaceApi): void {
 
 // Keep the entry defineToolPlugin produced (its non-enumerable metadata included)
 // and wrap only `register`, so tool registration is untouched.
-const registerTools = vssPlugin.register;
+export const registerTools: ReturnType<typeof defineToolPlugin>["register"] = vssPlugin.register;
 vssPlugin.register = (api) => {
   const a = api as unknown as WorkspaceApi & { pluginConfig?: { skillSelection?: string; vssBin?: string } };
   try {

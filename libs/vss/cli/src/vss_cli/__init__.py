@@ -14,7 +14,6 @@ import sys
 
 import click
 
-from ._relay import run_with_events
 from .config import ConfigError
 from .exits import Exit
 from .registry import build_root
@@ -27,10 +26,6 @@ def main(argv: list[str] | None = None) -> int:
     the console script and the dispatcher remains callable from tests.
     """
     args = list(sys.argv[1:] if argv is None else argv)
-    return run_with_events(args, lambda: _dispatch(args))
-
-
-def _dispatch(args: list[str]) -> int:
     root = build_root()
     try:
         # standalone_mode=False keeps Click from calling sys.exit() itself,

@@ -60,9 +60,9 @@ vss configure check                             # re-probe + what each group can
 
 **Never construct an endpoint.** No `kubectl port-forward`, no Service DNS, no
 NodePort, no reading `HOST_IP` or `VST_INTERNAL_URL` out of a container. The CLI
-reads no process env for VSS backend endpoints by design, so the same input
-behaves the same way on any host. A command that exits 4 saying a service is
-missing is fixed by `vss configure`, not by a flag.
+reads no process env for endpoints by design, so the same input behaves the same
+way on any host. A command that exits 4 saying a service is missing is fixed by
+`vss configure`, not by a flag.
 
 **An empty result is not a failure.** `{"count": 0}` at exit 0 means the
 deployment genuinely has nothing matching; a backend problem exits 3. Never
@@ -106,3 +106,4 @@ than carrying its own copy.
 |------|--------------------|-------|
 | `vss` CLI internals | changing the CLI or its library | [`libs/vss/cli/AGENTS.md`](libs/vss/cli/AGENTS.md) |
 | Video Analytics API | working on the analytics service | [`services/analytics/video-analytics-api/AGENTS.md`](services/analytics/video-analytics-api/AGENTS.md) |
+

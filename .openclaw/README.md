@@ -50,11 +50,40 @@ the OpenClaw SDK:
   running under NemoClaw's runtime. Existing files are never overwritten: the
   workspace is the agent's memory.
 
+### Optional tool lifecycle events
+
+The existing `vss_cli` tool can report its start and completion to an evaluation
+harness's existing Relay event sink. It does not install a Relay plugin or run a
+Relay proxy. Configure all three variables in the OpenClaw process to opt in:
+
+- `VSS_RELAY_URL`: the sink's full HTTP(S) URL, without credentials, query or fragment.
+- `VSS_RELAY_RUN`: the run identifier.
+- `VSS_RELAY_TRIAL`: the trial identifier.
+
+Missing or invalid context disables delivery. Each call records the actual tool
+name (`vss_cli`), a shared event UUID, timestamps, duration, exit code and signal.
+Failures have a generic label. Arguments, prompts, output, working directories
+and exception messages are not exported. These are tool lifecycle records, not
+a reconstructed full trajectory or a parent model-call correlation.
+
+Delivery is asynchronous and best effort. Each send has a 200 ms deadline, with
+no redirects, retries or wait before returning the tool's result. Completion is
+queued after the start send, but a stopped process or unavailable sink can lose
+records; a missing end is incomplete evidence, not success. The existing CLI
+execution, cancellation, timeout and returned output are unchanged.
+
+Only calls through this tool are observed. Direct `vss`, shell `exec`, other
+agent tools and the Python CLI entry point are unaffected. The harness must
+supply trial context and already permit access to the sink. This feature opens
+no sandbox egress and changes no deployment defaults. It is optional for both
+older images and downstream trace readers.
+
 ### Working on it
 
 ```
 cd .openclaw/plugin
 npm ci && npm run build          # type-check and compile against the pinned OpenClaw SDK
+npm test                        # tool execution and optional lifecycle delivery
 npm run stage                    # stage skills/ and workspace/ from this checkout
 ```
 

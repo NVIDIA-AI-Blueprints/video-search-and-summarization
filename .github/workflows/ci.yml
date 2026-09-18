@@ -61,6 +61,7 @@ jobs:
       vss-rt-vlm-changed: ${{ steps.managed-image-changes.outputs.vss-rt-vlm }}
       unit-test-workflow-changed: ${{ steps.changed-paths.outputs.unit-test-workflow-changed }}
       trigger-from-src-change: ${{ steps.changed-paths.outputs.trigger-from-src-change }}
+      openclaw-tool-changed: ${{ steps.changed-paths.outputs.openclaw-tool-changed }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
@@ -129,6 +130,9 @@ jobs:
               )
               output.write(
                   f"trigger-from-src-change={str(trigger_from_src).lower()}\n"
+              )
+              output.write(
+                  f"openclaw-tool-changed={str(paths_changed_under(paths, '.openclaw/plugin')).lower()}\n"
               )
           print(f"Unit-test workflow changed: {unit_test_workflow_changed} ({reason})")
           print(f"Downstream trigger from source: {trigger_from_src} ({reason})")
@@ -606,6 +610,35 @@ jobs:
         with:
           name: vss-cli-coverage-report
           path: libs/vss/coverage-lib.xml
+
+  openclaw-tool-test:
+    name: Test (VSS OpenClaw tool)
+    needs: prepare-source
+    if: needs.prepare-source.outputs.openclaw-tool-changed == 'true' || needs.prepare-source.outputs.unit-test-workflow-changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .openclaw/plugin
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: source-${{ github.sha }}
+          path: .source-artifact
+      - name: Unpack source artifact
+        working-directory: ${{ github.workspace }}
+        run: tar -xzf .source-artifact/source.tar.gz --strip-components=1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: .openclaw/plugin/package-lock.json
+      - name: Install pinned SDK and build dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test the existing tool and optional lifecycle events
+        run: npm test
 
   # ---------------------------------------------------------------------------
   # Job 5a: Behavior analytics unit tests
