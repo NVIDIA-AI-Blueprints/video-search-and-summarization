@@ -65,6 +65,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 
 RUN uv pip install \
     "vss-ctx-rag @ git+https://github.com/NVIDIA/context-aware-rag.git@3.1.0" \
+    --extra-index-url https://pypi.nvidia.com/ \
+    --python-version 3.13 --target /tmp/packages
+
+RUN uv pip install \
     "vss-ctx-rag-arango @ git+https://github.com/NVIDIA/context-aware-rag.git@3.1.0#subdirectory=packages/vss_ctx_rag_arango" \
     --extra-index-url https://pypi.nvidia.com/ \
     --python-version 3.13 --target /tmp/packages

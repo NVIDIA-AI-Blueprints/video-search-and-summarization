@@ -731,7 +731,7 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
         kwargs["min_tokens"] = config.min_tokens
     response_format = config.response_format or {}
     response_type = response_format.get("type")
-    is_structured_output = response_type in {"json_object", "json_schema"}
+    is_structured_output = response_type in {"choice", "json_object", "json_schema"}
     env_ignore_eos = _get_rtvi_vllm_env("VLLM_IGNORE_EOS", "false").lower() == "true"
     if is_structured_output:
         kwargs["ignore_eos"] = False
@@ -747,6 +747,12 @@ def _build_vllm_sampling_kwargs(config: VlmGenerationConfig) -> dict:
         json_schema = response_format["json_schema"]
         kwargs["structured_outputs"] = StructuredOutputsParams(
             json=json_schema["schema"],
+        )
+    elif response_type == "choice":
+        from vllm.sampling_params import StructuredOutputsParams
+
+        kwargs["structured_outputs"] = StructuredOutputsParams(
+            choice=response_format["choices"],
         )
     return kwargs
 
@@ -1775,6 +1781,69 @@ class VllmCompatible(BaseVlmModel):
             return {"enable_thinking": bool(config.enable_reasoning)}
         return {}
 
+    def _apply_chat_template(self, messages: list[dict], config: VlmGenerationConfig) -> str:
+        """Apply the model template with a Qwen3-VL non-reasoning fallback."""
+        template_messages = messages
+        suppress_qwen_reasoning = (
+            self._model_architecture in _QWEN3VL_ARCHS and not config.enable_reasoning
+        )
+        if suppress_qwen_reasoning:
+            template_messages = copy.deepcopy(messages)
+            for message in reversed(template_messages):
+                if message.get("role") != "user":
+                    continue
+                content = message.get("content")
+                if isinstance(content, str):
+                    message["content"] = f"{content} /no_think"
+                elif isinstance(content, list):
+                    for item in reversed(content):
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            item["text"] = f"{item.get('text', '')} /no_think"
+                            break
+                break
+
+        prompt = self._processor.apply_chat_template(
+            template_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            **self._get_apply_chat_template_kwargs(config),
+        )
+        if suppress_qwen_reasoning and not prompt.rstrip().endswith("</think>"):
+            prompt += "<think>\n\n</think>\n\n"
+        return prompt
+
+    def _apply_reasoning_suppression_sampling_params(
+        self, sampling_kwargs: dict, config: VlmGenerationConfig
+    ) -> None:
+        """Block reasoning tags without changing fixed-work generation length."""
+        if self._model_architecture in _QWEN3VL_ARCHS and not config.enable_reasoning:
+            sampling_kwargs["bad_words"] = ["<think>", "</think>"]
+
+    def _qwen3vl_answer_boundary_token_ids(self) -> set[int]:
+        tokenizer = self._processor.tokenizer
+        boundary_ids = set()
+        eos_token_ids = getattr(tokenizer, "eos_token_id", None)
+        if isinstance(eos_token_ids, int):
+            boundary_ids.add(eos_token_ids)
+        elif eos_token_ids is not None:
+            boundary_ids.update(int(token_id) for token_id in eos_token_ids)
+
+        im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+        if isinstance(im_end_id, int) and im_end_id != getattr(tokenizer, "unk_token_id", None):
+            boundary_ids.add(im_end_id)
+        return boundary_ids
+
+    def _truncate_qwen3vl_non_reasoning_output(self, output) -> str:
+        generated = output.outputs[0]
+        token_ids = list(getattr(generated, "token_ids", ()))
+        boundary_ids = self._qwen3vl_answer_boundary_token_ids()
+        for index, token_id in enumerate(token_ids):
+            if token_id in boundary_ids:
+                return self._processor.tokenizer.decode(
+                    token_ids[:index], skip_special_tokens=True
+                ).rstrip()
+        return generated.text
+
     def _remove_orphan_think_tags(self, text: str, reasoning_description: str) -> tuple:
         # Handle orphan </think> (no opening <think> — start token was cut off or never generated).
         # Everything before </think> is reasoning; everything after is the actual answer.
@@ -1804,6 +1873,7 @@ class VllmCompatible(BaseVlmModel):
         chunk=None,
         ignore_eos=False,
         preserve_reasoning_tags=False,
+        enable_reasoning=True,
     ):
         with TimeMeasure("VLLM postprocess"):
             original_output = output
@@ -1828,12 +1898,18 @@ class VllmCompatible(BaseVlmModel):
                 ]
 
             generated_text = output[0].outputs[0].text
+            if (
+                self._model_architecture in _QWEN3VL_ARCHS
+                and not enable_reasoning
+                and ignore_eos
+            ):
+                generated_text = self._truncate_qwen3vl_non_reasoning_output(output[0])
             logger.debug("VLLM raw text output: %s", generated_text)
             if not generated_text:
                 logger.warning("Empty response from model")
                 return [VlmModelOutput(output="", input_tokens=0, output_tokens=0)]
 
-            if preserve_reasoning_tags:
+            if preserve_reasoning_tags and enable_reasoning:
                 final_response = generated_text.strip() if not ignore_eos else generated_text
                 reasoning_description = ""
             else:
@@ -1854,6 +1930,8 @@ class VllmCompatible(BaseVlmModel):
                     cleaned_text, reasoning_description = self._remove_orphan_think_tags(
                         cleaned_text, reasoning_description
                     )
+                if not enable_reasoning:
+                    reasoning_description = ""
                 logger.debug("VLLM reasoning description: %s", reasoning_description)
                 # Step 4: Remove <answer>, </answer>, <summary>, and </summary> tags, but keep their content
                 for tag in ["<answer>", "</answer>", "<summary>", "</summary>"]:
@@ -2310,6 +2388,7 @@ class VllmCompatible(BaseVlmModel):
         chunk=None,
         preserve_reasoning_tags=False,
         stream_id: Optional[str] = None,
+        generation_config: Optional[VlmGenerationConfig] = None,
     ):
         try:
             return await self._process_async_vllm(
@@ -2319,6 +2398,7 @@ class VllmCompatible(BaseVlmModel):
                 request_id,
                 chunk,
                 preserve_reasoning_tags,
+                generation_config,
             )
         finally:
             self._release_live_request(stream_id, request_id)
@@ -2331,6 +2411,7 @@ class VllmCompatible(BaseVlmModel):
         request_id,
         chunk=None,
         preserve_reasoning_tags=False,
+        generation_config: Optional[VlmGenerationConfig] = None,
     ):
         use_tensor_ipc = getattr(self, "_use_cuda_mm_tensor_ipc", False)
         if CPU_COPY_OTHER_THREAD:
@@ -2498,6 +2579,7 @@ class VllmCompatible(BaseVlmModel):
                 else False
             ),
             preserve_reasoning_tags,
+            generation_config.enable_reasoning if generation_config is not None else True,
         )
 
     @staticmethod
@@ -2626,9 +2708,12 @@ class VllmCompatible(BaseVlmModel):
         async def _release_engine_resources():
             import cloudpickle
 
-            await self._llm.reset_encoder_cache()
-            worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
-            return await self._llm.collective_rpc(worker_method, timeout=60.0)
+            try:
+                await self._llm.pause_generation(mode="wait", clear_cache=True)
+                worker_method = cloudpickle.dumps(_empty_vllm_worker_cuda_cache)
+                return await self._llm.collective_rpc(worker_method, timeout=60.0)
+            finally:
+                await self._llm.resume_generation()
 
         worker_memory = asyncio.run_coroutine_threadsafe(
             _release_engine_resources(), self._event_loop
@@ -3715,12 +3800,7 @@ class VllmCompatible(BaseVlmModel):
         # default non-reasoning unless the request explicitly enables reasoning.
         apply_chat_template_kwargs = self._get_apply_chat_template_kwargs(config)
 
-        prompt = self._processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            **apply_chat_template_kwargs,
-        )
+        prompt = self._apply_chat_template(messages, config)
 
         # NemotronH_Nano_VL_V2/Omni_Reasoning_V3 chat template stringifies multimodal content
         # dicts rather than inserting placeholder tokens. Detect this and rebuild with explicit
@@ -3848,6 +3928,7 @@ class VllmCompatible(BaseVlmModel):
         from vllm import SamplingParams
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
+        self._apply_reasoning_suppression_sampling_params(sp_kwargs, config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
         _set_cosmos_no_repeat_ngram_size(vllm_sampling_params, self._vlm_model_type)
 
@@ -3881,9 +3962,10 @@ class VllmCompatible(BaseVlmModel):
                     vllm_sampling_params,
                     video_frames_times,
                     request_id,
-                    chunks[0],
-                    config.preserve_reasoning_tags,
-                    stream_id,
+                    chunk=chunks[0],
+                    preserve_reasoning_tags=config.preserve_reasoning_tags,
+                    stream_id=stream_id,
+                    generation_config=config,
                 ),
                 self._event_loop,
             )
@@ -3927,12 +4009,7 @@ class VllmCompatible(BaseVlmModel):
         """Text-only generation using the vLLM engine (no multimodal data)."""
         config = generation_config or VlmGenerationConfig()
 
-        prompt = self._processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            **self._get_apply_chat_template_kwargs(config),
-        )
+        prompt = self._apply_chat_template(messages, config)
         prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)
 
         llm_inputs = {"prompt_token_ids": prompt_token_ids}
@@ -3940,6 +4017,7 @@ class VllmCompatible(BaseVlmModel):
         from vllm import SamplingParams
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
+        self._apply_reasoning_suppression_sampling_params(sp_kwargs, config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
@@ -4034,12 +4112,7 @@ class VllmCompatible(BaseVlmModel):
         """Async generator yielding text deltas for token-level streaming."""
         config = generation_config or VlmGenerationConfig()
 
-        prompt = self._processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            **self._get_apply_chat_template_kwargs(config),
-        )
+        prompt = self._apply_chat_template(messages, config)
         prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)
 
         llm_inputs = {"prompt_token_ids": prompt_token_ids}
@@ -4047,17 +4120,36 @@ class VllmCompatible(BaseVlmModel):
         from vllm import SamplingParams
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
+        self._apply_reasoning_suppression_sampling_params(sp_kwargs, config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
 
         previous_text = ""
+        enforce_answer_boundary = (
+            self._model_architecture in _QWEN3VL_ARCHS
+            and not config.enable_reasoning
+            and bool(config.ignore_eos)
+        )
+        answer_boundary_seen = False
         try:
             async for output_item in self._llm.generate(
                 llm_inputs, sampling_params=vllm_sampling_params, request_id=request_id
             ):
                 if output_item.outputs:
+                    if answer_boundary_seen:
+                        # Keep consuming the fixed-work generation, but never expose
+                        # tokens produced after the logical answer boundary.
+                        continue
                     current_text = output_item.outputs[0].text
+                    if enforce_answer_boundary:
+                        token_ids = tuple(getattr(output_item.outputs[0], "token_ids", ()))
+                        boundary_ids = self._qwen3vl_answer_boundary_token_ids()
+                        answer_boundary_seen = any(
+                            token_id in boundary_ids for token_id in token_ids
+                        )
+                        if answer_boundary_seen:
+                            current_text = self._truncate_qwen3vl_non_reasoning_output(output_item)
                     delta = current_text[len(previous_text) :]
                     if delta:
                         previous_text = current_text

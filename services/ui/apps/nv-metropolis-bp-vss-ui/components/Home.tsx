@@ -91,8 +91,6 @@ interface TabConfig {
 
 // Dynamic component imports based on configuration
 // These are loaded at runtime only if the corresponding tab is enabled
-// The chat surface. Speaks the BYO agent contract directly; the NeMo Agent
-// Toolkit UI it replaced has been removed from the repo.
 const VssChatPanel = dynamic(
   () => import('@nv-metropolis-bp-vss-ui/chat').then((mod) => mod.ChatPanel),
   { ssr: false },
@@ -118,7 +116,7 @@ type ChatSurface = 'main' | 'sidebar';
  * toggle) that the chat tab does not, and reading only the main variables
  * silently drops them.
  *
- * Same resolution order as `utils/tabChatEnv.ts`, which the toolkit path uses.
+ * Same resolution order as `utils/tabChatEnv.ts`.
  */
 const surfaceEnv = (surface: ChatSurface, mainKey: string): string => {
   const suffix = mainKey.replace(/^NEXT_PUBLIC_/, '');
@@ -148,23 +146,24 @@ const vssChatConfig = (surface: ChatSurface) => {
 };
 
 /**
- * Feature switches for the replacement chat, read from the same
- * NEXT_PUBLIC_CHAT_* variables the toolkit chat bar used.
- *
- * Reading the toolkit's own variables is the point: a deployment that already
- * turned message copy off keeps it off after the swap, with nothing to migrate.
+ * Feature switches for chat, read from NEXT_PUBLIC_CHAT_* variables.
  */
-const vssChatFeatures = (surface: ChatSurface) => ({
-  chatHistory: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON', true),
-  intermediateSteps: surfaceFlag(surface, 'NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS', true),
-  messageCopy: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED', false),
-  messageEdit: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED', false),
-  messageSpeaker: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED', false),
-  inputMic: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED', false),
-  uploadFile: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE', true),
-  uploadFileMetadata: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED', false),
-  themeToggle: surfaceFlag(surface, 'NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON', false),
-});
+const vssChatFeatures = (surface: ChatSurface) => {
+  const adapterEnabled = surfaceFlag(surface, 'NEXT_PUBLIC_AGENT_ADAPTER_ENABLED', false);
+  return {
+    chatHistory: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON', true),
+    // Adapter connectors do not accept legacy vss-agent interaction responses.
+    hitl: !adapterEnabled && surfaceFlag(surface, 'NEXT_PUBLIC_ENABLE_HITL', false),
+    intermediateSteps: surfaceFlag(surface, 'NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS', true),
+    messageCopy: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_COPY_ENABLED', false),
+    messageEdit: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_EDIT_ENABLED', false),
+    messageSpeaker: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_MESSAGE_SPEAKER_ENABLED', false),
+    inputMic: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED', false),
+    uploadFile: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_ENABLE', true),
+    uploadFileMetadata: surfaceFlag(surface, 'NEXT_PUBLIC_CHAT_UPLOAD_FILE_METADATA_ENABLED', false),
+    themeToggle: surfaceFlag(surface, 'NEXT_PUBLIC_SHOW_THEME_TOGGLE_BUTTON', false),
+  };
+};
 
 const vssChatUploadConfig = (surface: ChatSurface) => ({
   customAgentParamsJson: surfaceEnv(surface, 'NEXT_PUBLIC_CHAT_API_CUSTOM_AGENT_PARAMS_JSON'),
@@ -548,7 +547,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     }
   }, [theme, setTheme]);
 
-  // Caller-info links in embedded chat use `#vss-mt-<tabId>`; switch main tab without toolkit hooks.
+  // Caller-info links in embedded chat use `#vss-mt-<tabId>`; switch the main tab.
   React.useEffect(() => {
     const syncMainTabFromCallerInfoHash = () => {
       const raw = parseMainTabIdFromCallerInfoHash(window.location.hash);
@@ -581,8 +580,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           isActive={activeTab !== 'chat'}
           features={vssSidebarChatFeatures}
           {...vssSidebarChatExtraConfig}
-          // Separates this panel's conversations from the chat tab's, the same
-          // job the toolkit's storageKeyPrefix did.
+          // Separates this panel's conversations from the chat tab's.
           storageKeyPrefix={CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX}
           onAnswerComplete={handleSidebarAnswerComplete}
           onSubmitMessageReady={handleSidebarSubmitMessageReady}

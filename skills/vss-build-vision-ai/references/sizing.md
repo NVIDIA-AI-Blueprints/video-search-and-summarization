@@ -147,29 +147,28 @@ dataset (`profiles/warehouse.md`), so the question is not "how many streams fit"
 but "does this hardware support the count this dataset requires".
 
 `blueprint_config.yml` is authoritative for that ceiling. `HARDWARE_PROFILE`
-selects the section; `MODE` selects the row:
+selects the section; `MODE` selects the row. For the supported deployment
+targets covered here:
 
 | `HARDWARE_PROFILE` | `2d` | `3d` |
 |---|---:|---:|
-| H100 | 77 | 19 |
+| H100 | 61 | 19 |
+| L40S | 28 | 9 |
+| GB300 | 161 | 71 |
 | RTXPRO6000BW | 52 | 21 |
 | RTXPRO6000BW-SE | 47 | 20 |
-| L40S | 29 | 10 |
-| RTXA6000ADA | 28 | 8 |
 | RTXPRO4500BW | 20 | 9 |
-| RTXA6000 | 15 | **4** |
-| L4 | 9 | **3** |
 | IGX-THOR | 9 | 8 |
 | DGX-SPARK | 7 | 7 |
 
 Check the dataset's stream count against the cell before deploying:
 
-- `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile.
+- `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile listed
+  above.
 - `warehouse-loading-dock-3cams-synthetic` (2D kafka/redis) — 3 streams. Fits
-  every profile.
-- `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. **Exceeds `L4` (3).**
-  Exactly saturates `RTXA6000` (4), which leaves no margin for a second workload
-  on that GPU.
+  every profile listed above.
+- `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. Fits every profile
+  listed above.
 
 `NUM_STREAMS` is an input and is never rewritten — the file-count prerequisite
 that would recompute it from the video directory is `enabled: false` in every
@@ -276,7 +275,13 @@ keep the sum of co-resident fractions at or below `0.80`, and preserve at least
 20% for the OS and runtime.
 
 Use the platform-specific model and image path from `edge.md`; do not apply
-x86 discrete-GPU assumptions. Search is not currently a supported edge layout.
+x86 discrete-GPU assumptions.
+
+Search runs on **DGX Spark and AGX Thor only**, never IGX Thor. On both boards
+the single GPU is taken by the perception pipeline, so the LLM **and** the VLM
+must be remote: set `LLM_MODE=remote` and `VLM_MODE=remote` with `LLM_BASE_URL`
+and `VLM_BASE_URL`, and do not place `rtvi-vlm` or an LLM NIM locally. Device ID
+overrides do not apply; every local service lands on the board's GPU.
 
 ## Validate and tune
 

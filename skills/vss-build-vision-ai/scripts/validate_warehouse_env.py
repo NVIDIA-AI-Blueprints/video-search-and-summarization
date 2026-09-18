@@ -174,7 +174,7 @@ def expand_value(value: str, lookup, _depth: int = 0) -> str:
 
     `containers.env` layers tags through nested fallbacks, e.g.
     `VSS_RT_CV_TAG="${VSS_RT_CV_TAG:-${VSS_CONTAINER_TAG:-3.3.0-26.07.2}}"`.
-    Leaving that literal makes a value-level check (such as the DGX-SPARK `sbsa`
+    Leaving that literal makes a value-level check (such as an SBSA hardware
     rule) test the fallback *expression* instead of the tag Compose resolves, so
     a build that selects an SBSA image through `VSS_CONTAINER_TAG` is rejected.
 
@@ -340,21 +340,21 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
             "(blueprint_config.yml rejects it)"
         )
 
-    # 4. DGX-SPARK needs an sbsa perception image. The tag is layered through
-    #    nested fallbacks in containers.env, so judge the expanded value; if a
-    #    reference survived expansion the tag is genuinely indeterminate here and
-    #    a hard error would block a build Compose resolves correctly.
-    if hw == "DGX-SPARK":
+    # 4. GB300 and DGX-SPARK need an sbsa perception image. The tag is layered
+    #    through nested fallbacks in containers.env, so judge the expanded value;
+    #    if a reference survived expansion the tag is genuinely indeterminate here
+    #    and a hard error would block a build Compose resolves correctly.
+    if hw in {"GB300", "DGX-SPARK"}:
         rt_cv_tag = env.get("VSS_RT_CV_TAG", "")
         if "${" in rt_cv_tag:
             warnings.append(
-                "HARDWARE_PROFILE=DGX-SPARK requires an 'sbsa' perception image, but "
+                f"HARDWARE_PROFILE={hw} requires an 'sbsa' perception image, but "
                 f"VSS_RT_CV_TAG could not be resolved here (got {rt_cv_tag!r}); "
                 "confirm the resolved tag in resolved.yml"
             )
         elif "sbsa" not in rt_cv_tag:
             errors.append(
-                "HARDWARE_PROFILE=DGX-SPARK requires VSS_RT_CV_TAG to contain 'sbsa'; "
+                f"HARDWARE_PROFILE={hw} requires VSS_RT_CV_TAG to contain 'sbsa'; "
                 f"got {rt_cv_tag!r}"
             )
 

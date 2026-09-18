@@ -55,7 +55,7 @@ The configurator's hardware and profile gates fail at **runtime**, not at
 `docker compose config`; they are listed under Hard constraints in
 [`../profiles/warehouse.md`](../profiles/warehouse.md) and enforced by
 `validate_warehouse_env.py`. One detail lives only here: `blueprint_config.yml`
-has sections for `H100, L4, L40S, RTXA6000, RTXA6000ADA, RTXPRO6000BW,
+has sections for `H100, GB300, L40S, RTXPRO6000BW, RTXPRO6000BW-SE,
 RTXPRO4500BW, IGX-THOR, DGX-SPARK` and **no `OTHER`**, though `OTHER` is valid
 for LLM NIM sizing.
 

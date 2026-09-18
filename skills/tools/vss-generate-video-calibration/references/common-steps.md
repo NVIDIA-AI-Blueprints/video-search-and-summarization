@@ -45,6 +45,16 @@ files=@camera-b.mp4
 For the sample-dataset mode the bundled zip already contains the cameras in
 the correct order; the mode reference just feeds them into this endpoint.
 
+## Clean up a project
+
+Only after the user explicitly confirms cleanup, remove a failed or abandoned project and all of its artifacts:
+
+```
+DELETE /v1/delete_project/<project_id>
+```
+
+Do not use this endpoint for an active run. Stop or wait for the active job first; report the project ID being deleted and the successful response.
+
 ## Hand off to the shared calibration tail
 
 Once the mode-specific reference has uploaded videos, alignment, and layout

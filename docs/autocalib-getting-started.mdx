@@ -37,7 +37,7 @@ Auto Calibration can also be deployed as part of the Warehouse Blueprint with `M
 ```bash
 export NGC_CLI_API_KEY=<NGC_CLI_API_KEY>
 export NGC_CLI_ORG='nvidia'
-docker login nvcr.io -u '$oauthtoken' -p "${NGC_CLI_API_KEY}"
+printf '%s' "${NGC_CLI_API_KEY}" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 ```
 
 Generate an API key from [NGC Setup](https://org.ngc.nvidia.com/setup) if needed. Do not print or commit the key.
@@ -96,6 +96,10 @@ You must accept the model license before downloading it.
 
 ```bash
 mkdir -p "${VSS_APPS_DIR}/services/auto-calibration/projects"
+if ! sudo -n true 2>/dev/null; then
+  echo "sudo requires authentication; enter your password when prompted."
+  sudo -v || { echo "sudo authentication failed. Verify sudo access, then retry." >&2; exit 1; }
+fi
 sudo chown -R 1000:1000 "${VSS_DATA_DIR}/auto-calib"
 sudo chown -R 1000:1000 "${VSS_APPS_DIR}/services/auto-calibration/projects"
 ```
@@ -111,7 +115,9 @@ docker compose \
   up -d
 ```
 
-The microservice is available at:
+Wait for the service to be ready.
+
+The microservice will be available at:
 
 ```text
 http://<HOST_IP>:<VSS_AUTO_CALIBRATION_HOST_PORT>
@@ -122,8 +128,6 @@ The UI is available at:
 ```text
 http://<HOST_IP>:<VSS_AUTO_CALIBRATION_UI_HOST_PORT>
 ```
-
-With the example values, open `http://<HOST_IP>:5000`.
 
 ### 8. Stop the service
 

@@ -487,6 +487,27 @@ class TestLiveStreamEndpoints:
         )
         assert response.status_code in [400, 422]
 
+    @pytest.mark.parametrize(
+        "stream_id",
+        ["camera/01", ".", "..", "camera 01", "camera?01", "camera#01", "camera\t01"],
+    )
+    def test_add_live_stream_rejects_unsafe_id(self, test_client, stream_id):
+        """Stream IDs must be safe as URL and filesystem path segments."""
+        response = test_client.post(
+            f"{API_PREFIX}/streams/add",
+            json={
+                "streams": [
+                    {
+                        "id": stream_id,
+                        "liveStreamUrl": "rtsp://example.com/stream",
+                        "description": "test",
+                    }
+                ]
+            },
+        )
+
+        assert response.status_code == 422
+
     def test_delete_live_stream_not_found(self, test_client):
         """Test deleting non-existent live stream"""
         fake_id = str(uuid.uuid4())
@@ -575,12 +596,14 @@ class TestLiveStreamEndpoints:
         assert "deleted" in data
         assert "errors" in data
 
-    def test_add_live_stream_rejects_duplicate_stream_id(self, monkeypatch, test_client):
-        """POST /v1/streams/add must reject duplicate caller-provided stream IDs."""
+    def test_add_live_stream_accepts_non_uuid_id_and_rejects_duplicate(
+        self, monkeypatch, test_client
+    ):
+        """POST /v1/streams/add accepts external IDs and rejects duplicates."""
         import server.rtvi_vlm_server as rtvi_vlm_server
 
         monkeypatch.setattr(rtvi_vlm_server, "_SKIP_INPUT_MEDIA_VERIFICATION", False)
-        stream_id = str(uuid.uuid4())
+        stream_id = "camera-01"
         body = {
             "streams": [
                 {
@@ -595,12 +618,19 @@ class TestLiveStreamEndpoints:
         assert first_response.status_code == 200
         assert first_response.json()["results"] == [{"id": stream_id}]
 
+        list_response = test_client.get(f"{API_PREFIX}/streams/get-stream-info")
+        assert list_response.status_code == 200
+        assert [stream["id"] for stream in list_response.json()] == [stream_id]
+
         duplicate_response = test_client.post(f"{API_PREFIX}/streams/add", json=body)
         assert duplicate_response.status_code == 200
         data = duplicate_response.json()
         assert data["results"] == []
         assert data["errors"][0]["error_code"] == "DuplicateStreamId"
         assert data["errors"][0]["status_code"] == 409
+
+        delete_response = test_client.delete(f"{API_PREFIX}/streams/delete/{stream_id}")
+        assert delete_response.status_code == 200
 
 
 class TestCaptionGeneration:

@@ -111,7 +111,7 @@ What the agent does:
 
 #### Step 3: Summarize a Video and Generate Reports
 
-Ask your agent to summarize an uploaded video or generate a structured report for it. The `vss-summarize-video` skill handles direct summary requests through the Video Summarization microservice (with a VLM fallback). For report requests, the `vss-generate-video-report` skill uses the LVS summarization path when the `lvs` profile is ready and renders the result into a report template.
+Ask your agent to summarize an uploaded video or generate a structured report for it. The `vss-summarize-video` skill handles direct summary requests through the Video Summarization microservice (with a VLM fallback). For report requests, the `vss-generate-video-report` skill uses the Video Summarization MS path when the `lvs` profile is ready and renders the result into a report template.
 
 ##### Summarize an Uploaded Video
 
@@ -124,7 +124,7 @@ Summarize warehouse_sample using the default scenario and events.
 
 What the agent does:
 
-1. Loads the `vss-summarize-video` skill and probes the Video Summarization service readiness, routing to the LVS microservice when it is ready and to the VLM fallback otherwise.
+1. Loads the `vss-summarize-video` skill and probes the Video Summarization service readiness, routing to the Video Summarization MS when it is ready and to the VLM fallback otherwise.
 2. Resolves the clip URL, stream ID, and timeline through the `vss-manage-video-io-storage` skill.
 3. Collects the monitoring scenario, events, and optional objects of interest, or uses defaults when told to run autonomously.
 4. Calls the Video Summarization service with the clip URL, scenario, events, and chunking parameters.
@@ -198,7 +198,12 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
 # See developer-profiles/dev-profile-lvs/overrides.env for supported settings.
 ```
 
-`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=lvs
@@ -338,6 +343,8 @@ VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_VLM_TAG=develop-latest-sbsa
 VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -348,6 +355,8 @@ VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_VLM_TAG=develop-latest-sbsa
 VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -776,7 +785,8 @@ docker compose -f compose.yml \
   down -v --remove-orphans
 ```
 
-This command stops the manually deployed LVS containers and removes their Compose volumes.
+This command stops the manually deployed Video Summarization containers and
+removes their Compose volumes.
 
 ## Service Endpoints
 
@@ -792,7 +802,7 @@ Once deployed, the following services are available:
 
 ## Optional: Use Nemotron-3-Nano-Omni (audio-aware VLM)
 
-The LVS profile defaults to **Cosmos3 Nano Reasoner** as the VLM.
+The Video Summarization profile defaults to **Cosmos3 Nano Reasoner** as the VLM.
 To swap in **Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8** for audio-aware
 summarization, edit `deploy/docker/developer-profiles/dev-profile-lvs/.env`
 and set the following variables (replace `<your_hf_token>` with your Hugging

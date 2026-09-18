@@ -33,5 +33,25 @@
       "Runs the platform preflight before VIOS probing/capture and stops instead of continuing automatically if the host is not supported.",
       "Uses /v1/rtsp/capture, polls automatic ingest until INGESTED, stages or rectifies media, starts or resumes VGGT before AMC, post-processes each completed method, and compares both results."
     ]
+  },
+  {
+    "id": "non-amc-camera-calibration",
+    "question": "Calibrate a single camera for OpenCV chessboard intrinsics.",
+    "expected_skill": null,
+    "ground_truth": "Does not use the VSS AMC skill because this is non-AMC camera calibration.",
+    "expected_behavior": [
+      "Does not load or invoke vss-generate-video-calibration.",
+      "Routes to an appropriate non-AMC calibration workflow or asks for the intended tool."
+    ]
+  },
+  {
+    "id": "runtime-analytics-request",
+    "question": "Configure real-time people-count analytics for my deployed camera streams.",
+    "expected_skill": null,
+    "ground_truth": "Does not use the VSS AMC skill because this is runtime analytics, not calibration.",
+    "expected_behavior": [
+      "Does not load or invoke vss-generate-video-calibration.",
+      "Routes to the relevant VSS runtime analytics or deployment workflow."
+    ]
   }
 ]

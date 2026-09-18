@@ -190,6 +190,34 @@ def test_run_no_persist_skips_memory(
     assert result.body["persisted"] is False
 
 
+def test_run_returns_answer_when_configured_memory_backend_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    answer = "The worker is wearing a hard hat and high-visibility vest."
+    monkeypatch.setattr(httpx, "post", _fake_post(httpx.Response(200, json=_completion(answer))))
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = config_mod.Deployment(
+        base_url=BASE_URL,
+        services={"rt_vlm": config_mod.Service(url=f"{BASE_URL}/rtvi-vlm", models=["cosmos-reason1-7b"])},
+        memory=config_mod.MemoryConfig(),
+    )
+    result = VlmGroup().run(
+        "",
+        VlmInput(prompt="Is the worker wearing PPE?", media_url="http://h/clip.mp4"),
+        Context(deployment=deployment),
+    )
+
+    assert result.exit == Exit.PARTIAL
+    assert result.body["status"] == "completed"
+    assert result.body["answer"] == answer
+    assert result.body["persisted"] is False
+    assert "records no Elasticsearch" in result.body["persist_error"]
+    assert result.extra["marker"]["persisted"] is False
+
+
 def test_run_request_carries_video_url(
     configured: config_mod.Deployment,
     monkeypatch: pytest.MonkeyPatch,
@@ -438,6 +466,72 @@ def test_run_request_carries_num_frames(
     group.run("", inputs, ctx)
 
     assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 16
+    assert captured["json"].get("use_fps_for_chunking") is False
+
+
+def test_run_request_carries_fps(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4", fps=0.5), ctx)
+
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 0.5
+    assert captured["json"].get("use_fps_for_chunking") is True
+
+
+def test_run_request_caps_fps_on_long_sensor_window(
+    configured: config_mod.Deployment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+    monkeypatch.setattr(
+        "vss_cli.vlm.group._resolve_vios_clip",
+        lambda *_args, **_kwargs: ("http://vios/clip.mp4", "2025-01-01T00:00:00Z", "2025-01-01T00:02:00Z"),
+    )
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=configured)
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?",
+            sensor="cam1",
+            start_time="2025-01-01T00:00:00Z",
+            end_time="2025-01-01T00:02:00Z",
+            fps=2.0,
+        ),
+        ctx,
+    )
+
+    assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 60
+    assert captured["json"].get("use_fps_for_chunking") is False
+
+
+def test_num_frames_and_fps_are_mutually_exclusive() -> None:
+    with pytest.raises(Exception, match="mutually exclusive"):
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", num_frames=16, fps=1.0)
 
 
 def test_run_request_num_frames_default(
@@ -462,6 +556,7 @@ def test_run_request_num_frames_default(
     group.run("", inputs, ctx)
 
     assert captured["json"].get("num_frames_per_second_or_fixed_frames_chunk") == 8
+    assert captured["json"].get("use_fps_for_chunking") is False
 
 
 def test_use_base64_with_sensor_is_invalid(
@@ -856,13 +951,14 @@ def test_sensor_loopback_clip_http_error_writes_terminal_record(
 
 
 def test_is_loopback_url() -> None:
-    """_is_loopback_url must match localhost / 127.x.x.x / ::1 and reject routable hosts."""
+    """_is_loopback_url matches CLI-only hosts and rejects VLM-routable hosts."""
     from vss_cli.vlm.group import _is_loopback_url
 
     assert _is_loopback_url("http://localhost:30888/vst/api/v1/storage/file/abc")
     assert _is_loopback_url("http://127.0.0.1:9000/clip.mp4")
     assert _is_loopback_url("http://127.1.2.3:8080/")
     assert _is_loopback_url("http://[::1]/clip.mp4")
+    assert _is_loopback_url("http://host.openshell.internal:7777/vst/api/v1/storage/file/abc")
     assert not _is_loopback_url("http://10.86.83.113:30888/vst/api/v1/storage/file/abc")
     assert not _is_loopback_url("http://vst-host/clip.mp4")
     assert not _is_loopback_url("https://192.168.1.100:8080/clip.mp4")

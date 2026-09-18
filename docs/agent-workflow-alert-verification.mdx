@@ -74,7 +74,12 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
 # See developer-profiles/dev-profile-alerts/overrides.env for supported settings.
 ```
 
-`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=alerts
@@ -117,7 +122,7 @@ in `overrides.env`.
 
 <a id="alert-verification-available-vlm-models"></a>
 
-**Available VLM Models**
+#### Available VLM Models
 
 | Model | Name | Path |
 | --- | --- | --- |
@@ -134,6 +139,29 @@ Super models have only been tested on RTX PRO 6000 and H100 with a single GPU de
 NVFP4 models only work on Blackwell platforms.
 </Note>
 
+#### Enable Efficient Video Sampling
+
+You can enable Efficient Video Sampling (EVS++) to prune redundant video tokens and reduce VLM inference latency. Add the following settings to `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env` before
+starting the profile:
+
+```ini
+VIA_EVS_SESSION=true
+VLM_VIDEO_PRUNING_RATE=0.5
+VLLM_EVS_SIMILARITY_THRESHOLD=0.015
+```
+
+In testing with a warehouse dataset and the Cosmos 3 Super Reasoner FP8 VLM on RTX PRO 6000, this
+configuration reduced VLM latency by approximately 20% with an approximately
+1% decrease in accuracy.
+
+<Note>
+`VLLM_EVS_SIMILARITY_THRESHOLD` can be tuned for the characteristics of the
+input streams to improve the accuracy/latency tradeoff. For
+compatibility details and additional configuration options, see
+[Efficient Video Sampling (EVS and EVS++)](/vss/system-components/vision-microservices/real-time-vlm#efficient-video-sampling-evs-and-evs).
+</Note>
+
+#### Configure Required Deployment Values
 
 Set these required placeholder values in the existing assignments:
 
@@ -251,6 +279,8 @@ VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 </Tab>
 <Tab title="Remote LLM">
@@ -263,6 +293,8 @@ VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -392,10 +424,6 @@ RTVI_VLM_MODEL_PATH=none
 </Tab>
 <Tab title="RTXPRO4500BW">
 
-<Note>
-On NVIDIA driver 580.105.08, `nvidia-smi` may not identify RTX PRO 4500 Blackwell GPUs, when automatic detection is used. With native Docker Compose, set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`. NVIDIA driver 580.126.09 or later is recommended.
-</Note>
-
 <Tabs>
 <Tab title="Remote LLM">
 
@@ -490,7 +518,7 @@ RT_VLM_DEVICE_ID=0
 VSS_RT_CV_TAG=develop-latest-sbsa
 VSS_RT_VLM_TAG=develop-latest-sbsa
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
-RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -513,6 +541,7 @@ VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -535,6 +564,7 @@ VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 VLM_AS_VERIFIER_CONFIG_FILE_PREFIX=EDGE-LOCAL-VLM-
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -760,9 +790,35 @@ For this profile, use the `sample-warehouse-ladder.mp4` stream.
 <Note>
 By default, this profile only supports up to one stream being processed at a time.
 
-This can be increased by modifying the `NUM_SENSORS` environment variable in the `deploy/docker/developer-profiles/dev-profile-alerts/.env` file before deployment. On RTX PRO 6000, up to 4 streams at 10fps have been tested to work.
+This can be increased by modifying the `NUM_SENSORS` environment variable in the `deploy/docker/developer-profiles/dev-profile-alerts/.env` file before deployment. On RTX PRO 6000, up to 4 streams at 30 FPS have been tested to work.
 
-On edge platforms like DGX Spark, IGX Thor, and AGX Thor, up to 1 stream at 10fps has been tested to work due to GPU requirements.
+On edge platforms like DGX Spark, IGX Thor, and AGX Thor, up to 1 stream at 30 FPS has been tested to work due to GPU requirements.
+
+RTVI CV supports input streams at up to 30 FPS by default. On dGPU systems,
+`interval=0` in the `[primary-gie]` group runs inference on every frame. On edge
+systems, the deployment sets `interval=1`, which runs inference on every other
+frame. This inference load limits how many streams a single GPU can process in
+parallel.
+
+Increasing RTVI CV stream capacity also increases the potential alert load.
+Verify that RTVI VLM can keep up with the resulting alerts and monitor
+end-to-end alert latency. Depending on stream count and stream content, RTVI CV may generate alerts faster than the RTVI VLM container can verify them, causing the verification backlog and latency to increase drastically. On single-GPU systems, including edge devices, the additional RTVI VLM load can also saturate shared GPU resources and reduce RTVI CV processing FPS.
+
+To reduce the perception workload and run more streams on one GPU, use one or
+more of the following options:
+
+- Supply lower-FPS input streams such as 10 FPS streams.
+- Use RT-DETR instead of the default Grounding DINO model. RT-DETR is lighter
+  weight, but supports only the classes in `deploy/docker/developer-profiles/dev-profile-alerts/deepstream/configs/rtdetr-960x544-labels.txt`.
+
+  To do so, set `MODEL_NAME_2D=RTDETR` in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env` before deployment.
+- Increase `interval` in the `[primary-gie]` group of
+  `deploy/docker/developer-profiles/dev-profile-alerts/deepstream/configs/run_config-api-rtdetr-protobuf.txt`.
+  An interval of `1` runs inference on every other frame; `2` runs inference on
+  every third frame. The tracker continues to track objects between inference
+  frames.
+
+  Note that on edge systems, `deploy/docker/services/rtvi/rtvi-cv/ds-start.sh` overrides the DeepStream configuration and sets `interval=1` during startup. To use another value, modify the edge-platform `interval` assignment in that script as well.
 </Note>
 
 ### Step 3: Verify pipeline components
@@ -839,8 +895,6 @@ Once you've familiarized yourself with the alert verification workflow, you can 
 ### Known Issues
 
 * Some VLM inaccuracies might be observed depending on the model and configuration used with the RTVI VLM container.
-
-* On RTX PRO 4500 Blackwell systems with NVIDIA driver 580.105.08, `nvidia-smi` may not identify the GPU model. Set `HARDWARE_PROFILE=RTXPRO4500BW` in `user-overrides.env`; native Docker Compose does not perform the script hardware check. Upgrade to NVIDIA driver 580.126.09 or later when possible.
 
 * Video snippets generated for alerts may be short (for example, only a couple of seconds) depending on behavior analytics processing of the specific video, which could impact VLM accuracy. To address this issue, modify the *fovCountViolationIncidentThreshold* setting to the desired minimum alert clip duration in *deploy/docker/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-config.json*.
 

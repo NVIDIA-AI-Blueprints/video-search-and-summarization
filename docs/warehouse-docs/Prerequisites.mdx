@@ -10,6 +10,8 @@ This section covers the prerequisites for deploying and using the Warehouse Blue
 The Warehouse Blueprint has been validated and tested on the following NVIDIA GPUs:
 
 - NVIDIA RTX PRO 6000 Blackwell
+- NVIDIA RTX PRO 4500 Blackwell
+- NVIDIA GB300
 - NVIDIA H100 (NVL, SXM HBM3)
 - NVIDIA L40S
 - NVIDIA IGX-THOR
@@ -22,14 +24,16 @@ The following software must be installed on your system:
 - **OS:**
 
   - x86 hosts: Ubuntu 24.04
+  - DGX Station (GB300): DGX OS 7.6.0
   - DGX-SPARK: DGX OS 7.5.0
   - IGX-THOR (T5000 and T7000): IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04)
 - **NVIDIA Driver:**
 
-  - 580.105.08 (x86 hosts with Ubuntu 24.04)
-  - 580.159.03 (DGX-SPARK)
-  - Bundled with IGX-SW 2.0 (580 series) (IGX-THOR)
-- **NVIDIA Fabric Manager:** 580.105.08 (for H100 SXM HBM3 to run local LLM) - See [Installation Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq)
+  - 595.58.03 (x86 hosts with Ubuntu 24.04)
+  - 595.58.03 (DGX Station GB300)
+  - 580.173.02 (DGX-SPARK)
+  - 580.00, bundled with IGX-SW 2.0 (IGX-THOR)
+- **NVIDIA Fabric Manager:** 595.58.03 (for H100 SXM HBM3 to run local LLM) - See [Installation Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq)
 - **NVIDIA Container Toolkit:** 1.17.8+
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
@@ -43,8 +47,9 @@ For detailed installation instructions for the software requirements listed abov
   - [Install NVIDIA Driver](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-nvidia-driver)
   - [Install Docker](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-docker)
   - [Install NVIDIA Container Toolkit](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#install-nvidia-container-toolkit)
-- **DGX-SPARK, IGX-THOR**
+- **DGX Station GB300, DGX-SPARK, IGX-THOR**
 
+  - [Setup DGX Station (GB300)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-dgx-station-gb300)
   - [Setup DGX-SPARK](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-dgx-spark)
   - [Setup IGX-THOR](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#setup-igx-thor)
 - **all systems**
@@ -192,7 +197,7 @@ To verify your NGC key has the correct permissions:
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
 # Test access to the required resources
-ngc registry resource list "nvidia/vss-warehouse/*"
+ngc registry resource list "nvstaging/vss-warehouse/*"
 ngc registry resource list "nvidia/vss-core/*"
 
 # Test access to the required images
@@ -205,10 +210,10 @@ If you encounter permission errors, contact NVIDIA support for assistance.
 
 ### Install NVIDIA Driver
 
-NVIDIA Driver version 580.105.08 is required.
+NVIDIA Driver version 595.58.03 is required.
 
 You can download the driver directly from:
-https://www.nvidia.com/en-us/drivers/details/257738/
+https://www.nvidia.com/en-us/drivers/details/266021/
 
 For detailed installation instructions, refer to the official NVIDIA Driver Installation Guide:
 https://docs.nvidia.com/datacenter/tesla/driver-installation-guide/index.html
@@ -372,13 +377,17 @@ When prompted, enter your NGC API key. For information on obtaining an NGC API k
 For the latest version of NGC CLI, visit the NGC CLI downloads page: https://ngc.nvidia.com/setup/installers/cli
 </Note>
 
+### Setup DGX Station (GB300)
+
+DGX Station ships with DGX OS pre-installed. Warehouse deployments require DGX OS 7.6.0, NVIDIA driver 595.58.03. Follow the standard DGX OS update path, then verify the installed driver with `nvidia-smi` and confirm that Docker is available before deploying the blueprint.
+
 ### Setup DGX-SPARK
 
 For setup instructions, see the [DGX Spark User Guide](https://docs.nvidia.com/dgx/dgx-spark/index.html).
 
-Setup installs DGX OS (including the NVIDIA driver), Docker with NVIDIA Container Toolkit integration, and NGC access.
+DGX Spark ships with DGX OS pre-installed and includes Docker, NVIDIA Container Toolkit integration, and NGC access.
 
-DGX Spark deployments require DGX OS 7.5.0 and its NVIDIA driver version 580.159.03.
+VSS deployments require DGX OS 7.5.0, NVIDIA driver 580.173.02. Connect all peripherals and networking before power, and do not interrupt the OOBE software download or automatic reboot.
 
 <Note>
 - Depending on the installation method used, Docker might require `sudo` to run. If so, see [Run docker without sudo](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/prerequisites#run-docker-without-sudo).
@@ -389,8 +398,11 @@ DGX Spark deployments require DGX OS 7.5.0 and its NVIDIA driver version 580.159
 Setup IGX-SW 2.0 Production (LTS), including IGX OS 2.0, via instructions in the [Jetson IGX Thor User Guide](https://docs.nvidia.com/igx/user-guide/latest/OV/introduction.html).
 
 Steps:
-- Setup installs the NVIDIA driver bundled with IGX-SW 2.0 (580 series).
-- Install JetPack after the BSP is in place (for CUDA and other components), as described in the user guide.
+
+- Setup installs NVIDIA driver 580.00 with the IGX-SW 2.0 stack.
+- For T5000, install from a bootable USB and select **Install IGX OS with Real-Time Kernel**.
+- For T7000, use a bootable USB or BMC Virtual Media. Update firmware before OS installation and use the iGPU DisplayPort for the monitor.
+- Install the IGX AI software with `sudo apt install nvidia-igx-ai` and enable the NVIDIA CDI service after the OS installation.
 
 Additional IGX resources:
 

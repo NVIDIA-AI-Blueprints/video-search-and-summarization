@@ -549,13 +549,31 @@ async def test_vlm_calls_are_capped_at_three_in_returned_order() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gap_over_sixty_seconds_is_rejected_without_vlm_call() -> None:
+async def test_gap_over_sixty_seconds_runs_vlm() -> None:
     gap = _gap(end_time="2026-08-26T12:01:11Z")
     result, _, _, runner = await _run(judge=_Judge(_decision(gaps=[gap])))
 
-    assert runner.calls == []
-    assert result.status == "partial"
-    assert "exceeds the 60s clip limit" in result.unresolved_gaps[0]
+    assert len(runner.calls) == 1
+    assert result.status == "completed"
+    assert result.unresolved_gaps == []
+
+
+@pytest.mark.asyncio
+async def test_request_fps_is_forwarded_to_vlm() -> None:
+    request = IntrospectionRequest(query="forklift", fps=2.0)
+    runner = _Runner()
+    memory, _ = _memory(_record(record_id=None), _record())
+    result = await introspect(
+        request,
+        memory=memory,
+        judge=_Judge(),
+        synthesizer=_Synthesizer(),
+        vlm_runner=runner,
+        settings=IntrospectionSettings(),
+    )
+
+    assert result.status == "completed"
+    assert runner.calls[-1]["fps"] == 2.0
 
 
 @pytest.mark.asyncio

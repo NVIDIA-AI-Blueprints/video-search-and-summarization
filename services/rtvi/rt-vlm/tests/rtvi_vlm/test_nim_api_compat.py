@@ -170,6 +170,30 @@ class TestVlmQueryValidation:
         with pytest.raises(ValidationError, match="json_schema is required"):
             _vlm_query(response_format={"type": "json_schema"})
 
+    def test_choice_response_format_reaches_generation_config(self):
+        choices = ["N", "Y collision_happening"]
+        query = _vlm_query(response_format={"type": "choice", "choices": choices})
+
+        params = VlmRequestParams.from_vlm_query(query)
+
+        assert params.vlm_generation_config.response_format == {
+            "type": "choice",
+            "choices": choices,
+        }
+
+    @pytest.mark.parametrize(
+        ("response_format", "message"),
+        [
+            ({"type": "choice"}, "choices is required"),
+            ({"type": "choice", "choices": [" "]}, "must not contain blank"),
+            ({"type": "choice", "choices": ["N", "N"]}, "choices must be unique"),
+            ({"type": "text", "choices": ["N"]}, "choices is only valid"),
+        ],
+    )
+    def test_choice_response_format_rejects_invalid_values(self, response_format, message):
+        with pytest.raises(ValidationError, match=message):
+            _vlm_query(response_format=response_format)
+
     def test_structured_output_rejects_ignore_eos(self):
         with pytest.raises(ValidationError, match="ignore_eos=true is incompatible"):
             _vlm_query(response_format={"type": "json_object"}, ignore_eos=True)

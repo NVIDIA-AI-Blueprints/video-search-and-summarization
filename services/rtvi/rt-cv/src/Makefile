@@ -18,8 +18,6 @@ ifeq ($(CUDA_VER),)
   $(error "CUDA_VER is not set")
 endif
 $(info "CUDA_VER is $(CUDA_VER)")
-$(info "REGISTRY is $(REGISTRY)")
-$(info "TAG is $(TAG)")
 
 APP:= metropolis_perception_app
 
@@ -59,21 +57,6 @@ CFLAGS+= -I../../apps-common/includes \
                  -I /usr/local/cuda-$(CUDA_VER)/include
 # frame_dump: nvds_obj_encode.h include (json-glib comes via PKGS)
 CFLAGS+= -I/opt/nvidia/deepstream/deepstream/sources/includes
-
-# Set default values if REGISTRY or TAG are not provided
-IMAGE_PATH ?= $(REGISTRY)
-IMAGE_TAG ?= $(TAG)
-# Fallback defaults if still empty
-ifeq ($(IMAGE_PATH),)
-  IMAGE_PATH := "unknown-registry"
-endif
-ifeq ($(IMAGE_TAG),)
-  IMAGE_TAG := "unknown-tag"
-endif
-
-CFLAGS+= -DIMAGE_PATH=\"$(IMAGE_PATH)\" -DIMAGE_TAG=\"$(IMAGE_TAG)\"
-$(info "IMAGE_PATH is $(IMAGE_PATH)")
-$(info "IMAGE_TAG is $(IMAGE_TAG)")
 
 LIBS:= -L/usr/local/cuda-$(CUDA_VER)/lib64/ -lcudart -lnvds_utils -lnvds_msgbroker -lnvds_logger -lcrypto
 

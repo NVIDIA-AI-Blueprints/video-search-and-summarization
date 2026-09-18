@@ -69,7 +69,6 @@ _stub_modules = [
     'utils.logging_config',
     'utils.schema_util',
     'vlm.warmup',
-    'vss',
     'metrics', 'metrics.prometheus_metrics', 'metrics.recorder',
 ]
 for mod_name in _stub_modules:
@@ -120,7 +119,6 @@ sys.modules['utils.logging_config'].enforce_log_level = Mock()
 sys.modules['utils.schema_util'].protobuf_anomalies_to_json_string_list = Mock()
 sys.modules['vlm.warmup'].warmup_vlm = Mock()
 sys.modules['vlm.warmup'].WARMUP_VIDEO = '/tmp/fake.mp4'
-sys.modules['vss'].VSSHandler = Mock
 
 # Stub the metrics package so enhance_alert_with_vlm imports them as
 # plain Mocks. We then swap the production module's references for

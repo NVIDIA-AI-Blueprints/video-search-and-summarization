@@ -19,7 +19,12 @@ services:
   # in-process and durable state (verdict protection, alert configs) lives
   # in Elasticsearch. No Redis container is required.
   alert-bridge:
-    image: nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0
+    # Has to resolve to a 3.3 build: the files mounted below are 3.3 schema --
+    # config.yaml has no Redis section, and alert_request_defaults.yaml has no
+    # vss_params, which a pre-3.3 loader requires. Same coordinates as the
+    # profile deployments (deploy/docker/services/alert/compose.yml; defaults
+    # in deploy/docker/containers.env). Set VSS_CONTAINER_TAG to pin a release.
+    image: ${VSS_ALERT_IMAGE:-${VSS_CONTAINER_REGISTRY:-ghcr.io/nvidia-ai-blueprints/vss}/vss-alert-ms}:${VSS_CONTAINER_TAG:-${VSS_ALERT_TAG:-develop-latest}}
     #image: alert-bridge:19
     user: "0:0"
     network_mode: "host"
@@ -31,6 +36,13 @@ services:
       - STORAGE_MODULE_ENDPOINT=http://${HOST_IP:-127.0.0.1}:${STORAGE_HTTP_PORT:-30000}
     volumes:
       - ${ALERT_BRIDGE_CONFIG_FILE:-./config.yaml}:/app/config.yaml
+      # /app is the image WORKDIR, which is where the defaults loader looks
+      # when ALERT_BRIDGE_DEFAULTS_FILE is unset -- so mounting over that path
+      # is what makes a custom file take effect, with no in-container env var.
+      # Scope: this file feeds the request-entity validator, which the
+      # verification pipeline does not call, so it does not change live
+      # verification. See src/schemas/config/README.md.
+      - ${ALERT_BRIDGE_DEFAULTS_FILE:-./alert_request_defaults.yaml}:/app/alert_request_defaults.yaml
 
 
     container_name: alert-bridge

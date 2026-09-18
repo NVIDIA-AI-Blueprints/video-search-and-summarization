@@ -265,26 +265,35 @@ class IntrospectionMemoryConfig:
     """Static configuration for bounded memory introspection."""
 
     judge: IntrospectionJudgeConfig
+    enabled: bool = True
 
     def validate(self) -> IntrospectionMemoryConfig:
+        if not isinstance(self.enabled, bool):
+            raise ConfigError("introspection enabled state must be true or false")
         self.judge.validate()
         return self
 
     def to_json(self) -> dict[str, Any]:
         self.validate()
-        return {"judge": self.judge.to_json()}
+        return {"enabled": self.enabled, "judge": self.judge.to_json()}
 
     @classmethod
     def from_json(cls, raw: object) -> IntrospectionMemoryConfig:
         if not isinstance(raw, dict):
             raise ConfigError("config 'memory.introspection' must be a JSON object")
-        expected = {"judge"}
+        expected = {"enabled", "judge"}
         unknown = sorted(set(raw) - expected)
         if unknown:
             raise ConfigError(f"config 'memory.introspection' contains unknown fields: {', '.join(unknown)}")
         if "judge" not in raw:
             raise ConfigError("config 'memory.introspection.judge' is required")
-        return cls(judge=IntrospectionJudgeConfig.from_json(raw["judge"])).validate()
+        enabled = raw.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ConfigError("config 'memory.introspection.enabled' must be true or false")
+        return cls(
+            judge=IntrospectionJudgeConfig.from_json(raw["judge"]),
+            enabled=enabled,
+        ).validate()
 
 
 @dataclass(frozen=True)
@@ -725,6 +734,10 @@ INGRESS_SERVICES.update(
     {
         "agent": ServiceRoute(mount="/api", probe="/api/v1/videos"),
         "vst": ServiceRoute(mount="/vst", probe="/vst/api/v1/sensor/version"),
+        "video_analytics": ServiceRoute(
+            mount="/video-analytics-api",
+            probe="/video-analytics-api/livez",
+        ),
         "elasticsearch": ServiceRoute(
             mount="/elasticsearch",
             probe="/elasticsearch/_cat/indices?h=index&format=json",

@@ -7,7 +7,7 @@
 {{- $calibration := index $resourceFiles "calibration" | default dict }}
 {{- $warehouse := index .Values "warehouse" | default dict }}
 {{- $behaviorFiles := index $warehouse "behaviorAnalytics" | default dict }}
-{{- if and ($analytics.enabled | default false) ($behavior.enabled | default false) ($calibration.enabled | default false) (not ($behavior.downloadResourcesFromNgc | default false)) }}
+{{- if and ($analytics.enabled | default false) ($behavior.enabled | default false) ($calibration.enabled | default false) (not ($behavior.downloadResourcesFromNgc | default false)) (not ($calibration.apiUrl | default "")) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

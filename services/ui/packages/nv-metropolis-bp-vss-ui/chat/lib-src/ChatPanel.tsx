@@ -18,11 +18,12 @@ import type {
 
 /**
  * Defaults chosen to match what the VSS deployment actually sets in
- * `deploy/docker/resolved.yml`, so an unconfigured embed behaves like the
- * toolkit chat bar it replaces rather than like a bare component.
+ * `deploy/docker/resolved.yml`, so an unconfigured embed matches the
+ * deployed chat rather than a bare component.
  */
 const DEFAULT_FEATURES: Required<ChatFeatureFlags> = {
   chatHistory: true,
+  hitl: false,
   intermediateSteps: true,
   expandIntermediateSteps: false,
   messageCopy: false,
@@ -174,7 +175,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     onAnswerComplete,
     onBusyChange,
     isConversationStale,
-    onInteraction: requestInteraction,
+    onInteraction: features.hitl ? requestInteraction : undefined,
   });
 
   // Only the conversation that asked may answer: the prompt is hidden while
@@ -269,7 +270,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   );
 
   // Hand conversation controls to the host so it can render them in its own
-  // sidebar, the way the toolkit's onControlsReady did.
+  // sidebar.
   //
   // Keyed on what the list actually displays — ids, names, selection, search,
   // busy — rather than on the conversation objects. Those change on every
@@ -447,7 +448,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         </div>
       ) : null}
 
-      {interaction ? (
+      {features.hitl && interaction ? (
         <div
           data-testid="hitl-modal"
           className="absolute inset-0 z-[130] flex items-center justify-center bg-black/60 p-4"

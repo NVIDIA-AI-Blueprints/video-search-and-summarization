@@ -19,7 +19,7 @@ const conversation = (name: string, texts: string[]): Conversation => ({
 });
 
 describe('titleFromMessage', () => {
-  it('truncates at 30 characters, as the toolkit did', () => {
+  it('truncates at 30 characters', () => {
     expect(titleFromMessage('a'.repeat(40))).toBe(`${'a'.repeat(30)}...`);
   });
 
@@ -89,7 +89,7 @@ describe('parseImport', () => {
     ]);
   });
 
-  it('accepts the toolkit v4 envelope', () => {
+  it('accepts the v4 envelope', () => {
     const raw = JSON.stringify({
       version: 4,
       history: [{ id: 'a', name: 'Old chat', messages: [{ role: 'user', content: 'hi' }] }],
@@ -104,7 +104,7 @@ describe('parseImport', () => {
     expect(parseImport(raw).conversations![0].name).toBe('V1');
   });
 
-  it('upgrades toolkit v2 folders and accepts toolkit v3', () => {
+  it('upgrades v2 folders and accepts v3', () => {
     const v2 = parseImport(
       JSON.stringify({
         history: null,
@@ -157,7 +157,7 @@ describe('parseImport', () => {
   });
 });
 
-describe('toolkit import merging', () => {
+describe('import merging', () => {
   it('deduplicates conversations, folders, and prompts by id', () => {
     const existing = [conversation('one', [])];
     const duplicate = conversation('one', ['ignored duplicate']);

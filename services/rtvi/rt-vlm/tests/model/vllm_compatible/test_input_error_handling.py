@@ -55,6 +55,60 @@ class _RecordingLLM:
         yield SimpleNamespace()
 
 
+class _ChatTemplateIgnoringReasoning:
+    def apply_chat_template(self, *args, **kwargs):
+        self.messages = args[0]
+        return "<|im_start|>assistant\n"
+
+
+class _QwenTokenizer:
+    eos_token_id = 99
+    unk_token_id = 0
+
+    def convert_tokens_to_ids(self, token):
+        assert token == "<|im_end|>"
+        return 99
+
+    def decode(self, token_ids, skip_special_tokens=True):
+        assert skip_special_tokens is True
+        assert token_ids == [10, 11]
+        return '{"visual_sentinel":"ALPHA"}'
+
+    def encode(self, _prompt, add_special_tokens=False):
+        assert add_special_tokens is False
+        return [1, 2]
+
+
+class _QwenProcessor:
+    tokenizer = _QwenTokenizer()
+
+    def apply_chat_template(self, *_args, **_kwargs):
+        return "<|im_start|>assistant\n"
+
+
+class _QwenStreamingLLM:
+    async def generate(self, *_args, **_kwargs):
+        yield SimpleNamespace(
+            outputs=[SimpleNamespace(text='{"visual_sent', token_ids=[10])]
+        )
+        yield SimpleNamespace(
+            outputs=[
+                SimpleNamespace(
+                    text='{"visual_sentinel":"ALPHA"}<|im_end|>',
+                    token_ids=[10, 11, 99],
+                )
+            ]
+        )
+        yield SimpleNamespace(
+            outputs=[
+                SimpleNamespace(
+                    text='{"visual_sentinel":"ALPHA"}<|im_end|>reasoning leak',
+                    token_ids=[10, 11, 99, 20],
+                )
+            ]
+        )
+
+
 class _RequestQueue:
     def __init__(self):
         self.request_id = "req-1"
@@ -94,16 +148,26 @@ class _AbortRecordingLLM:
 
 
 class _IdleReleaseLLM:
-    def __init__(self):
-        self.encoder_cache_reset = False
+    def __init__(self, fail_collective=False, fail_pause=False):
+        self.calls = []
         self.collective_method = None
+        self.fail_collective = fail_collective
+        self.fail_pause = fail_pause
 
-    async def reset_encoder_cache(self):
-        self.encoder_cache_reset = True
+    async def pause_generation(self, mode, clear_cache):
+        self.calls.append(("pause_generation", mode, clear_cache))
+        if self.fail_pause:
+            raise asyncio.CancelledError
 
     async def collective_rpc(self, method, timeout=None):
+        self.calls.append(("collective_rpc", timeout))
         self.collective_method = method
+        if self.fail_collective:
+            raise RuntimeError("worker cache cleanup failed")
         return [{"free_mib": 1024, "total_mib": 2048}]
+
+    async def resume_generation(self):
+        self.calls.append(("resume_generation",))
 
 
 class _RecordingProcessor:
@@ -175,6 +239,97 @@ def test_reasoning_chat_template_disables_thinking_by_default(architecture):
     assert model._get_apply_chat_template_kwargs(VlmGenerationConfig(enable_reasoning=True)) == {
         "enable_thinking": True
     }
+
+
+def test_qwen3vl_non_reasoning_fallback_closes_empty_think_block():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _ChatTemplateIgnoringReasoning()
+    config = VlmGenerationConfig(enable_reasoning=False)
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Describe"}]}]
+
+    prompt = model._apply_chat_template(messages, config)
+
+    assert prompt.endswith("<think>\n\n</think>\n\n")
+    assert model._processor.messages[0]["content"][0]["text"] == "Describe /no_think"
+    assert messages[0]["content"][0]["text"] == "Describe"
+
+
+def test_qwen3vl_reasoning_prompt_is_not_modified():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _ChatTemplateIgnoringReasoning()
+    config = VlmGenerationConfig(enable_reasoning=True)
+
+    assert model._apply_chat_template([], config) == "<|im_start|>assistant\n"
+
+
+def test_qwen3vl_non_reasoning_keeps_fixed_work_generation_with_ignore_eos():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    config = VlmGenerationConfig(enable_reasoning=False, ignore_eos=True)
+    sampling_kwargs = vllm_compatible_model._build_vllm_sampling_kwargs(config)
+
+    model._apply_reasoning_suppression_sampling_params(sampling_kwargs, config)
+
+    assert sampling_kwargs["ignore_eos"] is True
+    assert sampling_kwargs["bad_words"] == ["<think>", "</think>"]
+    assert "stop_token_ids" not in sampling_kwargs
+
+
+def test_qwen3vl_non_reasoning_truncates_backend_output_at_first_answer_boundary():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _QwenProcessor()
+    model._inflight_req_ids = []
+    model._vlm_model_type = "cosmos-reason3"
+    output = SimpleNamespace(
+        prompt_token_ids=[1, 2],
+        outputs=[
+            SimpleNamespace(
+                text='{"visual_sentinel":"ALPHA"}\nStep-by-step analysis',
+                token_ids=[10, 11, 99, 20, 21],
+            )
+        ],
+    )
+
+    result = model._postprocess_vllm(
+        [output],
+        [],
+        ignore_eos=True,
+        preserve_reasoning_tags=False,
+        enable_reasoning=False,
+    )
+
+    assert result[0].output == '{"visual_sentinel":"ALPHA"}'
+    assert result[0].reasoning_description == ""
+    assert result[0].output_tokens == 5
+
+
+def test_qwen3vl_non_reasoning_stream_hides_post_boundary_output(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm",
+        SimpleNamespace(SamplingParams=_FakeSamplingParams),
+    )
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _QwenProcessor()
+    model._llm = _QwenStreamingLLM()
+    model._inflight_req_ids = []
+
+    async def collect():
+        config = VlmGenerationConfig(enable_reasoning=False, ignore_eos=True)
+        return [
+            delta
+            async for delta in model.generate_text_only_stream(
+                [{"role": "user", "content": "Describe"}],
+                config,
+            )
+        ]
+
+    assert "".join(asyncio.run(collect())) == '{"visual_sentinel":"ALPHA"}'
+    assert model._inflight_req_ids == []
 
 
 @pytest.mark.parametrize(
@@ -857,7 +1012,14 @@ def test_enforced_adaptive_preprocess_honors_cuda_mm_residency_limit():
     assert model.can_enqueue_requests() is False
 
 
-def test_release_idle_resources_clears_frontend_and_engine_caches(monkeypatch):
+@pytest.mark.test_in_ci
+@pytest.mark.parametrize(
+    ("fail_collective", "fail_pause"),
+    [(False, False), (True, False), (False, True)],
+)
+def test_release_idle_resources_drains_engine_and_always_resumes(
+    monkeypatch, fail_collective, fail_pause
+):
     model = VllmCompatible.__new__(VllmCompatible)
     model._cuda_mm_residency_lock = threading.Lock()
     model._adaptive_preprocess_pending_submission_ids = set()
@@ -867,7 +1029,7 @@ def test_release_idle_resources_clears_frontend_and_engine_caches(monkeypatch):
     model._live_request_ids = {}
     model._live_request_futures = {}
     model._inflight_req_ids = []
-    model._llm = _IdleReleaseLLM()
+    model._llm = _IdleReleaseLLM(fail_collective=fail_collective, fail_pause=fail_pause)
 
     calls = []
     monkeypatch.setattr(torch.cuda, "synchronize", lambda: calls.append("synchronize"))
@@ -880,21 +1042,35 @@ def test_release_idle_resources_clears_frontend_and_engine_caches(monkeypatch):
     loop_thread.start()
     model._event_loop = loop
     try:
-        assert model.release_idle_resources() is True
+        if fail_pause:
+            with pytest.raises(concurrent.futures.CancelledError):
+                model.release_idle_resources()
+        elif fail_collective:
+            with pytest.raises(RuntimeError, match="worker cache cleanup failed"):
+                model.release_idle_resources()
+        else:
+            assert model.release_idle_resources() is True
     finally:
         loop.call_soon_threadsafe(loop.stop)
         loop_thread.join()
         loop.close()
 
-    assert model._llm.encoder_cache_reset is True
+    expected_calls = [("pause_generation", "wait", True)]
+    if not fail_pause:
+        expected_calls.append(("collective_rpc", 60.0))
+    expected_calls.append(("resume_generation",))
+    assert model._llm.calls == expected_calls
     import cloudpickle
 
-    assert isinstance(model._llm.collective_method, bytes)
-    assert (
-        cloudpickle.loads(model._llm.collective_method)
-        is vllm_compatible_model._empty_vllm_worker_cuda_cache
+    if not fail_pause:
+        assert isinstance(model._llm.collective_method, bytes)
+        assert (
+            cloudpickle.loads(model._llm.collective_method)
+            is vllm_compatible_model._empty_vllm_worker_cuda_cache
+        )
+    assert calls == (
+        [] if fail_collective or fail_pause else ["synchronize", "ipc_collect", "empty_cache"]
     )
-    assert calls == ["synchronize", "ipc_collect", "empty_cache"]
 
 
 def test_release_idle_resources_skips_active_requests():
@@ -1267,7 +1443,7 @@ def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
     assert future.result() == ["ok"]
     content = processor.messages[-1]["content"]
     assert [item["type"] for item in content] == ["text", "image", "image", "image"]
-    assert content[0]["text"] == "Describe the time-lapsed video."
+    assert content[0]["text"] == "Describe the time-lapsed video. /no_think"
     assert [item["image"] for item in content[1:]] == [
         "frame_000000.jpg",
         "frame_000001.jpg",
@@ -1681,6 +1857,19 @@ def test_vllm_sampling_kwargs_enforces_json_object(monkeypatch):
     )
 
     assert kwargs["structured_outputs"].json_object is True
+    assert kwargs["ignore_eos"] is False
+
+
+def test_vllm_sampling_kwargs_enforces_choice(monkeypatch):
+    monkeypatch.setenv("VLLM_IGNORE_EOS", "true")
+    monkeypatch.delenv("RTVI_VLLM_IGNORE_EOS", raising=False)
+    choices = ["N", "Y collision_happening"]
+
+    kwargs = vllm_compatible_model._build_vllm_sampling_kwargs(
+        VlmGenerationConfig(response_format={"type": "choice", "choices": choices})
+    )
+
+    assert kwargs["structured_outputs"].choice == choices
     assert kwargs["ignore_eos"] is False
 
 

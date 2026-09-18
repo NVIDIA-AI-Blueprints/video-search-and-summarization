@@ -473,6 +473,8 @@ jobs:
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
             deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
             deploy/docker/scripts/tests/test_run_setup_notebook.py \
+            skills/vss-build-vision-ai/scripts/tests/test_sync_skills.py \
+            skills/vss-build-vision-ai/scripts/tests/test_stage_vss_src.py \
             -q
 
       - name: Skill eval harness contracts
@@ -922,6 +924,7 @@ jobs:
             torch \
             torchvision
           uv pip install --python .venv-rtvi/bin/python \
+            cloudpickle \
             filelock \
             numpy \
             pillow \

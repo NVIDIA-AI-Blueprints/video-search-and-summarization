@@ -41,11 +41,20 @@ The official Alert Verification workflow's "what's being deployed" set, mapped t
 
 **Agent layer (optional) + synthetic source:**
 
-- **VSS Agent + Video-Analytics MCP** — `vss-agent` (`:8000`) + `vss-va-mcp` (`:9901`). Routes requests and orchestrates tool calls (NL incident queries, **report generation**) across the alert pipeline; calls `alert-bridge` via `ALERT_BRIDGE_URL`. **Optional — NOT part of the core verify data path** (nothing in `alert-bridge` / `perception-alerts` / `vss-behavior-analytics` `depends_on` it; verified incidents are queryable directly from ES or `vss-video-analytics-api`). Include only for the full agentic workflow (NL query / report gen) or to back the web UI. Owned by the agent layer (`skills/operations/vss-ask-video/` etc.); `required: false` `component_services` in `patch-alerts.md`.
+- **VSS Agent / legacy Video-Analytics MCP** — `vss-agent` (`:8000`) and
+  `vss-va-mcp` (`:9901`) are independent optional surfaces, not part of the core
+  verify data path. Host-side and NemoClaw analytics use `vss analytics` through
+  `vss-video-analytics-api`; include `vss-va-mcp` only for an explicitly
+  requested legacy MCP workflow such as SOP reporting. Nothing in
+  `alert-bridge`, `perception-alerts`, or `vss-behavior-analytics` depends on
+  either service.
 - **Nemotron LLM (NIM)** — **optional**, only meaningful when the agent layer is included (the LLM serves the agent's reasoning / tool selection / report generation). Alerts default `LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b` at `LLM_BASE_URL=http://${HOST_IP}:${LLM_PORT}` (`:30081`); `LLM_MODE` picks dedicated (`local`) vs shared-GPU (`local_shared`) placement. Owned by the LLM-NIM catalog entry (`skills/vss-build-vision-ai/`); the `required: false` `llm_placement` variant in `patch-alerts.md`. Omit for a headless verify deployment.
 - **Phoenix** — observability for the agent layer (`PHOENIX_ENDPOINT=http://${HOST_IP}:6006`). Already part of ELK's `component_services` (`phoenix` key). Owned by ELK/infra.
 - **NVStreamer** — video streaming service that plays back dataset videos to replicate live cameras (`vss-vios-nvstreamer`, `ADAPTOR=streamer`). In `build-vision-ai` this is the **validation-harness** component emitted by Step 6 (recorded under the sidecar `validation_harness:` key) when the deployment needs a live/streaming source but no real camera is supplied — it is NOT a `component_services:` entry. Source: `references/validation-harness.md`.
-- **Video Analytics API** — `vss-video-analytics-api` (`:9901` query surface) serving incident/alert queries over the verified ES indices — a **headless** query surface that does NOT require `vss-agent`. Optional. Defined in the common services bundle; optional `component_services`.
+- **Video Analytics API** — `vss-video-analytics-api` (`:8081` REST query
+  surface) serves incident/alert queries over the verified ES indices, including
+  the headless `vss analytics` path. It does not require `vss-agent` or
+  `vss-va-mcp`.
 - **VSS Agent UI** — `vss-ui` (`vss-agent-ui`, `:3000`) + HAProxy ingress. Optional web UI (Alerts tab, Video Management, Kibana dashboard). Requires the agent layer (it calls the agent) and HAProxy routing; consumes the `NEXT_PUBLIC_*` env block. Owned by the UI/ingress layer. Omit for a headless deployment.
 - **MQTT / mosquitto** — optional. Only when republishing verified alerts over MQTT. Declared `required: false`.
 

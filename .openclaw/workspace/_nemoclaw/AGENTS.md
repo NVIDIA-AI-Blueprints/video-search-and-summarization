@@ -2,6 +2,55 @@
 
 This folder is home. Treat it that way.
 
+## VSS Base prompt routing
+
+For every named-video report, first resolve the exact timeline with `vss_cli`.
+If it is 120 seconds or longer, stop before any VLM call and report that LVS is
+required. Never bypass this gate through `exec`, raw HTTP, or another tool.
+
+For these UI requests, select and follow exactly one active VSS skill:
+
+- List sensors, take a snapshot, or inspect a timeline: `vss-manage-video-io-storage`
+- Ask what is visually present in a named video, including whether a worker is wearing PPE: `vss-ask-video`
+- Generate a report for a named video: `vss-generate-video-report`
+
+Read the selected skill from its exact `<location>` in `<available_skills>`;
+never derive or search for a path from the skill name. In this NemoClaw image,
+invoke the skill's `vss` arguments through the `vss_cli` tool. Do not look for a
+repository checkout or replace the CLI with raw HTTP.
+
+Never route a named-video PPE question to analytics or VA-MCP. Resolve names
+from the sensor listing; if one unambiguous result corrects a typo, state the
+correction and use the listed identifier. Obtain the sensor's exact recorded
+timeline before time-based requests; never substitute the current date.
+A report for a named video shorter than 120 seconds uses
+`vss-generate-video-report` Mode A, never `vss summarize`: resolve the sensor's
+full recorded timeline and complete the skill's default/HITL prompt-selection
+step. Use the HITL-selected prompt when one exists. Otherwise, use this exact
+default prompt as one argument, preserving its line breaks:
+
+```text
+Describe in detail what happens in the video, with timestamps (start-end in seconds from clip start) for each segment or event.
+
+Cover scenes, objects, people, vehicles, and notable actions.
+
+Output requirements:
+- Keep events in chronological order.
+- Use concrete descriptions rather than generic placeholders.
+- Include timestamps in each event line.
+```
+
+After selecting the prompt, the first and only backend call in the report turn
+must be this `vss_cli` argument-array shape:
+
+```json
+{"args":["vlm","run","--prompt","<selected-prompt>","--sensor","<listed-name>","--start-time","<timeline-start>","--end-time","<timeline-end>","--fps","2"]}
+```
+
+Use the exact recorded ISO-8601 timeline values; do not omit them or replace
+them with offsets. Then render the structured report. Never call `summarize`,
+`exec`, `web_fetch`, or `write`, and never reuse an earlier answer or snapshot.
+
 ## First Run
 
 If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then delete it. You won't need it again.
@@ -118,6 +167,23 @@ Reactions are lightweight social signals. Humans use them constantly — they sa
 
 Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
 
+### User follow-up questions
+
+`ENV.md` defines `HITL_ENABLED`. Obey it for every skill and workflow:
+
+- When it is `false`, never invoke `AskUserQuestion`, `request_user_input`, an
+  MCP question tool, or any other structured human-in-the-loop mechanism. This
+  rule overrides skill text that says to use one of those mechanisms.
+- Ask required clarifying or confirmation questions as ordinary assistant text,
+  then end the turn. The user's next chat message continues the same session.
+  Present choices inline when useful and do not start gated work until the user
+  replies.
+- Do not call an API that creates or resumes interaction IDs. If a workflow has
+  no non-HITL form, explain that it is unavailable in this configuration
+  instead of leaving a run paused.
+- Only when it is explicitly `true` may a skill use a structured interaction
+  mechanism supported by the active harness and UI.
+
 
 ### VSS Deploy Conventions
 
@@ -142,9 +208,10 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` using the cadence the server returns in `recommended_poll_interval_s` (currently 10s for `down`). Print the same 1-line chat update after every poll. **When `status` becomes terminal, in the same turn**, send a clear final message: `success` → `"✅ Teardown complete (elapsed Ms)."` | `error` → `"❌ Teardown failed (exit_code=X)"` plus a log snippet | `cancelled` → `"⚠️ Teardown was cancelled."` Do not end the turn before this message is sent.
 
 - When the user asks about **incidents, alerts, PPE violations, occupancy, object counts, speeds, or "what happened"** in video:
-  - Use the **`vss-va-mcp` skill** — query the VA-MCP server at **port 9901** directly.
-  - **Do NOT use the VSS agent on port 8000 or any `rtvi_vlm_alert` tool for this.**
-  - VA-MCP requires a 2-step session handshake — run the `initialize` curl first to get a session ID from the response header, then call the tool. See the `vss-va-mcp` skill for exact commands.
+  - Use the **`vss-query-analytics` skill**, which runs the project-local `vss analytics` CLI against the configured Video Analytics API.
+  - Use `vss analytics sensors` for sensors represented in analytics data and `vss vios list` for sensors registered in VIOS.
+  - **Do NOT initialize an MCP session, call port 9901 or `/va-mcp`, or use the VSS agent on port 8000 for read-only analytics.**
+  - VA-MCP remains only for requests that explicitly require its legacy MCP or SOP tool surface.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 

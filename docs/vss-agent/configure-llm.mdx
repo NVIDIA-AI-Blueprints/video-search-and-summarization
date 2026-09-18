@@ -13,9 +13,9 @@ When deploying with a local LLM, the agent workflow uses a default NIM endpoint.
 
 - **Default model:** `nvidia/nemotron-3.5-lightning-30b-a3b` for every profile (configured as a local NIM endpoint; each profile's `overrides.env` carries the matching `LLM_NAME` and `LLM_NAME_SLUG`).
 
-- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile `user-overrides.env` to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
+- **Custom NIM env file:** Set `LLM_ENV_FILE` in the selected profile's `*-overrides.env` file to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
 
-- **Different local model:** Set `LLM_NAME` and its matching `LLM_NAME_SLUG` in the selected profile `user-overrides.env` to use one of the supported local models:
+- **Different local model:** Set `LLM_NAME` and its matching `LLM_NAME_SLUG` in the selected profile's `*-overrides.env` file to use one of the supported local models:
 
   | `LLM_NAME` | `LLM_NAME_SLUG` |
   | --- | --- |
@@ -50,7 +50,11 @@ It is also recommended to review the different parameters described in the [Quic
    ```
 
 
-Create the user-managed file from the checked-in template before modifying it:
+Copy the checked-in template to any filename matching `*-overrides.env` before
+modifying it. Files matching that pattern are ignored by Git so local settings
+and credentials are not committed. This guide uses `user-overrides.env` as a
+concrete example; if you choose another name, use it consistently in the
+deployment commands:
 
 ```bash
 cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \

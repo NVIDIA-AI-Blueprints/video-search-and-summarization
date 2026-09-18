@@ -7,6 +7,11 @@ metadata:
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
+  # What a live deployment must expose for this skill to be usable, as the vss CLI
+  # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
+  # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
+  # OpenClaw harness image ships and activates skills by it.
+  vss-requires: "vlm"
 ---
 
 # Report
@@ -26,7 +31,7 @@ If the request is ambiguous (e.g. "report on `<sensor>`" with no time range and 
 ## Instructions
 
 0. **Set `SKILL_DIR`** to the "Base directory for this skill" path announced when this skill loads. All skill-relative reads (e.g. the default VLM prompt) resolve under `$SKILL_DIR` — never via cwd-relative paths. If no base directory was announced (this file was opened directly), `SKILL_DIR` is the directory containing this `SKILL.md`. Each fenced block is its own shell and nothing survives it, so the skill hands state over explicitly: the blocks that resolve shared values end by printing shell-quoted `NAME=value` lines (*Endpoint resolution* → `DEPLOYMENT_KIND`, `VSS_PUBLIC_URL`, `HOST_IP`, `VST_API_BASE`, `VA_MCP_URL`, `VLM_ENDPOINT`; Mode A Step 1 → `VIDEO_URL`, `CLIP_START`, `CLIP_END`, `CLIP_SECONDS`; Mode A Step 2 → `VLM_BACKEND`, `VLM_ENDPOINT`, `VLM_MODEL`; the clip-URL rewrite blocks (Kubernetes / Docker) take `RAW_URL` in and print `BROWSER_CLIP_URL`). Paste those lines as printed, plus `SKILL_DIR='<that path>'` (single-quoted — paths may contain spaces) and any gate result (`HITL_RESOLVED` / `HITL_PROMPT_FILE`, *HITL prompt mode*; `REASONING=true` only when the user asked for reasoning), at the top of the next block you run, with any caller-supplied value (e.g. `VLM_ENDPOINT` / `VLM_MODEL`) pasted **after** them so it wins; consuming blocks refuse to run (`${VAR:?}`) when a required value is missing.
-1. **Pick the mode** — Mode A for a single recorded clip/sensor video (path `A1` VST clip URL or `A2` local file / base64 — the *Mode-by-mode checklist* rows), Mode B when the request is about incidents / alerts (usually with a time range), Mode C when the request asks for an SOP / compliance report (match against *Examples*).
+1. **Pick the mode** — Mode A for a single recorded clip/sensor video (path `A1` VST clip URL or `A2` local file / base64 — the *Mode-by-mode checklist* rows), Mode B when the request is about incidents / alerts (usually with a time range, including “report on the last/latest/most recent incident”), Mode C when the request asks for an SOP / compliance report (match against *Examples*).
 2. **Verify runtime prerequisites** for that mode under *Runtime prerequisites*; hand off only when required services are missing (Mode A / B on Docker Compose → `/vss-build-vision-ai`; on Kubernetes report the missing public route to the deployment owner instead; Mode C → `/vss-build-vision-ai` for the SOP tools).
 3. **Apply HITL mode** under *HITL prompt mode (runtime-first, harness fallback)* before Mode A Step 3 (`references/report-types/video-analysis.md`). (Mode B and Mode C have no prompt-approval step.)
 4. **Run that mode's numbered steps** from its report-type file — the *Steps* column of the mode table above; open only the one you routed to, via `$SKILL_DIR/references/report-types/<file>`. This file holds routing, gates and the shared setup (endpoint resolution, VLM selection, HITL, clip-URL rewrite); the numbered steps live only in the report-type files.
@@ -55,6 +60,7 @@ Output contract for evaluators:
 - "Generate a report for this video" / "report on `<sensor-id>`" → **Mode A**
 - "Analyze warehouse_01.mp4" / "create an analysis report on the uploaded video" → **Mode A**
 - "Report on incidents from 12:31Z to 12:32Z" → **Mode B**
+- "Give me a report on the last incident" / "report on the latest incident" / "generate a report for the most recent incident" → **Mode B**
 - "Report on alerts today" / "what incidents happened on `<sensor>` last hour" → **Mode B**
 - "Summarize alerts on `<sensor>` between `<t1>` and `<t2>`" → **Mode B**
 - "Generate an SOP compliance report for `<sensor>` from `<t1>` to `<t2>`" / "compliance report on `<sensor>` last hour" / "SOP status report for `<sensor>`" → **Mode C**
@@ -98,7 +104,7 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   # RT-VLM is at /rtvi-vlm on every profile; nothing is mounted at the origin /v1.
   : "${VLM_ENDPOINT:=${VSS_PUBLIC_URL}/rtvi-vlm/v1}"
-  # Alerts / Mode B and Mode C — force public VA-MCP; ignore leftover Docker :9901.
+  # Mode C only — force public VA-MCP; ignore leftover Docker :9901.
   VA_MCP_URL="${VSS_PUBLIC_URL}/va-mcp"
 else
   DEPLOYMENT_KIND="docker"
@@ -120,7 +126,9 @@ printf 'DEPLOYMENT_KIND=%q\nVSS_PUBLIC_URL=%q\nHOST_IP=%q\nVST_API_BASE=%q\nVA_M
 
 On Kubernetes, do not use `kubectl port-forward`, Service DNS, NodePorts, or
 host-side container discovery for VIOS, the VLM, or VA-MCP. Mode A uses
-`${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B and Mode C use `${VA_MCP_URL}`.
+`${VST_API_BASE}` and `${VLM_ENDPOINT}` only; Mode B delegates to
+`/vss-query-analytics` and its configured `vss analytics` CLI; Mode C uses
+`${VA_MCP_URL}`.
 
 ### Mode-by-mode checklist (required)
 
@@ -128,7 +136,7 @@ host-side container discovery for VIOS, the VLM, or VA-MCP. Mode A uses
 |---|---|---|---|---|
 | **Mode A / A1 (VIOS clip URL)** | sensor and/or clip time range | VIOS + VLM endpoint | Clip is fetched from VIOS timeline/URL APIs | VA-MCP analytics |
 | **Mode A / A2 (local file or base64)** | local `VIDEO_FILE` path **or** `VIDEO_B64_FILE` (base64 written to a file, never pasted into a shell block), plus a VLM endpoint/model — caller-supplied, or discovered by Mode A Step 2 (Kubernetes public route / Docker ports) | VLM endpoint only | For `VIDEO_FILE`, file must exist on the same machine/container filesystem where OpenClaw/agent executes and be readable by that process | VIOS, VA-MCP analytics |
-| **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | VA-MCP analytics (`/vss-query-analytics` + `video_analytics__get_incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path |
+| **Mode B (incident range)** | `start_time` / `end_time` (and optional sensor scope) | Video Analytics API (`/vss-query-analytics` + `vss analytics incidents`) | Incident data must already exist in analytics backend for requested range/scope | VIOS, direct VLM path, VA-MCP |
 | **Mode C (SOP compliance)** | sensor and time range (relative phrases resolved against host clock) | VA-MCP with the SOP tools (`get_sop_*`) on `${VA_MCP_URL}` + Elasticsearch `mdx-vlm-captions-*` | SOP detection docs must already be indexed for the requested sensor/range | VIOS, direct VLM path, report-time VLM |
 
 Hard gate behavior:
@@ -172,10 +180,12 @@ case "${REPORT_MODE}" in
     else
       echo "ERROR: VLM_ENDPOINT line missing — re-paste the Endpoint resolution output" >&2; FAIL=1
     fi ;;
-  B|C)
+  B)
+    echo "Mode B readiness and configuration are owned by /vss-query-analytics (vss configure check)" ;;
+  C)
     curl -sf --max-time 5 "${VA_MCP_URL:?paste the Endpoint resolution output at the top of this block}/health" >/dev/null \
       && echo "VA-MCP ok: ${VA_MCP_URL}" || { echo "VA-MCP unreachable: ${VA_MCP_URL}" >&2; FAIL=1; }
-    [ "${REPORT_MODE}" = "C" ] && [ "${FAIL}" = 0 ] && echo "Mode C: reachability is not sufficient — now run the tools/list gate (bullet below)" ;;
+    [ "${FAIL}" = 0 ] && echo "Mode C: reachability is not sufficient — now run the tools/list gate (bullet below)" ;;
   *) echo "ERROR: REPORT_MODE must be A1, A2, B or C, got '${REPORT_MODE}'" >&2; exit 1 ;;
 esac
 [ "${FAIL}" = 0 ] || exit 1
@@ -183,7 +193,7 @@ esac
 
 - **Mode C gate** — reachability is not sufficient: `tools/list` on `${VA_MCP_URL}/mcp` must include `video_analytics__get_sop_report`. The runnable probe is the initialize → `tools/list` block in `references/report-types/sop-compliance.md` Step 1 (paste the *Endpoint resolution* hand-off at its top — the block requires `VA_MCP_URL` from it): open that file now and run just that block as this gate; when you reach *Instructions* step 4, continue in that file without repeating it. It exits non-zero for two different reasons — read stderr: `VA-MCP problem` = the `tools/list` call itself failed (report it per *Error Handling*, do **not** hand off); `SOP tools absent` = the deployment lacks the SOP patch — hand off to `/vss-build-vision-ai` and do **not** proceed with Mode C.
 
-If required services are missing: on Docker Compose, and only when the user wants a local deployment, hand off to `/vss-build-vision-ai` (typically the stock Base workflow for Mode A path A1, the stock Alerts workflow for Mode B) — it deploys Compose profiles only; on Kubernetes report the missing public route (`/vst`, `/rtvi-vlm`, `/va-mcp`, `/lvs` under `VSS_PUBLIC_URL`) to the deployment owner (`vss-build-vision-ai`, `deployment_resolution.md`) instead. Mode C hands off to `/vss-build-vision-ai` to compose the SOP profile for the SOP tools. **Always** confirm deploy with the user first.
+If required services are missing: on Docker Compose, and only when the user wants a local deployment, hand off to `/vss-build-vision-ai` (typically the stock Base workflow for Mode A path A1, or a read-only analytics composition for Mode B) — it deploys Compose profiles only; on Kubernetes report the missing public route (`/vst`, `/rtvi-vlm`, `/video-analytics-api`, `/va-mcp`, `/lvs` under `VSS_PUBLIC_URL`) to the deployment owner (`vss-build-vision-ai`, `deployment_resolution.md`) instead. Mode C hands off to `/vss-build-vision-ai` to compose the SOP profile for the SOP tools. **Always** confirm deploy with the user first.
 
 ---
 

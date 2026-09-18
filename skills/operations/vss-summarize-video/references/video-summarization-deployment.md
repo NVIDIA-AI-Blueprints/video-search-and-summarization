@@ -221,7 +221,7 @@ docker compose \
   config > resolved.yml
 ```
 
-Normalize `resolved.yml`, then verify it before recreating the service:
+Verify `resolved.yml` before recreating the service:
 
 ```bash
 uv run "$REPO/skills/vss-build-vision-ai/scripts/normalize_resolved_yml.py" \

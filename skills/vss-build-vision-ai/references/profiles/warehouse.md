@@ -140,7 +140,7 @@ its absence from the service list is not a defect.
 | `RT_CV_DEVICE_ID` (0), `RT_VLM_DEVICE_ID` (1), `LLM_DEVICE_ID` (2) | GPU layout. |
 | `LLM_MODE`, `LLM_NAME`, `LLM_NAME_SLUG`, `LLM_BASE_URL` | `bp_wh` + `MODE=2d` only; `none` everywhere else. For `remote`, `LLM_BASE_URL` is the endpoint root **without** a trailing `/v1` — the agent config appends it. |
 | `VLM_MODE`, `VLM_NAME_SLUG` | Keep both `none`. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM path, and remote VLM is not wired end to end on the Docker path — see below. |
-| `VSS_RT_CV_TAG` | Must be `sbsa`-tagged when `HARDWARE_PROFILE=DGX-SPARK`. |
+| `VSS_RT_CV_TAG` | Must be `sbsa`-tagged when `HARDWARE_PROFILE=GB300` or `DGX-SPARK`. |
 | `BP_CONFIGURATOR_ENV_FILE` | Point at the build's generated `configurator.env`. Without it the configurator reads the checked-in `overrides.env` and bakes the `<HOST_IP>` sentinel — see [`../services/configurator.md`](../services/configurator.md). |
 | `NVSTREAMER_CONFIG_DIR`, `TURN_PUBLIC_HOST` | Easily-missed closure members. `TURN_PUBLIC_HOST` derives from `HOST_IP` only transitively, through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`. |
 
@@ -155,13 +155,24 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 | `BP_PROFILE=bp_wh` is 2D-only | unsupported combination |
 | `BP_PROFILE=bp_wh_auto_calib` pairs only with `MODE=auto-calibration`, and vice versa | routes to a list that is not the one selected |
 | `BP_PROFILE=bp_wh` is rejected on `IGX-THOR` and `DGX-SPARK` | configurator refuses |
-| `HARDWARE_PROFILE=DGX-SPARK` requires an `sbsa` `VSS_RT_CV_TAG` | configurator refuses |
+| `HARDWARE_PROFILE=GB300` or `DGX-SPARK` requires an `sbsa` `VSS_RT_CV_TAG` | configurator refuses |
 | `LLM_MODE=local` requires `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env` | compose dies with a bare "no such file" |
 | `NUM_STREAMS` must equal the dataset's camera count: `nv-warehouse-4cams` 4, `warehouse-loading-dock-3cams-synthetic` 3, `warehouse-4cams-20mx20m-synthetic` 4. **Dataset and mode are independent** — every shipped dataset now carries calibration for `2d`, `3d` and `mv3dt`, so any dataset pairs with any analytics mode | short stream count with every container healthy |
 | Under `MODE=3d`, `DATASET_TYPE` must track the footage family: `nv-warehouse-4cams` → `real`; both `*-synthetic` → `synthetic`; a custom dataset → whatever the footage actually is. It must also be non-empty — the label mount interpolates it into a **host path** | wrong Sparse4D weights and detection thresholds (`real` 0.85/0.75 vs `synthetic` 0.5/0.3), every container healthy, no error anywhere. Empty resolves to `labels-.txt`, so Docker creates a directory where a file is expected |
 | `STREAM_TYPE=redis` iff `BP_PROFILE=bp_wh_redis` | no metadata reaches the broker |
 | A custom `SAMPLE_VIDEO_DATASET` has no checked-in `calibration.json` | Docker creates a directory where a file is expected; perception emits nothing |
 | `MODE=3d` or `mv3dt` on a `…_MINIMAL` list has no Elasticsearch | `mdx-bev` never persisted; BEV output unverifiable |
+| The checkout was cloned under a restrictive `umask` (e.g. `027`), leaving repo config non-world-readable | containers run as a different user and cannot read the config they bind-mount — see below |
+
+### Repo file permissions
+
+Compose bind-mounts config out of the checkout into containers that run as a
+different user, so those files must be world-readable and their parent
+directories world-traversable. Clone with a `umask` of `022` or looser; `027`
+yields `0640` files and `0750` directories that containers cannot read.
+
+`umask` applies to the shell that runs `git clone`, so reading it later says
+nothing about an existing checkout — the modes on the tree are what matter.
 
 ### Remote VLM is not supported (Docker path)
 

@@ -53,6 +53,7 @@ function agentApiFrame(type: string, data: Record<string, unknown>, id: number):
 
 const endpoint = { url: '/api/vss-chat?surface=main' };
 const noHeader = { headerMenu: false, uploadFile: false };
+const withHitl = { ...noHeader, hitl: true };
 
 async function typeAndSend(text: string) {
   const textarea = screen.getByTestId('chat-textarea');
@@ -81,7 +82,7 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
   });
 
-  it('renders and answers NAT interaction prompts', async () => {
+  it('renders and answers interaction prompts', async () => {
     const interaction = {
       event_type: 'interaction_required',
       execution_id: 'execution-1',
@@ -106,7 +107,7 @@ describe('ChatPanel', () => {
       .mockResolvedValueOnce({ ok: true, status: 204 });
     global.fetch = fetchMock as any;
 
-    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    render(<ChatPanel endpoint={endpoint} features={withHitl} />);
     await act(async () => typeAndSend('start captioning'));
 
     await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
@@ -123,6 +124,36 @@ describe('ChatPanel', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
       response: { type: 'text', text: 'warehouse monitoring' },
     });
+  });
+
+  it('does not expose the legacy HITL response UI by default', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      sseResponse([
+        `event: interaction_required\ndata: ${JSON.stringify({
+          event_type: 'interaction_required',
+          execution_id: 'execution-disabled',
+          interaction_id: 'interaction-disabled',
+          prompt: {
+            text: 'This prompt must not be rendered',
+            input_type: 'text',
+            required: true,
+          },
+          response_url:
+            '/executions/execution-disabled/interactions/interaction-disabled/response',
+        })}\n\n`,
+      ]),
+    ) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('ask through normal chat'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Interactive agent response UI is unavailable/),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('hitl-modal')).not.toBeInTheDocument();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('submits an empty optional HITL confirmation with Enter', async () => {
@@ -149,7 +180,7 @@ describe('ChatPanel', () => {
       .mockResolvedValueOnce({ ok: true, status: 204 });
     global.fetch = fetchMock as any;
 
-    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    render(<ChatPanel endpoint={endpoint} features={withHitl} />);
     await act(async () => typeAndSend('start captioning'));
 
     await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
@@ -186,7 +217,7 @@ describe('ChatPanel', () => {
     const onControlsReady = jest.fn();
 
     render(
-      <ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />,
+      <ChatPanel endpoint={endpoint} features={withHitl} onControlsReady={onControlsReady} />,
     );
     await act(async () => typeAndSend('start captioning'));
     await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
@@ -235,7 +266,7 @@ describe('ChatPanel', () => {
     const onControlsReady = jest.fn();
 
     render(
-      <ChatPanel endpoint={endpoint} features={noHeader} onControlsReady={onControlsReady} />,
+      <ChatPanel endpoint={endpoint} features={withHitl} onControlsReady={onControlsReady} />,
     );
     await act(async () => typeAndSend('start captioning'));
     await waitFor(() => expect(screen.getByTestId('hitl-modal')).toBeInTheDocument());
@@ -273,7 +304,7 @@ describe('ChatPanel', () => {
     );
     global.fetch = fetchMock as any;
 
-    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    render(<ChatPanel endpoint={endpoint} features={withHitl} />);
     await act(async () => typeAndSend('walk me through it'));
 
     for (const request of prompts) {

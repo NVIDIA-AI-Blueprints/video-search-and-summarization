@@ -1,5 +1,5 @@
 ## Description: <br>
-Use this skill when reading video-analytics metrics, incidents, alerts, and sensor data via VA-MCP (Docker `:9901` or Kubernetes `${VSS_PUBLIC_URL}/va-mcp`). <br>
+Use this skill when reading video-analytics metrics, incidents, places, and sensor data through the project-local `vss analytics` CLI. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
@@ -9,14 +9,14 @@ NVIDIA <br>
 ### License/Terms of Use: <br>
 Apache-2.0 <br>
 ## Use Case: <br>
-Developers and engineers querying video-analytics metrics, incidents, alerts, and sensor data from a deployed VSS alerts stack via the VA-MCP server. <br>
+Developers and engineers querying read-only video analytics through the configured VSS Video Analytics API, without an MCP or in-stack agent dependency. <br>
 
 ### Deployment Geography for Use: <br>
 Global <br>
 
 ## Requirements / Dependencies: <br>
-**Requires API Key or External Credential:** [Yes] <br>
-**Credential Type(s):** [API key] <br>
+**Requires API Key or External Credential:** [No] <br>
+**Credential Type(s):** [None] <br>
 
 Do not include secrets in prompts/logs/output; use least-privilege credentials; rotate keys as appropriate. <br>
 
@@ -73,7 +73,7 @@ Underlying evaluation signals used in this run: <br>
 | Efficiency | 1 | 27% (+0%) | 28% (+0%) |
 
 ## Skill Version(s): <br>
-3.2.3 (source: frontmatter) <br>
+4.0.0 (source: frontmatter) <br>
 
 ## Ethical Considerations: <br>
 NVIDIA believes Trustworthy AI is a shared responsibility and we have established policies and practices to enable development for a wide array of AI applications. When downloaded or used in accordance with our terms of service, developers should work with their internal team to ensure this skill meets requirements for the relevant industry and use case and addresses unforeseen product misuse. <br>
