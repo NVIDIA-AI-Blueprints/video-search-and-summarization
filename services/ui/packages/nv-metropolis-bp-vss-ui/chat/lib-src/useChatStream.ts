@@ -178,6 +178,18 @@ export function useChatStream(
       const patchReply = (fn: (m: ChatMessage) => ChatMessage) =>
         setMessages((prev) => prev.map((m) => (m.id === replyId ? fn(m) : m)));
 
+      // A turn can end without a terminal frame — cancelled, or the stream
+      // dropped mid-step. Steps left `in_progress` keep animating as though
+      // the agent were still working on them, so settle them at every exit.
+      const settleSteps = (status: 'complete' | 'error') => {
+        for (let index = 0; index < steps.length; index += 1) {
+          if (steps[index].status === 'in_progress') {
+            steps[index] = { ...steps[index], status };
+          }
+        }
+        return [...steps];
+      };
+
       let answer = '';
       let failed = '';
       let agentTerminal = false;
@@ -220,12 +232,7 @@ export function useChatStream(
             failed = ev.message;
           } else {
             agentTerminal = true;
-            for (let index = 0; index < steps.length; index += 1) {
-              if (steps[index].status === 'in_progress') {
-                steps[index] = { ...steps[index], status: 'complete' };
-              }
-            }
-            patchReply((m) => ({ ...m, streaming: false, steps: [...steps] }));
+            patchReply((m) => ({ ...m, streaming: false, steps: settleSteps('complete') }));
           }
         }
       };
@@ -335,6 +342,9 @@ export function useChatStream(
             await consume(parser.feed(decoder.decode(value, { stream: true })));
           }
           await consume([...parser.feed(decoder.decode()), ...parser.finish()]);
+          if (!agentTerminal && !failed) {
+            throw new Error('backend event stream ended before the response completed');
+          }
         }
 
         // An upload auto-prompt whose conversation the user has since left
@@ -355,6 +365,7 @@ export function useChatStream(
           ...m,
           content: answer,
           streaming: false,
+          steps: settleSteps(failed ? 'error' : 'complete'),
           error: failed || undefined,
           callerInfo: typeof callerInfo === 'string' ? callerInfo : undefined,
         }));
@@ -363,6 +374,7 @@ export function useChatStream(
         patchReply((m) => ({
           ...m,
           streaming: false,
+          steps: settleSteps('error'),
           error: aborted ? 'cancelled' : err instanceof Error ? err.message : String(err),
         }));
       } finally {
