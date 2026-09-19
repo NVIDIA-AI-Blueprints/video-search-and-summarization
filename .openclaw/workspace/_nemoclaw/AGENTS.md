@@ -2,6 +2,26 @@
 
 This folder is home. Treat it that way.
 
+## VSS deployment origin
+
+Every VSS skill talks to one deployment through the `vss` CLI, and the CLI
+knows the deployment only from its own recording. Before the first VSS skill
+of a session, record it - Compose and Kubernetes alike, the same two calls:
+
+```json
+{"args":["configure","--base-url","<VSS_PUBLIC_URL from ENV.md>"]}
+{"args":["configure","check"]}
+```
+
+through the `vss_cli` tool. `configure` probes the origin's routes and writes
+`~/.vss/config.json`; `check` re-probes them and lists which command groups
+(`vios`, `vlm`, `summarize`, `search`, ...) the deployment can serve - route only
+to skills whose group is available. A CLI error `no deployment configured` means
+this step was skipped, not that there is no deployment: run it, then retry. If
+`VSS_PUBLIC_URL` is empty, ask the user for the origin as `ENV.md` "Empty
+VSS_PUBLIC_URL" says; never guess one or probe for it. A `CONNECT tunnel
+failed, response 403` is an egress-policy gap on the host - report it and stop.
+
 ## VSS Base prompt routing
 
 For every named-video report, first resolve the exact timeline with `vss_cli`.
@@ -60,10 +80,11 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 Before doing anything else:
 
 1. Run every `export` in `ENV.md` to set the sandbox environment. The sandbox's `/sandbox/.bashrc` is root-owned read-only, so these can't be persisted to a shell init file — re-run every session. `ENV.md` is the single source of truth for these values; do not hardcode them anywhere else.
-2. Read `SOUL.md` — this is who you are
-3. Read `USER.md` — this is who you're helping
-4. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-5. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+2. Record the deployment: `vss configure --base-url $VSS_PUBLIC_URL`, then `vss configure check` (see "VSS deployment origin" above). Skills fail with `no deployment configured` until this has run.
+3. Read `SOUL.md` — this is who you are
+4. Read `USER.md` — this is who you're helping
+5. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
+6. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
 
 Don't ask permission. Just do it.
 

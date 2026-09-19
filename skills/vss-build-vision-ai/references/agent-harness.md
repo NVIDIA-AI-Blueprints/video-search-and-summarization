@@ -446,7 +446,7 @@ Set the environment, then run the notebook:
 | Variable | Value for a build | Why |
 |---|---|---|
 | `VSS_REPO_DIR` | the checkout root | resolves the policy, skills, and workspace docs |
-| `VSS_PUBLIC_URL` | **leave unset** for a Compose build | Kubernetes-only, and setting it breaks a Compose build — see [Leave `VSS_PUBLIC_URL` unset](#leave-vss_public_url-unset-on-a-compose-build) below |
+| `VSS_PUBLIC_URL` | **leave unset** for a Compose build | the deployment origin `vss configure` records; empty means this host's Compose deployment and 3.2 fills it in — see [`VSS_PUBLIC_URL` is the deployment origin](#vss_public_url-is-the-deployment-origin---leave-it-empty-on-compose) below |
 | `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
 | `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness - or section 3.1 stops with "exists but has no `vss` CLI": that sandbox was not built from the harness Dockerfile, and the only fix is a rebuild with `1` (report the discarded sessions) |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
@@ -525,33 +525,19 @@ Outside the notebook, resolve that FQDN from the context file
 ([`brev.md`](brev.md) → *Resolving a secure link*) rather than assembling a
 hostname.
 
-### Leave `VSS_PUBLIC_URL` unset on a Compose build
+### `VSS_PUBLIC_URL` is the deployment origin - leave it empty on Compose
 
-This skill deploys Docker Compose, and **`VSS_PUBLIC_URL` is a Kubernetes
-setting**. Leaving it empty is not an omission — it is the value that means
-"Compose". The sandbox's `ENV.md` already ships
-`export HOST_IP=host.openshell.internal` for exactly this case, because a Compose
-build publishes each service on a host port, and `vss-backend-readwrite`
-allowlists those ports. Kubernetes publishes nothing on host ports, which is why
-it alone needs an Ingress origin.
-
-Setting it to the build's own origin does not merely add a redundant entry, it
-**fails the harness step**. The notebook renders that value into the
-`vss-k8s-ingress` policy entry, so `http://host.openshell.internal:7777`
-duplicates the `host.openshell.internal:7777` that `vss-backend-readwrite`
-already carries — with different metadata — and the gateway rejects the whole
-policy update:
-
-```text
-network endpoint ambiguity validation failed: network policies
-'vss-backend-readwrite' endpoint[8] (host.openshell.internal:7777) and
-'vss-k8s-ingress' endpoint[0] (host.openshell.internal:7777) overlap on
-port(s) 7777 with conflicting metadata
-```
-
-The sandbox is left onboarded but with **no VSS egress at all**, since the add is
-atomic — the failure looks like a harness problem and is really this variable.
-Set it only for a Kubernetes deployment, to that cluster's Ingress origin.
+Compose and Kubernetes follow one contract in the sandbox: `vss configure
+--base-url <origin>` records the path routes behind a single origin, and every
+operation skill uses the recording. `VSS_PUBLIC_URL` is that origin. **Empty
+means the Compose deployment on this host**: section 3.2 fills in the haproxy
+origin `http://host.openshell.internal:<HAPROXY_PORT>` (already allowlisted in
+the `vss-backend-readwrite` egress entry), uploads it in `ENV.md`, runs
+`vss configure` and `vss configure check` inside the sandbox and prints the
+availability table. Set it only for a Kubernetes deployment, to that cluster's
+Ingress origin; 3.2 then also names the host in the `vss-k8s-ingress` egress
+entry. Do not set it to the Compose origin by hand - the notebook derives it,
+and it is `host.openshell.internal` as the sandbox sees it, not `HOST_IP`.
 
 Run **only** `deploy_nemoclaw.ipynb`. Its companion,
 `deploy_vss_orchestrator.ipynb`, exists so the sandbox can deploy and manage VSS

@@ -18,13 +18,14 @@ ever empty (new shell, fresh connect, gateway restart), run it again.
 # works in-sandbox and on bare metal.
 export HOST_IP=host.openshell.internal
 
-# Kubernetes deployments publish nothing on host ports: every HTTP
-# surface sits behind one path-based Ingress, so operate skills take the
-# Ingress origin as their single public endpoint. It differs per
-# deployment, so `deploy_nemoclaw.ipynb` fills this line in at upload time
-# from its own VSS_PUBLIC_URL setting. Empty is a valid state -- it means
-# Compose, or a Kubernetes deployment the notebook did not know about; see
-# "Empty VSS_PUBLIC_URL" below before running anything that needs it.
+# Origin of the VSS deployment you operate. Compose and Kubernetes follow
+# the same contract: `vss configure --base-url $VSS_PUBLIC_URL` probes the
+# path routes behind this one origin and records what answered, and every
+# VSS skill then uses the recording. They differ only in the value: the
+# haproxy origin http://host.openshell.internal:7777 for Compose, the
+# cluster's Ingress origin for Kubernetes. `deploy_nemoclaw.ipynb` 3.2
+# fills this line in at upload time. Empty means the notebook did not
+# know the deployment; see "Empty VSS_PUBLIC_URL" below - never guess it.
 export VSS_PUBLIC_URL=""
 
 # Whether this harness may pause a running turn for structured human input.
@@ -42,11 +43,13 @@ export PATH="/tmp/.local/bin:${HOME}/.local/bin:${PATH}"
 
 ## Empty VSS_PUBLIC_URL
 
-A Kubernetes skill with no origin has nothing to talk to. Ask the user
-before running it — do not guess the hostname, and do not go looking for
-it in the cluster:
+A VSS skill with no origin has nothing to talk to. Ask the user before
+running it — do not guess the hostname, do not probe host ports, and do
+not go looking for it in a cluster:
 
-> I need the Ingress origin of the VSS deployment you want me to operate.
+> I need the origin of the VSS deployment you want me to operate
+> (for Compose on this host, `http://host.openshell.internal:7777`;
+> for Kubernetes, the Ingress origin).
 
 Then `export VSS_PUBLIC_URL=<answer>` for the session and write it to
 `memory/YYYY-MM-DD.md`, so the next session can offer it back instead of
