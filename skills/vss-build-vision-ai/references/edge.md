@@ -186,7 +186,7 @@ NIM fails to load on GB10, fall back to
 `--gpu-memory-utilization 0.40` (dedicated `0.85`) and fetches the Nemotron
 tool-call parser from a public Hugging Face repo.
 
-When NemoClaw is selected and the LLM is local or local-shared, offer that same
+When NemoClaw is selected and the LLM is `local` or `local_shared`, offer that same
 LLM as the harness's recommended model at Q3a — the device already serves it, so
 it adds no second model process — and point the harness at it per
 [`agent-harness.md`](agent-harness.md) only if the user accepts. Any other
