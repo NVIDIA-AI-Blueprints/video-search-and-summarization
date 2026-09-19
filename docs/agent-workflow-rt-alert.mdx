@@ -296,16 +296,20 @@ the environment file supplied to the command (`generated.env` or
 MODE=2d_vlm
 ALERT_AGENT_ALWAYS_ON=true
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
-# RTVI_VLM_KAFKA_ENABLED=false
+RTVI_VLM_MESSAGE_BUS=kafka
+RTVI_VLM_KAFKA_ENABLED=true
 NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=true
 NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=false
 ```
 
-The `RTVI_VLM_KAFKA_ENABLED=false` assignment from the template must be
-commented out or removed so that the RT-VLM Compose default enables Kafka
-publishing. Later `--env-file` arguments take precedence over earlier
-arguments; therefore, changes to `overrides.env` made after it has been copied
-do not affect a command that reads `user-overrides.env`.
+In RT-VLM 26.08.2, `MESSAGE_BUS` is the startup source of truth for
+generated-message publishing. The packaged Compose variable
+`RTVI_VLM_MESSAGE_BUS=kafka` sets it explicitly.
+`RTVI_VLM_KAFKA_ENABLED=true` is retained only as the legacy compatibility
+field while Compose still forwards it. Later `--env-file` arguments take
+precedence over earlier arguments; therefore, changes to `overrides.env` made
+after it has been copied do not affect a command that reads
+`user-overrides.env`.
 `VSS_CONTAINER_REGISTRY` (default `ghcr.io/nvidia-ai-blueprints/vss`) and
 `VSS_CONTAINER_TAG` (default `develop-latest`) are defined in
 `deploy/docker/containers.env`.
@@ -821,10 +825,16 @@ To tear down the agent, run the following command:
 
 ```bash
 cd deploy/docker
-docker compose -p vss down -v --remove-orphans
+PROFILE=alerts
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  down -v --remove-orphans
 ```
 
-This command will stop and remove the agent containers.
+This command stops the manually deployed real-time-alert containers and removes
+their Compose volumes.
 
 ## Service Endpoints
 

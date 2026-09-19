@@ -8,7 +8,7 @@ for a specific use case with tailored prompts, tools, and report templates.
 
 ## Blueprint Profiles
 
-Three production blueprint profiles are available. The agent configuration connects to
+Two production blueprint profiles are available. The agent configuration connects to
 the corresponding backend analytics pipeline.
 
 ### Warehouse Blueprint
@@ -27,7 +27,7 @@ Traffic and urban monitoring at intersections.
 
 ## Developer Profiles
 
-For development and testing without a full blueprint deployment, three developer profiles are available.
+For development and testing without a full blueprint deployment, four developer profiles are available.
 These use OOBE (Out-of-Box Experience) mode for standalone operation.
 
 ### dev-profile-base
@@ -139,18 +139,41 @@ All dev-profile-base capabilities, plus:
 - Elasticsearch for storing and querying embeddings
 - RTVI service for real-time video ingest
 
+### dev-profile-alerts
+
+Real-time alert generation and verification with two deployment modes:
+
+- **Alert verification (`MODE=2d_cv`):** RT-CV and Behavior Analytics generate
+  candidate incidents, and RT-VLM verifies them.
+- **Real-time alerts (`MODE=2d_vlm`):** RT-VLM continuously evaluates video
+  chunks against an alert rule.
+
+- **Config:** `deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml`
+- **Use Case:** Verify CV-generated incidents or generate alerts directly from
+  live video with a VLM.
+
+**Requirements:**
+
+- Alert Bridge and the Video Analytics API.
+- Elasticsearch and Kafka for incident storage and delivery.
+- RT-CV plus Behavior Analytics for `2d_cv`, or RT-VLM for `2d_vlm`.
+- Hardware-specific GPU counts and placement from
+  [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+
 ### Developer Profile Comparison
 
-| Feature | dev-profile-base | dev-profile-lvs | dev-profile-search |
-| --- | --- | --- | --- |
-| Video Upload | ✓ | ✓ | ✓ |
-| Video Analysis (VLM) | ✓ | ✓ | ✓ |
-| Report Generation | ✓ | ✓ | ✓ |
-| Video Summarization Support | ✗ | ✓ (Video Summarization) | ✗ |
-| Live Stream Captioning | ✗ | ✓ | ✗ |
-| Semantic Search | ✗ | ✗ | ✓ |
-| Elasticsearch Required | ✗ | ✓ | ✓ |
-| Kafka Required | ✗ | ✓ | ✓ |
+| Feature | dev-profile-base | dev-profile-lvs | dev-profile-search | dev-profile-alerts |
+| --- | --- | --- | --- | --- |
+| Video Upload | ✓ | ✓ | ✓ | ✓ |
+| Video Analysis (VLM) | ✓ | ✓ | ✓ | ✓ |
+| Report Generation | ✓ | ✓ | ✓ | ✓ |
+| Video Summarization Support | ✗ | ✓ (Video Summarization) | ✗ | ✗ |
+| Live Stream Captioning | ✗ | ✓ | ✗ | ✓ (`2d_vlm`) |
+| Semantic Search | ✗ | ✗ | ✓ | ✗ |
+| Alert Verification | ✗ | ✗ | ✗ | ✓ (`2d_cv`) |
+| Real-Time VLM Alerts | ✗ | ✗ | ✗ | ✓ (`2d_vlm`) |
+| Elasticsearch Required | ✗ | ✓ | ✓ | ✓ |
+| Kafka Required | ✗ | ✓ | ✓ | ✓ |
 
 ## Services
 
