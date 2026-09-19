@@ -32,7 +32,8 @@
       "query": "Ask that again: was the worker wearing a safety helmet on warehouse_sample?",
       "checks": [
         "It consults VSS unified memory for warehouse_sample with a vss memory command before any VLM call.",
-        "If that memory holds the earlier analysis it answers from it and runs no second vss vlm run; it re-inspects only if memory genuinely returns nothing."
+        "If that memory holds the earlier analysis it answers from it and runs no second vss vlm run; it re-inspects only if memory genuinely returns nothing.",
+        "Any fallback vss vlm run it does make targets warehouse_sample within its own recorded segment, over no window the agent invented."
       ]
     },
     {
@@ -95,7 +96,8 @@
       "query": "Did a forklift enter the loading area on warehouse_sample last week?",
       "checks": [
         "It does not turn \"last week\" into concrete UTC timestamps of its own.",
-        "It does not run vss vlm run over an invented window."
+        "It does not run vss vlm run over an invented window.",
+        "It reports that warehouse_sample's recording does not cover last week, and asks for exact UTC bounds it can use."
       ]
     },
     {
