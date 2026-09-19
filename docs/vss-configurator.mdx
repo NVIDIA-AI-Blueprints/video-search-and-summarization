@@ -173,6 +173,7 @@ The following environment variables **must** be set to use the Profile Configura
 | Variable | Default | Possible Values | Description |
 | --- | --- | --- | --- |
 | `PROFILE_CONFIG_FILE` | `gpu_configs_generic.yaml` | Valid file path | Path to the hardware profile configuration YAML file containing GPU profiles and commons |
+| `RECOMPUTE_BEV_CENTERS_ENABLED` | `false` | `true`, `false` | \| Enable BEV group recomputation in mount mode for 3D and MV3DT profile operations. \| With `SENSOR_INFO_SOURCE=file`, camera names come from `SENSOR_FILE_PATH`; other sources use retained video filename stems. \| **false**: Use existing BEV groups from the calibration file. |
 | `ENABLE_SENSOR_CONFIGURATOR` | `true` | `true`, `false` | \| Controls whether the Sensor Configuration Manager API server starts after the optional profile configuration step. \| **true**: Start the API server and sensor mapping flow \| **false**: Exit after profile configuration completes |
 | `DEPLOYMENT_MODES_ENABLED` | `true` | `true`, `false` | \| Controls whether profile config uses mode-specific sections. \| **true**: Read `MODE` and use nested `2d` or `3d` sections under `commons` and hardware profiles \| **false**: Use mode-less profile configuration directly under the hardware profile, with direct or `default` commons lists. See [Mode-less profile YAML](#mode-less-profile-yaml). |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARN`, `ERROR` | \| Logging verbosity level. \| **DEBUG**: Detailed diagnostic information including variable substitutions \| **INFO**: General operational messages \| **WARN**: Warning messages for potential issues \| **ERROR**: Error messages only |
@@ -1752,12 +1753,6 @@ The add call retries until success. A client timeout or HTTP 499 can occur while
 | `CONFIG_TOPIC_PREFIX` | `mdx-bev` | String | \| Topic prefix included in Kafka and Redis config message metadata. \| Used by downstream services for topic naming |
 | `CONFIG_TOPIC_PARTITION` | `10` | Positive integer | \| Topic partition count included in Kafka and Redis config message metadata. \| Used by downstream services for partitioning |
 
-#### BEV Settings
-
-| Variable | Default | Possible Values | Description |
-| --- | --- | --- | --- |
-| `RECOMPUTE_BEV_CENTERS_ENABLED` | `false` | `true`, `false` | \| Enable automatic BEV center recomputation. \| **true**: Recompute BEV group centers from calibration (only in 3D mode) \| **false**: Use existing BEV centers from calibration file |
-
 #### Video Upload Settings
 
 | Variable | Default | Possible Values | Description |
@@ -1798,8 +1793,12 @@ curl -X POST http://localhost:5000/calibration \
 
 #### Example 2: NVStreamer Source with VMS
 
-Reads the stream list from NVStreamer (streams and status endpoints), builds sensor mapping from calibration (mount mode), and optionally recomputes BEV centers in 3D mode.
-Registers each sensor with the VMS via `VST_CAMERA_ADD_ENDPOINT` and sends config to SDR; matches warehouse blueprint deployments (e.g. `bp-configurator-2d` / `bp-configurator-3d`).
+The Profile Configuration Manager optionally recomputes BEV groups before
+sensor discovery for 3D and MV3DT deployments in mount mode. The Sensor
+Configuration Manager then reads the stream list from NVStreamer, builds the
+sensor mapping from calibration, registers each sensor with VMS, and sends the
+configuration to SDR. This matches warehouse blueprint deployments such as
+`bp-configurator-2d`, `bp-configurator-3d`, and `bp-configurator-mv3dt`.
 
 ```bash
 docker run -d \

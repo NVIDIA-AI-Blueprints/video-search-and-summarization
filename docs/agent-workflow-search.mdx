@@ -1292,16 +1292,16 @@ For this example, you will ask the agent to provision the video `warehouse_sampl
 
 ```text
 Provision ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as an
-on-demand VIOS source and fan out to the resolved consumers. Confirm the source
-appears in VIOS's sensor list when done.
+on-demand VIOS source. Confirm the source appears in VIOS's sensor list and
+that the configured consumers finish processing it.
 ```
 
 What the agent does:
 
-1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. A build without the VSS Agent has no chunked-upload handshake to call, so ingestion is a direct REST path.
-2. Reads the consumer host ports from the build's `resolved.yml` and registers the source with VIOS.
-3. Fans the source out to RTVI-CV and RTVI-Embed, which generates the searchable embeddings that Logstash indexes into Elasticsearch.
-4. Verifies the sensor is registered and online in VIOS.
+1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. A build without the VSS Agent has no chunked-upload handshake to call, so it registers the source once with VIOS.
+2. Resolves the VIOS endpoint and registers the source.
+3. Lets VIOS's mounted notification configuration fan the source out asynchronously to the configured consumers, such as RTVI-CV, RTVI-Embed, and optional RTVI-VLM tagging. Their outputs feed the indices queried by search.
+4. Verifies the sensor is registered and online, then waits for the configured consumers to finish processing it.
 
 It may take up to a few minutes depending on the size of the video(s).
 
@@ -1311,8 +1311,8 @@ To ingest a live stream instead, have NVStreamer serve a file as a synthetic RTS
 
 ```text title="Provision a live RTSP source"
 Serve ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as a synthetic
-RTSP camera and provision it - register in VIOS and fan out to the resolved
-consumers. Confirm the live stream is visible in VIOS before reporting done.
+RTSP camera and register it once in VIOS. Confirm the live stream is visible
+and the configured consumers have received it before reporting done.
 ```
 
 <Note>
@@ -1324,12 +1324,14 @@ Before the CLI can search, it has to be pointed at the build's ingress, but this
 Run it yourself when you want to see what was recorded, or to point the CLI at a different deployment. It is a host process invoked project-locally, never a globally installed `vss` and never inside a container:
 
 ```bash
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-"${VSS[@]}" configure --base-url "http://${HOST_IP}:7777"
+VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
+"${VSS[@]}" configure --base-url "http://${HOST_IP}:7777
 "${VSS[@]}" configure show
 ```
 
-`--extra cli` is required. `configure` probes each route and records the ones that answer, along with the Elasticsearch index list, and `configure show` prints what it recorded.
+`libs/vss` is the CLI's own workspace, so no extra is required. `configure`
+probes each route and records the ones that answer, along with the Elasticsearch
+index list, and `configure show` prints what it recorded.
 
 ### Step 3: Search with a simple query
 
