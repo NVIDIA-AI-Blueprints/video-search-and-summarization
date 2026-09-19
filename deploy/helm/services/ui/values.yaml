@@ -201,12 +201,12 @@ env:
     value: "true"
   - name: NEXT_PUBLIC_CHAT_HISTORY_DEFAULT_ON
     value: "true"
-  # Structured interactions are opt-in. Set both flags to "true" only for a
-  # vss-agent deployment configured to emit legacy interaction frames.
+  # Structured interactions default on to match vss-agent. Set both flags to
+  # "false" for backends (e.g. OpenClaw) that don't emit interaction frames.
   - name: NEXT_PUBLIC_ENABLE_HITL
-    value: "false"
+    value: "true"
   - name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL
-    value: "false"
+    value: "true"
   - name: NEXT_PUBLIC_CHAT_INPUT_MIC_ENABLED
     value: "false"
   - name: NEXT_PUBLIC_ENABLE_INTERMEDIATE_STEPS

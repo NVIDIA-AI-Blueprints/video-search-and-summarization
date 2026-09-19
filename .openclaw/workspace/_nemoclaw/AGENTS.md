@@ -2,6 +2,26 @@
 
 This folder is home. Treat it that way.
 
+## VSS deployment origin
+
+Every VSS skill talks to one deployment through the `vss` CLI, and the CLI
+knows the deployment only from its own recording. Before the first VSS skill
+of a session, record it - Compose and Kubernetes alike, the same two calls:
+
+```json
+{"args":["configure","--base-url","<VSS_PUBLIC_URL from ENV.md>"]}
+{"args":["configure","check"]}
+```
+
+through the `vss_cli` tool. `configure` probes the origin's routes and writes
+`~/.vss/config.json`; `check` re-probes them and lists which command groups
+(`vios`, `vlm`, `summarize`, `search`, ...) the deployment can serve - route only
+to skills whose group is available. A CLI error `no deployment configured` means
+this step was skipped, not that there is no deployment: run it, then retry. If
+`VSS_PUBLIC_URL` is empty, ask the user for the origin as `ENV.md` "Empty
+VSS_PUBLIC_URL" says; never guess one or probe for it. A `CONNECT tunnel
+failed, response 403` is an egress-policy gap on the host - report it and stop.
+
 ## VSS Base prompt routing
 
 For every named-video report, first resolve the exact timeline with `vss_cli`.
@@ -60,10 +80,11 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 Before doing anything else:
 
 1. Run every `export` in `ENV.md` to set the sandbox environment. The sandbox's `/sandbox/.bashrc` is root-owned read-only, so these can't be persisted to a shell init file — re-run every session. `ENV.md` is the single source of truth for these values; do not hardcode them anywhere else.
-2. Read `SOUL.md` — this is who you are
-3. Read `USER.md` — this is who you're helping
-4. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-5. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+2. Record the deployment: `vss configure --base-url $VSS_PUBLIC_URL`, then `vss configure check` (see "VSS deployment origin" above). Skills fail with `no deployment configured` until this has run.
+3. Read `SOUL.md` — this is who you are
+4. Read `USER.md` — this is who you're helping
+5. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
+6. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
 
 Don't ask permission. Just do it.
 
@@ -199,7 +220,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
   5. Poll `vss_orchestrator__docker_status` with that ops id until `status` becomes terminal (`success`, `error`, or `cancelled`). Use the cadence the server returns in `recommended_poll_interval_s` (currently 60s for `up`, 10s for `down`) — wait the full interval between calls, do not poll faster.
   5a. **After every poll, print a 1-line chat update** summarizing the current state — e.g. `"[poll N] still running — pulling image X"` or `"[poll N] containers starting: A, B (elapsed Ms)"`. The user must see progress in plain chat without having to expand the tool-output panel in the UI.
   5b. **When `status` becomes terminal, in the same turn (do not end the turn before all the work below is done):**
-      - `success` → send a clear final message: `"✅ VSS <profile> deployment complete (elapsed Ms)"`, **then immediately call `vss_orchestrator__docker_list`** and report the running services to the user. **Also report the access URL** — read the deployed public origin from `vss_orchestrator__docker_read` (the resolved env's `VSS_AGENT_EXTERNAL_URL`, i.e. `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`) and give the UI as `<origin>/` (REST API `<origin>/api`). **Never synthesize a `<HOST_IP>:<port>` URL** — on Brev the orchestrator already sets that origin to the `https://7777-<id>.apps.run.brev.nvidia.com` secure link, and a raw host:port is an unreachable internal IP. Full mapping: `vss-build-vision-ai` skill, `references/base.md` (Endpoints) / `references/brev.md`.
+      - `success` → send a clear final message: `"✅ VSS <profile> deployment complete (elapsed Ms)"`, **then immediately call `vss_orchestrator__docker_list`** and report the running services to the user. **Also report the access URL** — read the deployed public origin from `vss_orchestrator__docker_read` (the resolved env's `VSS_AGENT_EXTERNAL_URL`, i.e. `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`) and give the UI as `<origin>/` (REST API `<origin>/api`). **Never synthesize a URL** — neither a `<HOST_IP>:<port>` one (a raw host:port is an unreachable internal IP) nor a `<port>-<id>.<domain>` one (the Brev secure-link domain varies per instance). On Brev the orchestrator already set that origin from the instance's own secure link in `/etc/brev/environment-context.json`, so report it verbatim. Full mapping: `vss-build-vision-ai` skill, `references/base.md` (Endpoints) / `references/brev.md`.
       - `error` → send `"❌ VSS <profile> deployment failed (exit_code=X)"`, then call `vss_orchestrator__docker_logs` for the failing service and surface a short log snippet plus a suggested next step.
       - `cancelled` → send `"⚠️ VSS <profile> deployment was cancelled (likely by a docker_down)."`
 

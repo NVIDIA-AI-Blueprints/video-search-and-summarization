@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Caller-info HTML is rendered inside embedded chat via `dangerouslySetInnerHTML` (no React handlers).
  * Tab links use same-document hash URLs; this app listens for `hashchange` and focuses the main tab.

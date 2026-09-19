@@ -1,5 +1,5 @@
 ---
-name: benchmark-video-summarization
+name: vss-benchmark-video-summarization
 description: Benchmark a deployed LVS instance — set up test media, run single-file latency and burst-throughput tests, analyze GPU and latency metrics, and get configuration recommendations to improve performance.
 license: Apache-2.0
 metadata:

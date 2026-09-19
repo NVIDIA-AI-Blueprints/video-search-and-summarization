@@ -21,3 +21,11 @@ See below files for the licenses:
 - tools/sdg-postprocessing/3rdParty_Licenses.md
 - tools/logstash-plugins/input/redis-stream/THIRD_PARTY_LICENSES.md
 - deploy/helm/services/monitoring/3rdParty_Licenses.md
+- deploy/docker/scripts/nemoclaw/LICENSE-3rd-party.txt
+- services/rtvi/rt-cv/LICENSE.3rdparty
+- services/rtvi/rt-cv/3rdParty_Licenses.md
+- services/rtvi/rt-cv-3d/rt-cv-config-init/3rdParty_Licenses.md
+- services/rtvi/rt-embed/LICENSE.3rdparty
+- services/video-summarization/LICENSE.3rdparty
+- services/vios/LICENSE.3rdparty
+- services/vios/ui/vios-ui/oss-licenses.txt

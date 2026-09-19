@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import { GetServerSideProps } from 'next';
 import Head from 'next/head';
 
@@ -12,9 +13,6 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     const { serverSideTranslations } = await import('next-i18next/pages/serverSideTranslations');
     const { fetchAlertsData, fetchSearchData, fetchDashboardData, fetchMapData, fetchVideoManagementData } = await import('@nv-metropolis-bp-vss-ui/all/server');
 
-    // Was getNemoAgentToolkitSSProps. Only `common` is requested now: the
-    // toolkit's other namespaces (chat, sidebar, markdown, promptbar,
-    // settings) described its own components and went with them.
     const i18nProps = await serverSideTranslations(context.locale ?? 'en', ['common']);
     
     // Fetch data for our new components in parallel for better performance

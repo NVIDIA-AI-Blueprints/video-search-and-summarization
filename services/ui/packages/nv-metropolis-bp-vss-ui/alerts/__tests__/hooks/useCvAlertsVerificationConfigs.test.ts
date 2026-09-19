@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useCvAlertsVerificationConfigs } from '../../lib-src/hooks/useCvAlertsVerificationConfigs';
 

@@ -193,6 +193,10 @@ The Profile Configurator automatically adjusts application configurations based 
   - `text_config_update` — key/value updates in text config files
   - `text_replace` — pattern-based text replacement
   - `file_management` — file counts and keep-count cleanup (prerequisites)
+  - `recompute_bev_groups` — derive exact camera IDs from `SENSOR_FILE_PATH`
+    `camera_name` values when `SENSOR_INFO_SOURCE=file`, or from `.mp4`/`.mkv`
+    filename stems for other sources; validate them against a mounted calibration,
+    then safely recompute 3D or MV3DT BEV groups before sensor discovery starts
   - **Variable computation**: Math expressions, ternary operators, comparisons
   - **Variable validation**: Rules with `allowed_values`, patterns, and conditions
   - **Backup creation**: Automatic timestamped backups before mutating files
@@ -310,7 +314,7 @@ docker build \
   -t vss-configurator .
 ```
 
-The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidia/distroless/python:3.13-v4.1.1`**. Python and distroless versions are `ARG`s at the top of `docker/Dockerfile` (`PYTHON_VERSION`, `DISTROLESS_IMG`, `DISTROLESS_TAG`).
+The image uses a multi-stage build: **Python 3.13** dependencies, including the in-repo SDU package, via `uv sync --frozen --no-dev`, runtime on **`nvcr.io/nvidia/distroless/python:3.13-v4.1.4`**. Python and distroless versions are `ARG`s at the top of `docker/Dockerfile` (`PYTHON_VERSION`, `DISTROLESS_IMG`, `DISTROLESS_TAG`).
 
 **Legal requirements (container distribution):**
 
@@ -459,7 +463,7 @@ services:
 | `SENSOR_INFO_SOURCE` | `msb` | Sensor source: `msb`, `nvstreamer`, `file`, or `not_required` (skips all sensor processing) |
 | `SENSOR_FILE_PATH` | `{CALIBRATION_DIR}/sensors.json` | Sensor JSON when `SENSOR_INFO_SOURCE=file` |
 | `SENSOR_BRIDGE_HTTP_ENDPOINT` | `http://localhost:8000/mtmc/urls` | MSB sensor bridge HTTP endpoint |
-| `RECOMPUTE_BEV_CENTERS_ENABLED` | `false` | Recompute BEV group origins via `spatialai_data_utils` (3D mode only) |
+| `RECOMPUTE_BEV_CENTERS_ENABLED` | `false` | Enable profile-driven BEV recomputation for 3D and MV3DT in mount mode. With `SENSOR_INFO_SOURCE=file`, `SENSOR_FILE_PATH` camera names must match calibration `sensors[].id`; other sources use video filename stems |
 | `NVSTREAMER_STREAMS_ENDPOINT` | `http://localhost:30000/api/v1/live/streams` | NVStreamer streams endpoint |
 | `NVSTREAMER_SENSOR_STATUS_ENDPOINT` | `http://localhost:30000/api/v1/sensor/status` | NVStreamer status endpoint |
 | `NUM_STREAMS` | `0` | Expected NVStreamer camera count; wait until the stream list reaches this size before registering with VST (`0` = wait for a stable non-empty list instead) |
@@ -634,7 +638,7 @@ Status for NVStreamer/VMS video upload (for init-container polling).
 |------|--------|
 | Build context | monorepo root (`.`) |
 | Builder | `python:3.13-trixie` + `uv sync --frozen --no-dev` |
-| Runtime base | `nvcr.io/nvidia/distroless/python:3.13-v4.1.1` (`DISTROLESS_IMG`:`DISTROLESS_TAG`) |
+| Runtime base | `nvcr.io/nvidia/distroless/python:3.13-v4.1.4` (`DISTROLESS_IMG`:`DISTROLESS_TAG`) |
 | Entrypoint | `python entrypoint.py` (no shell in image) |
 | Working directory | `/usr/src/app` |
 | Python deps | `PYTHONPATH=/usr/src/app/site-packages` |
@@ -969,7 +973,7 @@ Runtime dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
 | redis | 5.0.1 | Redis streams / duplicator |
 | requests | 2.32.3 | HTTP client (calibration, MSB, NVStreamer, VMS) |
 | ruamel.yaml | 0.18.15 | Profile YAML read/write |
-| spatialai-data-utils | in-repo path (`libs/analytics/spatialai-data-utils/release`) | BEV center recomputation (optional, 3D mode only) |
+| spatialai-data-utils | in-repo path (`libs/analytics/spatialai-data-utils/release`) | BEV center recomputation (optional, 3D and MV3DT modes) |
 
 Full transitive runtime licenses: [3rdParty_Licenses.md](3rdParty_Licenses.md).
 

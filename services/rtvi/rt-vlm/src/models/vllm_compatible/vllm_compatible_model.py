@@ -51,6 +51,7 @@ from models.vllm_compatible.adaptive_preprocess_limiter import (
     AdaptivePreprocessLimiter,
     PreprocessAdmissionTimeout,
 )
+from utils.env_validation import get_video_pruning_rate
 
 _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_GPU_MEMORY_UTILIZATION": "RTVI_VLLM_GPU_MEMORY_UTILIZATION",
@@ -398,7 +399,7 @@ def _apply_attention_backend_override(
     if not attention_backend:
         if not _is_cosmos3_edge_arch(model_architecture):
             return False
-        attention_backend = "CUSTOM"
+        attention_backend = "TRITON_ATTN"
         logger.info("Defaulting Cosmos3 Edge attention backend to %s", attention_backend)
     if "attention_backend" not in supported_params:
         logger.warning(
@@ -534,7 +535,6 @@ _EVS_MM_PROCESSOR_DEFAULTS = {
 # clip is padded up to this many frames before it is handed to the session.
 _EVS_MIN_CLIP_FRAMES = 2
 
-
 _DEFAULT_MAX_VIDEO_FRAMES = "256"
 
 
@@ -666,6 +666,19 @@ _ABSOLUTE_TIMESTAMP_SOURCE_FPS = 1000.0
 
 def _is_evs_session_enabled() -> bool:
     return os.environ.get("VIA_EVS_SESSION", "").lower() in ("1", "true")
+
+
+def _get_evs_max_inflight_clips() -> int | None:
+    env_name = "VIA_EVS_MAX_INFLIGHT_CLIPS"
+    if not (_get_rtvi_vllm_env(env_name, "") or "").strip():
+        return None
+    max_inflight = _parse_int_env(env_name, 0)
+    if max_inflight < 1:
+        raise ValueError(
+            "Invalid value for VIA_EVS_MAX_INFLIGHT_CLIPS: "
+            f"'{max_inflight}' must be greater than or equal to 1"
+        )
+    return max_inflight
 
 
 def _build_evs_sampling_kwargs(max_tokens, generation_config):
@@ -1649,24 +1662,19 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs["moe_backend"] = moe_backend
                     logger.info("Using vLLM MoE backend %s: %s", moe_backend_source, moe_backend)
 
-                # EVS (Efficient Video Sampling): prune redundant video tokens
-                # Set VLM_VIDEO_PRUNING_RATE=0.5 for 50% pruning. 0 or empty = disabled.
-                video_pruning_rate_str = os.environ.get("VLM_VIDEO_PRUNING_RATE", "")
-                if video_pruning_rate_str and "video_pruning_rate" in _engine_supported_params:
-                    try:
-                        rate = float(video_pruning_rate_str)
-                        if 0 < rate < 1:
-                            engine_args_kwargs["video_pruning_rate"] = rate
-                            logger.info("EVS enabled: video_pruning_rate=%.2f", rate)
-                        elif rate != 0:
-                            logger.warning(
-                                "VLM_VIDEO_PRUNING_RATE=%.2f out of range (0,1), EVS disabled",
-                                rate,
-                            )
-                    except ValueError:
+                # EVS (Efficient Video Sampling): prune redundant video tokens.
+                # Invalid configured values are fatal rather than silently disabling EVS.
+                video_pruning_rate = get_video_pruning_rate()
+                if video_pruning_rate is not None:
+                    if "video_pruning_rate" in _engine_supported_params:
+                        engine_args_kwargs["video_pruning_rate"] = video_pruning_rate
+                        logger.info(
+                            "EVS enabled: video_pruning_rate=%.2f", video_pruning_rate
+                        )
+                    else:
                         logger.warning(
-                            "Invalid VLM_VIDEO_PRUNING_RATE='%s', EVS disabled",
-                            video_pruning_rate_str,
+                            "VLM_VIDEO_PRUNING_RATE is set but the installed vLLM engine "
+                            "does not support video_pruning_rate"
                         )
 
                 # EVS extra engine args (similarity threshold, mm-embeds passthrough,
@@ -2670,7 +2678,12 @@ class VllmCompatible(BaseVlmModel):
                     >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS
                 ):
                     return False
-        return len(self._inflight_req_ids) < self._max_batch_size
+        max_inflight = self._max_batch_size
+        if _is_evs_session_enabled():
+            evs_max_inflight = _get_evs_max_inflight_clips()
+            if evs_max_inflight is not None:
+                max_inflight = min(max_inflight, evs_max_inflight)
+        return len(self._inflight_req_ids) < max_inflight
 
     def release_idle_resources(self, wait_timeout_sec: float = 0.0):
         """Release allocator caches after the service becomes fully idle.
@@ -2728,6 +2741,19 @@ class VllmCompatible(BaseVlmModel):
             total_bytes // (1024 * 1024),
             worker_memory,
         )
+        return True
+
+    def is_healthy(self) -> bool:
+        """Return false after the independently-running vLLM engine dies."""
+        engine = getattr(self, "_llm", None)
+        if engine is None:
+            return False
+        errored = getattr(engine, "errored", None)
+        if errored is not None:
+            return not bool(errored() if callable(errored) else errored)
+        is_stopped = getattr(engine, "is_stopped", None)
+        if is_stopped is not None:
+            return not bool(is_stopped() if callable(is_stopped) else is_stopped)
         return True
 
     def warmup(self):
@@ -2792,7 +2818,7 @@ class VllmCompatible(BaseVlmModel):
             self._evs_handler = OpenAIServingVideoSessions(
                 engine_client=self._llm,
                 max_sessions=int(os.environ.get("VIA_EVS_MAX_SESSIONS") or "256"),
-                pruning_rate=float(os.environ.get("VLM_VIDEO_PRUNING_RATE") or "0.5"),
+                pruning_rate=get_video_pruning_rate() or 0.5,
                 similarity_threshold=_get_evs_similarity_threshold(),
                 pd_server_url=os.environ.get("VIA_PD_SERVER_URL") or None,
                 pd_server_timeout_s=float(os.environ.get("VIA_PD_SERVER_TIMEOUT_S") or "120.0"),
@@ -3243,12 +3269,11 @@ class VllmCompatible(BaseVlmModel):
         # blocked, so the copy starts at once. EVS's only other thread is an
         # _output_tpool worker, and those block for the whole add_clip_tensors
         # round trip (encode plus, when the detector fires, a full generation).
-        # Since the in-flight slot is released at encode-done, new clips are
-        # admitted while every worker is still blocked, so a deferred copy could
-        # queue behind them and pin this clip's CUDA frames (~49 MB for a
-        # 40-frame 640x640 chunk) for a whole generation cycle — to save ~14 ms
-        # on a dispatcher that is not the bottleneck. Copying now lets the
-        # pipeline free the frames as soon as generate() returns.
+        # A deferred copy could therefore queue behind every worker and pin this
+        # clip's CUDA frames (~49 MB for a 40-frame 640x640 chunk) for a whole
+        # generation cycle -- to save ~14 ms on a dispatcher that is not the
+        # bottleneck. Copying now lets the pipeline free the CUDA frames as soon
+        # as generate() returns.
         if self._vlm_model_type == "cosmos-reason1":
             images_cpu = images.cpu()
         else:
@@ -3259,14 +3284,6 @@ class VllmCompatible(BaseVlmModel):
         self._inflight_req_ids.append(request_id)
 
         def _run_evs_clip():
-            inflight_released = False
-
-            def _release_inflight():
-                nonlocal inflight_released
-                if not inflight_released and request_id in self._inflight_req_ids:
-                    self._inflight_req_ids.remove(request_id)
-                    inflight_released = True
-
             async def _add():
                 return await handler.add_clip_tensors(
                     session_id=session_id,
@@ -3276,7 +3293,6 @@ class VllmCompatible(BaseVlmModel):
                     timestamps=client_timestamps,
                     is_last=is_last,
                     chunk_id=ooo_chunk_id,
-                    on_encode_done=_release_inflight,
                 )
 
             try:
@@ -3314,7 +3330,14 @@ class VllmCompatible(BaseVlmModel):
                     500,
                 ) from e
             finally:
-                _release_inflight()
+                # Keep the admission slot for the complete EVS operation, not
+                # merely until its encoder finishes.  The worker closure owns
+                # images_cpu until add_clip_tensors returns after any triggered
+                # generation.  Releasing on_encode_done let a second full batch
+                # accumulate while the first batch still retained its frames,
+                # exhausting unified host/GPU memory on Thor (NVBug 6759865).
+                if request_id in self._inflight_req_ids:
+                    self._inflight_req_ids.remove(request_id)
 
             logger.debug(
                 "EVS clip: tokens=%d/%d, kept=%d, dropped=%d%s",

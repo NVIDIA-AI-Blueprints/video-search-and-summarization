@@ -16,6 +16,36 @@ import { createHmac, randomUUID } from "node:crypto";
 const PROTOCOL_VERSION = 4;
 const REQUESTED_SCOPES = ["operator.read", "operator.write"];
 const CLIENT_CAPABILITIES = ["tool-events", "session-scoped-events"];
+// Keep base64 plus the artifact envelope below the adapter's 1 MB event limit.
+const MAX_MANAGED_IMAGE_BYTES = 700_000;
+const MAX_MANAGED_IMAGE_BLOCKS = 8;
+const MANAGED_IMAGE_RECOVERY_TIMEOUT_MS = 5_000;
+const MANAGED_IMAGE_ROUTE =
+  /^\/api\/chat\/media\/outgoing\/([^/]+)\/[0-9a-f-]+\/full$/iu;
+const MANAGED_ALT_SUFFIX =
+  /---[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]{1,10}$)/iu;
+const MANAGED_IMAGE_MIME_TYPES = new Set([
+  "image/bmp",
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const TOOL_START_PHASES = new Set([
+  "start",
+  "started",
+  "running",
+  "in_progress",
+]);
+const TOOL_PROGRESS_PHASES = new Set(["update", "delta", "progress"]);
+const TOOL_END_PHASES = new Set([
+  "result",
+  "complete",
+  "completed",
+  "error",
+  "failed",
+]);
+const TOOL_FAILURE_PHASES = new Set(["error", "failed"]);
 
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
@@ -46,6 +76,8 @@ interface NormalizationState {
   startedTools: Set<string>;
   completedTools: Set<string>;
   toolNames: Map<string, string>;
+  imageSources: Map<string, { source: string; mimeType: string }>;
+  materializedImageSources: Set<string>;
   sawText: boolean;
 }
 
@@ -353,73 +385,423 @@ export class OpenClawConnector implements Connector {
     return text || undefined;
   }
 
-  normalizeEvent(
+  private static managedImageBlocks(
+    payload: JsonObject,
+    sessionKey: string
+  ): JsonObject[] {
+    if (!isJsonObject(payload.message)) return [];
+    const content = payload.message.content;
+    if (!Array.isArray(content)) return [];
+    const images: JsonObject[] = [];
+    for (const item of content) {
+      if (
+        images.length >= MAX_MANAGED_IMAGE_BLOCKS ||
+        !isJsonObject(item) ||
+        item.type !== "image" ||
+        typeof item.url !== "string" ||
+        typeof item.alt !== "string" ||
+        typeof item.mimeType !== "string" ||
+        !MANAGED_IMAGE_MIME_TYPES.has(item.mimeType)
+      ) {
+        continue;
+      }
+      const match = MANAGED_IMAGE_ROUTE.exec(item.url);
+      if (!match) continue;
+      let imageSessionKey: string;
+      try {
+        imageSessionKey = decodeURIComponent(match[1]);
+      } catch {
+        continue;
+      }
+      if (imageSessionKey === sessionKey) images.push(item);
+    }
+    return images;
+  }
+
+  private static managedImageSourceNames(image: JsonObject): string[] {
+    if (typeof image.alt !== "string") return [];
+    const alt = image.alt.trim();
+    if (
+      !alt ||
+      alt.length > 256 ||
+      alt.includes("/") ||
+      alt.includes("\\") ||
+      /\p{Cc}/u.test(alt)
+    ) {
+      return [];
+    }
+    const original = alt.replace(MANAGED_ALT_SUFFIX, "");
+    return original === alt ? [alt] : [original, alt];
+  }
+
+  private static toolImageSource(
+    toolData: JsonObject
+  ): { source: string; mimeType: string } | undefined {
+    const name = asString(toolData.name || toolData.tool)?.toLowerCase();
+    const outerArgs = isJsonObject(toolData.args) ? toolData.args : undefined;
+    let readArgs: JsonObject | undefined;
+    if (name === "read") {
+      readArgs = outerArgs;
+    } else if (
+      name === "tool_call" &&
+      typeof outerArgs?.id === "string" &&
+      /(?:^|:)read$/u.test(outerArgs.id) &&
+      isJsonObject(outerArgs.args)
+    ) {
+      readArgs = outerArgs.args;
+    }
+    if (!readArgs || typeof readArgs.path !== "string") return undefined;
+    const source = readArgs.path.trim();
+    const workspacePrefix = "/sandbox/.openclaw/workspace/";
+    if (
+      !source.startsWith(workspacePrefix) ||
+      source.length > 1_024 ||
+      source.includes("\\") ||
+      /\p{Cc}/u.test(source)
+    ) {
+      return undefined;
+    }
+    const relative = source.slice(workspacePrefix.length);
+    if (
+      !relative ||
+      relative
+        .split("/")
+        .some((segment) => !segment || segment === "." || segment === "..")
+    ) {
+      return undefined;
+    }
+    const extension = /\.([a-z0-9]+)$/iu.exec(relative)?.[1]?.toLowerCase();
+    const mimeType = extension
+      ? {
+          bmp: "image/bmp",
+          gif: "image/gif",
+          jpeg: "image/jpeg",
+          jpg: "image/jpeg",
+          png: "image/png",
+          webp: "image/webp",
+        }[extension]
+      : undefined;
+    return mimeType ? { source, mimeType } : undefined;
+  }
+
+  private backendHttpUrl(pathname: string): URL {
+    const url = new URL(this.config.backendUrl);
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    const basePath = url.pathname.replace(/\/$/u, "");
+    url.pathname = `${basePath}${pathname}`;
+    url.search = "";
+    url.hash = "";
+    return url;
+  }
+
+  private backendHeaders(accept: string): Headers {
+    const headers = new Headers({ Accept: accept });
+    if (this.config.backendToken) {
+      headers.set("Authorization", `Bearer ${this.config.backendToken}`);
+    }
+    return headers;
+  }
+
+  private managedImageRecoverySignal(runSignal: AbortSignal): AbortSignal {
+    if (runSignal.aborted) return runSignal;
+    return AbortSignal.any([
+      runSignal,
+      AbortSignal.timeout(
+        Math.min(
+          MANAGED_IMAGE_RECOVERY_TIMEOUT_MS,
+          this.config.requestTimeoutMs
+        )
+      ),
+    ]);
+  }
+
+  private async readManagedImage(
+    source: string,
+    expectedMimeType: string,
+    alt: string,
+    signal: AbortSignal
+  ): Promise<JsonObject | undefined> {
+    try {
+      const metadataUrl = this.backendHttpUrl("/__openclaw__/assistant-media");
+      metadataUrl.searchParams.set("source", source);
+      metadataUrl.searchParams.set("meta", "1");
+      const metadataResponse = await fetch(metadataUrl, {
+        headers: this.backendHeaders("application/json"),
+        signal,
+      });
+      if (!metadataResponse.ok) return undefined;
+      const metadataText = await metadataResponse.text();
+      if (metadataText.length > 4_096) return undefined;
+      const metadata: unknown = JSON.parse(metadataText);
+      if (
+        !isJsonObject(metadata) ||
+        metadata.available !== true ||
+        typeof metadata.mediaTicket !== "string" ||
+        !metadata.mediaTicket ||
+        metadata.mediaTicket.length > 4_096
+      ) {
+        return undefined;
+      }
+
+      const mediaUrl = this.backendHttpUrl("/__openclaw__/assistant-media");
+      mediaUrl.searchParams.set("source", source);
+      mediaUrl.searchParams.set("mediaTicket", metadata.mediaTicket);
+      const mediaResponse = await fetch(mediaUrl, {
+        headers: this.backendHeaders("image/*"),
+        signal,
+      });
+      const mimeType = mediaResponse.headers
+        .get("content-type")
+        ?.split(";", 1)[0]
+        .trim()
+        .toLowerCase();
+      const declaredLength = Number(
+        mediaResponse.headers.get("content-length") ?? "0"
+      );
+      if (
+        !mediaResponse.ok ||
+        !mimeType ||
+        mimeType !== expectedMimeType ||
+        !MANAGED_IMAGE_MIME_TYPES.has(mimeType) ||
+        (Number.isFinite(declaredLength) &&
+          declaredLength > MAX_MANAGED_IMAGE_BYTES) ||
+        !mediaResponse.body
+      ) {
+        await mediaResponse.body?.cancel();
+        return undefined;
+      }
+
+      const chunks: Uint8Array[] = [];
+      const reader = mediaResponse.body.getReader();
+      let length = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          length += value.byteLength;
+          if (length > MAX_MANAGED_IMAGE_BYTES) {
+            await reader.cancel();
+            return undefined;
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      if (!length) return undefined;
+      return {
+        type: "image",
+        data: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString(
+          "base64"
+        ),
+        mimeType,
+        alt,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async materializeManagedImage(
+    image: JsonObject,
+    signal: AbortSignal
+  ): Promise<JsonObject | undefined> {
+    const names = OpenClawConnector.managedImageSourceNames(image);
+    if (!names.length || typeof image.mimeType !== "string") return undefined;
+    const roots = [
+      "/sandbox/.openclaw/workspace",
+      "/sandbox/.openclaw/workspace/artifacts",
+    ];
+    for (const root of roots) {
+      for (const name of names) {
+        if (signal.aborted) return undefined;
+        const source = `${root}/${name}`;
+        const materialized = await this.readManagedImage(
+          source,
+          image.mimeType,
+          typeof image.alt === "string" ? image.alt : "VSS snapshot",
+          signal
+        );
+        if (materialized) return materialized;
+      }
+    }
+    return undefined;
+  }
+
+  private static emptyNormalizedFrame(): NormalizedFrame {
+    return { events: [], terminal: false };
+  }
+
+  private static toolData(
     frame: JsonObject,
+    payload: JsonObject
+  ): JsonObject | undefined {
+    let value: unknown;
+    if (frame.event === "agent" && payload.stream === "tool") {
+      value = payload.data;
+    } else if (frame.event === "session.tool") {
+      value = payload.data ?? payload;
+    }
+    return isJsonObject(value) ? value : undefined;
+  }
+
+  private normalizeChatDelta(
+    payload: JsonObject,
     state: NormalizationState
   ): NormalizedFrame {
-    if (frame.type !== "event" || !isJsonObject(frame.payload)) {
-      return { events: [], terminal: false };
+    if (typeof payload.deltaText !== "string" || !payload.deltaText) {
+      return OpenClawConnector.emptyNormalizedFrame();
     }
-    const payload = frame.payload;
-    if (payload.sessionKey !== state.sessionKey) {
-      return { events: [], terminal: false };
-    }
-    if (
-      typeof payload.runId === "string" &&
-      payload.runId !== state.upstreamRunId
-    ) {
-      return { events: [], terminal: false };
-    }
-    if (frame.event === "chat") {
-      if (
-        payload.state === "delta" &&
-        typeof payload.deltaText === "string" &&
-        payload.deltaText
-      ) {
-        state.sawText = true;
-        return {
-          events: [
-            { type: "message.delta", data: { delta: payload.deltaText } },
-          ],
-          terminal: false,
-        };
+    state.sawText = true;
+    return {
+      events: [{ type: "message.delta", data: { delta: payload.deltaText } }],
+      terminal: false,
+    };
+  }
+
+  private async normalizeFinalChat(
+    payload: JsonObject,
+    state: NormalizationState,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
+    const finalText = state.sawText
+      ? undefined
+      : OpenClawConnector.finalText(payload);
+    const events: ConnectorEvent[] = finalText
+      ? [{ type: "message.delta", data: { delta: finalText } }]
+      : [];
+    const recoverySignal = this.managedImageRecoverySignal(signal);
+    for (const image of OpenClawConnector.managedImageBlocks(
+      payload,
+      state.sessionKey
+    )) {
+      if (recoverySignal.aborted) break;
+      const source = await this.materializeManagedImage(image, recoverySignal);
+      if (source) {
+        events.push({ type: "artifact.source", data: { source } });
       }
-      if (payload.state === "final") {
-        const finalText = state.sawText
-          ? undefined
-          : OpenClawConnector.finalText(payload);
-        return {
-          events: finalText
-            ? [{ type: "message.delta", data: { delta: finalText } }]
-            : [],
-          terminal: true,
-        };
-      }
-      if (payload.state === "error" || payload.state === "failed") {
+    }
+    return { events, terminal: true };
+  }
+
+  private async normalizeChatEvent(
+    payload: JsonObject,
+    state: NormalizationState,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
+    switch (payload.state) {
+      case "delta":
+        return this.normalizeChatDelta(payload, state);
+      case "final":
+        return this.normalizeFinalChat(payload, state, signal);
+      case "error":
+      case "failed":
         throw new ConnectorError(
           "OpenClaw agent run failed",
           "backend_run_failed"
         );
-      }
-      if (payload.state === "aborted" || payload.state === "cancelled") {
+      case "aborted":
+      case "cancelled":
         throw new ConnectorError(
           "OpenClaw agent run was aborted",
           "backend_run_aborted"
         );
-      }
-      return { events: [], terminal: false };
+      default:
+        return OpenClawConnector.emptyNormalizedFrame();
+    }
+  }
+
+  private static ensureToolStarted(
+    events: ConnectorEvent[],
+    state: NormalizationState,
+    toolCallId: string,
+    name: string
+  ): void {
+    if (state.startedTools.has(toolCallId)) return;
+    state.startedTools.add(toolCallId);
+    events.push({
+      type: "tool.started",
+      data: { tool_call_id: toolCallId, name, payload: "Running" },
+    });
+  }
+
+  private normalizeToolStart(
+    toolData: JsonObject,
+    state: NormalizationState,
+    toolCallId: string,
+    name: string
+  ): NormalizedFrame {
+    const imageSource = OpenClawConnector.toolImageSource(toolData);
+    if (imageSource) state.imageSources.set(toolCallId, imageSource);
+    const events: ConnectorEvent[] = [];
+    OpenClawConnector.ensureToolStarted(events, state, toolCallId, name);
+    return { events, terminal: false };
+  }
+
+  private async appendToolImageArtifact(
+    events: ConnectorEvent[],
+    state: NormalizationState,
+    toolCallId: string,
+    signal: AbortSignal
+  ): Promise<void> {
+    const imageSource = state.imageSources.get(toolCallId);
+    if (
+      !imageSource ||
+      state.materializedImageSources.has(imageSource.source)
+    ) {
+      return;
+    }
+    const source = await this.readManagedImage(
+      imageSource.source,
+      imageSource.mimeType,
+      "VSS snapshot",
+      this.managedImageRecoverySignal(signal)
+    );
+    if (!source) return;
+    state.materializedImageSources.add(imageSource.source);
+    events.push({ type: "artifact.source", data: { source } });
+  }
+
+  private async normalizeToolEnd(
+    toolData: JsonObject,
+    state: NormalizationState,
+    toolCallId: string,
+    name: string,
+    phase: string,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
+    state.completedTools.add(toolCallId);
+    const events: ConnectorEvent[] = [];
+    OpenClawConnector.ensureToolStarted(events, state, toolCallId, name);
+    if (TOOL_FAILURE_PHASES.has(phase) || toolData.isError === true) {
+      events.push({
+        type: "tool.failed",
+        data: {
+          tool_call_id: toolCallId,
+          name,
+          error: "Tool failed in OpenClaw",
+        },
+      });
+      return { events, terminal: false };
     }
 
-    let toolData: unknown;
-    if (frame.event === "agent" && payload.stream === "tool") {
-      toolData = payload.data;
-    } else if (frame.event === "session.tool") {
-      toolData = payload.data ?? payload;
-    } else {
-      return { events: [], terminal: false };
-    }
-    if (!isJsonObject(toolData)) return { events: [], terminal: false };
+    const data: JsonObject = {
+      tool_call_id: toolCallId,
+      name,
+      payload: "Completed",
+    };
+    if (toolData.result !== undefined) data._artifact_source = toolData.result;
+    events.push({ type: "tool.completed", data });
+    await this.appendToolImageArtifact(events, state, toolCallId, signal);
+    return { events, terminal: false };
+  }
 
+  private async normalizeToolEvent(
+    toolData: JsonObject,
+    payload: JsonObject,
+    state: NormalizationState,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
     const fallbackId = `tool-${sequenceText(payload.seq)}`;
     const toolCallId = OpenClawConnector.safeIdentifier(
       toolData.toolCallId || toolData.id,
@@ -435,58 +817,52 @@ export class OpenClawConnector implements Connector {
       asString(toolData.status) ??
       "start"
     ).toLowerCase();
-    const events: ConnectorEvent[] = [];
-    if (["start", "started", "running", "in_progress"].includes(phase)) {
-      if (!state.startedTools.has(toolCallId)) {
-        state.startedTools.add(toolCallId);
-        events.push({
-          type: "tool.started",
-          data: {
-            tool_call_id: toolCallId,
-            name,
-            payload: "Running",
-          },
-        });
-      }
-      return { events, terminal: false };
-    }
-    if (["update", "delta", "progress"].includes(phase)) {
-      return { events: [], terminal: false };
+
+    if (TOOL_START_PHASES.has(phase)) {
+      return this.normalizeToolStart(toolData, state, toolCallId, name);
     }
     if (
-      !["result", "complete", "completed", "error", "failed"].includes(phase) ||
+      TOOL_PROGRESS_PHASES.has(phase) ||
+      !TOOL_END_PHASES.has(phase) ||
       state.completedTools.has(toolCallId)
     ) {
-      return { events: [], terminal: false };
+      return OpenClawConnector.emptyNormalizedFrame();
     }
-    state.completedTools.add(toolCallId);
-    if (!state.startedTools.has(toolCallId)) {
-      state.startedTools.add(toolCallId);
-      events.push({
-        type: "tool.started",
-        data: { tool_call_id: toolCallId, name, payload: "Running" },
-      });
+    return this.normalizeToolEnd(
+      toolData,
+      state,
+      toolCallId,
+      name,
+      phase,
+      signal
+    );
+  }
+
+  async normalizeEvent(
+    frame: JsonObject,
+    state: NormalizationState,
+    signal: AbortSignal
+  ): Promise<NormalizedFrame> {
+    if (frame.type !== "event" || !isJsonObject(frame.payload)) {
+      return OpenClawConnector.emptyNormalizedFrame();
     }
-    if (["error", "failed"].includes(phase) || toolData.isError === true) {
-      events.push({
-        type: "tool.failed",
-        data: {
-          tool_call_id: toolCallId,
-          name,
-          error: "Tool failed in OpenClaw",
-        },
-      });
-    } else {
-      const data: JsonObject = {
-        tool_call_id: toolCallId,
-        name,
-        payload: "Completed",
-      };
-      if (toolData.result !== undefined)
-        data._artifact_source = toolData.result;
-      events.push({ type: "tool.completed", data });
+    const payload = frame.payload;
+    if (payload.sessionKey !== state.sessionKey) {
+      return OpenClawConnector.emptyNormalizedFrame();
     }
-    return { events, terminal: false };
+    if (
+      typeof payload.runId === "string" &&
+      payload.runId !== state.upstreamRunId
+    ) {
+      return OpenClawConnector.emptyNormalizedFrame();
+    }
+    if (frame.event === "chat") {
+      return this.normalizeChatEvent(payload, state, signal);
+    }
+
+    const toolData = OpenClawConnector.toolData(frame, payload);
+    if (!toolData) return OpenClawConnector.emptyNormalizedFrame();
+    return this.normalizeToolEvent(toolData, payload, state, signal);
   }
 
   async *run(
@@ -542,12 +918,14 @@ export class OpenClawConnector implements Connector {
         startedTools: new Set(),
         completedTools: new Set(),
         toolNames: new Map(),
+        imageSources: new Map(),
+        materializedImageSources: new Set(),
         sawText: false,
       };
       while (!signal.aborted) {
         const frame =
           pendingEvents.shift() ?? (await this.receive(socket, signal));
-        const normalized = this.normalizeEvent(frame, state);
+        const normalized = await this.normalizeEvent(frame, state, signal);
         for (const event of normalized.events) yield event;
         if (normalized.terminal) return;
       }

@@ -25,7 +25,7 @@
 // the agent's memory.
 
 import { execFile, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -194,20 +194,40 @@ export function seedWorkspace(api: WorkspaceApi): void {
 const registerTools = vssPlugin.register;
 vssPlugin.register = (api) => {
   const a = api as unknown as WorkspaceApi & { pluginConfig?: { skillSelection?: string; vssBin?: string } };
+  const pluginDir = join(dirname(fileURLToPath(import.meta.url)), "..");
   try {
     const all = (process.env.VSS_SKILL_SELECTION ?? a.pluginConfig?.skillSelection) === "all";
-    const pluginDir = join(dirname(fileURLToPath(import.meta.url)), "..");
     const argv = [join(pluginDir, "sync_skills.py"), "--plugin-dir", pluginDir];
     if (all) argv.push("--all");
     if (a.pluginConfig?.vssBin) argv.push("--vss", a.pluginConfig.vssBin);
     const r = spawnSync("python3", argv, { encoding: "utf8", timeout: 120_000 });
     for (const line of `${r.stdout ?? ""}`.split("\n")) if (line.trim()) a.logger.info(line);
-    // exit 3 (nothing active) is a selection outcome, not a failure.
+    // exit 3 (nothing active) is a selection outcome, not a failure. A missing
+    // vss CLI is handled inside the selector (fail-open: all skills active).
     if (r.error || (r.status !== 0 && r.status !== 3)) {
       throw new Error(r.error ? r.error.message : `sync_skills.py exit ${r.status}: ${(r.stderr ?? "").trim()}`);
     }
   } catch (err) {
-    a.logger.warn(`[vss] skill selection failed, keeping the current skills-active/: ${err instanceof Error ? err.message : String(err)}`);
+    // Selection is an optimization, never a gate: when the selector itself
+    // cannot run, every shipped skill goes active rather than trusting a
+    // possibly narrowed skills-active/ from an earlier deployment.
+    a.logger.warn(
+      `[vss] skill selection unavailable, activating all shipped skills: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    try {
+      // Copy-then-swap: the current skills-active/ is only replaced after the
+      // full copy succeeds, so a failed copy cannot leave it empty or partial.
+      const activeDir = join(pluginDir, "skills-active");
+      const stagingDir = `${activeDir}.next`;
+      rmSync(stagingDir, { recursive: true, force: true });
+      cpSync(join(pluginDir, "skills"), stagingDir, { recursive: true });
+      rmSync(activeDir, { recursive: true, force: true });
+      renameSync(stagingDir, activeDir);
+    } catch (copyErr) {
+      a.logger.warn(
+        `[vss] all-skills fallback failed, keeping the current skills-active/: ${copyErr instanceof Error ? copyErr.message : String(copyErr)}`,
+      );
+    }
   }
   seedWorkspace(a);
   return registerTools(api);

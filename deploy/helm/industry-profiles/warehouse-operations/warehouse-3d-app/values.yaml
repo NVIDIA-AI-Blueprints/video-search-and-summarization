@@ -434,6 +434,7 @@ rtvi:
     sparse4d:
       onnxFile: /opt/storage/sparse4d/sparse4d_warehouse_v2.3.onnx
       anchorFile: /opt/storage/sparse4d/_ov_kmeans900_v2.3_r50.npy
+      numTorchThreads: 8
     # image: inherited from the rtvi-cv subchart's managed GHCR channel.
     # Pinning it here would override that default and silently keep this
     # profile on NGC, exactly like the other managed images which are not

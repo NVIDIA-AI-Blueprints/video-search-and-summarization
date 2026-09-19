@@ -39,8 +39,7 @@ With default **`values.yaml`** and typical overrides (LLM NIM + RT-VLM + **`vss-
 
 - **NVIDIA GPU Operator**
   - Install the GPU Operator on the cluster. Follow [GPU Operator getting started](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html).
-  - **Driver (x86 Ubuntu)** — pin via GPU Operator driver settings as appropriate:
-    - **595.58.03** (x86 hosts with Ubuntu 24.04)
+  - **Driver (x86 Ubuntu 24.04)** — pin **595.58.03** via GPU Operator driver settings.
 
 - **NVIDIA NIM Operator**
   - Required when **`nims`** subcharts are enabled (`NIMCache` / `NIMService`).

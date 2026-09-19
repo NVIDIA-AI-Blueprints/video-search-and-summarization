@@ -24,6 +24,9 @@
   deployment has both `rt_vlm` and `vst`, so a build that ships `rtvi-vlm` must
   also route `/rtvi-vlm` through the ingress. Prune that route and
   `vss configure` records the service absent while the container runs.
+- Deploying and routing it for either use makes it **no** webhook receiver:
+  continuous tagging is a separate capability, requested separately
+  ([`rt-vlm.md`](rt-vlm.md), [`vios.md`](vios.md)).
 - `vss-video-analytics-api` is a **separate** service key from
   `vss-search-analytics-2d-fusion`. The analytics API (`:9901`) provides the
   REST query/browse surface over ES indices; the search-analytics service is the

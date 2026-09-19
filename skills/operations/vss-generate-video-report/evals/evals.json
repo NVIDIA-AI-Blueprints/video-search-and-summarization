@@ -169,6 +169,15 @@
         "Offers auto-discover based suggestion option.",
         "Offers deploy local VLM option."
       ]
+    },
+    {
+      "id": "summarize-without-report-non-activation",
+      "question": "Summarize this long recording; I do not need a formatted report.",
+      "expected_skill": null,
+      "ground_truth": "This is a summarization request for vss-summarize-video, not a request to generate a report.",
+      "expected_behavior": [
+        "Does not activate vss-generate-video-report when a formatted report is explicitly excluded.",
+        "Routes the request to vss-summarize-video."
+      ]
     }
   ]
-  

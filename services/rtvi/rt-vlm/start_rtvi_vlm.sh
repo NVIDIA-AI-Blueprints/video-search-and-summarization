@@ -18,6 +18,13 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 
 ASSET_STORAGE_DIR="${ASSET_STORAGE_DIR:-/tmp/assets}"
 
+# Fail before GPU/model initialization when service-level configuration is invalid.
+if [ -f rtvi/utils/env_validation.py ]; then
+    python3 rtvi/utils/env_validation.py || exit $?
+else
+    python3 src/utils/env_validation.py || exit $?
+fi
+
 # Validate MAX_ASSET_STORAGE_SIZE_GB against actual storage at startup.
 # Without this, an unset or oversized limit silently allows unlimited storage,
 # which causes upload failures when tmpfs fills or unexpectedly fills a bind-mounted disk.
@@ -95,7 +102,7 @@ fi
 
 if [ -f /etc/nv_tegra_release ]; then
     if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
-        export LD_LIBRARY_PATH="/opt/nvidia/via/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="/opt/nvidia/via/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
     fi
 fi
 

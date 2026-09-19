@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * App-wide subscriber registry for the floating Chat sidebar when a main tab (not Chat) is active.
  * Chat tab is excluded: it uses the full-page chat, not this sidebar.

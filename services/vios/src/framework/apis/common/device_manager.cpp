@@ -133,6 +133,8 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
             ,webrtc_latency_ms(500)
             ,enable_frame_drop(false)
             ,video_metadata_query_batch_size_num_frames(300)
+            ,video_metadata_query_max_threads(2)
+            ,video_metadata_wait_timeout_ms(1000)
             ,enable_qos_monitoring(true)
             ,qos_logfile_path("./webroot/log/")
             ,qos_data_capture_interval_sec(1)
@@ -334,6 +336,8 @@ DeviceConfig::DeviceConfig():recorded_video_root("./vst_video/")
         LOG2(info) << "\tFloor Map Image Endpoint: " << floormap_image_endpoint << endl;
         LOG2(info) << "\t3D Overlay Sensor Name: " << overlay_3d_sensor_name << endl;
         LOG2(info) << "\tVideo Metadata Max results fetched: " << video_metadata_query_batch_size_num_frames << endl;
+        LOG2(info) << "\tVideo Metadata Query Max Threads: " << video_metadata_query_max_threads << endl;
+        LOG2(info) << "\tVideo Metadata Wait Timeout ms: " << video_metadata_wait_timeout_ms << endl;
         LOG2(info) << "\tBbox tolerance in millisec: " << bbox_tolerance_ms << endl;
         LOG2(info) << "\tEnable Overlay Skip Frame: " << enable_overlay_skip_frame << endl;
         LOG2(info) << "\tVideo Use old specs for metadata parsing: " << use_video_metadata_protobuf << endl;

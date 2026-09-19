@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Search tab Chat sidebar config. Thin wrapper over the reusable tabChatEnv utils
  * so env vars follow NEXT_PUBLIC_SEARCH_TAB_CHAT_* (tabKey = 'SEARCH_TAB').

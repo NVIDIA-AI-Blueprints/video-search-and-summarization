@@ -19,7 +19,6 @@ import datetime
 import copy
 from flask import Flask, request, jsonify, send_file
 from utils.kafka_producer import KfkProducer
-from utils.recompute_bev_centers import recompute_bev_centers
 from utils.message_broker_factory import MessageBrokerFactory
 from utils.sensor_mapping import SensorMapping, Sensor
 from utils.nvstreamer_upload import upload_videos, NVStreamerUploadError
@@ -178,9 +177,6 @@ def get_config():
             'WDM_KFK_TOPIC': os.environ.get('WDM_KFK_TOPIC', ''),
             'WDM_KFK_MSG_KEY': os.environ.get('WDM_KFK_MSG_KEY', 'sensor'),
 
-            # Recompute BEV centers configs
-            'RECOMPUTE_BEV_CENTERS_ENABLED': get_bool_env("RECOMPUTE_BEV_CENTERS_ENABLED", False),
- 
             # Profile configurator configuration
             'ENABLE_PROFILE_CONFIGURATOR': True if os.environ.get("ENABLE_CALIBRATION_PROCESS", "true").lower() == "true" else False,
             
@@ -603,16 +599,6 @@ def process_sensor_info_from_file():
     logger.info(f"Generated Sensor mapping: {sensor_mapping.sensors}")
     logger.debug(f"Generated {len(sensor_mapping.sensors)} sensors in mapping")
     logger.info(f"Sensor mapping saved to file at {CONFIG['SENSOR_MAPPING_FILE_PATH']}")
-
-    if CONFIG['RECOMPUTE_BEV_CENTERS_ENABLED'] and CONFIG['MODE'] == '3d': # Only recompute BEV centers for 3D mode
-        logger.info("Recomputing BEV centers")
-        sensor_names = [sensor.name for sensor in sensor_mapping.sensors.values()]
-        n_sensor_groups = 1 # n_sensor_groups=1 for docker compose since we have only one group.
-        max_sensors_per_group = len(sensor_names)
-        calib_file_path = recompute_bev_centers(CONFIG['CALIBRATION_FILE_PATH'], sensor_names, n_sensor_groups, max_sensors_per_group)
-        logger.info(f"BEV groups recomputed and saved to {calib_file_path}")
-    else:
-        logger.info("Skipping BEV centers recomputation as RECOMPUTE_BEV_CENTERS_ENABLED is disabled")
 
     if CONFIG['SEND_CONFIG_TO_SDR']:
         send_config_to_sdr(sensor_mapping)
@@ -1124,28 +1110,6 @@ def _run_video_uploads():
 
 def process_sensor_info_from_nvstreamer():
     sensor_mapping, nvstreamer_streams = get_sensor_mapping_from_nvstreamer()
-
-    bev_recompute_enabled = (
-        CONFIG['RECOMPUTE_BEV_CENTERS_ENABLED']
-        and CONFIG['MODE'] == '3d'
-        and CONFIG['ENABLE_CALIBRATION_PROCESS']
-        and os.path.exists(CONFIG['CALIBRATION_FILE_PATH'])
-    )
-    if bev_recompute_enabled:
-        logger.info("Recomputing BEV centers")
-        sensor_names = [sensor.name for sensor in sensor_mapping.sensors.values()]
-        n_sensor_groups = 1 # n_sensor_groups=1 for docker compose since we have only one group.
-        max_sensors_per_group = len(sensor_names)
-        calib_file_path = recompute_bev_centers(CONFIG['CALIBRATION_FILE_PATH'], sensor_names, n_sensor_groups, max_sensors_per_group)
-        logger.info(f"BEV groups recomputed and saved to {calib_file_path}")
-    else:
-        if CONFIG['RECOMPUTE_BEV_CENTERS_ENABLED'] and CONFIG['MODE'] == '3d':
-            if not CONFIG['ENABLE_CALIBRATION_PROCESS']:
-                logger.info("Skipping BEV centers recomputation: calibration process is disabled")
-            elif not os.path.exists(CONFIG['CALIBRATION_FILE_PATH']):
-                logger.info("Skipping BEV centers recomputation: calibration file not found at %s", CONFIG['CALIBRATION_FILE_PATH'])
-        else:
-            logger.info("Skipping BEV centers recomputation as RECOMPUTE_BEV_CENTERS_ENABLED is disabled")
 
     if CONFIG['SEND_CONFIG_TO_SDR']:
         send_config_to_sdr(sensor_mapping)

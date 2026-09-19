@@ -131,6 +131,9 @@ navigation:
                   - page: "Quickstart"
                     slug: quickstart
                     path: ../docs/warehouse-docs/Quickstart-Guide.mdx
+                  - page: "Helm Deployment"
+                    slug: helm-deployment
+                    path: ../docs/warehouse-docs/Helm-Deployment.mdx
                   - section: "Development Workflow"
                     slug: development-workflow
                     path: ../docs/warehouse-docs/Core-Development-Workflow.mdx

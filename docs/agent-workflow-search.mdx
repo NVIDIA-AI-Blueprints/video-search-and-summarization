@@ -1413,26 +1413,9 @@ MODEL_PATH=git:https://huggingface.co/nvidia/Cosmos-Embed1-448p
 The Real-Time Video Intelligence CV microservice ([RTVI-CV](/vss/system-components/vision-microservices/object-detection-and-tracking#supported-models)) supports CLIP-style image (vision encoder) and text embedder models.
 `SigLIP2` is the default model deployed with the VSS search profile.
 
-To use a different model, for example, `RADIO-CLIP` set the environment `VISION_ENCODER_MODEL` and `VISION_ENCODER_VERSION` variables as follows:
-
-```bash
-VISION_ENCODER_MODEL=radio-clip
-VISION_ENCODER_VERSION=v1.0
-```
-
-- `VISION_ENCODER_MODEL` — Identifier for the vision encoder model used by RTVI-CV
-- `VISION_ENCODER_VERSION` — The release version on NGC catalog
-
 **Output Embedding Dimension**
 
-The object embeddings are stored in elasticsearch as vector embeddings. The dimension must be specified at the time of deployment.
-The output embedding model for `SigLIP2` is `1152`, while it's `1536` for `radio-clip`; can be changed using the environment variable `ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM`:
-
-```bash
-ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=1536
-```
-
-- `ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM` — Used by RTVI-CV for object embeddings (default: SigLIP v2, 1152). If you change the RTVI-CV model, set this to the new model's embedding dimension.
+The object embeddings are stored in elasticsearch as vector embeddings, using a fixed dimension of `1152` for `SigLIP2`.
 
 ## Known Issues
 

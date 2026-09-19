@@ -300,12 +300,13 @@ asymmetry is deliberate — each matches the vantage it runs from:
   mechanisms do not overlap — except on a build that fronts RT-VLM for the tagging
   leg, where the RT-VLM tagging call may also use the recorded `/rtvi-vlm` origin
   from a remote host; loopback stays the lower-latency choice from the deploy host.
-- **RT-VLM is loopback-only by default**, but fronted at `/rtvi-vlm` on builds that
-  resolve the VLM **tagging** capability (see `services/ingress.md`), so the tagging
-  leg can be driven from any host that reaches the origin. `vss configure` then
-  records `rt_vlm` present (activating the search CLI's fail-open critic). On builds
-  that use RT-VLM only for Critic verification, it stays loopback-only
-  (`http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}`) and records `absent`.
+- **RT-VLM is loopback-only by default**, but fronted at `/rtvi-vlm` on any build
+  whose host drives it — hand-driven tagging, or Critic verification and visual
+  Q&A (see `services/ingress.md`). `vss configure` then records `rt_vlm` present,
+  which is what enables the search CLI's critic — it builds the critic stack from
+  that recorded URL, so a build recording `absent` runs search without one rather
+  than failing. Only a build that never drives RT-VLM from the host keeps it
+  loopback-only (`http://${HOST_IP:-127.0.0.1}:${RTVI_VLM_PORT:-8018}`).
 
 ## Kubernetes consumer contract (no port-forward)
 

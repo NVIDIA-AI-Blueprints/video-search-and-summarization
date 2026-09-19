@@ -1439,7 +1439,7 @@ standalone Helm override.
 | `VLLM_WORKER_MULTIPROC_METHOD` | Multiprocessing method for vLLM workers | `spawn` |
 | `VLLM_ENABLE_PREFIX_CACHING` | Enable vLLM prefix caching | `true` |
 | `VLLM_DISABLE_MM_PREPROCESSOR_CACHE` | Disable vLLM multimodal preprocessor cache | `true` |
-| `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Compose: Empty; Helm: `0.0` |
+| `VLM_VIDEO_PRUNING_RATE` | Fixed-rate EVS pruning rate; leave empty to disable it. Configured values must be finite and strictly between `0` and `1`, otherwise RTVI-VLM fails startup. Also required to activate EVS++ pruning when `VIA_EVS_SESSION=true` | Empty |
 | `VIA_EVS_SESSION` | Enable the optional EVS++ video-session path when set to `true` or `1` | Empty (disabled) |
 | `VLLM_EVS_SIMILARITY_THRESHOLD` | EVS++ frame/clip similarity threshold | `0.4` when EVS++ session mode is enabled |
 | `VIA_EVS_TOKEN_BUDGET` | EVS++ visual-token budget accumulated across clips before generation is forced | `1` (generate on every clip; increase the value to pack tokens across clips) |
@@ -1667,10 +1667,11 @@ For Video Summarization MS integration, see [Optional: Use Nemotron-3-Nano-Omni 
 EVS is a vLLM-engine feature that prunes redundant video tokens before
 inference to reduce per-chunk compute. RTVI-VLM supports two startup modes:
 
-* **Fixed-rate EVS**: Set `VLM_VIDEO_PRUNING_RATE` to a value greater than
-  `0` and less than `1`. For example, `0.5` prunes about half of the
-  redundant video tokens. Leave it unset or set it to `0` to disable this
-  mode.
+* **Fixed-rate EVS**: Set `VLM_VIDEO_PRUNING_RATE` to a finite value greater
+  than `0` and less than `1`. For example, `0.5` prunes about half of the
+  redundant video tokens. Leave it unset or empty to disable this mode.
+  Boundary, out-of-range, non-numeric, NaN, and infinite values cause
+  RTVI-VLM startup to fail instead of silently disabling EVS.
 * **EVS++ session mode**: Set both `VIA_EVS_SESSION=true` and
   `VLM_VIDEO_PRUNING_RATE=0.5`. `VIA_EVS_SESSION` routes requests through
   the vLLM video-session path, while `VLM_VIDEO_PRUNING_RATE` activates

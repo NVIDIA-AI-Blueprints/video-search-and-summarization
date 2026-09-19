@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ChatHeader } from './ChatHeader';
@@ -18,8 +18,8 @@ import type {
 
 /**
  * Defaults chosen to match what the VSS deployment actually sets in
- * `deploy/docker/resolved.yml`, so an unconfigured embed behaves like the
- * toolkit chat bar it replaces rather than like a bare component.
+ * `deploy/docker/resolved.yml`, so an unconfigured embed matches the
+ * deployed chat rather than a bare component.
  */
 const DEFAULT_FEATURES: Required<ChatFeatureFlags> = {
   chatHistory: true,
@@ -270,7 +270,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   );
 
   // Hand conversation controls to the host so it can render them in its own
-  // sidebar, the way the toolkit's onControlsReady did.
+  // sidebar.
   //
   // Keyed on what the list actually displays — ids, names, selection, search,
   // busy — rather than on the conversation objects. Those change on every
@@ -393,22 +393,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         aria-live="polite"
         aria-busy={busy}
       >
-        {!hydrated ? null : visibleMessages.length === 0 && !features.headerMenu ? (
+        {hydrated && visibleMessages.length === 0 && !features.headerMenu ? (
           <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
             {placeholder ?? 'Ask about your video…'}
           </p>
-        ) : (
-          visibleMessages.map((message) => (
-            <ChatMessageView
-              key={message.id}
-              message={message}
-              features={features}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onNotify={notify}
-            />
-          ))
-        )}
+        ) : null}
+        {hydrated
+          ? visibleMessages.map((message) => (
+              <ChatMessageView
+                key={message.id}
+                message={message}
+                features={features}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onNotify={notify}
+                mediaProxyUrl={endpoint.mediaProxyUrl}
+              />
+            ))
+          : null}
         {/* Keeps the last message clear of the floating composer. */}
         <div className="h-[162px]" ref={endRef} />
       </div>

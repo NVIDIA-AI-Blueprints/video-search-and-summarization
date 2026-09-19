@@ -139,14 +139,16 @@ other profiles, and manual `--env-file` commands, follow the
 
 - OS:
     - x86 hosts: Ubuntu 24.04
+    - DGX Station (GB300): DGX OS 7.6.0
     - DGX-SPARK: DGX OS 7.5.0
-    - IGX-THOR: IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04)
-    - AGX-THOR: JetPack 7.2 (Jetson Linux/L4T r39.2)
+    - IGX-THOR (T5000 and T7000): IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04)
+    - Jetson AGX Orin, AGX-THOR, and Jetson Orin NX: JetPack 7.2 (Jetson Linux/L4T r39.2)
 - NVIDIA Driver:
     - 595.58.03 (x86 hosts with Ubuntu 24.04)
+    - 595.58.03 (DGX Station GB300)
     - 580.173.02 (DGX-SPARK)
     - 580.00, bundled with IGX-SW 2.0 (IGX-THOR)
-    - 595.78 (AGX-THOR)
+    - 595.78 (Jetson AGX Orin, AGX-THOR, and Jetson Orin NX)
 - NVIDIA Container Toolkit: 1.17.8+
 - Docker Engine: 28.3.3 <= Docker Engine < 29.5.0
 - Docker Compose: v2.39.1+
@@ -162,4 +164,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, branch nami
 
 
 ## License
-Refer to [LICENSE](LICENSE)
+
+This project's licensing is documented across the following files:
+
+- [`LICENSE`](LICENSE) — Apache-2.0 for the repository. Elasticsearch, Kibana, and Redis configuration files remain dual-licensed as described there.
+- [`LICENSE-3rd-party.txt`](LICENSE-3rd-party.txt) — index of per-service third-party attribution files, including [`services/ui/LICENSE-3rd-party.txt`](services/ui/LICENSE-3rd-party.txt) for the UI image.
+- [`LICENSE.DATA`](LICENSE.DATA) — NVIDIA Asset License.

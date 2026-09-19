@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import type { ChatVideoUploadCompleteListener } from './chatVideoUploadCompleteRegistry';
 import { SIDEBAR_MAIN_TAB_IDS, type SidebarMainTabId } from './sidebarMainTabChatSubscribers';
 import type { VssMainTabChatVideoUploadRegistry } from './chatVideoUploadCompleteRegistry';

@@ -104,8 +104,8 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](tools/vss-generate-video-calibration/SKILL.md) |
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
 | Deploy the video-analytics REST API on its own | [`vss-setup-video-analytics-api`](deployment/vss-setup-video-analytics-api/SKILL.md) |
-| Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`benchmark-vlm-qa`](benchmarking/benchmark-vlm-qa/SKILL.md) |
-| Benchmark LVS summarization latency and burst throughput | [`benchmark-video-summarization`](benchmarking/benchmark-video-summarization/SKILL.md) |
+| Benchmark VLM video Q&A accuracy and latency (`vss vlm`) | [`vss-benchmark-vlm-qa`](benchmarking/vss-benchmark-vlm-qa/SKILL.md) |
+| Benchmark LVS summarization latency and burst throughput | [`vss-benchmark-video-summarization`](benchmarking/vss-benchmark-video-summarization/SKILL.md) |
 | Check an RT-VLM config change for a caption-accuracy regression | [`vss-evaluate-caption-accuracy`](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) |
 
 **Skills chain.** Skills auto-invoke each other when a prerequisite is missing — e.g. `vss-deploy-detection-tracking-3d` calls `vss-generate-video-calibration` when calibration data is absent. When a request spans layers (deploy a profile *and* add a camera *and* run a search), the agent composes several skills in sequence — or `vss-build-vision-ai` composes the deploy half for you. The catalog below is grouped by directory, with each skill's pipeline layer in its own column.
@@ -171,8 +171,8 @@ repository organisation only and never appears in the installed path or in the
 
 | Skill | Layer | Description |
 |---|---|---|
-| [benchmark-vlm-qa](benchmarking/benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
-| [benchmark-video-summarization](benchmarking/benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
+| [vss-benchmark-vlm-qa](benchmarking/vss-benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
+| [vss-benchmark-video-summarization](benchmarking/vss-benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
 | [vss-evaluate-caption-accuracy](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | — | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
 Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
