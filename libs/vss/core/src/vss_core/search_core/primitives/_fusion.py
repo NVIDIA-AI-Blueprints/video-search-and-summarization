@@ -502,7 +502,7 @@ def fuse_ranked_union(
     weights: dict[str, float],
     rrf_k: int,
 ) -> list[SearchResult]:
-    """Dispatch candidate-union fusion using the configured rank method."""
+    """Dispatch weighted or legacy equal-weight candidate-union fusion."""
     if method == "weighted_rrf":
         effective_weights = weights
     elif method == "rrf":
