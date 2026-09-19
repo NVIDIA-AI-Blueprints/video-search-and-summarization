@@ -14,6 +14,19 @@ def _dockerfile() -> str:
     return (Path(__file__).parents[1] / "docker" / "Dockerfile").read_text()
 
 
+def test_documented_sbsa_builds_use_arm_platform_argument():
+    repository_root = Path(__file__).resolve().parents[4]
+    documentation = (
+        Path(__file__).parents[1] / "README.md",
+        repository_root / "docs" / "real-time-vlm.mdx",
+    )
+
+    for document in documentation:
+        contents = document.read_text()
+        assert "--build-arg ARM_PLATFORM=sbsa" in contents
+        assert "IS_SBSA" not in contents
+
+
 def test_non_sbsa_build_uses_empty_sbsa_source_stage():
     dockerfile = _dockerfile()
 

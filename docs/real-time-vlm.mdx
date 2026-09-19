@@ -388,22 +388,21 @@ Compose deployment.
    ```
 
 For DGX Spark/SBSA Docker Compose testing, build an ARM64/SBSA image from the
-`rt-vlm/` directory and load it into the local Docker image store. Export
-`IS_SBSA=true` on the host shell before the build command so the Dockerfile
-resolves the `-sbsa` base image automatically:
+`rt-vlm/` directory and load it into the local Docker image store. Pass
+`ARM_PLATFORM=sbsa` so the Dockerfile selects the SBSA DeepStream source and
+runtime configuration:
 
 ```bash
-export IS_SBSA=true
 docker buildx build --platform linux/arm64 \
-  --build-arg IS_SBSA \
+  --build-arg ARM_PLATFORM=sbsa \
   -f docker/Dockerfile \
   -t <registry>/<repo>/vss-rt-vlm:3.3.0-26.08.2-custom-sbsa \
   --load .
 ```
 
-For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), do **not** set
-`IS_SBSA`. The Dockerfile selects the Thor-compatible ARM64 dependencies
-automatically:
+For Jetson AGX Thor / IGX Thor (ARM64 but not SBSA), keep the default
+`ARM_PLATFORM=igpu`. The Dockerfile selects the Thor-compatible ARM64
+dependencies automatically:
 
 ```bash
 docker buildx build --platform linux/arm64 \
