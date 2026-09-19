@@ -12,11 +12,13 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS, a video-understanding VLM, and VSS unified memory (Elasticsearch) enabled. Then, so the following queries have a camera to work with, onboard the local file /app/warehouse_safety_0001.mp4 into VIOS as a sensor named warehouse_sample. Use the configured remote model endpoints and run autonomously.",
+      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS, a video-understanding VLM, and VSS unified memory (Elasticsearch) enabled. Enable memory introspection too, with its sufficiency judge pointed at the profile's own text LLM. Then, so the following queries have a camera to work with, onboard the local file /app/warehouse_safety_0001.mp4 into VIOS as a sensor named warehouse_sample. Use the configured remote model endpoints and run autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
         "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup).",
-        "`vss configure check` reports elasticsearch reachable, and `vss vios list` includes a sensor named warehouse_sample with a recorded timeline."
+        "`vss configure check` reports elasticsearch reachable, and `vss vios list` includes a sensor named warehouse_sample with a recorded timeline.",
+        "`sh -c 'vss configure memory show | jq -e \".enabled == true and .persist_by_default == true\" >/dev/null'` returns exit 0 (memory is enabled and persists by default, so later steps have records to read).",
+        "`sh -c 'E=$(vss configure memory show | jq -r .introspection.judge.endpoint); curl -sf --max-time 10 \"$E/models\" >/dev/null'` returns exit 0 (the introspection judge is configured and reachable)."
       ]
     },
     {
@@ -27,10 +29,10 @@
       ]
     },
     {
-      "query": "Ask that again: was the worker wearing a safety helmet in the first 10 seconds of warehouse_sample?",
+      "query": "Ask that again: was the worker wearing a safety helmet on warehouse_sample?",
       "checks": [
-        "It answers from what VSS unified memory already holds for warehouse_sample, using a vss memory command.",
-        "It does not run vss vlm run a second time."
+        "It consults VSS unified memory for warehouse_sample with a vss memory command before any VLM call.",
+        "If that memory holds the earlier analysis it answers from it and runs no second vss vlm run; it re-inspects only if memory genuinely returns nothing."
       ]
     },
     {
@@ -57,7 +59,7 @@
     {
       "query": "Introspection is turned off on this deployment. Read the stored VSS job for the most recent warehouse_sample analysis.",
       "checks": [
-        "It resolves the most recent job id from VSS memory and reads that stored record with vss memory get --job-id for ordinary structured retrieval.",
+        "It obtains the most recent warehouse_sample job record from VSS memory - by vss memory get --job-id or vss memory query - and answers from that record's own contents rather than reporting that nothing was found.",
         "It never calls vss memory introspect, never enables it, and never runs vss vlm run when the records are thin."
       ]
     },
@@ -90,10 +92,10 @@
       ]
     },
     {
-      "query": "Was anyone smoking near the loading bay?",
+      "query": "Did a forklift enter the loading area on warehouse_sample last week?",
       "checks": [
-        "It asks which recorded sensor to read and for the exact UTC start and end bounds.",
-        "It does not run vss vlm run and does not invent a sensor or time range."
+        "It does not turn \"last week\" into concrete UTC timestamps of its own.",
+        "It does not run vss vlm run over an invented window."
       ]
     },
     {
