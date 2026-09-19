@@ -122,13 +122,14 @@ whose request named the in-stack agent.
 **Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES` together with the
 two peers only it uses: the `llm_*` key and `phoenix`.** They go as one unit.
 The `llm_*` peer is the in-stack agent's LLM: of the `base` services only
-`vss-agent` reads `LLM_*` (`services/agent/compose.yml`; the other readers are
-`alert-bridge` and `vss-lvs`, outside `base`), and the harness brings its own
+`vss-agent` reads `LLM_*` (`services/agent/compose.yml`; the only other consumer
+is `vss-lvs`, outside `base` - `alert-bridge` takes `LLM_MODE` alone, for URL
+rewriting, and never calls the LLM), and the harness brings its own
 model provider - the NIM is the build's largest GPU claim and image pull.
 `phoenix` collects the agent's traces and has no other client; `haproxy` only
 routes to it, and tolerates an absent backend exactly as it does the absent
 agent. Keep `llm_*` only when an enabled service still consumes it (an
-`alerts`, `lvs` or combined build keeps it for `alert-bridge` / `vss-lvs`) or
+`lvs` or combined build keeps it for `vss-lvs`) or
 the harness LLM is route (a) *against the build's own LLM NIM*, which needs the
 NIM resident. This is [`composition.md`](composition.md)'s forward closure
 applied to the agent's own peers, not a harness rule. `vss-ui` stays: pruning
@@ -217,7 +218,7 @@ Two things the user should hear up front rather than discover:
 
 - **GPU and memory budget.** `vss-agent` reserves no GPU, so its removal frees
   memory rather than a device; pruning its `llm_*` peer (above) is what frees
-  GPU memory, and a build that keeps the NIM for `alert-bridge` / `vss-lvs` or
+  GPU memory, and a build that keeps the NIM for `vss-lvs` or
   for route (a) must say so. Budget the build against [`sizing.md`](sizing.md)
   plus the harness's own model provider —
   and note that a NemoClaw-managed local model claims every visible GPU unless
