@@ -279,7 +279,7 @@ The sandbox runs on its **own** LLM, unrelated to the build's `LLM_*` and `VLM_*
 
 **Read the environment first.** Report relevant model settings as found-or-missing, showing endpoint and model values verbatim but never a credential's value. An explicitly configured provider and all of its required values are already the answer; confirm them instead of asking Q3a.
 
-Ask **Q3a-default** through one single-select `AskUserQuestion`: *"Which model should the NemoClaw sandbox run on?"* Keep the model choice separate from the provider choice — a user who wants the harness on a different model has not asked to change providers, and a yes/no that bundles the two forces them through an endpoint they never wanted to touch.
+Otherwise ask **Q3a-default** through one single-select `AskUserQuestion`: *"Which model should the NemoClaw sandbox run on?"* Keep the model choice separate from the provider choice — a user who wants the harness on a different model has not asked to change providers, and a yes/no that bundles the two forces them through an endpoint they never wanted to touch.
 
 | Choice | Result |
 | --- | --- |
