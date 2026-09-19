@@ -170,16 +170,23 @@ mkdir -p \
   "$VSS_DATA_DIR/data_log/elastic/data" \
   "$VSS_DATA_DIR/data_log/elastic/logs" \
   "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
   "$VSS_DATA_DIR/data_log/redis/data" \
   "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/data_log/vst/clip_storage" \
   "$VSS_DATA_DIR/agent_eval/dataset" \
   "$VSS_DATA_DIR/agent_eval/results" \
-  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/models" \
   "$VSS_DATA_DIR/videos/dev-profile-alerts"
 VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
 mkdir -p "$VSS_APPS_DIR/engines/gdino" "$VSS_APPS_DIR/engines/rtdetr-its"
-chmod -R 777 "$VSS_APPS_DIR/engines"
-chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+chmod -R a+rwx "$VSS_APPS_DIR/engines"
+chmod -R a+rwx \
+  "$VSS_DATA_DIR/data_log" \
+  "$VSS_DATA_DIR/agent_eval" \
+  "$VSS_DATA_DIR/models" \
+  "$VSS_DATA_DIR/videos"
 ```
 
 

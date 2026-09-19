@@ -48,9 +48,19 @@ The following software must be installed on your system:
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
 - **NGC CLI:** 4.10.0+
-- **Python runner for Build Vision AI:** `uv`. The Skill uses it for mandatory
-  service-graph checks and helper scripts; without it, deployment can fail even
-  when the remaining host checks pass.
+- **Python runner for Build Vision AI:** `uv` is preferred. Python 3 with
+  PyYAML is also supported for the Skill's service-graph checks and helper
+  scripts.
+
+Install one supported runner:
+
+```bash
+# Preferred
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Alternative: use the active Python 3 environment
+python3 -m pip install PyYAML
+```
 
 <Note>
 For detailed installation instructions for the software requirements listed above, see the [Appendix](/vss/getting-started/prerequisites#appendix-software-prerequisites-installation-guide):
@@ -169,7 +179,7 @@ If a default-deny firewall is enabled on the host, allow inbound traffic from th
 - 1 x 1 Gbps network interface
 - NVIDIA GPU capacity required by the selected development profile. Use the
   [Development Profile GPU Requirements](#development-profile-gpu-requirements)
-  table below; validated layouts range from one to four GPUs depending on the
+  tables below; validated layouts range from one to four GPUs depending on the
   profile, hardware, and model placement.
 
 ## Network and Browser Access
@@ -342,6 +352,9 @@ does not identify the GPU; the alerts quickstarts recommend NVIDIA driver
 
 </Tab>
 <Tab title="L40S">
+
+Shared local LLM/VLM placement is not supported on L40S. Use the dedicated-GPU
+layout or one of the remote-model layouts below.
 
 | **Profile** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- |
