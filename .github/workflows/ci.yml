@@ -945,6 +945,7 @@ jobs:
             -m test_in_ci \
             tests/model/vllm_compatible/test_input_error_handling.py \
             tests/rtvi_vlm/test_vlm_thor_runtime.py \
+            tests/test_sbsa_decoder_bridge.py \
             -v
 
       - name: Run rt-embed unit tests

@@ -4,6 +4,11 @@
 import json
 from pathlib import Path
 
+import pytest
+
+
+pytestmark = pytest.mark.test_in_ci
+
 
 def _dockerfile() -> str:
     return (Path(__file__).parents[1] / "docker" / "Dockerfile").read_text()
@@ -12,7 +17,8 @@ def _dockerfile() -> str:
 def test_non_sbsa_build_uses_empty_sbsa_source_stage():
     dockerfile = _dockerfile()
 
-    assert dockerfile.index('ARG ARM_PLATFORM="sbsa"') < dockerfile.index("FROM ")
+    assert dockerfile.index('ARG ARM_PLATFORM="igpu"') < dockerfile.index("FROM ")
+    assert 'ARG ARM_PLATFORM="sbsa"' not in dockerfile
     assert "FROM scratch AS sbsa-media-igpu" in dockerfile
     assert "FROM ${SBSA_MEDIA_IMAGE} AS sbsa-media-sbsa" in dockerfile
     assert "FROM sbsa-media-${ARM_PLATFORM} AS sbsa-media-runtime" in dockerfile
@@ -26,6 +32,10 @@ def test_non_sbsa_build_uses_empty_sbsa_source_stage():
         image for image in inventory["images"] if image["name"] == "vss-rt-vlm"
     )
     assert non_sbsa_image["build_args"]["SBSA_MEDIA_IMAGE"] == "scratch"
+    sbsa_image = next(
+        image for image in inventory["images"] if image["name"] == "vss-rt-vlm-sbsa"
+    )
+    assert sbsa_image["build_args"]["ARM_PLATFORM"] == "sbsa"
 
 
 def test_deepstream_install_and_cleanup_share_one_layer():
