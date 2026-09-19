@@ -13,11 +13,9 @@ jest.mock("next/dynamic", () => ({
       return ({
         onAnswer,
         endpoint,
-        features,
       }: {
         onAnswer?: (answer: string, conversationId: string) => void;
         endpoint?: { surface?: string };
-        features?: { hitl?: boolean };
       }) => (
         <button
           type="button"
@@ -26,7 +24,6 @@ jest.mock("next/dynamic", () => ({
               ? "deliver-sidebar-answer"
               : "deliver-search-artifact"
           }
-          data-hitl-enabled={String(features?.hitl)}
           onClick={() =>
             onAnswer?.('{"data":[{"id":"retained-hit"}]}', "conversation-1")
           }
@@ -110,8 +107,6 @@ describe("Home tab lifecycle", () => {
     "NEXT_PUBLIC_ENABLE_MAP_TAB",
     "NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB",
     "NEXT_PUBLIC_AGENT_ADAPTER_ENABLED",
-    "NEXT_PUBLIC_ENABLE_HITL",
-    "NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL",
   ] as const;
 
   const originalFetch = global.fetch;
@@ -159,60 +154,5 @@ describe("Home tab lifecycle", () => {
     fireEvent.click(screen.getByTestId("deliver-sidebar-answer"));
 
     expect(global.fetch).not.toHaveBeenCalled();
-  });
-
-  it("disables structured HITL on both chat surfaces by default", () => {
-    render(<Home />);
-
-    expect(screen.getByTestId("deliver-search-artifact")).toHaveAttribute(
-      "data-hitl-enabled",
-      "false",
-    );
-
-    fireEvent.click(screen.getByTestId("sidebar-tab-search"));
-
-    expect(screen.getByTestId("deliver-sidebar-answer")).toHaveAttribute(
-      "data-hitl-enabled",
-      "false",
-    );
-  });
-
-  it("allows an explicit HITL opt-in independently per surface", () => {
-    process.env.NEXT_PUBLIC_ENABLE_HITL = "true";
-    process.env.NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL = "false";
-
-    render(<Home />);
-
-    expect(screen.getByTestId("deliver-search-artifact")).toHaveAttribute(
-      "data-hitl-enabled",
-      "true",
-    );
-
-    fireEvent.click(screen.getByTestId("sidebar-tab-search"));
-
-    expect(screen.getByTestId("deliver-sidebar-answer")).toHaveAttribute(
-      "data-hitl-enabled",
-      "false",
-    );
-  });
-
-  it("suppresses legacy HITL when the external-agent adapter is enabled", () => {
-    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = "true";
-    process.env.NEXT_PUBLIC_ENABLE_HITL = "true";
-    process.env.NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL = "true";
-
-    render(<Home />);
-
-    expect(screen.getByTestId("deliver-search-artifact")).toHaveAttribute(
-      "data-hitl-enabled",
-      "false",
-    );
-
-    fireEvent.click(screen.getByTestId("sidebar-tab-search"));
-
-    expect(screen.getByTestId("deliver-sidebar-answer")).toHaveAttribute(
-      "data-hitl-enabled",
-      "false",
-    );
   });
 });

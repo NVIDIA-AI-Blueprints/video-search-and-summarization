@@ -116,7 +116,6 @@ functions:
 
   video_report_gen:
     _type: video_report_gen
-    hitl_enabled: ${HITL_ENABLED:-false}
     object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
     base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     vst_internal_url: ${VST_INTERNAL_URL}

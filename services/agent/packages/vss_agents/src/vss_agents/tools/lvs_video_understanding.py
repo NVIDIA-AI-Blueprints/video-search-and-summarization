@@ -14,7 +14,7 @@
 # limitations under the License.
 
 """
-LVS Video Understanding Tool with Optional HITL Prompt Configuration.
+LVS Video Understanding Tool with Mandatory HITL Prompt Configuration.
 
 This tool wraps the LVS (Long Video Summarization) service API to provide
 video understanding capabilities for long videos. It has a similar interface
@@ -23,9 +23,9 @@ to the video_understanding tool but uses LVS's chunk-based processing.
 Key features:
 - Uses LVS service for hierarchical summarization (chunk-based processing)
 - Better suited for long videos (> 2 minutes)
-- Structured Human-in-the-Loop (HITL) prompt collection is explicitly opt-in
-- When enabled, prompts come from config and can be accepted or overridden
-- When disabled, analysis uses the configured scenario and event defaults
+- MANDATORY Human-in-the-Loop (HITL) prompt configuration before every analysis
+- Prompts come from config and can be accepted or overridden by user during HITL
+- User must explicitly accept or modify all 3 prompts before video analysis begins
 """
 
 import asyncio
@@ -187,7 +187,7 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
         description="Include usage statistics in response",
     )
 
-    # Prompt templates are required configuration but used only when HITL is enabled.
+    # HITL Templates (mandatory - configured in YAML)
     hitl_scenario_template: str = Field(
         ...,
         description="HITL template for collecting scenario from user",
@@ -209,8 +209,8 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
     )
 
     hitl_enabled: bool = Field(
-        default=False,
-        description="Collect and confirm LVS parameters interactively. Set true explicitly; false uses configured defaults.",
+        default=True,
+        description="Collect and confirm LVS parameters interactively. Disable to use configured defaults.",
     )
 
     # Default values for HITL parameters
@@ -234,7 +234,7 @@ class LVSVideoUnderstandingConfig(FunctionBaseConfig, name="lvs_video_understand
 
 
 class LVSVideoUnderstandingInput(BaseModel):
-    """Input for LVS video understanding with optional structured HITL."""
+    """Input for the LVS Video Understanding tool with mandatory HITL."""
 
     sensor_id: str | list[str] = Field(
         ...,
@@ -363,18 +363,17 @@ async def lvs_video_understanding(
     config: LVSVideoUnderstandingConfig, builder: Builder
 ) -> AsyncGenerator[FunctionInfo]:
     """
-    LVS Video Understanding Tool with optional HITL for Scenario, Events, and Objects.
+    LVS Video Understanding Tool with HITL for Scenario, Events, and Objects.
 
     This tool uses the LVS (Long Video Summarization) service to analyze videos
     and supports Human-in-the-Loop configuration of analysis parameters.
 
-    When explicitly enabled, HITL collects:
+    HITL collects:
     - scenario (REQUIRED): Description of the video scenario
     - events (REQUIRED): List of events to detect
     - objects_of_interest (OPTIONAL): List of objects to focus on
 
-    Otherwise the tool uses configured defaults. Parameters are persisted per
-    conversation thread.
+    Parameters are persisted per conversation thread.
     """
 
     logger.info(f"Initializing LVS Video Understanding tool (backend: {config.lvs_backend_url})")

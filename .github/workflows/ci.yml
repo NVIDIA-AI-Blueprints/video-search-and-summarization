@@ -924,7 +924,6 @@ jobs:
             torch \
             torchvision
           uv pip install --python .venv-rtvi/bin/python \
-            cloudpickle \
             filelock \
             numpy \
             pillow \

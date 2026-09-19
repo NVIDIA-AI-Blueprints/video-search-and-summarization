@@ -60,7 +60,6 @@ new configuration.
 | | search over names and message text | — |
 | | export / import (toolkit v1–v4 files load) | — |
 | | send full thread vs. latest turn | `CHAT_HISTORY_DEFAULT_ON` |
-| | legacy `vss-agent` human-in-the-loop response modal | `ENABLE_HITL` |
 | Input | context chips + `[Context: …]` prefix | — |
 | | chunked video upload, drag & drop, progress, cancel | `CHAT_UPLOAD_FILE_ENABLE` |
 | | per-file upload metadata | `CHAT_UPLOAD_FILE_METADATA_ENABLED` |
@@ -96,13 +95,9 @@ type, critic toggle). `Home.tsx` resolves both surfaces through `surfaceEnv`.
   supported transports are HTTP + SSE, the deployment ships
   `NEXT_PUBLIC_WEB_SOCKET_DEFAULT_ON=false`, and the WebSocket path exists to
   talk to NAT core — the thing being removed.
-- **Adapter human-in-the-loop interaction responses.** Structured interaction
-  UI is opt-in. The legacy `vss-agent` chat-SSE transport exposes its response
-  modal only while `ENABLE_HITL=true`.
-  Current adapter connectors advertise `interaction_responses: false`, so an
-  interaction event is shown as unsupported instead of presenting a form that
-  cannot submit a response. External OpenClaw deployments set the flag false
-  and ask follow-up questions as ordinary completed chat turns.
+- **Human-in-the-loop interaction responses.** Current adapter connectors
+  advertise `interaction_responses: false`, so an interaction event is shown
+  as unsupported instead of presenting a form that cannot submit a response.
 - **Folders and prompt templates.** Present in the toolkit's Chatbar, never
   surfaced in VSS. Import still accepts and preserves both keys so a toolkit
   export round-trips.

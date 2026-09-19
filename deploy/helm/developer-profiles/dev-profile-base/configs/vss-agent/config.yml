@@ -108,8 +108,8 @@ functions:
       EXAMPLE:
       [0.0s-4.0s] <description of the first event>
       [4.0s-12.0s] <description of the second event>
-    # Optional HITL configuration; explicit opt-in confirms/edits the VLM prompt.
-    hitl_enabled: ${HITL_ENABLED:-false}
+    # HITL Configuration - prompts user to confirm/edit VLM prompt before report generation
+    hitl_enabled: true
     hitl_prompt_llm: ${LLM_MODEL_TYPE:-nim}_llm  # LLM for AI-assisted prompt generation e.g. nim_llm, openai_llm
     hitl_vlm_prompt_template: |
       **VLM Prompt for Report Generation**

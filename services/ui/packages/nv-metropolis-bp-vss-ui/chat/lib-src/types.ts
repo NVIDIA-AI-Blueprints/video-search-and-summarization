@@ -176,8 +176,6 @@ export type CustomAgentParamsValues = Record<string, string | number | boolean>;
 export interface ChatFeatureFlags {
   /** Send the whole thread rather than just the latest turn. */
   chatHistory?: boolean;
-  /** Opt into allowing legacy vss-agent to pause for an inline response. */
-  hitl?: boolean;
   /** Show the tool-step disclosure. */
   intermediateSteps?: boolean;
   /** Expand intermediate steps by default. */

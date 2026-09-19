@@ -76,11 +76,6 @@ nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --
 #   "$REPO/.openclaw/workspace/_nemoclaw/ENV.md" > /tmp/ENV.md
 # nemoclaw "$SB" upload /tmp/ENV.md /sandbox/.openclaw/workspace/   # hermes: /sandbox/
 
-# The checked-in NemoClaw ENV.md defaults HITL_ENABLED=false. In this mode the
-# agent asks required questions in its normal response, ends the turn, and
-# continues after the user's next chat message. Do not enable structured HITL
-# unless both the active harness protocol and its UI support response events.
-
 # 5. Orchestrator MCP registration — only for HTTPS.
 #    Default path: leave this out. deploy_vss_orchestrator.ipynb starts the
 #    host-side HTTP MCP at http://host.openshell.internal:9988/mcp; the agent
