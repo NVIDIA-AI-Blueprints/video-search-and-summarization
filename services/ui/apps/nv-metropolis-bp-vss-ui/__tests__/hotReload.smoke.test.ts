@@ -12,8 +12,8 @@ const appRoot = path.resolve(__dirname, '..');
 
 /**
  * Every workspace package the app edits during development, with the webpack
- * alias key that points it at source. `chat` uses an exact-match key so the
- * `/styles` subpath still resolves to the built stylesheet.
+ * alias key that points it at source. `chat` uses exact-match keys for its
+ * TypeScript entry point and stylesheet.
  */
 const HOT_RELOAD_PACKAGES: { name: string; aliasKey: string; src: string }[] = [
   { name: 'common', aliasKey: 'common', src: path.join('common', 'lib-src') },
@@ -84,16 +84,20 @@ describe('hot reload smoke', () => {
     }
   });
 
-  it('leaves the chat stylesheet subpath to the package exports', () => {
+  it('aliases the chat stylesheet to source without rewriting other subpaths', () => {
     const nextConfig = loadNextConfig();
+    const packagesPath = path.resolve(appRoot, '../../packages');
     const devConfig = nextConfig.webpack(
       { resolve: { alias: {} } },
       { isServer: false, dev: true }
     );
 
-    // A non-exact key would rewrite '@nv-metropolis-bp-vss-ui/chat/styles'
-    // (imported by _app.tsx) to a lib-src path that does not exist.
     expect(devConfig.resolve.alias['@nv-metropolis-bp-vss-ui/chat']).toBeUndefined();
     expect(devConfig.resolve.alias['@nv-metropolis-bp-vss-ui/chat$']).toBeDefined();
+    const stylesheet = devConfig.resolve.alias['@nv-metropolis-bp-vss-ui/chat/styles$'];
+    expect(stylesheet).toBe(
+      path.join(packagesPath, 'nv-metropolis-bp-vss-ui/chat/lib-src/chat.css')
+    );
+    expect(fs.existsSync(stylesheet)).toBe(true);
   });
 });

@@ -50,9 +50,10 @@ const nextConfig = {
         ...config.resolve.alias,
         'common': path.join(packagesPath, 'common/lib-src'),
         '@nv-metropolis-bp-vss-ui/alerts': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/alerts/lib-src'),
-        // Exact match only: the '/styles' subpath has no lib-src equivalent and
-        // must keep resolving to lib/chat.css through the package exports.
+        // Exact aliases let both the chat entry point and stylesheet reload
+        // from source without rewriting any other package subpaths.
         '@nv-metropolis-bp-vss-ui/chat$': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/chat/lib-src'),
+        '@nv-metropolis-bp-vss-ui/chat/styles$': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/chat/lib-src/chat.css'),
         '@nv-metropolis-bp-vss-ui/search': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/search/lib-src'),
         '@nv-metropolis-bp-vss-ui/dashboard': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/dashboard/lib-src'),
         '@nv-metropolis-bp-vss-ui/map': path.join(packagesPath, 'nv-metropolis-bp-vss-ui/map/lib-src'),
