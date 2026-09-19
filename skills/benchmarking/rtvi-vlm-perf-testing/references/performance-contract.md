@@ -54,18 +54,22 @@ Its manifest embeds the validated plan above and additionally pins:
 - `run_id`, SSH `host`, `expected_hostname`, `repo`, full `repo_commit`, `benchmark_python`,
   benchmark `config`, and `scenario`;
 - service, MediaMTX, and FFmpeg image tags plus exact `sha256:` image IDs;
-- `compose_env`, read-only `model_cache`, input `video` and `video_sha256`, `output_root`, and
-  RTSP `public_host`;
+- `compose_env`, read-only `model_cache`, input `video` and `video_sha256`, `output_root`,
+  MediaMTX `public_host`, a reachable `vst_api_url` whose version endpoint identifies VST, and a
+  `vst_rtsp_url` produced by that runtime, plus its exact `vst_compose_project`;
 - `gpu_index`, `gpu_uuid`, `ports` (`backend`, `rtsp`, `dcgm`, `node`), and positive `timeouts`
   (`ready`, `benchmark`).
 
 The embedded plan must describe one, two, four, eight, or sixteen independent sources—or thirty-two with checksum-pinned object media—one scenario, and a single
-`concurrency_levels` value equal to the source count. The executor starts a distinct publisher and
-RTSP path for each source and rejects any iteration with source reuse, pool exhaustion, startup
+`concurrency_levels` value equal to the source count. The executor probes and benchmarks the declared VST stream once, then starts a distinct MediaMTX publisher and
+RTSP path for each requested source. It rejects any multi-stream iteration with source reuse, pool exhaustion, startup
 errors, missing streams, or no fresh measurements for every stream. Its code/image identities and
 exact run-owned output, scratch, and mutable cache paths must match the executor fields. Every rerun
 needs a new `run_id`; the executor refuses an existing run directory and never restarts an old
-container. The manifest contains no credentials.
+container. VST-owned processes may already occupy the assigned GPU; the executor records them and
+rejects any other compute PID. It also pins benchmark monitoring and the resolved RTVI and DCGM
+Compose GPU bindings to the manifest GPU. The manifest contains no credentials, including URL
+userinfo.
 
 Set top-level `"semantic_isolation": true` only with two, four, eight, sixteen, or object-backed thirty-two sources to add the cross-stream fidelity
 gate. It uses pinned solid colors through eight sources and color plus SOLID/BORDER signatures at sixteen, starts

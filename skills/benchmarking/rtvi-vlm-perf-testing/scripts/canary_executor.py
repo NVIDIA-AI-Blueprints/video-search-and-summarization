@@ -22,6 +22,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -52,6 +53,9 @@ REQUIRED = {
     "video_sha256",
     "output_root",
     "public_host",
+    "vst_api_url",
+    "vst_rtsp_url",
+    "vst_compose_project",
     "gpu_index",
     "gpu_uuid",
     "ports",
@@ -67,6 +71,7 @@ FATAL = re.compile(r"EngineDeadError|CUDA out of memory|FMHA kernels are not fou
 SEMANTIC_COLORS = ("red", "blue", "green", "yellow", "orange", "pink", "white", "black")
 HTTP_TIMEOUT = 30
 RUNTIME_COMMAND_TIMEOUT = 30
+FILE_HASH_TIMEOUT = 300
 SEMANTIC_DELETE_TIMEOUT = 90
 SEMANTIC_DRAIN_TIMEOUT = 60
 WATCHER_BASE_GRACE = 180
@@ -85,6 +90,24 @@ def _nonempty(manifest: dict[str, Any], fields: set[str]) -> None:
         raise ValueError("manifest missing required fields: " + ", ".join(missing))
 
 
+def _validate_url(name: str, value: Any, schemes: set[str]) -> None:
+    text = str(value)
+    try:
+        parsed = urlsplit(text)
+    except ValueError as error:
+        raise ValueError(f"{name} must be a valid URL") from error
+    if (
+        any(character.isspace() for character in text)
+        or not parsed.netloc
+        or parsed.scheme not in schemes
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        allowed = "/".join(sorted(schemes))
+        raise ValueError(f"{name} must be a credential-free {allowed} URL")
+
+
 def resolve_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     if manifest.get("schema_version") != 1:
         raise ValueError("schema_version must be 1")
@@ -95,6 +118,12 @@ def resolve_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "host must be a safe SSH user and hostname without options or a port"
         )
+    _validate_url("vst_api_url", manifest["vst_api_url"], {"http", "https"})
+    _validate_url("vst_rtsp_url", manifest["vst_rtsp_url"], {"rtsp"})
+    if not re.fullmatch(
+        r"[a-z0-9][a-z0-9_-]{0,62}", str(manifest["vst_compose_project"])
+    ):
+        raise ValueError("vst_compose_project must be a safe Compose project name")
     if not SHA.fullmatch(str(manifest["repo_commit"])):
         raise ValueError("repo_commit must be a full immutable commit")
     for field in ("service_image_id", "mediamtx_image_id", "ffmpeg_image_id"):
@@ -144,6 +173,7 @@ def resolve_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             "plan paths must be distinct run-owned output, scratch, and cache paths"
         )
     result = dict(manifest)
+    result["vst_api_url"] = str(manifest["vst_api_url"]).rstrip("/")
     result["plan"] = resolved_plan
     result["project"] = container_guard.project_for_run(manifest["run_id"])
     result["root"] = root
@@ -204,7 +234,7 @@ def status_wait_timeout(manifest: dict[str, Any]) -> int:
     total = (
         startup_timeout_budget(manifest["stream_count"])
         + manifest["timeouts"]["ready"]
-        + manifest["timeouts"]["benchmark"]
+        + 2 * manifest["timeouts"]["benchmark"]
         # Final readiness call, benchmark shutdown, compose ps, and service logs.
         + 4 * RUNTIME_COMMAND_TIMEOUT
         + WATCHER_BASE_GRACE
@@ -287,7 +317,10 @@ def validate_source_coverage(
             or record.get("actual_streams_started") != stream_count
             or record.get("streams_with_errors") != 0
             or record.get("skipped_rtsp_source_count") != 0
-            or record.get("unique_rtsp_url_per_stream") is not True
+            or (
+                stream_count > 1
+                and record.get("unique_rtsp_url_per_stream") is not True
+            )
             or record.get("rtsp_url_source_count") != stream_count
             or record.get("rtsp_url_pool_exhausted") is not False
             or record.get("rtsp_url_reuse_count") != 0
@@ -767,6 +800,119 @@ class RemoteRun:
                 stream.write(f"{label}: exceeded {error.timeout}s\n")
             return subprocess.CompletedProcess(error.cmd, 124, error.stdout or "")
 
+    def active_compute_pids(self) -> list[str]:
+        active = self.command(
+            "nvidia-smi",
+            "-i",
+            str(self.m["gpu_index"]),
+            "--query-compute-apps=pid",
+            "--format=csv,noheader",
+            check=False,
+        ).stdout
+        return [line.strip() for line in active.splitlines() if line.strip()]
+
+    def vst_owned_pids(self) -> set[str]:
+        container_ids = self.command(
+            "docker",
+            "ps",
+            "--filter",
+            f"label=com.docker.compose.project={self.m['vst_compose_project']}",
+            "--format",
+            "{{.ID}}",
+        ).stdout.split()
+        if not container_ids:
+            raise RuntimeError("declared VST Compose project has no running containers")
+        self.command(
+            "docker",
+            "inspect",
+            *container_ids,
+            capture=self.evidence / "vst-containers.inspect.json",
+        )
+        pids: set[str] = set()
+        for container_id in container_ids:
+            output = self.command("docker", "top", container_id, "-eo", "pid").stdout
+            pids.update(
+                line.strip()
+                for line in output.splitlines()[1:]
+                if line.strip().isdigit()
+            )
+        return pids
+
+    def verify_gpu_occupancy(self) -> None:
+        active = set(self.active_compute_pids())
+        vst_owned = self.vst_owned_pids()
+        unexpected = active - vst_owned
+        (self.evidence / "gpu-process-baseline.json").write_text(
+            json.dumps(
+                {
+                    "active_pids": sorted(active),
+                    "vst_owned_active_pids": sorted(active & vst_owned),
+                    "unexpected_pids": sorted(unexpected),
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        if unexpected:
+            raise RuntimeError("assigned GPU has an unrelated compute workload")
+
+    def verify_compose_gpu_binding(self) -> None:
+        resolved = json.loads(self.compose("config", "--format", "json").stdout)
+        services = resolved.get("services", {})
+        for service in ("rtvi-server", "dcgm-exporter"):
+            visible = (
+                services.get(service, {})
+                .get("environment", {})
+                .get("NVIDIA_VISIBLE_DEVICES")
+            )
+            if str(visible) != str(self.m["gpu_index"]):
+                raise RuntimeError(
+                    f"resolved Compose GPU binding for {service} does not match manifest"
+                )
+
+    def file_sha256(self, path: str) -> str:
+        output = self.command(
+            "sha256sum", "--", path, timeout=FILE_HASH_TIMEOUT
+        ).stdout.strip()
+        digest = output.split(maxsplit=1)[0] if output else ""
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise RuntimeError(f"invalid sha256sum output for {path}")
+        return digest
+
+    def probe_vst(self) -> None:
+        version = self.command(
+            "curl",
+            "-fsS",
+            f"{self.m['vst_api_url']}/vst/api/v1/sensor/version",
+            capture=self.evidence / "vst-version.json",
+        )
+        try:
+            version_data = json.loads(version.stdout)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("VST version endpoint returned invalid JSON") from error
+        if version_data.get("type") != "vst":
+            raise RuntimeError("VST version endpoint did not identify a VST runtime")
+        self.command(
+            "docker",
+            "run",
+            "--rm",
+            "--network",
+            "host",
+            "--entrypoint",
+            "ffprobe",
+            self.m["ffmpeg_image"],
+            "-v",
+            "error",
+            "-rtsp_transport",
+            "tcp",
+            "-show_entries",
+            "stream=codec_name,width,height,r_frame_rate",
+            "-of",
+            "json",
+            self.m["vst_rtsp_url"],
+            capture=self.evidence / "vst-stream.json",
+        )
+
     def prepare(self) -> None:
         self.root.mkdir(parents=True, exist_ok=False)
         for path in (
@@ -804,15 +950,11 @@ class RemoteRun:
             ).stdout.strip()
             if actual != expected:
                 raise RuntimeError(f"image identity mismatch: {image}")
-        digest_builder = hashlib.sha256()
-        with Path(self.m["video"]).open("rb") as stream:
-            for block in iter(lambda: stream.read(1024 * 1024), b""):
-                digest_builder.update(block)
-        digest = digest_builder.hexdigest()
+        digest = self.file_sha256(self.m["video"])
         if digest != self.m["video_sha256"]:
             raise RuntimeError("video checksum mismatch")
         for label, media in self.m["semantic_media"].items():
-            digest = hashlib.sha256(Path(media["path"]).read_bytes()).hexdigest()
+            digest = self.file_sha256(media["path"])
             if digest != media["sha256"]:
                 raise RuntimeError(f"semantic media checksum mismatch: {label}")
         gpu = self.command(
@@ -825,19 +967,13 @@ class RemoteRun:
         }
         if (str(self.m["gpu_index"]), self.m["gpu_uuid"]) not in identities:
             raise RuntimeError("GPU identity mismatch")
-        active = self.command(
-            "nvidia-smi",
-            "--query-compute-apps=pid",
-            "--format=csv,noheader",
-            check=False,
-        ).stdout.strip()
-        if active:
-            raise RuntimeError("GPU already has a compute workload")
+        self.verify_gpu_occupancy()
         listeners = self.command("ss", "-ltnH").stdout
         for port in self.m["ports"].values():
             if re.search(rf":{port}\s", listeners):
                 raise RuntimeError(f"required port occupied: {port}")
         self.command(self.m["benchmark_python"], "-c", "import pandas, requests, yaml")
+        self.probe_vst()
         scenario_log = self.command(
             self.m["benchmark_python"],
             str(repo / "perf/benchmark/rtvi_perf_benchmark.py"),
@@ -850,6 +986,7 @@ class RemoteRun:
             raise RuntimeError("scenario is absent from benchmark config")
         shutil.copy2(self.m["compose_env"], self.root / "compose.env")
         self._write_configs()
+        self.verify_compose_gpu_binding()
         self.command(
             "nvidia-smi", "-q", capture=self.evidence / "preflight-nvidia-smi.txt"
         )
@@ -862,26 +999,35 @@ from pathlib import Path
 m = json.loads(Path(sys.argv[1]).read_text())
 root, repo = Path(sys.argv[2]), Path(m["repo"])
 data = yaml.safe_load((repo / m["config"]).read_text())
+data["global"]["vlm_gpus"] = [m["gpu_index"]]
 scenario = data["test_scenarios"][m["scenario"]]
 paths = ([f"semantic-{source}" for source in m["semantic_sources"]] if m.get("semantic_isolation")
          else [f"bcd-{i}" for i in range(1, m["stream_count"] + 1)])
-urls = [f"rtsp://{m['public_host']}:{m['ports']['rtsp']}/{path}" for path in paths]
-scenario["videos"][0]["rtsp_url"] = urls[0]
-scenario["videos"][0]["rtsp_urls"] = urls
-data["test_scenarios"] = {m["scenario"]: scenario}
-data["global"]["rtvi_backend"] = f"http://localhost:{m['ports']['backend']}/v1"
-data["global"]["output_dir"] = str(root / "output")
-prom = data["global"]["gpu_monitoring"]["prometheus"]
-prom["dcgm_exporter_url"] = f"http://localhost:{m['ports']['dcgm']}/metrics"
-prom["node_exporter_url"] = f"http://localhost:{m['ports']['node']}/metrics"
-(root / "config.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
-override = {"services": {"rtvi-server": {"volumes": [
+mediamtx_urls = [f"rtsp://{m['public_host']}:{m['ports']['rtsp']}/{path}" for path in paths]
+for source, urls in (("vst", [m["vst_rtsp_url"]]), ("mediamtx", mediamtx_urls)):
+    source_data = yaml.safe_load(yaml.safe_dump(data, sort_keys=False))
+    source_scenario = source_data["test_scenarios"][m["scenario"]]
+    source_scenario["videos"][0]["rtsp_url"] = urls[0]
+    source_scenario["videos"][0]["rtsp_urls"] = urls
+    source_data["test_scenarios"] = {m["scenario"]: source_scenario}
+    source_data["global"]["rtvi_backend"] = f"http://localhost:{m['ports']['backend']}/v1"
+    source_data["global"]["output_dir"] = str(root / "output" / source)
+    prom = source_data["global"]["gpu_monitoring"]["prometheus"]
+    prom["dcgm_exporter_url"] = f"http://localhost:{m['ports']['dcgm']}/metrics"
+    prom["node_exporter_url"] = f"http://localhost:{m['ports']['node']}/metrics"
+    (root / "output" / source).mkdir()
+    (root / f"config.{source}.yaml").write_text(yaml.safe_dump(source_data, sort_keys=False))
+override = {"services": {"rtvi-server": {
+"environment": {"NVIDIA_VISIBLE_DEVICES": str(m["gpu_index"])},
+"volumes": [
   {"type": "bind", "source": m["model_cache"],
    "target": "/opt/nvidia/rtvi/.rtvi/ngc_model_cache", "read_only": True},
   {"type": "bind", "source": str(Path(m["video"]).parent),
    "target": "/opt/nvidia/rtvi/streams/perf", "read_only": True},
   {"type": "bind", "source": str(root / "cache"), "target": "/tmp/huggingface"},
-]}}}
+]}, "dcgm-exporter": {
+"environment": {"NVIDIA_VISIBLE_DEVICES": str(m["gpu_index"])}
+}}}
 (root / "compose.override.yaml").write_text(yaml.safe_dump(override, sort_keys=False))
 """
         self.command(
@@ -904,6 +1050,18 @@ override = {"services": {"rtvi-server": {"volumes": [
             label,
             "--network",
             "host",
+            "-e",
+            f"MTX_RTSPADDRESS=:{self.m['ports']['rtsp']}",
+            "-e",
+            "MTX_PROTOCOLS=tcp",
+            "-e",
+            "MTX_RTMP=no",
+            "-e",
+            "MTX_HLS=no",
+            "-e",
+            "MTX_WEBRTC=no",
+            "-e",
+            "MTX_SRT=no",
             self.m["mediamtx_image"],
             capture=self.evidence / "mediamtx.container",
         )
@@ -1136,55 +1294,59 @@ override = {"services": {"rtvi-server": {"volumes": [
                     )
 
     def benchmark(self) -> None:
-        self.event(
-            "canary", "running", f"{self.m['stream_count']}-stream benchmark started"
-        )
-        argv = [
-            "timeout",
-            str(self.m["timeouts"]["benchmark"]),
-            self.m["benchmark_python"],
-            str(Path(self.m["repo"]) / "perf/benchmark/rtvi_perf_benchmark.py"),
-            "--config",
-            str(self.root / "config.yaml"),
-            "--output-json",
-            str(self.output / "result.json"),
-            "--scenario",
-            self.m["scenario"],
-            "--concurrency-levels",
-            str(self.m["stream_count"]),
-        ]
-        result = self.command(
-            *argv,
-            check=False,
-            timeout=self.m["timeouts"]["benchmark"] + RUNTIME_COMMAND_TIMEOUT,
-        )
-        (self.logs / "benchmark.log").write_text(result.stdout)
-        if result.returncode:
-            raise RuntimeError(f"benchmark exited {result.returncode}")
-        data = json.loads((self.output / "result.json").read_text())
-        summary = data["summary"]
-        if (
-            summary.get("overall_status") != "PASS"
-            or summary.get("failed") != 0
-            or not data.get("test_cases")
-        ):
-            raise RuntimeError(f"benchmark result failed: {summary}")
-        (self.evidence / "result-summary.json").write_text(
-            json.dumps(summary, indent=2, sort_keys=True)
-        )
-        records = [
-            json.loads(path.read_text())
-            for path in sorted(
-                self.output.rglob("concurrent_live_streams_results.json")
+        summaries = {}
+        coverages = {}
+        for source, source_count in (("vst", 1), ("mediamtx", self.m["stream_count"])):
+            self.event("canary", "running", f"{source} benchmark started")
+            source_output = self.output / source
+            argv = [
+                "timeout",
+                str(self.m["timeouts"]["benchmark"]),
+                self.m["benchmark_python"],
+                str(Path(self.m["repo"]) / "perf/benchmark/rtvi_perf_benchmark.py"),
+                "--config",
+                str(self.root / f"config.{source}.yaml"),
+                "--output-json",
+                str(source_output / "result.json"),
+                "--scenario",
+                self.m["scenario"],
+                "--concurrency-levels",
+                str(source_count),
+            ]
+            result = self.command(
+                *argv,
+                check=False,
+                timeout=self.m["timeouts"]["benchmark"] + RUNTIME_COMMAND_TIMEOUT,
             )
-        ]
-        coverage = validate_source_coverage(
-            records,
-            self.m["stream_count"],
-            self.m["plan"]["measurement"]["repetitions"],
+            (self.logs / f"benchmark-{source}.log").write_text(result.stdout)
+            if result.returncode:
+                raise RuntimeError(f"{source} benchmark exited {result.returncode}")
+            data = json.loads((source_output / "result.json").read_text())
+            summary = data["summary"]
+            if (
+                summary.get("overall_status") != "PASS"
+                or summary.get("failed") != 0
+                or not data.get("test_cases")
+            ):
+                raise RuntimeError(f"{source} benchmark result failed: {summary}")
+            summaries[source] = summary
+            records = [
+                json.loads(path.read_text())
+                for path in sorted(
+                    source_output.rglob("concurrent_live_streams_results.json")
+                )
+            ]
+            coverages[source] = validate_source_coverage(
+                records,
+                source_count,
+                self.m["plan"]["measurement"]["repetitions"],
+            )
+            self.event("canary", "passed", f"{source} benchmark passed")
+        (self.evidence / "result-summaries.json").write_text(
+            json.dumps(summaries, indent=2, sort_keys=True) + "\n"
         )
         (self.evidence / "source-coverage.json").write_text(
-            json.dumps(coverage, indent=2, sort_keys=True) + "\n"
+            json.dumps(coverages, indent=2, sort_keys=True) + "\n"
         )
         service_log = self.command(
             "docker", "logs", self.compose("ps", "-q", "rtvi-server").stdout.strip()
@@ -1194,7 +1356,7 @@ override = {"services": {"rtvi-server": {"volumes": [
             raise RuntimeError("fatal service marker during canary")
         self.result = "PASS"
         self.event(
-            "canary", "passed", "benchmark, source coverage, and service logs passed"
+            "canary", "passed", "VST and MediaMTX benchmarks, source coverage, and service logs passed"
         )
 
     def cleanup(self) -> None:

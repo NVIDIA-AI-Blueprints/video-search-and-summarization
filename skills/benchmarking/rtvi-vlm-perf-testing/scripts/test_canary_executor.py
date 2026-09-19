@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 ######################################################################################################
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,8 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
+
+import yaml
 
 import canary_executor
 
@@ -37,6 +40,9 @@ def valid_manifest():
         "video_sha256": "4" * 64,
         "output_root": "/runs",
         "public_host": "10.0.0.4",
+        "vst_api_url": "http://10.0.0.4:30888",
+        "vst_compose_project": "rtvi-perf-vst",
+        "vst_rtsp_url": "rtsp://10.0.0.4:30554/vst-stream",
         "gpu_index": 0,
         "gpu_uuid": "GPU-1234",
         "ports": {"backend": 8010, "rtsp": 8554, "dcgm": 9400, "node": 19100},
@@ -144,6 +150,27 @@ class CanaryExecutorTests(unittest.TestCase):
             manifest = valid_manifest()
             manifest["host"] = host
             with self.assertRaisesRegex(ValueError, "safe SSH"):
+                canary_executor.resolve_manifest(manifest)
+
+    def test_requires_vst_rtsp_source(self):
+        manifest = valid_manifest()
+        manifest["vst_rtsp_url"] = "http://example/stream"
+
+        with self.assertRaisesRegex(ValueError, "vst_rtsp_url"):
+            canary_executor.resolve_manifest(manifest)
+
+        manifest = valid_manifest()
+        manifest["vst_api_url"] = "rtsp://example/vst"
+        with self.assertRaisesRegex(ValueError, "vst_api_url"):
+            canary_executor.resolve_manifest(manifest)
+
+        for key, url in (
+            ("vst_api_url", "http://user:" + "password@example/vst"),
+            ("vst_rtsp_url", "rtsp://user:" + "password@example/stream"),
+        ):
+            manifest = valid_manifest()
+            manifest[key] = url
+            with self.assertRaisesRegex(ValueError, key):
                 canary_executor.resolve_manifest(manifest)
 
     def test_accepts_two_independent_streams_and_rejects_capacity_load(self):
@@ -438,7 +465,7 @@ class CanaryExecutorTests(unittest.TestCase):
             canary_executor.status_wait_timeout(plain),
             canary_executor.startup_timeout_budget(plain["stream_count"])
             + plain["timeouts"]["ready"]
-            + plain["timeouts"]["benchmark"]
+            + 2 * plain["timeouts"]["benchmark"]
             + 4 * canary_executor.RUNTIME_COMMAND_TIMEOUT
             + canary_executor.WATCHER_BASE_GRACE
             + canary_executor.cleanup_timeout_budget(plain["stream_count"]),
@@ -502,6 +529,228 @@ class CanaryExecutorTests(unittest.TestCase):
                 canary_executor.RUNTIME_COMMAND_TIMEOUT,
             )
 
+    def test_preflight_scopes_compute_processes_to_assigned_gpu(self):
+        run = object.__new__(canary_executor.RemoteRun)
+        run.m = {"gpu_index": 0}
+        completed = subprocess.CompletedProcess(["nvidia-smi"], 0, "123\n")
+
+        with mock.patch.object(run, "command", return_value=completed) as command:
+            self.assertEqual(run.active_compute_pids(), ["123"])
+
+        command.assert_called_once_with(
+            "nvidia-smi",
+            "-i",
+            "0",
+            "--query-compute-apps=pid",
+            "--format=csv,noheader",
+            check=False,
+        )
+
+    def test_vst_owned_gpu_processes_are_allowed_but_other_work_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = object.__new__(canary_executor.RemoteRun)
+            run.evidence = Path(directory)
+
+            with mock.patch.object(
+                run, "active_compute_pids", return_value=["101"]
+            ), mock.patch.object(run, "vst_owned_pids", return_value={"101"}):
+                run.verify_gpu_occupancy()
+
+            baseline = json.loads(
+                (run.evidence / "gpu-process-baseline.json").read_text()
+            )
+            self.assertEqual(baseline["vst_owned_active_pids"], ["101"])
+
+            with mock.patch.object(
+                run, "active_compute_pids", return_value=["101", "999"]
+            ), mock.patch.object(run, "vst_owned_pids", return_value={"101"}):
+                with self.assertRaisesRegex(RuntimeError, "unrelated compute workload"):
+                    run.verify_gpu_occupancy()
+
+    def test_vst_owned_pids_are_discovered_from_declared_compose_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = object.__new__(canary_executor.RemoteRun)
+            run.m = {"vst_compose_project": "rtvi-perf-vst"}
+            run.evidence = Path(directory)
+            ps = subprocess.CompletedProcess(["docker", "ps"], 0, "abc123\n")
+            inspect = subprocess.CompletedProcess(["docker", "inspect"], 0, "[]")
+            top = subprocess.CompletedProcess(["docker", "top"], 0, "PID\n101\n102\n")
+
+            with mock.patch.object(
+                run, "command", side_effect=[ps, inspect, top]
+            ) as command:
+                self.assertEqual(run.vst_owned_pids(), {"101", "102"})
+
+            self.assertIn(
+                "label=com.docker.compose.project=rtvi-perf-vst",
+                command.call_args_list[0].args,
+            )
+            self.assertEqual(
+                command.call_args_list[1].kwargs["capture"],
+                run.evidence / "vst-containers.inspect.json",
+            )
+
+    def test_effective_compose_gpu_must_match_manifest(self):
+        run = object.__new__(canary_executor.RemoteRun)
+        run.m = {"gpu_index": 0}
+        match = subprocess.CompletedProcess(
+            ["docker", "compose"],
+            0,
+            json.dumps(
+                {
+                    "services": {
+                        "rtvi-server": {
+                            "environment": {"NVIDIA_VISIBLE_DEVICES": "0"}
+                        },
+                        "dcgm-exporter": {
+                            "environment": {"NVIDIA_VISIBLE_DEVICES": "0"}
+                        },
+                    }
+                }
+            ),
+        )
+
+        with mock.patch.object(run, "compose", return_value=match):
+            run.verify_compose_gpu_binding()
+
+        mismatch = subprocess.CompletedProcess(
+            ["docker", "compose"],
+            0,
+            json.dumps(
+                {
+                    "services": {
+                        "rtvi-server": {
+                            "environment": {"NVIDIA_VISIBLE_DEVICES": "1"}
+                        }
+                    }
+                }
+            ),
+        )
+        with mock.patch.object(run, "compose", return_value=mismatch):
+            with self.assertRaisesRegex(RuntimeError, "GPU binding"):
+                run.verify_compose_gpu_binding()
+
+        mismatch.stdout = json.dumps(
+            {
+                "services": {
+                    "rtvi-server": {
+                        "environment": {"NVIDIA_VISIBLE_DEVICES": "0"}
+                    },
+                    "dcgm-exporter": {
+                        "environment": {"NVIDIA_VISIBLE_DEVICES": "1"}
+                    },
+                }
+            }
+        )
+        with mock.patch.object(run, "compose", return_value=mismatch):
+            with self.assertRaisesRegex(RuntimeError, "GPU binding"):
+                run.verify_compose_gpu_binding()
+
+    def test_file_hash_uses_bounded_subprocess(self):
+        run = object.__new__(canary_executor.RemoteRun)
+        completed = subprocess.CompletedProcess(
+            ["sha256sum"], 0, f"{'a' * 64}  /fixtures/video.mp4\n"
+        )
+
+        with mock.patch.object(run, "command", return_value=completed) as command:
+            self.assertEqual(run.file_sha256("/fixtures/video.mp4"), "a" * 64)
+
+        command.assert_called_once_with(
+            "sha256sum",
+            "--",
+            "/fixtures/video.mp4",
+            timeout=canary_executor.FILE_HASH_TIMEOUT,
+        )
+
+    def test_vst_probe_uses_declared_runtime_stream(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = object.__new__(canary_executor.RemoteRun)
+            run.m = valid_manifest()
+            run.evidence = Path(directory)
+            version = subprocess.CompletedProcess(
+                ["curl"], 0, '{"type":"vst","version":"test"}'
+            )
+            stream = subprocess.CompletedProcess(["docker", "run"], 0, "{}")
+
+            with mock.patch.object(
+                run, "command", side_effect=[version, stream]
+            ) as command:
+                run.probe_vst()
+
+            self.assertEqual(command.call_count, 2)
+            self.assertEqual(
+                command.call_args_list[0].args,
+                (
+                    "curl",
+                    "-fsS",
+                    f"{run.m['vst_api_url']}/vst/api/v1/sensor/version",
+                ),
+            )
+            self.assertEqual(command.call_args_list[1].args[-1], run.m["vst_rtsp_url"])
+            self.assertEqual(
+                command.call_args_list[0].kwargs["capture"],
+                run.evidence / "vst-version.json",
+            )
+            self.assertEqual(
+                command.call_args_list[1].kwargs["capture"],
+                run.evidence / "vst-stream.json",
+            )
+
+    def test_writes_separate_vst_and_mediamtx_configs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            repo = base / "repo"
+            config = repo / "perf" / "config.yaml"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps(
+                    {
+                        "test_scenarios": {
+                            "concurrency_test_1_token": {"videos": [{}]}
+                        },
+                        "global": {
+                            "vlm_gpus": [7],
+                            "gpu_monitoring": {"prometheus": {}},
+                        },
+                    }
+                )
+            )
+            manifest = valid_manifest()
+            manifest.update(
+                repo=str(repo),
+                config="perf/config.yaml",
+                benchmark_python=sys.executable,
+                output_root=str(base / "runs"),
+            )
+            run_root = base / "runs" / manifest["run_id"]
+            manifest["plan"]["paths"] = {
+                "output": str(run_root / "output"),
+                "scratch": str(run_root / "scratch"),
+                "mutable_cache": str(run_root / "cache"),
+            }
+            run = canary_executor.RemoteRun(canary_executor.resolve_manifest(manifest))
+            run.prepare()
+
+            run._write_configs()
+
+            vst = (run.root / "config.vst.yaml").read_text()
+            mediamtx = (run.root / "config.mediamtx.yaml").read_text()
+            self.assertIn(manifest["vst_rtsp_url"], vst)
+            self.assertEqual(yaml.safe_load(vst)["global"]["vlm_gpus"], [0])
+            self.assertIn(
+                f"rtsp://{manifest['public_host']}:{manifest['ports']['rtsp']}/bcd-1",
+                mediamtx,
+            )
+            override = (run.root / "compose.override.yaml").read_text()
+            override_data = yaml.safe_load(override)
+            for service in ("rtvi-server", "dcgm-exporter"):
+                self.assertEqual(
+                    override_data["services"][service]["environment"][
+                        "NVIDIA_VISIBLE_DEVICES"
+                    ],
+                    "0",
+                )
+
     def test_checksum_deadline_leaves_no_partial_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -546,6 +795,27 @@ class CanaryExecutorTests(unittest.TestCase):
         record["per_stream_stats"]["stream-b"]["total_measurements"] = 0
         with self.assertRaisesRegex(ValueError, "fresh measurements"):
             canary_executor.validate_source_coverage([record], 2, 1)
+
+    def test_single_stream_does_not_require_multi_stream_uniqueness_flag(self):
+        record = {
+            "iteration": 1,
+            "success": True,
+            "stream_count": 1,
+            "actual_streams_started": 1,
+            "streams_with_errors": 0,
+            "rtsp_urls": ["rtsp://host/stream"],
+            "unique_rtsp_url_per_stream": False,
+            "rtsp_url_source_count": 1,
+            "rtsp_url_pool_exhausted": False,
+            "rtsp_url_reuse_count": 0,
+            "skipped_rtsp_source_count": 0,
+            "per_stream_stats": {"stream-a": {"total_measurements": 1}},
+            "latency_history": {"stream-a": [0.5]},
+        }
+
+        summary = canary_executor.validate_source_coverage([record], 1, 1)
+
+        self.assertEqual(summary["measurements_per_iteration"], [1])
 
 
 if __name__ == "__main__":
