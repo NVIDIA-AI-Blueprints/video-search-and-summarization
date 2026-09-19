@@ -223,10 +223,13 @@ class HitlLaunchContractTests(unittest.TestCase):
 
     def test_external_adapter_forces_hitl_off_in_vss_deployment(self) -> None:
         sources = self._sources("deploy_vss_orchestrator.ipynb")
+        guidance = sources["d3d4cd3e"]
         settings = sources["20b35654"]
         server = sources["042eabd1"]
 
-        self.assertIn("HITL_ENABLED = False", settings)
+        self.assertIn("Structured HITL is enabled by default for `vss-agent`", guidance)
+        self.assertIn("Set `HITL_ENABLED=False` to disable it", guidance)
+        self.assertIn("HITL_ENABLED = True", settings)
         self.assertIn(
             "if VSS_AGENT_ADAPTER_ENABLED:\n    HITL_ENABLED = False",
             settings,
@@ -356,7 +359,7 @@ class HitlLaunchContractTests(unittest.TestCase):
         self.assertIn("never invoke `AskUserQuestion`", instructions)
         self.assertIn("ordinary assistant text", instructions)
 
-    def test_every_shipped_hitl_tool_config_is_opt_in(self) -> None:
+    def test_every_shipped_hitl_tool_config_defaults_on(self) -> None:
         repo = runner.repo_root()
         found_types: set[str] = set()
 
@@ -384,14 +387,14 @@ class HitlLaunchContractTests(unittest.TestCase):
                             break
                     block = "\n".join(lines[index:block_end])
                     self.assertIn(
-                        "hitl_enabled: ${HITL_ENABLED:-false}",
+                        "hitl_enabled: ${HITL_ENABLED:-true}",
                         block,
                         f"{path.relative_to(repo)}:{index + 1}",
                     )
 
         self.assertEqual(found_types, self.HITL_TOOL_TYPES)
 
-    def test_docker_uses_one_opt_in_for_agent_and_both_ui_surfaces(self) -> None:
+    def test_docker_defaults_hitl_on_for_agent_and_both_ui_surfaces(self) -> None:
         repo = runner.repo_root()
         agent_compose = (
             repo / "deploy" / "docker" / "services" / "agent" / "compose.yml"
@@ -400,16 +403,16 @@ class HitlLaunchContractTests(unittest.TestCase):
             repo / "deploy" / "docker" / "services" / "ui" / "compose.yml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("HITL_ENABLED: ${HITL_ENABLED:-false}", agent_compose)
+        self.assertIn("HITL_ENABLED: ${HITL_ENABLED:-true}", agent_compose)
         self.assertIn(
             "NEXT_PUBLIC_ENABLE_HITL: "
-            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-false}}",
+            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-true}}",
             ui_compose,
         )
         self.assertIn(
             "NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL: "
             "${NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL:-"
-            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-false}}}",
+            "${NEXT_PUBLIC_ENABLE_HITL:-${HITL_ENABLED:-true}}}",
             ui_compose,
         )
 
@@ -422,12 +425,12 @@ class HitlLaunchContractTests(unittest.TestCase):
         self.assertTrue(override_paths)
         for path in override_paths:
             self.assertIn(
-                "HITL_ENABLED=${HITL_ENABLED:-false}",
+                "HITL_ENABLED=${HITL_ENABLED:-true}",
                 path.read_text(encoding="utf-8"),
                 str(path.relative_to(repo)),
             )
 
-    def test_helm_defaults_agent_and_ui_hitl_off(self) -> None:
+    def test_helm_defaults_agent_and_ui_hitl_on(self) -> None:
         repo = runner.repo_root()
         agent_chart = (
             repo / "deploy" / "helm" / "services" / "agent" / "charts" / "agent"
@@ -440,12 +443,15 @@ class HitlLaunchContractTests(unittest.TestCase):
             repo / "deploy" / "helm" / "services" / "ui" / "values.yaml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("hitlEnabled: false", agent_values)
+        self.assertIn("hitlEnabled: true", agent_values)
         self.assertIn("- name: HITL_ENABLED", agent_deployment)
-        self.assertIn(".Values.hitlEnabled | default false", agent_deployment)
-        self.assertIn('- name: NEXT_PUBLIC_ENABLE_HITL\n    value: "false"', ui_values)
+        # No `| default true`: Sprig's `default` treats an explicit `false`
+        # as empty and silently discards it, so a values override could
+        # never disable HITL. values.yaml already declares the base default.
+        self.assertIn(".Values.hitlEnabled | quote", agent_deployment)
+        self.assertIn('- name: NEXT_PUBLIC_ENABLE_HITL\n    value: "true"', ui_values)
         self.assertIn(
-            '- name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL\n    value: "false"',
+            '- name: NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL\n    value: "true"',
             ui_values,
         )
 
