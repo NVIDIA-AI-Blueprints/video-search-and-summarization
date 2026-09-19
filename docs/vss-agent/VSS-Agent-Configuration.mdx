@@ -161,6 +161,21 @@ vst_picture_url:
 | `enable_audio` | No | `false` | `vst.video_clip` only: preserves audio in generated clips. |
 | `timeout_seconds` | No | `10.0` | `vst.snapshot` only: snapshot request timeout. |
 
+### VST sensor-list tool
+
+The Warehouse top agent uses `vst_sensor_list` to retrieve the sensor names
+currently available from VST.
+
+```yaml
+vst_sensor_list:
+  _type: vst.sensor_list
+  vst_internal_url: ${VST_INTERNAL_URL}
+```
+
+| Parameter | Required | Default | Description |
+| --- | --- | --- | --- |
+| `vst_internal_url` | Yes | — | VST URL used to list available sensors. |
+
 ### chart_generator
 
 Generates bar and pie charts and stores them in the configured object store.
@@ -260,7 +275,7 @@ workflow:
   planning_enabled: true
   tool_names:
     - get_fov_counts_with_chart
-    - video_analytics_mcp.video_analytics__get_sensor_ids
+    - vst_sensor_list
     - vst_picture_url
   subagent_names:
     - report_agent
