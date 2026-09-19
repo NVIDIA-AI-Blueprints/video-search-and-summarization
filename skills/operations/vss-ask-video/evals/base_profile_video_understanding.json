@@ -18,11 +18,11 @@
         "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup).",
         "`vss configure check` reports elasticsearch reachable, and `vss vios list` includes a sensor named warehouse_sample with a recorded timeline.",
         "`sh -c 'vss configure memory show | jq -e \".enabled == true and .persist_by_default == true\" >/dev/null'` returns exit 0 (memory is enabled and persists by default, so later steps have records to read).",
-        "`sh -c 'E=$(vss configure memory show | jq -r .introspection.judge.endpoint); curl -sf --max-time 10 \"$E/models\" >/dev/null'` returns exit 0 (the introspection judge is configured and reachable)."
+        "`sh -c 'E=$(vss configure memory show | jq -r .introspection.judge.endpoint); E=${E%/}; case \"$E\" in */chat/completions) E=${E%/chat/completions};; */v1) ;; *) E=\"$E/v1\";; esac; curl -sf --max-time 10 \"$E/models\" >/dev/null'` returns exit 0 (the introspection judge answers; the endpoint is normalized the way OpenAIIntrospectionClient does, so a bare origin, a /v1 base and a /v1/chat/completions URL are all accepted)."
       ]
     },
     {
-      "query": "Was the worker wearing a safety helmet on `warehouse_sample`? Look at the video afresh rather than relying on anything already stored.",
+      "query": "Was the worker wearing a safety helmet on `warehouse_sample`? Look at the video afresh - do not consult stored memory or introspection first.",
       "checks": [
         "It uses exactly one vss vlm run against warehouse_sample, with --fps rather than a fixed --num-frames, and returns the answer.",
         "It does not search Markdown or call memory introspect first, because the request already names its own scope."
@@ -31,7 +31,7 @@
     {
       "query": "Ask that again: was the worker wearing a safety helmet on warehouse_sample?",
       "checks": [
-        "It consults VSS unified memory for warehouse_sample with a vss memory command before any VLM call.",
+        "It consults VSS unified memory for warehouse_sample with a vss memory command before any vss vlm run.",
         "If that memory holds the earlier analysis it answers from it and runs no second vss vlm run; it re-inspects only if memory genuinely returns nothing.",
         "Any fallback vss vlm run it does make targets warehouse_sample within its own recorded segment, over no window the agent invented."
       ]

@@ -10,7 +10,7 @@ metadata:
   # names it: a command group (search, summarize, vlm, vios, memory), "alerts"
   # (Alert Bridge), or "always" for a skill every VSS deployment gets. The
   # OpenClaw harness image ships and activates skills by it.
-  vss-requires: "always"
+  vss-requires: "vlm"
 ---
 
 # Ask a VSS video question
