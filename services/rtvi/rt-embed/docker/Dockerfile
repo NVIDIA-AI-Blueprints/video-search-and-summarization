@@ -44,6 +44,25 @@ FROM nvcr.io/nvidia/deepstream:9.1-triton-multiarch AS rtpmanager-prebuilt
 RUN test -s /tmp99/libgstrtpmanager.so \
     && test -s /tmp99/libgstrtsp.so \
     && test -s /tmp99/libgstvideoparsersbad.so
+
+# Use nvunixfd plugin with SEI support from latest DeepStream containers.
+# Use the RTVI DeepStream builds that publish it for each target
+# architecture so RTVI Embed can consume decoded frames from RTVI CV.
+FROM --platform=linux/amd64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-triton-dev111 AS nvunixfd-amd64
+FROM --platform=linux/arm64 nvcr.io/nvidia/deepstream:rtvi_ds9.1.1-sbsa-255 AS nvunixfd-arm64
+FROM nvunixfd-${TARGETARCH} AS nvunixfd-prebuilt
+ARG TARGETARCH
+# The arm64 source image (rtvi_ds9.1.1-sbsa-255) ships libgstnvunixfd.so under
+# the OS system GStreamer plugin directory, not the DeepStream gst-plugins
+# path the amd64 source image uses. Normalize it to the common path expected
+# below.
+RUN if [ "$TARGETARCH" = "arm64" ] && [ ! -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so ]; then \
+        test -s /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvunixfd.so && \
+        mkdir -p /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins && \
+        cp /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvunixfd.so \
+            /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so; \
+    fi
+RUN test -s /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so
 ###############################
 
 # Build a Thor-compatible PyDS wheel from the public DeepStream Python bindings.
@@ -235,6 +254,9 @@ COPY --from=rtpmanager-prebuilt \
      /tmp99/libgstrtsp.so \
      /tmp99/libgstvideoparsersbad.so \
      /tmp/rtpmanager-plugins/
+COPY --from=nvunixfd-prebuilt \
+     /opt/nvidia/deepstream/deepstream-9.1/lib/gst-plugins/libgstnvunixfd.so \
+     /tmp/rtpmanager-plugins/libgstnvunixfd.so
 RUN case "$(uname -m)" in \
         aarch64) plugin_dir=/usr/lib/aarch64-linux-gnu/gstreamer-1.0 ;; \
         x86_64) plugin_dir=/usr/lib/x86_64-linux-gnu/gstreamer-1.0 ;; \
@@ -244,7 +266,36 @@ RUN case "$(uname -m)" in \
     && install -m 0644 /tmp/rtpmanager-plugins/libgstrtpmanager.so \
         /tmp/rtpmanager-plugins/libgstrtsp.so \
         /tmp/rtpmanager-plugins/libgstvideoparsersbad.so "$plugin_dir/" \
+    && mkdir -p /opt/nvidia/deepstream/deepstream/lib/gst-plugins \
+    && install -m 0644 /tmp/rtpmanager-plugins/libgstnvunixfd.so \
+        /opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so \
     && rm -rf /tmp/rtpmanager-plugins
+
+# Confirm no other libgstnvunixfd.so on GST_PLUGIN_PATH could shadow the
+# SEI-aware plugin just installed above. GStreamer resolves duplicate-named
+# plugins by scan order, not by path priority, so a stale or unrelated
+# libgstnvunixfd.so left elsewhere on GST_PLUGIN_PATH by a base image could
+# otherwise load instead of this one with no build-time signal. Only
+# GST_PLUGIN_PATH is checked because that's what actually affects plugin
+# resolution here; other libgstnvunixfd.so files on the filesystem (e.g. an
+# OS-packaged one outside GST_PLUGIN_PATH) are not on GStreamer's scan path
+# and cannot shadow it. gst-inspect-1.0 isn't available in this runtime
+# image and DeepStream plugins require GPU access that isn't available
+# during `docker build` RUN steps, so this is a static filesystem check
+# instead of a live GStreamer registry/element-load check.
+RUN installed="/opt/nvidia/deepstream/deepstream/lib/gst-plugins/libgstnvunixfd.so" \
+    && test -s "$installed" \
+    && installed_sum="$(sha256sum "$installed" | cut -d' ' -f1)" \
+    && for gst_plugin_dir in $(echo "$GST_PLUGIN_PATH" | tr ':' '\n'); do \
+           other="$gst_plugin_dir/libgstnvunixfd.so"; \
+           [ "$other" = "$installed" ] && continue; \
+           [ -s "$other" ] || continue; \
+           other_sum="$(sha256sum "$other" | cut -d' ' -f1)"; \
+           if [ "$other_sum" != "$installed_sum" ]; then \
+               echo "libgstnvunixfd.so at $other (sha256 $other_sum) differs from the SEI-aware plugin installed at $installed (sha256 $installed_sum) and is on GST_PLUGIN_PATH, so it could shadow it" >&2; \
+               exit 1; \
+           fi; \
+       done
 
 RUN apt remove libslurm40t64 libpmi2-0t64 -y --purge && apt autoremove --purge -y
 

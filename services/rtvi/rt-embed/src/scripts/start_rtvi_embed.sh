@@ -130,9 +130,9 @@ echo "Total GPU memory is $GPU_MEM MiB per GPU"
 # Tegra runtime libraries are valid only on Thor/Jetson.  Do not expose them
 # on SBSA: they override the Spark driver libraries used by nvidia-smi.
 if [ -f /etc/nv_tegra_release ]; then
-    export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra:${LD_LIBRARY_PATH}"
+    export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
     if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
-        export LD_LIBRARY_PATH="/opt/nvidia/via/lib:${LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH="/opt/nvidia/via/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
     fi
 fi
 
