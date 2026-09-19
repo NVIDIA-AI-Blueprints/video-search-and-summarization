@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { VideoManagementComponentProps, UploadProgress, StreamInfo } from './types';
 import { useStreams, useStorageTimelines } from './hooks';

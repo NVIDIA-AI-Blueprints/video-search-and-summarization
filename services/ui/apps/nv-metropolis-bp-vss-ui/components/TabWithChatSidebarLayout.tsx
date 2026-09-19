@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import React, { useEffect } from 'react';
 import { IconMessageCircle, IconLoader2, IconChevronRight } from '@tabler/icons-react';
 import type { AppChatSidebarApi } from '../hooks/useAppChatSidebar';
