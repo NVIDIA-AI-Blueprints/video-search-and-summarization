@@ -24,28 +24,27 @@ Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM
 
 If VA-MCP initialization is slow or logs show HTTP 429 errors from Hugging Face, set `HF_TOKEN` before deploy. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys) in [Prerequisites](/vss/getting-started/prerequisites).
 
-## Cosmos3 Nano Reasoner NIM Restart Failures (Shared GPU Mode)
+## RT-VLM Restart Failures (Shared GPU Mode)
 
 **Symptom:**
 
-If the `cosmos3-reasoner` NIM container stops, crashes, or is stopped manually
+If the `vss-rtvi-vlm` container stops, crashes, or is stopped manually
 **in shared GPU mode**, restarting the container alone may not recover the service.
 The agent UI or video-understanding requests may stop responding.
 
 **Cause:**
 
-In shared GPU mode, the `cosmos3-reasoner` NIM cannot be restarted
-independently after it has stopped in the current release.
+In shared GPU mode, the RT-VLM service that hosts the Cosmos3 model cannot be
+restarted independently after it has stopped in the current release.
 
 **Solution:**
 
 - **Shared GPU mode:** Redeploy the entire blueprint instead of restarting only
-  the `cosmos3-reasoner` container.
-- **Dedicated GPU mode:** Restarting the `cosmos3-reasoner` container is
+  the `vss-rtvi-vlm` container.
+- **Dedicated GPU mode:** Restarting the `vss-rtvi-vlm` container is
   sufficient; a full blueprint redeploy is not required.
 
-This limitation applies only to shared GPU deployments. The release plan is to
-move to Cosmos Reason 3, which should address this issue.
+This limitation applies only to shared GPU deployments.
 
 ## Snapshot Timestamp Accuracy (Video Summarization Profile)
 

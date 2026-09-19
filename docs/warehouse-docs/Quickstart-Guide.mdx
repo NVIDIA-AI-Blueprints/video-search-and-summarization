@@ -529,9 +529,9 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 
 | Workload | Streams | Input frame rate |
 | --- | ---: | ---: |
-| 2D | 26 | 30 FPS |
-| 3D | 16 | 30 FPS |
-| MV3DT | 13 | 30 FPS |
+| 2D | 61 | 30 FPS |
+| 3D | 19 | 30 FPS |
+| MV3DT | 61 | 30 FPS |
 
 ```ini
 # The current Warehouse configurator maps H100 NVL and H100 SXM HBM3
@@ -583,7 +583,10 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 
 **Published performance**
 
-Published performance figures are not currently listed for this hardware profile.
+| Workload | Streams | Input frame rate |
+| --- | ---: | ---: |
+| 2D | 161 | 30 FPS |
+| 3D | 71 | 30 FPS |
 
 Before deployment, run the following command to export the SBSA image-tag suffix:
 
@@ -648,9 +651,9 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 
 | Workload | Streams | Input frame rate |
 | --- | ---: | ---: |
-| 2D | 12 | 30 FPS |
-| 3D | 6 | 30 FPS |
-| MV3DT | 7 | 30 FPS |
+| 2D | 28 | 30 FPS |
+| 3D | 9 | 30 FPS |
+| MV3DT | 23 | 30 FPS |
 
 ```ini
 HARDWARE_PROFILE=L40S
@@ -700,9 +703,9 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 
 | Workload | Streams | Input frame rate |
 | --- | ---: | ---: |
-| 2D | 7 | 30 FPS |
-| 3D | 7 | 15 FPS |
-| MV3DT | 4 | 30 FPS |
+| 2D | 9 | 30 FPS |
+| 3D | 8 | 15 FPS |
+| MV3DT | 7 | 30 FPS |
 
 ```ini
 # The bp_wh agent profile is not supported on IGX-THOR.
@@ -743,6 +746,62 @@ LLM_MODE=none
 VLM_MODE=none
 ```
 
+</Tab>
+<Tab title="Other x86_64">
+
+<Tabs>
+<Tab title="Hardware Profile">
+
+**Published performance**
+
+Published performance figures are not currently listed on this page for these profiles.
+
+```ini
+# Select a HARDWARE_PROFILE that exists in
+# industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml.
+# Other shipped x86_64 profiles include RTXPRO6000BW,
+# RTXPRO6000BW-SE, and RTXPRO4500BW.
+# There is no L40 profile. Do not invent a slug.
+HARDWARE_PROFILE=L40S
+```
+</Tab>
+<Tab title="Vision AI only">
+
+```ini
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
+RT_CV_DEVICE_ID=0
+LLM_MODE=none
+VLM_MODE=none
+```
+</Tab>
+<Tab title="Agents + Remote LLM">
+
+```ini
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_MODE=remote
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+
+LLM_NAME_SLUG=none
+LLM_BASE_URL=https://<llm-endpoint-without-v1>
+LLM_NAME=<llm-model-id-from-v1-models>
+LLM_MODEL_TYPE=<nim-or-openai>
+NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
+```
+</Tab>
+<Tab title="Agents + Local LLM">
+
+```ini
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+RT_CV_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
+LLM_MODE=local
+VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+```
+</Tab>
+</Tabs>
 </Tab>
 </Tabs>
 

@@ -48,6 +48,19 @@ The following software must be installed on your system:
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
 - **NGC CLI:** 4.10.0+
+- **Python runner for Build Vision AI:** `uv` is preferred. Python 3 with
+  PyYAML is also supported for the Skill's service-graph checks and helper
+  scripts.
+
+Install one supported runner:
+
+```bash
+# Preferred
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Alternative: use the active Python 3 environment
+python3 -m pip install PyYAML
+```
 
 <Note>
 For detailed installation instructions for the software requirements listed above, see the [Appendix](/vss/getting-started/prerequisites#appendix-software-prerequisites-installation-guide):
@@ -164,7 +177,10 @@ If a default-deny firewall is enabled on the host, allow inbound traffic from th
 - 128 GB RAM
 - 1 TB SSD
 - 1 x 1 Gbps network interface
-- 1 or 2 recommended NVIDIA GPUs based on the development profile
+- NVIDIA GPU capacity required by the selected development profile. Use the
+  [Development Profile GPU Requirements](#development-profile-gpu-requirements)
+  tables below; validated layouts range from one to four GPUs depending on the
+  profile, hardware, and model placement.
 
 ## Network and Browser Access
 
@@ -202,7 +218,10 @@ Keep your NGC API key secure and never commit it to version control systems.
 <Info>
 The Cosmos3 Reasoner NIM (1.7.0+) requires a **Personal API Key**. Legacy NGC API keys
 are not supported and will fail authentication when pulling or running this container.
-This applies to all profiles that deploy the VLM NIM locally (base, search).
+This applies when you explicitly deploy the standalone Cosmos3 Reasoner NIM.
+The default `base` and `search` profiles serve the Cosmos3 model through
+RT-VLM and do not start the standalone VLM NIM container. Other NGC images and
+model artifacts still require an authorized NGC credential.
 </Info>
 
 ### Verify Your NGC Access
@@ -212,6 +231,12 @@ To verify your NGC key has the correct permissions:
 ```bash
 # Set your NGC API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
+
+# Authenticate Docker for gated NIM and other nvcr.io images. The username is
+# the literal string $oauthtoken; the password is your NGC Personal API Key.
+# Managed VSS images on ghcr.io are public and require no registry login.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
 
 # Test access to the required resources
 ngc registry resource list "nvidia/vss-developer/*"
@@ -225,6 +250,12 @@ ngc registry model list "nvidia/tao/*"
 ```
 
 If you encounter permission errors, contact NVIDIA support for assistance.
+
+The `Login Succeeded` response verifies NGC Docker registry authentication.
+Run this step before any manual `docker compose up` command that pulls gated
+NIM or other `nvcr.io` images. A later
+`docker compose config --quiet` validates the Compose model and environment
+values, but does not contact the registry or validate image entitlements.
 
 ### Hugging Face Access Token
 
@@ -246,6 +277,25 @@ The token must have **READ** permission only. Do not commit it to version contro
 `HF_TOKEN` is also used for gated **Nemotron Omni** model weights and some remote vLLM deploy flows. For **audio-in-video** on the base agent profile, set `ENABLE_AUDIO=true` in the profile `.env` (see inline comments in `dev-profile-base/.env`) and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 </Note>
 
+### Credentials used by the Build Vision AI Skill
+
+The `vss-build-vision-ai` Skill asks for credentials before it deploys. Which
+keys are required depends on model placement and whether you choose the optional
+NemoClaw harness.
+
+| Credential | Required when |
+| --- | --- |
+| `NGC_CLI_API_KEY` | Pulling gated NIM, model, sample-data, and other artifacts from NGC. This is required for the standard deployment paths. Use the same Personal API Key for `docker login nvcr.io`. Managed VSS images on public GHCR require no registry login. |
+| `COMPATIBLE_API_KEY` | The NemoClaw harness uses its default remote OpenAI-compatible endpoint, or another public OpenAI-compatible endpoint that requires a bearer token. The default has no built-in key. |
+| `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com`. |
+| `HF_TOKEN` | A selected model or helper downloads gated or rate-limited weights from Hugging Face. |
+
+A self-hosted OpenAI-compatible harness endpoint that does not require a real
+token can use the documented placeholder. Selecting **no harness** requires no
+harness credential. These choices do not remove the NGC or model-download
+credentials required by the VSS stack itself. The Skill stops before deployment
+and identifies any missing credential; it does not silently switch providers.
+
 ## Development Profile GPU Requirements
 
 The following tables show the number of GPUs needed for each development profile:
@@ -259,7 +309,7 @@ The following tables show the number of GPUs needed for each development profile
 | [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
-| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 2 | 4 | 2 | 2 | 2 |
 
 </Tab>
 <Tab title="GB300">
@@ -285,7 +335,7 @@ does not remove the GPU required by the profile services.
 | [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
-| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 2 | 4 | 2 | 2 | 2 |
 
 </Tab>
 <Tab title="RTXPRO4500BW">
@@ -302,6 +352,9 @@ does not identify the GPU; the alerts quickstarts recommend NVIDIA driver
 
 </Tab>
 <Tab title="L40S">
+
+Shared local LLM/VLM placement is not supported on L40S. Use the dedicated-GPU
+layout or one of the remote-model layouts below.
 
 | **Profile** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- |

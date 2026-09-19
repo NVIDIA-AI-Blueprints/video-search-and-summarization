@@ -60,7 +60,7 @@ If you have already completed those steps for another agent workflow, skip to [S
 ### Step 1: Deploy the Agent
 
 <Note>
-- Set the NGC CLI API key, then run the deploy commands for your GPU type.
+- Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/vss/getting-started/prerequisites#verify-your-ngc-access).
 - Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
   For RTVI-VLM configuration options, see [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm).
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
@@ -70,9 +70,12 @@ If you have already completed those steps for another agent workflow, skip to [S
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
-# View all available options
-# See developer-profiles/dev-profile-alerts/overrides.env for supported settings.
 ```
+
+See [Configuration](/vss/system-components/configuration) for common variables,
+valid values, defaults, and env-file precedence. The complete profile-specific
+template is
+`deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`.
 
 `overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
@@ -87,22 +90,10 @@ cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
 ```
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
-
-```bash
-PROFILE=alerts
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  config --quiet
-
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
-```
+For each layout below, update the shown values in
+`deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`.
+After completing the host-path preparation and one hardware layout, use the
+startup commands following the layout tabs.
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
@@ -127,11 +118,11 @@ in `overrides.env`.
 | Model | Name | Path |
 | --- | --- | --- |
 | CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
-| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_hf` |
-| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 | CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final` |
-| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_hf` |
-| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 
 <Note>
 Super models have only been tested on RTX PRO 6000 and H100 with a single GPU dedicated to the VLM.
@@ -181,16 +172,23 @@ mkdir -p \
   "$VSS_DATA_DIR/data_log/elastic/data" \
   "$VSS_DATA_DIR/data_log/elastic/logs" \
   "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
   "$VSS_DATA_DIR/data_log/redis/data" \
   "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/data_log/vst/clip_storage" \
   "$VSS_DATA_DIR/agent_eval/dataset" \
   "$VSS_DATA_DIR/agent_eval/results" \
-  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/models" \
   "$VSS_DATA_DIR/videos/dev-profile-alerts"
 VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
 mkdir -p "$VSS_APPS_DIR/engines/gdino" "$VSS_APPS_DIR/engines/rtdetr-its"
-chmod -R 777 "$VSS_APPS_DIR/engines"
-chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+chmod -R a+rwx "$VSS_APPS_DIR/engines"
+chmod -R a+rwx \
+  "$VSS_DATA_DIR/data_log" \
+  "$VSS_DATA_DIR/agent_eval" \
+  "$VSS_DATA_DIR/models" \
+  "$VSS_DATA_DIR/videos"
 ```
 
 
@@ -277,8 +275,6 @@ LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
@@ -291,8 +287,6 @@ MODE=2d_cv
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
@@ -310,8 +304,6 @@ MODE=2d_cv
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -330,8 +322,6 @@ HARDWARE_PROFILE=GB300
 MODE=2d_cv
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -470,6 +460,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_cv
+LLM_MODE=local
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -515,8 +506,6 @@ MODE=2d_cv
 RT_CV_DEVICE_ID=0
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
@@ -658,7 +647,32 @@ RTVI_VLM_MODEL_PATH=none
 </Tab>
 </Tabs>
 
-Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
+From `deploy/docker`, validate and start the selected profile:
+
+On GB300, DGX Spark, and other SBSA hosts, run this export in the same shell
+first; skip it on other platforms. Do not put it in `user-overrides.env`,
+because `containers.env` derives the image tags before later env files are read.
+
+```bash
+export VSS_CONTAINER_TAG_SUFFIX=-sbsa
+```
+
+```bash
+PROFILE=alerts
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  up -d
+```
+
+Docker Compose downloads the required containers from the configured GHCR and NGC registries and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
 **This deployment uses the following defaults:**
@@ -683,11 +697,11 @@ Once all the containers are running, you can access the agent UI at `http://<HOS
 
 As an alternative to running the deployment command manually, you can use VSS
 Agent Skills from a coding agent such as Claude Code, Codex, or NemoClaw.
-First, install the `deploy` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
+First, install the `vss-build-vision-ai` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your coding agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
-The deploy skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The `vss-build-vision-ai` skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 **Deploy prompt structure**
@@ -696,7 +710,7 @@ Refer to the requirements table for valid platform and mode combinations compati
 Deploy the VSS alerts verification profile.
 ```
 
-For edge platforms, ask the deploy skill to use a remote LLM when possible.
+For edge platforms, ask `vss-build-vision-ai` to use a remote LLM when possible.
 Local LLM/VLM sharing on the edge GPU is supported, but a remote LLM is recommended for better response time.
 See [VSS Agent Customization - Configure LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
 
@@ -708,7 +722,7 @@ Deploy the VSS alerts verification profile on this IGX-THOR machine with a remot
 Deploy the VSS alerts verification profile on this AGX-THOR machine with a remote LLM.
 ```
 
-The deploy skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
+The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:
 
@@ -864,10 +878,16 @@ To tear down the agent, run the following command:
 
 ```bash
 cd deploy/docker
-docker compose -p vss down -v --remove-orphans
+PROFILE=alerts
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  down -v --remove-orphans
 ```
 
-This command will stop and remove the agent containers.
+This command stops the manually deployed alert-verification containers and
+removes their Compose volumes.
 
 ## Service Endpoints
 

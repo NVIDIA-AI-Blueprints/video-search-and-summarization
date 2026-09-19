@@ -10,7 +10,7 @@ guides.
 Install steps, values files, GPU sizing, ingress setup, and troubleshooting for each profile are
 documented in the chart **README.md** under
 `deploy/helm/developer-profiles/` in the
-[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/deploy/helm/developer-profiles)
+[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/deploy/helm/developer-profiles)
 GitHub repository.
 
 ## Available developer profiles
@@ -40,7 +40,6 @@ profile you are deploying.
    ```bash
    git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
    cd video-search-and-summarization
-   git checkout tags/v3.2.1
    git lfs install
    git lfs pull
    ```
@@ -56,10 +55,10 @@ profile you are deploying.
 
 | Workflow | Developer Profile | Chart documentation |
 | --- | --- | --- |
-| Q&A and Report Generation | `base` | [dev-profile-base](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/helm/developer-profiles/dev-profile-base/README.md) |
-| Alerts | `alerts` | [dev-profile-alerts](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/helm/developer-profiles/dev-profile-alerts/README.md) |
-| Search | `search` | [dev-profile-search](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/helm/developer-profiles/dev-profile-search/README.md) |
-| Video Summarization | `lvs` | [dev-profile-lvs](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.2.1/deploy/helm/developer-profiles/dev-profile-lvs/README.md) |
+| Q&A and Report Generation | `base` | [dev-profile-base](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/developer-profiles/dev-profile-base/README.md) |
+| Alerts | `alerts` | [dev-profile-alerts](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/developer-profiles/dev-profile-alerts/README.md) |
+| Search | `search` | [dev-profile-search](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/developer-profiles/dev-profile-search/README.md) |
+| Video Summarization | `lvs` | [dev-profile-lvs](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/developer-profiles/dev-profile-lvs/README.md) |
 
 <Note>
 After `helm upgrade --install`, wait until **all** pods in the release namespace are in
