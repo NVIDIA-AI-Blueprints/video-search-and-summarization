@@ -192,7 +192,7 @@ class EvalScope(unittest.TestCase):
         skills = plan_matrix.discover_skills()
         for path in ("skills/vss-manage-alerts/evals/base.json",
                      "skills/tools/vss-generate-video-calibration/SKILL.md",
-                     "skills/benchmarking/benchmark-video-summarization/scripts/x.py"):
+                     "skills/benchmarking/vss-benchmark-video-summarization/scripts/x.py"):
             self.assertIsNone(plan_matrix.skill_for_file(path, skills), path)
             self.assertEqual(plan_matrix.build_matrix([path]), [], path)
 

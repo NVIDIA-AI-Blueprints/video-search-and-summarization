@@ -72,13 +72,13 @@ class ChangedSkills(Base):
     def test_nested_skill_resolves_to_leaf(self):
         # A skill one category level down (skills/<category>/<skill>/) resolves to
         # its leaf name; a file in the bare category dir (no SKILL.md) is not a skill.
-        nested = prm.SKILLS_DIR / "benchmarking" / "benchmark-video-summarization"
+        nested = prm.SKILLS_DIR / "benchmarking" / "vss-benchmark-video-summarization"
         nested.mkdir(parents=True)
-        (nested / "SKILL.md").write_text("---\nname: benchmark-video-summarization\n---\n")
+        (nested / "SKILL.md").write_text("---\nname: vss-benchmark-video-summarization\n---\n")
         self.assertEqual(
             prm.changed_skills(
-                ["skills/benchmarking/benchmark-video-summarization/scripts/x.py"]),
-            ["benchmark-video-summarization"])
+                ["skills/benchmarking/vss-benchmark-video-summarization/scripts/x.py"]),
+            ["vss-benchmark-video-summarization"])
         self.assertEqual(prm.changed_skills(["skills/benchmarking/README.md"]), [])
 
     def test_top_level_skills_file_ignored(self):
