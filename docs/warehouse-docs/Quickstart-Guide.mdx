@@ -429,14 +429,13 @@ export VSS_CONTAINER_TAG_SUFFIX="-sbsa"
 In `industry-profiles/warehouse-operations/overrides.env`, set:
 
 ```ini
-# Supports 2D and 3D. MV3DT is not defined for this hardware profile.
 HARDWARE_PROFILE=GB300
 ```
 </Tab>
 <Tab title="Vision AI only">
 
 ```ini
-# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d or 3d.
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
 VLM_MODE=none
@@ -445,9 +444,9 @@ VLM_MODE=none
 <Tab title="Agents + Remote LLM">
 
 ```ini
-# One GPU: bp_wh with MODE=2d; RT-CV and RT-VLM share the GB300.
+# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
 RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
 LLM_MODE=remote
 VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 
@@ -461,10 +460,10 @@ NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
 <Tab title="Agents + Local LLM">
 
 ```ini
-# One GPU: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM share the GB300.
+# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
 RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=0
-LLM_DEVICE_ID=0
+RT_VLM_DEVICE_ID=1
+LLM_DEVICE_ID=2
 LLM_MODE=local
 VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 ```
@@ -535,7 +534,6 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 Published performance figures are not currently listed for this hardware profile.
 
 ```ini
-# Supports 2D and 3D. MV3DT is not defined for this hardware profile.
 HARDWARE_PROFILE=RTXPRO4500BW
 
 # Required when this profile runs bp_wh with local RTVI-VLM.
@@ -545,7 +543,7 @@ RTVI_VLM_MAX_MODEL_LEN=18000
 <Tab title="Vision AI only">
 
 ```ini
-# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d or 3d.
+# One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
 VLM_MODE=none
@@ -974,6 +972,10 @@ Install the Skills the same way as any other VSS Agent Skill. See [Installing Sk
 
    ```text
    Deploy Warehouse in 2D mode.
+   Deploy the VSS Warehouse Blueprint on this host.
+   Deploy Warehouse with the bp_wh profile, the in-stack VSS Agent, and a remote LLM.
+   Deploy Warehouse in 3D mode with Kafka, using the extended profile.
+   Deploy Warehouse in auto-calibration mode for warehouse-loading-dock-3cams-synthetic.
    ```
 
    Select the deployment variant, service set, and dataset when prompted, and provide any missing credentials.
@@ -1139,7 +1141,7 @@ Section 11 of the notebook prints the URLs available for the selected profile:
 - **VIOS (VST) UI** → `<secure_link>/vst/`
 
 <Note>
-For VIOS video playback through a Brev secure link, set **Streaming Protocol** to **DASH** instead of **WebRTC** in the VIOS UI. Local LLM deployment is not verified on Brev; use a remote LLM for the 2D with Agents profile.
+For VIOS video playback through a Brev secure link, set **Streaming Protocol** to **DASH** instead of **WebRTC** in the VIOS UI.
 </Note>
 
 For the full set of service access points (including direct ports for Video Analytics API, VA-MCP, and NIM endpoints), see [Service Access Points](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#service-access-points).
