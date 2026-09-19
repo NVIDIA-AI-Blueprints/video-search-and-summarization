@@ -35,7 +35,7 @@ When enabled, it runs before the API server starts and adjusts configuration fil
 
 **Key Features:**
 
-- Detects your GPU type (H100, GB300, L40S, RTXPRO6000BW, RTXPRO6000BW-SE, RTXPRO4500BW, IGX-THOR, DGX-SPARK). There is no `L40` slug.
+- Detects your GPU type (H100, GB300, L40S, RTXPRO6000BW, RTXPRO6000BW-SE, RTXPRO4500BW, IGX-THOR, DGX-SPARK).
 - Adjusts settings based on 2D or 3D deployment mode
 - Updates YAML, JSON, and text configuration files
 - Validates that your environment is configured correctly
@@ -164,7 +164,7 @@ The following environment variables **must** be set to use the Profile Configura
 | Variable | Default | Possible Values | Description |
 | --- | --- | --- | --- |
 | `ENABLE_PROFILE_CONFIGURATOR` | `false` | `true`, `false` | \| **Must be set to** `true` **to activate the Profile Configurator.** \| **true**: Run profile configurator before starting API server, adjusts config files based on detected GPU \| **false**: Skip profile configuration entirely (default) |
-| `HARDWARE_PROFILE` | `default` | Warehouse: `H100`, `GB300`, `L40S`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`. Developer NIM env files also use `OTHER`. There is no `L40` profile. | GPU slug matching a `blueprint_config.yml` hardware block (warehouse) or `hw-<HARDWARE_PROFILE>.env` (developer NIMs). Unknown slugs do not load those files. |
+| `HARDWARE_PROFILE` | `default` | Warehouse: `H100`, `GB300`, `L40S`, `RTXPRO6000BW`, `RTXPRO6000BW-SE`, `RTXPRO4500BW`, `IGX-THOR`, `DGX-SPARK`. Developer NIM env files also use `OTHER`. | GPU slug matching a `blueprint_config.yml` hardware block (warehouse) or `hw-<HARDWARE_PROFILE>.env` (developer NIMs). Unknown slugs do not load those files. |
 | `MODE` | `3d` | `2d`, `3d`, `mv3dt` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D tracking and detection \| **3d**: depth-aware tracking and positioning \| **mv3dt**: multi-view 3D tracking with BEV fusion |
 | `NUM_STREAMS` | (user-defined) | Non-negative integer | \| Desired number of video streams for profile formulas such as `final_stream_count = min(${NUM_STREAMS}, ${max_streams_supported})`. \| The Sensor Configuration Manager also reads this value when `SENSOR_INFO_SOURCE=nvstreamer`: it is the expected camera count to wait for before VST registration (`0` = wait for a stable non-empty list instead). |
 

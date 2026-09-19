@@ -261,9 +261,12 @@ export HF_TOKEN='<hf-token>'
 printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 
-# View all available options
-# See developer-profiles/dev-profile-base/overrides.env for supported settings.
 ```
+
+See [Configuration](/vss/system-components/configuration) for common variables,
+valid values, defaults, and env-file precedence. The complete profile-specific
+template is
+`deploy/docker/developer-profiles/dev-profile-base/overrides.env`.
 
 Select a hardware tab, then a deployment mode. **Shared GPU** runs the LLM and VLM NIMs on the same GPU; **Dedicated GPU** assigns each model its own GPU (via `LLM_DEVICE_ID` and `VLM_DEVICE_ID`).
 
