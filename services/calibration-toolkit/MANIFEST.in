@@ -1,0 +1,9 @@
+include LICENSE
+include README.md
+exclude *.bz2
+exclude *.kml
+recursive-include calibration/server/data *.txt
+recursive-include calibration/server/media *
+recursive-include calibration/server/resources *
+recursive-include calibration/server/projects *
+recursive-include calibration/server/frontend *

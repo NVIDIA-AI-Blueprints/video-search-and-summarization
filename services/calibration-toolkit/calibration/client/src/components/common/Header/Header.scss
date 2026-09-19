@@ -1,0 +1,24 @@
+@import "../../styles/_common.scss";
+
+.header-container {
+    margin-top: 67px;
+    margin-left: 220px;
+    margin-bottom: 30px;
+}
+.top-header {
+    text-transform: capitalize;
+    font-weight: 400;
+    color: #4a4a4a;
+    font-size: 30px;
+    font-family: 'Poppins', sans-serif;
+    margin-bottom: 0.8rem;
+}
+.sub-header {
+    text-transform: capitalize;
+    margin-bottom: 1rem;
+    color: #9b9b9b !important;
+    h5 {
+        font-size: 10px;
+    }
+}
+

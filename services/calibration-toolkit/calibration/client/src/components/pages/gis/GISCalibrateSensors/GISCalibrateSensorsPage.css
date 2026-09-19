@@ -1,0 +1,20 @@
+.ui.card {
+  width: 100% !important; }
+
+.ui.segment {
+  border-radius: 2px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 20px 0 rgba(185, 188, 210, 0.2);
+  border: solid 1px #e8e8ec; }
+
+.main-container {
+  margin-top: 10px;
+  width: 100%;
+  padding: 0 20px 20px 220px !important;
+  background-color: #f8f8f8 !important; }
+
+.ui.basic.segment {
+  background-color: #f8f8f8 !important;
+  border: none !important;
+  border-top: 1px solid #e8e8ec !important;
+  padding-right: 1.5rem; }

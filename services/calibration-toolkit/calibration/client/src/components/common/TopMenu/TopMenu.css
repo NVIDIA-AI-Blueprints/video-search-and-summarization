@@ -1,0 +1,40 @@
+.ui.card {
+  width: 100% !important; }
+
+.ui.segment {
+  border-radius: 2px;
+  background-color: #000000;
+  box-shadow: 0 2px 20px 0 rgba(185, 188, 210, 0.2);
+  border: solid 1px #e8e8ec; }
+
+.top-menu {
+  top: 0;
+  position: fixed;
+  width: 100%;
+  z-index: 100;
+  background-color: #000000 !important;
+  margin-bottom: 0 !important; }
+
+.menu-logo {
+  width: 200px;
+  display: flex;
+  justify-content: center; }
+  .menu-logo .item a {
+    color: #76b900;
+    font-weight: 600; }
+
+.ui.menu .item {
+  color: #ffffff !important; }
+
+.ui.secondary.pointing.menu {
+  margin-bottom: 0; }
+  .ui.secondary.pointing.menu .item span {
+    font-size: 0.75rem; }
+
+.center.menu .active.item {
+  color: #76b900 !important;
+  font-weight: 400 !important;
+  border-color: #76b900 !important; }
+
+.right.menu .item:first-child {
+  padding: 0.5rem 1rem !important; }

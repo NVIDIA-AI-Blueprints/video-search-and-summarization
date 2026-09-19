@@ -1,0 +1,47 @@
+@import "../../styles/_common.scss";
+
+.top-menu {
+  top: 0;
+  position: fixed;
+  width: 100%;
+  z-index: 100;
+  background-color: #fff !important;
+  margin-bottom: 0 !important;
+}
+
+.menu-logo {
+    width: 200px;
+    display: flex;
+    justify-content: center;
+    .item a {
+        color: $lightGreen;
+        font-weight: 600;
+    }
+}
+
+.ui.menu .item {
+    color: #4a4a4a !important;
+}
+
+.ui.secondary.pointing.menu {
+    margin-bottom: 0;
+    .item {
+        span {
+            font-size: 0.75rem;
+        }
+    }
+}
+
+.center.menu {
+    .active.item {
+        color: $lightGreen !important;
+        font-weight: 400 !important;
+        border-color: $lightGreen !important;
+    }
+}
+
+.right.menu {
+    .item:first-child {
+        padding: 0.5rem 1rem !important;
+    }
+}

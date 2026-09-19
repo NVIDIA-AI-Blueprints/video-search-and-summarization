@@ -1,0 +1,20 @@
+.form-card :not(.visible) > input:not(:focus):not(:hover):not(:active) {
+  border-color: white !important;
+}
+
+.form-card .form-checkbox input {
+  padding: 0 !important;
+  margin-left: 5px !important;
+}
+
+.form-card .form-checkbox {
+  padding: 5px;
+}
+
+.project-images * {
+  outline: none;
+}
+
+.ReactVirtualized__Grid ReactVirtualized__List {
+  overflow-y: scroll;
+}
