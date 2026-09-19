@@ -126,9 +126,9 @@ quickstart, the deployment host must meet the supported Linux platform,
 GPU, Docker, and NVIDIA Container Toolkit requirements in
 [Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use the
 Ubuntu version listed there; do not substitute a different release.
-The Build Vision AI helper scripts also require `uv` (preferred), or `python3`
-with PyYAML. Without one of these Python runner options, deployment fails during
-Compose normalization.
+The Build Vision AI Skill also requires `uv` for mandatory service-graph checks
+and helper scripts. Without it, deployment can fail even when the remaining
+host checks pass.
 
 You can use a remote development environment such as a Brev or Omnistation
 sandbox when that environment exposes the required GPU, Docker Engine, network
