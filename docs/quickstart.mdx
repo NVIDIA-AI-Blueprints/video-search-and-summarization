@@ -32,8 +32,7 @@ The following diagram illustrates a conceptual architecture of the base vision a
 The exact service set depends on the deployment path:
 
 - **Build Vision AI Skill (default):** VSS Agent UI, VSS Video IO & Storage
-  (VIOS), Phoenix, RT-VLM, and a local Nemotron LLM NIM when local model
-  placement is selected. RT-VLM serves the Cosmos3 Nano Reasoner model through
+  (VIOS), and RT-VLM. RT-VLM serves the Cosmos3 Nano Reasoner model through
   `vss-rtvi-vlm` on port `8018`; there is no separate Cosmos3 Reasoner
   container. The default NemoClaw harness runs on the host outside the Compose
   project and connects the UI chat to its OpenClaw sandbox.
@@ -226,13 +225,12 @@ curl -fsS "http://<HOST_IP>:8018/v1/health/ready"
 curl -fsS "http://<HOST_IP>:7777/"
 ```
 
-Expect the VSS UI, VIOS/VST services, `vss-rtvi-vlm`, Phoenix, and the local
-Nemotron LLM container when local LLM placement was selected. Do not expect a
-`vss-agent` container. For a local LLM, also verify its readiness endpoint:
-
-```bash
-curl -fsS "http://<HOST_IP>:30081/v1/health/ready"
-```
+Expect the VSS UI, VIOS/VST services, and `vss-rtvi-vlm`. Do not expect
+`vss-agent`, Phoenix, or a local LLM container in the default Skill-generated
+service graph. The Skill keeps an LLM only when another selected service needs
+it, such as `lvs-server`, or when the harness is explicitly routed to the
+build's LLM NIM. It keeps Phoenix when the in-stack Agent is explicitly
+requested.
 
 If you selected NemoClaw, use the sandbox name and harness URL returned by the
 Skill. The setup log contains the authenticated dashboard URL; do not copy or
@@ -1054,11 +1052,13 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 7. Returns a browser-reachable ingress URL (for example
    `http://<HOST_IP>:7777/`) for opening the UI.
 
-The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM
-(port `30081`) and the `nvidia/cosmos3-nano-reasoner` model served through
-RT-VLM in the `vss-rtvi-vlm` container (port `8018`,
-`VLM_MODEL_TYPE=rtvi`). To use a different model or a remote endpoint, name it
-in the prompt and the agent sets `LLM_MODE` / `VLM_MODE` accordingly.
+The default Skill-generated base stack serves
+`nvidia/cosmos3-nano-reasoner` through RT-VLM in the `vss-rtvi-vlm`
+container (port `8018`, `VLM_MODEL_TYPE=rtvi`). The stock Compose profile
+also defines a `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM on port
+`30081`, but the Skill removes it with the in-stack Agent unless another
+selected service needs it or the harness is explicitly routed to it. To use a
+different model or remote endpoint, name it in the prompt.
 
 ### Upload a video and manage storage
 

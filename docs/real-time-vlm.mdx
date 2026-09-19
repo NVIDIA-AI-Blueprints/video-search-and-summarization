@@ -204,8 +204,11 @@ The API is organized into the following categories:
 | `/v1/health/live` | `GET` | NIM-compatible liveness check |
 | `/v1/health/ready` | `GET` | NIM-compatible readiness check |
 
-All endpoints are prefixed with `/v1`. The API is available at
-`http://<host>:8000`.
+All endpoints are prefixed with `/v1`. In a VSS developer profile, the API is
+available at `http://<host>:${RTVI_VLM_PORT:-8018}`; Compose maps this host port
+to port `8000` in the RTVI-VLM container. For the standalone deployment below,
+set the required `BACKEND_PORT` variable and use
+`http://<host>:${BACKEND_PORT}` instead; the example sets it to `8000`.
 
 <Note>
 For VIOS integrations, RTVI-VLM also exposes hidden compatibility aliases:
@@ -1723,11 +1726,11 @@ override `num_frames_per_second_or_fixed_frames_chunk` and
 `use_fps_for_chunking`. Use `num_frames=-1` to select all decoded frames
 in a chunk. `fps` and `num_frames` are mutually exclusive.
 
-```json
-{"media_io_kwargs": {"video": {"fps": 3.0}}}
-{"media_io_kwargs": {"video": {"num_frames": 16}}}
-{"media_io_kwargs": {"video": {"num_frames": -1}}}
-```
+Use one of these request fragments:
+
+* FPS sampling: `{"media_io_kwargs": {"video": {"fps": 3.0}}}`
+* Fixed-frame sampling: `{"media_io_kwargs": {"video": {"num_frames": 16}}}`
+* All decoded frames: `{"media_io_kwargs": {"video": {"num_frames": -1}}}`
 
 ### Enabling Incidents
 
