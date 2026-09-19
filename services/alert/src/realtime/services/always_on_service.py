@@ -563,6 +563,17 @@ class AlwaysOnService:
                 if not inner:
                     self._camera_rules.pop(camera_id, None)
 
+        # Always-on rules register RTVI streams under sensor_id=camera_id.
+        # stop_alert above reports 200 even when its own RTVI teardown
+        # silently failed (best-effort by design, warns and removes the
+        # rule anyway), and a camera with nothing tracked skips the loop
+        # above entirely. Either way, reconcile directly against RTVI
+        # here so this request — not a hypothetical future camera_remove
+        # retry — catches a stream left behind. Ref-counted internally,
+        # so this is a no-op if another active rule still needs the
+        # stream.
+        await self._realtime.reconcile_orphaned_stream(camera_id)
+
         failed = [e for e in remove_details if e["result"] == "error"]
         if failed:
             return AlwaysOnResult(
