@@ -40,8 +40,10 @@ Video-analytics MCP (`vss-va-mcp`), Web UI (`vss-ui`), and tracing (`phoenix`)
 are independently gated during an ordinary capability-removal build: each is
 reached only by an explicit request for that surface and carries no capability
 another owner needs. Prune each unless itself requested. In a harness-only
-delta, preserve `vss-ui` and `phoenix` with the rest of the Foundation;
-`vss-va-mcp` follows the narrower legacy-MCP rule in `SKILL.md` Step 5. The
+delta, preserve `vss-ui` with the rest of the Foundation, while `phoenix` leaves with the agent
+whose traces it collected, as does the `llm_*` key once no enabled service calls
+the LLM (`lvs-server` does; `alert-bridge` does not); `vss-va-mcp` follows the
+narrower legacy-MCP rule in `SKILL.md` Step 5. The
 video-analytics MCP is an agent-tier tool surface;
 browsing or operating analytics is served by the host-side `vss analytics` CLI
 through `vss-video-analytics-api` and does not reach it. A request for read-only

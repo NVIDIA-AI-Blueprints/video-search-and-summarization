@@ -12,6 +12,11 @@ from dataclasses import dataclass
 
 VSS_AGENT = "vss-agent"
 VSS_VA_MCP = "vss-va-mcp"
+PHOENIX = "phoenix"
+# The Foundation LLM key is dynamic (llm_${LLM_MODE}_${LLM_NAME_SLUG}); these are the
+# services that call it. With none of them enabled the NIM serves nothing.
+LLM_PREFIX = "llm_"
+LLM_CONSUMERS = frozenset({VSS_AGENT, "lvs-server"})
 
 
 class UnexpectedHarnessDeltaError(ValueError):
@@ -53,9 +58,18 @@ def resolve_service_profiles(
 
     if host_cli:
         explicitly_requested = set(requested)
-        for profile in (VSS_AGENT, VSS_VA_MCP):
+        # The in-stack agent leaves with the two peers only it uses: phoenix, which
+        # collects its traces and has no other client, and the llm_* key, once no
+        # enabled service still calls the LLM (lvs-server does; alert-bridge does not).
+        # An explicit request for any of them - a harness pointed at the build's own
+        # NIM asks for the llm_* key - keeps it.
+        for profile in (VSS_AGENT, VSS_VA_MCP, PHOENIX):
             if profile not in explicitly_requested:
                 profiles.pop(profile, None)
+        if not (LLM_CONSUMERS & set(profiles)):
+            for profile in [p for p in profiles if p.startswith(LLM_PREFIX)]:
+                if profile not in explicitly_requested:
+                    profiles.pop(profile, None)
 
     for profile in excluded_profiles:
         profiles.pop(profile, None)
@@ -68,7 +82,7 @@ def validate_harness_only_delta(
     final_profiles: Iterable[str],
     requested_profiles: Iterable[str] = (),
 ) -> None:
-    """Require a Q3-only delta to preserve every unrelated Foundation profile."""
+    """Require a Q3-only delta to preserve every Foundation profile the agent did not own."""
     foundation = tuple(foundation_profiles)
     expected = resolve_service_profiles(
         foundation,
@@ -89,8 +103,8 @@ def validate_harness_only_delta(
     if unexpected_added:
         details.append(f"unexpected additions: {', '.join(unexpected_added)}")
     raise UnexpectedHarnessDeltaError(
-        "harness-only delta must preserve the Foundation except for harness-owned "
-        f"removals ({'; '.join(details)})"
+        "harness-only delta must preserve the Foundation except for the agent-owned "
+        f"removals - vss-agent, its llm_* key and phoenix, an unrequested vss-va-mcp ({'; '.join(details)})"
     )
 
 
@@ -135,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
     print(
-        "Validated harness-only delta: Foundation preserved except harness-owned removals"
+        "Validated harness-only delta: Foundation preserved except the agent-owned removals"
     )
     return 0
 

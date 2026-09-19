@@ -66,11 +66,13 @@ Start with the Foundation's effective `COMPOSE_PROFILES`.
 **Harness-only guard.** Before running the generic pruning pass below, compare
 the requested capability set with the Foundation. If they are identical and
 the only change is a Q3 answer, this is a harness-only delta. Preserve the
-Foundation list and remove only `vss-agent`, plus an unrequested `vss-va-mcp`
-when the existing VA-MCP rule applies. Set `REQUESTED_PROFILES` to the
+Foundation list and remove only the agent-owned keys: `vss-agent`, `phoenix`
+(its trace sink), the `llm_*` key when no remaining key consumes the LLM
+(`lvs-server` does), plus an unrequested `vss-va-mcp` when the existing VA-MCP
+rule applies. Set `REQUESTED_PROFILES` to the
 explicitly requested profile keys, including an empty value when none were
 named. Do not interpret Q3 **no** as headless and do not run forward-closure
-pruning: the host-side `vss` CLI is the driver, while UI, ingress, models,
+pruning: the host-side `vss` CLI is the driver, while UI, ingress, the VLM,
 Redis, VIOS, and all other Foundation services stay.
 Run this exact check before artifact generation:
 
