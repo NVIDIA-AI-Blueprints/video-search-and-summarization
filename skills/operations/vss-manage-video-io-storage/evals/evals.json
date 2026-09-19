@@ -28,5 +28,17 @@
       "Uses the sensorUrl field for VIOS POST /sensor/add, not url.",
       "Cleans up or reports any temporary test sensors or files it creates."
     ]
+  },
+  {
+    "id": "video-question-non-activation",
+    "question": "Watch this recorded clip and tell me whether the worker wore PPE.",
+    "expected_skill": null,
+    "should_trigger": false,
+    "expected_script": null,
+    "ground_truth": "This is a content question about a specified video for vss-ask-video, not a VIOS or NvStreamer management request.",
+    "expected_behavior": [
+      "Does not activate vss-manage-video-io-storage for a question about video content.",
+      "Routes the request to vss-ask-video."
+    ]
   }
 ]

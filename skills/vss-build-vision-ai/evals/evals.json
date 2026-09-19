@@ -1,0 +1,22 @@
+[
+  {
+    "id": "build-search-profile",
+    "question": "Build and deploy a VSS search profile for natural-language video retrieval.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Use the profile composition and deployment workflow.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Selects and deploys the search profile."
+    ]
+  },
+  {
+    "id": "search-running-archive",
+    "question": "Search my existing VSS archive for the red truck.",
+    "expected_skill": null,
+    "ground_truth": "Operate the running search deployment rather than building a stack.",
+    "expected_behavior": [
+      "Does not activate vss-build-vision-ai.",
+      "Routes the request to vss-search-archive."
+    ]
+  }
+]

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "benchmark-lvs-performance",
+    "question": "Benchmark single-file latency and burst throughput for my deployed LVS instance.",
+    "expected_skill": "benchmark-video-summarization",
+    "ground_truth": "Use the LVS performance benchmarking workflow.",
+    "expected_behavior": [
+      "Activates benchmark-video-summarization.",
+      "Measures the deployed LVS endpoint rather than deploying an unrelated profile."
+    ]
+  },
+  {
+    "id": "summarize-without-benchmarking",
+    "question": "Summarize this recorded warehouse video for me.",
+    "expected_skill": null,
+    "ground_truth": "Route to the video summarization workflow, not performance benchmarking.",
+    "expected_behavior": [
+      "Does not activate benchmark-video-summarization.",
+      "Routes the request to vss-summarize-video."
+    ]
+  }
+]
