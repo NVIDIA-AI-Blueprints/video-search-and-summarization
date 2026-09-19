@@ -5,7 +5,7 @@ position: 4
 ---
 ## Model Card
 
-Sparse4D is an advanced 3D Multi-Camera Detection and Tracking Network. We specifically adapt Sparse4D for indoor environments such as warehouses with static camera setups. It generates precise 3D bounding boxes and tracking IDs for a diverse set of objects across multiple camera views. The included model in the Perception Microservice is pre-trained on the MTMC Tracking 2025 subset from the [Nvidia PhysicalAI-SmartSpaces dataset](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main) and trained & evaluated on the following warehouse-centric classes: `Person`, `Fourier_GR1_T2_Humanoid`, `Agility_Digit_Humanoid`, `Nova_Carter`, `Transporter`, and `Forklift`. The latest release (v2.2) ships in two backbone flavors: a lower-latency `ResNet50` variant (the default for VSS 3.2.0) and a higher-accuracy `ResNet101` variant.
+Sparse4D is an advanced 3D Multi-Camera Detection and Tracking Network. We specifically adapt Sparse4D for indoor environments such as warehouses with static camera setups. It generates precise 3D bounding boxes and tracking IDs for a diverse set of objects across multiple camera views. The included model in the Perception Microservice is pre-trained on the MTMC Tracking 2025 subset from the [Nvidia PhysicalAI-SmartSpaces dataset](https://huggingface.co/datasets/nvidia/PhysicalAI-SmartSpaces/tree/main) and trained & evaluated on the following warehouse-centric classes: `Person`, `Fourier_GR1_T2_Humanoid`, `Agility_Digit_Humanoid`, `Nova_Carter`, `Transporter`, and `Forklift`. The latest releases are `v2.3`, a stable model tuned for general and synthetic warehouse data (available in `ResNet50` and `ResNet101` backbones), and `v3.0`, which is better adapted to real-world datasets (`ResNet50` backbone only). `ResNet50` is the default backbone for VSS 3.3 (lower latency, smaller footprint); choose the `ResNet101` v2.3 checkpoint when accuracy headroom matters more than throughput.
 
 ![TAO Sparse4D Model Output](https://raw.githubusercontent.com/vpraveen-nv/model_card_images/main/cv/purpose_built_models/sparse4d/sample_output.gif)
 
@@ -19,7 +19,7 @@ Detailed information can be found in the [3D Multi-Camera Detection and Tracking
 
 ## Model versions
 
-The VSS 3.2.0 Sparse4D model card lists **v2.2** as the latest trainable and deployable release:
+The VSS 3.3 Sparse4D model cards list **v2.3** and **v3.0** as the latest trainable and deployable releases:
 
 | Model version | Release date | Notes |
 | --- | --- | --- |
@@ -27,33 +27,44 @@ The VSS 3.2.0 Sparse4D model card lists **v2.2** as the latest trainable and dep
 | `v1.1` | 11/30/2025 | Updated 960x540 input resolution, camera embeddings, broader training set, and lower-FPS robustness |
 | `v2.0` | 01/23/2026 | Expanded BEV groups, added COSMOS-augmented datasets, and improved multi-FPS training |
 | `v2.1` | 02/27/2026 | Expanded data coverage, SDU v1.2 camera grouping, and corrected forklift orientation annotations |
-| `v2.2` | 05/12/2026 | Latest `trainable_v2.2` / `deployable_v2.2` artifacts. Released for both backbones (`ResNet50` and `ResNet101`); added `pallet_truck` to the trained class set; expanded the training corpus to all available MTMC Tracking 2025 scenes (3K+ BEV groups); refreshed COSMOS-augmented data; refreshed kmeans anchor priors per backbone. |
+| `v2.2` | 05/12/2026 | `trainable_v2.2` / `deployable_v2.2` artifacts. Released for both backbones (`ResNet50` and `ResNet101`); added `pallet_truck` to the trained class set; expanded the training corpus to all available MTMC Tracking 2025 scenes (3K+ BEV groups); refreshed COSMOS-augmented data; refreshed kmeans anchor priors per backbone. |
+| `v2.3` | 10/05/2026 | Stable release tuned for general and synthetic warehouse data; available for both `ResNet50` and `ResNet101` backbones. |
+| `v3.0` | 10/05/2026 | Better adapted to real-world datasets; `ResNet50` backbone only. |
 
-For new VSS 3.2.0 work, start from `trainable_v2.2` for fine-tuning and `deployable_v2.2` for DeepStream or TensorRT deployment unless you need to reproduce an older benchmark. The `ResNet50` backbone is the default for the VSS 3.2.0 release (lower latency, smaller footprint, built on top of an RT-DETR R50 pre-training initialization); pick the `ResNet101` backbone when accuracy headroom matters more than throughput.
+For new VSS 3.3 work, start from `trainable_v2.3` (or `deployable_v2.3`) for general and synthetic-data deployments, or `trainable_v3.0` (`deployable_v3.0`) when targeting real-world data; use an older version only to reproduce a prior benchmark. The `ResNet50` backbone is the default for VSS 3.3 (lower latency, smaller footprint, built on top of an RT-DETR R50 pre-training initialization); pick the `ResNet101` backbone (available for v2.3) when accuracy headroom matters more than throughput.
 
 ## Real-Time Inference Throughput & Latency
 
-Inference runs through the DeepStream pipeline on TensorRT with mixed precision (FP16+FP32). The TensorRT columns capture model-only latency, while the DeepStream columns add the instance-bank pre- and post-processing overhead. The table summarizes how many cameras each GPU supports at 30, 15, and 10 FPS for the v2.0 model.
-Numbers in **bold** are measured (all TensorRT values and certain DeepStream values); DeepStream values not in bold are estimates based on the guidance that the DS microservice adds approximately 30% overhead over Sparse4D TensorRT model performance.
+Inference runs through the DeepStream pipeline on TensorRT with mixed precision (FP16+FP32). The TensorRT columns capture model-only latency; the DeepStream columns are the sustainable stream counts once the DeepStream microservice's instance-bank pre-/post-processing overhead is accounted for — i.e. the camera count whose model latency fits within roughly 70% of the frame budget. The table summarizes how many cameras each GPU (`ResNet50` backbone) supports at 30, 15, and 10 FPS. Values are the **conservative minimum across the v2.3 and v3.0 releases**, which are latency-equivalent. Numbers in **bold** are measured TensorRT values. A value of `200` reflects the tested sweep ceiling and may be higher in practice.
+
+#### Datacenter GPUs
 
 | GPU | TensorRT @30 FPS | DeepStream @30 FPS | TensorRT @15 FPS | DeepStream @15 FPS | TensorRT @10 FPS | DeepStream @10 FPS |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 x A100-SXM4-80GB | **13** | 9 | **28** | 19 | **43** | 30 |
-| 1 x B200 | **75** | 52 | **155** | 108 | **200** | 140 |
-| 1 x GB200 | **101** | 70 | **200** | 140 | **200** | 140 |
-| 1 x H100 NVL - 94GB | **23** | 16 | **48** | 33 | **72** | 50 |
-| 1 x H100 SXM HBM3 - 80GB | **28** | 19 | **58** | 40 | **89** | 62 |
-| 1 x H200 | **32** | 22 | **67** | 46 | **103** | 72 |
-| 1 x L4 - 24GB | **3** | 2 | **6** | 4 | **9** | 6 |
-| 1 x L40 | **8** | 5 | **16** | 11 | **26** | 18 |
-| 1 x L40S - 48GB | **9** | 6 | **20** | 14 | **30** | 21 |
-| 1 x RTX 6000 ADA | **9** | 6 | **19** | 13 | **27** | 18 |
-| 1 x RTX PRO 6000 Blackwell (Server) | **28** | 19 | **58** | 40 | **89** | 62 |
-| 1 x RTX PRO 6000 Blackwell (Workstation) | **29** | 20 | **59** | 41 | **90** | 63 |
-| 1 x IGX Thor - T7000 iGPU (no dGPU) | **5** | 3 | **11** | 7 | **17** | 11 |
-| 1 x IGX Thor - T7000 dGPU - RTX PRO 6000 Blackwell Max-Q Workstation Edition | **21** | 14 | **30** | 21 | **30** | 21 |
-| 1 x AGX Thor - T5000 | **4** | 2 | **8** | 5 | **14** | 9 |
-| 1 x DGX Spark | **5** | 3 | **11** | 7 | **17** | 11 |
+| 1 x A100 SXM4 80GB | **20** | 13 | **39** | 29 | **60** | 41 |
+| 1 x B200 | **78** | 53 | **157** | 109 | **200** | 165 |
+| 1 x GB200 | **103** | 70 | **200** | 143 | **200** | 200 |
+| 1 x GB300 | **111** | 71 | **200** | 148 | **200** | 200 |
+| 1 x H100 80GB HBM3 | **33** | 22 | **71** | 48 | **108** | 75 |
+| 1 x H100 NVL | **28** | 19 | **59** | 40 | **89** | 62 |
+| 1 x H200 | **37** | 25 | **77** | 53 | **117** | 81 |
+| 1 x L4 | **4** | 3 | **10** | 6 | **15** | 11 |
+| 1 x L40 | **11** | 7 | **22** | 16 | **33** | 23 |
+| 1 x L40S | **14** | 9 | **29** | 20 | **41** | 31 |
+| 1 x RTX 6000 Ada Generation | **10** | 8 | **24** | 17 | **34** | 25 |
+| 1 x RTX PRO 4500 Blackwell (Server) | **13** | 9 | **27** | 19 | **41** | 29 |
+| 1 x RTX PRO 6000 Blackwell (Server) | **29** | 20 | **59** | 41 | **90** | 63 |
+| 1 x RTX PRO 6000 Blackwell (Workstation) | **30** | 21 | **62** | 43 | **93** | 65 |
+
+#### Embedded GPUs
+
+| GPU | TensorRT @30 FPS | DeepStream @30 FPS | TensorRT @15 FPS | DeepStream @15 FPS | TensorRT @10 FPS | DeepStream @10 FPS |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 x DGX Spark | **5** | 3 | **11** | 7 | **17** | 12 |
+| 1 x IGX Thor (iGPU) | **5** | 4 | **11** | 8 | **17** | 12 |
+| 1 x IGX Thor + RTX PRO 6000 (dGPU) | **21** | 14 | **42** | 29 | **63** | 44 |
+| 1 x Jetson AGX Orin | **3** | 1 | **6** | 4 | **10** | 7 |
+| 1 x Jetson AGX Thor | **6** | 4 | **12** | 8 | **19** | 13 |
 
 ## KPI
 
@@ -61,29 +72,33 @@ The key performance indicator is Higher Order Tracking Accuracy (HOTA) per-class
 
 Higher Order Tracking Accuracy (HOTA) is a metric that balances detection accuracy and association accuracy into a single unified score. It decomposes tracking performance into Detection Accuracy (DetA), which measures how well objects are localized, and Association Accuracy (AssA), which measures how well detections are linked over time into consistent tracks. HOTA is computed as the geometric mean of DetA and AssA, averaged over a range of localization thresholds. This provides a balanced, holistic measure of tracking quality that captures both spatial accuracy and temporal consistency.
 
-The following scores are for v2.2 models trained on MTMC Tracking 2025 subset. The evaluation set and training set is disjoint.
+The following scores are for v2.3 models trained on the MTMC Tracking 2025 subset. The evaluation set and training set are disjoint. The averages cover the six evaluated classes shown in the tables; `Pallet_Truck` is an output class but is not included in these reported averages.
+
+#### ResNet50 backbone (v2.3)
 
 | Object Class | HOTA | DetA | AssA | LocA |
 | --- | --- | --- | --- | --- |
-| Person | 53.93 | 59.13 | 49.54 | 73.34 |
-| Fourier_GR1_T2_Humanoid | 59.31 | 59.87 | 58.84 | 73.46 |
-| Agility_Digit_Humanoid | 52.69 | 52.57 | 53.50 | 70.72 |
-| Nova_Carter | 58.26 | 56.89 | 59.92 | 71.05 |
-| Transporter | 33.70 | 38.98 | 31.49 | 68.41 |
-| Forklift | 48.05 | 43.84 | 54.97 | 66.69 |
-| Average | 50.99 | 51.88 | 51.37 | 70.61 |
+| Person | 50.70 | 46.35 | 56.94 | 67.68 |
+| Fourier_GR1_T2_Humanoid | 48.80 | 42.89 | 58.12 | 68.17 |
+| Agility_Digit_Humanoid | 53.92 | 50.23 | 59.65 | 68.37 |
+| Nova_Carter | 53.76 | 50.76 | 59.18 | 68.53 |
+| Transporter | 36.20 | 31.43 | 45.01 | 64.91 |
+| Forklift | 47.86 | 41.12 | 67.94 | 65.12 |
+| Average | 48.54 | 43.80 | 57.81 | 67.13 |
+
+#### ResNet101 backbone (v2.3)
 
 | Object Class | HOTA | DetA | AssA | LocA |
 | --- | --- | --- | --- | --- |
-| Person | 57.96 | 58.99 | 57.11 | 73.29 |
-| Fourier_GR1_T2_Humanoid | 60.93 | 60.97 | 60.98 | 74.00 |
-| Agility_Digit_Humanoid | 54.00 | 53.32 | 55.32 | 71.02 |
-| Nova_Carter | 54.85 | 57.60 | 53.28 | 70.92 |
-| Transporter | 33.98 | 38.13 | 32.58 | 67.33 |
-| Forklift | 48.05 | 43.78 | 55.20 | 66.45 |
-| Average | 51.63 | 52.13 | 52.41 | 70.50 |
+| Person | 51.85 | 47.58 | 58.21 | 68.12 |
+| Fourier_GR1_T2_Humanoid | 47.24 | 42.30 | 55.14 | 67.38 |
+| Agility_Digit_Humanoid | 54.70 | 51.48 | 60.03 | 69.18 |
+| Nova_Carter | 53.83 | 50.88 | 59.11 | 68.45 |
+| Transporter | 38.24 | 32.54 | 49.25 | 64.94 |
+| Forklift | 46.43 | 41.08 | 60.77 | 66.36 |
+| Average | 48.71 | 44.31 | 57.08 | 67.40 |
 
-Results highlighted in the above tables are for the latest v2.2 models on the test set of the MTMC Tracking 2025 dataset. Please refer to the [sparse4d_rn50](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50) and [sparse4d_rn101](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn101) model cards for more details.
+Results highlighted in the above tables are for the latest v2.3 models on the test set of the MTMC Tracking 2025 dataset. The v3.0 checkpoint is evaluated on real-world scenes; refer to the [sparse4d_rn50](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50) and [sparse4d_rn101](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn101) model cards for those results and more details.
 
 ## Fine-tuning using NVIDIA TAO Toolkit
 
