@@ -14,8 +14,10 @@ When deploying with a local VLM, the agent workflow uses a default NIM endpoint.
 - **Default model:** Local VLMs are served by RT-VLM. The Base, Alerts, and Live Video Search profiles use Cosmos3 Nano Reasoner BF16 (`nim_nvidia_cosmos3-nano-reasoner_bf16-final`); Search uses the FP8 checkpoint (`nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix`) to share the GPU with its critic workload. The `VLM_NAME` value is the model ID advertised by RT-VLM, not the checkpoint name.
 
 <Info>
-The Cosmos3 Reasoner NIM requires a **Personal API Key** (`NGC_CLI_API_KEY`).
-Legacy NGC API keys will fail authentication.
+The **Personal API Key** requirement applies when you explicitly deploy the
+standalone Cosmos3 Reasoner NIM. The default developer profiles serve Cosmos3
+through RT-VLM instead; use an authorized NGC credential for the RT-VLM image
+and model artifacts.
 </Info>
 
 - **Custom NIM env file:** Set `VLM_ENV_FILE` in the selected profile's `*-overrides.env` file to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.

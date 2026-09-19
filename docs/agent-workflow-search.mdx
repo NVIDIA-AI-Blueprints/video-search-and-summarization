@@ -1198,10 +1198,16 @@ To teardown the agent, run the following command:
 
 ```bash
 cd deploy/docker
-docker compose -p vss down -v --remove-orphans
+PROFILE=search
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  down -v --remove-orphans
 ```
 
-This command will stop and remove the agent containers.
+This command stops the manually deployed search-profile containers and removes
+their Compose volumes.
 
 ## Service Endpoints
 

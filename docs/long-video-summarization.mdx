@@ -171,7 +171,7 @@ documentation.
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/NVIDIA/video-search-and-summarization.git
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
 git checkout tags/v3.3.0
 cd services/video-summarization
@@ -954,7 +954,12 @@ the Video Summarization stack:
 * **KAFKA_EXTERNAL_PORT**: Host port mapping for the broker's external listener; also embedded in `KAFKA_ADVERTISED_LISTENERS`. Default: `9094`
 * **KAFKA_ADVERTISED_HOST**: Hostname or IP that host-side or cross-host clients use to reconnect. Default: `localhost`
 
-The same `KAFKA_ENABLED=true` and `KAFKA_BOOTSTRAP_SERVERS` values must also be set on the RTVI-VLM service so it publishes raw events to the same broker. See [RTVI-VLM Kafka Integration](/vss/system-components/vision-microservices/real-time-vlm#kafka-integration) for the producer-side configuration.
+RTVI-VLM uses `MESSAGE_BUS`, not `KAFKA_ENABLED`, to select its generated-message
+output bus. Set `MESSAGE_BUS=kafka` and `KAFKA_BOOTSTRAP_SERVERS` on the
+RTVI-VLM service so it publishes raw events to the same broker. In the packaged
+VSS Compose deployment, set `RTVI_VLM_MESSAGE_BUS=kafka`; keep
+`RTVI_VLM_KAFKA_ENABLED=true` only as the legacy compatibility field while
+Compose still forwards it. See [RTVI-VLM Kafka Integration](/vss/system-components/vision-microservices/real-time-vlm#kafka-integration) for the producer-side configuration.
 
 <Note>
 `MESSAGE_BUS_TOPIC` configures RTVI-VLM and the Logstash consumer service.
@@ -994,7 +999,15 @@ Under the streaming and message bus profile, the publishing flow depends on the 
 1. **File path** (`POST /v1/summarize`): RTVI-VLM publishes per-chunk raw events to `MESSAGE_BUS_TOPIC` as it processes the file. The `LVS_CAPTION_SOURCE` environment variable controls where the Video Summarization microservice reads captions for aggregation: `sse` (default) uses captions received in-process via the RTVI SSE response, while `db` retrieves them from the Elasticsearch index populated by the Kafka → Logstash → ES pipeline. In `db` mode, the Video Summarization microservice waits `kafka_consumer_settle_secs` (default 5 seconds) so the Logstash consumer service can flush the last chunk. In both modes, the Video Summarization microservice aggregates captions via CA-RAG and publishes the structured events and aggregated summary to `KAFKA_STRUCTURED_SUMMARY_TOPIC`.
 2. **Live-stream path** (`POST /v1/generate_captions` + `POST /v1/stream_summarize`): The client first calls `/v1/generate_captions` to start VLM captioning (fire-and-forget). RTVI-VLM publishes raw events to the Kafka topic, and Logstash indexes them into Elasticsearch. The client then calls `/v1/stream_summarize` with an optional `[start_time, end_time]` window. The Video Summarization microservice reads captions from Elasticsearch, aggregates them via CA-RAG, and publishes the structured events and summary to `KAFKA_STRUCTURED_SUMMARY_TOPIC` with a per-call upsert ID so repeated calls overwrite the latest result for that stream.
 3. **Message keys**: All messages are published with the key `{request_id}:{chunk_idx|batch_i|doc_i}` (UTF-8 encoded) for partitioning and ordering.
-4. **Requirement**: Set `KAFKA_ENABLED=true` on both the Video Summarization MS and RTVI-VLM, and configure `KAFKA_BOOTSTRAP_SERVERS` on both services. Without these, `/v1/summarize` silently falls back to the legacy in-process aggregation flow. `POST /v1/summarize` now rejects `source_type=stream` with HTTP 422, directing clients to use the dedicated live-stream APIs instead.
+4. **Requirement**: Set `KAFKA_ENABLED=true` on the Video Summarization MS.
+   On RTVI-VLM, set `MESSAGE_BUS=kafka`; for the packaged VSS Compose
+   deployment, the corresponding variable is `RTVI_VLM_MESSAGE_BUS=kafka`
+   alongside the legacy `RTVI_VLM_KAFKA_ENABLED=true` compatibility field.
+   Configure `KAFKA_BOOTSTRAP_SERVERS` for both services. Without the Video
+   Summarization setting or RT-VLM message-bus publishing,
+   `/v1/summarize` silently falls back to the legacy in-process aggregation
+   flow. `POST /v1/summarize` now rejects `source_type=stream` with HTTP
+   422, directing clients to use the dedicated live-stream APIs instead.
 
 Video Summarization MS to RTVI Sticky Routing (`x-stream-id`)
 

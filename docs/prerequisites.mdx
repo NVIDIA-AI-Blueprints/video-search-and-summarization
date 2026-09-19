@@ -205,7 +205,10 @@ Keep your NGC API key secure and never commit it to version control systems.
 <Info>
 The Cosmos3 Reasoner NIM (1.7.0+) requires a **Personal API Key**. Legacy NGC API keys
 are not supported and will fail authentication when pulling or running this container.
-This applies to all profiles that deploy the VLM NIM locally (base, search).
+This applies when you explicitly deploy the standalone Cosmos3 Reasoner NIM.
+The default `base` and `search` profiles serve the Cosmos3 model through
+RT-VLM and do not start the standalone VLM NIM container. Other NGC images and
+model artifacts still require an authorized NGC credential.
 </Info>
 
 ### Verify Your NGC Access

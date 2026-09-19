@@ -29,12 +29,21 @@ The following diagram illustrates a conceptual architecture of the base vision a
 
 ## What's being deployed
 
-- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM and RT-VLM) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`), which handles query routing, reasoning, and report generation.
-- **VSS Agent UI:** Web UI with chat, video upload, and different views
-- **VSS Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
-- **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
-- **Real-Time VLM (RT-VLM):** VLM microservice that serves the integrated Cosmos3 Nano Reasoner model for physical reasoning and video understanding
-- **Phoenix:** Observability and telemetry service for agent workflow monitoring
+The exact service set depends on the deployment path:
+
+- **Build Vision AI Skill (default):** VSS Agent UI, VSS Video IO & Storage
+  (VIOS), Phoenix, RT-VLM, and a local Nemotron LLM NIM when local model
+  placement is selected. RT-VLM serves the Cosmos3 Nano Reasoner model through
+  `vss-rtvi-vlm` on port `8018`; there is no separate Cosmos3 Reasoner
+  container. The default NemoClaw harness runs on the host outside the Compose
+  project and connects the UI chat to its OpenClaw sandbox.
+- **Manual Docker Compose:** The stock base profile adds the in-stack VSS Agent
+  to those services. It uses the configured LLM to route requests and
+  orchestrate VSS tools.
+
+Build Vision AI removes the in-stack `vss-agent` service whether you select
+NemoClaw or no harness. It deploys that service only when your request
+explicitly names the in-stack Agent, its REST API, or its chat workflow.
 
 ## Agent Harness Options
 
@@ -184,6 +193,31 @@ supported, but a remote LLM is recommended for better response time. Add
 DGX-SPARK machine with a remote LLM."* See
 [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
 </Note>
+
+### Verify the Skill-driven deployment
+
+The default Skill path does not include the in-stack `vss-agent` service, so
+do not use port `8000` as its readiness check. Confirm the service set and the
+base RT-VLM endpoint instead:
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+curl -fsS "http://<HOST_IP>:8018/v1/health/ready"
+curl -fsS "http://<HOST_IP>:7777/"
+```
+
+Expect the VSS UI, VIOS/VST services, `vss-rtvi-vlm`, Phoenix, and the local
+Nemotron LLM container when local LLM placement was selected. Do not expect a
+`vss-agent` container. For a local LLM, also verify its readiness endpoint:
+
+```bash
+curl -fsS "http://<HOST_IP>:30081/v1/health/ready"
+```
+
+If you selected NemoClaw, use the sandbox name and harness URL returned by the
+Skill. The setup log contains the authenticated dashboard URL; do not copy or
+share its token-bearing fragment. If you selected no harness, operate the
+deployment with the project-local `vss` CLI as directed by the Skill.
 
 ## Manual deployment options
 
@@ -512,6 +546,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 
 ```ini
 HARDWARE_PROFILE=L40S
+LLM_MODE=local
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -717,6 +752,8 @@ Switch profiles by changing the `dev-profile-<profile>` directory, not by settin
 - [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#step-1-deploy-the-agent) — `MODE=2d_vlm`
 </Note>
 
+### Verify the manual in-stack Agent deployment
+
 Once the deployment is complete, check that all the containers are running and healthy:
 
 ```bash
@@ -741,8 +778,8 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
    ```
 
-   Look for the VSS Agent, VSS Agent UI, VIOS/VST, Nemotron LLM, Cosmos3 Reasoner
-   NIM, and Phoenix containers.
+   Look for the VSS Agent, VSS Agent UI, VIOS/VST, Nemotron LLM,
+   `vss-rtvi-vlm`, and Phoenix containers.
 
 3. If containers are unhealthy or certain services are unresponsive, check the corresponding
    container logs for startup, or configuration errors.
@@ -751,7 +788,7 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
    whether the host firewall is blocking container-to-host traffic. See
    [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
 
-5. If the `cosmos3-reasoner` container stopped or crashed **in shared GPU
+5. If the `vss-rtvi-vlm` container stopped or crashed **in shared GPU
    mode**, redeploy the full blueprint instead of restarting only that container.
    With dedicated GPUs, restarting the container is sufficient. See
    [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).
@@ -759,7 +796,12 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
 For the recommended agent-guided deployment path, see
 [Deploy the base profile](/vss/getting-started/quickstart#deploy-the-base-profile).
 
-## Use the deployed base profile
+## Use the manually deployed in-stack Agent
+
+The upload, chat, and report steps in this section require the manual stock
+Compose deployment, or a Build Vision AI request that explicitly retained the
+in-stack VSS Agent. For the default agentless Skill deployment, use the
+[Agent Skills walkthrough](#agent-skills-walkthrough) instead.
 
 ### Upload a video
 
@@ -885,10 +927,16 @@ To teardown the agent, run the following command:
 
 ```bash
 cd deploy/docker
-docker compose -p vss down -v --remove-orphans
+PROFILE=base
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  down -v --remove-orphans
 ```
 
-This command will stop and remove the agent containers.
+This command stops the manually deployed base-profile containers and removes
+their Compose volumes.
 
 ## Service Endpoints
 
@@ -969,13 +1017,11 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 7. Returns a browser-reachable ingress URL (for example
    `http://<HOST_IP>:7777/`) for opening the UI.
 
-The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM on
-host port `30081` and the `vss-rtvi-vlm` service on host port `8018`. RT-VLM
-serves the integrated Cosmos3 Nano Reasoner model; the local base profile does
-not deploy a separate VLM NIM. In remote mode, RT-VLM remains available on host
-port `8018` and proxies requests to the configured external VLM endpoint. To
-use a different model or a remote endpoint, name it in the prompt and the agent
-sets `LLM_MODE` / `VLM_MODE` accordingly.
+The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM
+(port `30081`) and the `nvidia/cosmos3-nano-reasoner` model served through
+RT-VLM in the `vss-rtvi-vlm` container (port `8018`,
+`VLM_MODEL_TYPE=rtvi`). To use a different model or a remote endpoint, name it
+in the prompt and the agent sets `LLM_MODE` / `VLM_MODE` accordingly.
 
 ### Upload a video and manage storage
 
@@ -1013,10 +1059,9 @@ Is the worker in warehouse_safety_0001 wearing PPE?
    link you supply — and the VLM endpoint and model, which it reads from the
    running deployment or takes from `VLM_ENDPOINT` and `VLM_MODEL`.
 3. Sends the question and the video to the VLM in a single
-   `POST <vlm-endpoint>/v1/chat/completions` call. Local `base`, `lvs`, and
-   `alerts` profiles expose RT-VLM on host port `8018`. In remote mode, this
-   RT-VLM service proxies requests to the configured external VLM endpoint.
-   (Does **not** go through the VSS agent — neither its
+   `POST <vlm-endpoint>/v1/chat/completions` call — RT-VLM on port `8018`
+   for the `base`, `lvs`, and `alerts` profiles. (Does **not** go through
+   the VSS agent — neither its
    `video_understanding` tool nor its `/generate` endpoint.)
 4. Returns a grounded natural-language answer. Follow-up questions are
    supported in the same thread.
