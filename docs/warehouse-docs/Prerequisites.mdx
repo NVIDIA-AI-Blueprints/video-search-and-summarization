@@ -9,9 +9,9 @@ This section covers the prerequisites for deploying and using the Warehouse Blue
 
 The Warehouse Blueprint has been validated and tested on the following NVIDIA GPUs:
 
+- NVIDIA GB300
 - NVIDIA RTX PRO 6000 Blackwell
 - NVIDIA RTX PRO 4500 Blackwell
-- NVIDIA GB300
 - NVIDIA H100 (NVL, SXM HBM3)
 - NVIDIA L40S
 - NVIDIA IGX-THOR
@@ -309,11 +309,11 @@ docker compose version
 ```
 
 The default `docker-compose-plugin` package in Ubuntu repositories may provide a version older than v2.39.1.
-If the version is missing or too old, install the required version manually:
+If the version is missing or too old, install the required version manually. The command selects the binary for the host architecture (`x86_64` or `aarch64`):
 
 ```bash
 sudo mkdir -p /usr/local/lib/docker/cli-plugins
-sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-x86_64 \
+sudo curl -fSL "https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-$(uname -m)" \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 ```
@@ -380,6 +380,8 @@ For the latest version of NGC CLI, visit the NGC CLI downloads page: https://ngc
 ### Setup DGX Station (GB300)
 
 DGX Station ships with DGX OS pre-installed. Warehouse deployments require DGX OS 7.6.0, NVIDIA driver 595.58.03. Follow the standard DGX OS update path, then verify the installed driver with `nvidia-smi` and confirm that Docker is available before deploying the blueprint.
+
+Use the ARM64 NGC CLI and export the SBSA image-tag suffix from the **GB300** tab in [Hardware Profiles and Deployment Paths](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#hardware-profiles-and-deployment-paths) before deployment.
 
 ### Setup DGX-SPARK
 

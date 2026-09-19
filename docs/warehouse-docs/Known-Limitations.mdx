@@ -25,7 +25,7 @@ Multiple bounding boxes (BBOX) for the same object may be observed when running 
 
 ## VLM Verification of Incidents
 
-When a person is inside a forklift, it may be classified as a proximity incident. This false positive will be addressed in a future release.
+When a person is inside a forklift, the interaction may be incorrectly classified as a near-miss alert.
 
 ## Agents
 
@@ -198,7 +198,4 @@ Below is an example of the calibration file for image mode:
 
 The following limitations apply when running the Warehouse Blueprint via the [Brev Launchable](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#brev-launchable):
 
-* **VST video playback** — Live and recorded video playback in VST does not work well through a Brev secure link. VST streams use WebRTC media over UDP (RTP), which is not carried by a TCP-only secure link.
-* **2D with Agent profile** — Video replay in the agent UI does not work well on Brev. Remote LLM calls can also fail intermittently. In addition, alert verification for near-miss violations may not function correctly in this environment.
 * **Local LLM** — Local LLM deployment has not been tested or verified on Brev. Use a remote LLM when running the 2D with Agent profile.
-* **Auto-calibration profiles** — The auto-calibration profiles (`bp_wh_auto_calib` and related) have not been tested or verified in the Brev Launchable environment.
