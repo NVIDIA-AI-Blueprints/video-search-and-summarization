@@ -97,7 +97,7 @@ are working with a separate custom or headless deployment.
 
 The host must satisfy [Prerequisites](/vss/getting-started/prerequisites) (Linux, GPU, Docker, NVIDIA Container Toolkit, NGC). The Skill's own checks in `skills/vss-build-vision-ai/references/prerequisites.md` also require:
 
-- A Python runner for helper scripts: **`uv` preferred**, or `python3` with **PyYAML**. A host can pass every system prerequisite and still fail during Compose normalization without this.
+- **`uv`** for mandatory service-graph checks and helper scripts. A host can pass every other system prerequisite and still fail during deployment without it.
 - `curl`, `docker`, and NGC CLI access.
 
 The Skill asks which developer workflow or warehouse variant you want, LLM/VLM locality (local vs remote), and hardware. Defaults follow the selected profile (for example alerts `2d_vlm` vs `2d_cv`). Each answer changes the composed stack (services, `MODE`, GPU placement).
