@@ -63,8 +63,9 @@ def test_bcd_3_2_vlm_release_is_complete():
 
 def test_perf_compose_tracks_github_runtime_controls():
     compose = yaml.safe_load((SERVICE_ROOT / "docker/compose.perf.yaml").read_text())
-    image = compose["services"]["rtvi-server"]["image"]
-    environment = compose["services"]["rtvi-server"]["environment"]
+    service = compose["services"]["rtvi-server"]
+    image = service["image"]
+    environment = service["environment"]
 
     assert image == (
         "${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/"
@@ -85,8 +86,17 @@ def test_perf_compose_tracks_github_runtime_controls():
         "VLM_MAX_GENERATION_TOKENS": "${RTVI_VLM_MAX_GENERATION_TOKENS:-16384}",
         "KAFKA_ASYNC_SEND_QUEUE_MAXSIZE": "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}",
         "VLLM_USE_STANDALONE_COMPILE": "${VLLM_USE_STANDALONE_COMPILE:-1}",
+        "AZURE_OPENAI_API_VERSION": "${AZURE_OPENAI_API_VERSION:-}",
+        "RTVI_IPC_FRAME_COPY": "${RTVI_IPC_FRAME_COPY:-false}",
+        "RTVI_IPC_SOCKET_DIR": "${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}",
+        "RTVI_IPC_SOCKET_TEMPLATE": "${RTVI_IPC_SOCKET_TEMPLATE:-}",
+        "RTVI_VLM_ADMISSION_MODE": "${RTVI_VLM_ADMISSION_MODE:-off}",
+        "RTVI_VLM_ADMISSION_MAX_ACTIVE_COST": "${RTVI_VLM_ADMISSION_MAX_ACTIVE_COST:-0}",
+        "VLLM_ATTENTION_BACKEND": "${RTVI_VLLM_ATTENTION_BACKEND:-}",
     }
     assert {key: environment.get(key) for key in expected} == expected
+    assert "/tmp/rtvi:size=2g,mode=1777" in service["tmpfs"]
+    assert any("RTVI_IPC_SOCKET_HOST_DIR" in volume for volume in service["volumes"])
 
     setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
     assert 'RTVI_IMAGE="${RTVI_IMAGE:-}"' in setup
@@ -121,7 +131,7 @@ def test_perf_compose_tracks_github_runtime_controls():
 
 def test_setup_derives_bcd_videos_from_lvs_source():
     setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
-    assert "benchmark-video-summarization/scripts/fetch-videos.sh" in setup
+    assert "vss-benchmark-video-summarization/scripts/fetch-videos.sh" in setup
     assert "\nVIDEOS_URL=" in setup
     assert (
         'LVS_VIDEO_SOURCE_PATH="${LVS_VIDEO_DATA_DIR}/videos/warehouse_10min.mp4"'
@@ -143,7 +153,7 @@ def test_setup_derives_bcd_videos_from_lvs_source():
 def test_lvs_fetch_configures_ngc_scope_and_accepts_download_layout(tmp_path):
     fetch = (
         Path(__file__).resolve().parents[4]
-        / "skills/benchmarking/benchmark-video-summarization/scripts/fetch-videos.sh"
+        / "skills/benchmarking/vss-benchmark-video-summarization/scripts/fetch-videos.sh"
     )
     fixture = tmp_path / "warehouse.tar.gz"
     source_root = tmp_path / "fixture" / "vss-warehouse-app-data" / "videos"
@@ -222,3 +232,14 @@ def test_bcd_video_validation_rejects_wrong_duration(tmp_path):
     subprocess.run(["bash", "-c", command], check=True, env=env)
     env["FAKE_DURATION"] = "9"
     assert subprocess.run(["bash", "-c", command], env=env).returncode != 0
+
+
+def test_generated_env_perf_is_ignored_and_forced_private():
+    env_file = SERVICE_ROOT / "docker/.env.perf"
+    ignored = subprocess.run(
+        ["git", "check-ignore", "-q", str(env_file)], cwd=SERVICE_ROOT
+    )
+    assert ignored.returncode == 0
+
+    setup = (SERVICE_ROOT / "perf/setup_perf_env.sh").read_text()
+    assert 'install -m 600 /dev/null "${ENV_PERF_FILE}"' in setup
