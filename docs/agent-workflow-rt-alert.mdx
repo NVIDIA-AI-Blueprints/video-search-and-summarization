@@ -257,7 +257,9 @@ VST_ENDPOINT=<vst-host>:<vst-port>
 
 VST_PUBLIC_URL_BASE=https://<your-public-vst-or-tunnel-base>
 
-OPENCLAW_GATEWAY_URL=wss://<openclaw-gateway-host>:<port>
+OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
+
+Infer OPENCLAW_GATEWAY_URL and VST_PUBLIC_URL_BASE based on the deployment.
 ```
 
 `NOTIFY_BACKENDS`, `VST_ENDPOINT`, `VST_PUBLIC_URL_BASE`, and `OPENCLAW_GATEWAY_URL` are
@@ -371,11 +373,11 @@ in `user-overrides.env`.
 | Model | Name | Path |
 | --- | --- | --- |
 | CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
-| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_hf` |
-| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
-| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_modelopt-bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-bf16-final` |
-| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_hf` |
-| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final` |
+| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 
 <Note>
 Super models have only been tested on RTX PRO 6000 and H100 with a single GPU dedicated to the VLM.
@@ -445,6 +447,7 @@ GB300 and DGX Spark tabs when deploying on those platforms.
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
@@ -455,6 +458,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -469,6 +473,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -487,6 +492,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=GB300
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
@@ -503,6 +509,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=GB300
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
@@ -527,6 +534,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 ALERT_AGENT_ALWAYS_ON=true
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
@@ -537,6 +545,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -551,6 +560,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -570,6 +580,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO4500BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -588,6 +599,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -602,6 +614,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -621,6 +634,7 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=DGX-SPARK
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
 VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
@@ -646,6 +660,7 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=IGX-THOR
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
@@ -670,6 +685,7 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=AGX-THOR
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
@@ -697,6 +713,7 @@ for known limitations and configuration constraints.
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 ALERT_AGENT_ALWAYS_ON=true
 LLM_ENV_FILE=/path/to/llm.env
@@ -709,6 +726,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -725,6 +743,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none

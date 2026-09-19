@@ -86,6 +86,7 @@ for complete examples.
 
 | Variable | Meaning | Default and valid values | Profiles |
 | --- | --- | --- | --- |
+| `RTVI_VLM_PORT` | Host-published RT-VLM REST API port; the container listens on `8000`. | Default: `8018`. Call profile deployments at `http://<host>:${RTVI_VLM_PORT}`. | Profiles containing `rtvi-vlm` |
 | `RTVI_VLM_MESSAGE_BUS` | Selects the generated-output message bus. | Compose default: `kafka`. An empty value disables the generated-output bus. | Profiles containing `rtvi-vlm` |
 | `RTVI_VLM_KAFKA_ENABLED` | Legacy compatibility field still forwarded by Compose. | Compose default: `true`; Base, Search, and Alerts templates set `false`. Set `true` with `RTVI_VLM_MESSAGE_BUS=kafka` for real-time Alerts. Keep `false` for Alerts verification. | Profiles containing `rtvi-vlm` |
 | `RTVI_VLM_MODEL_PATH` | Model artifact loaded by integrated RT-VLM. | Base, Alerts, and LVS default to the Cosmos3 Nano Reasoner BF16 NGC path; Search uses its optimized path. Set to `none` when RT-VLM proxies a remote VLM. | Profiles containing `rtvi-vlm` |

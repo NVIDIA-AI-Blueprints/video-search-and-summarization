@@ -10,7 +10,7 @@ that provides video and text embedding generation capabilities. It supports vide
 live RTSP streams, and text inputs, enabling real-time analysis and batch processing of visual media content.
 
 All REST endpoints use the `/v1` prefix. The service listens on port `8000` inside the
-container; map it to the host with `BACKEND_PORT` (default `8000`).
+container; map it to a host port by setting the required `BACKEND_PORT` variable.
 
 ## Key Features
 
@@ -121,8 +121,8 @@ The API is organized into the following categories:
 | `/v1/version` | `GET` | Get release and API versions |
 | `/v1/manifest` | `GET` | Get service manifest information |
 
-All endpoints are prefixed with `/v1`. The API is available at
-`http://<host>:8000`.
+All endpoints are prefixed with `/v1`. For a Docker Compose deployment, the API
+is available at `http://<host>:<BACKEND_PORT>`.
 
 ## Deployment
 
@@ -248,7 +248,7 @@ docker compose up -d
 docker compose logs -f rtvi-server
 
 # Check service health
-curl http://localhost:${BACKEND_PORT:-8000}/v1/ready?detailed=false
+curl http://localhost:${BACKEND_PORT}/v1/ready?detailed=false
 
 # Stop the service
 docker compose down
@@ -323,7 +323,7 @@ The API is available at `http://localhost:8000/docs`.
 
 | Variable | Description | Default | Required |
 | --- | --- | --- | --- |
-| `BACKEND_PORT` | Port for REST API server | `8000` | Yes |
+| `BACKEND_PORT` | Host port mapped to container port `8000` | - | Yes |
 | `LOG_LEVEL` | Logging verbosity | `INFO` | No |
 
 #### Hugging Face Token Configuration
