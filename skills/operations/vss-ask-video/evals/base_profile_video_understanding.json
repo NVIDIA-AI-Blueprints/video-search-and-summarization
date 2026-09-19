@@ -20,9 +20,9 @@
       ]
     },
     {
-      "query": "Freshly verify the registered VIOS sensor `warehouse_sample` over the first 10 seconds of its recording: was the worker wearing a safety helmet?",
+      "query": "Was the worker wearing a safety helmet on `warehouse_sample`? Look at the video afresh rather than relying on anything already stored.",
       "checks": [
-        "It uses exactly one vss vlm run against warehouse_sample bounded to the first 10 seconds, with --fps rather than a fixed --num-frames, and returns the answer.",
+        "It uses exactly one vss vlm run against warehouse_sample, with --fps rather than a fixed --num-frames, and returns the answer.",
         "It does not search Markdown or call memory introspect first, because the request already names its own scope."
       ]
     },
@@ -57,7 +57,7 @@
     {
       "query": "Introspection is turned off on this deployment. Read the stored VSS job for the most recent warehouse_sample analysis.",
       "checks": [
-        "It retrieves the stored record through vss memory - get or query - for ordinary structured retrieval.",
+        "It resolves the most recent job id from VSS memory and reads that stored record with vss memory get --job-id for ordinary structured retrieval.",
         "It never calls vss memory introspect, never enables it, and never runs vss vlm run when the records are thin."
       ]
     },

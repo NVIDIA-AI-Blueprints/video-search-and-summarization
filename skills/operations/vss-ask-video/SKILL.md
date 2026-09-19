@@ -197,6 +197,10 @@ VSS=(uv run \
   --limit 20
 ```
 
+To list what memory already holds for a sensor, omit `--query` and filter on
+`--sensor-id` alone, then read the job in full with `vss memory get --job-id`.
+`--query` is a keyword filter ANDed with the other filters, not a semantic hint.
+
 Valid introspection scope is established by one of:
 - `--sensor`
 - `--job-id`
