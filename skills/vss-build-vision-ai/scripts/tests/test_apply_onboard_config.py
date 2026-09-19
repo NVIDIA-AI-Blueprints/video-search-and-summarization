@@ -79,6 +79,15 @@ def test_baked_limits_dropped_when_session_supplies_none(cfg):
     assert "contextWindow" not in m and "maxTokens" not in m
 
 
+def test_baked_limits_kept_when_the_model_is_unchanged(cfg):
+    # Onboard forwards the model but not its limits; when the session model is the
+    # baked one, the baked limits are right for it and must survive.
+    changes = mod.apply(str(cfg), {"NEMOCLAW_MODEL": "nvidia/nemotron-3-super-120b-a12b"})
+    m = read(cfg)["models"]["providers"]["inference"]["models"][0]
+    assert m["contextWindow"] == 131072 and m["maxTokens"] == 4096
+    assert not [c for c in changes if "dropped" in c]
+
+
 def test_no_model_arg_leaves_model_untouched(cfg):
     mod.apply(str(cfg), {})
     assert read(cfg)["agents"]["defaults"]["model"]["primary"] == BAKED

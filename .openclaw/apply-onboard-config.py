@@ -100,12 +100,15 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
             models = [{}]
             inference["models"] = models
         bare = qualified[len("inference/"):]
-        if models[0].get("id") != bare or models[0].get("name") != qualified:
+        model_changed = models[0].get("id") != bare or models[0].get("name") != qualified
+        if model_changed:
             models[0]["id"] = bare
             models[0]["name"] = qualified
             changes.append(f"models[0] -> {qualified}")
-        # Limits: onboard passes the session values; a value the base image baked
-        # for another model is worse than none, so drop it when unset here.
+        # Limits: onboard passes the session values. A value the base image baked
+        # for *another* model is worse than none, so drop it when unset here - but
+        # only when the model actually changed: the baked limits are right for the
+        # baked model, and onboard does not forward them for it.
         for env_key, cfg_key in (("NEMOCLAW_CONTEXT_WINDOW", "contextWindow"),
                                  ("NEMOCLAW_MAX_TOKENS", "maxTokens")):
             raw = (env.get(env_key) or "").strip()
@@ -113,7 +116,7 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
                 if models[0].get(cfg_key) != int(raw):
                     models[0][cfg_key] = int(raw)
                     changes.append(f"{cfg_key} -> {raw}")
-            elif cfg_key in models[0]:
+            elif model_changed and cfg_key in models[0]:
                 del models[0][cfg_key]
                 changes.append(f"{cfg_key} dropped (baked for another model, none supplied)")
 
