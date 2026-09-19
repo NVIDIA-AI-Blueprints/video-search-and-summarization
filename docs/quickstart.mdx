@@ -126,9 +126,17 @@ quickstart, the deployment host must meet the supported Linux platform,
 GPU, Docker, and NVIDIA Container Toolkit requirements in
 [Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use the
 Ubuntu version listed there; do not substitute a different release.
-The Build Vision AI Skill also requires `uv` for mandatory service-graph checks
-and helper scripts. Without it, deployment can fail even when the remaining
-host checks pass.
+The Build Vision AI Skill needs a Python runner for mandatory service-graph
+checks and helper scripts. `uv` is preferred; Python 3 with PyYAML is also
+supported:
+
+```bash
+# Preferred
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Alternative: use the active Python 3 environment
+python3 -m pip install PyYAML
+```
 
 You can use a remote development environment such as a Brev or Omnistation
 sandbox when that environment exposes the required GPU, Docker Engine, network
@@ -317,11 +325,18 @@ mkdir -p \
   "$VSS_DATA_DIR/data_log/elastic/data" \
   "$VSS_DATA_DIR/data_log/elastic/logs" \
   "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
   "$VSS_DATA_DIR/data_log/redis/data" \
   "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/data_log/vst/clip_storage" \
   "$VSS_DATA_DIR/agent_eval/dataset" \
-  "$VSS_DATA_DIR/agent_eval/results"
-chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+  "$VSS_DATA_DIR/agent_eval/results" \
+  "$VSS_DATA_DIR/models"
+chmod -R a+rwx \
+  "$VSS_DATA_DIR/data_log" \
+  "$VSS_DATA_DIR/agent_eval" \
+  "$VSS_DATA_DIR/models"
 ```
 
 
@@ -529,6 +544,10 @@ RTVI_VLM_MODEL_PATH=none
 </Tabs>
 </Tab>
 <Tab title="L40S">
+
+Shared local LLM/VLM placement is not supported on L40S. Use a dedicated-GPU
+or remote-model layout.
+
 <Tabs>
 <Tab title="Dedicated GPU">
 

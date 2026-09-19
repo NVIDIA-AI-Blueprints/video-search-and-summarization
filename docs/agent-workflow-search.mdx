@@ -164,12 +164,19 @@ mkdir -p \
   "$VSS_DATA_DIR/data_log/elastic/data" \
   "$VSS_DATA_DIR/data_log/elastic/logs" \
   "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/streamer_videos" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
   "$VSS_DATA_DIR/data_log/redis/data" \
   "$VSS_DATA_DIR/data_log/redis/log" \
   "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/data_log/vst/clip_storage" \
   "$VSS_DATA_DIR/agent_eval/dataset" \
-  "$VSS_DATA_DIR/agent_eval/results"
-chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+  "$VSS_DATA_DIR/agent_eval/results" \
+  "$VSS_DATA_DIR/models"
+chmod -R a+rwx \
+  "$VSS_DATA_DIR/data_log" \
+  "$VSS_DATA_DIR/agent_eval" \
+  "$VSS_DATA_DIR/models"
 ```
 
 
