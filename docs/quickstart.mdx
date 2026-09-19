@@ -132,6 +132,9 @@ quickstart, the deployment host must meet the supported Linux platform,
 GPU, Docker, and NVIDIA Container Toolkit requirements in
 [Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use Ubuntu
 24.04.
+The Build Vision AI helper scripts also require `uv` (preferred), or `python3`
+with PyYAML. Without one of these Python runner options, deployment fails during
+Compose normalization.
 
 You can use a remote development environment such as a Brev or Omnistation
 sandbox when that environment exposes the required GPU, Docker Engine, network
@@ -140,27 +143,42 @@ machine can be used as the browser or coding-agent client, but it is not the
 validated Docker Compose deployment host for this quickstart; point the agent at
 a supported Linux deployment host instead.
 
-Install the Build Vision AI Skill before asking the agent to deploy VSS. From the
-VSS Blueprint checkout, ask your coding agent:
+Install the Build Vision AI Skill and the operations Skills before asking the
+agent to deploy or operate VSS. From the VSS Blueprint checkout, ask your coding
+agent:
 
-```text title="Install the Build Vision AI Skill"
-Install only skills/vss-build-vision-ai for this host. Use the host's standard
-skills directory. Symlink the skills/vss-build-vision-ai folder rather than
-copying it so a git pull here keeps the Skill up to date. If it is already
-installed and points at this checkout, leave it unchanged. When done, report the
-registered path.
+```text title="Install the VSS Skills"
+Install skills/vss-build-vision-ai and every Skill under skills/operations for
+this host. Use the host's standard skills directory. Symlink each Skill folder
+rather than copying it so a git pull here keeps the Skills up to date. If a
+Skill is already installed and points at this checkout, leave it unchanged.
+When done, report every registered path.
 ```
 
 The standard Skill locations are:
 
 | Host | Skill path |
 | --- | --- |
-| Codex | `~/.codex/skills/vss-build-vision-ai` |
-| Claude Code | `~/.claude/skills/vss-build-vision-ai` |
-| Other `agentskills.io`-compatible hosts | `~/.agents/skills/vss-build-vision-ai` |
+| Codex | `~/.codex/skills/<skill-name>` |
+| Claude Code | `~/.claude/skills/<skill-name>` |
+| Other `agentskills.io`-compatible hosts | `~/.agents/skills/<skill-name>` |
 
 After installation, start a new coding-agent session from this checkout so the
-agent discovers `vss-build-vision-ai`.
+agent discovers the deployment and operations Skills.
+
+Before deployment, have the credentials required by your choices available:
+
+| Credential | When the Skill asks for it |
+| --- | --- |
+| `NGC_CLI_API_KEY` | Standard VSS image, model, and sample-data access. |
+| `COMPATIBLE_API_KEY` | The default NemoClaw remote endpoint, or another token-protected OpenAI-compatible endpoint. There is no default key. |
+| `NVIDIA_API_KEY` | A model served from `build.nvidia.com`. |
+| `HF_TOKEN` | Gated or rate-limited model downloads from Hugging Face. |
+
+A self-hosted endpoint or **no harness** needs no harness key, although the VSS
+stack can still require NGC and model-download credentials. See
+[Credentials used by the Build Vision AI Skill](/vss/getting-started/prerequisites#credentials-used-by-the-build-vision-ai-skill)
+for the complete decision table.
 
 ## Deploy the base profile
 
@@ -238,6 +256,11 @@ the base profile from the command line.
 export NGC_CLI_API_KEY='<your-ngc-api-key>'
 export HF_TOKEN='<hf-token>'
 
+# Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
+# images on ghcr.io are public and do not require a registry login.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
+
 # View all available options
 # See developer-profiles/dev-profile-base/overrides.env for supported settings.
 ```
@@ -261,6 +284,13 @@ Before starting Compose, complete the host settings and select one hardware
 layout below in `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`.
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
+
+On GB300, DGX Spark, and other SBSA hosts, export
+`VSS_CONTAINER_TAG_SUFFIX=-sbsa` in the shell before running Compose. This
+appends `-sbsa` to the managed RT-CV, RT-Embed, RT-VLM, and Video Summarization
+image tags while preserving the shared `VSS_CONTAINER_TAG` release channel. Do
+not put the suffix in `user-overrides.env`: `containers.env` derives the image
+tags before later env files are read.
 
 **Host-path and service-address overrides (all hardware profiles):**
 
@@ -961,13 +991,11 @@ from natural language.
 <Note>
 Before starting this walkthrough, follow
 [Ask the coding agent to install the Skills](/vss/vision-agent/agent-skills#step-2-ask-the-coding-agent-to-install-the-skills)
-to install `vss-build-vision-ai` and every Skill under `skills/operations/`, then
-start a new coding-agent session so all four Skills below are discovered. The
-deployment-only setup in [Prepare your coding agent](#prepare-your-coding-agent)
-installs only `vss-build-vision-ai` and is not sufficient for the upload, Q&A,
-and report steps. If Build Vision AI provisioned NemoClaw, run those operational
-steps in the NemoClaw session; its Skills are installed inside that sandbox, not
-back into the original coding-agent session. Also confirm your host meets the
+if you have not already completed [Prepare your coding agent](#prepare-your-coding-agent),
+then start a new coding-agent session so all four Skills below are discovered.
+If Build Vision AI provisioned NemoClaw, run the operational steps in the
+NemoClaw session; its Skills are installed inside that sandbox, not back into
+the original coding-agent session. Also confirm your host meets the
 [Prerequisites](/vss/getting-started/prerequisites).
 </Note>
 
@@ -977,7 +1005,7 @@ The base profile journey exercises four skills:
 | --- | --- | --- |
 | Deploy the base profile | `vss-build-vision-ai` | Selects the stock `base` workflow, confirms deployment context, and brings up the base stack. |
 | Upload a video | `vss-manage-video-io-storage` | Ingests files and manages sensors, snapshots, and clips via VIOS/VST. |
-| Ask questions | `vss-ask-video` | Asks the VLM a text question directly through `chat/completions`, on a VIOS clip or a video you supply. |
+| Ask questions | `vss-ask-video` | Routes through conversation context and memory first, then uses `vss vlm run` only for an exact, grounded visual inspection. |
 | Generate a report | `vss-generate-video-report` | Generates a report through Mode A (VIOS clip + direct VLM call) or Mode B (incident query via analytics), depending on the prompt. |
 | Tear down | `vss-build-vision-ai` | Tears down the deployed build and cleans up profile-specific runtime state when needed. |
 
@@ -1055,23 +1083,18 @@ Is the worker in warehouse_safety_0001 wearing PPE?
 **What the agent does:**
 
 1. Loads the `vss-ask-video` skill.
-2. Resolves the video — the clip URL for a named sensor from VIOS, or a file or
-   link you supply — and the VLM endpoint and model, which it reads from the
-   running deployment or takes from `VLM_ENDPOINT` and `VLM_MODEL`.
-3. Sends the question and the video to the VLM in a single
-   `POST <vlm-endpoint>/v1/chat/completions` call — RT-VLM on port `8018`
-   for the `base`, `lvs`, and `alerts` profiles. (Does **not** go through
-   the VSS agent — neither its
-   `video_understanding` tool nor its `/generate` endpoint.)
-4. Returns a grounded natural-language answer. Follow-up questions are
-   supported in the same thread.
+2. Checks hot conversation context, agent Markdown memory, and structured VSS
+   memory before requesting new visual inference.
+3. Uses `vss memory introspect` when introspection is configured. For an exact
+   sensor and time window, pre-resolved media URL, or local file that needs a
+   fresh visual inspection, it uses the project-local `vss vlm run` command.
+4. Returns a grounded answer with the available job or record handles and
+   reports CLI failures by exit code instead of falling back to raw REST.
 
 <Note>
-Because the skill talks to the VLM itself, a run leaves no trace in the VSS
-agent's logs — look at the VLM service when you want to inspect one. The
-agent's own `video_understanding` tool does frame-level VLM analysis and is
-what the VSS UI and the NAT agent workflows call; for that tool and its
-parameters, see [Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration).
+The Skill does not call an OpenAI-compatible `/chat/completions` endpoint or the
+VSS agent's `/generate` endpoint directly. The `vss` CLI owns endpoint discovery,
+media resolution, memory access, and any underlying VLM request.
 </Note>
 
 ### Generate a report
