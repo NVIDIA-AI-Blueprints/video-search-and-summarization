@@ -91,6 +91,223 @@ class TestRTVIVLMAlertInner:
         assert va_input["includes"] == ["category", "info"]
 
     @pytest.mark.asyncio
+    async def test_get_incidents_by_id_uses_exact_lookup(self, mock_builder):
+        config = RTVIVLMAlertConfig(
+            alert_bridge_url="http://localhost:9080",
+            vst_internal_url="http://10.0.0.1:30888",
+            va_get_incidents_tool="va_get_incidents",
+            va_get_incident_tool="va_get_incident",
+        )
+        mock_va_tool = AsyncMock()
+        mock_va_tool.ainvoke.return_value = {
+            "Id": "incident-123",
+            "sensorId": "HWY_20",
+            "timestamp": "2026-01-06T00:00:00.000Z",
+        }
+        mock_builder.get_tool.return_value = mock_va_tool
+
+        inner_fn = await self._get_inner_fn(config, mock_builder)
+        result = await inner_fn(
+            RTVIVLMAlertInput(
+                action="get_incidents",
+                sensor_name="HWY_20",
+                incident_id="incident-123",
+                vlm_verified=True,
+            )
+        )
+
+        assert result.success is True
+        assert result.total_count == 1
+        assert result.incidents == [mock_va_tool.ainvoke.return_value]
+        mock_builder.get_tool.assert_awaited_once()
+        assert mock_builder.get_tool.call_args.args[0] == "va_get_incident"
+        assert mock_va_tool.ainvoke.call_args.kwargs["input"] == {
+            "id": "incident-123",
+            "includes": ["category", "info"],
+            "vlm_verified": True,
+        }
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_by_id_retries_unverified_index_when_qualifier_omitted(self, mock_builder):
+        config = RTVIVLMAlertConfig(
+            alert_bridge_url="http://localhost:9080",
+            vst_internal_url="http://10.0.0.1:30888",
+            va_get_incident_tool="va_get_incident",
+        )
+        ordinary = {
+            "Id": "incident-regular",
+            "sensorId": "HWY_20",
+            "timestamp": "2026-01-06T00:00:00.000Z",
+        }
+        mock_va_tool = AsyncMock()
+
+        def _lookup(input):
+            if input["vlm_verified"] is False:
+                return ordinary
+            return {}
+
+        mock_va_tool.ainvoke.side_effect = lambda input: _lookup(input)
+        mock_builder.get_tool.return_value = mock_va_tool
+
+        inner_fn = await self._get_inner_fn(config, mock_builder)
+        result = await inner_fn(
+            RTVIVLMAlertInput(
+                action="get_incidents",
+                sensor_name="HWY_20",
+                incident_id="incident-regular",
+            )
+        )
+
+        assert result.success is True
+        assert result.total_count == 1
+        assert result.incidents == [ordinary]
+        verified_flags = [call.kwargs["input"]["vlm_verified"] for call in mock_va_tool.ainvoke.await_args_list]
+        assert verified_flags[0] is None
+        assert False in verified_flags
+        assert mock_va_tool.ainvoke.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_by_id_does_not_retry_when_qualifier_set(self, mock_builder):
+        config = RTVIVLMAlertConfig(
+            alert_bridge_url="http://localhost:9080",
+            vst_internal_url="http://10.0.0.1:30888",
+            va_get_incident_tool="va_get_incident",
+        )
+        mock_va_tool = AsyncMock()
+        mock_va_tool.ainvoke.return_value = {}
+        mock_builder.get_tool.return_value = mock_va_tool
+
+        inner_fn = await self._get_inner_fn(config, mock_builder)
+        result = await inner_fn(
+            RTVIVLMAlertInput(
+                action="get_incidents",
+                sensor_name="HWY_20",
+                incident_id="incident-123",
+                vlm_verified=True,
+            )
+        )
+
+        assert result.success is True
+        assert result.total_count == 0
+        assert mock_va_tool.ainvoke.await_count == 1
+        assert mock_va_tool.ainvoke.call_args.kwargs["input"]["vlm_verified"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_by_id_rejects_other_sensor(self, mock_builder):
+        config = RTVIVLMAlertConfig(
+            alert_bridge_url="http://localhost:9080",
+            vst_internal_url="http://10.0.0.1:30888",
+            va_get_incident_tool="va_get_incident",
+        )
+        mock_va_tool = AsyncMock()
+        mock_va_tool.ainvoke.return_value = {"Id": "incident-123", "sensorId": "OTHER_SENSOR"}
+        mock_builder.get_tool.return_value = mock_va_tool
+
+        inner_fn = await self._get_inner_fn(config, mock_builder)
+        result = await inner_fn(
+            RTVIVLMAlertInput(
+                action="get_incidents",
+                sensor_name="HWY_20",
+                incident_id="incident-123",
+            )
+        )
+
+        assert result.success is True
+        assert result.total_count == 0
+        assert result.incidents == []
+        assert "not found" in result.message.lower()
+
+    @pytest.mark.asyncio
+    async def test_get_incidents_by_id_requires_exact_lookup_tool(self, mock_builder):
+        config = RTVIVLMAlertConfig(
+            alert_bridge_url="http://localhost:9080",
+            vst_internal_url="http://10.0.0.1:30888",
+            va_get_incidents_tool="va_get_incidents",
+        )
+
+        inner_fn = await self._get_inner_fn(config, mock_builder)
+        result = await inner_fn(
+            RTVIVLMAlertInput(
+                action="get_incidents",
+                sensor_name="HWY_20",
+                incident_id="incident-123",
+            )
+        )
+
+        assert result.success is False
+        assert "va_get_incident_tool" in result.message
+        mock_builder.get_tool.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_specific_incident_reports_succeed_three_of_three(self, mock_builder):
+        """Reproduce the flaky Generate Report path: three older IDs on one sensor.
+
+        Listing only the newest incident (max_count=1) matches 1/3. Exact ID
+        lookup must return the requested document for every ID.
+        """
+        sensor = "sample-warehouse-ladder"
+        requested_ids = (
+            "72ac8fd288f681cde89cffa602cf466f2d2080d1",
+            "06796dc8a1b5bdbee6516b6dfb1e1a2adef03ae2",
+            "b6634aa9a92a5b647d8dd2985c8931b43ebe4420",
+        )
+        newest = {
+            "Id": "b4b576b24bb73d1b628f030ce2a10b42416341ea",
+            "sensorId": sensor,
+            "timestamp": "2026-08-27T12:45:36.652Z",
+        }
+        catalog = {
+            incident_id: {
+                "Id": incident_id,
+                "sensorId": sensor,
+                "timestamp": f"2026-08-27T03:4{idx}:27.140Z",
+            }
+            for idx, incident_id in enumerate(requested_ids)
+        }
+
+        list_tool = AsyncMock()
+        list_tool.ainvoke.return_value = {"incidents": [newest], "has_more": True}
+        get_tool = AsyncMock()
+        get_tool.ainvoke.side_effect = lambda input: catalog[input["id"]]
+
+        async def _get_tool(name, wrapper_type=None):
+            return get_tool if name == "va_get_incident" else list_tool
+
+        mock_builder.get_tool.side_effect = _get_tool
+        config = RTVIVLMAlertConfig(
+            alert_bridge_url="http://localhost:9080",
+            vst_internal_url="http://10.0.0.1:30888",
+            va_get_incidents_tool="va_get_incidents",
+            va_get_incident_tool="va_get_incident",
+        )
+        inner_fn = await self._get_inner_fn(config, mock_builder)
+
+        list_hits = 0
+        exact_hits = 0
+        for incident_id in requested_ids:
+            listed = await inner_fn(
+                RTVIVLMAlertInput(action="get_incidents", sensor_name=sensor, max_count=1)
+            )
+            listed_ids = [incident.get("Id") for incident in listed.incidents or []]
+            if incident_id in listed_ids:
+                list_hits += 1
+
+            found = await inner_fn(
+                RTVIVLMAlertInput(
+                    action="get_incidents",
+                    sensor_name=sensor,
+                    incident_id=incident_id,
+                    vlm_verified=True,
+                )
+            )
+            if found.success and found.total_count == 1 and found.incidents[0]["Id"] == incident_id:
+                exact_hits += 1
+
+        assert list_hits == 0
+        assert exact_hits == 3
+        assert get_tool.ainvoke.await_count == 3
+
+    @pytest.mark.asyncio
     async def test_get_incidents_string_result(self, mock_builder):
         config = RTVIVLMAlertConfig(
             alert_bridge_url="http://localhost:9080",
