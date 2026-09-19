@@ -128,33 +128,73 @@ printenv NGC_CLI_API_KEY | docker login nvcr.io --username '$oauthtoken' --passw
 
 > **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key. Use `printenv NGC_CLI_API_KEY | docker login … --password-stdin` — do **not** `echo "$NGC_CLI_API_KEY"` (that expands the secret into echo's argv). Keep the key out of any file you write.
 
-### Step 2 — (Optional) Stage the VGGT model
+### Step 2 — Stage the VGGT model when required
 
-Skip this step unless the user explicitly asks for independent VGGT calibration. For automated or noninteractive deployment checks where a real HuggingFace token and accepted license are not available, do not attempt a model download; report that VGGT staging needs those prerequisites and continue with the normal non-VGGT AMC deployment path.
+Explicit multi-camera tuning counts as a request for VGGT. For ordinary calibration or deployment, skip this step unless the user asks for VGGT. For automated checks without accepted model access, do not attempt the gated download or claim the model exists.
 
-**2a. Accept the model license** (one-time, manual): visit https://huggingface.co/facebook/VGGT-1B-Commercial and click "Agree and access repository".
-
-**2b. Get a HuggingFace read token**: https://huggingface.co/settings/tokens (starts with `hf_…`). Ask the user for it via `AskUserQuestion`.
-
-**2c. Download into the VSS data dir**:
+First check the model path used by the VSS deployment:
 
 ```bash
-# venv with huggingface_hub
-python3 -m venv /tmp/amc-hf-venv
-/tmp/amc-hf-venv/bin/pip install --quiet huggingface_hub
-
-# Download into the path the MS expects to mount
-mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
-/tmp/amc-hf-venv/bin/hf download facebook/VGGT-1B-Commercial \
-  --local-dir "${VSS_DATA_DIR}/auto-calib/vggt/" \
-  --token <HF_TOKEN>
-
-# Verify
-ls -lh "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
-# Should show ~4.7GB file
+test -s "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
 ```
 
-> **Do not log or echo the HuggingFace token value.** Pass it inline to the `hf` CLI via `--token` rather than storing it on disk or in shell history.
+If the model is missing, check the Hugging Face CLI:
+
+```bash
+command -v hf && hf --help
+```
+
+If `hf` is missing or `hf --help` fails, install it immediately instead of asking the user to install `pip` or run an installation command. Prefer an isolated `uv` tool installation when `uv` is available:
+
+```bash
+HF_BIN_DIR="$(uv tool dir --bin)"
+export PATH="${HF_BIN_DIR}:$PATH"
+if ! command -v hf >/dev/null 2>&1 || ! hf --help >/dev/null 2>&1; then
+  uv tool install --force huggingface_hub
+fi
+```
+
+If `uv` is unavailable, use `pipx`; do not depend on `pip` or a writable system/user Python environment. On the supported Ubuntu host, install `pipx` through APT when it is absent, then install the CLI in its isolated environment:
+
+```bash
+if ! command -v pipx >/dev/null 2>&1; then
+  sudo apt-get update
+  sudo apt-get install -y pipx
+fi
+pipx ensurepath
+HF_BIN_DIR="$(pipx environment --value PIPX_BIN_DIR 2>/dev/null || true)"
+HF_BIN_DIR="${HF_BIN_DIR:-${HOME}/.local/bin}"
+export PATH="${HF_BIN_DIR}:$PATH"
+if ! command -v hf >/dev/null 2>&1 || ! hf --help >/dev/null 2>&1; then
+  pipx install --force huggingface_hub --include-deps
+fi
+```
+
+Run the checks and installation commands yourself. Pause only when privilege elevation needs user action or an installer fails; in that case, report the failing command and wait for the user to resolve that one blocker. Do not use `python3 -m pip install --user`, `--break-system-packages`, or `sudo pip`: Ubuntu's externally managed Python can reject or be damaged by those paths.
+
+After either installation path, verify the installed executable in the current shell:
+
+```bash
+command -v hf
+hf --help >/dev/null
+echo "Hugging Face CLI is ready"
+```
+
+Do not continue until both checks succeed. Do not show the token/download action alongside CLI installation, and do not assume `pipx ensurepath` changed the current shell; explicitly prepend the resolved binary directory as shown above.
+
+Once the CLI works, direct the user to accept the model terms at https://huggingface.co/facebook/VGGT-1B-Commercial and create a read token at https://huggingface.co/settings/tokens. Then present only this action and wait for a successful download:
+
+```bash
+mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
+read -rsp "Hugging Face token: " HF_TOKEN; printf '\n'
+export HF_TOKEN
+hf download facebook/VGGT-1B-Commercial vggt_1B_commercial.pt \
+  --local-dir "${VSS_DATA_DIR}/auto-calib/vggt"
+unset HF_TOKEN
+test -s "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
+```
+
+Never ask the user to paste the token into chat or put it directly in command arguments. If the backend was already running, restart the Auto Calibration service, wait for `/v1/ready`, and confirm a verified multi-camera project reports `vggt_state == READY` before tuning.
 
 ### Step 2b — If VIOS is already running, confirm `VIOS_BASE_URL`
 
