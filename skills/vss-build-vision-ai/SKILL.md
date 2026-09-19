@@ -287,6 +287,8 @@ Otherwise ask **Q3a-default** through one single-select `AskUserQuestion`: *"Whi
 | **The default endpoint, a different model** | The same settings, except collect `NEMOCLAW_MODEL` as a route id that endpoint serves (listed at <https://inference.nvidia.com/?new=0>). Do not ask for the endpoint and do not re-select a provider. |
 | **A different provider** | Ask **Q3a-provider** below. |
 
+**On edge hardware — DGX Spark or AGX/IGX Thor — whose VSS LLM resolved to `local` or `local_shared`, add one more choice and make it the recommended default: the build's own LLM.** Offer it as the first option, still let the user take any other, and take it only when they do. It reuses the edge device's existing model server rather than adding a remote dependency, and it is the `references/agent-harness.md` route *(a) against the build's own LLM NIM* — read `LLM_PORT` and `NIM_SERVED_MODEL_NAME` from `resolved.yml` rather than assuming either. Do not offer it on non-edge hardware or against a remote VSS LLM; there Q3a stays the three choices above with Claude Opus 5 as the default.
+
 On **a different provider**, show the notebook's three provider choices through one single-select `AskUserQuestion`:
 
 | Choice | What to set |
