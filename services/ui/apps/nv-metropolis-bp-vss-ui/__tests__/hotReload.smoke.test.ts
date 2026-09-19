@@ -10,19 +10,24 @@ jest.mock('next-runtime-env/build/configure', () => ({
 
 const appRoot = path.resolve(__dirname, '..');
 
-const HOT_RELOAD_PACKAGES: Record<string, string> = {
-  common: path.join('common', 'lib-src'),
-  '@nv-metropolis-bp-vss-ui/alerts': path.join('nv-metropolis-bp-vss-ui', 'alerts', 'lib-src'),
-  '@nv-metropolis-bp-vss-ui/search': path.join('nv-metropolis-bp-vss-ui', 'search', 'lib-src'),
-  '@nv-metropolis-bp-vss-ui/dashboard': path.join('nv-metropolis-bp-vss-ui', 'dashboard', 'lib-src'),
-  '@nv-metropolis-bp-vss-ui/map': path.join('nv-metropolis-bp-vss-ui', 'map', 'lib-src'),
-  '@nv-metropolis-bp-vss-ui/video-management': path.join(
-    'nv-metropolis-bp-vss-ui',
-    'video-management',
-    'lib-src'
-  ),
-  '@nv-metropolis-bp-vss-ui/all': path.join('nv-metropolis-bp-vss-ui', 'all', 'lib-src'),
-};
+/**
+ * Every workspace package the app edits during development, with the webpack
+ * alias key that points it at source. `chat` uses an exact-match key so the
+ * `/styles` subpath still resolves to the built stylesheet.
+ */
+const HOT_RELOAD_PACKAGES: { name: string; aliasKey: string; src: string }[] = [
+  { name: 'common', aliasKey: 'common', src: path.join('common', 'lib-src') },
+  ...['alerts', 'search', 'dashboard', 'map', 'video-management', 'all'].map((pkg) => ({
+    name: `@nv-metropolis-bp-vss-ui/${pkg}`,
+    aliasKey: `@nv-metropolis-bp-vss-ui/${pkg}`,
+    src: path.join('nv-metropolis-bp-vss-ui', pkg, 'lib-src'),
+  })),
+  {
+    name: '@nv-metropolis-bp-vss-ui/chat',
+    aliasKey: '@nv-metropolis-bp-vss-ui/chat$',
+    src: path.join('nv-metropolis-bp-vss-ui', 'chat', 'lib-src'),
+  },
+];
 
 function loadNextConfig() {
   // next.config.js is CommonJS and loads next-runtime-env at require time.
@@ -47,7 +52,7 @@ describe('hot reload smoke', () => {
   it('transpiles workspace packages from source', () => {
     const nextConfig = loadNextConfig();
     expect(nextConfig.transpilePackages).toEqual(
-      expect.arrayContaining(Object.keys(HOT_RELOAD_PACKAGES))
+      expect.arrayContaining(HOT_RELOAD_PACKAGES.map((pkg) => pkg.name))
     );
   });
 
@@ -62,10 +67,9 @@ describe('hot reload smoke', () => {
 
     expect(devConfig.resolve.alias.preexisting).toBe('/keep');
 
-    for (const [pkgName, relativeSrc] of Object.entries(HOT_RELOAD_PACKAGES)) {
-      const aliasPath = devConfig.resolve.alias[pkgName];
-      const expected = path.join(packagesPath, relativeSrc);
-      expect(aliasPath).toBe(expected);
+    for (const { aliasKey, src } of HOT_RELOAD_PACKAGES) {
+      const aliasPath = devConfig.resolve.alias[aliasKey];
+      expect(aliasPath).toBe(path.join(packagesPath, src));
       expect(fs.existsSync(aliasPath)).toBe(true);
       expect(fs.existsSync(path.join(aliasPath, 'index.ts'))).toBe(true);
     }
@@ -75,8 +79,21 @@ describe('hot reload smoke', () => {
       { isServer: false, dev: false }
     );
     expect(prodConfig.resolve.alias.preexisting).toBe('/keep');
-    for (const pkgName of Object.keys(HOT_RELOAD_PACKAGES)) {
-      expect(prodConfig.resolve.alias[pkgName]).toBeUndefined();
+    for (const { aliasKey } of HOT_RELOAD_PACKAGES) {
+      expect(prodConfig.resolve.alias[aliasKey]).toBeUndefined();
     }
+  });
+
+  it('leaves the chat stylesheet subpath to the package exports', () => {
+    const nextConfig = loadNextConfig();
+    const devConfig = nextConfig.webpack(
+      { resolve: { alias: {} } },
+      { isServer: false, dev: true }
+    );
+
+    // A non-exact key would rewrite '@nv-metropolis-bp-vss-ui/chat/styles'
+    // (imported by _app.tsx) to a lib-src path that does not exist.
+    expect(devConfig.resolve.alias['@nv-metropolis-bp-vss-ui/chat']).toBeUndefined();
+    expect(devConfig.resolve.alias['@nv-metropolis-bp-vss-ui/chat$']).toBeDefined();
   });
 });
