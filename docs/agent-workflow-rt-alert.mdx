@@ -327,9 +327,12 @@ after it has been copied do not affect a command that reads
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
-# View all available options
-# See developer-profiles/dev-profile-alerts/overrides.env for supported settings.
 ```
+
+See [Configuration](/vss/system-components/configuration) for common variables,
+valid values, defaults, and env-file precedence. The complete profile-specific
+template is
+`deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`.
 
 `overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching

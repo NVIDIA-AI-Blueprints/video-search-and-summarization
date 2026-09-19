@@ -1,5 +1,136 @@
 ---
 title: "Configuration"
-description: ""
+description: "Environment-variable reference for VSS developer-profile deployments"
 position: 6
 ---
+
+This page describes the common environment variables used by the `base`,
+`alerts`, `search`, and `lvs` Docker Compose developer profiles. Use it
+with the hardware-specific values in the corresponding deployment guide.
+
+For warehouse deployments, use the
+[Warehouse Quick Start](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart).
+Warehouse has
+additional modes, datasets, brokers, and calibration requirements.
+
+## Configuration files and precedence
+
+Run developer-profile Compose commands from `deploy/docker` and supply files
+in this order:
+
+1. `containers.env` selects the shared image registry and tag.
+2. `developer-profiles/dev-profile-<profile>/.env` supplies stable defaults.
+3. A local `*-overrides.env` file supplies host, hardware, and model choices.
+
+Start the local file from the checked-in template:
+
+```bash
+PROFILE=base  # Choose base, alerts, search, or lvs.
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
+```
+
+Later `--env-file` arguments take precedence. Update an existing variable in
+`user-overrides.env` instead of appending a duplicate. Variables such as
+`COMPOSE_PROFILES` refer to model-mode and model-slug values defined earlier
+in the file, so keep those definitions before the derived value.
+
+Files matching `*-overrides.env` are ignored by Git. Do not put credentials
+in the checked-in `.env` or `overrides.env` files.
+
+<Note>
+`VSS_CONTAINER_TAG_SUFFIX` is an exception to the file-based workflow. On
+SBSA hosts such as GB300 and DGX Spark, export
+`VSS_CONTAINER_TAG_SUFFIX=-sbsa` before running Compose. `containers.env`
+derives the applicable image tags before later env files are read.
+</Note>
+
+## Profile selection
+
+| Variable | Meaning | Default and valid values | Profiles |
+| --- | --- | --- | --- |
+| `MODE` | Selects the workflow variant inside a profile; it does not select the profile directory. | `base`, `search`, and `lvs`: `2d`. `alerts`: `2d_cv` for alert verification or `2d_vlm` for real-time VLM alerts. | All |
+| `HARDWARE_PROFILE` | Selects hardware-specific NIM, RT-VLM, and perception settings. | Default: `H100`. Use a value supported by the selected workflow in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements). | All |
+| `COMPOSE_PROFILES` | Comma-separated Compose service profiles that form the deployment. | Defined by each profile template. Preserve the checked-in expression unless intentionally changing the service graph. | All |
+| `COMPOSE_PROFILES_CV` | Service list for Alerts verification. | Defined by the Alerts template; select it with `COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}`. | Alerts |
+| `COMPOSE_PROFILES_VLM` | Service list for real-time Alerts. | Defined by the Alerts template; select it with `COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}`. | Alerts |
+
+The profile directory and `MODE` are separate choices. For example,
+`dev-profile-alerts` accepts `MODE=2d_cv` or `MODE=2d_vlm`; setting
+`MODE=alerts` is not valid.
+
+## Model placement and endpoints
+
+| Variable | Meaning | Default and valid values | Profiles |
+| --- | --- | --- | --- |
+| `LLM_MODE` | Chooses LLM placement. | Default: `local_shared`. Valid values: `local_shared` for a shared GPU, `local` for a dedicated local GPU, or `remote` for an external endpoint. | All |
+| `VLM_MODE` | Chooses VLM placement. | Default: `local_shared`. Valid values: `local_shared`, `local`, or `remote`. Developer profiles route local VLM inference through RT-VLM. | All |
+| `LLM_NAME` | Model ID served by the local or remote LLM endpoint. | Default: `nvidia/nemotron-3.5-lightning-30b-a3b`. For a remote endpoint, use an ID returned by `/v1/models`. | All |
+| `LLM_NAME_SLUG` | Selects the local `llm_<mode>_<slug>` Compose service. | Default: `nemotron-3.5-lightning-30b-a3b`. Set to `none` for a remote LLM. | All |
+| `LLM_BASE_URL` | LLM endpoint root. | Local default: `http://vss-llm-nim:8000`. For a remote endpoint, omit a trailing `/v1`. | All |
+| `VLM_NAME` | Model ID advertised by RT-VLM or a remote VLM endpoint. | The local default is the profile's Cosmos3 Nano Reasoner ID. For a remote endpoint, use an ID returned by `/v1/models`. | All |
+| `VLM_NAME_SLUG` | Selects a standalone local VLM NIM Compose service. | Integrated RT-VLM and remote VLM configurations use `none`. | All |
+| `VLM_BASE_URL` | VLM endpoint root. | Integrated RT-VLM default: `http://rtvi-vlm:8000`. For a remote endpoint, omit a trailing `/v1`. | All |
+| `LLM_DEVICE_ID` | GPU assigned to a local LLM. | Hardware- and layout-specific integer; ignored for a remote LLM. | All |
+| `VLM_DEVICE_ID` | GPU assigned to a standalone local VLM NIM when selected. | Hardware- and layout-specific integer. | All |
+| `RT_VLM_DEVICE_ID` | GPU assigned to integrated RT-VLM. | Hardware- and layout-specific integer. | All |
+
+When using a remote model, update the mode, name, slug, base URL, model type,
+and related RT-VLM values together. See
+[Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm)
+and
+[Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm)
+for complete examples.
+
+## RT-VLM settings
+
+| Variable | Meaning | Default and valid values | Profiles |
+| --- | --- | --- | --- |
+| `RTVI_VLM_MESSAGE_BUS` | Selects the generated-output message bus. | Compose default: `kafka`. An empty value disables the generated-output bus. | Profiles containing `rtvi-vlm` |
+| `RTVI_VLM_KAFKA_ENABLED` | Legacy compatibility field still forwarded by Compose. | Compose default: `true`; Base, Search, and Alerts templates set `false`. Set `true` with `RTVI_VLM_MESSAGE_BUS=kafka` for real-time Alerts. Keep `false` for Alerts verification. | Profiles containing `rtvi-vlm` |
+| `RTVI_VLM_MODEL_PATH` | Model artifact loaded by integrated RT-VLM. | Base, Alerts, and LVS default to the Cosmos3 Nano Reasoner BF16 NGC path; Search uses its optimized path. Set to `none` when RT-VLM proxies a remote VLM. | Profiles containing `rtvi-vlm` |
+| `RTVI_VLM_ENDPOINT` | Endpoint passed to RT-VLM's VLM adapter. | Base, Search, and LVS leave this empty while loading a local model; the Alerts template uses `http://rtvi-vlm:8000/v1`. For a remote VLM, use `<VLM_BASE_URL>/v1`. | Profiles containing `rtvi-vlm` |
+| `RTVI_VLM_MODEL_TO_USE` | Selects RT-VLM's inference adapter. | Local integrated default: `cosmos-reason3`. Use `openai-compat` for a remote OpenAI-compatible VLM. | Profiles containing `rtvi-vlm` |
+
+For real-time Alerts, also set `MODE=2d_vlm`,
+`ALERT_AGENT_ALWAYS_ON=true`, and
+`COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}`. For alert verification, use
+`MODE=2d_cv`, `ALERT_AGENT_ALWAYS_ON=false`, and
+`COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}`.
+
+## Host paths and ingress
+
+| Variable | Meaning | Default and valid values | Profiles |
+| --- | --- | --- | --- |
+| `VSS_APPS_DIR` | Absolute path to this checkout's `deploy/docker` directory. | Required; replace the template placeholder. | All |
+| `VSS_DATA_DIR` | Absolute directory for models, uploaded media, databases, and logs. | Required; replace the placeholder and prepare the workflow's directories before starting Compose. | All |
+| `HOST_IP` | Hostname or IP used for directly published services. | Required; replace `<HOST_IP>`. | All |
+| `EXTERNAL_IP` | Public hostname or IP used in generated URLs. | Default: `${HOST_IP}`. Use the externally reachable address on a remote host. | All |
+| `HAPROXY_HOST_PORT` | Host port for the shared VSS ingress. | Default: `7777`. | All |
+| `VSS_PUBLIC_HTTP_PROTOCOL` | Scheme used in generated HTTP URLs. | Default: `http`; use `https` behind TLS or a secure-link ingress. | All |
+| `VSS_PUBLIC_WS_PROTOCOL` | Scheme used in generated WebSocket URLs. | Default: `ws`; use `wss` behind TLS or a secure-link ingress. | All |
+| `VSS_PUBLIC_HOST` | Public host used in generated service URLs. | Default: `${EXTERNAL_IP}`. | All |
+| `VSS_PUBLIC_PORT` | Public ingress port used in generated service URLs. | Default: `${HAPROXY_HOST_PORT}`; secure-link ingress commonly uses `443`. | All |
+
+Each profile template also defines service-specific published ports. Change
+those values only when a default host port conflicts with another local
+service.
+
+## Validate the effective configuration
+
+Use the same environment-file sequence for validation and startup:
+
+```bash
+PROFILE=base  # Choose base, alerts, search, or lvs.
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+```
+
+Use `config --environment` to inspect interpolation and `config --services`
+to inspect selected services without starting containers. `config --quiet`
+validates the Compose model and environment values but does not pull images,
+validate registry entitlements, create missing host directories, or test
+service health.
