@@ -652,6 +652,29 @@ describe('ChatPanel', () => {
     );
   });
 
+  it('reports a clean EOF without DONE as an interrupted response', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      sseResponse([
+        'intermediate_data: {"id":"1","name":"vss-search-archive","status":"in_progress"}\n',
+        'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
+      ]),
+    ) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('search'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/backend event stream ended before the response completed/),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByText(/Intermediate steps \(1\)/));
+    expect(screen.getByText('vss-search-archive').closest('li')).toHaveAttribute(
+      'data-status',
+      'error',
+    );
+  });
+
   it('keeps workflow children visible when a start frame is replaced by completion', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       sseResponse([

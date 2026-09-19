@@ -342,6 +342,9 @@ export function useChatStream(
             await consume(parser.feed(decoder.decode(value, { stream: true })));
           }
           await consume([...parser.feed(decoder.decode()), ...parser.finish()]);
+          if (!agentTerminal && !failed) {
+            throw new Error('backend event stream ended before the response completed');
+          }
         }
 
         // An upload auto-prompt whose conversation the user has since left
