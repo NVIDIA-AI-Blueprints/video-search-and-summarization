@@ -3,7 +3,6 @@
 #
 # Standalone install example: VLM model loads in this pod (useSharedNim: false).
 # Prerequisites in the target namespace:
-#   - docker-registry secret for nvcr.io (e.g. nvcr-pull-secret)
 #   - generic secret for NGC_API_KEY (e.g. ngc-api, key NGC_API_KEY)
 #
 #   helm upgrade --install vss-rtvi-vlm . -n <ns> -f values-standalone.yaml
@@ -24,8 +23,6 @@ hfTokenSecret:
 
 global:
   useReleaseNamePrefix: false
-  imagePullSecrets:
-    - name: ngc-image-pull-secret
   ngcApiSecret:
     name: ngc-api
     key: NGC_API_KEY

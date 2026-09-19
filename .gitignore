@@ -28,6 +28,7 @@ nemoclaw.env
 # path and an internal IP; untracking it removes that failure mode.
 services/analytics/behavior-analytics/tests/integration/docker_compose/infra/.env
 services/analytics/video-analytics-api/test/integration-test/docker_compose/infra/.env
+/services/rtvi/rt-vlm/docker/.env
 
 *.log
 *checkpoint.*

@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 START_SCRIPT = Path(__file__).parents[1] / "start_rtvi_vlm.sh"
+SRC_START_SCRIPT = Path(__file__).parents[1] / "src/scripts/start_rtvi_vlm.sh"
 REPO_ROOT = START_SCRIPT.parent
 RUNTIME_VALIDATOR_PATH = "rtvi/utils/env_validation.py"
 SOURCE_VALIDATOR_PATH = "src/utils/env_validation.py"
@@ -28,6 +29,13 @@ def _create_runtime_layout(root: Path) -> None:
     validator = root / RUNTIME_VALIDATOR_PATH
     validator.parent.mkdir(parents=True)
     shutil.copy2(REPO_ROOT / "src/utils/env_validation.py", validator)
+
+
+def _start_server_function(path: Path) -> str:
+    script = path.read_text(encoding="utf-8")
+    return "start_rtvi_server() {" + script.split("start_rtvi_server() {", 1)[1].split(
+        "\nstart_processes() {", 1
+    )[0]
 
 
 def _run_entrypoint_defaults(
@@ -231,3 +239,80 @@ def test_environment_validator_is_packaged_for_runtime_and_public_release() -> N
     entrypoint = START_SCRIPT.read_text(encoding="utf-8")
     assert f"python3 {RUNTIME_VALIDATOR_PATH}" in entrypoint
     assert f"python3 {SOURCE_VALIDATOR_PATH}" in entrypoint
+
+
+def _run_start_server(**overrides: str) -> list[str]:
+    start_server = _start_server_function(START_SCRIPT)
+    with tempfile.NamedTemporaryFile() as capture:
+        env = {
+            "PATH": os.environ["PATH"],
+            "CAPTURE": capture.name,
+            "MODE": "development",
+            "VLM_MODEL_TO_USE": "cosmos-reason3",
+            "MODEL_PATH": "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final",
+            "MODEL_IMPLEMENTATION_PATH": "",
+            "RTVI_EXTRA_ARGS": "",
+            "VLM_MODEL_SUPPORTS_AUDIO": "false",
+            "RTVI_IPC_FRAME_COPY": "false",
+            "ENABLE_NSYS_PROFILER": "false",
+            "BACKEND_PORT": "8000",
+            "NUM_GPUS": "1",
+            "VLM_BATCH_SIZE": "3",
+            "ASSET_STORAGE_DIR": "/tmp/assets",
+            "NUM_NVDEC_ENGINES": "8",
+            "MAX_ASSET_STORAGE_SIZE_GB": "",
+            "NUM_VLM_PROCS": "",
+            "VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK": "",
+            "VLM_USE_FPS_FOR_CHUNKING": "",
+            "MESSAGE_BUS": "",
+            "MESSAGE_BUS_TOPIC": "",
+            "ERROR_BUS": "",
+            "KAFKA_BOOTSTRAP_SERVERS": "",
+            **overrides,
+        }
+        stubs = r'''
+python3() { printf '%s\n' "$@" > "$CAPTURE"; }
+check_rtvi_process_status() { wait; }
+'''
+        subprocess.run(
+            ["bash", "-c", stubs + start_server + "\nstart_rtvi_server"],
+            check=True,
+            capture_output=True,
+            cwd=START_SCRIPT.parent,
+            env=env,
+            text=True,
+        )
+        capture.seek(0)
+        return [line.decode().rstrip("\n") for line in capture.readlines()]
+
+
+def test_ipc_environment_is_forwarded_without_splitting_values() -> None:
+    args = _run_start_server(
+        RTVI_IPC_FRAME_COPY="On",
+        RTVI_IPC_SOCKET_DIR="/tmp/ipc sockets",
+        RTVI_IPC_SOCKET_TEMPLATE="frame {camera_id} copy.sock",
+        VLM_MODEL_SUPPORTS_AUDIO="true",
+    )
+
+    assert "--enable-audio" in args
+    assert args[args.index("--ipc-socket-dir") + 1] == "/tmp/ipc sockets"
+    assert (
+        args[args.index("--ipc-socket-template") + 1]
+        == "frame {camera_id} copy.sock"
+    )
+
+
+def test_ipc_defaults_and_disabled_behavior() -> None:
+    disabled_args = _run_start_server()
+    enabled_args = _run_start_server(RTVI_IPC_FRAME_COPY="TRUE")
+
+    assert "--ipc-frame-copy" not in disabled_args
+    assert enabled_args[enabled_args.index("--ipc-socket-dir") + 1] == "/run/rtvi-ipc"
+    assert (
+        enabled_args[enabled_args.index("--ipc-socket-template") + 1]
+        == "nvds_ipc_{camera_id}.sock"
+    )
+
+
+def test_launcher_copies_remain_identical() -> None:
+    assert _start_server_function(START_SCRIPT) == _start_server_function(SRC_START_SCRIPT)
