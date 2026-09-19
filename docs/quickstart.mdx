@@ -113,18 +113,10 @@ Perform this on the machine where you intend to deploy the agent.
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
+git checkout tags/v3.3.0
 git lfs install
 git lfs pull
 ```
-
-<Note>
-**Supported checkout for VSS 3.3.0:** use the `develop` branch until a `v3.3.0`
-GitHub tag is published. `release_metadata.yaml` in this branch is `3.3.0`. The
-last GA tag, `v3.2.1`, does not contain `deploy/docker/containers.env` or the
-per-profile `overrides.env` templates used by these commands. Sample-data NGC
-resource versions (for example `dev-profile-sample-data:3.2.0`) are independent
-of the Git tag.
-</Note>
 
 ## Prepare your coding agent
 

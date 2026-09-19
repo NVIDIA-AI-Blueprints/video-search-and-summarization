@@ -11,7 +11,7 @@ real-time video understanding capabilities using Vision Language Models
 (VLM). It enables users to generate captions, process live video streams,
 and manage live streams through a comprehensive set of REST endpoints.
 
-For the 3.3.0 `develop` Compose stack, RT-VLM is selected by `deploy/docker/containers.env`:
+For the VSS 3.3.0 Compose stack, RT-VLM is selected by `deploy/docker/containers.env`:
 
 - `VSS_CONTAINER_REGISTRY` defaults to `ghcr.io/nvidia-ai-blueprints/vss`
 - `VSS_CONTAINER_TAG` defaults to `develop-latest`
@@ -259,12 +259,12 @@ Edition** using two `MIG 2g.48gb` instances on one physical GPU.
 
 ### Quick Start
 
-Clone the blueprint repository from the `develop` branch until the `v3.3.0`
-release tag is published:
+Clone the blueprint repository and check out the release tag:
 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
+git checkout tags/v3.3.0
 ```
 
 Then follow the Docker Compose or Helm Chart section below. The RTVI-VLM
