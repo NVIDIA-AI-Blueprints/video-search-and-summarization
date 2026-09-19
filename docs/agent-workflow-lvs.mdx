@@ -822,39 +822,31 @@ Once deployed, the following services are available:
 
 The Video Summarization profile defaults to **Cosmos3 Nano Reasoner** as the VLM.
 To swap in **Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8** for audio-aware
-summarization, edit `deploy/docker/developer-profiles/dev-profile-lvs/.env`
-and set the following variables (replace `<your_hf_token>` with your Hugging
-Face token):
+summarization, export your Hugging Face token in the shell that will run Docker
+Compose:
 
 ```bash
+export HF_TOKEN='<your_hf_token>'
+```
+
+Then uncomment or update these entries in
+`deploy/docker/developer-profiles/dev-profile-lvs/user-overrides.env`:
+
+```ini
 RTVI_VLM_MODEL_TO_USE=vllm-compatible
 RTVI_VLM_MODEL_PATH='git:https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8'
+VLM_NAME=Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
 VLM_MODEL_SUPPORTS_AUDIO=true
 VLM_TRUST_REMOTE_CODE=true
 INSTALL_PROPRIETARY_CODECS=true
-HF_TOKEN=<your_hf_token>
-```
-
-Also, turn on the `ENABLE_AUDIO` flag in the same file:
-
-```bash
 ENABLE_AUDIO=true
-```
-
-In addition, update the model name at the top of the same file:
-
-```bash
-VLM_NAME=Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
-```
-
-`RTVI_VLLM_GPU_MEMORY_UTILIZATION` is hardware- and placement-dependent. For this
-Nemotron-3-Nano-Omni example, set the following value in
-`deploy/docker/developer-profiles/dev-profile-lvs/user-overrides.env`, then rerun the
-full Docker Compose command from Step 1:
-
-```ini
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.45
 ```
+
+Keep the template's `HF_TOKEN=${HF_TOKEN:-}` entry unchanged so Compose reads
+the exported credential without storing it in a repository file.
+`RTVI_VLLM_GPU_MEMORY_UTILIZATION` is hardware- and placement-dependent; `0.45`
+is the value for this example. Rerun the full Docker Compose command from Step 1.
 
 After the deployment is complete, verify with:
 

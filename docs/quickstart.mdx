@@ -784,6 +784,12 @@ Switch profiles by changing the `dev-profile-<profile>` directory, not by settin
 
 - [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent) — `MODE=2d_cv`
 - [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#step-1-deploy-the-agent) — `MODE=2d_vlm`
+
+For a manual alerts deployment, setting `MODE` alone is not sufficient. Follow
+the linked workflow and copy its complete common override block into
+`dev-profile-alerts/user-overrides.env`; that block selects the matching
+service set, message-bus behavior, and agent/UI settings together.
+
 </Note>
 
 ### Verify the manual in-stack Agent deployment
