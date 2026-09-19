@@ -127,6 +127,9 @@ independent of the index inventory.
    it is correct regardless of ingestion order.
 
 3. Decompose the request before choosing a path; do not pick by surface form.
+   Before changing or splitting it, preserve the user's exact sentence as
+   `ORIGINAL_QUERY`. Retrieval may use the decomposed query, attributes, or
+   object IDs, but critic verification must receive this original wording.
    `run embed` accepts any sentence, so being one sentence is not evidence for
    embed. Separate each specific detectable property (`white jacket`, `red hard
    hat`) from the actions/relations only embeddings capture, then choose:
@@ -153,6 +156,7 @@ independent of the index inventory.
 ```bash
 : "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
 : "${SOURCE_TYPE:?set video_file or rtsp}"
+: "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"
 TOP_K="${TOP_K:-3}"
 VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object/tag
 : "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
@@ -162,7 +166,8 @@ if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
 fi
 SEARCH_COMMAND=(
   "${VSS[@]}" search run "${SEARCH_PATH}"
-  --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}" --raw
+  --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}"
+  --original-query "${ORIGINAL_QUERY}" --raw
 )
 for source in "${VIDEO_SOURCES[@]}"; do
   SEARCH_COMMAND+=(--video-source "${source}")
