@@ -48,6 +48,9 @@ The following software must be installed on your system:
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
 - **NGC CLI:** 4.10.0+
+- **Python runner for Build Vision AI:** `uv` (preferred), or `python3` with
+  PyYAML installed. Without one of these options, Compose normalization fails
+  even when the remaining host checks pass.
 
 <Note>
 For detailed installation instructions for the software requirements listed above, see the [Appendix](/vss/getting-started/prerequisites#appendix-software-prerequisites-installation-guide):
@@ -219,8 +222,9 @@ To verify your NGC key has the correct permissions:
 # Set your NGC API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
-# Authenticate Docker before pulling nvcr.io images. The username is the
-# literal string $oauthtoken; the password is your NGC Personal API Key.
+# Authenticate Docker for gated NIM and other nvcr.io images. The username is
+# the literal string $oauthtoken; the password is your NGC Personal API Key.
+# Managed VSS images on ghcr.io are public and require no registry login.
 printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 
@@ -237,8 +241,9 @@ ngc registry model list "nvidia/tao/*"
 
 If you encounter permission errors, contact NVIDIA support for assistance.
 
-The `Login Succeeded` response verifies Docker registry authentication. Run
-this step before any manual `docker compose up` command. A later
+The `Login Succeeded` response verifies NGC Docker registry authentication.
+Run this step before any manual `docker compose up` command that pulls gated
+NIM or other `nvcr.io` images. A later
 `docker compose config --quiet` validates the Compose model and environment
 values, but does not contact the registry or validate image entitlements.
 
@@ -270,7 +275,7 @@ NemoClaw harness.
 
 | Credential | Required when |
 | --- | --- |
-| `NGC_CLI_API_KEY` | Pulling VSS, NIM, model, and sample-data artifacts from NGC. This is required for the standard deployment paths. Use the same Personal API Key for `docker login nvcr.io`. |
+| `NGC_CLI_API_KEY` | Pulling gated NIM, model, sample-data, and other artifacts from NGC. This is required for the standard deployment paths. Use the same Personal API Key for `docker login nvcr.io`. Managed VSS images on public GHCR require no registry login. |
 | `COMPATIBLE_API_KEY` | The NemoClaw harness uses its default remote OpenAI-compatible endpoint, or another public OpenAI-compatible endpoint that requires a bearer token. The default has no built-in key. |
 | `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com`. |
 | `HF_TOKEN` | A selected model or helper downloads gated or rate-limited weights from Hugging Face. |

@@ -87,22 +87,10 @@ cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
 ```
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
-
-```bash
-PROFILE=alerts
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  config --quiet
-
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
-```
+For each layout below, update the shown values in
+`deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`.
+After completing the host-path preparation and one hardware layout, use the
+startup commands following the layout tabs.
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
@@ -277,8 +265,6 @@ LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
@@ -291,8 +277,6 @@ MODE=2d_cv
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
@@ -310,8 +294,6 @@ MODE=2d_cv
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -330,8 +312,6 @@ HARDWARE_PROFILE=GB300
 MODE=2d_cv
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -516,8 +496,6 @@ MODE=2d_cv
 RT_CV_DEVICE_ID=0
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
@@ -659,7 +637,32 @@ RTVI_VLM_MODEL_PATH=none
 </Tab>
 </Tabs>
 
-Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
+From `deploy/docker`, validate and start the selected profile:
+
+On GB300, DGX Spark, and other SBSA hosts, run this export in the same shell
+first; skip it on other platforms. Do not put it in `user-overrides.env`,
+because `containers.env` derives the image tags before later env files are read.
+
+```bash
+export VSS_CONTAINER_TAG_SUFFIX=-sbsa
+```
+
+```bash
+PROFILE=alerts
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  up -d
+```
+
+Docker Compose downloads the required containers from the configured GHCR and NGC registries and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
 **This deployment uses the following defaults:**

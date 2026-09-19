@@ -83,6 +83,7 @@ For each selected configuration, save the remaining values in
 
 ```bash
 cd deploy/docker
+export VSS_CONTAINER_TAG_SUFFIX=-sbsa
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file developer-profiles/dev-profile-base/.env \
@@ -103,7 +104,6 @@ then run the `docker compose config --quiet` / `up -d` commands above:
 ```ini
 # developer-profiles/dev-profile-base/user-overrides.env
 HARDWARE_PROFILE=DGX-SPARK
-VSS_RT_VLM_TAG=develop-latest-sbsa
 LLM_DEVICE_ID=0
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
