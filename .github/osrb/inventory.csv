@@ -1640,6 +1640,7 @@ ghcr.io/astral-sh/uv,0.11.24,UNKNOWN,services/configurators/vss-configurator,con
 ghcr.io/astral-sh/uv,0.11.24,UNKNOWN,services/configurators/vss-rt-config-adaptor,container,container,services/configurators/vss-rt-config-adaptor/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/agent,container,container,services/agent/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,latest,UNKNOWN,services/video-summarization,container,container,services/video-summarization/docker/Dockerfile,runtime,no,no,yes,container-base,Unknown
+ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/astral-sh/uv,sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500,UNKNOWN,.openclaw,container,container,.openclaw/Dockerfile,runtime,no,no,yes,container-base,Unknown
 ghcr.io/google/cadvisor,0.60.5,UNKNOWN,deploy,container,compose,deploy/docker/services/monitoring/compose.yml,runtime,no,no,yes,container-image,Unknown
 ghcr.io/nvidia/nemoclaw/hermes-sandbox,sha256:32d7ed6a6f1b682991818a2acaf5636d9fb066ae33265b011837b0ba601c0970,UNKNOWN,.hermes,container,container,.hermes/Dockerfile,runtime,no,no,yes,container-base,Unknown
@@ -2656,8 +2657,6 @@ nvidia-riva-client,UNKNOWN,UNKNOWN,services/rtvi/rt-embed,python,usage,services/
 nvidia-riva-client,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/vlm_pipeline/video_file_frame_getter.py,runtime,no,no,no,imported-only,Unknown
 nvidia-vss-core,UNKNOWN,UNKNOWN,libs/vss,python,manifest,libs/vss/cli/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
 nvidia-vss-core,UNKNOWN,UNKNOWN,services/agent,python,manifest,services/agent/packages/vss_agents/pyproject.toml;services/agent/pyproject.toml,runtime,no,no,no,declared-manifest,Unknown
-nvidia-vss[cli],UNKNOWN,UNKNOWN,.hermes,python,container,.hermes/Dockerfile,runtime,no,no,yes,container-pip,Unknown
-nvidia-vss[cli],UNKNOWN,UNKNOWN,.openclaw,python,container,.openclaw/Dockerfile,runtime,no,no,yes,container-pip,Unknown
 nvidia/cuda,13.0.0-cudnn-runtime-ubuntu22.04,UNKNOWN,deploy,container,container,deploy/docker/services/infra/Dockerfiles/elasticsearch-gpu.Dockerfile,runtime,no,no,yes,container-base,Unknown
 NVIDIA/DeepStream,v9.1.0,UNKNOWN,services/rtvi/rt-embed,source,container,services/rtvi/rt-embed/docker/Dockerfile,runtime,no,no,no,build-fetch,Unknown
 NVIDIA/DeepStream,v9.1.0,UNKNOWN,services/rtvi/rt-vlm,source,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,no,build-fetch,Unknown
@@ -3167,6 +3166,8 @@ python-multipart,0.0.32,Apache-2.0,services/agent,python,lockfile,services/agent
 python-multipart,0.0.32,Apache-2.0,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 python-rapidjson,1.23,MIT,services/analytics/behavior-analytics,python,lockfile,services/analytics/behavior-analytics/Pipfile.lock,runtime,no,no,no,declared-manifest,None
 python-redis-lock,4.0.0,BSD-2-Clause,services/sdrc,python,lockfile;manifest,services/sdrc/pyproject.toml;services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
+python3,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
+python3,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 python3,UNKNOWN,UNKNOWN,services/vios,deb,container,services/vios/cicd_files/x86_64/devel/Dockerfile.devel,runtime,no,no,yes,container-apt,Unknown
 python3-gi,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 python3-gst-1.0,UNKNOWN,UNKNOWN,services/rtvi/rt-vlm,deb,container,services/rtvi/rt-vlm/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown

@@ -46,13 +46,21 @@ SB="${NEMOCLAW_SANDBOX_NAME:-demo}"
 RUNTIME="${AGENT_RUNTIME:-openclaw}"          # openclaw (default) or hermes
 REPO="$(git rev-parse --show-toplevel)"
 
-# 1. Install NemoClaw (pinned)
+# 1. Install NemoClaw (pinned). The installer auto-onboards a sandbox from the
+#    environment when NEMOCLAW_NON_INTERACTIVE=1 / NEMOCLAW_PROVIDER are exported,
+#    and non-interactive onboard takes the image from NEMOCLAW_FROM_DOCKERFILE
+#    alone - export it first, or the installer creates a stock sandbox under $SB
+#    that step 2 then finds and keeps. The notebook's 3.1 probes a reused
+#    sandbox for the `vss` CLI and refuses one without it.
+export NEMOCLAW_SANDBOX_NAME="$SB" NEMOCLAW_FROM_DOCKERFILE="$REPO/.$RUNTIME/Dockerfile"
 curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL_REF}/install.sh" | bash
 
 # 2. Create the sandbox (provider/model come from the environment)
 #    NEMOCLAW_PROVIDER=build|custom, NEMOCLAW_MODEL, NEMOCLAW_ENDPOINT_URL, COMPATIBLE_API_KEY / NVIDIA_API_KEY
 # CHAT_UI_URL bakes gateway.controlUi.allowedOrigins (gateway.* cannot be
-# edited afterwards) — set it to the dashboard origin before onboarding.
+# edited afterwards) — set it to the dashboard origin before onboarding. That
+# origin is the *relay* port (18790, step 7), not NemoClaw's own forward port
+# 18789, which stays loopback-only.
 # On Brev, read that origin from the environment context file instead of
 # assembling it: the secure-link domain varies per instance (gobrev.dev,
 # brevlab.com, ...), and a wrong one is baked in for the sandbox's lifetime.
@@ -68,9 +76,9 @@ BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
 # command and check it before onboarding: as a `VAR=$(...) cmd` prefix, a failed
 # substitution still runs the command, so a missing link would bake
 # "https://null" in as the allowed origin for the sandbox's lifetime.
-CHAT_UI_FQDN="$(sudo -n cat "$BREV_CTX" | jq -er '[.ports[]?|select(.destination_port==18789)|.fqdn][0]')"
+CHAT_UI_FQDN="$(sudo -n cat "$BREV_CTX" | jq -er '[.ports[]?|select(.destination_port==18790)|.fqdn][0]')"
 if [ -z "$CHAT_UI_FQDN" ] || [ "$CHAT_UI_FQDN" = null ]; then
-  echo "No secure link published for destination port 18789. Create it in the Brev console (Secure Links -> + HTTP port -> 18789) and re-run, or drop CHAT_UI_URL to onboard without a remote origin."
+  echo "No secure link published for destination port 18790 (the relay port). Create it in the Brev console (Secure Links -> + HTTP port -> 18790) and re-run, or drop CHAT_UI_URL to onboard without a remote origin."
 else
   CHAT_UI_URL="https://$CHAT_UI_FQDN" \
     nemoclaw onboard --non-interactive --agent "$RUNTIME" --name "$SB" \
@@ -79,6 +87,16 @@ fi
 
 # 3. Apply the VSS sandbox policy (merges into the base OpenShell policy)
 nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --yes
+
+# 3b. Record the deployment the agent operates. One contract for Compose and
+#     Kubernetes: `vss configure` probes the path routes behind a single origin;
+#     only the origin differs (haproxy on this host, or a cluster's Ingress).
+#     The notebook also uploads it as VSS_PUBLIC_URL in ENV.md so the agent
+#     re-runs the same call at session start.
+VSS_PUBLIC_URL="${VSS_PUBLIC_URL:-http://host.openshell.internal:7777}"
+openshell sandbox exec -n "$SB" -- vss configure --base-url "$VSS_PUBLIC_URL"
+openshell sandbox exec -n "$SB" -- vss configure check
+openshell sandbox exec -n "$SB" -- vss-openclaw-sync    # vss-hermes-sync on Hermes
 
 # 4. Deployment origin (Kubernetes only): render VSS_PUBLIC_URL into ENV.md and
 #    upload it over the image's copy. Compose deployments leave it as shipped.
@@ -106,9 +124,22 @@ nemoclaw "$SB" policy-add --from-file "$REPO/assets/vss_nemoclaw_policy.yaml" --
 nemoclaw "$SB" config set --key hooks.enabled \
   --value true --config-accept-new-path --restart
 
-# 7. Forward the dashboard + read the UI token
+# 7. Forward the dashboard, relay it off-loopback, read the UI token.
+#    The forward stays on 127.0.0.1: `nemoclaw $SB connect|recover|start`
+#    re-creates it there and retires a 0.0.0.0 one as stale (a --from image
+#    cannot use NemoClaw's remote-bind contract), and it refuses to act when
+#    any second listener shares the port. Off-loopback clients — the
+#    vss-agent-ui container via host.docker.internal, the Brev secure link —
+#    use the relay on its own port instead. The notebook resolves the bind
+#    addresses at run time; by hand, bind Docker's default-bridge gateway
+#    (what host.docker.internal resolves to) or 0.0.0.0 on Brev.
 openshell forward start --background 18789 "$SB"
+if [ -n "${BREV_ENV_ID:-}" ]; then BIND=0.0.0.0;   # the secure-link edge arrives off-loopback
+else BIND=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}'); fi
+setsid -f python3 "$REPO/deploy/docker/scripts/nemoclaw/dashboard-relay.py" \
+  --sandbox "$SB" --listen "$BIND" --port 18790 --upstream 127.0.0.1:18789
 nemoclaw "$SB" gateway-token
+#    vss-agent-ui then reaches the gateway at ws://host.docker.internal:18790.
 ```
 
 ## Non-interactive execution

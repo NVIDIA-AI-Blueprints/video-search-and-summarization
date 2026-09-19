@@ -48,19 +48,26 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572
 ARG NGC_CLI_VERSION=4.10.0
 # Skills and the vss CLI: one pinned commit of this repo, so an eval can say
 # exactly which it measured. Must be a commit whose operation skills declare
-# `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise).
-# Override with --build-arg VSS_REF=<sha>; bump the default when the skills move.
+# `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise)
+# and whose CLI library lives at libs/vss (the wheel build below fails loudly
+# on older layouts). Override with --build-arg VSS_REF=<sha>; bump the default
+# when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
 ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
 
-# ── VSS source checkout ────────────────────────────────────────────────────────
+# ── uv, for wheel builds and the vss CLI venv ──────────────────────────────────
+FROM ${UV_IMAGE} AS uv
+
+# ── VSS source checkout + CLI wheels ───────────────────────────────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
 ARG VSS_REPO
 ARG VSS_REF
 ARG NGC_CLI_VERSION
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl unzip \
+# python3 (3.13 on trixie) for the wheel builds below; curl/unzip for the NGC CLI.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 curl unzip \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=uv /uv /usr/local/bin/uv
 # Dev-loop override: a .vss-src/ snapshot in the build context (staged by
 # stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
 # reaches the image without a push. The Dockerfil[e] glob keeps this COPY
@@ -74,22 +81,23 @@ RUN rm -f /opt/vss-src/Dockerfile \
          && git -C /opt/vss-src fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
          && git -C /opt/vss-src checkout -q FETCH_HEAD; \
        fi
-# CLI-source handoff to the runtime stage: a snapshot carries no .git for the
-# runtime to re-fetch, so its CLI sources and STAGED marker travel through this
-# directory (left empty on the pinned path, where the runtime fetches). The
-# services/ + libs/ layout is preserved because services/agent's editable
-# sources point at ../../libs/vss (the CLI library workspace; guarded — absent
-# on trees from before that move).
-RUN mkdir -p /opt/vss-cli-src \
-    && if [ -f /opt/vss-src/STAGED ]; then \
-         mkdir -p /opt/vss-cli-src/services \
-         && cp -R /opt/vss-src/services/agent /opt/vss-cli-src/services/agent \
-         && cp /opt/vss-src/STAGED /opt/vss-cli-src/STAGED \
-         && if [ -d /opt/vss-src/libs/vss ]; then \
-              mkdir -p /opt/vss-cli-src/libs \
-              && cp -R /opt/vss-src/libs/vss /opt/vss-cli-src/libs/vss; \
-            fi; \
-       fi
+# The vss CLI as wheels — only the CLI library workspace (libs/vss: the
+# nvidia-vss-cli entry point and its nvidia-vss-core dependency). The agent
+# service package under services/agent is deliberately NOT built or shipped:
+# a sandbox operates a deployment through the CLI, it does not run the agent.
+# Building here (where the checkout and its .git live) keeps VSS source out of
+# the runtime image: the runtime installs the wheels by name and ships no
+# checkout. hatch-vcs reads the version from .git on the pinned path; a
+# pre-staged snapshot has no .git and carries a PEP 440 pretend version in its
+# STAGED marker instead.
+RUN set -eux; \
+    if [ -f /opt/vss-src/STAGED ]; then \
+      export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-src/STAGED)"; \
+      test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
+    fi; \
+    mkdir -p /opt/vss-wheels \
+    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-wheels \
+    && ls /opt/vss-wheels
 
 # NGC CLI, unpacked here for the runtime stage to copy. Fetched in this builder
 # rather than in the managed base, which carries no guarantee of `curl` or
@@ -140,9 +148,6 @@ RUN ./stage-assets.sh /tmp/vss-skills /tmp/vss-workspace \
     && cp -R skills skills-active \
     && test "$(ls skills-active | wc -l)" = "$(ls skills | wc -l)"
 
-# ── uv, for the vss CLI venv ───────────────────────────────────────────────────
-FROM ${UV_IMAGE} AS uv
-
 # ── Managed runtime + vss CLI ──────────────────────────────────────────────────
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
@@ -157,17 +162,16 @@ USER root
 # files in and out with exec+tar, so they do not need to live in the workspace.
 RUN for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done
 
-# The vss CLI. nvidia-vss is on no reachable index, so it is installed from the
-# same pinned checkout the skills came from — or from the pre-staged snapshot
-# when one is in the context (the vss-cli-src handoff above). Its packages are
-# uv workspace members (installed editable, so the checkout stays) and take
-# their version from git metadata (so the install runs before .git is
-# stripped); a snapshot has no .git, so it carries a pretend version instead.
-# Own venv, so it never touches the runtime's python.
-ARG VSS_REPO
-ARG VSS_REF
+# The vss CLI. nvidia-vss-cli is on no reachable index, so the vss-src stage
+# builds it as wheels from the same pinned checkout the skills came from (or
+# from the pre-staged snapshot) and the runtime installs those by name — no
+# VSS source ships in this image. Own venv, so it never touches the runtime's
+# python.
 COPY --from=uv /uv /usr/local/bin/uv
-COPY --from=vss-src /opt/vss-cli-src/ /opt/vss-cli-src/
+COPY --from=vss-src /opt/vss-wheels/ /opt/vss-wheels/
+# Installed by wheel PATH, not by name: with --find-links a bare name still
+# admits index candidates, so a future published nvidia-vss-cli could outrank
+# the wheel built from VSS_REF and silently break the CLI==skills guarantee.
 
 # NGC CLI on PATH for root and the sandbox user. Unconditional: an operation
 # skill that resolves a sample video by name shells out to `ngc` directly, and a
@@ -179,29 +183,10 @@ RUN chmod -R a+rX /usr/local/lib/ngc-cli \
     && ngc --version \
     && su -s /bin/sh sandbox -c "ngc --version"
 RUN set -eux; \
-    if [ -f /opt/vss-cli-src/STAGED ]; then \
-      export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-cli-src/STAGED)"; \
-      test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
-      mkdir -p /usr/local/src/vss; \
-      mv /opt/vss-cli-src/services /usr/local/src/vss/services; \
-      if [ -d /opt/vss-cli-src/libs ]; then mv /opt/vss-cli-src/libs /usr/local/src/vss/libs; fi; \
-    else \
-      git init -q /usr/local/src/vss \
-      && git -C /usr/local/src/vss fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
-      && git -C /usr/local/src/vss checkout -q FETCH_HEAD; \
-    fi \
-    && rm -rf /opt/vss-cli-src \
-    && uv venv --python /usr/bin/python3 /usr/local/vss \
-    && VIRTUAL_ENV=/usr/local/vss uv pip install "nvidia-vss[cli] @ /usr/local/src/vss/services/agent" \
+    uv venv --python /usr/bin/python3 /usr/local/vss \
+    && VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-wheels/*.whl \
     && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
-    # Strip to what the editable install points at: services/agent and libs/vss.
-    && mv /usr/local/src/vss/services/agent /usr/local/src/vss-agent \
-    && if [ -d /usr/local/src/vss/libs/vss ]; then mkdir -p /usr/local/src/vss-libs && mv /usr/local/src/vss/libs/vss /usr/local/src/vss-libs/vss; fi \
-    && rm -rf /usr/local/src/vss \
-    && mkdir -p /usr/local/src/vss/services \
-    && mv /usr/local/src/vss-agent /usr/local/src/vss/services/agent \
-    && if [ -d /usr/local/src/vss-libs ]; then mkdir -p /usr/local/src/vss/libs && mv /usr/local/src/vss-libs/vss /usr/local/src/vss/libs/vss && rmdir /usr/local/src/vss-libs; fi \
-    && chmod -R a+rX /usr/local/src/vss \
+    && rm -rf /opt/vss-wheels \
     && vss --version \
     && vss vlm run --help | grep -F -- '--fps' \
     && su -s /bin/sh sandbox -c "vss --version"
@@ -211,6 +196,20 @@ FROM nemoclaw-runtime AS vss-runtime
 # Re-declared here because build args are stage-scoped and this is the final stage.
 ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
 ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
+# `onboard --from` rewrites these ARGs in this file with the session's values
+# (src/lib/onboard/dockerfile-patch.ts) and expects NemoClaw's config generator
+# to run again at build. A custom image cannot re-run that generator, so it
+# inherits the base image's openclaw.json -- and every ARG this file does not
+# declare is dropped by a regex String.replace that matches nothing and warns
+# nothing. Declaring them is what makes the session values reach the build;
+# apply-onboard-config.py below is what writes them into the inherited config.
+# Only NEMOCLAW_TOOL_DISCLOSURE has a contract NemoClaw verifies; the rest fail
+# silently, which is how the model and the UI origins were being lost.
+ARG NEMOCLAW_PRIMARY_MODEL_REF=
+ARG NEMOCLAW_MODEL=
+ARG NEMOCLAW_CONTEXT_WINDOW=
+ARG NEMOCLAW_MAX_TOKENS=
+ARG CHAT_UI_URL=
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox \
     /opt/vss-plugin/package.json \
     /opt/vss-plugin/package-lock.json \
@@ -257,7 +256,10 @@ RUN printf '%s\n' '#!/bin/sh' 'exec python3 /sandbox/.openclaw/extensions/vss/sy
 # its skills and workspace files load under Harbor's config too. The hash below
 # is left unlocked (mutable default) for the same reason: two writers, one file.
 USER root
-RUN chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
+COPY apply-onboard-config.py /usr/local/bin/vss-apply-onboard-config
+RUN chmod 755 /usr/local/bin/vss-apply-onboard-config \
+    && python3 /usr/local/bin/vss-apply-onboard-config \
+    && chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
     && chmod 660 /sandbox/.openclaw/openclaw.json \
     && sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash \
     && chown sandbox:sandbox /sandbox/.openclaw/.config-hash \
@@ -313,11 +315,14 @@ COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
 
 # Final USER is the non-root default OpenShell requires. WORKDIR /sandbox makes
 # /sandbox the OpenShell workspace (OpenShell derives it from the OCI WorkingDir).
-# Entrypoint and health check are inherited from the managed runtime. The command
-# is not: the runtime's CMD is /bin/bash, which reads EOF and exits as soon as
-# nemoclaw-start hands over when the container has no TTY, so an OpenShell sandbox
-# built from this image went to phase Error before the first exec. The eval
-# harness drives the agent with exec, so the container only has to stay alive.
+# Entrypoint and health check are inherited from the managed runtime — note
+# OpenShell replaces the entrypoint with its own when it creates a sandbox, so
+# an image-owned ENTRYPOINT never runs and cannot be used to fix config. The
+# command is not inherited: the runtime's CMD is /bin/bash,
+# which reads EOF and exits as soon as nemoclaw-start hands over when the
+# container has no TTY, so an OpenShell sandbox built from this image went to
+# phase Error before the first exec. The eval harness drives the agent with
+# exec, so the container only has to stay alive.
 USER sandbox
 WORKDIR /sandbox
 CMD ["sleep", "infinity"]

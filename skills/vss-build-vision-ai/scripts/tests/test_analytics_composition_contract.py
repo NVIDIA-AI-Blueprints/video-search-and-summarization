@@ -138,15 +138,18 @@ def test_host_cli_honors_explicit_legacy_mcp_delta() -> None:
     assert profiles == ("alert-bridge", "vss-va-mcp")
 
 
-def test_base_no_harness_delta_removes_only_agent() -> None:
+def test_base_no_harness_delta_removes_the_agent_and_its_peers() -> None:
     foundation = _base_profiles()
     profiles = resolve_service_profiles(foundation, host_cli=True)
 
     validate_harness_only_delta(foundation, profiles)
-    assert set(foundation) - set(profiles) == {"vss-agent"}
+    removed = set(foundation) - set(profiles)
+    # The agent, phoenix (its trace sink) and the llm_* key (its LLM, with no other
+    # consumer left in base) leave together; everything else stays.
+    assert {"vss-agent", "phoenix"} <= removed
+    assert len(removed) == 3 and any(p.startswith("llm_") for p in removed)
     assert {
         "vss-ui",
-        "phoenix",
         "vss-haproxy-ingress",
         "redis",
         "centralizedb",
@@ -155,7 +158,29 @@ def test_base_no_harness_delta_removes_only_agent() -> None:
         "streamprocessing-ms",
         "rtvi-vlm",
     } <= set(profiles)
-    assert any(profile.startswith("llm_") for profile in profiles)
+    assert not any(profile.startswith("llm_") for profile in profiles)
+
+
+def test_llm_peer_stays_while_a_consumer_is_enabled() -> None:
+    # lvs-server calls the LLM (LVS_LLM_*); alert-bridge does not (its URL rewriting
+    # keys on VLM_MODE), so an alerts build drops the NIM and an alerts+LVS build keeps it.
+    alerts = resolve_service_profiles(_alerts_profiles(), host_cli=True)
+    assert not any(p.startswith("llm_") for p in alerts)
+    with_lvs = resolve_service_profiles(
+        _alerts_profiles(), requested_profiles=("lvs-server",), host_cli=True
+    )
+    assert any(p.startswith("llm_") for p in with_lvs)
+
+
+def test_explicitly_requested_llm_peer_is_kept() -> None:
+    # A harness pointed at the build's own NIM (route (a)) names the key.
+    foundation = _base_profiles()
+    llm_key = next(p for p in foundation if p.startswith("llm_"))
+    profiles = resolve_service_profiles(
+        foundation, requested_profiles=(llm_key,), host_cli=True
+    )
+    assert llm_key in profiles and "phoenix" not in profiles
+    validate_harness_only_delta(foundation, profiles, requested_profiles=(llm_key,))
 
 
 def test_harness_only_validation_rejects_unrequested_pruning() -> None:
@@ -173,7 +198,7 @@ def test_harness_only_validation_rejects_unrequested_pruning() -> None:
 
     with pytest.raises(
         UnexpectedHarnessDeltaError,
-        match="unexpected removals: phoenix, redis, vss-haproxy-ingress, vss-ui",
+        match="unexpected removals: redis, vss-haproxy-ingress, vss-ui",
     ):
         validate_harness_only_delta(foundation, over_pruned)
 
@@ -295,7 +320,8 @@ def test_active_build_flow_guards_harness_only_deltas() -> None:
     assert '--requested "${REQUESTED_PROFILES:-}"' in composition
     assert "bypass generic forward-closure/unused-service pruning" in step_five
     assert "harness-only delta bypasses owner pruning" in agent_owner
-    assert "preserve `vss-ui` and `phoenix`" in agent_owner
+    assert "preserve `vss-ui`" in agent_owner
+    assert "`phoenix` leaves with the agent" in agent_owner
 
 
 @requires_docker_compose
@@ -304,10 +330,10 @@ def test_base_harness_only_compose_keeps_foundation_services(tmp_path: Path) -> 
     document = _compose_config(tmp_path, profiles, BASE_PROFILE)
     services = set(document["services"])
 
-    assert "vss-agent" not in services
+    assert {"vss-agent", "phoenix"}.isdisjoint(services)
+    assert not any("nemotron" in name for name in services)
     assert {
         "vss-ui",
-        "phoenix",
         "vss-haproxy-ingress",
         "redis",
         "centralizedb",
@@ -315,7 +341,6 @@ def test_base_harness_only_compose_keeps_foundation_services(tmp_path: Path) -> 
         "sensor-ms",
         "streamprocessing-ms",
         "rtvi-vlm",
-        "nemotron-3.5-lightning-30b-a3b-shared-gpu",
     } <= services
 
 
@@ -356,11 +381,11 @@ def test_nemoclaw_alerts_lvs_resolves_without_agent_or_va_mcp(
         "sensor-ms",
         "streamprocessing-ms",
         "vss-ui",
-        "phoenix",
         "vss-haproxy-ingress",
     } <= services
+    # lvs-server consumes the LLM, so the NIM stays; phoenix leaves with the agent.
     assert any("nemotron-3.5-lightning-30b-a3b" in name for name in services)
-    assert {"vss-agent", "vss-va-mcp"}.isdisjoint(services)
+    assert {"vss-agent", "vss-va-mcp", "phoenix"}.isdisjoint(services)
     assert "VSS_VA_MCP_CONFIG_FILE" not in json.dumps(document)
 
     targets = analytics_readiness_targets(services)

@@ -76,9 +76,10 @@ def test_stages_all_roots_into_both_default_harness_dirs(repo):
         assert (dest / "skills" / "vss-x" / "SKILL.md").is_file()
         assert (dest / ".openclaw" / "workspace" / "AGENTS.md").is_file()
         assert (dest / ".openclaw" / "workspace" / "_nemoclaw" / "ENV.md").is_file()
-        assert (dest / "services" / "agent" / "pyproject.toml").is_file()
-        # The CLI library workspace services/agent's editable sources point at.
+        # libs/vss (nvidia-vss-cli + nvidia-vss-core) is the images' whole
+        # install surface; the agent service package is deliberately not staged.
         assert (dest / "libs" / "vss" / "core" / "pyproject.toml").is_file()
+        assert not (dest / "services").exists()
         assert not (dest / "libs" / "other").exists()
         assert (dest / "STAGED").is_file()
 

@@ -64,9 +64,10 @@ curl -sf "http://${HOST_IP}:3000/"                              # vss-ui
 
 In an explicit headless delta that drops the whole Agent/UI tier, skip the
 `:8000`, `:3000`, and LLM NIM probes because those services are absent by
-design. In a Q3-only harness delta, only `vss-agent` is absent: skip `:8000` but
-keep the UI, LLM NIM, and RT-VLM probes because those Foundation services
-remain.
+design. In a Q3-only harness delta, `vss-agent` leaves with its two private
+peers - the LLM NIM and `phoenix` - so skip `:8000` and the LLM NIM probe, and
+keep the UI and RT-VLM probes because those Foundation services remain. (An
+`lvs` build keeps the NIM for `lvs-server`; probe it there.)
 
 For remote LLM/VLM mode, probe the selected remote `/v1/models` endpoint
 instead of the absent local service.

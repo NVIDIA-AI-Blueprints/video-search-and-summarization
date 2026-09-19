@@ -6,10 +6,11 @@ import importlib.util
 import io
 import json
 import os
-import sys
 import re
 import subprocess
 import symtable
+import sys
+import tempfile
 import unittest
 from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
@@ -537,9 +538,17 @@ class NemoClawNotebookContractTests(unittest.TestCase):
 
 
 class NemoClawForwardContractTests(unittest.TestCase):
+    """Section 3.5's contract: NemoClaw's forward stays on loopback (its recovery
+    re-creates it there and refuses a port shared with any other listener), and
+    off-loopback clients get a relay on its own port whose bind is resolved at run
+    time - Docker's host-gateway address for the containerized UI, the wildcard on
+    Brev - and only when such a client exists."""
+
     HOST_GATEWAY = "192.0.2.44"
     PORT = 18789
+    RELAY_PORT = 18790
     SANDBOX = "demo"
+    RELAY_SCRIPT = (SCRIPTS_DIR / "nemoclaw" / "dashboard-relay.py").resolve()
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -551,10 +560,11 @@ class NemoClawForwardContractTests(unittest.TestCase):
             if cell["id"] == "s37-ui-code"
         )
         cls.source = source.replace(
-            "    !setsid -f openshell forward start --background {_fwd} "
+            "    !setsid -f openshell forward start --background {AGENT_DASHBOARD_PORT} "
             "{NEMOCLAW_SANDBOX_NAME}\n",
-            "    _start_forward(_fwd, NEMOCLAW_SANDBOX_NAME)\n",
+            "    _start_forward(AGENT_DASHBOARD_PORT, NEMOCLAW_SANDBOX_NAME)\n",
         )
+        assert "_start_forward(" in cls.source, "forward start line not found in 3.5"
         verify_source = next(
             "".join(cell["source"])
             for cell in notebook["cells"]
@@ -569,22 +579,32 @@ class NemoClawForwardContractTests(unittest.TestCase):
         *,
         adapter_enabled: bool,
         chat_fqdn: str | None,
-        existing_bind: str | None,
+        forward_up: bool = True,
         brev_env_id: str | None = None,
         gateway_lookup_fails: bool = False,
-    ) -> tuple[dict[str, object], list[tuple[str, str]], list[tuple[str, ...]]]:
-        state = {"bind": existing_bind}
-        starts: list[tuple[str, str]] = []
-        calls: list[tuple[str, ...]] = []
+        relay_running_for: list[str] | None = None,
+        relay_dead: bool = False,
+    ) -> tuple[dict[str, object], list[tuple[int, str]], list[tuple[str, ...]], list[list[str]]]:
+        """Run 3.5 against a fake host. `relay_running_for` is the --listen list of a
+        relay already on the relay port (this checkout's script, this sandbox);
+        `relay_dead` makes that relay hold the port without answering through it."""
 
-        def completed(
-            command: list[str], returncode: int = 0, stdout: str = "", stderr: str = ""
-        ) -> subprocess.CompletedProcess[str]:
+        state = {"forward": forward_up, "relay": relay_running_for, "relay_dead": relay_dead}
+        starts: list[tuple[int, str]] = []
+        calls: list[tuple[str, ...]] = []
+        relays: list[list[str]] = []
+
+        def completed(command, returncode=0, stdout="", stderr=""):
             return subprocess.CompletedProcess(command, returncode, stdout, stderr)
 
-        def run(
-            command: list[str], **_kwargs: object
-        ) -> subprocess.CompletedProcess[str]:
+        def relay_args():
+            return (
+                f"python3 {self.RELAY_SCRIPT} --sandbox {self.SANDBOX} --listen "
+                f"{','.join(state['relay'])} --port {self.RELAY_PORT} "
+                f"--upstream 127.0.0.1:{self.PORT}"
+            )
+
+        def run(command, **_kwargs):
             calls.append(tuple(command))
             if command[:3] == ["docker", "inspect", "--format"]:
                 return completed(command, stdout="sha256:gateway-image\n")
@@ -593,44 +613,66 @@ class NemoClawForwardContractTests(unittest.TestCase):
                     return completed(command, 1, stderr="host alias unavailable")
                 return completed(command, stdout=f"{self.HOST_GATEWAY}\n")
             if command[:3] == ["openshell", "forward", "list"]:
-                bind = state["bind"]
-                row = (
-                    f"{self.SANDBOX} {bind} {self.PORT} 4242 running\n" if bind else ""
-                )
+                row = f"{self.SANDBOX} 127.0.0.1 {self.PORT} 4242 running\n" if state["forward"] else ""
                 return completed(command, stdout=row)
             if command[:2] == ["lsof", "-t"]:
-                return completed(command, stdout="4242\n" if state["bind"] else "")
+                port = int(command[2].split(":")[1])
+                if port == self.PORT:
+                    return completed(command, stdout="4242\n" if state["forward"] else "")
+                return completed(command, stdout="5151\n" if state["relay"] else "")
             if command[:2] == ["ps", "-p"]:
-                return completed(command, stdout="ssh --sandbox-id sandbox-id\n")
+                if command[2] == "4242":
+                    return completed(command, stdout="ssh --sandbox-id sandbox-id\n")
+                return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
             if command[:3] == ["openshell", "sandbox", "get"]:
                 return completed(command, stdout="Id: sandbox-id\n")
             if command[0] == "curl":
-                host = command[-1].split("://", 1)[1].rsplit(":", 1)[0]
-                reachable = state["bind"] in ("0.0.0.0", host)
+                url = command[-1]
+                host, port = url.split("://", 1)[1].rsplit("/", 1)[0].rsplit(":", 1)
+                if int(port) == self.PORT:
+                    return completed(command, 0 if state["forward"] and host == "127.0.0.1" else 7)
+                reachable = state["relay"] is not None and not state["relay_dead"] and (
+                    "0.0.0.0" in state["relay"] or host in state["relay"]
+                )
                 return completed(command, 0 if reachable else 7)
             if command[:3] == ["openshell", "forward", "stop"]:
-                state["bind"] = None
+                state["forward"] = False
                 return completed(command)
             if command[0] == "kill":
-                state["bind"] = None
+                if command[1] == "4242":
+                    state["forward"] = False
+                else:
+                    state["relay"] = None
                 return completed(command)
             if command[:2] == ["hostname", "-I"]:
                 return completed(command, stdout="192.0.2.10\n")
             raise AssertionError(f"unexpected command: {command}")
 
-        def start_forward(forward: str, sandbox: str) -> None:
-            starts.append((forward, sandbox))
-            state["bind"] = forward.rsplit(":", 1)[0]
+        def popen(command, **_kwargs):
+            relays.append(list(command))
+            listen = command[command.index("--listen") + 1]
+            state["relay"] = listen.split(",")
+            state["relay_dead"] = False
+            process = mock.Mock()
+            process.poll.return_value = None
+            return process
+
+        def start_forward(port: int, sandbox: str) -> None:
+            starts.append((port, sandbox))
+            state["forward"] = True
 
         namespace: dict[str, object] = {
             "AGENT_CONNECT_CMD": "",
             "AGENT_DASHBOARD_PORT": self.PORT,
+            "AGENT_DASHBOARD_RELAY_PORT": self.RELAY_PORT,
             "AGENT_DASHBOARD_URL_CMD": "",
             "AGENT_GATEWAY_TOKEN_CMD": "",
             "AGENT_LABEL": "OpenClaw",
             "AGENT_UI_USES_GATEWAY_TOKEN": False,
             "BREV_ENVIRONMENT_CONTEXT_PATH": "",
+            "DASHBOARD_RELAY_PATH": self.RELAY_SCRIPT,
             "NEMOCLAW_SANDBOX_NAME": self.SANDBOX,
+            "Path": lambda p: Path(self._tmp) / Path(p).name,
             "VSS_AGENT_ADAPTER_ENABLED": adapter_enabled,
             "_start_forward": start_forward,
             "brev_environment_id": lambda: brev_env_id,
@@ -638,108 +680,112 @@ class NemoClawForwardContractTests(unittest.TestCase):
             "resolve_openshell_gateway_container": lambda _sandbox: "gateway",
         }
         with (
+            tempfile.TemporaryDirectory() as tmp,
             mock.patch("subprocess.run", side_effect=run),
+            mock.patch("subprocess.Popen", side_effect=popen),
+            mock.patch("time.sleep"),
             mock.patch("builtins.print"),
         ):
+            self._tmp = tmp
             exec(  # noqa: S102 - executes a checked-in notebook cell with mocked I/O.
                 compile(self.source, "deploy_nemoclaw:s37-ui-code", "exec"),
                 namespace,
             )
-        return namespace, starts, calls
+        return namespace, starts, calls, relays
 
-    def test_non_brev_without_adapter_keeps_loopback(self) -> None:
-        namespace, starts, calls = self._run_ui_cell(
-            adapter_enabled=False, chat_fqdn=None, existing_bind="127.0.0.1"
-        )
-        self.assertEqual(namespace["_desired_bind"], "127.0.0.1")
+    def test_the_forward_is_never_re_bound_off_loopback(self) -> None:
+        # No configuration makes 3.5 request another bind: the forward start line takes
+        # the bare port, which is loopback - the bind NemoClaw's recovery keeps.
+        self.assertNotIn("0.0.0.0:{AGENT_DASHBOARD_PORT}", self.source)
+        self.assertNotIn("_desired_bind", self.source)
+
+    def test_non_brev_without_adapter_keeps_loopback_and_starts_no_relay(self) -> None:
+        namespace, starts, calls, relays = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None)
         self.assertEqual(namespace["_health"], f"http://127.0.0.1:{self.PORT}/health")
         self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
         self.assertEqual(starts, [])
+        self.assertEqual(relays, [])
+        self.assertFalse(namespace["_relay_up"])
         self.assertFalse(any(command[0] == "docker" for command in calls))
 
-    def test_brev_keeps_wildcard_without_host_gateway_lookup(self) -> None:
-        namespace, starts, calls = self._run_ui_cell(
-            adapter_enabled=True,
-            chat_fqdn="agent.example.test",
-            existing_bind="0.0.0.0",
+    def test_a_dead_forward_is_re_established_on_loopback(self) -> None:
+        _, starts, calls, _ = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None, forward_up=False)
+        self.assertEqual(starts, [(self.PORT, self.SANDBOX)])
+        self.assertIn(("openshell", "forward", "stop", str(self.PORT), self.SANDBOX), calls)
+
+    def test_brev_relays_on_the_wildcard_without_host_gateway_lookup(self) -> None:
+        namespace, starts, calls, relays = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn="agent.example.test"
         )
-        self.assertEqual(namespace["_desired_bind"], "0.0.0.0")
-        self.assertEqual(namespace["_health"], f"http://127.0.0.1:{self.PORT}/health")
         self.assertEqual(starts, [])
+        self.assertEqual(len(relays), 1)
+        self.assertEqual(relays[0][relays[0].index("--listen") + 1], "0.0.0.0")
+        self.assertEqual(relays[0][relays[0].index("--upstream") + 1], f"127.0.0.1:{self.PORT}")
+        self.assertTrue(namespace["_relay_up"])
+        self.assertEqual(namespace["origin"], "https://agent.example.test")
         self.assertFalse(any(command[0] == "docker" for command in calls))
 
-    def test_unreadable_brev_context_keeps_wildcard(self) -> None:
-        namespace, starts, calls = self._run_ui_cell(
-            adapter_enabled=True,
-            chat_fqdn=None,
-            brev_env_id="brev-env",
-            existing_bind="0.0.0.0",
+    def test_unreadable_brev_context_still_relays_on_the_wildcard(self) -> None:
+        namespace, _, calls, relays = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, brev_env_id="brev-env"
         )
-        self.assertEqual(namespace["_desired_bind"], "0.0.0.0")
-        self.assertEqual(starts, [])
+        self.assertEqual(relays[0][relays[0].index("--listen") + 1], "0.0.0.0")
+        self.assertTrue(namespace["_relay_up"])
         self.assertFalse(any(command[0] == "docker" for command in calls))
 
-    def test_non_brev_adapter_uses_docker_host_gateway(self) -> None:
-        namespace, starts, calls = self._run_ui_cell(
-            adapter_enabled=True, chat_fqdn=None, existing_bind=self.HOST_GATEWAY
-        )
-        self.assertEqual(namespace["_desired_bind"], self.HOST_GATEWAY)
-        self.assertEqual(
-            namespace["_health"], f"http://{self.HOST_GATEWAY}:{self.PORT}/health"
-        )
-        # The printed link has to name the interface the forward actually binds; a
-        # loopback URL is unreachable once the forward moves off loopback.
-        self.assertEqual(namespace["origin"], f"http://{self.HOST_GATEWAY}:{self.PORT}")
-        self.assertEqual(namespace["agent_ui_url"], namespace["origin"])
+    def test_non_brev_adapter_relays_on_the_docker_host_gateway(self) -> None:
+        namespace, starts, calls, relays = self._run_ui_cell(adapter_enabled=True, chat_fqdn=None)
         self.assertEqual(starts, [])
-        inspect = next(
-            command for command in calls if command[:3] == ("docker", "inspect", "--format")
-        )
-        probe = next(
-            command for command in calls if command[:2] == ("docker", "run")
-        )
+        self.assertEqual(relays[0][relays[0].index("--listen") + 1], self.HOST_GATEWAY)
+        self.assertTrue(namespace["_relay_up"])
+        # The forward itself stays on loopback, so the printed local link does too.
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+        inspect = next(c for c in calls if c[:3] == ("docker", "inspect", "--format"))
+        probe = next(c for c in calls if c[:2] == ("docker", "run"))
         self.assertEqual(inspect[-1], "gateway")
         self.assertIn("host.docker.internal:host-gateway", probe)
-        self.assertIn("sh", probe)
         self.assertIn("sha256:gateway-image", probe)
         self.assertIn("--rm", probe)
-        self.assertFalse(any("vss-agent-ui" in command for command in calls))
-        self.assertFalse(any(command[:2] == ("docker", "exec") for command in calls))
+        self.assertFalse(any("vss-agent-ui" in c for c in calls))
 
     def test_host_gateway_discovery_failure_stops_the_cell(self) -> None:
         with self.assertRaisesRegex(
-            RuntimeError,
-            "Could not resolve Docker's host-gateway mapping: host alias unavailable",
+            RuntimeError, "Could not resolve Docker's host-gateway mapping: host alias unavailable"
         ):
-            self._run_ui_cell(
-                adapter_enabled=True,
-                chat_fqdn=None,
-                existing_bind="127.0.0.1",
-                gateway_lookup_fails=True,
-            )
+            self._run_ui_cell(adapter_enabled=True, chat_fqdn=None, gateway_lookup_fails=True)
 
-    def test_wrong_bind_is_replaced_with_docker_host_gateway(self) -> None:
-        namespace, starts, calls = self._run_ui_cell(
-            adapter_enabled=True, chat_fqdn=None, existing_bind="127.0.0.1"
+    def test_a_relay_bound_for_a_previous_run_is_replaced(self) -> None:
+        namespace, _, calls, relays = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None, relay_running_for=["0.0.0.0"]
         )
-        self.assertEqual(namespace["_bind"], "127.0.0.1")
-        self.assertEqual(
-            starts, [(f"{self.HOST_GATEWAY}:{self.PORT}", self.SANDBOX)]
-        )
-        self.assertEqual(namespace["_held"], (self.HOST_GATEWAY, "4242"))
-        self.assertIn(
-            ("openshell", "forward", "stop", str(self.PORT), self.SANDBOX), calls
-        )
+        self.assertIn(("kill", "5151"), calls)
+        self.assertEqual(len(relays), 1)
+        self.assertEqual(relays[0][relays[0].index("--listen") + 1], self.HOST_GATEWAY)
+        self.assertTrue(namespace["_relay_up"])
 
-    def test_hooks_verification_uses_rebound_host_gateway_without_proxy(self) -> None:
-        namespace, starts, _calls = self._run_ui_cell(
-            adapter_enabled=True, chat_fqdn=None, existing_bind="127.0.0.1"
+    def test_a_matching_relay_is_kept(self) -> None:
+        namespace, _, calls, relays = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None, relay_running_for=[self.HOST_GATEWAY]
         )
+        self.assertEqual(relays, [])
+        self.assertNotIn(("kill", "5151"), calls)
+        self.assertTrue(namespace["_relay_up"])
+
+    def test_a_matching_relay_that_no_longer_answers_is_replaced(self) -> None:
+        # Bound correctly but dead end-to-end: kept relays get the same probe as new ones.
+        namespace, _, calls, relays = self._run_ui_cell(
+            adapter_enabled=True, chat_fqdn=None,
+            relay_running_for=[self.HOST_GATEWAY], relay_dead=True,
+        )
+        self.assertIn(("kill", "5151"), calls)
+        self.assertEqual(len(relays), 1)
+        self.assertTrue(namespace["_relay_up"])
+
+    def test_hooks_verification_posts_to_the_loopback_forward_without_proxy(self) -> None:
+        namespace, _, _, _ = self._run_ui_cell(adapter_enabled=True, chat_fqdn=None)
         hook_calls: list[list[str]] = []
 
-        def run(
-            command: list[str], **_kwargs: object
-        ) -> subprocess.CompletedProcess[str]:
+        def run(command, **_kwargs):
             hook_calls.append(command)
             return subprocess.CompletedProcess(command, 0, "{}\n200", "")
 
@@ -752,27 +798,14 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 "json": json,
             }
         )
-        with (
-            mock.patch("subprocess.run", side_effect=run),
-            mock.patch("builtins.print"),
-        ):
+        with mock.patch("subprocess.run", side_effect=run), mock.patch("builtins.print"):
             exec(  # noqa: S102 - executes the checked-in hooks verification block.
-                compile(
-                    self.hooks_source,
-                    "deploy_nemoclaw:verify-code:hooks",
-                    "exec",
-                ),
+                compile(self.hooks_source, "deploy_nemoclaw:verify-code:hooks", "exec"),
                 namespace,
             )
-
-        self.assertEqual(
-            starts, [(f"{self.HOST_GATEWAY}:{self.PORT}", self.SANDBOX)]
-        )
         self.assertEqual(len(hook_calls), 1)
         self.assertEqual(hook_calls[0][:4], ["curl", "-sS", "--noproxy", "*"])
-        self.assertIn(
-            f"http://{self.HOST_GATEWAY}:{self.PORT}/hooks/agent", hook_calls[0]
-        )
+        self.assertIn(f"http://127.0.0.1:{self.PORT}/hooks/agent", hook_calls[0])
 
 
 class NemoRelayNotebookContractTests(unittest.TestCase):
