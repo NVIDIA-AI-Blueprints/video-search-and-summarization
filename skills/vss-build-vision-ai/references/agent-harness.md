@@ -255,15 +255,17 @@ with no way to drive it.
   is the harness's *own* LLM, unrelated to the build's `LLM_*` and `VLM_*` knobs.
   The notebook offers three — (a) an OpenAI-compatible endpoint, (b) a
   NemoClaw-managed local model, (c) a build.nvidia.com hosted model — and **this
-  skill defaults to (a) serving Claude Opus 5** (see [Default
-  provider](#default-provider) below). The provider is a default; the endpoint,
-  model id, and bearer token it needs are **collected from the user** at Q3a,
-  which is where a missing credential surfaces. Section 1.2 of the notebook
-  remains the authority on which variables each provider needs; do not infer
-  them, and do not preflight a variable a different provider would have used.
-- **A GPU budget that accounts for the harness.** The default remote provider
-  costs no GPU. This applies only when the user overrides to the local
-  provider: (b)
+  skill recommends (a) pointed at the build's own LLM on an edge device serving
+  one, and (a) serving Claude Opus 5 everywhere else** (see [Default
+  provider](#default-provider) below). Both are recommendations the user is
+  asked to confirm at Q3a, which is also where the endpoint, model id, and
+  bearer token are collected and where a missing credential surfaces. Section
+  1.2 of the notebook remains the authority on which variables each provider
+  needs; do not infer them, and do not preflight a variable a different provider
+  would have used.
+- **A GPU budget that accounts for the harness.** The remote provider
+  costs no GPU, and the edge route reuses the VSS LLM without a second model
+  process. This applies only when the user selects the NemoClaw-managed local provider: (b)
   `install-vllm` takes every visible GPU unless `NEMOCLAW_VLLM_GPU_DEVICE` pins
   it, which will strand the build's own models. Reconcile that against
   [`sizing.md`](sizing.md) before choosing it, not after.
@@ -308,7 +310,16 @@ working chat.
 
 ## Default provider
 
-**Default to notebook option (a) — the remote OpenAI-compatible endpoint —
+**On an edge device — DGX Spark or AGX/IGX Thor — whose VSS LLM resolved to
+`local` or `local_shared`, recommend notebook option (a) pointed at the build's
+own LLM NIM**, per *(a) against the build's own LLM NIM* below. Offer it as
+Q3a's first and default choice rather than applying it unasked, and take it only
+when the user accepts it; the device is already serving that model, so the
+harness costs no second server and no remote dependency. Derive its port and
+served model from `resolved.yml` once the choice is made.
+
+**On every other hardware platform, and on an edge device whose VSS LLM is
+remote, default to notebook option (a) — the remote OpenAI-compatible endpoint —
 serving Claude Opus 5 through the NVIDIA Inference Hub.** First ask the user
 which model the sandbox runs on, per [Harness model —
 Q3a](../SKILL.md#harness-model--q3a). Another model on this same endpoint
@@ -436,7 +447,7 @@ Set the environment, then run the notebook:
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
 | `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | the notebook forward and the UI adapter backend URL must use the same value |
 | `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | makes a compatible notebook expose the forward on Docker's private bridge when no Brev secure link exists |
-| `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 when the user accepts the default; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
+| `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | the build's own LLM when the user accepted that recommendation on an edge device, remote Claude Opus 5 when they accepted the default elsewhere; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
 

@@ -279,13 +279,15 @@ The sandbox runs on its **own** LLM, unrelated to the build's `LLM_*` and `VLM_*
 
 **Read the environment first.** Report relevant model settings as found-or-missing, showing endpoint and model values verbatim but never a credential's value. An explicitly configured provider and all of its required values are already the answer; confirm them instead of asking Q3a.
 
-Otherwise ask **Q3a-default** through one single-select `AskUserQuestion`: *"Which model should the NemoClaw sandbox run on?"* Keep the model choice separate from the provider choice — a user who wants the harness on a different model has not asked to change providers, and a yes/no that bundles the two forces them through an endpoint they never wanted to touch.
+Ask **Q3a-default** through one single-select `AskUserQuestion`: *"Which model should the NemoClaw sandbox run on?"* Keep the model choice separate from the provider choice — a user who wants the harness on a different model has not asked to change providers, and a yes/no that bundles the two forces them through an endpoint they never wanted to touch.
 
 | Choice | Result |
 | --- | --- |
 | **The default endpoint and model** *(default)* | Notebook option (a): `NEMOCLAW_PROVIDER=custom`, `NEMOCLAW_ENDPOINT_URL=https://inference-api.nvidia.com/v1`, `NEMOCLAW_MODEL=aws/anthropic/bedrock-claude-opus-5`, plus `COMPATIBLE_API_KEY`. |
 | **The default endpoint, a different model** | The same settings, except collect `NEMOCLAW_MODEL` as a route id that endpoint serves (listed at <https://inference.nvidia.com/?new=0>). Do not ask for the endpoint and do not re-select a provider. |
 | **A different provider** | Ask **Q3a-provider** below. |
+
+**On edge hardware — DGX Spark or AGX/IGX Thor — whose VSS LLM resolved to `local` or `local_shared`, add one more choice and make it the recommended default: the build's own LLM.** Offer it as the first option, still let the user take any other, and take it only when they do. It reuses the edge device's existing model server rather than adding a remote dependency, and it is the `references/agent-harness.md` route *(a) against the build's own LLM NIM* — read `LLM_PORT` and `NIM_SERVED_MODEL_NAME` from `resolved.yml` rather than assuming either. Do not offer it on non-edge hardware or against a remote VSS LLM; there Q3a stays the three choices above with Claude Opus 5 as the default.
 
 On **a different provider**, show the notebook's three provider choices through one single-select `AskUserQuestion`:
 
