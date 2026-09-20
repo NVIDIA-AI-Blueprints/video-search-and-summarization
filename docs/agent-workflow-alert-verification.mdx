@@ -196,6 +196,17 @@ chmod -R a+rwx \
   "$VSS_DATA_DIR/videos"
 ```
 
+#### Direct Docker Compose Overrides
+
+Add this common alert-verification block to
+`developer-profiles/dev-profile-alerts/user-overrides.env` before adding the
+hardware-specific values from the tabs below:
+
+```ini
+MODE=2d_cv
+ALERT_AGENT_ALWAYS_ON=false
+COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}
+```
 
 **Default container image tag**
 

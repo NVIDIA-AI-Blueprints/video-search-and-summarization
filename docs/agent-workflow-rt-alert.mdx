@@ -219,7 +219,7 @@ List any alerts for alert ID <alert ID>.
 What the agent does:
 
 1. Routes the request to the incident-query workflow.
-2. Posts the natural-language query to the agent endpoint, which invokes `video_analytics_mcp.get_incidents` against the stored alert incidents.
+2. Queries the stored incidents from Alert Bridge through `GET /api/v1/realtime/incidents`.
 3. Summarizes matching notifications with status, sensor, timestamp, and available evidence.
 
 ##### Replace an Alert Rule
@@ -281,9 +281,10 @@ the connection carries the gateway token and alert contents. Use `ws://` only fo
 
 ### Manually
 
+#### Direct Docker Compose Overrides
+
 When invoking Docker Compose directly, apply all of the following settings in
-the environment file supplied to the command (`generated.env` or
-`user-overrides.env`):
+`developer-profiles/dev-profile-alerts/user-overrides.env`:
 
 ```ini
 MODE=2d_vlm

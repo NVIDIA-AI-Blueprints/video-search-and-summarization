@@ -37,7 +37,7 @@ production environments. Agent Skills for VSS were validated using Claude Opus
 
 The exact service set depends on the deployment path:
 
-- **Build Vision AI Skill (default):** VSS Agent UI, VSS Video IO & Storage
+- **Build Vision AI Skill (default):** VSS UI, VSS Video IO & Storage
   (VIOS), and RT-VLM. RT-VLM serves the Cosmos3 Nano Reasoner model through
   `vss-rtvi-vlm` on port `8018`; there is no separate Cosmos3 Reasoner
   container. The default NemoClaw harness runs on the host outside the Compose
@@ -61,7 +61,7 @@ supported options.
 
 | Harness | What it is | Pros | Cons |
 | --- | --- | --- | --- |
-| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Bundled with VSS skills and a policy preset; installed via the `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks. See [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw). | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
+| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The [NemoClaw setup](/vss/vision-agent/agent-harnesses/nemoclaw) provides a separate, notebook-driven route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
 | **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/vss/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
 | **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
@@ -71,6 +71,11 @@ Docker Compose project, and the in-stack VSS Agent is omitted unless the request
 explicitly names it. The manual Docker Compose base-profile commands later on
 this page use the stock `COMPOSE_PROFILES` and still deploy the NAT-based VSS
 Agent.
+
+Use one NemoClaw setup route for a deployment. For this quickstart, let Build
+Vision AI provision the harness when it prompts you. Use the standalone
+notebooks instead when you want the guided NemoClaw-on-Brev setup; do not run
+them again for a harness that Build Vision AI already provisioned.
 </Note>
 
 ## Prerequisites
@@ -476,6 +481,13 @@ developer profiles is `dev-profile.sh`. It creates `generated.env`, derives the
 profile-specific service set, applies host paths and model placement, and starts
 the matching Compose project.
 
+The helper always recreates the selected profile's `generated.env` from the
+checked-in `overrides.env` template, its flags, and supported environment
+inputs, then passes `.env` and `generated.env` to Compose. It does not read
+`user-overrides.env`. Use the helper's documented flags and environment inputs;
+use the advanced direct Compose path below only for settings the helper does
+not expose.
+
 From the repository root:
 
 ```bash
@@ -603,6 +615,12 @@ chmod -R a+rwx \
   "$VSS_DATA_DIR/models"
 ```
 
+<Warning>
+These broad write permissions are intended for development deployments whose
+containers use multiple user IDs. For production, restrict host directory
+ownership and permissions to the identities used by your deployment. See
+[Secure Deployment](/vss/appendix/additional-deployments/secure-deployment#host-filesystem-permissions).
+</Warning>
 
 **Default container image tag**
 
@@ -1056,12 +1074,12 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 </Note>
 
 <Note>
-**Switch Agent Workflows:** If you run `docker compose` directly, use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env` (or `generated.env` after the helper has run). Later `--env-file` values win.
+**Switch Agent Workflows:** If you run `docker compose` directly, use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env`. Later `--env-file` values win. `generated.env` is helper-owned output; do not treat it as a persistent direct-Compose override file.
 
 Switch profiles by changing the `dev-profile-<profile>` directory, not by setting `MODE` to `base`/`lvs`/`search`/`alerts`. Those names are profile directories. For the **alerts** profile only, `MODE` is:
 
-- [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent) — `MODE=2d_cv`
-- [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#step-1-deploy-the-agent) — `MODE=2d_vlm`
+- [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#direct-docker-compose-overrides) — `MODE=2d_cv`
+- [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#direct-docker-compose-overrides) — `MODE=2d_vlm`
 
 For a manual alerts deployment, setting `MODE` alone is not sufficient. Follow
 the linked workflow and copy its complete common override block into

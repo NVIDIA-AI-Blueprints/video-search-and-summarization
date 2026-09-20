@@ -325,9 +325,8 @@ types and examples.
 
 ## Environment Variables
 
-Profile `.env` and `overrides.env` files supply values to the Agent
-container. For developer profiles, copy `overrides.env` to the ignored
-`user-overrides.env` file and edit that copy as described in
+Profile `.env` files and the final helper- or direct-Compose override file
+supply values to the Agent container. Choose the file as described in
 [Configuration](/vss/system-components/configuration).
 
 | Variable | Purpose |
@@ -352,8 +351,12 @@ container. For developer profiles, copy `overrides.env` to the ignored
 | `HF_TOKEN` | Optional credential for gated Hugging Face model weights. |
 
 The checked-in profile files already define the service URLs and stable
-defaults. A `user-overrides.env` file should contain only values you need to
-change. For example:
+defaults. For a direct Docker Compose deployment, a `user-overrides.env` file
+should contain only values you need to change. The `dev-profile.sh` helper does
+not read that file; it recreates and consumes `generated.env` from its flags and
+supported environment inputs. See
+[Configuration](/vss/system-components/configuration) before choosing a path.
+For example, a direct Compose override can contain:
 
 ```bash
 VLM_MODE=local_shared
