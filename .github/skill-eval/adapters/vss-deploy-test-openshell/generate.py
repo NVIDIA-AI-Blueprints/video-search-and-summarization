@@ -397,6 +397,132 @@ PROFILES: dict[str, dict] = {
         "description": "Standalone Video Analytics API via vss-setup-video-analytics-api",
         "bundled_skills": ("vss-setup-video-analytics-api",),
     },
+    # Daily-port stems (evals/<source-skill>/<stem>.json). Same tests Daily
+    # runs under that source skill; OpenShell generates them for the live card.
+    "base_profile_video_understanding": {
+        "description": "Daily ask-video job — base deploy then vss-ask-video",
+        "profile": "base",
+        "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
+    },
+    "vdr_1_quickstart_vision_agent": {
+        "description": "Daily VDR-1 quickstart via vss-build-vision-ai",
+        "profile": "base",
+        "bundled_skills": ("vss-build-vision-ai",),
+    },
+    "vdr_2_add_alerting_summarization": {
+        "description": "Daily VDR-2 alerting + summarization (two GPU)",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-build-vision-ai",),
+    },
+    "base_profile_report": {
+        "description": "Daily report job — base deploy then vss-generate-video-report",
+        "profile": "base",
+        "bundled_skills": (
+            "vss-generate-video-report",
+            "vss-manage-video-io-storage",
+            "vss-query-analytics",
+        ),
+    },
+    "alerts_vlm_real_time": {
+        "description": "Daily real-time VLM alerts job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-query-analytics", "vss-build-vision-ai"),
+    },
+    "always_on_operate": {
+        "description": "Daily always-on alerts operate-not-author job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "cv_mode_gate": {
+        "description": "Daily CV-mode alerts gate job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "ondemand_verification": {
+        "description": "Daily on-demand alert verification job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "routing_e_gate_negative": {
+        "description": "Daily alerts routing-E negative gate job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "routing_vlm_c_vs_d": {
+        "description": "Daily alerts routing C vs D job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "slack_notify_ops": {
+        "description": "Daily Slack alert-notification job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "subscriptions_create_phrasings": {
+        "description": "Daily alert-subscription phrasing job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "subscriptions_edge_cases": {
+        "description": "Daily alert-subscription edge-case job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "subscriptions_lifecycle": {
+        "description": "Daily alert-subscription lifecycle job",
+        "profile": "warehouse",
+        "bundled_skills": (
+            "vss-manage-alerts",
+            "vss-build-vision-ai",
+            "vss-manage-video-io-storage",
+        ),
+    },
+    "verification_flow": {
+        "description": "Daily alert verification-flow job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-manage-alerts", "vss-build-vision-ai"),
+    },
+    "nvstreamer_ops": {
+        "description": "Daily NvStreamer / VIOS job",
+        "profile": "base",
+        "bundled_skills": ("vss-manage-video-io-storage",),
+    },
+    "vios_ops": {
+        "description": "Daily VIOS operations job",
+        "profile": "base",
+        "bundled_skills": ("vss-manage-video-io-storage",),
+    },
+    "query_analytics": {
+        "description": "Daily query-analytics job",
+        "profile": "warehouse",
+        "bundled_skills": ("vss-query-analytics", "vss-build-vision-ai"),
+    },
+    "lvs_api_ops": {
+        "description": "Daily LVS API operations job",
+        "profile": "lvs",
+        "bundled_skills": ("vss-summarize-video", "vss-build-vision-ai"),
+    },
+    "lvs_profile_summarize": {
+        "description": "Daily LVS summarization job",
+        "profile": "lvs",
+        "bundled_skills": ("vss-summarize-video", "vss-build-vision-ai"),
+    },
 }
 
 # Always copied into every Harbor task so OpenShell trials can invoke
@@ -757,12 +883,8 @@ def generate_task(
     spec_query: str | None = None
     expected_services: list[str] = []
     if skill_dir is not None:
-        spec_path = skill_dir / "evals" / f"{profile}.json"
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
-        if spec_path.exists():
+        spec_path = _spec_path_for(profile, skill_dir)
+        if spec_path is not None:
             try:
                 raw = json.loads(spec_path.read_text())
                 declared_services = raw.get("expected_services") or []
@@ -844,14 +966,7 @@ def generate_task(
     # -- tests/: wrapper + generic judge + rendered eval spec --
     tests_dir = task_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
-    if skill_dir:
-        spec_path = skill_dir / "evals" / f"{profile}.json"
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
-    else:
-        spec_path = None
+    spec_path = _spec_path_for(profile, skill_dir) if skill_dir else None
     if spec_path and spec_path.exists():
         raw_spec = json.loads(spec_path.read_text())
         rendered = _render_eval_spec(raw_spec, profile, platform)
@@ -904,14 +1019,94 @@ def generate_task(
 # Spec → matrix
 # ---------------------------------------------------------------------------
 
+def _uniquified_stem(spec_path: Path, skill_dir: Path | None) -> str:
+    """Match planner stems: nested Daily ports are `<source-skill>_<file-stem>`."""
+    if skill_dir is None:
+        return spec_path.stem
+    resolved = spec_path if spec_path.is_absolute() else Path.cwd() / spec_path
+    for sub in ("evals", "eval"):
+        root = (skill_dir / sub).resolve()
+        try:
+            rel = resolved.resolve().relative_to(root)
+        except ValueError:
+            continue
+        parts = rel.parts
+        if len(parts) == 1:
+            return Path(parts[0]).stem
+        if len(parts) == 2:
+            return f"{parts[0]}_{Path(parts[1]).stem}"
+    return spec_path.stem
+
+
+def _profile_def(profile: str, skill_dir: Path | None) -> dict:
+    """PROFILES entry, or a Daily-port fallback filled from the spec."""
+    base = dict(PROFILES.get(profile) or {"description": profile})
+    spec_path = _spec_path_for(profile, skill_dir)
+    if spec_path is None or not spec_path.exists():
+        return base
+    try:
+        raw = json.loads(spec_path.read_text())
+    except Exception:  # noqa: BLE001
+        return base
+    if not isinstance(raw, dict):
+        return base
+    if profile not in PROFILES:
+        desc = raw.get("description")
+        if isinstance(desc, str) and desc.strip():
+            base["description"] = desc.strip().splitlines()[0][:180]
+        if isinstance(raw.get("profile"), str) and raw["profile"]:
+            base["profile"] = raw["profile"]
+        if isinstance(raw.get("deploy_mode"), str) and raw["deploy_mode"]:
+            base["deploy_mode"] = raw["deploy_mode"]
+    skills = [
+        s
+        for s in (raw.get("skills") or [])
+        if isinstance(s, str) and s != "vss-deploy-test-openshell"
+    ]
+    if skills:
+        existing = tuple(base.get("bundled_skills") or ())
+        base["bundled_skills"] = tuple(dict.fromkeys((*existing, *skills)))
+    return base
+
+
 def _spec_path_for(profile: str, skill_dir: Path | None) -> Path | None:
-    """`evals/<profile>.json`, accepting the legacy `eval/` directory."""
+    """`evals/<profile>.json` or `evals/<source-skill>/<profile>.json`.
+
+    `EVAL_SPEC_PATH` wins when the planner pointed at a nested Daily port
+    whose stem collides with a top-level smoke (`base`, `search`, …).
+    """
+    env_spec = (os.environ.get("EVAL_SPEC_PATH") or "").strip()
+    if env_spec:
+        p = Path(env_spec)
+        if not p.is_absolute():
+            repo = (
+                skill_dir.parent.parent
+                if skill_dir is not None
+                else Path.cwd()
+            )
+            p = repo / env_spec
+        if p.exists():
+            return p
     if skill_dir is None:
         return None
     for sub in ("evals", "eval"):
-        candidate = skill_dir / sub / f"{profile}.json"
+        root = skill_dir / sub
+        candidate = root / f"{profile}.json"
         if candidate.exists():
             return candidate
+        if not root.is_dir():
+            continue
+        for child in sorted(p for p in root.iterdir() if p.is_dir()):
+            if child.name == "openshell":
+                continue
+            nested = child / f"{profile}.json"
+            if nested.exists():
+                return nested
+            prefix = child.name + "_"
+            if profile.startswith(prefix):
+                prefixed = child / f"{profile[len(prefix):]}.json"
+                if prefixed.exists():
+                    return prefixed
     return None
 
 
@@ -1013,7 +1208,10 @@ def expand_matrix(
     """
     included: list[tuple[str, str, int]] = []
     skipped: list[tuple[str, str, str]] = []
-    for profile in PROFILES:
+    profiles = list(PROFILES)
+    if profile_filter and profile_filter not in PROFILES:
+        profiles.append(profile_filter)
+    for profile in profiles:
         if profile_filter and profile != profile_filter:
             continue
         gpu_count, reason = _spec_gpu_count(profile, skill_dir)
@@ -1034,7 +1232,7 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, help="Dataset output root")
     parser.add_argument("--skill-dir", default=None, help="Path to skills/vss-deploy-test-openshell")
     selector = parser.add_mutually_exclusive_group()
-    selector.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
+    selector.add_argument("--profile", default=None)
     selector.add_argument(
         "--spec",
         default=None,
@@ -1050,14 +1248,18 @@ def main() -> None:
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir) if args.skill_dir else None
-    profile = args.profile
-    if args.spec:
-        spec_path = Path(args.spec)
-        profile = spec_path.stem
+    profile = args.profile or (os.environ.get("EVAL_SPEC_STEM") or "").strip() or None
+    spec_override = Path(args.spec) if args.spec else None
+    if spec_override is not None:
+        if not spec_override.is_file():
+            parser.error(f"spec not found: {spec_override}")
+        os.environ["EVAL_SPEC_PATH"] = str(spec_override)
+        env_stem = (os.environ.get("EVAL_SPEC_STEM") or "").strip()
+        profile = env_stem or _uniquified_stem(spec_override, skill_dir)
         if profile not in PROFILES:
-            parser.error(
-                f"spec stem {profile!r} does not name a supported profile: "
-                + ", ".join(PROFILES)
+            print(
+                f"=== Spec stem {profile!r} is a Daily port; sizing from "
+                f"{spec_override} ==="
             )
 
     write_guest_leg_marker()
@@ -1097,7 +1299,7 @@ def main() -> None:
         print(f"  GEN  {profile}/{task_id}   gpu_count={gpu_count}")
         generate_task(
             profile, platform,
-            PROFILES[profile], output_root, skill_dir,
+            _profile_def(profile, skill_dir), output_root, skill_dir,
             gpu_count=gpu_count,
         )
 
