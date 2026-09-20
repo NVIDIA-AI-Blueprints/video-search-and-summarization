@@ -291,11 +291,6 @@ use `docker ps` to identify any unhealthy container. Check that container's
 startup logs with `docker logs <container-name>`; do not use the manual
 in-stack Agent check on port `8000` for the default Skill-generated stack.
 
-If RT-VLM is the failing service, inspect `docker logs vss-rtvi-vlm`. In shared
-GPU mode, redeploy the full blueprint instead of restarting only that
-container; with dedicated GPUs, restarting it is sufficient. See
-[Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).
-
 If the VSS containers are healthy but the NemoClaw dashboard, sandbox, or MCP
 tools are unavailable, follow
 [NemoClaw Troubleshooting](/vss/vision-agent/agent-harnesses/nemoclaw/troubleshooting).
@@ -1111,7 +1106,7 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
    whether the host firewall is blocking container-to-host traffic. See
    [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
 
-5. If the `vss-rtvi-vlm` container stopped or crashed **in shared GPU
+5. If the `cosmos3-reasoner` container stopped or crashed **in shared GPU
    mode**, redeploy the full blueprint instead of restarting only that container.
    With dedicated GPUs, restarting the container is sufficient. See
    [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).

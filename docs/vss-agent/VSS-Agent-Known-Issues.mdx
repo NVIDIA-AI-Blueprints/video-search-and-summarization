@@ -20,27 +20,28 @@ Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM
 - Remote VLM with model-type `nim` (not Omni audio path): the VLM must reach VST on **port 30888** on the host. See [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos).
 - Remote **Nemotron Omni** with `ENABLE_AUDIO=true` on the base profile: the agent inlines the MP4 in the API request; ensure **port 30082** (OpenAI-compatible VLM API) is reachable from the VSS host. See [Using Nemotron Omni (audio-enabled VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) and [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos).
 
-## RT-VLM Restart Failures (Shared GPU Mode)
+## Cosmos3 Nano Reasoner NIM Restart Failures (Shared GPU Mode)
 
 **Symptom:**
 
-If the `vss-rtvi-vlm` container stops, crashes, or is stopped manually
+If the `cosmos3-reasoner` NIM container stops, crashes, or is stopped manually
 **in shared GPU mode**, restarting the container alone may not recover the service.
 The agent UI or video-understanding requests may stop responding.
 
 **Cause:**
 
-In shared GPU mode, the RT-VLM service that hosts the Cosmos3 model cannot be
-restarted independently after it has stopped in the current release.
+In shared GPU mode, the `cosmos3-reasoner` NIM cannot be restarted
+independently after it has stopped in the current release.
 
 **Solution:**
 
 - **Shared GPU mode:** Redeploy the entire blueprint instead of restarting only
-  the `vss-rtvi-vlm` container.
-- **Dedicated GPU mode:** Restarting the `vss-rtvi-vlm` container is
+  the `cosmos3-reasoner` container.
+- **Dedicated GPU mode:** Restarting the `cosmos3-reasoner` container is
   sufficient; a full blueprint redeploy is not required.
 
-This limitation applies only to shared GPU deployments.
+This limitation applies only to shared GPU deployments. The release plan is to
+move to Cosmos Reason 3, which should address this issue.
 
 ## Snapshot Timestamp Accuracy (Video Summarization Profile)
 
