@@ -48,19 +48,27 @@ The following software must be installed on your system:
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
 - **NGC CLI:** 4.10.0+
-- **Python runner for Build Vision AI:** `uv` is preferred. Python 3 with
-  PyYAML is also supported for the Skill's service-graph checks and helper
-  scripts.
+- **Python runner for Build Vision AI:** `uv` is required when you select the
+  default NemoClaw harness and is preferred for other deployments. For a
+  deployment without NemoClaw, Python 3 with PyYAML is also supported for the
+  Skill's service-graph checks and helper scripts.
 
-Install one supported runner:
+Install `uv` for the default NemoClaw path. For a deployment without NemoClaw,
+you can instead use the active Python 3 environment:
 
 ```bash
-# Preferred
+# Required for NemoClaw; preferred otherwise
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Alternative: use the active Python 3 environment
+# Alternative only for deployments without NemoClaw
 python3 -m pip install PyYAML
 ```
+
+Build Vision AI runs the NemoClaw setup notebook non-interactively with a
+Python 3.12 environment and notebook packages supplied by `uv`. The pinned
+NemoClaw installer installs a compatible Node.js and npm runtime. A Jupyter
+kernel with Python 3.11 or later is required only when you follow the
+[interactive NemoClaw notebook guide](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills).
 
 <Note>
 For detailed installation instructions for the software requirements listed above, see the [Appendix](/vss/getting-started/prerequisites#appendix-software-prerequisites-installation-guide):
@@ -702,7 +710,7 @@ ngc --version
 ngc config set
 ```
 
-When prompted, enter your NGC API key. For information on obtaining API keys, see [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
+When prompted, enter your NGC API key. For information on obtaining API keys, see [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc--hugging-face-api-keys).
 
 <Note>
 NGC CLI downloads page: https://ngc.nvidia.com/setup/installers/cli

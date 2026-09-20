@@ -1084,6 +1084,12 @@ The server publishes to the following Kafka topics:
 
 Generated-message output is controlled by the following environment variables:
 
+The standalone RT-VLM Compose file uses the names below directly. In the
+repository's developer-profile Compose deployment, set their prefixed aliases:
+`RTVI_VLM_MESSAGE_BUS`, `RTVI_VLM_MESSAGE_BUS_TOPIC`,
+`RTVI_VLM_KAFKA_INCIDENT_TOPIC`, `RTVI_VLM_ERROR_BUS`, and
+`RTVI_VLM_ERROR_MESSAGE_TOPIC`.
+
 * **MESSAGE_BUS**: Generated-message output bus. Set to `kafka`,
   `redis`, or empty to disable generated-message output in the service
   runtime. The standard Docker Compose deployment defaults this value to
@@ -1481,14 +1487,14 @@ standalone Helm override.
 | `VLLM_DISABLED_KERNELS` | Comma-separated vLLM kernels to disable | `MacheteLinearKernel` |
 | `GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS` | Enable custom GStreamer parser modifications | `1` |
 | `REMOTE_VIDEO_INPUT` | For `openai-compat` remote endpoints, send multi-frame chunks as MP4 video payloads instead of per-frame JPEG payloads | `true` |
-| `MESSAGE_BUS` | Generated-message output bus (`kafka`, `redis`, or empty to disable in the service runtime) | Service runtime: Empty; Docker Compose: `kafka`; performance Compose: Empty |
-| `MESSAGE_BUS_TOPIC` | VisionLLM output topic or Redis stream; replaces legacy `KAFKA_TOPIC` | `mdx-vlm-captions` |
+| `MESSAGE_BUS` (developer-profile Compose: `RTVI_VLM_MESSAGE_BUS`) | Generated-message output bus (`kafka`, `redis`, or empty to disable in the service runtime) | Service runtime: Empty; Docker Compose: `kafka`; performance Compose: Empty |
+| `MESSAGE_BUS_TOPIC` (developer-profile Compose: `RTVI_VLM_MESSAGE_BUS_TOPIC`) | VisionLLM output topic or Redis stream; replaces legacy `KAFKA_TOPIC` | `mdx-vlm-captions` |
 | `KAFKA_PORT` | Docker Compose host port for Kafka | `9092` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | Compose: `kafka:9092`; Helm: `127.0.0.1:9092` |
-| `KAFKA_INCIDENT_TOPIC` | Kafka-only topic for incident messages; independent of `MESSAGE_BUS_TOPIC` | `mdx-vlm-incidents` |
+| `KAFKA_INCIDENT_TOPIC` (developer-profile Compose: `RTVI_VLM_KAFKA_INCIDENT_TOPIC`) | Kafka-only topic for incident messages; independent of `MESSAGE_BUS_TOPIC` | `mdx-vlm-incidents` |
 | `RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE` (Helm env: `KAFKA_ASYNC_SEND_QUEUE_MAXSIZE`) | Bounded queue size for async Kafka sends | `1024` |
-| `ERROR_BUS` | Error-message output bus (`kafka`, `redis`, or empty to disable) | Docker Compose: `kafka` |
-| `ERROR_MESSAGE_TOPIC` | Kafka topic or Redis channel for error messages | `vision-llm-errors` |
+| `ERROR_BUS` (developer-profile Compose: `RTVI_VLM_ERROR_BUS`) | Error-message output bus (`kafka`, `redis`, or empty to disable) | Docker Compose: `kafka` |
+| `ERROR_MESSAGE_TOPIC` (developer-profile Compose: `RTVI_VLM_ERROR_MESSAGE_TOPIC`) | Kafka topic or Redis channel for error messages | `vision-llm-errors` |
 | `ENABLE_REDIS_ERROR_MESSAGES` | Legacy alias for `ERROR_BUS=redis` when `ERROR_BUS` is unset | `false` |
 | `REDIS_HOST` | Redis host | Compose: `redis`; Helm: `127.0.0.1` |
 | `REDIS_PORT` | Redis application port | `6379` |

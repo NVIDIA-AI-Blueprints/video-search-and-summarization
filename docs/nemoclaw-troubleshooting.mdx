@@ -9,7 +9,7 @@ Recovery steps for common NemoClaw / OpenClaw / VSS orchestrator issues. Command
 
 **Symptom**: Section 3.1 of `deploy_nemoclaw.ipynb` fails during the NemoClaw installer with a Node.js version error.
 
-**Cause**: NemoClaw's installer needs Node.js `>= 22.16`. Cursor and some other IDEs can put their bundled Node.js 20 ahead of `nvm` on the Jupyter kernel's `PATH`.
+**Cause**: NemoClaw's pinned installer needs Node.js `>= 22.19`. Cursor and some other IDEs can put their bundled Node.js 20 ahead of `nvm` on the Jupyter kernel's `PATH`.
 
 **Solution**: Fix the Node.js version manually in a host terminal, then restart the Jupyter kernel and re-run the failed Section 3.1 cell:
 

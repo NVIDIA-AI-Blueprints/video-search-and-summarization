@@ -661,8 +661,14 @@ docker compose -f compose.yml \
   up -d
 ```
 
-Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
-your network speed, this may take a few minutes.
+On the first bring-up, Docker Compose pulls the required containers from the
+configured GHCR and NGC registries and builds five support images locally:
+Elasticsearch, its initializer, the Kafka topic
+initializer, the broker health checker, and the search Kibana initializer.
+Those builds pull base images from Docker Hub and `docker.elastic.co`; the
+Kafka support-image builds also download `jq` from GitHub. Allow outbound access
+and disk space for both pulls and local builds. Depending on your network
+speed, this may take a few minutes.
 
 Once the deployment is complete, check that all the containers are running and healthy:
 

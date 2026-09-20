@@ -36,6 +36,13 @@ The following diagram illustrates the real-time alert workflow architecture:
 - **ELK:** Elasticsearch, Logstash, and Kibana stack for log storage and analysis
 - **Phoenix:** Observability and telemetry service for agent workflow monitoring
 
+This list describes the stock profile used by the manual Compose deployment.
+Build Vision AI customizes that profile for the requested capabilities. With
+the default NemoClaw harness, or with no harness, it does not deploy the
+in-stack VSS Agent or Phoenix. It also omits the Agent's local LLM unless
+another selected service needs it. Ask for the in-stack VSS Agent if you plan
+to use the Agent REST API or the manual Agent UI workflow below.
+
 ## Prerequisites
 
 Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/vss/getting-started/prerequisites) for more details.
@@ -273,21 +280,6 @@ the connection carries the gateway token and alert contents. Use `ws://` only fo
 </Note>
 
 ### Manually
-
-The supported Compose driver for developer profiles is
-`deploy/docker/scripts/dev-profile.sh`. It copies `overrides.env` into `generated.env`,
-sets `VSS_APPS_DIR`, `VSS_DATA_DIR`, and `HOST_IP`, and applies the complete
-real-time configuration. For `MODE=2d_vlm`, the helper enables the alert agent,
-selects the VLM Compose service list, enables RT-VLM Kafka publishing, and
-configures the applicable Manage Alerts user interface.
-
-```bash
-export NGC_CLI_API_KEY='your_ngc_api_key'
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile alerts \
-  --mode real-time \
-  --hardware-profile H100
-```
 
 When invoking Docker Compose directly, apply all of the following settings in
 the environment file supplied to the command (`generated.env` or
@@ -777,8 +769,14 @@ docker compose -f compose.yml \
   up -d
 ```
 
-Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
-your network speed, this may take a few minutes.
+On the first bring-up, Docker Compose pulls the required containers from the
+configured GHCR and NGC registries and builds five support images locally:
+Elasticsearch, its initializer, the Kafka topic
+initializer, the broker health checker, and the alerts Kibana initializer.
+Those builds pull base images from Docker Hub and `docker.elastic.co`; the
+Kafka support-image builds also download `jq` from GitHub. Allow outbound access
+and disk space for both pulls and local builds. Depending on your network
+speed, this may take a few minutes.
 
 **This deployment uses the following defaults:**
 
@@ -868,7 +866,9 @@ their Compose volumes.
 
 ## Service Endpoints
 
-Once deployed, the following services are available:
+The following endpoints apply to the stock manual Compose deployment. Build
+Vision AI reports the endpoints available in the deployment it creates; use
+that deployment summary instead of assuming every endpoint below is present.
 
 | Service | URL |
 | --- | --- |
