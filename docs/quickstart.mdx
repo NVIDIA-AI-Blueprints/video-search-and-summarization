@@ -27,6 +27,12 @@ The following diagram illustrates a conceptual architecture of the base vision a
 - Report generation tool which utilizes a LLM and VLM to generate reports from the videos.
 - Video understanding tool which utilizes a VLM to perform video understanding tasks, such as Q&A.
 
+<Warning>
+Agent Skills are released as **Early Access** and are not intended for use in
+production environments. Agent Skills for VSS were validated using Claude Opus
+5.
+</Warning>
+
 ## What's being deployed
 
 The exact service set depends on the deployment path:
@@ -81,7 +87,12 @@ Before proceeding, ensure that NGC CLI is installed on your system. For installa
 
 ### Download Sample Data From NGC
 
-Perform this on the machine from which you may use the web-browser.
+For the default Skill-driven path, perform this on the deployment host in a
+directory available to the host-side coding agent. The archive creates
+`sample-data/dev-profile-sample-data/`; the walkthrough uses
+`warehouse_safety_0001.mp4` from that directory. If you instead use the manual
+browser upload later on this page from a different machine, copy that file to
+the browser machine before uploading it.
 
 This can be done using NGC CLI as documented below, or downloaded from the NGC UI directly.
 
@@ -248,6 +259,7 @@ base RT-VLM endpoint instead:
 ```bash
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 curl -fsS "http://<HOST_IP>:8018/v1/health/ready"
+curl -fsS "http://<HOST_IP>:30888/vst/api/v1/sensor/version"
 curl -fsS "http://<HOST_IP>:7777/"
 ```
 
@@ -262,6 +274,22 @@ If you selected NemoClaw, use the sandbox name and harness URL returned by the
 Skill. The setup log contains the authenticated dashboard URL; do not copy or
 share its token-bearing fragment. If you selected no harness, operate the
 deployment with the project-local `vss` CLI as directed by the Skill.
+
+#### If the Skill-driven UI Doesn't Load
+
+If the returned UI URL does not open, rerun the readiness commands above and
+use `docker ps` to identify any unhealthy container. Check that container's
+startup logs with `docker logs <container-name>`; do not use the manual
+in-stack Agent check on port `8000` for the default Skill-generated stack.
+
+If RT-VLM is the failing service, inspect `docker logs vss-rtvi-vlm`. In shared
+GPU mode, redeploy the full blueprint instead of restarting only that
+container; with dedicated GPUs, restarting it is sufficient. See
+[Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).
+
+If the VSS containers are healthy but the NemoClaw dashboard, sandbox, or MCP
+tools are unavailable, follow
+[NemoClaw Troubleshooting](/vss/vision-agent/agent-harnesses/nemoclaw/troubleshooting).
 
 ## Manual deployment options
 
@@ -1137,12 +1165,31 @@ different model or remote endpoint, name it in the prompt.
 
 ### Upload a video and manage storage
 
+The Skill reads the video from the filesystem of the agent session that runs
+it. For a coding agent running directly on the deployment host, provide the
+absolute host path:
+
 **Example prompts**
 
 ```text title="Example prompts"
-Upload the sample video warehouse_safety_0001.mp4 from the sample-data directory to VSS.
+Upload <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 to VSS.
 List all available sensors.
 Take a snapshot of warehouse_safety_0001 at 0:05.
+```
+
+If Build Vision AI provisioned NemoClaw, copy the video into its sandbox from
+the deployment host first, using the sandbox name returned by the Skill:
+
+```bash
+nemoclaw <sandbox-name> upload \
+  <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 \
+  /sandbox/
+```
+
+Then ask the agent in the NemoClaw session:
+
+```text title="NemoClaw example prompt"
+Upload /sandbox/warehouse_safety_0001.mp4 to VSS.
 ```
 
 **What the agent does:**

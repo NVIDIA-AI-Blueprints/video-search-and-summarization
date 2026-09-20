@@ -64,7 +64,14 @@ report.
 
 ### Developer workflows
 
-| Profile | Best for | Main capabilities |
+The table summarizes each stock Compose profile. Build Vision AI resolves the
+service graph for the requested capabilities and selected harness, so its final
+graph can be smaller. In the default Skill-generated `base` deployment, it
+keeps the UI, Redis, VIOS, and RT-VLM and removes the in-stack `vss-agent`,
+local LLM, and Phoenix. It retains those services only when the request or
+another selected capability requires them.
+
+| Profile | Best for | Stock Compose profile capabilities |
 | --- | --- | --- |
 | `base` | First run, video Q&A, and report generation on short clips | VSS Agent, UI, VIOS, LLM, and RT-VLM. |
 | `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, VA-MCP, RT-VLM, and optionally RT-CV with behavior analytics. |

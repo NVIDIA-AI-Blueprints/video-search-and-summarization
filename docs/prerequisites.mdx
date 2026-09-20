@@ -629,11 +629,18 @@ docker compose version
 ```
 
 The default `docker-compose-plugin` package in Ubuntu repositories may provide a version older than v2.39.1.
-If the version is missing or too old, install the required version manually:
+If the version is missing or too old, select the binary for the host
+architecture and install the required version manually:
 
 ```bash
+case "$(uname -m)" in
+  x86_64) COMPOSE_ARCH=x86_64 ;;
+  aarch64|arm64) COMPOSE_ARCH=aarch64 ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
 sudo mkdir -p /usr/local/lib/docker/cli-plugins
-sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-x86_64 \
+sudo curl -fSL "https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-${COMPOSE_ARCH}" \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 ```
