@@ -81,6 +81,14 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 For each selected configuration, save the remaining values in
 `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, then run:
 
+<Warning>
+The local LLM and RT-VLM layouts below are implemented by the checked-in
+edge sizing files and deployment helper, but have not yet been measured on the
+target hardware. Validate the local models on your system before relying on
+them. Use the remote-LLM layout when local model loading fails or when lower
+response latency is required.
+</Warning>
+
 ```bash
 cd deploy/docker
 export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"

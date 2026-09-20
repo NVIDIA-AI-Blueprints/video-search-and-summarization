@@ -186,9 +186,6 @@ The standard Skill locations are:
 | Claude Code | `~/.claude/skills/<skill-name>` |
 | Other `agentskills.io`-compatible hosts | `~/.agents/skills/<skill-name>` |
 
-After installation, start a new coding-agent session from this checkout so the
-agent discovers the deployment and operations Skills.
-
 Before deployment, have the credentials required by your choices available:
 
 | Credential | When the Skill asks for it |
@@ -230,6 +227,10 @@ stack can still require NGC and model-download credentials. See
 [Credentials used by the Build Vision AI Skill](/vss/getting-started/prerequisites#credentials-used-by-the-build-vision-ai-skill)
 for the complete decision table.
 
+After installing the Skills and preparing credentials, start a new coding-agent
+session from this checkout. Start it from the shell where you exported any
+credentials so the session both discovers the Skills and inherits those values.
+
 ## Deploy the base profile
 
 Use a coding agent with the [Build Vision AI Skill](/vss/vision-agent/build-vision-ai) to deploy
@@ -256,8 +257,9 @@ When deployment completes, open the returned URL, typically
 `http://<HOST_IP>:7777/`, to use the base vision agent.
 
 <Note>
-On edge platforms (DGX Spark, IGX Thor, AGX Thor), local LLM/VLM sharing is
-supported, but a remote LLM is recommended for better response time. Add
+On edge platforms (DGX Spark, IGX Thor, AGX Thor), a checked-in local
+LLM/VLM sharing configuration is available but has not yet been measured on
+the target hardware. A remote LLM is recommended for better response time. Add
 "with a remote LLM" to the prompt, for example:
 *"Use the vss-build-vision-ai skill to deploy the VSS base profile on this
 DGX-SPARK machine with a remote LLM."* See
@@ -341,8 +343,9 @@ Use the vss-build-vision-ai skill to deploy VSS base with a remote LLM at https:
 ```
 
 <Note>
-On edge platforms (DGX Spark, IGX Thor, AGX Thor), local LLM/VLM sharing is
-supported, but a remote LLM is recommended for better response time — add
+On edge platforms (DGX Spark, IGX Thor, AGX Thor), a checked-in local
+LLM/VLM sharing configuration is available but has not yet been measured on
+the target hardware. A remote LLM is recommended for better response time — add
 "with a remote LLM" to the prompt (for example, *"Deploy the VSS base profile
 on this DGX-SPARK machine with a remote LLM."*). See
 [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
@@ -636,6 +639,14 @@ Any service-specific image tag or tag suffix shown inside a hardware tab
 supersedes or augments this common default. Use the SBSA settings shown in the
 GB300 and DGX Spark tabs when deploying on those platforms.
 
+<Note>
+For DGX Spark, IGX Thor, and AGX Thor, the tabs below show the remote-LLM
+layout recommended for latency. The checked-in base configuration also supports a co-located local LLM and
+RT-VLM, but those local layouts have not
+yet been measured on the target hardware. See
+[Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for
+their settings and validation caveat.
+</Note>
 
 <Tabs>
 <Tab title="H100">

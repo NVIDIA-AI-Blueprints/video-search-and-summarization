@@ -402,35 +402,41 @@ layout or one of the remote-model layouts below.
 </Tab>
 <Tab title="DGX-SPARK">
 
-| **Profile** | **Remote LLM** |
-| --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** |
+| --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
 
 </Tab>
 <Tab title="IGX-THOR">
 
-| **Profile** | **Remote LLM** |
-| --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** |
+| --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
 
 </Tab>
 <Tab title="AGX-THOR">
 
-| **Profile** | **Remote LLM** |
-| --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** |
+| --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
 
 </Tab>
 </Tabs>
 
 <Note>
-AGX/IGX Thor and DGX Spark platforms currently support the listed remote-LLM configurations. Fully local deployment for all agent workflows (base, summarization, alerts, and search) is planned for a future release.
+The checked-in base and alerts configurations provide a co-located local LLM and
+RT-VLM on DGX Spark, IGX Thor, and AGX Thor. These local layouts have not yet
+been measured on the target hardware, so a remote LLM is recommended for
+latency and as the fallback if local model loading fails. Search is supported
+on DGX Spark and AGX Thor only and requires both the LLM and VLM to be remote;
+IGX Thor does not support the search profile. The LVS profile is not supported
+on these edge platforms.
 </Note>
 
 ### References

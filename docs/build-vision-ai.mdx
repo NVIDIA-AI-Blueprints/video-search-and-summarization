@@ -216,6 +216,29 @@ Harness-free builds use the `vss-manage-alerts` Skill for alert rules and
 incident queries; it calls Alert Bridge directly and does not require the
 in-stack VSS Agent.
 
+From the repository root, after the Skill reports the build name, inspect the
+exact generated plan and the services started from it:
+
+```bash
+set -o pipefail
+BUILD_DIR="_builds/<name>"
+grep -E '^(FOUNDATION|COMPOSE_PROFILES)=' "$BUILD_DIR/override.env"
+docker compose -f "$BUILD_DIR/resolved.yml" config --services
+docker compose -f "$BUILD_DIR/resolved.yml" ps --services --filter status=running
+docker compose -f "$BUILD_DIR/resolved.yml" config --format yaml |
+  sed -n '/^  lvs-server:/,/^  [^ ]/p' |
+  grep -E 'KAFKA_(ENABLED|BOOTSTRAP_SERVERS|STRUCTURED_SUMMARY_TOPIC)'
+```
+
+Confirm that the resolved and running service lists each contain one
+`alert-bridge`, one `lvs-server`, `kafka`, `rtvi-vlm`, and
+`vss-video-analytics-api`. In the final command output, confirm that
+`KAFKA_ENABLED` is `true`, `KAFKA_BOOTSTRAP_SERVERS` names the `kafka` service,
+and `KAFKA_STRUCTURED_SUMMARY_TOPIC` is non-empty. Review the
+`COMPOSE_PROFILES` line as generated; do
+not replace it with a static list from this page because harness and capability
+choices can change the resolved graph.
+
 This combination uses one LLM for `lvs-server` and one shared RT-VLM; it adds no
 second model process of either type. Use the real-time alerts GPU row as the
 starting model-placement cost: on H100 or RTX PRO 6000 Blackwell, plan for two
