@@ -44,12 +44,6 @@ This skill does not call `POST /generate` on the VSS agent. It requires a
 Run `vss configure` once per deployment. Bootstrap, exit codes, and common CLI
 rules live in [AGENTS.md](../../../AGENTS.md).
 
-The routes below are gated at runtime, not at activation: reading stored
-records needs unified memory but no RT-VLM, so the skill is available on a
-deployment that has one and not the other. `vss configure check` says which
-command groups this deployment actually serves; route to what it reports and
-report the gap when a request needs something absent.
-
 Direct VLM requires:
 - A configured VSS deployment.
 - Reachable RT-VLM.
@@ -197,10 +191,6 @@ VSS=(uv run \
   --limit 20
 ```
 
-To list what memory already holds for a sensor, omit `--query` and filter on
-`--sensor-id` alone, then read the job in full with `vss memory get --job-id`.
-`--query` is a keyword filter ANDed with the other filters, not a semantic hint.
-
 Valid introspection scope is established by one of:
 - `--sensor`
 - `--job-id`
@@ -209,6 +199,14 @@ Valid introspection scope is established by one of:
 
 Never pass `--record-id` alone. `--record-type` and `--group` may refine valid
 scope but do not establish it independently.
+
+A relative expression is not a window. "Last week", "this morning", "recently"
+name no interval the CLI can take, and turning one into concrete timestamps
+invents scope the user never gave. Ask for the exact UTC start and end instead.
+Computing the dates yourself is the same invention whether they reach
+`--start-time`/`--end-time` on a run or `--since`/`--until` on a query: search
+without a window and say the result is not limited to the period asked about,
+or ask for the bounds.
 
 ## Choose visual sampling density
 
