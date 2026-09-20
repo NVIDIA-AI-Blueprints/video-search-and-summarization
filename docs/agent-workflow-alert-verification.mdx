@@ -106,7 +106,7 @@ layout below in `deploy/docker/developer-profiles/dev-profile-alerts/user-overri
 The default deployed model is Cosmos3 Nano Reasoner with BF16 precision.
 You can change this model by selecting an option from the following table and
 setting `VLM_NAME` to the Name value and `RTVI_VLM_MODEL_PATH` to the Path value
-in `overrides.env`.
+in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`.
 </Note>
 
 <a id="alert-verification-available-vlm-models"></a>
@@ -747,8 +747,9 @@ Which VLM models are available for the alerts profile?
 Deploy the VSS alerts verification profile with the Cosmos3 Super Reasoner FP8 VLM.
 ```
 
-The agent sets `VLM_NAME` and `RTVI_VLM_MODEL_PATH` in `overrides.env` to the model
-you request. The same options and hardware constraints listed in
+The agent sets `VLM_NAME` and `RTVI_VLM_MODEL_PATH` in the generated
+`_builds/<name>/override.env` to the model you request. The same options and
+hardware constraints listed in
 [Available VLM Models](#alert-verification-available-vlm-models) apply.
 
 If you would like to modify the workflow to work with other videos or usecases, you can update the following files:

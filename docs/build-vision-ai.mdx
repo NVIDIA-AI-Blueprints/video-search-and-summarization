@@ -161,10 +161,10 @@ service graph rather than by forcing either stock profile to run unchanged.
 Foundation-derived configuration path and value in the build-local override
 instead of applying the LVS profile's derived paths to that mode.
 
-The resolved stack contains one `alert-bridge`, one `lvs-server`, and shared
-instances of RT-VLM, VIOS, Kafka, Redis, Elasticsearch, Logstash, ingress, and
-`vss-video-analytics-api`, plus any selected agent or harness. It must set the
-alerts mode to `2d_vlm`, enable
+The resolved stack contains one `alert-bridge`, one `lvs-server`, one LLM, and
+shared instances of RT-VLM, VIOS, Kafka, Redis, Elasticsearch, Logstash,
+ingress, and `vss-video-analytics-api`, plus any selected agent or harness. It
+must set the alerts mode to `2d_vlm`, enable
 always-on alerting and RT-VLM Kafka output, and retain the LVS server and its
 Kafka summary path. The Skill writes the exact `COMPOSE_PROFILES` and dependent
 environment values to `_builds/<name>/override.env`; do not assemble that list
@@ -177,9 +177,10 @@ Harness-free builds use the `vss-manage-alerts` Skill for alert rules and
 incident queries; it calls Alert Bridge directly and does not require the
 in-stack VSS Agent.
 
-This combination adds no second LLM or RT-VLM process. Use the real-time alerts
-GPU row as the starting model-placement cost: on H100 or RTX PRO 6000 Blackwell,
-plan for two GPUs in the shared layout or three with dedicated model placement.
+This combination uses one LLM for `lvs-server` and one shared RT-VLM; it adds no
+second model process of either type. Use the real-time alerts GPU row as the
+starting model-placement cost: on H100 or RTX PRO 6000 Blackwell, plan for two
+GPUs in the shared layout or three with dedicated model placement.
 LVS work and continuous alert inference contend for the same RT-VLM, so the
 Skill must still validate measured memory headroom and stream/request capacity
 on the target host. A stock sizing row is not a throughput guarantee for the
