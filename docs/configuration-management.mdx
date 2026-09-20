@@ -99,6 +99,14 @@ For real-time Alerts, also set `MODE=2d_vlm`,
 `MODE=2d_cv`, `ALERT_AGENT_ALWAYS_ON=false`, and
 `COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}`.
 
+### Alerts workflow settings
+
+| Variable | Meaning | Default and valid values | Profiles |
+| --- | --- | --- | --- |
+| `ALERT_AGENT_ALWAYS_ON` | Substituted into `alert_agent.always_on` in the Alerts Microservice configuration. | Default: `false`. Use `true` for real-time alerts (`MODE=2d_vlm`) and `false` for alert verification (`MODE=2d_cv`). When disabled, `POST /api/v1/realtime/always-on` returns HTTP `503` with reason `ALWAYS_ON_DISABLED`. | Alerts |
+| `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME` | Host path to the always-on rules YAML mounted into Alert Bridge. | The Alerts template points to `developer-profiles/dev-profile-alerts/vlm-as-verifier/realtime-config.yml` under `VSS_APPS_DIR`. The file must contain `always_on_rules`. | Alerts |
+| `VST_NOTIFICATION_CONFIG_PATH` | Host path mounted as VIOS `notification_config.json`. | The Alerts template selects `notification_config_${MODE}.json`, routing `2d_cv` events to RT-CV and `2d_vlm` camera events to the Alert Bridge always-on endpoint. | Alerts |
+
 ## Host paths and ingress
 
 | Variable | Meaning | Default and valid values | Profiles |

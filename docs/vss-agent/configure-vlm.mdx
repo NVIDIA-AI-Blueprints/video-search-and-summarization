@@ -128,8 +128,10 @@ Examples of compatible openAI models:
    ```bash
    cp ./deploy/docker/developer-profiles/dev-profile-base/vss-agent/configs/config.yml /path/to/config_reka.yml
    # Edit /path/to/config_reka.yml for the Reka VLM settings.
-   Set `VSS_AGENT_CONFIG_FILE=/path/to/config_reka.yml` in `user-overrides.env`.
    ```
+
+   In `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`,
+   set `VSS_AGENT_CONFIG_FILE=/path/to/config_reka.yml`.
 
 4. Deploy the blueprint and point it to the chosen model name. Set `VLM_MODEL_TYPE=reka`:
 

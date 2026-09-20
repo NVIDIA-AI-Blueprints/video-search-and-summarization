@@ -358,7 +358,12 @@ valid values, defaults, and env-file precedence. The complete profile-specific
 template is
 `deploy/docker/developer-profiles/dev-profile-base/overrides.env`.
 
-Select a hardware tab, then a deployment mode. **Shared GPU** runs the LLM and VLM NIMs on the same GPU; **Dedicated GPU** assigns each model its own GPU (via `LLM_DEVICE_ID` and `VLM_DEVICE_ID`).
+Select a hardware tab, then a deployment mode. **Shared GPU** runs the local
+LLM and integrated RT-VLM on the same GPU. **Dedicated GPU** assigns them to
+separate GPUs with `LLM_DEVICE_ID` and `RT_VLM_DEVICE_ID`. Keep
+`VLM_DEVICE_ID` aligned with `RT_VLM_DEVICE_ID` for local integrated RT-VLM:
+the deployment helper uses `VLM_DEVICE_ID` when deriving RT-VLM placement,
+while the RT-VLM container binds the GPU named by `RT_VLM_DEVICE_ID`.
 
 `overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
@@ -1080,7 +1085,7 @@ their Compose volumes.
 
 ## Service Endpoints
 
-Once deployed, the following services are available:
+The manually deployed in-stack Agent configuration exposes these services:
 
 | Service | URL |
 | --- | --- |
@@ -1136,7 +1141,7 @@ on this DGX-SPARK machine with a remote LLM."*). See
 [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
 </Note>
 
-The deploy skill chooses the `<platform>` and `<mode>` to match your host,
+The `vss-build-vision-ai` skill chooses the `<platform>` and `<mode>` to match your host,
 as documented in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 
 **What the agent does:**

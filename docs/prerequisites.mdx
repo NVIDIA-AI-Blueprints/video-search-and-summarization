@@ -184,7 +184,11 @@ If a default-deny firewall is enabled on the host, allow inbound traffic from th
 
 ## Network and Browser Access
 
-The machine running the web browser must be able to reach TCP port `7777` on the deployment host. The VSS Agent UI, Kibana UI, and Phoenix UI are accessed from the browser using this port.
+The machine running the web browser must be able to reach TCP port `7777` on
+the deployment host. This port serves the VSS UI and routes optional web
+applications included in the selected service graph, such as Kibana and
+Phoenix. The default Build Vision AI deployment does not include Phoenix or
+the in-stack VSS Agent; the manual base-profile deployment includes both.
 
 For cloud deployments, configure the instance firewall or security group to allow inbound TCP traffic on port `7777` from the browser client. For local deployments, ensure `http://localhost:7777/` is reachable from the deployment host.
 

@@ -1126,6 +1126,7 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 
 | Parameter | Default | Description |
 | --- | --- | --- |
+| `alert_agent.always_on` | `false` | Enables `POST /api/v1/realtime/always-on`. Docker Compose substitutes `ALERT_AGENT_ALWAYS_ON` into this setting. When disabled, the endpoint returns HTTP `503` with reason `ALWAYS_ON_DISABLED`. |
 | `alert_agent.pipeline_mode` | `event_loop` | Dispatch model: `sync`, `thread_bridge`, or `event_loop`. See [Pipeline Modes](#pipeline-modes). |
 | `alert_agent.processes` | `1` | Independent pipeline processes. Values above `1` require `event_loop`, `persistence.enabled: true`, and enough Kafka partitions. See [Scaling Across Processes](#scaling-across-processes). |
 | `alert_agent.startup_timeout_seconds` | `60` | Budget for the whole of startup. Minimum 30. |
@@ -1139,6 +1140,20 @@ VLM warmup runs automatically at startup by default and sends 3 inference rounds
 | `alert_agent.vst_pass_through_mode` | `false` | Skip VIOS lookup; use local media files directly. |
 | `alert_agent.enrichment.enabled` | `false` | Enable alert enrichment for generating detailed event descriptions after verification. |
 | `alert_agent.metrics.per_sensor_labels` | `false` | When `true`, emits the opt-in `sensorId` histogram and counter variants documented under [Metrics](#metrics). |
+
+When always-on alerts are enabled, `ALWAYS_ON_RULES_CONFIG` must point to a
+valid YAML file containing `always_on_rules`. There is no implicit file lookup
+or fallback. A missing or invalid file fails service startup; a configuration
+error encountered by the endpoint returns HTTP `503` with reason
+`CONFIG_ERROR`.
+
+Docker Compose handles the container path: it mounts the host file selected by
+`VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, performs environment substitution into
+`/app/runtime/realtime-config.yml`, and sets
+`ALWAYS_ON_RULES_CONFIG=/app/runtime/realtime-config.yml`. Set
+`VLM_AS_VERIFIER_CONFIG_FILE_REALTIME` in the profile override file when you
+need a different rules source; do not set the container-internal path on the
+host.
 
 #### Event filter settings
 
