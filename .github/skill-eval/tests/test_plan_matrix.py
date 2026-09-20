@@ -225,7 +225,7 @@ class RealSpecCorpus(unittest.TestCase):
         finally:
             os.environ.pop("OPENSHELL_GPU_FLEET", None)
 
-        self.assertEqual(len(include), 112)
+        self.assertEqual(len(include), 75)
         self.assertEqual(
             len({leg["spec_path"] for leg in include}),
             len(include),
@@ -237,7 +237,7 @@ class RealSpecCorpus(unittest.TestCase):
             )
             for key in {(leg.get("cohort") or "brev") for leg in include}
         }
-        self.assertEqual(counts, {"brev": 54, "openshell": 58})
+        self.assertEqual(counts, {"brev": 54, "openshell": 21})
         for leg in include:
             if not leg["local_gpu"]:
                 self.assertEqual(leg["kind"], "eval")
@@ -446,31 +446,6 @@ class SpecsForSkill(unittest.TestCase):
         stems = sorted(s[2] for s in specs)
         self.assertEqual(stems, ["deploy"])
         self.assertNotIn("evals", stems)
-
-
-class OpenShellAlignedSpecs(unittest.TestCase):
-    def test_daily_ports_replace_overlapping_smokes(self):
-        rows = plan_matrix.openshell_aligned_specs("vss-deploy-test-openshell")
-        stems = {stem for _, _, stem in rows}
-        paths = {path for path, _, _ in rows}
-        self.assertIn("vss-manage-alerts_slack_notify_ops", stems)
-        self.assertIn("vss-manage-alerts_subscriptions_lifecycle", stems)
-        self.assertIn("vss-manage-alerts_verification_flow", stems)
-        self.assertIn("vss-summarize-video_lvs_api_ops", stems)
-        self.assertIn("vss-manage-video-io-storage_vios_ops", stems)
-        self.assertIn("vss-manage-video-io-storage_nvstreamer_ops", stems)
-        self.assertTrue(
-            any(p.endswith("evals/vss-manage-alerts/slack_notify_ops.json") for p in paths)
-        )
-        self.assertNotIn("alerts", stems)
-        self.assertNotIn("ask-video", stems)
-        self.assertNotIn("vios", stems)
-        self.assertIn("base", stems)
-        self.assertIn("warehouse", stems)
-        self.assertIn("vss-deploy-profile_base", stems)
-        self.assertFalse(any("/evals/openshell/" in p for p in paths))
-        self.assertEqual(len(rows), 58)
-        self.assertEqual(len(stems), 58)
 
 
 class ListChangedFiles(unittest.TestCase):
@@ -813,9 +788,8 @@ class OpenshellGpuFleet(unittest.TestCase):
         )
         for spec in sorted(
             p
-            for p in skill_evals.glob("eval*/**/*.json")
+            for p in skill_evals.glob("eval*/*.json")
             if p.name not in plan_matrix.EXCLUDED_SPEC_NAMES
-            and "evals/openshell/" not in p.as_posix()
         ):
             relative = spec.relative_to(plan_matrix.REPO_ROOT).as_posix()
             requirements, error = plan_matrix.openshell_requirements(relative)
@@ -836,14 +810,14 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 112)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 112)
+        self.assertEqual(len(legs), 75)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 75)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
-        self.assertEqual(counts, {"brev": 54, "openshell": 58})
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 58)
+        self.assertEqual(counts, {"brev": 54, "openshell": 21})
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 21)
         # Every OpenShell leg travels without a SKU: no platform for the
         # adapter to size from, and no hardware profile for the workflow to
         # export. The guest's own card decides both.
@@ -852,7 +826,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             for leg in legs
             if leg.get("cohort") == plan_matrix.OPENSHELL_COHORT_TAG
         ]
-        self.assertEqual(len(openshell), 58)
+        self.assertEqual(len(openshell), 21)
         for leg in openshell:
             self.assertEqual(leg["platform"], "", leg["slug"])
             self.assertEqual(leg["hardware_profile"], "", leg["slug"])

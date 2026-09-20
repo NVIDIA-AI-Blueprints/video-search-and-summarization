@@ -67,17 +67,6 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # corrupting an artifact name or escaping a path.
 SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
-# `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
-# scenarios, not a dispatchable spec object. It has no `resources.platforms`,
-# so spec_platforms() would choke on it (list has no .get), and the agent can't
-# run it as a single spec. Real specs are named per scenario (deploy.json,
-# routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
-# never becomes a matrix leg.
-EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
-# Nested copies of the PR canary (`evals/openshell/base.json` etc.). Same
-# stems as the top-level smokes; do not dispatch both.
-OPENSHELL_CANARY_GROUP = "openshell"
-
 
 def discover_skills() -> dict[str, Path]:
     """Map leaf skill-name -> skill dir for every dir under skills/ holding a
@@ -126,33 +115,22 @@ def skill_for_file(path: str, skills: dict[str, Path]) -> str | None:
 
 
 def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:
-    """(eval_dir, stem) if `path` is a dispatchable spec under the skill.
-
-    Accepts `evals/<stem>.json` and one nested level
-    `evals/<source-skill>/<stem>.json` (OpenShell daily ports). The
-    `evals/openshell/` canary copies are ignored here so they cannot
-    collide with the top-level `base` / `warehouse` / `report-rag` stems.
-    """
+    """(eval_dir, stem) if `path` is skill_reldir/(evals|eval)/<stem>.json directly."""
     for eval_dir in ("evals", "eval"):
         prefix = f"{skill_reldir}/{eval_dir}/"
-        if not path.startswith(prefix):
-            continue
-        rest = path[len(prefix):]
-        if not rest.endswith(".json"):
-            return None
-        parts = rest.split("/")
-        if any(part in EXCLUDED_SPEC_NAMES for part in parts):
-            return None
-        if len(parts) == 1:
-            return eval_dir, rest[:-5]
-        if len(parts) == 2:
-            parent, name = parts
-            if parent == OPENSHELL_CANARY_GROUP:
-                return None
-            # Always prefix nested Daily ports so `evals/vss-deploy-profile/base.json`
-            # cannot share a stem with the OpenShell `evals/base.json` smoke.
-            return eval_dir, f"{parent}_{name[:-5]}"
+        if path.startswith(prefix):
+            rest = path[len(prefix):]
+            if "/" not in rest and rest.endswith(".json"):
+                return eval_dir, rest[:-5]
     return None
+
+# `evals.json` (plural stem) is a legacy aggregate index — a JSON *array* of
+# scenarios, not a dispatchable spec object. It has no `resources.platforms`,
+# so spec_platforms() would choke on it (list has no .get), and the agent can't
+# run it as a single spec. Real specs are named per scenario (deploy.json,
+# routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
+# never becomes a matrix leg.
+EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
 
 # --- Runner labels -----------------------------------------------------
 # Every leg carries a `runs_on` label set derived from the spec's own
@@ -229,28 +207,6 @@ SMOKE_SPEC = "skills/vss-deploy-test-openshell/evals/base.json"
 # OpenShell GHA guests are only for this test skill. Every other skill
 # keeps `local_gpu: False` and lands on the Brev coordinator (`vss-eval`).
 OPENSHELL_SKILLS = frozenset({"vss-deploy-test-openshell"})
-# Top-level OpenShell smokes that a nested daily-port spec already covers.
-# Keep `base` / `lvs` / `warehouse` / `report-rag` / standalone deploy
-# smokes: Daily has no matching ops spec for those.
-OPENSHELL_SMOKES_SUPERSEDED_BY_DAILY_PORTS = frozenset({
-    "alerts",
-    "alerts-cv",
-    "alerts-vlm",
-    "ask-video",
-    "build-vision-ai",
-    "dense-captioning",
-    "deploy-profile",
-    "detection-tracking-2d",
-    "detection-tracking-3d",
-    "query-analytics",
-    "report",
-    "search",
-    "setup-behavior-analytics",
-    "setup-video-analytics-api",
-    "summarize",
-    "video-embedding",
-    "vios",
-})
 
 
 def _openshell_gpu_fleet() -> bool:
@@ -504,15 +460,7 @@ def list_changed_files() -> list[str]:
                 f"on this ref — check the skill name.{hint}"
             )
         skills = sorted(skills_map) if manual == "*" else [manual]
-        return [
-            sp
-            for sk in skills
-            for sp, _, _ in (
-                openshell_aligned_specs(sk)
-                if _route_skill_on_openshell(sk)
-                else specs_for_skill(sk)
-            )
-        ]
+        return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
 
     base = os.environ["PR_BASE"]
     subprocess.run(
@@ -545,54 +493,6 @@ def specs_for_skill(skill: str, skills_map: dict[str, Path] | None = None) -> li
                 continue
             rel = p.relative_to(REPO_ROOT).as_posix()
             found.append((rel, eval_dir, p.stem))
-    return found
-
-
-def openshell_aligned_specs(
-    skill: str, skills_map: dict[str, Path] | None = None
-) -> list[tuple[str, str, str]]:
-    """OpenShell corpus: daily-port specs plus smokes Daily does not cover.
-
-    Nested `evals/<source-skill>/<stem>.json` files are the same tests
-    Daily runs under that source skill. Top-level smokes whose area those
-    ports already cover are dropped so Slack / subscriptions / VIOS / LVS
-    API are not collapsed into one `alerts.json` / `vios.json` job.
-    `evals/openshell/` is the PR canary and is not part of this set.
-    """
-    if skills_map is None:
-        skills_map = discover_skills()
-    base = skills_map.get(skill, REPO_ROOT / "skills" / skill)
-    found: list[tuple[str, str, str]] = []
-    seen_stems: set[str] = set()
-    for eval_dir in ("evals", "eval"):
-        d = base / eval_dir
-        if not d.is_dir():
-            continue
-        # Keep OpenShell-only smokes first so Daily ports that reuse a
-        # stem (`base`, `search`, `standalone_deploy`) get a prefixed name.
-        for p in sorted(d.glob("*.json")):
-            if p.name in EXCLUDED_SPEC_NAMES:
-                continue
-            if p.stem in OPENSHELL_SMOKES_SUPERSEDED_BY_DAILY_PORTS:
-                continue
-            seen_stems.add(p.stem)
-            rel = p.relative_to(REPO_ROOT).as_posix()
-            found.append((rel, eval_dir, p.stem))
-        for child in sorted(p for p in d.iterdir() if p.is_dir()):
-            if child.name == OPENSHELL_CANARY_GROUP:
-                continue
-            for p in sorted(child.glob("*.json")):
-                if p.name in EXCLUDED_SPEC_NAMES:
-                    continue
-                stem = f"{child.name}_{p.stem}"
-                if stem in seen_stems:
-                    raise ValueError(
-                        f"duplicate OpenShell spec stem {stem!r} from {p}"
-                    )
-                seen_stems.add(stem)
-                rel = p.relative_to(REPO_ROOT).as_posix()
-                found.append((rel, eval_dir, stem))
-    found.sort(key=lambda row: row[0])
     return found
 
 
@@ -743,12 +643,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
             add_spec(info["skill"], spec_path, info["eval_dir"], info["stem"])
 
     for skill in sorted(whole_skills):
-        spec_rows = (
-            openshell_aligned_specs(skill)
-            if _route_skill_on_openshell(skill)
-            else specs_for_skill(skill)
-        )
-        for spec_path, eval_dir, stem in spec_rows:
+        for spec_path, eval_dir, stem in specs_for_skill(skill):
             add_spec(skill, spec_path, eval_dir, stem)
 
     # Group surviving targets by skill so we can collapse adapterless skills.
