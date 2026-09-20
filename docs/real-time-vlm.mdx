@@ -342,7 +342,10 @@ is in `deploy/helm/services/rtvi/charts/rtvi-vlm` in the
    ```bash
    helm upgrade --install vss-rtvi-vlm . \
      -n vss-rtvi \
-     -f overrides_rtvi_vlm.yaml
+     -f overrides_rtvi_vlm.yaml \
+     --set image.repository=nvcr.io/nvidia/vss-core/vss-rt-vlm \
+     --set image.tag=3.3.0-26.08.2 \
+     --set 'global.imagePullSecrets[0].name=ngc-image-pull-secret'
    ```
 
    When using the `hf-token-secret` secret, set
@@ -1779,11 +1782,11 @@ override `num_frames_per_second_or_fixed_frames_chunk` and
 `use_fps_for_chunking`. Use `num_frames=-1` to select all decoded frames
 in a chunk. `fps` and `num_frames` are mutually exclusive.
 
-Use one of these request fragments:
-
-* FPS sampling: `{"media_io_kwargs": {"video": {"fps": 3.0}}}`
-* Fixed-frame sampling: `{"media_io_kwargs": {"video": {"num_frames": 16}}}`
-* All decoded frames: `{"media_io_kwargs": {"video": {"num_frames": -1}}}`
+```json
+{"media_io_kwargs": {"video": {"fps": 3.0}}}
+{"media_io_kwargs": {"video": {"num_frames": 16}}}
+{"media_io_kwargs": {"video": {"num_frames": -1}}}
+```
 
 ### Enabling Incidents
 

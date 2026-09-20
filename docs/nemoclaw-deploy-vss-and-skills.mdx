@@ -37,7 +37,9 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
   * An agent chat model provider:
 
     * `NVIDIA_API_KEY` for the build.nvidia.com provider, OR
-    * `COMPATIBLE_API_KEY` for a cloud or local OpenAI-compatible endpoint.
+    * `COMPATIBLE_API_KEY` for a cloud or local OpenAI-compatible endpoint. For
+      the notebook's prefilled NVIDIA Inference Hub endpoint, create a key at
+      [Inference Hub key management](https://inference.nvidia.com/key-management?action=new-key).
 
 * **Part 2 - Deploy VSS** (`deploy_vss_orchestrator.ipynb`, GPU required)
 
@@ -46,7 +48,7 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
     * If you are using the Brev Launchable, you can edit the Brev hardware profile and cloud service provider (CSP). See [Brev hardware and CSP selection](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration#brev-hardware-and-csp-selection) before launching.
     * In the single-host layout used by this guide, this same machine also runs Part 1.
 
-  * `NGC_CLI_API_KEY` (NVIDIA legacy API key) for `nvcr.io` login and the model weights the containers download from NGC.
+  * `NGC_CLI_API_KEY` (NGC Personal API Key) for `nvcr.io` login and the model weights the containers download from NGC.
   * `NVIDIA_API_KEY` for the VSS model endpoints.
 
 ## Part 1 - Set up NemoClaw

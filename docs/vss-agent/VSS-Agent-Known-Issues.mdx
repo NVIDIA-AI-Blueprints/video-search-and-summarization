@@ -20,10 +20,6 @@ Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM
 - Remote VLM with model-type `nim` (not Omni audio path): the VLM must reach VST on **port 30888** on the host. See [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos).
 - Remote **Nemotron Omni** with `ENABLE_AUDIO=true` on the base profile: the agent inlines the MP4 in the API request; ensure **port 30082** (OpenAI-compatible VLM API) is reachable from the VSS host. See [Using Nemotron Omni (audio-enabled VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) and [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos).
 
-## VA-MCP Slow Initialization (Hugging Face Rate Limiting)
-
-If VA-MCP initialization is slow or logs show HTTP 429 errors from Hugging Face, set `HF_TOKEN` before deploy. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys) in [Prerequisites](/vss/getting-started/prerequisites).
-
 ## RT-VLM Restart Failures (Shared GPU Mode)
 
 **Symptom:**

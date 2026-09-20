@@ -182,6 +182,24 @@ Before deployment, have the credentials required by your choices available:
 | `NVIDIA_API_KEY` | A model served from `build.nvidia.com`. |
 | `HF_TOKEN` | Gated or rate-limited model downloads from Hugging Face. |
 
+A key for the default NemoClaw endpoint is available from
+[NVIDIA Inference Hub key management](https://inference.nvidia.com/key-management?action=new-key).
+Do not paste the key into chat. Store it in the checkout-root, gitignored
+`nemoclaw.env` file:
+
+```bash
+COMPATIBLE_API_KEY='your-inference-hub-key'
+```
+
+Alternatively, export `COMPATIBLE_API_KEY` in the shell that starts the
+coding-agent session. The session must inherit the variable; exporting it later
+in another terminal does not update the running agent.
+
+For developer-profile deployments, the Skill asks whether to add a host-side
+agent harness. The default answer is yes and the default harness is NemoClaw;
+accepting that default requires `COMPATIBLE_API_KEY`. Select **no harness** to
+operate the deployment with the project-local `vss` CLI instead.
+
 A self-hosted endpoint or **no harness** needs no harness key, although the VSS
 stack can still require NGC and model-download credentials. See
 [Credentials used by the Build Vision AI Skill](/vss/getting-started/prerequisites#credentials-used-by-the-build-vision-ai-skill)
@@ -202,10 +220,12 @@ The agent will:
    workflow.
 2. Confirm prerequisites, credentials, GPU hardware, model placement, and
    host/ingress settings.
-3. Show the generated deployment plan, including services, model placement,
+3. Ask whether to add a host-side agent harness and, when selected, confirm its
+   model provider and required credential.
+4. Show the generated deployment plan, including services, model placement,
    endpoints, and readiness checks.
-4. Ask for confirmation before starting containers.
-5. Deploy the base profile and return the browser-reachable VSS UI URL.
+5. Ask for confirmation before starting containers.
+6. Deploy the base profile and return the browser-reachable VSS UI URL.
 
 When deployment completes, open the returned URL, typically
 `http://<HOST_IP>:7777/`, to use the base vision agent.
@@ -245,22 +265,58 @@ deployment with the project-local `vss` CLI as directed by the Skill.
 
 ## Manual deployment options
 
-Use this section when you want to run the deployment script yourself or customize
-the base profile from the command line.
+Use this section when you want to run the deployment yourself instead of asking
+the Build Vision AI Skill to do it.
 
-### Docker Compose deployment
+### Developer-profile helper
+
+The supported manual entry point for the `base`, `lvs`, `search`, and `alerts`
+developer profiles is `dev-profile.sh`. It creates `generated.env`, derives the
+profile-specific service set, applies host paths and model placement, and starts
+the matching Compose project.
+
+From the repository root:
+
+```bash
+export NGC_CLI_API_KEY='<your-ngc-personal-api-key>'
+
+./deploy/docker/scripts/dev-profile.sh up \
+  --profile base \
+  --hardware-profile H100
+```
+
+Replace `H100` with the supported hardware profile for the host. Remote model
+endpoints and the alerts mode use additional flags; list the complete,
+authoritative options with:
+
+```bash
+./deploy/docker/scripts/dev-profile.sh --help
+```
+
+To stop the helper-managed deployment:
+
+```bash
+./deploy/docker/scripts/dev-profile.sh down
+```
+
+### Direct Docker Compose deployment (advanced)
+
+Use the direct Compose path only when you need to customize values that the
+helper does not expose. The commands below are one advanced path, not a second
+recommended bring-up method; keep the selected profile's `.env` and override
+files together throughout the procedure.
 
 <Note>
-- Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
+- Set the NGC CLI API key, then run the deploy commands for your GPU type. Set `HF_TOKEN` only when the selected model downloads gated or rate-limited weights from Hugging Face. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
 - Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
 ```bash
-# Set NGC CLI API key and Hugging Face access token (HF_TOKEN)
+# Set the NGC CLI API key. Set HF_TOKEN only when the selected model requires it.
 export NGC_CLI_API_KEY='<your-ngc-api-key>'
-export HF_TOKEN='<hf-token>'
+# export HF_TOKEN='<hf-token>'
 
 # Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
 # images on ghcr.io are public and do not require a registry login.
@@ -794,7 +850,7 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 </Note>
 
 <Note>
-**Switch Agent Workflows:** Prefer `deploy/docker/scripts/dev-profile.sh`. That helper writes `generated.env` and applies profile-specific flags. If you run `docker compose` directly, use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env` (or `generated.env` after the helper has run). Later `--env-file` values win.
+**Switch Agent Workflows:** If you run `docker compose` directly, use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env` (or `generated.env` after the helper has run). Later `--env-file` values win.
 
 Switch profiles by changing the `dev-profile-<profile>` directory, not by setting `MODE` to `base`/`lvs`/`search`/`alerts`. Those names are profile directories. For the **alerts** profile only, `MODE` is:
 

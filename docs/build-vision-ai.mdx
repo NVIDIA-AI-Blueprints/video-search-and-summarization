@@ -110,7 +110,7 @@ The credential gate is determined by those answers:
 | Choice | Credential |
 | --- | --- |
 | Any standard VSS deployment | `NGC_CLI_API_KEY`; authenticate Docker to `nvcr.io` separately before running the Skill. |
-| Default NemoClaw remote endpoint, or another public OpenAI-compatible harness endpoint | `COMPATIBLE_API_KEY` (no default value). |
+| Default NemoClaw remote endpoint, or another public OpenAI-compatible harness endpoint | `COMPATIBLE_API_KEY` (no default value). Create a key for the default endpoint at [NVIDIA Inference Hub key management](https://inference.nvidia.com/key-management?action=new-key). |
 | `build.nvidia.com` model endpoint | `NVIDIA_API_KEY`. |
 | Gated or rate-limited Hugging Face model download | `HF_TOKEN`. |
 | Self-hosted harness endpoint or no harness | No harness key. Stack-level NGC/model credentials still apply. |
@@ -147,13 +147,28 @@ real-time VLM alerting (2d_vlm) with long-video summarization. Show the resolved
 services, GPU placement, and teardown impact before deploying.
 ```
 
+The build records exactly one stock profile as `FOUNDATION` in
+`_builds/<name>/override.env`, but correctness is determined by the resolved
+service graph rather than by forcing either stock profile to run unchanged.
+`MODE=2d_vlm` applies to the alerting path; the Skill must recompute every
+Foundation-derived configuration path and value in the build-local override
+instead of applying the LVS profile's derived paths to that mode.
+
 The resolved stack contains one `alert-bridge`, one `lvs-server`, and shared
 instances of RT-VLM, VIOS, Kafka, Redis, Elasticsearch, Logstash, ingress, and
-any selected agent or harness. It must set the alerts mode to `2d_vlm`, enable
+`vss-video-analytics-api`, plus any selected agent or harness. It must set the
+alerts mode to `2d_vlm`, enable
 always-on alerting and RT-VLM Kafka output, and retain the LVS server and its
 Kafka summary path. The Skill writes the exact `COMPOSE_PROFILES` and dependent
 environment values to `_builds/<name>/override.env`; do not assemble that list
 by concatenating the two stock profile files.
+
+Before bring-up, the Skill validates `_builds/<name>/resolved.yml`. After
+readiness, `vss configure check` must report `summarize` as available, and the
+Alert Bridge, RT-VLM, LVS, and Video Analytics API services must be running.
+Harness-free builds use the `vss-manage-alerts` Skill for alert rules and
+incident queries; it calls Alert Bridge directly and does not require the
+in-stack VSS Agent.
 
 This combination adds no second LLM or RT-VLM process. Use the real-time alerts
 GPU row as the starting model-placement cost: on H100 or RTX PRO 6000 Blackwell,

@@ -190,7 +190,12 @@ For cloud deployments, configure the instance firewall or security group to allo
 
 ## NGC + Hugging Face API Keys
 
-To deploy the VSS Blueprint, you need an NGC API key with access to the required resources and a Hugging Face access token for VA-MCP model downloads.
+The credentials you need depend on the images, models, and optional agent
+harness selected for the deployment. Standard VSS deployment paths require an
+NGC Personal API Key. A Hugging Face token is required only when a selected
+model or helper downloads gated or rate-limited weights from Hugging Face. See
+the [credential decision table](#credentials-used-by-the-build-vision-ai-skill)
+before deploying.
 
 ### Create an NVIDIA NGC Account
 
@@ -252,14 +257,18 @@ ngc registry model list "nvidia/tao/*"
 If you encounter permission errors, contact NVIDIA support for assistance.
 
 The `Login Succeeded` response verifies NGC Docker registry authentication.
-Run this step before any manual `docker compose up` command that pulls gated
-NIM or other `nvcr.io` images. A later
-`docker compose config --quiet` validates the Compose model and environment
-values, but does not contact the registry or validate image entitlements.
+Run this step before the Build Vision AI Skill or any manual
+`docker compose up` command that pulls gated NIM or other `nvcr.io` images. A
+later `docker compose config --quiet` validates the Compose model and
+environment values, but does not contact the registry or validate image
+entitlements.
 
 ### Hugging Face Access Token
 
-The VA-MCP server downloads a model from [Hugging Face](https://huggingface.co/). Without a token, initialization is slow and logs may show HTTP 429 rate-limit errors.
+Some optional model selections download weights from
+[Hugging Face](https://huggingface.co/). Create a token only when the selected
+deployment path identifies `HF_TOKEN` as required. Public downloads can also
+be rate limited without a token.
 
 1. Log in to [Hugging Face](https://huggingface.co/)
 2. Go to [Access Tokens](https://huggingface.co/settings/tokens) and create a token with **Read** permission
@@ -290,6 +299,20 @@ NemoClaw harness.
 | `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com`. |
 | `HF_TOKEN` | A selected model or helper downloads gated or rate-limited weights from Hugging Face. |
 
+A key for the default NemoClaw Inference Hub endpoint can be created at
+[NVIDIA Inference Hub key management](https://inference.nvidia.com/key-management?action=new-key).
+Keep it out of chat transcripts and generated build artifacts. Either put the
+following assignment in the checkout-root, gitignored `nemoclaw.env` file, or
+export it in the shell that starts the coding-agent session:
+
+```bash
+COMPATIBLE_API_KEY='your-inference-hub-key'
+```
+
+The Skill loads `nemoclaw.env` before harness setup. If you export the variable
+instead, restart the coding-agent session from that shell so it inherits the
+credential.
+
 A self-hosted OpenAI-compatible harness endpoint that does not require a real
 token can use the documented placeholder. Selecting **no harness** requires no
 harness credential. These choices do not remove the NGC or model-download
@@ -305,8 +328,8 @@ The following tables show the number of GPUs needed for each development profile
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 1 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 1 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
 | [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 2 | 4 | 2 | 2 | 2 |
@@ -331,8 +354,8 @@ does not remove the GPU required by the profile services.
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 1 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 1 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
 | [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 2 | 4 | 2 | 2 | 2 |
@@ -358,8 +381,8 @@ layout or one of the remote-model layouts below.
 
 | **Profile** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 2 | 1 | 1 | 0 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 2 | 1 | 1 | 1 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 2 | 1 | 1 | 1 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 3 | 2 | — | — |
 | [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 4 | 3 | 3 | 2 |
@@ -557,7 +580,10 @@ Fabric Manager must match the installed driver version.
 
 ### Install Docker
 
-Docker version 28.3.3 or later and earlier than 29.5.0 is required. Follow the guide here for installing Docker: https://docs.docker.com/engine/install/ubuntu/
+Docker version 28.3.3 or later and earlier than 29.5.0 is required. If Docker is
+not installed, first install Docker Engine from the
+[official Ubuntu apt repository](https://docs.docker.com/engine/install/ubuntu/).
+The latest package is not necessarily in the VSS-tested range.
 
 <Note>
 Do not install Docker via `snap`. The snap-packaged Docker runs inside a confined sandbox with restricted filesystem access, which can perform differently in the deployment process. Install Docker using the official Docker apt repository as linked above.
@@ -567,39 +593,29 @@ Do not install Docker via `snap`. The snap-packaged Docker runs inside a confine
 
 After installation, complete the Linux post-installation steps so that Docker can run without sudo. See [Linux post-installation steps for Docker Engine](https://docs.docker.com/engine/install/linux-postinstall/).
 
-### Configure Docker
+### Pin and configure Docker
 
-After installing Docker, you must configure it to use the cgroupfs cgroup driver.
-
-**Edit the Docker daemon configuration file:**
-
-Add or verify the following entry in `/etc/docker/daemon.json`:
-
-```json
-"exec-opts": ["native.cgroupdriver=cgroupfs"]
-```
-
-This configuration must be included within the JSON object. For example:
-
-```json
-{
-    "exec-opts": ["native.cgroupdriver=cgroupfs"]
-}
-```
-
-If your `/etc/docker/daemon.json` already contains other settings, ensure this entry is added to the existing configuration.
-
-**Apply the configuration:**
-
-After editing the daemon configuration, restart Docker to apply the changes:
+From the VSS repository root, run the checked-in setup script before starting
+any containers:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart docker
+bash deploy/docker/scripts/pin_docker_version.sh
+docker version --format '{{.Server.Version}}'
+docker info --format '{{.CgroupDriver}}'
 ```
 
+The script installs the repository's known-good Docker Engine, Compose,
+Buildx, and containerd package versions when the installed engine is outside
+the tested range. It holds the applicable packages and safely merges the
+required `native.cgroupdriver=cgroupfs` setting into `/etc/docker/daemon.json`.
+It is idempotent and skips the package change when Docker is already in range.
+
 <Note>
-Restarting Docker will temporarily stop all running containers. Plan accordingly if you have containers running.
+The script uses `sudo`, supports Ubuntu/Debian hosts with `apt`, and can restart
+Docker. Run it before other containers are started. If the host cannot install
+the pinned packages, see the script's error and the
+[Docker troubleshooting guidance](/vss/appendix/faq) before changing
+`daemon.json` manually.
 </Note>
 
 ### Install Docker Compose
