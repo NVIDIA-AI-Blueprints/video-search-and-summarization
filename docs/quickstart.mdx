@@ -1106,11 +1106,6 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
    whether the host firewall is blocking container-to-host traffic. See
    [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
 
-5. If the `cosmos3-reasoner` container stopped or crashed **in shared GPU
-   mode**, redeploy the full blueprint instead of restarting only that container.
-   With dedicated GPUs, restarting the container is sufficient. See
-   [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).
-
 For the recommended agent-guided deployment path, see
 [Deploy the base profile](/vss/getting-started/quickstart#deploy-the-base-profile).
 
