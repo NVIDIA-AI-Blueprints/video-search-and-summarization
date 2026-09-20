@@ -343,7 +343,7 @@ container. For developer profiles, copy `overrides.env` to the ignored
 | `VST_EXTERNAL_URL` | Browser-reachable VST URL placed in responses. |
 | `LLM_NAME`, `LLM_BASE_URL` | LLM model ID and endpoint root. |
 | `VLM_NAME`, `VLM_BASE_URL` | VLM model ID and endpoint root. |
-| `VLM_MODEL_TYPE` | Selects a VLM entry such as `nim_vlm`, `openai_vlm`, or `rtvi_vlm`. |
+| `VLM_MODEL_TYPE` | Selects the VLM entry prefix. Valid values are `nim`, `openai`, `vllm`, and `rtvi`; the Agent configuration appends `_vlm` to resolve `nim_vlm`, `openai_vlm`, `vllm_vlm`, or `rtvi_vlm`. |
 | `VLM_MODE` | VLM placement used for media handling. |
 | `RTVI_VLM_BASE_URL` | Internal RT-VLM endpoint root used by `rtvi_vlm`. |
 | `ENABLE_AUDIO` | Preserves and forwards audio for supported VLMs; default `false`. |

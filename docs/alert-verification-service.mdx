@@ -377,11 +377,12 @@ vlm:
 
 The path is the dotted module name relative to `/app/` — `parsers.ppe_classifier` resolves to `/app/parsers/ppe_classifier.py` and `PPEClassifier` is the class inside that file.
 
-**Step 6 — Restart the container**
+**Step 6 — Recreate the container**
 
-```bash
-docker compose restart alert-bridge
-```
+Run the `docker compose ... up -d` command from the
+[Alert Verification deployment workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent)
+again. Docker Compose recreates Alert Bridge to apply the new volume mount; a
+`docker compose restart` does not apply Compose configuration changes.
 
 On startup, look for the log line `Pluggable response parser active: 'parsers.ppe_classifier.PPEClassifier'`. A startup error here means the dotted path or class signature is wrong; the container will exit instead of running with a broken parser.
 
@@ -461,28 +462,29 @@ Repeat for each field you want to chart. For richer use cases, run a small inges
 
 ### Deployment
 
-Parser modules live outside the Alert Bridge image and are mounted into the container at `/app/parsers/`:
+Custom parser modules are not included in the Alert Bridge image or mounted by
+the shipped Compose configuration. Create a host directory for them, for
+example:
 
 ```text
-warehouse/vlm-as-verifier/
-  configs/
-    config.yml
-    alert_type_config.json
-  parsers/                      # mounted into /app/parsers/
-    __init__.py                 # empty, required for Python package
-    my_classifier.py            # your parser
+/absolute/path/to/alert-parsers/
+  __init__.py                 # empty, required for Python package
+  my_classifier.py            # your parser
 ```
 
-In `compose.yml`, add the parser directory as a read-only volume:
+In `deploy/docker/services/alert/compose.yml`, add that directory to the
+`alert-bridge` service as a read-only volume:
 
 ```yaml
-volumes:
-  - ${VLM_AS_VERIFIER_CONFIG_FILE}:/app/configs/config.yml:ro
-  - ${VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE}:/app/alert_type_config.json:ro
-  - ${VLM_AS_VERIFIER_PARSERS_DIR:-/dev/null}:/app/parsers/:ro
+services:
+  alert-bridge:
+    volumes:
+      - /absolute/path/to/alert-parsers:/app/parsers:ro
 ```
 
-To add or change parsers, drop a `.py` file into the `parsers/` folder, update `vlm.response_parser` in `config.yml`, and restart the container. No image rebuild is required.
+To add or change parsers, place a `.py` file in the mounted host directory,
+update `vlm.response_parser` in `config.yml`, and recreate the container. No
+image rebuild is required.
 
 <Note>
 When migrating from the legacy `vlm.custom_parser_module` registry mechanism, `vlm.response_parser` takes precedence on the default VLM path. Configuring both keys produces a startup WARN. Prefer `vlm.response_parser` for new integrations and remove `vlm.custom_parser_module` once migrated.

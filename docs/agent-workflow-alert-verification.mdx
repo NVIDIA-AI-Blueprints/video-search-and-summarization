@@ -766,9 +766,9 @@ If you would like to modify the workflow to work with other videos or usecases, 
 
   * Update the "value" field under `"name": "fovCountViolationIncidentObjectType"` to change the objects that Behavior Analytics creates alerts for.
 
-* `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/parsers/` *(optional)*
+* Custom response-parser directory *(optional; user-created)*
 
-  * Drop a Python module exposing a parser class with a `parse(self, raw_response: str) -> dict` method, then set `vlm.response_parser` in `config.yml` to its dotted path. Use this to replace the built-in YES/NO verification parsing with classification, analytics, or enrichment outputs. See [Pluggable Response Parser](/vss/system-components/analytics-microservices/alerts-microservice#pluggable-response-parser) for the full contract, examples, and error handling.
+  * The repository does not ship or mount a parser directory. Create a host directory, add the read-only `/app/parsers` volume described in [Pluggable Response Parser](/vss/system-components/analytics-microservices/alerts-microservice#pluggable-response-parser), and place a Python module exposing a parser class with a `parse(self, raw_response: str) -> dict` method in it. Then set `vlm.response_parser` in `config.yml` to its dotted path and recreate Alert Bridge. Use this to replace the built-in YES/NO verification parsing with classification, analytics, or enrichment outputs.
 
 #### Scale Alert processing across CPU cores
 

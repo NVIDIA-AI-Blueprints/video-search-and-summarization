@@ -406,6 +406,24 @@ Set the common deployment variables in `industry-profiles/warehouse-operations/o
 | `NUM_STREAMS` | Number of concurrent streams to process. This must match the camera count of `SAMPLE_VIDEO_DATASET`; it is not selected by system architecture. When NVStreamer is the sensor source, the VSS Configurator also waits until this many streams appear before registering cameras with VST. See [NVStreamer Settings](/vss/system-components/configuration/vss-configurator#nvstreamer-settings). |
 | `DATASET_TYPE` | Required for `MODE=3d`; selects the Sparse4D model, engine, anchor, and labels. Use `real` for `nv-warehouse-4cams` and `synthetic` for the two synthetic datasets with repository calibration. |
 
+<Warning>
+`industry-profiles/warehouse-operations/overrides.env` is tracked by Git. Do
+not write API keys or other credentials into it. For a remote LLM, export the
+credential in the shell that runs Docker Compose:
+
+```bash
+# NVIDIA-hosted endpoint
+export NVIDIA_API_KEY="<api-key>"
+
+# OpenAI endpoint (use this instead of NVIDIA_API_KEY)
+# export OPENAI_API_KEY="<api-key>"
+```
+
+The existing `NVIDIA_API_KEY=${NVIDIA_API_KEY:-}` and
+`OPENAI_API_KEY=${OPENAI_API_KEY:-}` entries in `overrides.env` pass the
+exported value to the deployment without storing it in the repository.
+</Warning>
+
 Container image coordinates are centralized in `containers.env` and loaded by the deployment command. In your hardware tab:
 
 1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For GB300 and DGX-SPARK, also export the SBSA image-tag suffix as described in the hardware tab.
@@ -466,7 +484,6 @@ LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
-NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
 ```
 </Tab>
 <Tab title="Agents + Local LLM">
@@ -520,7 +537,6 @@ LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
-NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
 ```
 </Tab>
 <Tab title="Agents + Local LLM">
@@ -576,7 +592,6 @@ LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
-NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
 ```
 </Tab>
 <Tab title="Agents + Local LLM">
@@ -639,7 +654,6 @@ LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
-NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
 ```
 </Tab>
 <Tab title="Agents + Local LLM">
@@ -693,7 +707,6 @@ LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
 LLM_NAME=<llm-model-id-from-v1-models>
 LLM_MODEL_TYPE=<nim-or-openai>
-NVIDIA_API_KEY=<api-key> # Use OPENAI_API_KEY instead for an OpenAI endpoint.
 ```
 </Tab>
 <Tab title="Agents + Local LLM">
