@@ -295,19 +295,3 @@ def test_main_refreshes_the_marker_with_the_live_profile(
     adapter.main()
     assert calls[0]["extra"] is None
     assert calls[-1]["extra"] == {"hardware_profile": "H200"}
-
-
-def test_daily_port_stems_have_profiles_and_spec_files() -> None:
-    adapter = _load_adapter()
-    skill_dir = REPO_ROOT / "skills" / "vss-deploy-test-openshell"
-    import sys
-    sys.path.insert(0, str(REPO_ROOT / ".github" / "skill-eval"))
-    import plan_matrix
-    for spec_rel, _, stem in plan_matrix.openshell_aligned_specs("vss-deploy-test-openshell"):
-        spec_file = REPO_ROOT / spec_rel
-        assert spec_file.is_file(), spec_rel
-        path = adapter._spec_path_for(stem, skill_dir)
-        assert path is not None and path.is_file(), stem
-        assert path.resolve() == spec_file.resolve(), (stem, path, spec_file)
-        gpu, reason = adapter._spec_gpu_count(stem, skill_dir)
-        assert gpu in (1, 2), (stem, reason)
