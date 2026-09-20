@@ -611,7 +611,7 @@ required `native.cgroupdriver=cgroupfs` setting into `/etc/docker/daemon.json`.
 It is idempotent and skips the package change when Docker is already in range.
 
 <Note>
-The script uses `sudo`, supports Ubuntu/Debian hosts with `apt`, and can restart
+The script uses `sudo`, supports Ubuntu hosts with `apt`, and can restart
 Docker. Run it before other containers are started. If the host cannot install
 the pinned packages, see the script's error and the
 [Docker troubleshooting guidance](/vss/appendix/faq) before changing
