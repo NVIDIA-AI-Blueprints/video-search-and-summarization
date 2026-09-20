@@ -44,9 +44,10 @@ the following:
 
 When a coding agent loads its skills directory, it reads each `SKILL.md` frontmatter and
 adds the VSS Skill to its tool list. The agent then matches user requests against the
-Skills' descriptions and invokes the appropriate VSS Skill for each task. VSS Skills can
-be added or updated while the agent is running. When a new `SKILL.md` appears in the
-skills directory, the agent picks it up without a restart.
+Skills' descriptions and invokes the appropriate VSS Skill for each task. After
+installing a new Skill, start a new agent session before invoking it. Symlinked
+Skills do not need to be reinstalled after a repository update; start a new session
+to load the updated Skill.
 
 ## Usage Patterns
 

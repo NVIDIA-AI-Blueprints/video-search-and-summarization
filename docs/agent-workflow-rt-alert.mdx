@@ -55,7 +55,7 @@ For instructions on downloading sample data and the deployment package, see [Dow
 
 ### With Agent Skills
 
-#### Step 1: Deploy the Agent
+#### Step 1: Deploy with Agent Skills
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and manage the real-time alerts workflow.
 First, install the [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
@@ -308,7 +308,7 @@ after it has been copied do not affect a command that reads
 `VSS_CONTAINER_TAG` (default `develop-latest`) are defined in
 `deploy/docker/containers.env`.
 
-#### Step 1: Deploy the Agent
+#### Step 1: Deploy with Docker Compose
 
 <Note>
 - Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/vss/getting-started/prerequisites#verify-your-ngc-access).
@@ -345,6 +345,33 @@ Before starting Compose, complete the host settings and select one hardware
 layout below in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`.
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
+
+#### Direct Docker Compose Overrides
+
+Apply all of the following settings in the `user-overrides.env` file created
+above:
+
+```ini
+MODE=2d_vlm
+ALERT_AGENT_ALWAYS_ON=true
+COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
+RTVI_VLM_MESSAGE_BUS=kafka
+RTVI_VLM_KAFKA_ENABLED=true
+NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=true
+NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=false
+```
+
+In RT-VLM 26.08.2, `MESSAGE_BUS` is the startup source of truth for
+generated-message publishing. The packaged Compose variable
+`RTVI_VLM_MESSAGE_BUS=kafka` sets it explicitly.
+`RTVI_VLM_KAFKA_ENABLED=true` is retained only as the legacy compatibility
+field while Compose still forwards it. Later `--env-file` arguments take
+precedence over earlier arguments; therefore, changes to `overrides.env` made
+after it has been copied do not affect a command that reads
+`user-overrides.env`.
+`VSS_CONTAINER_REGISTRY` (default `ghcr.io/nvidia-ai-blueprints/vss`) and
+`VSS_CONTAINER_TAG` (default `develop-latest`) are defined in
+`deploy/docker/containers.env`.
 
 **Host-path and service-address overrides (all hardware profiles):**
 

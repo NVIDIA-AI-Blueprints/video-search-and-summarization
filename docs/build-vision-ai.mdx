@@ -43,6 +43,16 @@ Use `vss-build-vision-ai` when you want to:
   resolved stack.
 - Tear down a stack that was created by the Skill.
 
+<Warning>
+Deploying a rebuild or extension over a running deployment replaces the same
+Compose project after you confirm the teardown plan. The default teardown uses `down -v`, which
+removes that project's named volumes, including applicable model caches and
+service state. `down -v` does not delete bind-mounted data under the configured
+`VSS_DATA_DIR`, but the Skill's separate bind-mounted data cleanup does; that
+cleanup requires its own confirmation. Back up required state or ask the Skill
+for the cache-preserving teardown before you approve the replacement.
+</Warning>
+
 Do not use this Skill for ordinary runtime operations after deployment. Once the
 stack is running, use the matching runtime Skill from the
 [Agent Skills catalog](/vss/vision-agent/agent-skills#available-skills), or
@@ -143,6 +153,35 @@ builds. It retains ingress only when the requested capability or harness needs a
 single public origin, and adds ELK/Kafka only for capabilities that publish to
 Kafka or index into Elasticsearch.
 
+### SOP compliance monitoring
+
+SOP compliance monitoring is a custom capability build, not a stock developer
+profile. The Skill composes the DS-SOP perception service with Kafka and
+Elasticsearch storage, VIOS for live sources, and the SOP reporting tools on
+VA-MCP. DS-SOP occupies the perception slot, so the resolved build uses it in
+place of RT-VLM.
+
+Ask the Skill to build and deploy the complete capability:
+
+```text title="SOP compliance deployment prompt"
+Use the vss-build-vision-ai skill to build and deploy an SOP compliance
+monitoring stack. Show the resolved services, GPU placement, source wiring, and
+teardown impact before deploying.
+```
+
+After the build is ready and a source is producing SOP results, use
+`vss-generate-video-report` Mode C with a sensor and time range:
+
+```text title="SOP compliance report prompt"
+Generate an SOP compliance report for <sensor> from <start-time> to <end-time>.
+```
+
+Mode C is read-only. It verifies that VA-MCP exposes
+`video_analytics__get_sop_report`, reads the indexed SOP results for the
+requested range, and renders the SOP compliance report. See the
+[Agent Skills catalog](/vss/vision-agent/agent-skills#operations) for the
+report Skill and its other modes.
+
 ### Combine real-time alerting and video summarization
 
 Request the capabilities as one custom build; do not bring up the stock alerts
@@ -191,9 +230,8 @@ Developer profiles default to the same Compose project name, `vss`, and also use
 singleton container names and host ports. Running stock alerts and LVS commands
 side by side on one host is not supported; changing only
 `COMPOSE_PROJECT_NAME` does not remove those collisions. A custom combined build
-replaces the existing same-project deployment after confirmation. The default
-Skill teardown includes `down -v`, which removes that project's named volumes,
-so review the teardown plan and preserve or back up required data before
+follows the replacement and teardown behavior described under
+[When to use it](#when-to-use-it), so review the teardown plan before
 proceeding.
 </Warning>
 
