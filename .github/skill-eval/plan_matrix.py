@@ -203,7 +203,7 @@ OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "openshell-h200-active",
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
-SMOKE_SPEC = "skills/vss-deploy-test-openshell/evals/base.json"
+SMOKE_SPEC = "skills/vss-deploy-test-openshell/evals/base_profile_video_understanding.json"
 # OpenShell GHA guests are only for this test skill. Every other skill
 # keeps `local_gpu: False` and lands on the Brev coordinator (`vss-eval`).
 OPENSHELL_SKILLS = frozenset({"vss-deploy-test-openshell"})
@@ -776,7 +776,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
             smoke_meta = {
                 "skill": "vss-deploy-test-openshell",
                 "spec_path": SMOKE_SPEC,
-                "spec_stem": "base",
+                "spec_stem": "base_profile_video_understanding",
                 "eval_dir": "evals",
             }
             requirements, metadata_error = openshell_requirements(SMOKE_SPEC)
@@ -791,8 +791,8 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "cohort": OPENSHELL_COHORT_TAG,
                     "kind": "eval",
                     "skip_reason": "",
-                    "slug": f"vss-deploy-test-openshell__base__{tag}",
-                    "name": f"vss-deploy-test-openshell · base · {tag}",
+                    "slug": f"vss-deploy-test-openshell__base_profile_video_understanding__{tag}",
+                    "name": f"vss-deploy-test-openshell · base_profile_video_understanding · {tag}",
                     "runs_on": openshell_job_labels(requirements["gpu_count"]),
                     "gpu_count": requirements["gpu_count"],
                     "local_gpu": True,
