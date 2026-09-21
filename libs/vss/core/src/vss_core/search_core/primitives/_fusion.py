@@ -393,6 +393,7 @@ def embed_output_to_search_results(embed_output: EmbedSearchOutput) -> list[Sear
                 start_time=_coerce_str(item.start_time),
                 end_time=_coerce_str(item.end_time),
                 sensor_id=_coerce_str(item.sensor_id),
+                sensor_id_raw=_coerce_str(item.sensor_id_raw),
                 screenshot_url=_coerce_str(item.screenshot_url),
                 similarity=_coerce_float(item.similarity_score),
             )
