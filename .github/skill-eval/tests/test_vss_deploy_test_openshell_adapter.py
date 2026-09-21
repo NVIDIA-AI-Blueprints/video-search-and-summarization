@@ -299,6 +299,35 @@ def test_multi_expect_spec_emits_harbor_steps(tmp_path: Path) -> None:
     ).read_text()
 
 
+def test_profile_suite_specs_emit_expected_harbor_steps(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    skill_dir = REPO_ROOT / "skills" / "vss-deploy-test-openshell"
+    cases = {
+        "base_profile_video_understanding": (9, 1),
+        "lvs": (3, 1),
+        "warehouse": (3, 2),
+        "search": (2, 2),
+        "alerts-cv": (2, 2),
+        "alerts-vlm": (2, 1),
+    }
+    for stem, (steps, gpu_count) in cases.items():
+        out = tmp_path / stem
+        adapter.generate_task(
+            stem,
+            "H200",
+            adapter.PROFILES[stem],
+            out,
+            skill_dir=skill_dir,
+            gpu_count=gpu_count,
+        )
+        root = out / stem / "h200"
+        for idx in range(1, steps + 1):
+            assert (root / f"step-{idx}" / "task.toml").is_file(), stem
+        assert not (root / f"step-{steps + 1}").exists(), stem
+        assert not (root / "task.toml").exists(), stem
+        assert "deploy" in (root / "step-1" / "instruction.md").read_text().lower()
+
+
 def test_single_expect_spec_stays_flat(tmp_path: Path) -> None:
     adapter = _load_adapter()
     adapter.generate_task(

@@ -17,17 +17,16 @@ The adapter does **not** pick LLM/VLM placement — the
 runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
-    Profiles : base, lvs, warehouse, search, alerts-cv, alerts-vlm, ask-video,
-               base_profile_video_understanding, plus chained operations
-               skills and standalone deployment / build skills
-               (vss-build-vision-ai, vss-deploy-profile, RT-VLM / RT-CV /
-               RT-Embed, behavior-analytics, video-analytics-api)
+    Profiles : one Harbor job per compose profile. step-1 deploys; later
+               expects[] are operations skills on that live stack
+               (base_profile_video_understanding, lvs, warehouse, search,
+               alerts-cv, alerts-vlm). Standalone / VDR specs stay their
+               own jobs (vss-build-vision-ai, RT-VLM / RT-CV / RT-Embed,
+               behavior-analytics, video-analytics-api).
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
                DGX-SPARK, IGX-THOR this guest has (warehouse, search, and
-               alerts-cv are two-GPU jobs; alerts-vlm is one GPU; ask-video
-               deploys base then chains to vss-ask-video;
-               base_profile_video_understanding is the Daily ask-video
-               routing exam after that deploy)
+               alerts-cv are two-GPU jobs; alerts-vlm and base/lvs are
+               one GPU)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
@@ -304,10 +303,16 @@ PROFILES: dict[str, dict] = {
         "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
     },
     "lvs": {
-        "description": "VSS LVS profile — long video summarization",
+        "description": "VSS LVS profile, then summarize + RAG-report CLI smoke",
+        "bundled_skills": (
+            "vss-summarize-video",
+            "vss-manage-video-io-storage",
+            "vss-generate-video-report-rag",
+        ),
     },
     "warehouse": {
-        "description": "VSS warehouse blueprint — RT-DETR 2D (`bp_wh_2d`) with always-local RTVI VLM, agent, UI, behavior analytics, Kafka",
+        "description": "Warehouse agents (`bp_wh` 2d), then query-analytics + manage-alerts",
+        "bundled_skills": ("vss-query-analytics", "vss-manage-alerts"),
     },
     "search": {
         "description": "VSS search profile — RT-CV, RT-Embed, remote VLM proxy, then vss-search-archive CLI",
@@ -319,9 +324,13 @@ PROFILES: dict[str, dict] = {
         "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
     },
     "base_profile_video_understanding": {
-        "description": "Daily vss-ask-video routing exam on OpenShell — base deploy, then memory vs vlm vs refuse",
+        "description": "Base deploy, Daily ask-video routing exam, then vios + report CLI smoke",
         "profile": "base",
-        "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
+        "bundled_skills": (
+            "vss-ask-video",
+            "vss-manage-video-io-storage",
+            "vss-generate-video-report",
+        ),
     },
     "summarize": {
         "description": "VSS LVS profile plus vss-summarize-video CLI (`vss summarize run`)",
