@@ -105,6 +105,21 @@ class OpenshellGpuFleet(unittest.TestCase):
             list(plan_matrix.SKIP_RUNNER),
         )
 
+        l40s = plan_matrix.runs_on_labels("L40S", {"gpu_count": 1})
+        self.assertIn("openshell-l40s-active", l40s)
+        self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, l40s)
+        self.assertIn("gpu-l40s", l40s)
+        self.assertIn("gpu-nvidia-l40s", l40s)
+        self.assertIn("vram-46gb", l40s)
+        self.assertIn("gpus-1", l40s)
+        l40s_2g = plan_matrix.runs_on_labels("L40S", {"gpu_count": 2})
+        self.assertIn("openshell-l40s-active", l40s_2g)
+        self.assertIn("gpus-2", l40s_2g)
+        self.assertEqual(
+            plan_matrix.runs_on_labels("L40S", {"gpu_count": 3}),
+            list(plan_matrix.SKIP_RUNNER),
+        )
+
     def test_capacity_accounting_matches_replacement_topology(self):
         self.assertEqual(
             {cohort.name: cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS},
@@ -114,12 +129,14 @@ class OpenshellGpuFleet(unittest.TestCase):
                 "a40-2g": 2,
                 "h200-1g": 8,
                 "h200-2g": 4,
+                "l40s-1g": 8,
+                "l40s-2g": 4,
                 "rtxpro6000-2g": 4,
             },
         )
         self.assertEqual(
             sum(cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS),
-            30,
+            42,
         )
 
     def test_openshell_job_labels_are_not_sku_specific(self):
@@ -134,11 +151,13 @@ class OpenshellGpuFleet(unittest.TestCase):
             ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-2"],
         )
         sku = {
-            "h200", "a16", "a40", "rtx-pro-6000",
+            "h200", "a16", "a40", "l40s", "rtx-pro-6000",
             "gpu-h200", "gpu-nvidia-h200", "gpu-rtxpro6000bw",
+            "gpu-l40s", "gpu-nvidia-l40s",
             "gpu-a16", "gpu-a40", "gpu-nvidia-a16", "gpu-nvidia-a40",
             "openshell-h200-active", "openshell-a16-active",
-            "openshell-a40-active", "openshell-rtxpro6000-active",
+            "openshell-a40-active", "openshell-l40s-active",
+            "openshell-rtxpro6000-active",
             "vram-15gb", "vram-46gb", "video-codec",
         }
         self.assertFalse(sku & set(one + two))
@@ -155,6 +174,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.OPENSHELL_A16_LABELS,
             plan_matrix.OPENSHELL_A40_LABELS,
             plan_matrix.OPENSHELL_H200_LABELS,
+            plan_matrix.OPENSHELL_L40S_LABELS,
             plan_matrix.OPENSHELL_RTXPRO6000_LABELS,
         ):
             self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, labels)
@@ -321,7 +341,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(requirements.get("supported_hardware_profiles"), ["A16"])
 
     def test_hardware_profile_identity_is_never_substituted(self):
-        for profile in ("A16", "A40", "H200", "RTXPRO6000BW"):
+        for profile in ("A16", "A40", "H200", "L40S", "RTXPRO6000BW"):
             self.assertEqual(plan_matrix.hardware_profile_for(profile), profile)
 
     def test_harness_only_diff_emits_count_only_smoke_leg(self):
