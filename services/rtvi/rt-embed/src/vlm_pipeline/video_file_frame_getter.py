@@ -140,40 +140,87 @@ def _standard_sei_meta_api_type():
     return _STANDARD_SEI_META_API_TYPE
 
 
-def _parse_sei_json_payload(payload, size: Optional[int] = None):
+def _payload_to_bytes(payload, size: Optional[int] = None) -> Optional[bytes]:
     if payload is None:
         return None
+    if isinstance(payload, bytes):
+        return payload[:size] if size is not None else payload
+    if isinstance(payload, bytearray):
+        return bytes(payload[:size] if size is not None else payload)
+    if isinstance(payload, str):
+        return payload.encode("utf-8")
+    if hasattr(payload, "tobytes"):
+        data = payload.tobytes()
+        return data[:size] if size is not None else data
+    if isinstance(payload, (list, tuple)):
+        data = bytes(int(value) & 0xFF for value in payload)
+        return data[:size] if size is not None else data
     if isinstance(payload, int) and size:
-        payload = ctypes.string_at(payload, size)
-    elif not isinstance(payload, bytes):
-        try:
-            payload = bytes(payload)
-        except TypeError:
-            return None
-    payload = payload[:size] if size is not None else payload
-    text = payload.rstrip(b"\x00").decode("utf-8", errors="ignore").strip()
-    start, end = text.find("{"), text.rfind("}")
+        return ctypes.string_at(payload, size)
+    try:
+        data = bytes(payload)
+        return data[:size] if size is not None else data
+    except TypeError:
+        return None
+
+
+def _parse_sei_json_payload(payload, size: Optional[int] = None):
+    payload_bytes = _payload_to_bytes(payload, size)
+    if not payload_bytes:
+        return None
+
+    payload_text = payload_bytes.rstrip(b"\x00").decode("utf-8", errors="ignore").strip()
+    if not payload_text:
+        return None
+
+    # Some producers include UUID/padding bytes around the user data payload.
+    start = payload_text.find("{")
+    end = payload_text.rfind("}")
     if start != -1 and end >= start:
-        text = text[start : end + 1]
-    return json.loads(text) if text else None
+        payload_text = payload_text[start : end + 1]
+
+    return json.loads(payload_text)
+
+
+def _standard_sei_meta_payload(standard_meta):
+    data = getattr(standard_meta, "data", None)
+    size = getattr(standard_meta, "size", None)
+    if data is not None and size is not None:
+        return data, size
+
+    meta_ptr = hash(standard_meta)
+    if not meta_ptr:
+        return None, None
+
+    sei_meta = _GstVideoSEIUserDataUnregisteredMeta.from_address(meta_ptr)
+    if not sei_meta.data or sei_meta.size <= 0 or sei_meta.size > 1024 * 1024:
+        return None, None
+    return sei_meta.data, sei_meta.size
 
 
 def _get_buffer_sei_data(buffer):
-    """Read standard GstVideo SEI meta first, then legacy DeepStream metadata."""
+    """Read SEI metadata from either the standard GstVideo meta (transported by
+    nvunixfdsrc on the IPC decoded-frame path) or the legacy nvds custom meta
+    (transported by the regular uridecodebin/RTSP decode path). The standard
+    meta is checked first since it's cheaper and is what the IPC path uses;
+    the legacy reader is a fallback so non-IPC live streams keep working."""
     standard_meta = buffer.get_meta(_standard_sei_meta_api_type())
     if standard_meta:
-        data, size = getattr(standard_meta, "data", None), getattr(standard_meta, "size", None)
-        if data is None or size is None:
-            pointer = hash(standard_meta)
-            if pointer:
-                meta = _GstVideoSEIUserDataUnregisteredMeta.from_address(pointer)
-                data, size = meta.data, meta.size
-        return _parse_sei_json_payload(data, size), "gst_video_user_data_unregistered_meta"
+        payload, size = _standard_sei_meta_payload(standard_meta)
+        return (
+            _parse_sei_json_payload(payload, size),
+            "gst_video_user_data_unregistered_meta",
+        )
+
     if HAVE_SEI_META_LIB:
-        meta = gst_video_sei_meta.gst_buffer_get_video_sei_meta(hash(buffer))
-        if meta:
-            return _parse_sei_json_payload(meta.sei_metadata_ptr), "nvds_video_sei_meta"
-    return None, None
+        video_sei_meta = gst_video_sei_meta.gst_buffer_get_video_sei_meta(hash(buffer))
+        if video_sei_meta:
+            return (
+                _parse_sei_json_payload(video_sei_meta.sei_metadata_ptr),
+                "gst_video_sei_meta_legacy",
+            )
+
+    return None, ""
 
 
 def _cuda_oom_recovery_enabled() -> bool:
@@ -1036,8 +1083,8 @@ class VideoFileFrameGetter:
                     if base_time == 0:
                         base_time = time.time() - (fs._chunk.end_pts / 1e9)
 
-                    if self._last_frame_pts >= fs._chunk.start_pts:
-                        fs._chunk.end_pts = self._last_frame_pts
+                    if flush and self._last_frame_pts >= fs._chunk.start_pts:
+                        fs._chunk.end_pts = min(self._last_frame_pts, fs._chunk.end_pts)
 
                     fs._chunk.start_ntp = get_timestamp_str(base_time + fs._chunk.start_pts / 1e9)
                     fs._chunk.end_ntp = get_timestamp_str(base_time + fs._chunk.end_pts / 1e9)
@@ -1820,7 +1867,7 @@ class VideoFileFrameGetter:
                 return None
 
             try:
-                sei_data, _ = _get_buffer_sei_data(buffer)
+                sei_data, sei_source = _get_buffer_sei_data(buffer)
             except json.JSONDecodeError as exc:
                 logger.warning("Failed to parse SEI metadata JSON: %s", exc)
                 return None
@@ -1834,7 +1881,8 @@ class VideoFileFrameGetter:
                     original_pts = buffer.pts
                     new_pts = sim_time * 1e9
                     logger.debug(
-                        f"SEI timestamp override: original_pts={original_pts} ns, "
+                        f"SEI timestamp override: source={sei_source}, "
+                        f"original_pts={original_pts} ns, "
                         f"sim_time={sim_time} s, new_pts={new_pts} ns"
                     )
                     buffer.pts = new_pts
@@ -1853,7 +1901,8 @@ class VideoFileFrameGetter:
                         if isinstance(timestamp, (int, float)):
                             self._sei_base_time = timestamp - buffer.pts
                             logger.debug(
-                                f"SEI base_time initialized: timestamp={timestamp} ns, "
+                                f"SEI base_time initialized: source={sei_source}, "
+                                f"timestamp={timestamp} ns, "
                                 f"buffer.pts={buffer.pts} ns, base_time={self._sei_base_time} ns"
                             )
                         else:
@@ -3348,6 +3397,11 @@ class VideoFileFrameGetter:
         self._stop_stream = True
         logger.debug("Force quit loop")
         self._audio_stop.set()
+        if self._pipeline is not None:
+            try:
+                self._pipeline.send_event(Gst.Event.new_flush_start())
+            except Exception as ex:
+                logger.debug("Failed to flush live pipeline during stop: %s", ex)
         if self._loop is not None:
             self._loop.quit()
 

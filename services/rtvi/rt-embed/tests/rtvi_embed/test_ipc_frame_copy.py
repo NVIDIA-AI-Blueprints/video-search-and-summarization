@@ -184,3 +184,37 @@ def test_get_buffer_sei_data_reads_generic_gst_meta_layout(monkeypatch):
     sei_data, source = frame_getter._get_buffer_sei_data(Buffer())
     assert source == "gst_video_user_data_unregistered_meta"
     assert sei_data == {"timestamp": 3000, "sim_time": 3.5}
+
+
+def test_get_buffer_sei_data_falls_back_to_legacy_when_no_standard_meta(monkeypatch):
+    frame_getter = pytest.importorskip(
+        "vlm_pipeline.video_file_frame_getter",
+        reason="GStreamer frame-getter dependencies are not importable",
+    )
+    frame_getter._STANDARD_SEI_META_API_TYPE = None
+    monkeypatch.setattr(
+        frame_getter.GstVideo,
+        "video_sei_user_data_unregistered_meta_api_get_type",
+        lambda: "standard-sei-api",
+    )
+    monkeypatch.setattr(frame_getter, "HAVE_SEI_META_LIB", True)
+
+    legacy_meta = types.SimpleNamespace(sei_metadata_ptr=b'{"timestamp": 4000, "sim_time": 4.5}')
+
+    class FakeGstVideoSeiMeta:
+        @staticmethod
+        def gst_buffer_get_video_sei_meta(buffer_hash):
+            return legacy_meta
+
+    monkeypatch.setattr(frame_getter, "gst_video_sei_meta", FakeGstVideoSeiMeta)
+
+    class Buffer:
+        # Some decoder/platform combinations never attach the standard
+        # GstVideo SEI meta type at all, only the legacy nvds one.
+        def get_meta(self, api_type):
+            assert api_type == "standard-sei-api"
+            return None
+
+    sei_data, source = frame_getter._get_buffer_sei_data(Buffer())
+    assert source == "gst_video_sei_meta_legacy"
+    assert sei_data == {"timestamp": 4000, "sim_time": 4.5}

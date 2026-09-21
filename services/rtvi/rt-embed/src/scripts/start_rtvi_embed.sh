@@ -127,11 +127,14 @@ if [[ $GPU_MEM == *"N/A"* ]]; then
 fi
 echo "Total GPU memory is $GPU_MEM MiB per GPU"
 
-# Tegra runtime libraries are valid only on Thor/Jetson.  Do not expose them
-# on SBSA: they override the Spark driver libraries used by nvidia-smi.
+# Tegra runtime libraries are valid only on Thor/Jetson. Keep DeepStream
+# ahead of Tegra so its SEI metadata library is selected, while keeping both
+# ahead of the bundled RTVI libraries so NvBufSurface matches the host BSP.
 if [ -f /etc/nv_tegra_release ]; then
     export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu/tegra${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-    if grep -q "R38 (release), REVISION: 2.0" /etc/nv_tegra_release; then
+    export LD_LIBRARY_PATH="/opt/nvidia/deepstream/deepstream/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+    if grep -Fq "R38 (release), REVISION: 2.0" /etc/nv_tegra_release \
+        && [ -d /opt/nvidia/via/lib ]; then
         export LD_LIBRARY_PATH="/opt/nvidia/via/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
     fi
 fi
