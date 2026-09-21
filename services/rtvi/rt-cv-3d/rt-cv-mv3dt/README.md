@@ -46,8 +46,9 @@ includes a 4-camera warehouse **sample dataset** you can run end-to-end.
 - [3. Launch](#3-launch)
   - [3.1 Option A — bundled brokers](#31-option-a--bundled-brokers)
   - [3.2 Option B — your own brokers](#32-option-b--your-own-brokers)
-  - [3.3 On screen, display, and GPU selection](#33-on-screen-display-and-gpu-selection)
-  - [3.4 Verify startup](#34-verify-startup)
+  - [3.3 Optional ReID service](#33-optional-reid-service)
+  - [3.4 On screen, display, and GPU selection](#34-on-screen-display-and-gpu-selection)
+  - [3.5 Verify startup](#35-verify-startup)
 - [4. Add streams dynamically (RTSP)](#4-add-streams-dynamically-rtsp)
 - [5. Check logs and receive metadata from Kafka](#5-check-logs-and-receive-metadata-from-kafka)
 - [6. Visualization](#6-visualization)
@@ -79,6 +80,7 @@ Then point **`MODELS_DIR`** in [docker/.env](docker/.env) at the extracted
 ```text
 $MODELS_DIR/mtmc/                  RT-DETR onnx (+ TensorRT engines, built on first run)
 $MODELS_DIR/mv3dt/BodyPose3DNet/   3D pose model
+$MODELS_DIR/reid/                  CLIP-ReID onnx + TensorRT engine (optional ReID service)
 ```
 
 **Sample dataset (optional).** The same package also ships a 4-camera warehouse sample you
@@ -119,7 +121,7 @@ Settings live in [docker/.env](docker/.env), in two kinds:
 
 | Set in | Variables | Read by |
 |---|---|---|
-| **`docker/.env`** (needed at launch) | `MODELS_DIR`†, `NUM_CAMS`†, `VIDEO_DIR`, `GPU_DEVICE`, `DS_HTTP_PORT`, `MQTT_HOST`/`MQTT_PORT`, `KAFKA_BOOTSTRAP`/`KAFKA_PORT`/`KAFKA_CONTROLLER_PORT`, `RAW_TOPIC`/`FUSED_TOPIC`, `*_IMAGE`/`*_TAG` | `docker compose` |
+| **`docker/.env`** (needed at launch) | `MODELS_DIR`†, `NUM_CAMS`†, `VIDEO_DIR`, `GPU_DEVICE`, `DS_HTTP_PORT`, `MQTT_HOST`/`MQTT_PORT`, `KAFKA_BOOTSTRAP`/`KAFKA_PORT`/`KAFKA_CONTROLLER_PORT`, `RAW_TOPIC`/`FUSED_TOPIC`, `REID_*`, `*_IMAGE`/`*_TAG` | `docker compose` |
 | **`docker/.env`** *or* the command line | `INPUT_MODE`, `SAVE_VIDEO`, `OSD`, `TRACKER_CONFIG` | `scripts/stage-configs.sh` |
 
 † required, no default — compose won't start without them.
@@ -222,7 +224,72 @@ docker compose up -d
 #   docker compose --profile "*" down
 ```
 
-### 3.3 On screen, display, and GPU selection
+### 3.3 Optional ReID service
+
+The `reid` Compose profile adds the embedding service and its private Milvus,
+etcd, and MinIO dependencies. The tracker emits 1280-D CLIP-ReID features in
+`mdx-raw` and queries the service at `127.0.0.1:8088`; the service consumes the
+same `mdx-raw` topic. Compression and the secondary SigLIP embedding are off by
+default because neither is needed for tracker reassociation.
+
+For an isolated, finite evaluation, edit [docker/.env](docker/.env):
+
+```dotenv
+INPUT_MODE=file
+REID_ENABLED=1
+REID_RESET_BEFORE_RUN=1
+```
+
+Then restage and launch the `reid` profile together with the bundled brokers:
+
+```bash
+./scripts/stage-configs.sh
+
+cd docker
+COMPOSE_PROFILES=mosquitto,kafka,reid docker compose up -d
+```
+
+Perception waits for `GET /health/ready`, calls `POST /reset` to clear both
+Milvus collections, and only then starts `metropolis_perception_app` with
+`--tracker-reid`. That ordering means frame 0 of the finite files cannot run
+before the ReID state is reset. Startup also rejects a stale staged tracker
+config, so changing `REID_ENABLED` always requires another
+`./scripts/stage-configs.sh`.
+
+Useful checks while it starts:
+
+```bash
+curl -fsS http://127.0.0.1:8088/health/ready
+docker logs -f vss-reid-embed-rtcv
+docker compose ps
+```
+
+To run the comparison baseline, set `REID_ENABLED=0`, restage, and launch
+without the `reid` profile. The ReID data uses named Docker volumes and is not
+deleted by ordinary `docker compose down`; avoid `down -v`. The automatic reset
+gives each enabled experiment empty collections while retaining the volumes. A
+manual reset, when perception is stopped, is:
+
+```bash
+curl -fsS -X POST \
+  'http://127.0.0.1:8088/reset?clear_main=true&clear_compressed=true'
+```
+
+For strict isolation between repeated finite runs, consume/convert the Kafka
+results after perception exits, then run `docker compose --profile "*" down`
+before the next run. Bundled Kafka is intentionally ephemeral, so the next
+`up` begins with an empty topic and the startup reset begins with empty Milvus
+collections. Do not merely restart perception between experiments: records
+from the previous run can still be buffered in Kafka or in the ReID consumer.
+With an external persistent Kafka broker, use a fresh topic or explicitly
+truncate the experiment topic before bringing the ReID service up.
+
+`REID_INPUT_TOPIC` must equal `RAW_TOPIC`, and `REID_DIMENSION` must match the
+tracker model (1280 for the supplied CLIP-ReID model). Staging checks both the
+topic wiring and the required files under `$MODELS_DIR/reid/` before changing
+the generated config.
+
+### 3.4 On screen, display, and GPU selection
 
 `GPU_DEVICE` in [docker/.env](docker/.env) picks the GPU the pipeline computes on. With `OSD=1` the container also has to reach the GPU that drives the X display, which is often a different one on a multi-GPU host.
 
@@ -236,7 +303,7 @@ When the display GPU cannot be determined, staging says so and changes nothing. 
 
 On a laptop or any host whose display is rendered by Mesa rather than by an NVIDIA GPU, this is a different problem with a different fix: uncomment the `devices` block in [docker/compose.yml](docker/compose.yml). The preflight names whichever of the two it sees.
 
-### 3.4 Verify startup
+### 3.5 Verify startup
 
 Either option — follow the perception logs until the pipeline reports ready:
 
@@ -260,6 +327,10 @@ It still needs the MQTT/Kafka brokers, and
 it publishes per-sensor measurements to `mdx-raw` — but without the BEV Fusion
 component there are no fused `mdx-bev` tracks. Start the brokers (and
 bev-fusion, if wanted) separately.
+
+This direct command is the non-ReID baseline. Use the Compose workflow in
+[§3.3](#33-optional-reid-service) when ReID is enabled so the service readiness
+and reset ordering are enforced.
 
 ```bash
 source docker/.env    # run from the rt-cv-mv3dt directory
@@ -334,6 +405,14 @@ Register your RTSP streams via the perception REST API — one
 ./scripts/add-streams.sh --remove-all --yes       # same, unattended
 ./scripts/add-streams.sh --list
 ```
+
+> **Wait for the full camera count before removing.** While fewer cameras are registered than the configured `batch-size`, the muxer is still waiting for the batch to fill and no source has activated. Removing one then parks the muxer and the perception REST API stops answering, so `add-streams.sh` refuses. Once `Active sources` has reached the full count, a removal no longer leaves the REST API unresponsive. To abandon a partial registration, recreate perception instead:
+>
+> ```bash
+> cd docker && docker compose up -d --force-recreate perception
+> ```
+>
+> **Adding streams after removing all of them needs a recreate.** The first-buffer alignment that gives the cameras a common time origin runs once per pipeline and is never re-armed, so streams added after the first batch are not guaranteed to be time synchronized. Recreate perception before registering the cameras again to avoid timing issues.
 
 **Expected:** the script waits for `ds-ready: YES`, then reports each stream as
 added. On the very first run for a given batch size, TensorRT builds the
@@ -506,8 +585,8 @@ runs until you stop it with Ctrl-C. Either way the mp4 is saved to `./bev-output
 
 | Path | Purpose |
 |---|---|
-| [docker/compose.yml](docker/compose.yml) | perception + bev-fusion (+ optional `mosquitto` / `kafka` compose profiles) |
-| [docker/.env](docker/.env) | images/tags, `MODELS_DIR`, `NUM_CAMS`, ports, GPU, broker endpoints, `INPUT_MODE`/`VIDEO_DIR`, `SAVE_VIDEO` |
+| [docker/compose.yml](docker/compose.yml) | perception + bev-fusion (+ optional `mosquitto`, `kafka`, and `reid` Compose profiles) |
+| [docker/.env](docker/.env) | images/tags, `MODELS_DIR`, `NUM_CAMS`, ports, GPU, broker/ReID settings, `INPUT_MODE`/`VIDEO_DIR`, `SAVE_VIDEO` |
 | [docker/init-scripts/](docker/init-scripts/) | `ds-start-mv3dt.sh` — the in-container launch script (mounted into perception) |
 | [configs/](configs/) | sample DeepStream configs + `mosquitto.conf` |
 | [scripts/](scripts/) | shell utilities (config generation, staging, stream add/remove, visualizer/dump launchers) |

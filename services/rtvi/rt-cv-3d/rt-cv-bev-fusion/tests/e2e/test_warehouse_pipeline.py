@@ -26,6 +26,7 @@ to bring the stack up/down in-test, optionally with --e2e-run-setup.
 """
 
 import logging
+import os
 import re
 import subprocess
 import time
@@ -36,10 +37,12 @@ logger = logging.getLogger(__name__)
 
 pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.timeout(3000)]
 
-PERCEPTION_NAME = "perception-3d-mv3dt"
-FUSION_NAME = "measurement-fusion-3d"
-RAW_TOPIC = "mdx-mv3dt-raw"
-FUSED_TOPIC = "mdx-bev"
+# Container and topic names as the blueprint under deploy/docker declares them.
+PERCEPTION_NAME = os.getenv("MV3DT_PERCEPTION_NAME", "vss-rtvi-cv-mv3dt")
+FUSION_NAME = os.getenv("MV3DT_FUSION_NAME", "vss-rtvi-cv-bev-fusion")
+RAW_TOPIC = os.getenv("MV3DT_RAW_TOPIC", "mdx-raw")
+FUSED_TOPIC = os.getenv("MV3DT_FUSED_TOPIC", "mdx-bev")
+KAFKA_BOOTSTRAP = os.getenv("MV3DT_KAFKA_BOOTSTRAP", "localhost:29092")
 
 READY_TIMEOUT_S = 1800   # first run includes TRT engine builds
 MIN_FPS = 10.0           # ~30 FPS expected on datacenter GPUs; floor guards regressions
@@ -85,8 +88,11 @@ def _wait(predicate, timeout_s, what, poll=10):
 # broker offset helpers
 # --------------------------------------------------------------------------- #
 def _kafka_total_offset(kafka_name, topic):
-    out = _sh("docker", "exec", kafka_name, "kafka-get-offsets",
-              "--bootstrap-server", "localhost:9092", "--topic", topic).stdout
+    # 29092 is the broker's in-container listener; 9092 advertises the host IP.
+    r = _sh("docker", "exec", kafka_name, "kafka-get-offsets",
+            "--bootstrap-server", KAFKA_BOOTSTRAP, "--topic", topic)
+    assert r.returncode == 0, f"kafka-get-offsets {topic} failed: {r.stderr.strip()[:200]}"
+    out = r.stdout
     total = 0
     for ln in out.splitlines():
         parts = ln.strip().split(":")
@@ -137,7 +143,9 @@ def test_warehouse_pipeline_e2e(deployed_stack):
 
     # 3. Perception FPS reaches a healthy floor.
     def _fps_ok():
-        fps_vals = [float(x) for x in re.findall(r"FPS\s*[=:]\s*([0-9]+\.?[0-9]*)", _logs(perception), re.I)]
+        # DeepStream logs per-source rates as "30.00000 (29.98)\tsource_id : 0".
+        fps_vals = [float(x) for x in re.findall(
+            r"^\s*([0-9]+\.[0-9]+)\s*\([0-9.]+\)\s*source_id", _logs(perception), re.M)]
         recent = fps_vals[-expected_streams:] if fps_vals else []
         return (bool(recent) and min(recent) >= MIN_FPS), (recent or fps_vals[-5:])
     fps = _wait(_fps_ok, READY_TIMEOUT_S, f"perception FPS >= {MIN_FPS}")

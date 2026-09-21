@@ -21,6 +21,8 @@
 #                  (omit if you have your own broker; set MQTT_HOST/MQTT_PORT instead)
 #   kafka          optional single-node KRaft broker + topic init — COMPOSE_PROFILES+=kafka
 #                  (omit if you have your own broker; set KAFKA_BOOTSTRAP instead)
+#   reid-*         optional ReID service + Milvus dependencies — COMPOSE_PROFILES+=reid
+#                  (the service consumes mdx-raw and the tracker queries it on :8088)
 #
 # No streaming front-end is included: bring your own synchronized RTSP streams and
 # register them at runtime with scripts/add-streams.sh (see README).
@@ -46,6 +48,14 @@ services:
       # so the container can tell a stale staged endpoint from a current one.
       KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-localhost:9092}
       RAW_TOPIC: ${RAW_TOPIC:-mdx-raw}
+      REID_ENABLED: "${REID_ENABLED:-0}"
+      REID_SERVICE_HOST: ${REID_SERVICE_HOST:-127.0.0.1}
+      REID_SERVICE_PORT: "${REID_SERVICE_PORT:-8088}"
+      REID_RESET_BEFORE_RUN: "${REID_RESET_BEFORE_RUN:-1}"
+      REID_READY_TIMEOUT_SEC: "${REID_READY_TIMEOUT_SEC:-300}"
+      REID_DIMENSION: "${REID_DIMENSION:-1280}"
+      REID_EXTRACTION_INTERVAL: "${REID_EXTRACTION_INTERVAL:-8}"
+      REID_INPUT_TOPIC: ${REID_INPUT_TOPIC:-mdx-raw}
       DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION: "0"
       GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: 1
       OTEL_SDK_DISABLED: "true"
@@ -55,6 +65,7 @@ services:
     volumes:
       - ${MODELS_DIR:?set MODELS_DIR in docker/.env}/mtmc:/opt/storage
       - ${MODELS_DIR}/mv3dt/BodyPose3DNet:/opt/storage/BodyPose3DNet
+      - ${MODELS_DIR}/reid:/opt/storage/reid:ro
       - ../generated/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs:ro
       - ../generated/camInfo:/tmp/camInfo:ro
       - ./init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh:ro
@@ -77,6 +88,9 @@ services:
       kafka:
         condition: service_healthy
         required: false
+      reid-embed:
+        condition: service_healthy
+        required: false
     # Uncomment for OSD on x86 if the log shows "Failed to query drm device" or
     # "failed to create dri[N] screen". Kept commented for hosts with no DRM
     # node, headless included.
@@ -96,8 +110,32 @@ services:
       SENSOR_TIMEOUT_MS: "100"
       MAX_EXPECTED_SENSORS: ${NUM_CAMS:?set NUM_CAMS in docker/.env}
       BUFFER_DURATION_S: "2.0"
-      FUSION_METHOD: ${FUSION_METHOD:-gated_weighted}
+      FUSION_METHOD: ${FUSION_METHOD:-rays}
       VISIBILITY_MIN: ${VISIBILITY_MIN:-0.3}
+      MAX_DIST: ${MAX_DIST:-30}
+      TEMPORAL_FILTER: ${TEMPORAL_FILTER:-1}
+      PIXEL_SIGMA: ${PIXEL_SIGMA:-3.0}
+      ACCEL_SIGMA: ${ACCEL_SIGMA:-3.0}
+      # "auto" measures it from overlapping views; "off" or metres to pin it.
+      FOOT_OFFSET: ${FOOT_OFFSET:-auto}
+      # Views of one id further apart than this are different people. 0 disables.
+      CONFLICT_RADIUS: ${CONFLICT_RADIUS:-2.0}
+      # Buckets of publish delay to let a backward pass run. 0 is causal.
+      SMOOTH_LAG: ${SMOOTH_LAG:-0}
+      # Reject a fused step implying more than this, m/s. 0 disables.
+      MAX_SPEED: ${MAX_SPEED:-10}
+      REACQUIRE: ${REACQUIRE:-10}
+      # On re-acquisition publish a new id instead of leaping the old one.
+      # 0 keeps the id and accepts the jump.
+      SPLIT_ON_REACQUIRE: ${SPLIT_ON_REACQUIRE:-1}
+      # Diagnostic: log the gate branch for any accepted step >= this many metres.
+      GATE_DEBUG: ${GATE_DEBUG:-0}
+      CALIBRATION_PATH: /calibration/calibration.json
+    volumes:
+      # Camera geometry. closest refuses to start without it and rays
+      # fuses worse; the baselines ignore it. Staging writes this file, so it
+      # tracks the dataset the deployment was staged for.
+      - ../generated/calibration.json:/calibration/calibration.json:ro
     healthcheck:
       test: ["CMD", "python3", "-c", "import os,sys; sys.exit(0 if os.path.isfile('/tmp/fusion_ready') else 1)"]
       interval: 2s
@@ -172,9 +210,144 @@ services:
       - bash
       - -c
       - |
-        for t in ${RAW_TOPIC:-mdx-raw} ${FUSED_TOPIC:-mdx-bev}; do
+        topics="${RAW_TOPIC:-mdx-raw} ${FUSED_TOPIC:-mdx-bev}"
+        case "${REID_ENABLE_COMPRESSION:-True}${REID_ENABLE_SECONDARY_EMBEDDING:-False}" in
+          # Either producer writes to REID_OUTPUT_TOPIC, so either enables it.
+          *[Tt][Rr][Uu][Ee]*|*1*|*[Yy][Ee][Ss]*) topics="$$topics ${REID_OUTPUT_TOPIC:-mdx-compressed-embeddings}" ;;
+        esac
+        for t in $$topics; do
           kafka-topics --bootstrap-server localhost:${KAFKA_PORT:-9092} --create --if-not-exists \
             --topic "$$t" --partitions 1 --replication-factor 1
         done
         echo "topics:" && kafka-topics --bootstrap-server localhost:${KAFKA_PORT:-9092} --list
     restart: "no"
+
+  # ── Optional ReID service (enable with COMPOSE_PROFILES+=reid) ─────────────
+
+  # Milvus metadata store. This and MinIO remain private to reid-network.
+  reid-etcd:
+    image: ${REID_ETCD_IMAGE:-quay.io/coreos/etcd:v3.5.18}
+    container_name: vss-reid-etcd-rtcv
+    profiles: ["reid"]
+    restart: unless-stopped
+    networks: [reid-network]
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: >-
+      etcd --advertise-client-urls=http://reid-etcd:2379
+      --listen-client-urls=http://0.0.0.0:2379 --data-dir=/etcd
+    volumes:
+      - reid-etcd-data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  reid-minio:
+    image: ${REID_MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2023-03-20T20-16-18Z}
+    container_name: vss-reid-minio-rtcv
+    profiles: ["reid"]
+    restart: unless-stopped
+    networks: [reid-network]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: ["minio", "server", "/minio_data", "--console-address", ":9001", "--address", ":9000"]
+    volumes:
+      - reid-minio-data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  reid-milvus:
+    image: ${REID_MILVUS_IMAGE:-milvusdb/milvus:v2.5.12}
+    container_name: vss-reid-milvus-rtcv
+    profiles: ["reid"]
+    restart: unless-stopped
+    networks: [reid-network]
+    depends_on:
+      reid-etcd:
+        condition: service_healthy
+      reid-minio:
+        condition: service_healthy
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: reid-etcd:2379
+      MINIO_ADDRESS: reid-minio:9000
+    command: ["milvus", "run", "standalone"]
+    volumes:
+      - reid-milvus-data:/var/lib/milvus
+    # reid-embed uses host networking so it can consume the bundled Kafka
+    # broker's localhost advertisement. Publish only Milvus' gRPC endpoint.
+    ports:
+      - "127.0.0.1:${REID_MILVUS_PORT:-19530}:19530"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+  reid-embed:
+    image: ${REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${REID_EMBED_TAG:-3.3.0-26.08.2}
+    container_name: vss-reid-embed-rtcv
+    profiles: ["reid"]
+    network_mode: host
+    runtime: nvidia
+    ipc: host
+    restart: unless-stopped
+    depends_on:
+      reid-milvus:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+        required: false
+      kafka-topic-init:
+        condition: service_completed_successfully
+        required: false
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    volumes:
+      - ${MODELS_DIR:?set MODELS_DIR in docker/.env}/reid:/opt/storage/reid:ro
+    environment:
+      REID_SERVICE_HOST: ${REID_SERVICE_HOST:-127.0.0.1}
+      REID_SERVICE_PORT: "${REID_SERVICE_PORT:-8088}"
+      MESSAGE_BROKER: kafka
+      KAFKA_CONSUMER_SERVER: ${KAFKA_BOOTSTRAP:-localhost:9092}
+      KAFKA_CONSUMER_TOPIC: ${REID_INPUT_TOPIC:-mdx-raw}
+      KAFKA_PRODUCER_SERVER: ${KAFKA_BOOTSTRAP:-localhost:9092}
+      KAFKA_PRODUCER_TOPIC: ${REID_OUTPUT_TOPIC:-mdx-compressed-embeddings}
+      MILVUS_HOST: 127.0.0.1
+      MILVUS_PORT: "${REID_MILVUS_PORT:-19530}"
+      DIMENSION: "${REID_DIMENSION:-1280}"
+      DEEPSTREAM_SCHEMA: protobuf
+      ENABLE_COMPRESSION: "${REID_ENABLE_COMPRESSION:-True}"
+      ENABLE_SECONDARY_EMBEDDING: "${REID_ENABLE_SECONDARY_EMBEDDING:-False}"
+      CLEAN_RESTART: "${REID_CLEAN_RESTART:-False}"
+      PYTHONUNBUFFERED: "1"
+      NVIDIA_VISIBLE_DEVICES: ${GPU_DEVICE:-0}
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${REID_SERVICE_PORT:-8088}/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  reid-etcd-data:
+  reid-minio-data:
+  reid-milvus-data:
+
+networks:
+  reid-network:

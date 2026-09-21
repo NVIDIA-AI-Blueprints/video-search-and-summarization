@@ -2,6 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 {{- if and .Values.enabled (eq .Values.profileMode "standalone-mv3dt") .Values.standaloneWarehouse.mv3dt.fusion.enabled }}
+{{- /* Prefer an operator-supplied ConfigMap; otherwise use the chart's own, which
+       exists only when files/warehouse-standalone-mv3dt/calibration/calibration.json
+       was supplied. Empty means no calibration is available and no mount is made. */}}
+{{- /* Camera geometry for rays and closest. Three sources, in order: an
+       operator-supplied ConfigMap, the chart's own (rendered only when
+       files/warehouse-standalone-mv3dt/calibration/calibration.json exists), or
+       the same config-init the perception pod runs, fetching from the same
+       calibration API into an emptyDir. The init is only added for the methods
+       that need it, so the default method never waits on the API. */}}
+{{- $needsCalibration := has (.Values.standaloneWarehouse.mv3dt.fusion.fusionMethod | default "rays") (list "rays" "closest") }}
+{{- $calibrationFile := .Files.Get "files/warehouse-standalone-mv3dt/calibration/calibration.json" }}
+{{- $calibrationCM := .Values.standaloneWarehouse.mv3dt.fusion.calibrationConfigMap }}
+{{- if and (not $calibrationCM) $calibrationFile }}
+{{- $calibrationCM = printf "%s-warehouse-standalone-mv3dt-calibration" (include "vss-rtvi-cv.fullname" .) }}
+{{- end }}
+{{- $calibrationInit := and $needsCalibration (not $calibrationCM) (.Values.standaloneWarehouse.mv3dt.dynamicCameraConfig | default dict).enabled }}
+{{- $calibrationMounted := or $calibrationCM $calibrationInit }}
 {{- $sw := .Values.standaloneWarehouse }}
 {{- $mv3dt := $sw.mv3dt | default dict }}
 {{- $fusion := $mv3dt.fusion | default dict }}
@@ -38,6 +55,29 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if $calibrationInit }}
+      initContainers:
+        # The same image and API the perception pod uses, so both read one source
+        # of truth. It writes the fetched calibration to CALIBRATION_FETCH_PATH;
+        # camInfo and pub/sub go to scratch here, since only the json is wanted.
+        - name: mv3dt-fusion-calibration-init
+          image: {{ include "vss-rtvi-cv.configInitImage" . }}
+          imagePullPolicy: {{ (((.Values.standaloneWarehouse.mv3dt.dynamicCameraConfig).configInit).image).pullPolicy | default "IfNotPresent" }}
+          env:
+            - name: CALIBRATION_API_URL
+              value: {{ .Values.standaloneWarehouse.mv3dt.dynamicCameraConfig.calibrationApiUrl | quote }}
+            - name: CALIBRATION_FETCH_PATH
+              value: /calibration/calibration.json
+            - name: CALIBRATION_WAIT_TIMEOUT
+              value: {{ .Values.standaloneWarehouse.mv3dt.dynamicCameraConfig.waitTimeoutSeconds | default 3600 | quote }}
+            - name: CAM_INFO_OUTPUT_DIR
+              value: /tmp/camInfo
+            - name: PUB_SUB_OUTPUT_DIR
+              value: /tmp/generated
+          volumeMounts:
+            - name: mv3dt-fusion-calibration
+              mountPath: /calibration
+      {{- end }}
       containers:
         - name: mv3dt-fusion
           image: {{ include "vss-rtvi-cv.fusionImage" . }}
@@ -62,13 +102,46 @@ spec:
             - name: BUFFER_DURATION_S
               value: {{ $fusion.bufferDurationS | default "2.0" | quote }}
             - name: FUSION_METHOD
-              value: {{ $fusion.fusionMethod | default "gated_weighted" | quote }}
+              value: {{ $fusion.fusionMethod | default "rays" | quote }}
             - name: VISIBILITY_MIN
               value: {{ $fusion.visibilityMin | default "0.3" | quote }}
+            - name: MAX_DIST
+              value: {{ $fusion.maxDist | default "30" | quote }}
+            - name: TEMPORAL_FILTER
+              value: {{ $fusion.temporalFilter | default "1" | quote }}
+            - name: PIXEL_SIGMA
+              value: {{ $fusion.pixelSigma | default "3.0" | quote }}
+            - name: ACCEL_SIGMA
+              value: {{ $fusion.accelSigma | default "3.0" | quote }}
+            - name: FOOT_OFFSET
+              value: {{ $fusion.footOffset | default "auto" | quote }}
+            - name: CONFLICT_RADIUS
+              value: {{ $fusion.conflictRadius | default "2.0" | quote }}
+            - name: SMOOTH_LAG
+              value: {{ $fusion.smoothLag | default "0" | quote }}
+            - name: MAX_SPEED
+              value: {{ $fusion.maxSpeed | default "10" | quote }}
+            - name: REACQUIRE
+              value: {{ $fusion.reacquire | default "10" | quote }}
+            - name: SPLIT_ON_REACQUIRE
+              value: {{ $fusion.splitOnReacquire | default "1" | quote }}
+            {{- if $calibrationMounted }}
+            - name: CALIBRATION_PATH
+              value: "/calibration/calibration.json"
+            {{- end }}
             - name: OTEL_SDK_DISABLED
               value: {{ $.Values.otelSdkDisabled | quote }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://localhost:4318"
+          {{- if $calibrationMounted }}
+          volumeMounts:
+            # Camera geometry, required by the fusionMethod values that reason
+            # about where each camera stands (rays, closest). The chart ships
+            # no calibration of its own, so this mounts one the operator supplies.
+            - name: mv3dt-fusion-calibration
+              mountPath: /calibration/calibration.json
+              subPath: calibration.json
+          {{- end }}
           readinessProbe:
             exec:
               command:
@@ -93,4 +166,17 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      {{- if $calibrationMounted }}
+      volumes:
+        - name: mv3dt-fusion-calibration
+          {{- if $calibrationCM }}
+          configMap:
+            name: {{ $calibrationCM }}
+            items:
+              - key: calibration.json
+                path: calibration.json
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- end }}
 {{- end }}
