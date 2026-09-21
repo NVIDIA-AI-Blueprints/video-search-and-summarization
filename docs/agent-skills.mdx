@@ -134,8 +134,8 @@ The `vss-generate-video-report` skill applies the following fail-fast handling:
 - **Clip URL rewrite env missing**: if any of `VSS_PUBLIC_HTTP_PROTOCOL`,
   `VSS_PUBLIC_HOST`, or `VSS_PUBLIC_PORT` is unset, fail with the missing
   variable instead of emitting malformed browser URLs.
-- **VLM endpoint/model mismatch**: if `${VLM_ENDPOINT}/models` fails or does not
-  list `${VLM_MODEL}`, try the alternate backend once; otherwise surface the
+- **VLM endpoint/model mismatch**: if `\$\{VLM_ENDPOINT\}/models` fails or does not
+  list `\$\{VLM_MODEL\}`, try the alternate backend once; otherwise surface the
   concrete error.
 - **Remote endpoint cannot fetch internal clip URL**: do not issue a doomed VLM
   request; return a reachability requirement for `VIDEO_URL` instead.

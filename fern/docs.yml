@@ -15,6 +15,9 @@ global-theme: nvidia
 layout:
   api-reference-expand-properties: true
 
+settings:
+  substitute-env-vars: true
+
 logo:
   href: /vss
   right-text: VSS

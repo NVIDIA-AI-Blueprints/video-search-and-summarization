@@ -25,14 +25,14 @@ llms:
   nim_llm:
     _type: nim
     model_name: nvidia/nemotron-3.5-lightning-30b-a3b
-    base_url: ${LLM_BASE_URL}/v1
+    base_url: \$\{LLM_BASE_URL\}/v1
     max_tokens: 4096
     temperature: 0.0
 
   cosmos3_nano_reasoner:
     _type: nim
     model_name: nvidia/cosmos3-nano-reasoner
-    base_url: ${VLM_BASE_URL}/v1
+    base_url: \$\{VLM_BASE_URL\}/v1
     max_tokens: 4096
 ```
 
@@ -49,7 +49,7 @@ function_groups:
     _type: mcp_client
     server:
       transport: streamable-http
-      url: ${VIDEO_ANALYSIS_MCP_URL}/mcp
+      url: \$\{VIDEO_ANALYSIS_MCP_URL\}/mcp
     include:
       - video_analytics.get_incidents
       - video_analytics.get_incident
@@ -60,7 +60,7 @@ function_groups:
     _type: mcp_client
     server:
       transport: streamable-http
-      url: ${VST_MCP_URL}/mcp
+      url: \$\{VST_MCP_URL\}/mcp
     include:
       - sensor_list
       - get_video_storage_url
@@ -105,7 +105,7 @@ vst_video_url:
   _type: vst_video_url
   get_video_storage_url_tool: vst_mcp.get_video_storage_url
   get_sensor_list_tool: vst_mcp.sensor_list
-  vst_base_url: ${VST_BASE_URL}
+  vst_base_url: \$\{VST_BASE_URL\}
   overlay_config: true
 ```
 
@@ -124,7 +124,7 @@ vst_picture_url:
   get_sensor_list_tool: vst_mcp.sensor_list
   get_replay_picture_url_tool: vst_mcp.get_replay_picture_url
   get_live_picture_url_tool: vst_mcp.get_live_picture_url
-  vst_base_url: ${VST_BASE_URL}
+  vst_base_url: \$\{VST_BASE_URL\}
   max_retries: 5
   retry_delay_seconds: 2
 ```
@@ -141,8 +141,8 @@ Generates bar and pie charts, stores them in object store.
 ```yaml
 chart_generator:
   _type: chart_generator
-  object_store_name: ${VSS_AGENT_OBJECT_STORE_TYPE}
-  object_store_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+  object_store_name: \$\{VSS_AGENT_OBJECT_STORE_TYPE\}
+  object_store_base_url: \$\{VSS_AGENT_REPORTS_BASE_URL\}
 ```
 
 <details>
@@ -162,7 +162,7 @@ multi_incident_formatter:
   incidents_tool: video_analytics_mcp.video_analytics.get_incidents
   chart_generator_tool: chart_generator
   generate_chart: true
-  chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+  chart_base_url: \$\{VSS_AGENT_REPORTS_BASE_URL\}
   display_limit: 20
 ```
 
@@ -178,10 +178,10 @@ Generates incident reports using VLM analysis and customizable templates.
 ```yaml
 template_report_gen:
   _type: template_report_gen
-  object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
-  base_url: ${VSS_AGENT_REPORTS_BASE_URL}
-  template_path: ${VSS_AGENT_TEMPLATE_PATH}
-  template_name: ${VSS_AGENT_TEMPLATE_NAME}
+  object_store: \$\{VSS_AGENT_OBJECT_STORE_TYPE\}
+  base_url: \$\{VSS_AGENT_REPORTS_BASE_URL\}
+  template_path: \$\{VSS_AGENT_TEMPLATE_PATH\}
+  template_name: \$\{VSS_AGENT_TEMPLATE_NAME\}
   llm_name: nim_llm
   video_understanding_tool: video_understanding
   picture_url_tool: vst_picture_url
@@ -205,7 +205,7 @@ get_fov_counts_with_chart:
   _type: get_fov_counts_with_chart
   get_fov_histogram_tool: video_analytics_mcp.video_analytics.get_fov_histogram
   chart_generator_tool: chart_generator
-  chart_base_url: ${VSS_AGENT_REPORTS_BASE_URL}
+  chart_base_url: \$\{VSS_AGENT_REPORTS_BASE_URL\}
 ```
 
 <details>
@@ -299,8 +299,8 @@ general:
     tracing:
       phoenix:
         _type: phoenix
-        endpoint: ${PHOENIX_ENDPOINT}/v1/traces
-        project: WH-vss-agent-${VSS_AGENT_VERSION}
+        endpoint: \$\{PHOENIX_ENDPOINT\}/v1/traces
+        project: WH-vss-agent-\$\{VSS_AGENT_VERSION\}
 ```
 
 For details on enabling telemetry and navigating traces in the Phoenix UI, see [vss-agent-Observability](/vss/vision-agent/vss-agents/observability).
@@ -337,7 +337,7 @@ VSS_AGENT_CONFIG_FILE=./deploy/docker/industry-profiles/warehouse-operations/vss
 VSS_AGENT_HOST=0.0.0.0
 VSS_AGENT_PORT=8000
 VSS_AGENT_OBJECT_STORE_TYPE=local_object_store
-VSS_AGENT_REPORTS_BASE_URL=http://${HOST_IP}:${VSS_AGENT_PORT}/static/
+VSS_AGENT_REPORTS_BASE_URL=http://\$\{HOST_IP\}:\$\{VSS_AGENT_PORT\}/static/
 VSS_AGENT_TEMPLATE_PATH=./deploy/docker/industry-profiles/warehouse-operations/vss-agent/templates
 VSS_AGENT_TEMPLATE_NAME=incident_report_template.md
 
@@ -348,21 +348,21 @@ VSS_ES_PORT=9200
 
 # VST Configuration
 VST_PORT=30888
-VST_BASE_URL=http://${HOST_IP}:${VST_PORT}
+VST_BASE_URL=http://\$\{HOST_IP\}:\$\{VST_PORT\}
 VST_MCP_PORT=8001
-VST_MCP_URL=http://${HOST_IP}:${VST_MCP_PORT}
+VST_MCP_URL=http://\$\{HOST_IP\}:\$\{VST_MCP_PORT\}
 
 # LLM Configuration
 LLM_NAME=nvidia/nemotron-3.5-lightning-30b-a3b
 NEMOTRON_PORT=30081
-LLM_BASE_URL=http://${HOST_IP}:${NEMOTRON_PORT}
+LLM_BASE_URL=http://\$\{HOST_IP\}:\$\{NEMOTRON_PORT\}
 
 # Cosmos VLM Configuration
 COSMOS_PORT=30082
-COSMOS_BASE_URL=http://${HOST_IP}:${COSMOS_PORT}
+COSMOS_BASE_URL=http://\$\{HOST_IP\}:\$\{COSMOS_PORT\}
 
 # Telemetry
-PHOENIX_ENDPOINT=http://${HOST_IP}:7777/phoenix
+PHOENIX_ENDPOINT=http://\$\{HOST_IP\}:7777/phoenix
 ```
 
 </details>

@@ -442,7 +442,7 @@ Dynamic Configuration cannot be used for live RTSP streams.
        mv3dt:
          - operation_type: "file_management"
            target_directories:
-             - "${VSS_DATA_DIR}/videos/warehouse-mv3dt-app"
+             - "\$\{VSS_DATA_DIR\}/videos/warehouse-mv3dt-app"
            file_management:
              action: "file_count"
              parameters:
@@ -453,16 +453,16 @@ Dynamic Configuration cannot be used for live RTSP streams.
      variables:
        mv3dt:
          # Cap to minimum of: available videos, GPU limit
-         - final_stream_count: "min(${available_video_count}, ${max_streams_supported})"
+         - final_stream_count: "min(\$\{available_video_count\}, \$\{max_streams_supported\})"
    
      # Step 3: Use computed variable in config file updates
      file_operations:
        mv3dt:
          - operation_type: "text_config_update"
-           target_file: "${DS_CONFIG_DIR}/ds-main-config-mv3dt.txt"
+           target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config-mv3dt.txt"
            updates:
-             max-batch-size: ${final_stream_count}
-             batch-size: ${final_stream_count}
+             max-batch-size: \$\{final_stream_count\}
+             batch-size: \$\{final_stream_count\}
    ```
 
    **How it works:** If your dataset directory has 6 video files and the GPU supports a maximum of 4 streams, the configurator computes: `final_stream_count = min(6, 4) = 4`. For more details, refer to the [How to Count Files Dynamically (Prerequisites)](/vss/system-components/configuration/vss-configurator) section in [VSS Configurator Documentation](/vss/system-components/configuration/vss-configurator).
@@ -477,34 +477,34 @@ To use a custom dataset:
 
 * Place the video files in `$VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET/`.
 
-* Add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. If you already have a calibration, add `calibration.json` to the same directory; otherwise, generate it in Step 3. If you already have `camInfo` files, add them under the `camInfo` directory; otherwise, create them in Step 4. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
+* Add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/\$\{SAMPLE_VIDEO_DATASET\}`. If you already have a calibration, add `calibration.json` to the same directory; otherwise, generate it in Step 3. If you already have `camInfo` files, add them under the `camInfo` directory; otherwise, create them in Step 4. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
 
 #### Step 3: Deploy and generate new calibration
 
 Before deploying the stack and generating a calibration, create the projects directory:
 
 ```bash
-mkdir -p ${VSS_APPS_DIR}/services/auto-calibration/projects
+mkdir -p \$\{VSS_APPS_DIR\}/services/auto-calibration/projects
 ```
 
 <Note>
-Projects will be saved in `${VSS_APPS_DIR}/services/auto-calibration/projects`.
+Projects will be saved in `\$\{VSS_APPS_DIR\}/services/auto-calibration/projects`.
 </Note>
 
 Change the ownership of the Auto Calibration data and projects directories to UID `1000` and GID `1000`:
 
 ```bash
-sudo chown -R 1000:1000 ${VSS_DATA_DIR}/auto-calib
-sudo chown -R 1000:1000 ${VSS_APPS_DIR}/services/auto-calibration/projects
+sudo chown -R 1000:1000 \$\{VSS_DATA_DIR\}/auto-calib
+sudo chown -R 1000:1000 \$\{VSS_APPS_DIR\}/services/auto-calibration/projects
 ```
 
-Configure `industry-profiles/warehouse-operations/overrides.env` using the **Auto-Calibration** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection), then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the Auto-Calibration profile. Use it to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [Auto Calibration workflow steps](/vss/system-components/calibration/auto-calibration/workflow-steps). After generating and storing the calibration, bring the Docker Compose stack down and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}/calibration.json`.
+Configure `industry-profiles/warehouse-operations/overrides.env` using the **Auto-Calibration** tab under [Deployment Selection](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deployment-selection), then follow [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint) to start the Auto-Calibration profile. Use it to generate a new calibration against live RTSP streams served by nvstreamer, using the warehouse dataset and VST stack. For steps to generate calibration, see [Auto Calibration workflow steps](/vss/system-components/calibration/auto-calibration/workflow-steps). After generating and storing the calibration, bring the Docker Compose stack down and update the calibration file at `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/\$\{SAMPLE_VIDEO_DATASET\}/calibration.json`.
 
 <a id="calibration-group-region-note-mv3dt"></a>
 
 <Note>
 - Maintain a single `calibration.json` file per deployment.
-- Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `${VSS_DATA_DIR}/videos`.
+- Each sensor name in `calibration.json` must match the corresponding `camera_name` in `camera_info.json` or the name of the corresponding video placed in `\$\{VSS_DATA_DIR\}/videos`.
 - For MV3DT profile use cases, the ROIs and Tripwires must be drawn on the floor plan/layout map.
 - Add new camera information following the schema defined in [Calibration Schema](/vss/system-components/calibration/calibration-schema).
 - The `imageMetadata` file needs to be generated manually.
@@ -921,10 +921,10 @@ The VSS Configurator provides a comprehensive set of features for automated prof
 
 | Feature | Description |
 | --- | --- |
-| **Configuration File Updates** | Automatically update configuration files in multiple formats:  * `yaml_update` - Updates `.yaml`/`.yml` files while preserving structure. Supports nested keys via dot notation (e.g., `nested.config.value`) * `json_update` - Updates `.json` files with nested object support via dot notation, optional `array_kv_updates` to patch items in a JSON array by a match field, and preservation of original indent. Typed variables can write JSON lists or `null`. * `text_config_update` - Updates `.txt`/`.conf`/`.cfg` files. Supports `key=value`, `key: value`, and `key value` formats * `text_replace` - Pattern-based edits on any text file (`replace`, `comment_line`, `insert_after`, `append_lines`) * `file_management` - Manage files in directories (keep N files, remove extras) * Per-operation `enabled: true\|false\|${VAR}` to skip an operation without removing it from the YAML |
+| **Configuration File Updates** | Automatically update configuration files in multiple formats:  * `yaml_update` - Updates `.yaml`/`.yml` files while preserving structure. Supports nested keys via dot notation (e.g., `nested.config.value`) * `json_update` - Updates `.json` files with nested object support via dot notation, optional `array_kv_updates` to patch items in a JSON array by a match field, and preservation of original indent. Typed variables can write JSON lists or `null`. * `text_config_update` - Updates `.txt`/`.conf`/`.cfg` files. Supports `key=value`, `key: value`, and `key value` formats * `text_replace` - Pattern-based edits on any text file (`replace`, `comment_line`, `insert_after`, `append_lines`) * `file_management` - Manage files in directories (keep N files, remove extras) * Per-operation `enabled: true\|false\|\$\{VAR\}` to skip an operation without removing it from the YAML |
 | **Environment Variable Validation** | Validate environment variables before deployment to catch configuration errors early:  * `allowed_values` - Restrict to specific values (e.g., `["none", "local", "remote"]`) * `allowed_patterns` - Wildcard matching (e.g., `bp_wh_kafka*`) * `disallowed_values` - Block specific values * `regex` - Regular expression validation * Conditional validation based on other variables |
 | **Prerequisite Operations** | Run operations before variable processing to dynamically determine values:  * `file_count` - Count files in a directory matching a pattern (e.g., count `*.mp4` files to determine available streams) * Results stored as variables for use in subsequent calculations * Useful for adapting configuration to actual data availability |
-| **Variable Computations** | Create computed variables for intermediate calculations and condition checking. **Use case:** Automatically cap stream count to GPU limits using `final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"`, then reuse this value across all config files.  * Mathematical expressions: `min()`, `max()`, `+`, `-`, `*`, `/` * Conditional expressions: `"4 if ${count} > 10 else 2"` * Environment variable substitution: `${VAR_NAME}` * **Value:** Define once, use everywhere - ensures consistency across multiple config files |
+| **Variable Computations** | Create computed variables for intermediate calculations and condition checking. **Use case:** Automatically cap stream count to GPU limits using `final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"`, then reuse this value across all config files.  * Mathematical expressions: `min()`, `max()`, `+`, `-`, `*`, `/` * Conditional expressions: `"4 if \$\{count\} > 10 else 2"` * Environment variable substitution: `\$\{VAR_NAME\}` * **Value:** Define once, use everywhere - ensures consistency across multiple config files |
 
 **Execution Order:** Environment Variable Validation → Prerequisite Operations → Variable Computations → Configuration File Updates
 

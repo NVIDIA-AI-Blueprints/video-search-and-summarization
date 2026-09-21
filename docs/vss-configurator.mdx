@@ -66,20 +66,20 @@ When enabled, it runs before the API server starts and adjusts configuration fil
 commons:
   variables:
     2d:
-      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+      - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
     3d:
-      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+      - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
   file_operations:
     2d:
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
         updates:
-          num_sensors: ${final_stream_count}
+          num_sensors: \$\{final_stream_count\}
     3d:
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
         updates:
-          num_sensors: ${final_stream_count}
+          num_sensors: \$\{final_stream_count\}
 
 # GPU-specific settings
 H100:
@@ -119,7 +119,7 @@ L4:
 commons:
   variables:
     3d:
-      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+      - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
       # ↑ This formula works for ANY GPU
 
 H100:
@@ -165,7 +165,7 @@ The following environment variables **must** be set to use the Profile Configura
 | `ENABLE_PROFILE_CONFIGURATOR` | `false` | `true`, `false` | \| **Must be set to** `true` **to activate the Profile Configurator.** \| **true**: Run profile configurator before starting API server, adjusts config files based on detected GPU \| **false**: Skip profile configuration entirely (default) |
 | `HARDWARE_PROFILE` | `default` | `H100`, `L40S`, `L40`, `L4`, `RTXA6000`, `RTXA6000ADA`, `RTXPRO6000BW`, `IGX-THOR`, `DGX-SPARK`, `default`, or a custom value | \| GPU type/model to use for configuration. \| If it matches a profile in the config file, profile-specific settings are appended to `commons`. \| If it does not match, the requested name is preserved and commons-only configuration can still run when all referenced values are available without profile-specific variables, or when fallbacks such as `effective_max_streams_supported` are defined. |
 | `MODE` | `3d` | `2d`, `3d` | \| Deployment mode for Warehouse Blueprint. \| **2d**: 2D Warehouse Blueprint (tracking, detection) - typically allows more streams \| **3d**: 3D Warehouse Blueprint (depth, positioning) - typically allows fewer streams |
-| `NUM_STREAMS` | (user-defined) | Non-negative integer | \| Desired number of video streams for profile formulas such as `final_stream_count = min(${NUM_STREAMS}, ${max_streams_supported})`. \| The Sensor Configuration Manager also reads this value when `SENSOR_INFO_SOURCE=nvstreamer`: it is the expected camera count to wait for before VST registration (`0` = wait for a stable non-empty list instead). |
+| `NUM_STREAMS` | (user-defined) | Non-negative integer | \| Desired number of video streams for profile formulas such as `final_stream_count = min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})`. \| The Sensor Configuration Manager also reads this value when `SENSOR_INFO_SOURCE=nvstreamer`: it is the expected camera count to wait for before VST registration (`0` = wait for a stable non-empty list instead). |
 
 #### Optional Environment Variables
 
@@ -185,12 +185,12 @@ When `DEPLOYMENT_MODES_ENABLED=false`, omit nested `2d` / `3d` keys. Commons lis
 ```yaml
 commons:
   variables:
-    - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+    - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
   file_operations:
     - operation_type: "yaml_update"
-      target_file: "${DS_CONFIG_DIR}/config.yaml"
+      target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
       updates:
-        num_sensors: ${final_stream_count}
+        num_sensors: \$\{final_stream_count\}
 
 H100:
   max_streams_supported: 26
@@ -266,7 +266,7 @@ L4:
     max_streams_supported: 2 
 ```
 
-This value becomes available as `${max_streams_supported}` in variable expressions.
+This value becomes available as `\$\{max_streams_supported\}` in variable expressions.
 To add a new hardware profile (e.g. a new GPU), add a profile block with `max_streams_supported` for each mode; the profile automatically inherits all commons rules unless `use_commons` is set to `false`.
 
 <Note>
@@ -316,7 +316,7 @@ use_commons:
 ```yaml
 variables:
   - timeout_multiplier: "2"
-  - adjusted_timeout: "${timeout_multiplier} * 25000"
+  - adjusted_timeout: "\$\{timeout_multiplier\} * 25000"
 ```
 
 Variables are evaluated top-to-bottom, so later ones can reference earlier ones.
@@ -343,7 +343,7 @@ commons:
     2d:
       - operation_type: "file_management"
         target_directories:
-          - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+          - "\$\{VSS_DATA_DIR\}/videos/warehouse-2d-app"
         file_management:
           action: "file_count"
           parameters:
@@ -352,7 +352,7 @@ commons:
   variables:
     2d:
       # Now we can use the count from prerequisites
-      - final_stream_count: "min(${NUM_STREAMS}, ${available_video_count})"
+      - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{available_video_count\})"
 ```
 
 **Execution order:** Validation -> Prerequisites -> Variables -> File Operations
@@ -383,13 +383,13 @@ All file operations support these options:
 
 ```yaml
 - operation_type: "yaml_update"
-  target_file: "${DS_CONFIG_DIR}/config.yaml"
+  target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
   backup: true    # Creates: config.backup_20240115_143022.yaml
   updates:
     # ...
 
 - operation_type: "json_update"
-  target_file: "${VST_CONFIG_DIR}/settings.json"
+  target_file: "\$\{VST_CONFIG_DIR\}/settings.json"
   backup: false   # No backup created (use with caution!)
   updates:
     # ...
@@ -399,29 +399,29 @@ All file operations support these options:
 
 **enabled** - Skip an operation without removing it from the YAML
 
-**Type:** Boolean or `${VAR}` after substitution
+**Type:** Boolean or `\$\{VAR\}` after substitution
 **Default:** `true` (key omitted means enabled)
-**Purpose:** Run or skip a prerequisite or file operation. Warehouse `keep_count` uses `enabled: false` to leave sample videos in place. Values are substituted from computed variables, so `enabled: "${trim_sample_videos}"` works when that variable evaluates to true or false.
+**Purpose:** Run or skip a prerequisite or file operation. Warehouse `keep_count` uses `enabled: false` to leave sample videos in place. Values are substituted from computed variables, so `enabled: "\$\{trim_sample_videos\}"` works when that variable evaluates to true or false.
 
 ```yaml
 - operation_type: "file_management"
   enabled: false   # skipped entirely
   target_directories:
-    - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+    - "\$\{VSS_DATA_DIR\}/videos/\$\{SAMPLE_VIDEO_DATASET\}"
   file_management:
     action: "keep_count"
     parameters:
-      count: ${final_stream_count}
+      count: \$\{final_stream_count\}
       pattern: "*.mp4"
 
 - operation_type: "file_management"
-  enabled: "${trim_sample_videos}"   # skip when SENSOR_INFO_SOURCE=file, for example
+  enabled: "\$\{trim_sample_videos\}"   # skip when SENSOR_INFO_SOURCE=file, for example
   target_directories:
-    - "${VSS_DATA_DIR}/videos/${SAMPLE_VIDEO_DATASET}"
+    - "\$\{VSS_DATA_DIR\}/videos/\$\{SAMPLE_VIDEO_DATASET\}"
   file_management:
     action: "keep_count"
     parameters:
-      count: ${final_stream_count}
+      count: \$\{final_stream_count\}
       pattern: "*.mp4"
 ```
 
@@ -433,10 +433,10 @@ Updates values in YAML files while preserving structure.
 
 ```yaml
 - operation_type: "yaml_update"
-  target_file: "${DS_CONFIG_DIR}/config.yaml"
+  target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
   backup: true    # Optional, default: true
   updates:
-    num_sensors: ${final_stream_count}
+    num_sensors: \$\{final_stream_count\}
     enable_debug: false
     nested.config.batch_size: 4   # Dot notation for nested keys
 ```
@@ -467,11 +467,11 @@ Updates key-value pairs in text files (`.txt`, `.conf`, `.cfg`).
 
 ```yaml
 - operation_type: "text_config_update"
-  target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+  target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
   backup: true    # Optional, default: true
   updates:
     num-source-bins: "0"
-    max-batch-size: "${final_stream_count}"
+    max-batch-size: "\$\{final_stream_count\}"
     batched-push-timeout: "50000"
 ```
 
@@ -483,10 +483,10 @@ Updates values in JSON files with nested object support.
 
 ```yaml
 - operation_type: "json_update"
-  target_file: "${VST_CONFIG_DIR}/vst-config.json"
+  target_file: "\$\{VST_CONFIG_DIR\}/vst-config.json"
   backup: true    # Optional, default: true
   updates:
-    data.nv_streamer_sync_file_count: ${final_stream_count}
+    data.nv_streamer_sync_file_count: \$\{final_stream_count\}
     overlay.enable_overlay_skip_frame: true
 ```
 
@@ -522,7 +522,7 @@ Writes preserve the original indent style and whether the file ended with a newl
 
 ```yaml
 - operation_type: "json_update"
-  target_file: "${VSS_APPS_DIR}/.../vss-behavior-analytics-config.json"
+  target_file: "\$\{VSS_APPS_DIR\}/.../vss-behavior-analytics-config.json"
   backup: true
   array_kv_updates:
     - list_key: app
@@ -530,10 +530,10 @@ Writes preserve the original indent style and whether the file ended with a newl
       updates:
         - match: sourceType
           set_key: value
-          set_value: "${warehouse_source_sink_type}"
+          set_value: "\$\{warehouse_source_sink_type\}"
         - match: sinkType
           set_key: value
-          set_value: "${warehouse_source_sink_type}"
+          set_value: "\$\{warehouse_source_sink_type\}"
 ```
 
 | Field | Required | Description |
@@ -542,7 +542,7 @@ Writes preserve the original indent style and whether the file ended with a newl
 | `match_field` | No | Field to match on each element (default `name`) |
 | `updates[].match` | Yes | Value of `match_field` to select an item |
 | `updates[].set_key` | No | Field to set on the matched item (default `value`) |
-| `updates[].set_value` | Yes | New value; supports `${VAR}` substitution |
+| `updates[].set_value` | Yes | New value; supports `\$\{VAR\}` substitution |
 
 You can combine `updates` (dot-notation keys) and `array_kv_updates` on the same `json_update` operation.
 
@@ -554,12 +554,12 @@ Ordered text edits on any file. Use when structured YAML/JSON parsers are too ri
 
 ```yaml
 - operation_type: "text_replace"
-  target_file: "${DS_CONFIG_DIR}/ds-start.sh"
+  target_file: "\$\{DS_CONFIG_DIR\}/ds-start.sh"
   backup: true    # Optional, default: true
   operations:
     - action: "replace"
       pattern: "PLACEHOLDER"
-      replacement: "${final_stream_count}"
+      replacement: "\$\{final_stream_count\}"
       regex: false      # Optional, default: false
       count: 0          # Optional, 0 = replace all
     - action: "comment_line"
@@ -568,7 +568,7 @@ Ordered text edits on any file. Use when structured YAML/JSON parsers are too ri
     - action: "insert_after"
       pattern: "export PATH"
       lines:
-        - "export NUM_STREAMS=${final_stream_count}"
+        - "export NUM_STREAMS=\$\{final_stream_count\}"
     - action: "append_lines"
       lines:
         - "# generated by vss-configurator"
@@ -592,11 +592,11 @@ Manages files in directories. Supports two actions: `keep_count` and `file_count
 ```yaml
 - operation_type: "file_management"
   target_directories:
-    - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+    - "\$\{VSS_DATA_DIR\}/videos/warehouse-2d-app"
   file_management:
     action: "keep_count"
     parameters:
-      count: ${final_stream_count}
+      count: \$\{final_stream_count\}
       pattern: "*.mp4"
 ```
 
@@ -614,8 +614,8 @@ When `keep_count` removes video files, each removed filename without its extensi
 ```yaml
 - operation_type: "file_management"
   target_directories:
-    - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
-    - "${VSS_DATA_DIR}/videos/warehouse-3d-app"
+    - "\$\{VSS_DATA_DIR\}/videos/warehouse-2d-app"
+    - "\$\{VSS_DATA_DIR\}/videos/warehouse-3d-app"
   file_management:
     action: "file_count"
     parameters:
@@ -646,45 +646,45 @@ Variables are declared as a list of single-key dictionaries:
 
 ```yaml
 variables:
-  - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
-  - batch_size: "max(1, ${final_stream_count})"
-  - timeout: "${batch_size} * 10000"
+  - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
+  - batch_size: "max(1, \$\{final_stream_count\})"
+  - timeout: "\$\{batch_size\} * 10000"
 ```
 
 **Evaluation order:** Top to bottom. Later variables can reference earlier ones.
 
 ##### Environment Variable Substitution
 
-Use `${VAR_NAME}` to reference environment variables:
+Use `\$\{VAR_NAME\}` to reference environment variables:
 
 ```yaml
 variables:
-  - stream_count: "${NUM_STREAMS}"              # Direct reference
-  - config_path: "${DS_CONFIG_DIR}/configs"     # Concatenation
-  - limited: "min(${NUM_STREAMS}, 4)"           # In expressions
+  - stream_count: "\$\{NUM_STREAMS\}"              # Direct reference
+  - config_path: "\$\{DS_CONFIG_DIR\}/configs"     # Concatenation
+  - limited: "min(\$\{NUM_STREAMS\}, 4)"           # In expressions
 ```
 
 ##### Supported Functions
 
 | Function | Description | Example |
 | --- | --- | --- |
-| `min(a, b, ...)` | Returns minimum value | `min(${NUM_STREAMS}, 4)` |
-| `max(a, b, ...)` | Returns maximum value | `max(1, ${count})` |
-| `abs(x)` | Absolute value | `abs(${diff})` |
-| `round(x)` | Round to nearest integer | `round(${ratio})` |
-| `int(x)` | Convert to integer | `int(${value})` |
-| `float(x)` | Convert to float | `float(${value})` |
+| `min(a, b, ...)` | Returns minimum value | `min(\$\{NUM_STREAMS\}, 4)` |
+| `max(a, b, ...)` | Returns maximum value | `max(1, \$\{count\})` |
+| `abs(x)` | Absolute value | `abs(\$\{diff\})` |
+| `round(x)` | Round to nearest integer | `round(\$\{ratio\})` |
+| `int(x)` | Convert to integer | `int(\$\{value\})` |
+| `float(x)` | Convert to float | `float(\$\{value\})` |
 
 ##### Supported Operators
 
 | Operator | Description | Example |
 | --- | --- | --- |
-| `+` | Addition | `${NUM_STREAMS} + 1` |
-| `-` | Subtraction | `${MAX_COUNT} - 2` |
-| `*` | Multiplication | `${BATCH_SIZE} * 1000` |
-| `/` | Division | `${TOTAL} / ${COUNT}` |
-| `//` | Floor division | `${TOTAL} // 2` |
-| `%` | Modulo | `${NUM} % 10` |
+| `+` | Addition | `\$\{NUM_STREAMS\} + 1` |
+| `-` | Subtraction | `\$\{MAX_COUNT\} - 2` |
+| `*` | Multiplication | `\$\{BATCH_SIZE\} * 1000` |
+| `/` | Division | `\$\{TOTAL\} / \$\{COUNT\}` |
+| `//` | Floor division | `\$\{TOTAL\} // 2` |
+| `%` | Modulo | `\$\{NUM\} % 10` |
 | `**` | Exponentiation | `2 ** 8` |
 
 ##### Conditional Expressions (If-Else)
@@ -693,7 +693,7 @@ Python-style ternary expressions:
 
 ```yaml
 variables:
-  - batch_size: "4 if ${num_cameras} > 10 else 2"
+  - batch_size: "4 if \$\{num_cameras\} > 10 else 2"
 ```
 
 **Syntax:** `value_if_true if condition else value_if_false`
@@ -706,16 +706,16 @@ variables:
 
 ```yaml
 # Simple condition
-- quality_mode: "high if ${gpu_memory} >= 16 else standard"
+- quality_mode: "high if \$\{gpu_memory\} >= 16 else standard"
 
 # Multiple conditions (AND)
-- enable_hq: "true if ${gpu_memory} >= 16 and ${num_cameras} < 20 else false"
+- enable_hq: "true if \$\{gpu_memory\} >= 16 and \$\{num_cameras\} < 20 else false"
 
 # Multiple conditions (OR)
-- use_fallback: "true if ${mode} == 'legacy' or ${compatibility} == 'true' else false"
+- use_fallback: "true if \$\{mode\} == 'legacy' or \$\{compatibility\} == 'true' else false"
 
 # Nested (if-elif-else)
-- quality: "high if ${batch_size} >= 4 else medium if ${batch_size} >= 2 else low"
+- quality: "high if \$\{batch_size\} >= 4 else medium if \$\{batch_size\} >= 2 else low"
 ```
 
 ##### Typed list and null values
@@ -726,17 +726,17 @@ Most computed variables are stored as strings. If an expression evaluates to a *
 commons:
   variables:
     2d:
-      - warehouse_source_sink_type: '"kafka" if "${STREAM_TYPE}" == "kafka" else "redisStream"'
-      - vss_video_analytics_kafka_brokers: '["localhost:9092"] if "${STREAM_TYPE}" == "kafka" else None'
+      - warehouse_source_sink_type: '"kafka" if "\$\{STREAM_TYPE\}" == "kafka" else "redisStream"'
+      - vss_video_analytics_kafka_brokers: '["localhost:9092"] if "\$\{STREAM_TYPE\}" == "kafka" else None'
   file_operations:
     2d:
       - operation_type: "json_update"
-        target_file: "${VSS_APPS_DIR}/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json"
+        target_file: "\$\{VSS_APPS_DIR\}/services/analytics/video-analytics-api/configs/vss-video-analytics-api-config.json"
         updates:
-          kafka.brokers: "${vss_video_analytics_kafka_brokers}"
+          kafka.brokers: "\$\{vss_video_analytics_kafka_brokers\}"
 ```
 
-Use a **single** `${VAR}` as the entire update value so the typed object is applied. Concatenating a typed variable into a larger string falls back to string substitution.
+Use a **single** `\$\{VAR\}` as the entire update value so the typed object is applied. Concatenating a typed variable into a larger string falls back to string substitution.
 
 --------
 
@@ -913,7 +913,7 @@ IGX-THOR:
     max_streams_supported: 7
     file_operations:
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
           drop-on-latency: "1"
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
@@ -925,21 +925,21 @@ IGX-THOR:
     file_operations:
       # These APPEND to commons.file_operations.3d
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
           batched-push-timeout: "67000"
           low-latency-mode: "0"
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
         backup: true
         updates:
           interval: "1"
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_kafka.json"
+        target_file: "\$\{MDX_SAMPLE_APPS_DIR\}/vst/3d/vst/configs/vst_config_kafka.json"
         updates:
           overlay.enable_overlay_skip_frame: true
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_redis.json"
+        target_file: "\$\{MDX_SAMPLE_APPS_DIR\}/vst/3d/vst/configs/vst_config_redis.json"
         updates:
           overlay.enable_overlay_skip_frame: true
 ```
@@ -962,12 +962,12 @@ L4:
     variables:
       # Appended to commons variables
       - timeout_multiplier: "2"
-      - adjusted_timeout: "${timeout_multiplier} * 25000"
+      - adjusted_timeout: "\$\{timeout_multiplier\} * 25000"
     file_operations:
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
-          batched-push-timeout: "${adjusted_timeout}"
+          batched-push-timeout: "\$\{adjusted_timeout\}"
 ```
 
 "I'm an L4 (slower GPU). I need 2× longer timeouts."
@@ -984,14 +984,14 @@ EXPERIMENTAL_GPU:
       variables: false
       file_operations: false
     variables:
-      - custom_count: "min(${NUM_STREAMS}, 8)"
-      - custom_batch: "${custom_count} * 2"
+      - custom_count: "min(\$\{NUM_STREAMS\}, 8)"
+      - custom_batch: "\$\{custom_count\} * 2"
     file_operations:
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/experimental.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/experimental.yaml"
         updates:
-          streams: ${custom_count}
-          batch_size: ${custom_batch}
+          streams: \$\{custom_count\}
+          batch_size: \$\{custom_batch\}
 ```
 
 "I'm experimental hardware. Ignore all commons; I define everything myself."
@@ -1007,7 +1007,7 @@ commons:
       # Count how many video files are available
       - operation_type: "file_management"
         target_directories:
-          - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+          - "\$\{VSS_DATA_DIR\}/videos/warehouse-2d-app"
         file_management:
           action: "file_count"
           parameters:
@@ -1016,7 +1016,7 @@ commons:
     3d:
       - operation_type: "file_management"
         target_directories:
-          - "${VSS_DATA_DIR}/videos/warehouse-3d-app"
+          - "\$\{VSS_DATA_DIR\}/videos/warehouse-3d-app"
         file_management:
           action: "file_count"
           parameters:
@@ -1026,17 +1026,17 @@ commons:
   variables:
     2d:
       # Can't use more streams than we have videos
-      - final_stream_count: "min(${NUM_STREAMS}, ${available_video_count}, ${max_streams_supported})"
+      - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{available_video_count\}, \$\{max_streams_supported\})"
     3d:
-      - final_stream_count: "min(${NUM_STREAMS}, ${available_video_count}, ${max_streams_supported})"
+      - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{available_video_count\}, \$\{max_streams_supported\})"
 
   file_operations:
     2d:
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
         backup: true    # Keep backup before modifying
         updates:
-          num_sensors: ${final_stream_count}
+          num_sensors: \$\{final_stream_count\}
 
 H100:
   2d:
@@ -1067,33 +1067,33 @@ commons:
 
   variables:
     2d:
-      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
-      - batch_size: "4 if ${final_stream_count} > 10 else 2"
+      - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
+      - batch_size: "4 if \$\{final_stream_count\} > 10 else 2"
     3d:
-      - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
-      - batch_size: "2 if ${final_stream_count} > 6 else 1"
+      - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
+      - batch_size: "2 if \$\{final_stream_count\} > 6 else 1"
 
   file_operations:
     2d:
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
         updates:
-          num_sensors: ${final_stream_count}
-          batch_size: ${batch_size}
+          num_sensors: \$\{final_stream_count\}
+          batch_size: \$\{batch_size\}
       - operation_type: "file_management"
         target_directories:
-          - "${VSS_DATA_DIR}/videos/warehouse-2d-app"
+          - "\$\{VSS_DATA_DIR\}/videos/warehouse-2d-app"
         file_management:
           action: "keep_count"
           parameters:
-            count: ${final_stream_count}
+            count: \$\{final_stream_count\}
             pattern: "*.mp4"
     3d:
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
         updates:
-          num_sensors: ${final_stream_count}
-          batch_size: ${batch_size}
+          num_sensors: \$\{final_stream_count\}
+          batch_size: \$\{batch_size\}
 
 # Hardware profiles
 H100:
@@ -1115,12 +1115,12 @@ L4:
     max_streams_supported: 2
     variables:
       - timeout_multiplier: "2"
-      - adjusted_timeout: "${timeout_multiplier} * 25000"
+      - adjusted_timeout: "\$\{timeout_multiplier\} * 25000"
     file_operations:
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
-          batched-push-timeout: "${adjusted_timeout}"
+          batched-push-timeout: "\$\{adjusted_timeout\}"
 
 RTXA6000:
   2d:
@@ -1145,21 +1145,21 @@ IGX-THOR:
     max_streams_supported: 7
     file_operations:
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
           drop-on-latency: "1"
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
           compute-hw: "2"
           low-latency-mode: "0"
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-redis-config.txt"
         updates:
           drop-on-latency: "1"
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
           compute-hw: "2"
           low-latency-mode: "0"
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/ds-nvdcf-accuracy-tracker-config.yml"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-nvdcf-accuracy-tracker-config.yml"
         backup: true
         updates:
           TargetManagement.maxTargetsPerStream: 50
@@ -1169,26 +1169,26 @@ IGX-THOR:
     max_streams_supported: 6
     file_operations:
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
           batched-push-timeout: "67000"
           low-latency-mode: "0"
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-redis-config.txt"
         updates:
           batched-push-timeout: "67000"
           low-latency-mode: "0"
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
         backup: true
         updates:
           interval: "1"
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_kafka.json"
+        target_file: "\$\{MDX_SAMPLE_APPS_DIR\}/vst/3d/vst/configs/vst_config_kafka.json"
         updates:
           overlay.enable_overlay_skip_frame: true
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_redis.json"
+        target_file: "\$\{MDX_SAMPLE_APPS_DIR\}/vst/3d/vst/configs/vst_config_redis.json"
         updates:
           overlay.enable_overlay_skip_frame: true
 
@@ -1197,35 +1197,35 @@ DGX-SPARK:
     max_streams_supported: 7
     file_operations:
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-redis-config.txt"
         updates:
           msg-conv-msg2p-lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so
   3d:
     max_streams_supported: 6
     file_operations:
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
           batched-push-timeout: "67000"
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-redis-config.txt"
         updates:
           batched-push-timeout: "67000"
       - operation_type: "yaml_update"
-        target_file: "${DS_CONFIG_DIR}/config.yaml"
+        target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
         backup: true
         updates:
           interval: "1"
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_kafka.json"
+        target_file: "\$\{MDX_SAMPLE_APPS_DIR\}/vst/3d/vst/configs/vst_config_kafka.json"
         updates:
           overlay.enable_overlay_skip_frame: true
       - operation_type: "json_update"
-        target_file: "${MDX_SAMPLE_APPS_DIR}/vst/3d/vst/configs/vst_config_redis.json"
+        target_file: "\$\{MDX_SAMPLE_APPS_DIR\}/vst/3d/vst/configs/vst_config_redis.json"
         updates:
           overlay.enable_overlay_skip_frame: true
 ```
@@ -1269,16 +1269,16 @@ CUSTOM-EDGE:
     max_streams_supported: 3
     variables:
       - timeout_multiplier: "2"
-      - adjusted_timeout: "${timeout_multiplier} * 25000"
+      - adjusted_timeout: "\$\{timeout_multiplier\} * 25000"
     file_operations:
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-config.txt"
         updates:
-          batched-push-timeout: "${adjusted_timeout}"
+          batched-push-timeout: "\$\{adjusted_timeout\}"
       - operation_type: "text_config_update"
-        target_file: "${DS_CONFIG_DIR}/ds-main-redis-config.txt"
+        target_file: "\$\{DS_CONFIG_DIR\}/ds-main-redis-config.txt"
         updates:
-          batched-push-timeout: "${adjusted_timeout}"
+          batched-push-timeout: "\$\{adjusted_timeout\}"
 ```
 
 Here the profile inherits commons and adds longer timeouts and extra file updates for 3D mode. Ensure `CUSTOM-EDGE` is added to `allowed_values` for `HARDWARE_PROFILE` in `commons.variable_validation` if you use validation.
@@ -1307,7 +1307,7 @@ Here the profile inherits commons and adds longer timeouts and extra file update
 
    ```yaml
    # Good - adapts to hardware
-   num_sensors: ${final_stream_count}
+   num_sensors: \$\{final_stream_count\}
    
    # Bad - hardcoded
    num_sensors: 4
@@ -1323,10 +1323,10 @@ Here the profile inherits commons and adds longer timeouts and extra file update
 
    ```yaml
    # Good
-   - final_stream_count: "min(${NUM_STREAMS}, ${max_streams_supported})"
+   - final_stream_count: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
    
    # Bad
-   - x: "min(${NUM_STREAMS}, ${max_streams_supported})"
+   - x: "min(\$\{NUM_STREAMS\}, \$\{max_streams_supported\})"
    ```
 
 6. **Keep Conditionals Simple**
@@ -1335,10 +1335,10 @@ Here the profile inherits commons and adds longer timeouts and extra file update
 
    ```yaml
    # Good - readable
-   - quality: "high if ${streams} <= 4 else standard"
+   - quality: "high if \$\{streams\} <= 4 else standard"
    
    # Avoid - hard to read
-   - quality: "ultra if ${a} > 10 else high if ${b} > 5 and ${c} < 3 else medium if ${d} else low"
+   - quality: "ultra if \$\{a\} > 10 else high if \$\{b\} > 5 and \$\{c\} < 3 else medium if \$\{d\} else low"
    ```
 
 7. **Document Custom Configurations**
@@ -1367,7 +1367,7 @@ Here the profile inherits commons and adds longer timeouts and extra file update
 **"Variable not found" or empty value**
 
 ```text
-ERROR - Variable ${final_stream_count} not found
+ERROR - Variable \$\{final_stream_count\} not found
 ```
 
 **Causes:**
@@ -1381,7 +1381,7 @@ ERROR - Variable ${final_stream_count} not found
 ```yaml
 variables:
   - final_stream_count: "..."   # Define first
-  - batch_size: "${final_stream_count}"   # Then use
+  - batch_size: "\$\{final_stream_count\}"   # Then use
 ```
 
 **"Validation failed"**
@@ -1434,7 +1434,7 @@ echo $HARDWARE_PROFILE
 **"Variable from file_count not available"**
 
 ```text
-ERROR - Variable ${available_video_count} not found
+ERROR - Variable \$\{available_video_count\} not found
 ```
 
 **Cause:** The `file_count` operation is in `file_operations` instead of `prerequisites`.
@@ -1452,7 +1452,7 @@ commons:
 
   variables:
     2d:
-      - final_count: "${available_video_count}"   # Now available
+      - final_count: "\$\{available_video_count\}"   # Now available
 ```
 
 **"Backup file not created"**
@@ -1467,7 +1467,7 @@ commons:
 
 ```yaml
 - operation_type: "yaml_update"
-  target_file: "${DS_CONFIG_DIR}/config.yaml"
+  target_file: "\$\{DS_CONFIG_DIR\}/config.yaml"
   backup: true    # Explicit, or just remove this line
   updates:
     # ...
@@ -1605,7 +1605,7 @@ This reference lists environment variables read by the VSS Configurator service 
 | Variable | Default | Possible Values | Description |
 | --- | --- | --- | --- |
 | `ENABLE_CALIBRATION_PROCESS` | `true` | `true`, `false` | \| Master switch for calibration processing. \| **true**: Enable calibration data processing and sensor mapping \| **false**: Disable calibration endpoints and processing |
-| `CALIBRATION_MODE` | `fetch` | `fetch`, `upload`, `mount` | \| How calibration data is obtained. \| **fetch**: Calls API endpoint on startup, retries every `GET_CALIBRATION_DELAY` seconds until successful, saves fetched data locally for persistence \| **upload**: Accepts data via POST to `/calibration` endpoint \| **mount**: Reads from the volume-mounted file at `${CALIBRATION_DIR_MOUNT_PATH}/${CALIBRATION_FILE_NAME}` on startup |
+| `CALIBRATION_MODE` | `fetch` | `fetch`, `upload`, `mount` | \| How calibration data is obtained. \| **fetch**: Calls API endpoint on startup, retries every `GET_CALIBRATION_DELAY` seconds until successful, saves fetched data locally for persistence \| **upload**: Accepts data via POST to `/calibration` endpoint \| **mount**: Reads from the volume-mounted file at `\$\{CALIBRATION_DIR_MOUNT_PATH\}/\$\{CALIBRATION_FILE_NAME\}` on startup |
 | `CALIBRATION_API_ENDPOINT` | (empty) | Valid HTTP/HTTPS URL | \| API endpoint URL for fetching calibration data. \| **Required** when `CALIBRATION_MODE=fetch` \| Example: `http://config-service:8080/api/calibration` |
 | `CALIBRATION_API_TIMEOUT` | `30` | Positive integer (seconds) | Timeout in seconds for calibration API requests |
 | `GET_CALIBRATION_DELAY` | `30` | Positive integer (seconds) | \| Delay between calibration fetch retry attempts. \| Used when API is unavailable or file not found (upload mode) |
@@ -1634,7 +1634,7 @@ curl -X POST http://localhost:5000/calibration \
 | `SENSOR_INFO_SOURCE` | `msb` | `msb`, `nvstreamer`, `file`, `not_required` | \| Source for sensor/camera information. \| **msb**: Metropolis Sensor Bridge - fetches RTSP URLs from sensor bridge service \| **nvstreamer**: NVStreamer - fetches streams from NVIDIA streaming service with validation \| **file**: JSON file - reads sensor definitions from mounted JSON file \| **not_required**: Skip sensor fetch, mapping, VMS add, broker publish, and startup calibration processing. HTTP endpoints still run; mapping-dependent routes return 503 unless a persisted mapping was loaded. |
 | `SENSOR_BRIDGE_HTTP_ENDPOINT` | `http://localhost:8000/mtmc/urls` | Valid HTTP URL | \| HTTP endpoint for Metropolis Sensor Bridge. \| Used when `SENSOR_INFO_SOURCE=msb` |
 | `SENSOR_BRIDGE_RTSP_SERVICE_NAME` | (empty) | Hostname or IP | \| Override hostname/IP in RTSP URLs from sensor bridge. \| Useful when sensor bridge returns internal IPs that need translation |
-| `SENSOR_FILE_PATH` | `${CALIBRATION_DIR_MOUNT_PATH}/sensors.json` | Valid file path | \| Path to sensors JSON file. \| Used when `SENSOR_INFO_SOURCE=file` |
+| `SENSOR_FILE_PATH` | `\$\{CALIBRATION_DIR_MOUNT_PATH\}/sensors.json` | Valid file path | \| Path to sensors JSON file. \| Used when `SENSOR_INFO_SOURCE=file` |
 
 **Sensor File Format (for file mode):**
 

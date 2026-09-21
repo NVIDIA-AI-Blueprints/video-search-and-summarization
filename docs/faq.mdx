@@ -119,7 +119,7 @@ How does a remote `nim` VLM access videos?
 When you use a remote VLM of model-type `nim` (not `openai`), that VLM runs elsewhere and must connect back to your host on **port 30888** to fetch videos. In the selected profile's `developer-profiles/dev-profile-<profile>/*-overrides.env` file, set an address the VLM can reach (the deployment guides use `user-overrides.env` as an example):
 
 - `HOST_IP` to the hostname or IP address through which clients can reach VSS on the host.
-- `EXTERNAL_IP` to the public hostname or IP address when the VLM connects from outside the host network (for example, a cloud VM's public address). It defaults to `${HOST_IP}` for local-network deployments.
+- `EXTERNAL_IP` to the public hostname or IP address when the VLM connects from outside the host network (for example, a cloud VM's public address). It defaults to `\$\{HOST_IP\}` for local-network deployments.
 
 Ensure your network and firewall allow the `nim` VLM to access port 30888 on the appropriate IP from where the VLM runs.
 
@@ -180,10 +180,10 @@ curl --location --request PUT "http://<ip>:9200/*/_settings?expand_wildcards=all
 
 ```bash
 # On the host: expected HTTP 200
-curl -fsS http://${HOST_IP}:30888/healthz
+curl -fsS http://\$\{HOST_IP\}:30888/healthz
 
 # Inside a bridge container: bug present = "Connection timed out"
-docker exec <bridge-container> curl --max-time 5 http://${HOST_IP}:30888/healthz
+docker exec <bridge-container> curl --max-time 5 http://\$\{HOST_IP\}:30888/healthz
 
 # Bug present = "Chain INPUT (policy DROP ...)"
 sudo iptables -L INPUT -n | head -1
@@ -224,7 +224,7 @@ The streaming upload endpoint rejects requests without a video `Content-Type` he
 ```bash
 curl -X PUT -H "Content-Type: video/mp4" \
   --upload-file /path/to/sample.mp4 \
-  http://${HOST_IP}:8000/api/v1/videos-for-search/sample.mp4
+  http://\$\{HOST_IP\}:8000/api/v1/videos-for-search/sample.mp4
 ```
 
 Supported values are `video/mp4` and `video/x-matroska`.

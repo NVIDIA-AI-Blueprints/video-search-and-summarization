@@ -552,7 +552,7 @@ evaluate:
   gpu_ids:
   - 0
   num_nodes: 1
-  checkpoint: ${results_dir}/train/sparse4d_model_latest.pth
+  checkpoint: \$\{results_dir\}/train/sparse4d_model_latest.pth
   trt_engine: null
   results_dir: null
   metrics:
@@ -697,7 +697,7 @@ Below are the important configurations that need to be updated to launch evaluat
 
 ```yaml
 evaluate:
-  checkpoint: ${results_dir}/train/sparse4d_model_latest.pth # Update this based on your fine-tuned model path
+  checkpoint: \$\{results_dir\}/train/sparse4d_model_latest.pth # Update this based on your fine-tuned model path
 ```
 
 ```bash

@@ -1429,11 +1429,11 @@ export NAMESPACE="vss-standalone"
 export PROFILE="standalone-2d"   # or: standalone-3d
 
 cd deploy/helm/services/rtvi
-helm upgrade --install "${RELEASE}" . \
-  --namespace "${NAMESPACE}" \
+helm upgrade --install "\$\{RELEASE\}" . \
+  --namespace "\$\{NAMESPACE\}" \
   --create-namespace \
   --set vss-rtvi-cv.enabled=true \
-  --set vss-rtvi-cv.profileMode="${PROFILE}" \
+  --set vss-rtvi-cv.profileMode="\$\{PROFILE\}" \
   --set vss-rtvi-cv.downloadNgcAppData=true \
   --set vss-rtvi-cv.downloadModelsFromNgc=false \
   --set vss-rtvi-cv.persistence.models.size=80Gi
