@@ -11,6 +11,7 @@ export interface AgentAdapterConfig {
   backendPath: string;
   backendToken?: string;
   backendModel: string;
+  backendOpenClawAgentId: string;
   backendSessionField?: string;
   backendSessionHeader?: string;
   backendHeaders: Record<string, string>;
@@ -58,6 +59,7 @@ const RESERVED_RESPONSE_FIELDS = new Set([
   "stream",
 ]);
 const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,128}$/u;
+const OPENCLAW_AGENT_ID = /^[a-z][a-z0-9_-]{0,63}$/u;
 
 export class ConfigError extends Error {}
 
@@ -246,6 +248,13 @@ export const loadAgentAdapterConfig = (
       "AGENT_BACKEND_HEADERS_JSON is unsupported with openclaw-ws"
     );
   }
+  const backendOpenClawAgentId =
+    environment.AGENT_BACKEND_OPENCLAW_AGENT_ID?.trim() || "main";
+  if (!OPENCLAW_AGENT_ID.test(backendOpenClawAgentId)) {
+    throw new ConfigError(
+      "AGENT_BACKEND_OPENCLAW_AGENT_ID must be a lowercase OpenClaw agent id"
+    );
+  }
   const maxEventsPerRun = numberEnv(
     environment,
     "AGENT_MAX_EVENTS_PER_RUN",
@@ -288,6 +297,7 @@ export const loadAgentAdapterConfig = (
     backendPath,
     backendToken: environment.AGENT_BACKEND_TOKEN?.trim() || undefined,
     backendModel: environment.AGENT_BACKEND_MODEL?.trim() || "agent",
+    backendOpenClawAgentId,
     backendSessionField,
     backendSessionHeader,
     backendHeaders,

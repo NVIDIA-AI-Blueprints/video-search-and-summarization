@@ -192,6 +192,8 @@ spec:
               value: {{ (default "" $adapter.backendToken) | quote }}
             - name: AGENT_BACKEND_MODEL
               value: {{ (default "agent" $adapter.backendModel) | quote }}
+            - name: AGENT_BACKEND_OPENCLAW_AGENT_ID
+              value: {{ (default "main" $adapter.backendOpenClawAgentId) | quote }}
             - name: AGENT_BACKEND_SESSION_FIELD
               value: {{ $adapter.backendSessionField | quote }}
             - name: AGENT_BACKEND_SESSION_HEADER

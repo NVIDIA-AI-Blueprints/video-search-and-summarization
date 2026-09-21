@@ -12,16 +12,20 @@ attestation allowlist forbids it), so it inherits the base image's config -- and
 every ARG the custom Dockerfile does not declare is dropped by a regex
 `String.replace` that matches nothing and reports nothing.
 
-Two user-visible bugs come from that silence:
+The build-time patch also owns VSS-specific agent entries that the upstream
+generator does not know about. Without it:
 
   * the sandbox keeps the base image's model, context window and max tokens, so
     the agent caps output and compacts against the wrong model's limits;
   * `gateway.controlUi.allowedOrigins` keeps the generator's default loopback
     origin, so the Agent UI answers "Browser origin not allowed" over any
     non-loopback link.
+  * VSS UI chats run as the durable `main` agent, so its shared USER.md and
+    memory files can leak personal context from one New chat into another.
 
-This script closes both: the Dockerfile declares the ARGs, and this applies
-them to the inherited config at build, before the config hash is recomputed.
+This script closes all three: the Dockerfile declares the ARGs, and this
+applies them plus the isolated VSS UI agent at build, before the config hash is
+recomputed.
 It is deliberately build-time -- OpenShell replaces the image entrypoint when it
 creates a sandbox, so no entrypoint of ours ever runs, `openshell` is not on
 PATH inside the sandbox, and nemoclaw-start's own fixes are root-gated while it
@@ -42,6 +46,18 @@ from urllib.parse import urlparse
 
 CONFIG = "/sandbox/.openclaw/openclaw.json"
 _LOOPBACK = {"localhost", "127.0.0.1", "::1", "[::1]"}
+VSS_UI_AGENT_ID = "vss-ui"
+VSS_UI_WORKSPACE = "/sandbox/.openclaw/workspace-vss-ui"
+VSS_UI_DENIED_TOOLS = (
+    "group:automation",
+    "group:memory",
+    "group:runtime",
+    "group:sessions",
+    "apply_patch",
+    "edit",
+    "write",
+)
+VSS_UI_ALLOWED_TOOLS = ("read", "vss_cli")
 
 
 def _is_loopback(host: str) -> bool:
@@ -78,6 +94,59 @@ def control_ui(chat_ui_url: str, gateway_port: int) -> dict | None:
     }
 
 
+def _ensure_vss_ui_agent(cfg: dict) -> bool:
+    """Add the stateless agent used by the VSS UI without changing main."""
+    agents = cfg.setdefault("agents", {})
+    configured = agents.get("list")
+    if not isinstance(configured, list):
+        configured = []
+        agents["list"] = configured
+
+    agent = next(
+        (
+            entry
+            for entry in configured
+            if isinstance(entry, dict) and entry.get("id") == VSS_UI_AGENT_ID
+        ),
+        None,
+    )
+    changed = False
+    if agent is None:
+        agent = {"id": VSS_UI_AGENT_ID}
+        configured.append(agent)
+        changed = True
+
+    enforced = {
+        "name": "VSS UI",
+        "description": "Stateless agent for isolated VSS UI conversations",
+        "workspace": VSS_UI_WORKSPACE,
+        "memorySearch": {"enabled": False},
+    }
+    for key, value in enforced.items():
+        if agent.get(key) != value:
+            agent[key] = value
+            changed = True
+
+    tools = agent.get("tools")
+    if not isinstance(tools, dict):
+        tools = {}
+        agent["tools"] = tools
+        changed = True
+    if tools.get("allow") != list(VSS_UI_ALLOWED_TOOLS):
+        tools["allow"] = list(VSS_UI_ALLOWED_TOOLS)
+        changed = True
+    if tools.get("fs") != {"workspaceOnly": True}:
+        tools["fs"] = {"workspaceOnly": True}
+        changed = True
+    denied = tools.get("deny")
+    existing_denied = denied if isinstance(denied, list) else []
+    merged_denied = list(dict.fromkeys([*existing_denied, *VSS_UI_DENIED_TOOLS]))
+    if denied != merged_denied:
+        tools["deny"] = merged_denied
+        changed = True
+    return changed
+
+
 def apply(config: str | None = None, env: dict | None = None) -> list[str]:
     """Patch the config in place. Returns one line per change, for the build log."""
     config = CONFIG if config is None else config
@@ -85,6 +154,13 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
     with open(config) as handle:
         cfg = json.load(handle)
     changes: list[str] = []
+
+    # VSS UI chats need isolated transcripts without the main agent's durable
+    # USER.md/MEMORY.md continuity. Keep main unchanged and route the UI to a
+    # dedicated agent whose workspace and tool policy cannot persist or inspect
+    # user details across chat sessions.
+    if _ensure_vss_ui_agent(cfg):
+        changes.append(f"agents.list[{VSS_UI_AGENT_ID}] -> stateless VSS UI policy")
 
     # --- model identity: onboard supplies the session's model -----------------
     model = (env.get("NEMOCLAW_PRIMARY_MODEL_REF") or env.get("NEMOCLAW_MODEL") or "").strip()

@@ -18,6 +18,7 @@ const config = (
   backendPath: "/v1/responses",
   backendToken: "backend-secret",
   backendModel: "agent",
+  backendOpenClawAgentId: "main",
   backendSessionField: "user",
   backendSessionHeader: "X-Agent-Session",
   backendHeaders: {},
@@ -347,6 +348,7 @@ describe("embedded adapter connectors", () => {
         backendProtocol: "openclaw-ws",
         backendUrl: "ws://agent.local",
         backendPath: "/",
+        backendOpenClawAgentId: "vss-ui",
         backendSessionField: undefined,
         backendSessionHeader: undefined,
       }),
@@ -373,6 +375,9 @@ describe("embedded adapter connectors", () => {
       "operator.write",
     ]);
     const send = socket.sent.find((frame) => frame.method === "chat.send");
+    expect((send?.params as Record<string, unknown>).sessionKey).toMatch(
+      /^agent:vss-ui:vss-ui-/
+    );
     expect((send?.params as Record<string, unknown>).message).toBe(
       'VSS UI instructions:\nVSS UI request parameters for this turn (JSON):\n{"llm_reasoning":true}\n\nUser:\nFind a clip'
     );
@@ -430,9 +435,7 @@ describe("embedded adapter connectors", () => {
     const metadataUrl = new URL(
       (global.fetch as jest.Mock).mock.calls[0][0] as URL
     );
-    expect(metadataUrl.pathname).toBe(
-      "/gateway/__openclaw__/assistant-media"
-    );
+    expect(metadataUrl.pathname).toBe("/gateway/__openclaw__/assistant-media");
     expect(metadataUrl.searchParams.get("source")).toBe(
       "/sandbox/.openclaw/workspace/warehouse_safety_0002_12.5s.jpg"
     );
