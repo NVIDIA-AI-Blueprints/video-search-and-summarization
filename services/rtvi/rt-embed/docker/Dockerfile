@@ -339,6 +339,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     fi
 
 COPY LICENSE.3rdparty /opt/nvidia/rtvi/
+COPY README.md /opt/nvidia/rtvi/README.md
 
 RUN --mount=type=bind,src=src/cpp/nvdec_get_count,target=/tmp/nvdec_get_count \
     cp -r /tmp/nvdec_get_count /tmp/nvdec_get_count_rw && \
