@@ -263,6 +263,8 @@ def test_routing_exam_is_an_openshell_profile() -> None:
     adapter = _load_adapter()
     assert "base" in adapter.PROFILES
     assert adapter.deploy_profile("base") == "base"
+    assert adapter.deploy_profile("base_profile_video_understanding") == "base"
+    assert adapter.deploy_profile("direct_vlm_video_understanding") == "base"
 
 
 def test_multi_expect_spec_emits_harbor_steps(tmp_path: Path) -> None:
@@ -302,15 +304,14 @@ def test_multi_expect_spec_emits_harbor_steps(tmp_path: Path) -> None:
 def test_profile_suite_specs_emit_expected_harbor_steps(tmp_path: Path) -> None:
     adapter = _load_adapter()
     skill_dir = REPO_ROOT / "skills" / "vss-deploy-test-openshell"
-    cases = {
-        "base": (9, 1),
-        "lvs": (3, 1),
-        "warehouse": (3, 2),
-        "search": (2, 2),
-        "alerts-cv": (2, 2),
-        "alerts-vlm": (2, 1),
-    }
-    for stem, (steps, gpu_count) in cases.items():
+    evals = skill_dir / "evals"
+    for spec_path in sorted(evals.glob("*.json")):
+        if spec_path.name == "evals.json":
+            continue
+        stem = spec_path.stem
+        spec = json.loads(spec_path.read_text())
+        expects = spec.get("expects") or []
+        gpu_count = spec["openshell"]["gpu_count"]
         out = tmp_path / stem
         adapter.generate_task(
             stem,
@@ -321,11 +322,15 @@ def test_profile_suite_specs_emit_expected_harbor_steps(tmp_path: Path) -> None:
             gpu_count=gpu_count,
         )
         root = out / stem / "h200"
+        steps = len(expects)
+        if steps <= 1:
+            assert (root / "task.toml").is_file(), stem
+            assert not (root / "step-1").exists(), stem
+            continue
         for idx in range(1, steps + 1):
             assert (root / f"step-{idx}" / "task.toml").is_file(), stem
         assert not (root / f"step-{steps + 1}").exists(), stem
         assert not (root / "task.toml").exists(), stem
-        assert "deploy" in (root / "step-1" / "instruction.md").read_text().lower()
 
 
 def test_single_expect_spec_stays_flat(tmp_path: Path) -> None:

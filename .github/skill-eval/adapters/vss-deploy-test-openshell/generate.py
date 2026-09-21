@@ -17,12 +17,12 @@ The adapter does **not** pick LLM/VLM placement — the
 runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
-    Profiles : one Harbor job per compose profile. step-1 deploys; later
-               expects[] are operations skills on that live stack
-               (base, lvs, warehouse, search, alerts-cv, alerts-vlm).
-               Standalone / VDR specs stay their
-               own jobs (vss-build-vision-ai, RT-VLM / RT-CV / RT-Embed,
-               behavior-analytics, video-analytics-api).
+    Profiles : one Harbor job per compose profile (base, lvs, warehouse,
+               search, alerts-cv, alerts-vlm) whose step-1 deploys.
+               Daily operations Harbor exams are their own jobs, named
+               after the Daily spec stem (ask-video, summarize, vios,
+               report, search-archive, query-analytics, manage-alerts).
+               Standalone / VDR specs stay their own jobs.
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
                DGX-SPARK, IGX-THOR this guest has (warehouse, search, and
                alerts-cv are two-GPU jobs; alerts-vlm and base/lvs are
@@ -300,33 +300,138 @@ PLATFORMS: dict[str, dict] = {
 
 PROFILES: dict[str, dict] = {
     "base": {
-        "description": "Base deploy, Daily ask-video routing exam, then vios + report CLI smoke",
-        "bundled_skills": (
-            "vss-ask-video",
-            "vss-manage-video-io-storage",
-            "vss-generate-video-report",
-        ),
+        "description": "Base profile deploy smoke",
+        "bundled_skills": (),
     },
     "lvs": {
-        "description": "VSS LVS profile, then summarize + RAG-report CLI smoke",
-        "bundled_skills": (
-            "vss-summarize-video",
-            "vss-manage-video-io-storage",
-            "vss-generate-video-report-rag",
-        ),
+        "description": "LVS profile deploy smoke",
+        "bundled_skills": (),
     },
     "warehouse": {
-        "description": "Warehouse agents (`bp_wh` 2d), then query-analytics + manage-alerts",
-        "bundled_skills": ("vss-query-analytics", "vss-manage-alerts"),
+        "description": "Warehouse agents (`bp_wh` 2d) deploy smoke",
+        "bundled_skills": (),
     },
     "search": {
-        "description": "VSS search profile — RT-CV, RT-Embed, remote VLM proxy, then vss-search-archive CLI",
-        "bundled_skills": ("vss-search-archive", "vss-ask-video"),
+        "description": "Search profile deploy smoke — RT-CV, RT-Embed, remote VLM proxy",
+        "bundled_skills": (),
     },
     "ask-video": {
         "description": "VSS base profile plus vss-ask-video CLI (`vss vlm run`)",
         "profile": "base",
         "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
+    },
+    "base_profile_video_understanding": {
+        "description": "Daily vss-ask-video routing exam on a live base stack",
+        "profile": "base",
+        "bundled_skills": ("vss-ask-video",),
+    },
+    "direct_vlm_video_understanding": {
+        "description": "Daily vss-ask-video standalone fallback then Path A --file",
+        "profile": "base",
+        "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
+    },
+    "lvs_profile_summarize": {
+        "description": "Daily vss-summarize-video warehouse_sample end-to-end",
+        "profile": "lvs",
+        "bundled_skills": ("vss-summarize-video",),
+    },
+    "lvs_api_ops": {
+        "description": "Daily vss-summarize-video API/status smoke (no summarize)",
+        "profile": "lvs",
+        "bundled_skills": ("vss-summarize-video",),
+    },
+    "search_archive": {
+        "description": "Daily vss-search-archive ingest, search, delete, and contracts",
+        "profile": "search",
+        "deploy_mode": "remote-all",
+        "bundled_skills": ("vss-search-archive", "vss-ask-video"),
+    },
+    "vios_ops": {
+        "description": "Daily vss-manage-video-io-storage standalone VIOS file-sensor exam",
+        "profile": "base",
+        "bundled_skills": ("vss-manage-video-io-storage",),
+    },
+    "nvstreamer_ops": {
+        "description": "Daily vss-manage-video-io-storage NvStreamer + VIOS handoff",
+        "profile": "base",
+        "bundled_skills": ("vss-manage-video-io-storage",),
+    },
+    "base_profile_report": {
+        "description": "Daily vss-generate-video-report Mode A clip + incident report",
+        "profile": "base",
+        "bundled_skills": ("vss-generate-video-report", "vss-query-analytics"),
+    },
+    "query_analytics": {
+        "description": "Daily vss-query-analytics VA-MCP read path on alerts real-time",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-query-analytics",),
+    },
+    "alerts_vlm_real_time": {
+        "description": "Daily vss-manage-alerts real-time onboard + incident query",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts", "vss-query-analytics"),
+    },
+    "always_on_operate": {
+        "description": "Daily vss-manage-alerts always-on operate-not-author",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts",),
+    },
+    "slack_notify_ops": {
+        "description": "Daily vss-manage-alerts Slack notification routing",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts",),
+    },
+    "subscriptions_lifecycle": {
+        "description": "Daily vss-manage-alerts realtime rule create/list/stop",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts", "vss-manage-video-io-storage"),
+    },
+    "subscriptions_create_phrasings": {
+        "description": "Daily vss-manage-alerts create-rule phrasing variants",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts", "vss-manage-video-io-storage"),
+    },
+    "subscriptions_edge_cases": {
+        "description": "Daily vss-manage-alerts unknown-sensor and stop-missing-rule",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts", "vss-manage-video-io-storage"),
+    },
+    "routing_vlm_c_vs_d": {
+        "description": "Daily vss-manage-alerts incident vs active-rules routing",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts",),
+    },
+    "routing_e_gate_negative": {
+        "description": "Daily vss-manage-alerts out-of-scope refuses",
+        "profile": "alerts",
+        "deploy_mode": "real-time",
+        "bundled_skills": ("vss-manage-alerts", "vss-manage-video-io-storage"),
+    },
+    "cv_mode_gate": {
+        "description": "Daily vss-manage-alerts verification-mode incident query",
+        "profile": "alerts",
+        "deploy_mode": "verification",
+        "bundled_skills": ("vss-manage-alerts", "vss-manage-video-io-storage"),
+    },
+    "ondemand_verification": {
+        "description": "Daily vss-manage-alerts on-demand clip verification",
+        "profile": "alerts",
+        "deploy_mode": "verification",
+        "bundled_skills": ("vss-manage-alerts",),
+    },
+    "verification_flow": {
+        "description": "Daily vss-manage-alerts CV verification chain explain + verdicts",
+        "profile": "alerts",
+        "deploy_mode": "verification",
+        "bundled_skills": ("vss-manage-alerts", "vss-manage-video-io-storage"),
     },
     "summarize": {
         "description": "VSS LVS profile plus vss-summarize-video CLI (`vss summarize run`)",
@@ -352,13 +457,13 @@ PROFILES: dict[str, dict] = {
         "description": "VSS alerts profile verification mode (`MODE=2d_cv`) with remote LLM",
         "profile": "alerts",
         "deploy_mode": "verification",
-        "bundled_skills": ("vss-manage-alerts",),
+        "bundled_skills": (),
     },
     "alerts-vlm": {
         "description": "VSS alerts profile real-time mode (`MODE=2d_vlm`) with remote LLM",
         "profile": "alerts",
         "deploy_mode": "real-time",
-        "bundled_skills": ("vss-manage-alerts",),
+        "bundled_skills": (),
     },
     "report": {
         "description": "VSS base profile plus vss-generate-video-report",

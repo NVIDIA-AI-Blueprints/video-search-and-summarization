@@ -356,18 +356,16 @@ OPENSHELL_COHORT_TAG = "openshell"
 
 def openshell_placement_tag(
     gpu_count: int,
-    requirements: dict | None = None,
+    _requirements: dict | None = None,
 ) -> str:
     """Slug / job-name token for an OpenShell leg.
 
-    The spec's GPU *demand* (`gpus-1` / `gpus-2`) is the whole placement
-    key, so it is also the whole visible token. There is no SKU to name:
-    the job may land on any OpenShell guest with that many GPUs.
+    The spec's GPU *demand* (`gpus-1` / `gpus-2`) is the whole visible
+    token, including Blackwell-only specs. `runs-on` still pins those
+    jobs to RTX PRO 6000 guests; the name does not.
     """
     if gpu_count not in (1, 2):
         return "gpus-blocked"
-    if requirements and requirements.get("requires_blackwell"):
-        return "RTXPRO6000BW"
     return f"gpus-{gpu_count}"
 
 

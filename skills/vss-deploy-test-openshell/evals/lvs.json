@@ -1,8 +1,6 @@
 {
   "skills": [
-    "vss-deploy-test-openshell",
-    "vss-summarize-video",
-    "vss-generate-video-report-rag"
+    "vss-deploy-test-openshell"
   ],
   "profile": "lvs",
   "resources": {
@@ -25,22 +23,6 @@
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0"
-      ]
-    },
-    {
-      "query": "The VSS **lvs** profile is already deployed and healthy on this host. Do not redeploy. Follow `/vss-summarize-video`: set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, validate `services/agent/pyproject.toml`, run `cd \"${VSS_REPO_ROOT}\" && uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss summarize run --help`, and record the deployment with `vss configure --base-url http://localhost:7777`. Do not POST to `/v1/summarize` and do not run a summarization job in this step.",
-      "checks": [
-        "The project-local CLI is usable from the validated checkout: `cd \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\" && uv run --project \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent\" --no-dev --extra cli vss summarize run --help` returns exit 0. The `--extra cli` flag is required; a globally installed `vss` is not an acceptable substitute",
-        "The agent recorded the deployment against the ingress origin `http://localhost:7777` with `vss configure --base-url`",
-        "The agent does not POST to `/v1/summarize` and does not invoke `vss summarize run` without `--help` in this step",
-        "The agent does not invoke `/vss-deploy-test-openshell` or `docker compose up` in this step"
-      ]
-    },
-    {
-      "query": "The VSS **lvs** profile is already deployed and healthy on this host. Do not redeploy. Follow `/vss-generate-video-report-rag` (LVS + optional Enterprise RAG report path). Do not generate a RAG report and do not change `VSS_AGENT_CONFIG_FILE` in this step.",
-      "checks": [
-        "The agent followed `/vss-generate-video-report-rag` and did not generate a RAG report or rewrite `VSS_AGENT_CONFIG_FILE` in this step",
-        "The agent does not invoke `/vss-deploy-test-openshell` or `docker compose up` in this step"
       ]
     }
   ],
