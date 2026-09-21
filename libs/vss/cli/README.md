@@ -452,8 +452,15 @@ Stdout is one JSON object: status, `sufficient_from_memory`, citations,
 
 ## Extending it
 
-Groups are discovered from the `vss.commands` entry point, so a third party adds
-one without touching this package:
+There are two ways to add a command group, and they meet the same contract.
+The object needs `api_version`, `name`, `summary`, and `cli() -> click.Command`;
+`api_version` must equal the CLI's, or the group is refused at load rather than
+half-mounted. Summaries are read as raw strings, so `vss --help` lists every
+group without importing any of them.
+
+### As a wheel
+
+Declare two entry points; nothing in this package changes:
 
 ```toml
 [project.entry-points."vss.commands"]
@@ -463,6 +470,56 @@ acme = "acme_vss.entrypoint:GROUP"
 acme = "Acme video operations"
 ```
 
-The object needs `api_version`, `name`, `summary`, and `cli() -> click.Command`.
-Summaries are read as raw strings, so `vss --help` lists every installed group
-without importing any of them.
+### As a directory
+
+For a group built at runtime — by an agent, or while iterating — drop it under
+`~/.vss/plugins/<name>/` instead. No wheel, no install step:
+
+```
+~/.vss/plugins/tripwire/
+├── plugin.toml
+└── tripwire_plugin.py
+```
+
+```toml
+# plugin.toml
+name    = "tripwire"
+summary = "Tripwire detections"
+group   = "tripwire_plugin:GROUP"     # module:attr, same shape as an entry point
+```
+
+The directory goes on `sys.path` when — and only when — that group is invoked.
+`name` and `summary` are read as data on every startup, so `vss --help` lists
+the group without importing it; a module that fails to import reports the
+failure when the group is run, and the rest of the CLI is unaffected.
+
+```bash
+vss --help                    # tripwire is listed, nothing imported
+vss tripwire run --help       # now the module is imported
+vss tripwire run --sensor warehouse-cam
+vss memory get --job-id tripwire-01M3...
+```
+
+`VSS_PLUGIN_PATH` replaces the default root. `VSS_DISABLE_PLUGINS=tripwire`
+hides a group without deleting it. A directory whose name is already installed
+is refused, naming both sources — a dropped file must not silently replace
+`search`.
+
+### What a job group implements
+
+`run` belongs to the framework: it resolves persistence policy, mints the
+`job_id`, writes the `submitted` record, calls your code, writes the outcome,
+and emits the completion marker. A group subclasses `CommandGroup` and supplies
+only its own domain:
+
+| Hook | What it does |
+|------|--------------|
+| `adapter()` | the `LifecycleAdapter` subclass mapping this group's jobs onto records |
+| `prepare()` | resolve the request; fill `job.input_data` and `job.asset_id` |
+| `execute()` | do the work; raise `JobError` to classify a post-mint failure |
+| `build_bundle()` | map the output onto the terminal record and its result rows |
+| `render()` | the body keys only this group knows |
+
+`status`, `get` and `list` are inherited — they are memory reads, so a group has
+nothing to add. A group's records carry its own `job.group` token; the schema
+accepts it without a release.
