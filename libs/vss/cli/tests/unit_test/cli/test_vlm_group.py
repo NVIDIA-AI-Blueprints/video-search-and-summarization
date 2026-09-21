@@ -95,6 +95,33 @@ def _in_memory(deployment: config_mod.Deployment) -> memory_mod.Memory:
     return memory_mod.Memory(MemoryService(store), index=index)
 
 
+def _simulate_vllm_017_video_boundary(
+    request: dict[str, Any],
+    *,
+    total_frames: int = 600,
+    source_fps: float = 30,
+) -> tuple[int, bool, bool]:
+    """Apply vLLM 0.17's loader limits and the Qwen sampling handoff contract."""
+    loader = request.get("media_io_kwargs", {}).get("video", {})
+    duration = total_frames / source_fps
+    selected_frames = total_frames
+
+    num_frames = loader.get("num_frames", 32)
+    if num_frames > 0:
+        selected_frames = min(selected_frames, num_frames)
+
+    fps = loader.get("fps", -1)
+    if fps > 0:
+        selected_frames = min(selected_frames, max(1, int(duration * fps)))
+
+    loader_do_sample_frames = selected_frames == total_frames
+    processor_do_sample_frames = request.get("mm_processor_kwargs", {}).get(
+        "do_sample_frames",
+        loader_do_sample_frames,
+    )
+    return selected_frames, loader_do_sample_frames, processor_do_sample_frames
+
+
 # --------------------------------------------------------------------------
 # input model validation
 # --------------------------------------------------------------------------
@@ -620,9 +647,9 @@ def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch
     assert captured["json"]["max_tokens"] == 8192
     assert captured["json"]["seed"] == 1
     assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": -1, "fps": 4}}
     assert captured["json"]["mm_processor_kwargs"] == {
-        "fps": 4,
-        "do_sample_frames": True,
+        "do_sample_frames": False,
         "size": {
             "shortest_edge": 262144,
             "longest_edge": 16777216,
@@ -671,6 +698,7 @@ def test_standalone_vllm_translates_fixed_frame_count(
     )
 
     assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": expected}}
+    assert captured["json"]["mm_processor_kwargs"] == {"do_sample_frames": False}
 
 
 def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -861,8 +889,8 @@ def test_environment_backend_overrides_persisted_request_translation(monkeypatch
     ctx.extra = {"no_persist": True}
     VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4"), ctx)
 
-    assert captured["json"]["mm_processor_kwargs"]["fps"] == 4
-    assert captured["json"]["mm_processor_kwargs"]["do_sample_frames"] is True
+    assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": -1, "fps": 4}}
+    assert captured["json"]["mm_processor_kwargs"]["do_sample_frames"] is False
     assert "num_frames_per_second_or_fixed_frames_chunk" not in captured["json"]
 
 
@@ -1141,9 +1169,9 @@ def test_standalone_vllm_base64_uses_backend_translation(
     )
 
     assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": -1, "fps": 4}}
     assert captured["json"]["mm_processor_kwargs"] == {
-        "fps": 4,
-        "do_sample_frames": True,
+        "do_sample_frames": False,
         "size": {
             "shortest_edge": 262144,
             "longest_edge": 16777216,
@@ -1152,6 +1180,58 @@ def test_standalone_vllm_base64_uses_backend_translation(
     assert "enable_reasoning" not in captured["json"]
     assert "chunk_duration" not in captured["json"]
     assert "use_fps_for_chunking" not in captured["json"]
+
+
+@pytest.mark.parametrize("source_kind", ["url", "base64"])
+@pytest.mark.parametrize(
+    ("sampling", "expected_frames"),
+    [
+        ({"fps": 4}, 80),
+        ({"num_frames": 30}, 30),
+    ],
+)
+def test_standalone_vllm_loader_owns_sampling_before_qwen(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    source_kind: str,
+    sampling: dict[str, Any],
+    expected_frames: int,
+) -> None:
+    """vLLM must select frames and Qwen must consume that selection unchanged."""
+    captured: dict[str, Any] = {}
+    json_loads = json.loads
+
+    def _capture(
+        _url: str,
+        *,
+        json: Any = None,
+        content: Any = None,
+        **_kwargs: Any,
+    ) -> httpx.Response:
+        captured["json"] = json if json is not None else json_loads(b"".join(content))
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    source: dict[str, Any]
+    if source_kind == "url":
+        source = {"media_url": "http://h/20-second-clip.mp4"}
+    else:
+        video_file = tmp_path / "20-second-clip.mp4"
+        video_file.write_bytes(b"video")
+        source = {"file": str(video_file)}
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend="vllm")))
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run("", VlmInput(prompt="What?", **source, **sampling), ctx)
+
+    selected, loader_resamples, processor_resamples = _simulate_vllm_017_video_boundary(captured["json"])
+    assert selected == expected_frames
+    assert loader_resamples is False
+    assert processor_resamples is False
 
 
 def test_run_file_not_found_exits_invalid_input(

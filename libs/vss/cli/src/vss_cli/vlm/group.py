@@ -426,20 +426,25 @@ def _build_vllm_request(
     model: str,
     inputs: VlmInput,
 ) -> dict[str, Any]:
-    """Translate one request to standalone vLLM's Qwen processor controls."""
+    """Translate one request using a single, loader-owned sampling contract.
+
+    vLLM's video loader selects either the requested fixed frame count or the
+    FPS-derived frames. Qwen then consumes that selection unchanged instead of
+    sampling a second time from metadata describing the original video.
+    """
     request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
     if inputs.chunk_duration is not None and inputs.chunk_duration != 0:
         raise InvalidInput("positive --chunk-duration is not supported by the standalone vLLM backend")
     if inputs.enable_reasoning is not None:
         request["chat_template_kwargs"] = {"enable_thinking": inputs.enable_reasoning}
-    mm_processor_kwargs: dict[str, Any] = {}
+    mm_processor_kwargs: dict[str, Any] = {"do_sample_frames": False}
     if inputs.fps is not None:
-        mm_processor_kwargs.update(
-            {
+        request["media_io_kwargs"] = {
+            "video": {
+                "num_frames": -1,
                 "fps": inputs.fps,
-                "do_sample_frames": True,
             }
-        )
+        }
     else:
         request["media_io_kwargs"] = {
             "video": {
@@ -449,8 +454,7 @@ def _build_vllm_request(
     size = _processor_size(inputs)
     if size:
         mm_processor_kwargs["size"] = size
-    if mm_processor_kwargs:
-        request["mm_processor_kwargs"] = mm_processor_kwargs
+    request["mm_processor_kwargs"] = mm_processor_kwargs
     return request
 
 
