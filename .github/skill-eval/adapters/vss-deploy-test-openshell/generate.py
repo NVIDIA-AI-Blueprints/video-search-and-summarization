@@ -18,13 +18,16 @@ runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
     Profiles : base, lvs, warehouse, search, alerts-cv, alerts-vlm, ask-video,
-               plus chained operations skills and standalone deployment /
-               build skills (vss-build-vision-ai, vss-deploy-profile, RT-VLM /
-               RT-CV / RT-Embed, behavior-analytics, video-analytics-api)
+               base_profile_video_understanding, plus chained operations
+               skills and standalone deployment / build skills
+               (vss-build-vision-ai, vss-deploy-profile, RT-VLM / RT-CV /
+               RT-Embed, behavior-analytics, video-analytics-api)
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
                DGX-SPARK, IGX-THOR this guest has (warehouse, search, and
                alerts-cv are two-GPU jobs; alerts-vlm is one GPU; ask-video
-               deploys base then chains to vss-ask-video)
+               deploys base then chains to vss-ask-video;
+               base_profile_video_understanding is the Daily ask-video
+               routing exam after that deploy)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
@@ -315,6 +318,11 @@ PROFILES: dict[str, dict] = {
         "profile": "base",
         "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
     },
+    "base_profile_video_understanding": {
+        "description": "Daily vss-ask-video routing exam on OpenShell — base deploy, then memory vs vlm vs refuse",
+        "profile": "base",
+        "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
+    },
     "summarize": {
         "description": "VSS LVS profile plus vss-summarize-video CLI (`vss summarize run`)",
         "profile": "lvs",
@@ -567,10 +575,14 @@ def _render_eval_spec(spec: dict, profile: str, platform: str) -> dict:
 # Test script generation
 # ---------------------------------------------------------------------------
 
-def generate_test_script(spec_name: str, profile: str) -> str:
+def generate_test_script(spec_name: str, profile: str, step: int = 1) -> str:
     """Wrapper test.sh that invokes the generic LLM-as-judge verifier
     against the rendered eval spec shipped alongside it. Harbor reads
     /logs/verifier/reward.txt.
+
+    `step` is 1-based and matches `expects[step-1]` so a multi-query spec
+    (base_profile_video_understanding) judges the query this Harbor
+    directory was generated for.
 
     No `profile` argument is needed by the script itself anymore — the
     harness used to consume the deployed-profile marker written here
@@ -590,7 +602,7 @@ def generate_test_script(spec_name: str, profile: str) -> str:
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
         "\n"
         'python3 "$TEST_DIR/generic_judge.py" \\\n'
-        f'    --spec "$TEST_DIR/{spec_name}" --step 1\n'
+        f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
         "\n"
         "exit 0\n"
     )
@@ -739,56 +751,87 @@ def generate_task(
     skill_dir: Path | None,
     gpu_count: int,
 ) -> None:
-    """Write one Harbor task directory for `<profile>/<platform_short>`.
+    """Write Harbor task directory(ies) for `<profile>/<platform_short>`.
+
+    A spec with one `expects` entry stays flat (the existing OpenShell
+    smokes). A spec with several (Daily ask-video routing) writes
+    `step-<k>/` so Harbor and generic_judge run one query at a time.
 
     `gpu_count` is the spec-declared per-platform GPU count plus the
     profile's `local_extras` (RT-CV / Cosmos Embed1 always-local GPUs).
     """
     platform_spec = PLATFORMS[platform]
     task_id = platform_spec["short_name"]
-    task_dir = output_root / profile / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-
-    # -- instruction.md --
-    # Prefer the spec's expects[0].query (with {{platform}} substituted) so
-    # profile-specific instructions (e.g. warehouse's bp_wh_2d, NGC app-data
-    # download, remote-model env vars) reach the agent verbatim, rather than
-    # being collapsed into the generic "Deploy the <profile> profile" fallback.
-    spec_query: str | None = None
+    spec_path = _spec_path_for(profile, skill_dir)
     expected_services: list[str] = []
-    if skill_dir is not None:
-        spec_path = skill_dir / "evals" / f"{profile}.json"
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
-        if spec_path.exists():
-            try:
-                raw = json.loads(spec_path.read_text())
-                declared_services = raw.get("expected_services") or []
-                if not isinstance(declared_services, list) or any(
-                    not isinstance(name, str) for name in declared_services
-                ):
-                    raise ValueError("expected_services must be a string list")
-                expected_services = declared_services
-                expects = raw.get("expects") or []
-                if expects and isinstance(expects[0].get("query"), str):
-                    import re as _re
-                    spec_query = _re.sub(
-                        r"\{\{\s*platform\s*\}\}", platform, expects[0]["query"]
-                    )
-            except Exception as exc:  # noqa: BLE001
-                print(f"WARN: could not read spec query for {profile}: {exc}",
-                      file=sys.stderr)
+    expects: list[dict] = []
+    if spec_path is not None:
+        try:
+            raw = json.loads(spec_path.read_text())
+            declared_services = raw.get("expected_services") or []
+            if not isinstance(declared_services, list) or any(
+                not isinstance(name, str) for name in declared_services
+            ):
+                raise ValueError("expected_services must be a string list")
+            expected_services = declared_services
+            raw_expects = raw.get("expects") or []
+            if isinstance(raw_expects, list):
+                expects = [e for e in raw_expects if isinstance(e, dict)]
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARN: could not read spec for {profile}: {exc}", file=sys.stderr)
 
-    (task_dir / "instruction.md").write_text(
+    step_count = max(len(expects), 1)
+    for idx in range(1, step_count + 1):
+        spec_query: str | None = None
+        if expects:
+            query = expects[idx - 1].get("query")
+            if isinstance(query, str):
+                spec_query = re.sub(r"\{\{\s*platform\s*\}\}", platform, query)
+        dest = output_root / profile / task_id
+        if step_count > 1:
+            dest = dest / f"step-{idx}"
+        _write_openshell_step(
+            dest=dest,
+            profile=profile,
+            platform=platform,
+            platform_spec=platform_spec,
+            profile_def=profile_def,
+            skill_dir=skill_dir,
+            spec_path=spec_path,
+            spec_query=spec_query,
+            expected_services=expected_services,
+            gpu_count=gpu_count,
+            step_idx=idx,
+            step_count=step_count,
+        )
+
+
+def _write_openshell_step(
+    *,
+    dest: Path,
+    profile: str,
+    platform: str,
+    platform_spec: dict,
+    profile_def: dict,
+    skill_dir: Path | None,
+    spec_path: Path | None,
+    spec_query: str | None,
+    expected_services: list[str],
+    gpu_count: int,
+    step_idx: int,
+    step_count: int,
+) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    task_id = platform_spec["short_name"]
+    step_suffix = f"-step-{step_idx}" if step_count > 1 else ""
+
+    (dest / "instruction.md").write_text(
         generate_instruction(profile, platform, spec_query=spec_query),
     )
 
-    # -- task.toml --
     meta_lines = [
         "[task]",
-        f'name = "nvidia-vss/vss-deploy-test-openshell-{profile}-{task_id}"',
+        f'name = "nvidia-vss/vss-deploy-test-openshell-{profile}-{task_id}{step_suffix}"',
         f'description = "{profile_def["description"]} on {platform}"',
         f'keywords = ["vss-deploy-test-openshell", "{profile}", "{platform}"]',
         "",
@@ -801,63 +844,44 @@ def generate_task(
         'skills_dir = "/skills"',
         "",
         "[metadata]",
-        # No `profile = "..."` is emitted — nothing in the harness reads
-        # it anymore. The trial's first agent turn invokes
-        # /vss-deploy-test-openshell -p X via its own prompt; the prior
-        # _ensure_prerequisite_deployed pre-deploy hook is gone. The
-        # `platform` key below is purely informational.
         f'platform = "{platform}"',
         f"expected_services = {json.dumps(expected_services)}",
     ]
     deploy_flag_m = profile_def.get("deploy_mode")
     if deploy_flag_m:
-        # Informational — no harness consumer.
         meta_lines.append(f'deploy_mode = "{deploy_flag_m}"')
     meta_lines += [
         "# OpenShell vss-deploy-test-openshell: GitHub labels + gpu_count.",
         "# Do not emit gpu_type / min_vram / brev_search — any SKU that",
         "# satisfies gpus-N is acceptable.",
         f'gpu_count = {gpu_count}',
-        "# Disk + driver requirements — worst-case (covers a deploy with",
-        "# both LLM and VLM running as local NIMs). The /vss-deploy-test-openshell skill",
-        "# decides actual placement from forwarded env (LLM_REMOTE_URL,",
-        "# VLM_REMOTE_URL); we don't try to second-guess it here.",
+        f"step_index = {step_idx}",
+        f"step_count = {step_count}",
         f'min_root_disk_gb = {_DEFAULT_MIN_ROOT_DISK_GB}',
         f'min_gpu_driver_version = "{_DEFAULT_MIN_DRIVER_VERSION}"',
         "",
         "[verifier.env]",
         'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
         'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
-        # ANTHROPIC_MODEL gives the verifier's judge model cascade
-        # (JUDGE_MODEL → ANTHROPIC_MODEL → literal) a working
-        # fallback when JUDGE_MODEL is unset.
         'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
         "",
     ]
-    (task_dir / "task.toml").write_text("\n".join(meta_lines))
+    (dest / "task.toml").write_text("\n".join(meta_lines))
 
-    # -- environment/ placeholder (not used with BrevEnvironment) --
-    env_dir = task_dir / "environment"
+    env_dir = dest / "environment"
     env_dir.mkdir(exist_ok=True)
     (env_dir / "Dockerfile").write_text("FROM scratch\n")
 
-    # -- tests/: wrapper + generic judge + rendered eval spec --
-    tests_dir = task_dir / "tests"
+    tests_dir = dest / "tests"
     tests_dir.mkdir(exist_ok=True)
-    if skill_dir:
-        spec_path = skill_dir / "evals" / f"{profile}.json"
-        if not spec_path.exists():
-            legacy = skill_dir / "eval" / f"{profile}.json"
-            if legacy.exists():
-                spec_path = legacy
-    else:
-        spec_path = None
     if spec_path and spec_path.exists():
         raw_spec = json.loads(spec_path.read_text())
         rendered = _render_eval_spec(raw_spec, profile, platform)
         spec_name = spec_path.name
         (tests_dir / spec_name).write_text(json.dumps(rendered, indent=2))
-        (tests_dir / "test.sh").write_text(generate_test_script(spec_name, profile))
+        (tests_dir / "test.sh").write_text(
+            generate_test_script(spec_name, profile, step=step_idx)
+        )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
     else:
@@ -869,34 +893,41 @@ def generate_task(
             "exit 0\n"
         )
 
-    # -- solution/solve.sh --
-    solution_dir = task_dir / "solution"
+    solution_dir = dest / "solution"
     solution_dir.mkdir(exist_ok=True)
-    (solution_dir / "solve.sh").write_text(
-        generate_solve_script(profile, platform),
-    )
+    if step_idx == 1:
+        (solution_dir / "solve.sh").write_text(
+            generate_solve_script(profile, platform),
+        )
+    else:
+        (solution_dir / "solve.sh").write_text(
+            "#!/bin/bash\n"
+            "# Later Harbor steps reuse the stack from step-1.\n"
+            "exit 0\n"
+        )
 
-    # -- skills/vss-deploy-test-openshell/ plus every skills/operations/*
-    # skill (ask-video, search, summarize, VIOS, alerts, reports, …) and
-    # the build / deployment skills OpenShell trials also exercise.
     if skill_dir and skill_dir.exists():
         skills_root = skill_dir.parent
-        _copy_skill_dir(skill_dir, task_dir / "skills" / "vss-deploy-test-openshell")
+        _copy_skill_dir(skill_dir, dest / "skills" / "vss-deploy-test-openshell")
         copied: set[str] = {"vss-deploy-test-openshell"}
         for extra in _iter_operations_skills(skills_root):
-            _copy_skill_dir(extra, task_dir / "skills" / extra.name)
+            _copy_skill_dir(extra, dest / "skills" / extra.name)
             copied.add(extra.name)
         extras = list(ALWAYS_BUNDLED_SKILLS)
-        extras.extend(name for name in (profile_def.get("bundled_skills") or ()) if name not in extras)
+        extras.extend(
+            name for name in (profile_def.get("bundled_skills") or ()) if name not in extras
+        )
         for extra in extras:
             if extra in copied:
                 continue
             src = _find_bundled_skill(skills_root, extra)
             if src is None:
-                print(f"WARN: bundled skill {extra!r} not found under {skills_root}",
-                      file=sys.stderr)
+                print(
+                    f"WARN: bundled skill {extra!r} not found under {skills_root}",
+                    file=sys.stderr,
+                )
                 continue
-            _copy_skill_dir(src, task_dir / "skills" / extra)
+            _copy_skill_dir(src, dest / "skills" / extra)
             copied.add(extra)
 
 
