@@ -83,11 +83,16 @@ def _close_resources(resources: tuple[Any, ...]) -> None:
 def group_token(name: str) -> MemoryGroup:
     """The unified-schema group a CLI group writes under.
 
-    Cast rather than validated: a third-party group is free to name a token
-    the schema does not know, and the store is where that gets rejected on
-    write. A read filtered by an unknown group simply matches nothing.
+    Open by design: a group added at runtime names a token this package has
+    never heard of, and it is still the right token for its records. Declaring
+    it here is what keeps the schema's advisory log for writers that no mounted
+    group accounts for, rather than for every agent-added group.
     """
-    return cast("MemoryGroup", _GROUP_TOKENS.get(name, name))
+    from vss_core.memory.models import register_known_group
+
+    token = _GROUP_TOKENS.get(name, name)
+    register_known_group(token)
+    return cast("MemoryGroup", token)
 
 
 class Memory:

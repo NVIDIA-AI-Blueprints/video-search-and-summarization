@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC
 from datetime import datetime
+import logging
 from typing import Annotated
 from typing import Any
 from typing import Literal
@@ -27,13 +28,50 @@ from pydantic import model_validator
 
 from vss_core._foundation.time import datetime_to_iso8601
 
+logger = logging.getLogger(__name__)
+
 SCHEMA_ID: Literal["nv.vss.memory/1.0"] = "nv.vss.memory/1.0"
 
-MemoryGroup = Literal["summary", "search", "alert", "vlm"]
-KNOWN_GROUPS: frozenset[str] = frozenset({"summary", "search", "alert", "vlm"})
+#: ``job.group`` and ``job.record_type`` are open strings, not closed literals.
+#: A command group added at runtime -- dropped into ``~/.vss/plugins`` rather
+#: than shipped in a wheel -- owns a group name this package has never heard
+#: of, and a record it cannot write is a record nothing can read back.
+#:
+#: Widening accepted values is compatible with every document already stored:
+#: the old names are still valid, the envelope has not moved, and no reader
+#: gains a shape it did not have. ``SCHEMA_ID`` therefore stays at 1.0 --
+#: bumping it would retype the ``schema`` discriminator and make every existing
+#: record fail to decode, which is the opposite of what this change is for.
+MemoryGroup = str
+RecordType = str
 
-RecordType = Literal["event", "search_hit", "incident"]
-KNOWN_RECORD_TYPES: frozenset[str] = frozenset({"event", "search_hit", "incident"})
+#: The groups and record types this package ships. Advisory: a name outside
+#: these is accepted and logged once, never rejected. :func:`register_known_group`
+#: is how a mounted command group says it is legitimate, so the log names only
+#: writers that no group in this process accounts for.
+BUILTIN_GROUPS: frozenset[str] = frozenset({"summary", "search", "alert", "vlm"})
+KNOWN_GROUPS: set[str] = set(BUILTIN_GROUPS)
+KNOWN_RECORD_TYPES: set[str] = {"event", "search_hit", "incident"}
+
+#: Names already logged, so a long-lived process says it once per name.
+_REPORTED_GROUPS: set[str] = set()
+_REPORTED_RECORD_TYPES: set[str] = set()
+
+
+def register_known_group(name: str) -> None:
+    """Declare a group legitimate for this process.
+
+    Called by the CLI for whatever group is mounted, so an agent-added group
+    writing its own records is silent while a record from somewhere else --
+    a hand-written ``vss memory upsert``, another system's document -- is
+    still worth one line in the log.
+    """
+    KNOWN_GROUPS.add(name)
+
+
+def register_known_record_type(name: str) -> None:
+    """Declare a child record type legitimate for this process."""
+    KNOWN_RECORD_TYPES.add(name)
 
 JobOperation = Literal["run"]
 JobStatus = Literal["submitted", "running", "completed", "failed", "partial", "timeout"]
@@ -95,18 +133,31 @@ class JobInfo(BaseModel):
 
     @field_validator("group", mode="before")
     @classmethod
-    def _reject_unknown_group(cls, value: object) -> object:
-        if isinstance(value, str) and value not in KNOWN_GROUPS:
-            raise ValueError(f"unknown job.group {value!r}; expected one of {sorted(KNOWN_GROUPS)}")
+    def _note_unknown_group(cls, value: object) -> object:
+        if isinstance(value, str) and value and value not in KNOWN_GROUPS and value not in _REPORTED_GROUPS:
+            _REPORTED_GROUPS.add(value)
+            logger.info(
+                "job.group %r is not one of %s and no command group in this process declared it",
+                value,
+                sorted(KNOWN_GROUPS),
+            )
         return value
 
     @field_validator("record_type", mode="before")
     @classmethod
-    def _reject_unknown_record_type(cls, value: object) -> object:
-        if value is None:
-            return value
-        if isinstance(value, str) and value not in KNOWN_RECORD_TYPES:
-            raise ValueError(f"unknown job.record_type {value!r}; expected one of {sorted(KNOWN_RECORD_TYPES)}")
+    def _note_unknown_record_type(cls, value: object) -> object:
+        if (
+            isinstance(value, str)
+            and value
+            and value not in KNOWN_RECORD_TYPES
+            and value not in _REPORTED_RECORD_TYPES
+        ):
+            _REPORTED_RECORD_TYPES.add(value)
+            logger.info(
+                "job.record_type %r is not one of %s and no command group in this process declared it",
+                value,
+                sorted(KNOWN_RECORD_TYPES),
+            )
         return value
 
     @field_validator("record_id", mode="before")

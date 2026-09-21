@@ -31,6 +31,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 import os
+from pathlib import Path
+import sys
+import tomllib
 from typing import TYPE_CHECKING
 from typing import Protocol
 from typing import cast
@@ -57,6 +60,16 @@ SUMMARIES_GROUP = "vss.command_summaries"
 #: Mirrors pytest's ``-p no:name``: an operator needs a way to boot the CLI when
 #: an installed plugin is actively breaking it.
 DISABLE_ENV = "VSS_DISABLE_PLUGINS"
+
+#: Directory scanned for on-disk groups, and the variable that replaces it.
+#: Single directory rather than a path list, mirroring how ``config.py``
+#: resolves ``~/.vss``: one plugin root per process needs no precedence rules
+#: and has no same-name-in-two-roots case to answer.
+PLUGIN_PATH_ENV = "VSS_PLUGIN_PATH"
+PLUGIN_DIR_NAME = "plugins"
+
+#: Manifest filename inside each ``<root>/<name>/`` directory.
+MANIFEST_NAME = "plugin.toml"
 
 
 @runtime_checkable
@@ -91,6 +104,10 @@ class GroupRef:
     summary: str
     value: str
     dist: str | None
+    #: Directory the manifest was read from, for an on-disk group. None for an
+    #: installed one. Carried so ``load`` can put it on ``sys.path`` and so a
+    #: collision can name where each side came from.
+    source: Path | None = None
 
 
 class PluginLoadError(Exception):
@@ -100,6 +117,56 @@ class PluginLoadError(Exception):
 def _disabled() -> frozenset[str]:
     raw = os.environ.get(DISABLE_ENV, "")
     return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+def plugin_root() -> Path:
+    """Where on-disk groups live: ``$VSS_PLUGIN_PATH`` or ``~/.vss/plugins``."""
+    override = os.environ.get(PLUGIN_PATH_ENV)
+    if override:
+        return Path(override)
+    from . import config as config_mod
+
+    return config_mod.config_home() / PLUGIN_DIR_NAME
+
+
+def _manifests() -> list[GroupRef]:
+    """Read every ``<root>/<name>/plugin.toml``. Imports nothing.
+
+    A manifest carries ``summary`` as data for the same reason the
+    ``vss.command_summaries`` entry point does: ``vss --help`` can list an
+    installed group without importing it, and an on-disk group must not be the
+    one exception that makes help pay for an import -- or lets a broken
+    third-party module break help for everything else.
+    """
+    root = plugin_root()
+    try:
+        entries = sorted(root.iterdir())
+    except (OSError, ValueError):
+        return []
+    refs: list[GroupRef] = []
+    for directory in entries:
+        manifest = directory / MANIFEST_NAME
+        if not manifest.is_file():
+            continue
+        try:
+            declared = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+            # A malformed manifest becomes a broken command, not a dead CLI:
+            # the reason shows up when that group is invoked.
+            refs.append(GroupRef(name=directory.name, summary="", value=f"<unreadable: {error}>", dist=None, source=directory))
+            continue
+        name = str(declared.get("name") or directory.name)
+        value = declared.get("group")
+        refs.append(
+            GroupRef(
+                name=name,
+                summary=str(declared.get("summary") or ""),
+                value=str(value) if value else "<no `group` key in plugin.toml>",
+                dist=None,
+                source=directory,
+            )
+        )
+    return refs
 
 
 def _summaries() -> dict[str, str]:
@@ -114,44 +181,98 @@ def _summaries() -> dict[str, str]:
 
 
 def discover() -> list[GroupRef]:
-    """List installed command groups. Imports nothing."""
+    """List command groups, installed and on disk. Imports nothing.
+
+    An on-disk group whose name is already installed is a hard error rather
+    than a silent override in either direction: the whole point of the plugin
+    directory is that something else writes into it, and a dropped file that
+    quietly replaced ``search`` is the worst outcome to debug. The collision is
+    reported as a broken command naming both sides, so the rest of the CLI
+    still runs.
+    """
     disabled = _disabled()
     summaries = _summaries()
     refs: list[GroupRef] = []
+    installed: dict[str, GroupRef] = {}
     for ep in entry_points(group=COMMANDS_GROUP):
-        if ep.name in disabled:
-            continue
         dist = ep.dist.name if ep.dist is not None else None
         summary = summaries.get(ep.name) or (f"(provided by {dist})" if dist else "")
-        refs.append(GroupRef(name=ep.name, summary=summary, value=ep.value, dist=dist))
-    return sorted(refs, key=lambda r: r.name)
+        installed[ep.name] = GroupRef(name=ep.name, summary=summary, value=ep.value, dist=dist)
+    refs.extend(installed.values())
+
+    for ref in _manifests():
+        clash = installed.get(ref.name)
+        if clash is not None:
+            refs = [existing for existing in refs if existing.name != ref.name]
+            refs.append(
+                GroupRef(
+                    name=ref.name,
+                    summary=clash.summary,
+                    value=(
+                        f"<name collision: installed by {clash.dist or 'an unknown distribution'} "
+                        f"and present at {ref.source}>"
+                    ),
+                    dist=clash.dist,
+                    source=ref.source,
+                )
+            )
+            continue
+        refs.append(ref)
+    return sorted((ref for ref in refs if ref.name not in disabled), key=lambda r: r.name)
 
 
 def load(name: str) -> CommandGroupSpec:
     """Import and validate one command group.
 
-    Raises :class:`PluginLoadError` with a diagnostic naming the distribution;
-    callers turn that into a broken-command placeholder so one bad plugin
-    cannot stop the whole CLI from starting.
+    Raises :class:`PluginLoadError` with a diagnostic naming the distribution
+    or directory; callers turn that into a broken-command placeholder so one
+    bad plugin cannot stop the whole CLI from starting.
     """
-    matches = [ep for ep in entry_points(group=COMMANDS_GROUP) if ep.name == name]
-    if not matches:
+    ref = next((candidate for candidate in discover() if candidate.name == name), None)
+    if ref is None:
         raise PluginLoadError(f"no command group named {name!r}")
-    ep = matches[0]
-    dist = ep.dist.name if ep.dist is not None else "unknown distribution"
+    if ref.source is not None and ref.dist is not None:
+        raise PluginLoadError(
+            f"{name!r} is both installed (by {ref.dist}) and present at {ref.source / MANIFEST_NAME}; "
+            f"remove one, or set {DISABLE_ENV}={name} to hide it"
+        )
 
-    try:
-        obj = ep.load()
-    except Exception as exc:
-        raise PluginLoadError(f"{name!r} (from {dist}) failed to import: {exc!r}") from exc
+    if ref.source is not None:
+        origin = f"{ref.source / MANIFEST_NAME}"
+        module_attr = ref.value
+        if ":" not in module_attr:
+            raise PluginLoadError(f'{name!r} (from {origin}) declares no importable `group = "module:attr"`')
+        module_name, _, attribute = module_attr.partition(":")
+        # The plugin directory itself goes on the path, so a dropped group is
+        # importable without being installed. Appended, not prepended: an
+        # on-disk group must not shadow an installed module of the same name.
+        root = str(ref.source)
+        if root not in sys.path:
+            sys.path.append(root)
+        try:
+            import importlib
+
+            obj = getattr(importlib.import_module(module_name), attribute)
+        except Exception as exc:
+            raise PluginLoadError(f"{name!r} (from {origin}) failed to import: {exc!r}") from exc
+    else:
+        matches = [ep for ep in entry_points(group=COMMANDS_GROUP) if ep.name == name]
+        if not matches:  # pragma: no cover - discover() already resolved it
+            raise PluginLoadError(f"no command group named {name!r}")
+        ep = matches[0]
+        origin = ep.dist.name if ep.dist is not None else "unknown distribution"
+        try:
+            obj = ep.load()
+        except Exception as exc:
+            raise PluginLoadError(f"{name!r} (from {origin}) failed to import: {exc!r}") from exc
 
     declared = getattr(obj, "api_version", None)
     if declared != API_VERSION:
         raise PluginLoadError(
-            f"{name!r} (from {dist}) declares api_version={declared!r}, but this vss requires {API_VERSION}"
+            f"{name!r} (from {origin}) declares api_version={declared!r}, but this vss requires {API_VERSION}"
         )
     if not callable(getattr(obj, "cli", None)):
-        raise PluginLoadError(f"{name!r} (from {dist}) has no callable cli()")
+        raise PluginLoadError(f"{name!r} (from {origin}) has no callable cli()")
     return cast("CommandGroupSpec", obj)
 
 

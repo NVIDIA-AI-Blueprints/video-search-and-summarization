@@ -32,8 +32,6 @@ from .models import TimeWindow
 from .models import UnifiedMemoryRecord
 from .store import coerce_utc_instant
 
-_ADAPTER_REGISTRY: dict[MemoryGroup, type[MemoryAdapter]] = {}
-
 #: Row keys that may carry a result row's start instant, in precedence order.
 START_INSTANT_KEYS: tuple[str, ...] = ("timestamp", "start_time", "start", "ts")
 
@@ -138,8 +136,9 @@ class MemoryAdapter(Protocol):
     """Per-group mapper between domain payloads and unified memory records.
 
     Concrete adapters live with their command groups / domain packages, not
-    in this module. They register via :func:`register_adapter` when a lookup
-    registry is useful (tests, optional discovery).
+    in this module: a group declares its own through
+    :meth:`CommandGroup.adapter <vss_cli.group.CommandGroup.adapter>`, so the
+    caller always holds the concrete class and there is nothing to look up.
     """
 
     group: MemoryGroup
@@ -175,25 +174,6 @@ class MemoryAdapter(Protocol):
         backend_ref: str | None = None,
         updated_at: str | None = None,
     ) -> UnifiedMemoryRecord: ...
-
-
-def register_adapter(adapter_cls: type[MemoryAdapter]) -> type[MemoryAdapter]:
-    """Register a group adapter (optional discovery / tests)."""
-    group = adapter_cls.group
-    _ADAPTER_REGISTRY[group] = adapter_cls
-    return adapter_cls
-
-
-def get_adapter(group: MemoryGroup) -> MemoryAdapter:
-    """Return a fresh adapter instance for ``group``."""
-    if group not in _ADAPTER_REGISTRY:
-        raise KeyError(f"no memory adapter registered for group {group!r}")
-    return _ADAPTER_REGISTRY[group]()
-
-
-def clear_adapter_registry() -> None:
-    """Reset the adapter registry (test isolation). Does not re-register builtins."""
-    _ADAPTER_REGISTRY.clear()
 
 
 def _dump_optional_input(input_data: MemoryInput | None) -> dict[str, Any] | None:
@@ -389,11 +369,8 @@ __all__ = [
     "RecordBundle",
     "build_record",
     "child_record",
-    "clear_adapter_registry",
     "collect_values",
     "deterministic_record_id",
-    "get_adapter",
-    "register_adapter",
     "resolve_child_record_id",
     "row_instant",
     "utc_instant",
