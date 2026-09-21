@@ -320,7 +320,8 @@ async def fusion_search_rerank(
             filter_sensor_id = ""
             if embed_result.sensor_id and vst_internal_url:
                 # Stream-id -> sensor-id resolution is best-effort enrichment with
-                # a defined fallback (video_name / sensor_id), so it never aborts.
+                # a defined fallback (sensor_id_raw / video_name / sensor_id), so
+                # it never aborts.
                 try:
                     filter_sensor_id = await get_sensor_id_from_stream_id(embed_result.sensor_id, vst_internal_url)
                     if filter_sensor_id != embed_result.sensor_id:
@@ -329,7 +330,13 @@ async def fusion_search_rerank(
                     logger.warning(f"VST conversion failed: {scrub_log(str(e))}. Using fallback")
 
             if not filter_sensor_id:
-                filter_sensor_id = embed_result.video_name or embed_result.sensor_id or ""
+                # VST absent (or resolution failed): fall back to the indexed
+                # sensor identity (the behavior document's sensor.id) carried from
+                # the embed adapter, not the display filename (video_name). A behavior
+                # doc keyed by sensor.id="warehouse_clip" with no path/url is
+                # otherwise missed when the embed hit's video_name is the display
+                # filename "warehouse_clip.mp4" (VIA-2753 review).
+                filter_sensor_id = embed_result.sensor_id_raw or embed_result.video_name or embed_result.sensor_id or ""
 
             attr_params = {
                 "query": attributes,
@@ -613,7 +620,9 @@ async def execute_core_search(
             # Apply the top-percent filter the embed/attribute and general fusion paths
             # apply; without this the rrf early-return would make --top-percent-filter
             # a no-op for the default fusion method.
-            search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
+            search_results = _fusion.apply_top_percent_filter(
+                search_results, getattr(config, "top_percent_filter", None)
+            )
             if getattr(config, "merge_adjacent", True):
                 search_results = _fusion.merge_consecutive_results(search_results)
             yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)

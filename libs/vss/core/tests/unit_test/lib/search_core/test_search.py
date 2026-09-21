@@ -112,6 +112,7 @@ def _embed_item(
     similarity: float = 0.8,
     start: str = "2025-01-01T00:00:00Z",
     end: str = "2025-01-01T00:00:05Z",
+    sensor_id_raw: str = "",
 ) -> EmbedSearchResultItem:
     return EmbedSearchResultItem(
         video_name=video_name,
@@ -119,6 +120,7 @@ def _embed_item(
         start_time=start,
         end_time=end,
         sensor_id=sensor_id,
+        sensor_id_raw=sensor_id_raw,
         screenshot_url="",
         similarity_score=similarity,
     )
@@ -1098,3 +1100,64 @@ class TestTagOnlyDeploymentAndFusionWeights:
         )
         assert {r.video_name for r in out.data} == {"e1", "e2", "e3"}
         assert "e4" not in {r.video_name for r in out.data}
+
+    @pytest.mark.asyncio
+    async def test_rrf_fusion_without_vst_carries_indexed_sensor_identity_for_attributes(self) -> None:
+        # Regression (PR #2263 review): the legacy rrf fusion path runs an
+        # attribute lookup per embed hit scoped to that hit's source. With VST
+        # absent it must filter by the indexed sensor identity (sensor.id), not
+        # the display filename (video_name). A behavior document keyed by
+        # sensor.id="warehouse_clip" with no path/url would otherwise be missed
+        # when the embed hit's video_name is the display filename
+        # "warehouse_clip.mp4" and its sensor_id is the stream UUID.
+        stream_id = "11111111-2222-3333-4444-555555555555"
+        embed = _FakeEmbed(
+            [
+                _embed_output(
+                    [
+                        _embed_item(
+                            video_name="warehouse_clip.mp4",
+                            sensor_id=stream_id,
+                            sensor_id_raw="warehouse_clip",
+                            similarity=0.9,
+                            start="2025-01-01T00:00:00Z",
+                            end="2025-01-01T00:00:05Z",
+                        ),
+                    ]
+                )
+            ]
+        )
+
+        class _AttrByIndexedSensorId:
+            def __init__(self) -> None:
+                self.calls: list[Any] = []
+
+            async def ainvoke(self, payload: Any) -> list[AttributeSearchResult]:
+                self.calls.append(payload)
+                sources = payload.get("video_sources") or []
+                # Only the indexed sensor.id matches the behavior document; the
+                # display filename and the stream UUID must not.
+                if "warehouse_clip" in sources:
+                    return [_attr_result(object_id="42", sensor_id="warehouse_clip")]
+                return []
+
+        attr = _AttrByIndexedSensorId()
+        out = await _run(
+            SearchInput(
+                query="person in white jacket",
+                source_type="video_file",
+                attributes=["white jacket"],
+                search_mode="fusion",
+            ),
+            embed_search=embed,
+            config=_config(fusion_method="rrf", vst_internal_url=""),
+            attribute_search_fn=attr,
+        )
+        # The per-hit attribute lookup was scoped to the indexed sensor identity
+        # ("warehouse_clip"), not the display filename ("warehouse_clip.mp4").
+        assert attr.calls
+        assert attr.calls[0]["video_sources"] == ["warehouse_clip"]
+        # The attribute hit (object 42) is retained through rrf fusion instead
+        # of silently dropping the attribute boost.
+        assert out.data
+        assert any("42" in r.object_ids for r in out.data)
