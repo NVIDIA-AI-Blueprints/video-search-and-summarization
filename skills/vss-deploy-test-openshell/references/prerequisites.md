@@ -66,7 +66,7 @@ Use this reference when:
 
 ## Sudo Access
 
-Most prerequisite steps require `sudo` (Docker install, NVIDIA toolkit, kernel settings, systemctl, edge cache-cleaner). On cloud instances (Brev, Colossus, DGX Cloud) the default user typically has passwordless sudo. On bare-metal machines, the user may need to enter a password or be in the `sudo` group.
+Most prerequisite steps require `sudo` (Docker install, NVIDIA toolkit, kernel settings, systemctl, edge cache-cleaner). On cloud instances (Colossus, DGX Cloud) the default user typically has passwordless sudo. On bare-metal machines, the user may need to enter a password or be in the `sudo` group.
 
 Check first — every subsequent step branches on this result:
 
@@ -163,7 +163,6 @@ internal one:
 |---|---|
 | Plain LAN | same as `HOST_IP` (the LAN IP) |
 | Cloud VM (AWS/GCP/Azure) | the **public/elastic IP** — **not on the NIC** (provider NAT, so `ip route`/`ip addr` can't see it). Read from instance metadata, e.g. AWS IMDSv1: `curl -s --max-time 2 http://169.254.169.254/latest/meta-data/public-ipv4` (`--max-time` so it fails fast off-AWS; IMDSv2-only instances must first fetch an `X-aws-ec2-metadata-token`). **Prompt the user** to confirm the public IP and that the security group opens the port. |
-| Brev | the `…brevlab.com` secure-link domain (Step 1d / `brev.md`) |
 | Reach over a tunnel | the tunnel address (Tailscale `100.x`, cloudflared/ngrok hostname) |
 
 A private `192.168.x` / `10.x` `EXTERNAL_IP` (including a GlobalProtect VPN IP) is
@@ -198,7 +197,7 @@ fi
 If the Compose project network already exists and landed on a different subnet
 (multiple Docker stacks on the host), allow that one instead:
 `docker network inspect "${COMPOSE_PROJECT_NAME:-vss}_default" -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'`.
-(Same step `warehouse.md` documents for Brev; applies to any ufw-active host.)
+(Same step `warehouse.md` documents; applies to any ufw-active host.)
 
 **Browser access from another machine.** The bridge rule above only lets *containers*
 reach the host — it does **not** open ports to other devices. The `HAPROXY_HOST_PORT`
@@ -229,7 +228,7 @@ If `nvidia-smi` fails with "NVIDIA-SMI has failed" but the driver is installed, 
 sudo modprobe nvidia && sudo modprobe nvidia_uvm
 ```
 
-This works without a reboot on Brev and Colossus instances.
+This works without a reboot on Colossus instances.
 
 ## Checks
 

@@ -438,11 +438,10 @@ The agent sets the upstream variables — `COMPOSE_PROFILES` is derived automati
 **Report the deployed public origin, not a raw container port.** Read it
 directly from the running stack — `docker inspect vss-agent` exposes
 `VSS_AGENT_EXTERNAL_URL`, the fully-assembled `proto://host:port` the agent
-actually serves (orchestrator equivalent: `docker_read`). Don't synthesize a
-`<HOST_IP>:<port>` URL — that surfaces an unreachable internal IP on Brev,
-where this origin is the `https://7777-<id>.brevlab.com` secure link (see
-[`brev.md`](brev.md)). Call that value `PUBLIC` below; everything is routed
-through the HAProxy ingress at that origin.
+actually serves (orchestrator equivalent: `docker_read`). Call that value
+`PUBLIC` below; everything is routed through the HAProxy ingress at that
+origin. Harbor evals on this skill record the compose ingress as
+`http://localhost:7777` with `vss configure --base-url`.
 
 | Service | URL to report (through ingress) |
 |---|---|
@@ -451,8 +450,8 @@ through the HAProxy ingress at that origin.
 | Reports | `${PUBLIC}/static/agent_report_<DATE>.md` |
 | Phoenix telemetry | `${PUBLIC}/phoenix` |
 
-**Direct service ports — internal only** (on-host `curl` debugging; not
-browser-reachable on Brev, never report these as the access URL):
+**Direct service ports — internal only** (on-host `curl` debugging; never
+report these as the access URL):
 
 | Service | Direct port |
 |---|---|

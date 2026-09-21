@@ -219,9 +219,9 @@ Before building env overrides, confirm:
 | **LLM/VLM placement** | Explicitly decide local / local_shared / remote. Cross-reference available GPUs against the chosen profile's **Minimum GPU count** table. If endpoint env vars are present but the user did not request remote, ask whether to use or ignore them. |
 | **API keys** | `NGC_CLI_API_KEY` for local NIMs, `NVIDIA_API_KEY` for remote |
 | **`HOST_IP`** | In-cluster dial address: `ip route get 1.1.1.1` src (like `dev-profile.sh`; correct on LAN + cloud). If that interface is a VPN/tunnel, fall back to the LAN IP and **prompt the user** — [Network addressing](references/prerequisites.md#addressing). |
-| **`EXTERNAL_IP`** | Browser-facing address; defaults to `${HOST_IP}`. Override when the browser path differs — cloud public IP, Brev secure-link (Step 1d), or tunnel; **ask the user where they browse from if unsure**. [Network addressing](references/prerequisites.md#addressing). |
+| **`EXTERNAL_IP`** | Browser-facing address; defaults to `${HOST_IP}`. Override when the browser path differs — cloud public IP or tunnel; **ask the user where they browse from if unsure**. [Network addressing](references/prerequisites.md#addressing). |
 | **`HAPROXY_HOST_PORT`** | Browser-facing ingress host port. Default `7777`; change it in `generated.env` if the host port conflicts. |
-| **`HAPROXY_PORT`** | HAProxy container listen port. Default `7777`; leave it unchanged unless a platform-specific path, such as Brev, requires it. |
+| **`HAPROXY_PORT`** | HAProxy container listen port. Default `7777`; leave it unchanged unless the host port conflicts. |
 
 Before `docker compose up`, verify `EXTERNAL_IP`, `HAPROXY_HOST_PORT`, `VSS_PUBLIC_HOST`, and `VSS_PUBLIC_PORT` are populated with browser-reachable values. Otherwise the stack may appear healthy while UI/API/VST links 404 or loop through Cloudflare Access.
 
@@ -250,18 +250,7 @@ ENV_GEN=$REPO/deploy/docker/developer-profiles/dev-profile-$PROFILE/generated.en
 cp "$ENV_POST" "$ENV_GEN"
 ```
 
-All subsequent writes (Brev `EXTERNAL_IP`, the env_overrides dict from Step 2) go to `$ENV_GEN`. `$ENV_SRC` and `$ENV_POST` are read-only from here on, and Compose must receive `$ENV_SRC` before `$ENV_GEN`.
-
-### Step 1d — Brev only: detect first, then set `EXTERNAL_IP` to the secure-link domain
-
-**Detect Brev before anything else** — a Brev-provisioned instance sets `BREV_ENV_ID` in `/etc/environment`; nothing else does:
-
-```bash
-grep -qE '^BREV_ENV_ID=' /etc/environment && echo "on Brev" || echo "not Brev"
-```
-
-- **not Brev** → skip the rest of this step and **do not read [`references/brev.md`](references/brev.md)**; keep the normal `${HOST_IP}`-based `EXTERNAL_IP`.
-- **on Brev** → apply the Brev secure-link overrides from [`references/brev.md` § Setup flow](references/brev.md#setup-flow) to `generated.env` (NOT `.env`). Those set `EXTERNAL_IP` / `VSS_PUBLIC_HOST` to the secure-link domain **and** `VSS_PUBLIC_HTTP_PROTOCOL=https` / `VSS_PUBLIC_WS_PROTOCOL=wss` / `VSS_PUBLIC_PORT=443` — setting `EXTERNAL_IP` alone leaves `http://…:7777` UI/API/WS links that the browser blocks as mixed content.
+All subsequent writes (the env_overrides dict from Step 2) go to `$ENV_GEN`. `$ENV_SRC` and `$ENV_POST` are read-only from here on, and Compose must receive `$ENV_SRC` before `$ENV_GEN`. Keep `EXTERNAL_IP` as `${HOST_IP}` unless the user named a different browser path.
 
 ### Step 2 — Build env_overrides
 
@@ -284,7 +273,7 @@ pair documented in [`references/warehouse.md`](references/warehouse.md) for
 both `config` and `up`. The two-file developer-profile command below applies
 only to base, lvs, search, and alerts.
 
-> **Reminder (see Step 1c):** apply all overrides (Step 2 dict + Brev `EXTERNAL_IP`) to `generated.env`; Compose gets `.env` first and `generated.env` second, and post-deploy verifiers read `generated.env` for the actually-deployed override values.
+> **Reminder (see Step 1c):** apply all overrides (Step 2 dict) to `generated.env`; Compose gets `.env` first and `generated.env` second, and post-deploy verifiers read `generated.env` for the actually-deployed override values.
 
 ```bash
 # (Step 1c already ran: cp $ENV_POST $ENV_GEN)
