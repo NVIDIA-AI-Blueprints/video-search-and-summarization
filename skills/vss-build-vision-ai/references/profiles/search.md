@@ -10,6 +10,8 @@
 - Choose for natural-language video search or combined ingestion + detection +
   embedding requests.
 - See `services/rt-cv.md` for detector model-family → Foundation mapping.
+- RTX PRO 4500 Blackwell (`RTXPRO4500BW`) is not a valid hardware profile here;
+  route that SKU to Alerts with a remote LLM.
 
 ## Profile Service Set
 

@@ -166,7 +166,8 @@ RT-VLM placement and utilization starting values:
 | Shared with another GPU service | Search FP8 on H100 or RTX PRO 6000; Alerts/LVS BF16 on H100, RTX PRO 6000, or DGX Spark | 0.40 |
 | Shared on DGX Station GB300 | Base, LVS, Alerts, and Search on the single GB300 | 0.2 |
 | Dedicated | Alerts/LVS BF16 on H100, RTX PRO 6000, or supported discrete GPUs not listed below | 0.70 |
-| Dedicated | Alerts/LVS BF16 on L40S or RTX PRO 4500 | 0.80 |
+| Dedicated | Alerts/LVS BF16 on L40S | 0.80 |
+| Dedicated | Alerts BF16 on RTX PRO 4500 (remote LLM) | 0.80 |
 
 **Ask before co-locating.** When the Foundation puts RT-VLM on the same GPU as
 another model and the host has a free GPU, ask the user which layout they want
@@ -187,9 +188,10 @@ These values apply when `rtvi-vlm` is in the effective service set, including
 stock Alerts `2d_cv` and `2d_vlm`. The BF16 co-resident row is a stock-Foundation
 layout (Alerts/LVS share BF16 with the LLM); a generated build that must converge
 variants co-resides on FP8, per step 4 of the sizing flow. Do not share the
-Alerts LLM and RT-VLM on L40S or RTX PRO 4500. On RTX PRO 4500, use a remote LLM
-and start RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and
-`RTVI_VLM_MAX_MODEL_LEN=18000`.
+Do not share the Alerts LLM and RT-VLM on L40S. RTX PRO 4500 Blackwell is
+alerts-only: use a remote LLM, start RT-VLM with
+`RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and `RTVI_VLM_MAX_MODEL_LEN=18000`,
+and do not route Base, LVS, or Search onto that SKU.
 
 ## Warehouse industry-profile layout
 

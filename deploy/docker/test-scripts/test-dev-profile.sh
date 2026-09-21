@@ -461,7 +461,68 @@ cat > "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi" <<'EOF'
 echo "NVIDIA RTX PRO 4500 Blackwell"
 EOF
 chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
-PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
+PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_negative_test "RTXPRO4500BW rejects base even when detected GPU is RTX PRO 4500 Blackwell" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
+_mock_rtx4500_ok_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_rtx4500_ok_dir}")
+cat > "${_mock_rtx4500_ok_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index,name"* ]]; then
+  printf '0, NVIDIA RTX PRO 4500 Blackwell\n1, NVIDIA RTX PRO 4500 Blackwell\n'
+elif [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n1\n'
+elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
+  echo "580.126.09"
+elif [[ "$*" == *"--query-gpu=name"* ]]; then
+  printf 'NVIDIA RTX PRO 4500 Blackwell\nNVIDIA RTX PRO 4500 Blackwell\n'
+else
+  echo "NVIDIA RTX PRO 4500 Blackwell"
+fi
+EOF
+chmod +x "${_mock_rtx4500_ok_dir}/nvidia-smi"
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_ok_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
+  run_dry_run_test "RTXPRO4500BW alerts verification with remote LLM passes GPU count and driver check" \
+  up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_ok_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
+  run_dry_run_test "RTXPRO4500BW alerts real-time with remote LLM passes GPU count and driver check" \
+  up -p alerts -i 127.0.0.1 -m real-time -H RTXPRO4500BW --use-remote-llm --llm x -d
+_mock_rtx4500_one_gpu_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_rtx4500_one_gpu_dir}")
+cat > "${_mock_rtx4500_one_gpu_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index,name"* ]]; then
+  echo "0, NVIDIA RTX PRO 4500 Blackwell"
+elif [[ "$*" == *"--query-gpu=index"* ]]; then
+  echo "0"
+elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
+  echo "580.126.09"
+else
+  echo "NVIDIA RTX PRO 4500 Blackwell"
+fi
+EOF
+chmod +x "${_mock_rtx4500_one_gpu_dir}/nvidia-smi"
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_one_gpu_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
+  run_negative_test "RTXPRO4500BW rejects alerts when fewer than 2 GPUs are present" 1 \
+  up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
+_mock_rtx4500_old_driver_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_mock_rtx4500_old_driver_dir}")
+cat > "${_mock_rtx4500_old_driver_dir}/nvidia-smi" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"--query-gpu=index,name"* ]]; then
+  printf '0, NVIDIA RTX PRO 4500 Blackwell\n1, NVIDIA RTX PRO 4500 Blackwell\n'
+elif [[ "$*" == *"--query-gpu=index"* ]]; then
+  printf '0\n1\n'
+elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
+  echo "570.00.00"
+elif [[ "$*" == *"--query-gpu=name"* ]]; then
+  printf 'NVIDIA RTX PRO 4500 Blackwell\nNVIDIA RTX PRO 4500 Blackwell\n'
+else
+  echo "NVIDIA RTX PRO 4500 Blackwell"
+fi
+EOF
+chmod +x "${_mock_rtx4500_old_driver_dir}/nvidia-smi"
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_old_driver_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
+  run_negative_test "RTXPRO4500BW rejects alerts when the NVIDIA driver is older than 580.126.09" 1 \
+  up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
 run_negative_test "GB300 search requires one shared device" 1 up -p search -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 0 -d
 
 # Mixed host: GPU 0 is RTX PRO and the selected GPU 1 is GB300. The helper
@@ -741,15 +802,16 @@ run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW local 
 run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8" "alerts" \
   -i 127.0.0.1 -m verification -H L40S --llm-device-id 2 --vlm-device-id 1 -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
-run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
-  -i 127.0.0.1 -m verification -H RTXPRO4500BW -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-run_dry_run_up_and_check_generated_env "generated.env lvs RTXPRO4500BW RTVI tuning" "lvs" \
-  -i 127.0.0.1 -H RTXPRO4500BW -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-run_dry_run_up_and_check_generated_env "generated.env base RTXPRO4500BW RTVI tuning" "base" \
-  -i 127.0.0.1 -H RTXPRO4500BW -d -- \
-  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
+  -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d -- \
+  "LLM_MODE" "remote" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 run_dry_run_up_and_check_generated_env "generated.env alerts real-time RTXPRO4500BW remote LLM" "alerts" \
+  -i 127.0.0.1 -m real-time -H RTXPRO4500BW --use-remote-llm --llm x -d -- \
+  "LLM_MODE" "remote" "HARDWARE_PROFILE" "RTXPRO4500BW"
+run_negative_test "RTXPRO4500BW rejects alerts without a remote LLM" 1 up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW -d
+run_negative_test "RTXPRO4500BW rejects lvs" 1 up -p lvs -i 127.0.0.1 -H RTXPRO4500BW -d
+run_negative_test "RTXPRO4500BW rejects search" 1 up -p search -i 127.0.0.1 -H RTXPRO4500BW -d
+run_negative_test "RTXPRO4500BW rejects base" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
@@ -883,7 +945,7 @@ run_dry_run_up_and_check_generated_env "alerts real-time enables always-on" "ale
   "ALERT_AGENT_ALWAYS_ON" "true" \
   "MODE" "2d_vlm" \
   "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
-run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
+run_negative_test "up base with hardware-profile RTXPRO4500BW is rejected" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
 run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "base" \
@@ -1840,9 +1902,9 @@ fi
 run_dry_run_up_and_check_generated_env "generated.env HOST_IP and HARDWARE_PROFILE from options" "base" \
  -i 127.0.0.1 -H RTXPRO6000BW -d -- \
   "HOST_IP" "127.0.0.1" "HARDWARE_PROFILE" "RTXPRO6000BW"
-run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE RTXPRO4500BW" "base" \
- -i 127.0.0.1 -H RTXPRO4500BW -d -- \
-  "HARDWARE_PROFILE" "RTXPRO4500BW"
+LLM_ENDPOINT_URL=http://127.0.0.1:8000 run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE RTXPRO4500BW" "alerts" \
+ -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d -- \
+  "HARDWARE_PROFILE" "RTXPRO4500BW" "LLM_MODE" "remote"
 run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "base" \
  -i 127.0.0.1 -H OTHER -d -- \
   "HARDWARE_PROFILE" "OTHER"
