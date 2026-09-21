@@ -5,12 +5,11 @@ description: "Request and response schemas for the Video Analytics API"
 
 This reference is generated from the Video Analytics API OpenAPI specification. It includes request parameters, response schemas, and examples for every endpoint.
 
-Generated requests default to direct access at `http://localhost:8081`. For a
-self-hosted Docker Compose deployment, replace `localhost` with `HOST_IP` and
-use the configured `VIDEO_ANALYTICS_API_HOST_PORT` if it differs from `8081`.
-For access through the VSS ingress, use
-`http://<HOST_IP>:7777/video-analytics-api` as the base URL, replacing `7777`
-with `HAPROXY_HOST_PORT` if it was overridden. Append the documented endpoint
-path to the selected base URL.
+For a self-hosted Docker Compose deployment that includes the Video Analytics
+API, replace the generated server URL with `http://<HOST_IP>:8081` for direct
+access or `http://<HOST_IP>:7777/video-analytics-api` through the VSS ingress.
+These are the default host ports; use the configured
+`VIDEO_ANALYTICS_API_HOST_PORT` or `HAPROXY_HOST_PORT` if either was overridden.
+Append the documented endpoint path to the selected base URL.
 
 Select an endpoint in the navigation to jump to its documentation on this page.
