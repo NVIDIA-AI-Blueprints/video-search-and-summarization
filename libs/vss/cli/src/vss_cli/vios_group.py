@@ -36,6 +36,7 @@ import urllib.parse
 import click
 
 from . import params as params_mod
+from . import plugins
 from .exits import Exit
 from .group import Result
 from .group import context_from
@@ -434,7 +435,7 @@ def _build() -> click.Group:
 class _ViosGroup:
     """Entry-point object; see :mod:`vss_cli.plugins` for the contract."""
 
-    api_version = 1
+    api_version = plugins.API_VERSION
     name = "vios"
     #: Read by `vss configure check` to report whether this group can be served.
     requires = REQUIRES

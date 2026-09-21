@@ -211,10 +211,12 @@ def test_run_returns_answer_when_configured_memory_backend_is_absent(
     )
 
     assert result.exit == Exit.PARTIAL
-    assert result.body["status"] == "completed"
+    # `partial`, not `completed`: the answer landed, the record did not, and all
+    # three job groups now say that with the same word.
+    assert result.body["status"] == "partial"
     assert result.body["answer"] == answer
     assert result.body["persisted"] is False
-    assert "records no Elasticsearch" in result.body["persist_error"]
+    assert "records no Elasticsearch" in result.body["persist"]["error"]
     assert result.extra["marker"]["persisted"] is False
 
 

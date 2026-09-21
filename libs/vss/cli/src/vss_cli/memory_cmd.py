@@ -22,6 +22,7 @@ from pydantic import ValidationError
 
 from . import config as config_mod
 from . import memory as memory_mod
+from . import plugins
 from .exits import Exit
 
 if TYPE_CHECKING:
@@ -458,7 +459,7 @@ def events(
 
 
 class _MemoryGroup:
-    api_version = 1
+    api_version = plugins.API_VERSION
     name = "memory"
     summary = "Unified memory store surface"
 

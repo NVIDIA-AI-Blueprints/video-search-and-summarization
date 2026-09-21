@@ -357,12 +357,18 @@ def test_colliding_search_hits_report_partial(
     assert result.exit == Exit.PARTIAL
     assert len(result.body["data"]) == 2
     assert result.body["persisted"] is False
-    assert result.body["persistence"] == {
+    # One `persist` block for every group (was `persistence` here, `persist` in
+    # summarize): same key, same shape, whichever group wrote it.
+    assert result.body["persist"] == {
+        "status": "failed",
+        "index": "vss-memory",
+        "group": "search",
         "requested": 3,
         "expected": 2,
         "written": 2,
         "collapsed": 1,
         "failed": [],
+        "error": "persistence incomplete",
     }
     assert result.extra["marker"]["status"] == "partial"
     assert result.extra["marker"]["persisted"] is False

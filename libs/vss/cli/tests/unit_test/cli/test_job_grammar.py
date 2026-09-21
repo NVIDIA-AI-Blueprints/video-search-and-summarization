@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import TYPE_CHECKING
+from typing import Any
 from typing import Literal
+from typing import cast
 
 import click
 from click.testing import CliRunner
@@ -19,11 +22,17 @@ from vss_cli import params as params_mod
 from vss_cli.exits import Exit
 from vss_cli.group import CommandGroup
 from vss_cli.group import Context
-from vss_cli.group import Result
 from vss_cli.search.group import SEARCH
 from vss_cli.search.group import FusionInput
 from vss_cli.search.group import SearchTuning
 from vss_cli.search.group import TagInput
+from vss_core.memory import RecordBundle
+from vss_core.memory.adapters import LifecycleAdapter
+from vss_core.memory.models import MemoryGroup
+from vss_core.memory.models import MemoryInput
+
+if TYPE_CHECKING:
+    from vss_cli.lifecycle import Job
 
 
 class _Input(BaseModel):
@@ -38,6 +47,12 @@ class _Input(BaseModel):
     internal: str = Field("", description="Not a flag", json_schema_extra={"cli_hide": True})
 
 
+class _ProbeAdapter(LifecycleAdapter):
+    """Minimal adapter: the probe group writes nothing this file reads back."""
+
+    group: MemoryGroup = "search"
+
+
 class _Group(CommandGroup):
     """Probe group."""
 
@@ -49,21 +64,38 @@ class _Group(CommandGroup):
         self.seen: _Input | None = None
         self.action: str = "?"
 
-    def run(self, action: str, inputs: _Input, ctx: Context) -> Result:  # type: ignore[override]
+    @classmethod
+    def adapter(cls) -> type[LifecycleAdapter]:
+        return _ProbeAdapter
+
+    def prepare(self, action: str, inputs: BaseModel, ctx: Context, job: Job, *, persist: bool) -> None:
+        job.input_data = MemoryInput(query=getattr(inputs, "query", None))
+        job.asset_id = "camera-1"
+
+    def execute(self, action: str, inputs: BaseModel, ctx: Context, job: Job) -> Any:
         self.action = action
-        self.seen = inputs
-        return Result(body={"query": inputs.query, "attributes": inputs.attributes})
+        self.seen = cast("_Input", inputs)
+        return {"query": self.seen.query, "attributes": self.seen.attributes}
+
+    def build_bundle(self, job: Job, output: Any) -> RecordBundle:
+        return RecordBundle(
+            parent=self.adapter()().terminal_record(
+                job_id=job.job_id,
+                created_at=job.created_at,
+                status="completed",
+                input_data=job.input_data,
+            )
+        )
+
+    def render(self, job: Job, output: Any, persist: dict[str, Any] | None) -> dict[str, Any]:
+        return dict(output)
 
 
 class _MarkerGroup(_Group):
     name = "search"
 
-    def run(self, action: str, inputs: _Input, ctx: Context) -> Result:  # type: ignore[override]
-        return Result(
-            body={"data": [{"description": "paid-for result"}]},
-            job_id="search-01",
-            extra={"marker": {"asset_id": "camera-1", "status": "completed", "persisted": True}},
-        )
+    def render(self, job: Job, output: Any, persist: dict[str, Any] | None) -> dict[str, Any]:
+        return {"data": [{"description": "paid-for result"}]}
 
 
 # --------------------------------------------------------------------------
@@ -151,18 +183,25 @@ def test_run_parses_derived_flags_into_the_model() -> None:
     assert owner.seen.top_k == 3
 
 
-def test_run_ends_with_compact_sdd_completion_marker_even_when_pretty() -> None:
+def test_run_ends_with_compact_sdd_completion_marker_even_when_pretty(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path / "absent"))
     result = CliRunner().invoke(_MarkerGroup().cli(), ["run", "--pretty"])
     assert result.exit_code == 0, result.output
     marker_line = result.stdout.splitlines()[-1]
     marker = json.loads(marker_line)
+    # The job id is minted by the framework, so pin its shape rather than a literal.
+    job_id = marker.pop("job_id")
+    assert job_id.startswith("search-")
     assert marker == {
         "event": "vss_job_completed",
         "group": "search",
-        "job_id": "search-01",
         "asset_id": "camera-1",
+        # Nothing was configured, so nothing was persisted -- the marker says so
+        # rather than claiming a record a caller could not read back.
         "status": "completed",
-        "persisted": True,
+        "persisted": False,
         "exit_hint": 0,
     }
     assert len(marker_line.encode()) <= 1024

@@ -30,6 +30,7 @@ from typing import NoReturn
 import click
 
 from . import config as config_mod
+from . import plugins
 from .exits import Exit
 
 #: A route counts as present only if its probe path answers. 404 means the
@@ -738,7 +739,7 @@ def check() -> None:
 class _ConfigureGroup:
     """Plugin spec so ``configure`` mounts through the published contract."""
 
-    api_version = 1
+    api_version = plugins.API_VERSION
     name = "configure"
     summary = "Resolve and record a VSS deployment"
 
