@@ -1,0 +1,56 @@
+[
+  {
+    "id": "single-attribute-claim",
+    "question": "Create an evidence plan for question warehouse-ladder-q4: What was the last person who climbed the ladder wearing?",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Return one option-blind attribute claim with whole-video coverage so the last ladder climber can be identified before clothing is assessed.",
+    "expected_behavior": [
+      "Returns one initial claim, not separate claims for the ladder, climbing event, person identity, and clothing.",
+      "Classifies the primary evidence type as attribute and uses whole_video coverage.",
+      "Includes observable support and falsification tests without asserting what the person wore."
+    ]
+  },
+  {
+    "id": "two-independent-outcomes",
+    "question": "Create an evidence plan for question vehicle-summary-q2: How many vehicles entered the loading area, and what types were they?",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Return no more than two initial claims because the question independently asks for a count and vehicle types with different evidence tests.",
+    "expected_behavior": [
+      "Returns one or two claims and never three or more.",
+      "If split, uses one count claim and one object claim with whole_video coverage.",
+      "Does not use answer choices or observed vehicle types in the plan."
+    ]
+  },
+  {
+    "id": "expand-one-missing-requirement",
+    "question": "The current plan covers whether a person placed a box on the cart. The sufficiency check proves the question also independently asks whether the cart later moved, and no existing claim tests that outcome. Expand the plan.",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Return an expansion containing exactly one new movement claim while preserving prior claim IDs in the ledger.",
+    "expected_behavior": [
+      "Uses mode expansion and adds exactly one claim.",
+      "Preserves every prior claim ID.",
+      "Adds only the independently assessable cart-movement requirement."
+    ]
+  },
+  {
+    "id": "missing-evidence-is-gathering-gap",
+    "question": "The clothing claim is already in the evidence plan, but memory does not show the last ladder climber clearly. Should the plan add another claim?",
+    "expected_skill": "vss-generate-evidence-plan",
+    "ground_truth": "Do not expand the plan; report that the existing claim needs additional evidence gathering.",
+    "expected_behavior": [
+      "Does not create another claim.",
+      "Classifies the issue as a gathering gap for the existing claim.",
+      "Keeps planning separate from evidence binding and visual inspection."
+    ]
+  },
+  {
+    "id": "direct-answer-non-activation",
+    "question": "Watch this clip and tell me which answer option is correct.",
+    "expected_skill": null,
+    "ground_truth": "This is a request to inspect and answer, not to generate an evidence plan; route to vss-ask-video.",
+    "expected_behavior": [
+      "Does not activate vss-generate-evidence-plan as the sole answering workflow.",
+      "Routes the request to vss-ask-video."
+    ]
+  }
+]

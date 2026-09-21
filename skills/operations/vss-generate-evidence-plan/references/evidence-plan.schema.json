@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/generate-evidence-plan/evidence-plan.schema.json",
+  "title": "Minimal Option-Blind Evidence Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_version", "mode", "question_id", "question_text", "asset_id", "claims"],
+  "properties": {
+    "plan_version": {"const": "2.0"},
+    "mode": {"enum": ["initial", "expansion"]},
+    "question_id": {"type": "string", "minLength": 1},
+    "question_text": {"type": "string", "minLength": 1},
+    "asset_id": {"type": ["string", "null"]},
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {"$ref": "#/$defs/claim"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "expansion"}}},
+      "then": {"properties": {"claims": {"maxItems": 1}}}
+    }
+  ],
+  "$defs": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "requirement",
+        "evidence_type",
+        "coverage_requirement",
+        "support_test",
+        "falsification_test"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "pattern": "^claim-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "requirement": {"type": "string", "minLength": 1},
+        "evidence_type": {
+          "enum": [
+            "attribute",
+            "object",
+            "count",
+            "action",
+            "state_change",
+            "order",
+            "duration",
+            "trajectory",
+            "identity",
+            "spatial",
+            "cause",
+            "prediction",
+            "counterfactual",
+            "negative"
+          ]
+        },
+        "coverage_requirement": {
+          "enum": ["local_window", "before_after", "repeated_observation", "whole_video"]
+        },
+        "support_test": {"type": "string", "minLength": 1},
+        "falsification_test": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
