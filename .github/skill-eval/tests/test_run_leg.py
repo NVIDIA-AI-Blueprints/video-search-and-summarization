@@ -1930,3 +1930,48 @@ class NemoClawSandboxName(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class NemoClawSetupMountHygiene(unittest.TestCase):
+    """The NemoClaw setup step must not undo the adapter's eval-spec exclusion."""
+
+    def test_setup_task_mount_excludes_eval_specs(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task_dir = root / "l40s"
+            task_dir.mkdir()
+            (task_dir / "instruction.md").write_text("original\n", encoding="utf-8")
+
+            # The adapter has already mounted a filtered copy; this call merges
+            # into it with dirs_exist_ok, which is how the leak came back.
+            filtered = task_dir / "skills" / "vss-build-vision-ai"
+            filtered.mkdir(parents=True)
+            (filtered / "SKILL.md").write_text("doc\n", encoding="utf-8")
+
+            invocation = run_leg.HarborInvocation(
+                harbor_root=root,
+                include_task_name="l40s",
+                chain_key="chain",
+            )
+            run_leg.prepare_nemoclaw_setup_task(invocation, "vss-ask-video")
+
+            mounted = task_dir / "skills" / "vss-build-vision-ai"
+            self.assertTrue(
+                (mounted / "SKILL.md").is_file(),
+                "documentation must still be mounted",
+            )
+            leaked = [
+                p
+                for p in mounted.rglob("*.json")
+                if p.parent.name in {"evals", "eval"}
+            ]
+            self.assertEqual(
+                leaked, [], f"eval specs restored by NemoClaw setup: {leaked}"
+            )
+            self.assertIn(
+                "Selected agent harness: NemoClaw",
+                (task_dir / "instruction.md").read_text(encoding="utf-8"),
+                "setup contract should still be appended",
+            )

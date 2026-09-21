@@ -12,10 +12,11 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS and a video-understanding VLM ready for the following vss-ask-video queries. Use the configured remote model endpoints and run autonomously.",
+      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS and a video-understanding VLM ready for the following vss-ask-video queries. Use the configured remote model endpoints and run autonomously.\n\n**Unified memory is a prerequisite for this spec.** The stock `base` profile ships no memory backend, so extend it with the `elasticsearch` and `elasticsearch-init-container` service keys, then wire the CLI to it. Re-running `vss configure` after the deploy is required, not optional: the CLI records the backends it discovers at the base URL, so a deployment that gained Elasticsearch after the last `configure` still reports \"records no Elasticsearch\" and every memory call fails.\n\n```bash\nVSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"\nVSS=(uv run --project \"${VSS_REPO_ROOT}/libs/vss\" vss)\n\n# The deployment's ingress, and whichever configured LLM endpoint answers.\n# Wait for warmup on the same budget the readiness check below allows -\n# probing once can leave JUDGE empty and make the next command fail.\nBASE_URL=\"http://${HOST_IP:-localhost}:7777\"\nJUDGE=\"\"\nend=$((SECONDS+570))\nwhile [ -z \"${JUDGE}\" ] && [ ${SECONDS} -lt ${end} ]; do\n  for u in http://localhost:30081/v1 http://localhost:30082/v1 http://localhost:8018/v1; do\n    curl -sf --connect-timeout 2 --max-time 5 \"${u}/models\" >/dev/null 2>&1 \\\n      && { JUDGE=\"${u}\"; break; }\n  done\n  [ -z \"${JUDGE}\" ] && sleep 5\ndone\n[ -n \"${JUDGE}\" ] || { echo 'no LLM endpoint became ready' >&2; exit 1; }\n\n\"${VSS[@]}\" configure --base-url \"${BASE_URL}\"\n\"${VSS[@]}\" configure memory --enable --backend elasticsearch --index vss-memory\n\"${VSS[@]}\" configure memory introspection --enable --judge-endpoint \"${JUDGE}\"\n```\n\n`--judge-endpoint` is required the first time introspection is configured; the loop above waits up to the same 9.5 minutes the readiness check allows and takes whichever of this deployment's OpenAI-compatible LLM endpoints comes up first, so a cold model does not leave it empty. Confirm with `vss memory query --query anything` returning exit 0 - a successful `configure memory show` only proves the file was written, not that a backend is reachable.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
-        "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup)."
+        "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup).",
+        "`sh -c 'VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"; uv run --project \"${VSS_REPO_ROOT}/libs/vss\" vss memory query --query readiness-probe'` returns exit 0. This is a real round-trip against the configured backend, so it fails when Elasticsearch is absent or the CLI has not re-discovered it - unlike `configure memory show`, which returns 0 whenever the config file was written and would pass while every later memory step still fails with \"cannot reach unified memory\"."
       ]
     },
     {
@@ -33,7 +34,7 @@
       ]
     },
     {
-      "query": "Treat these as mocked prior tool results: native Markdown search found a relevant but incomplete note with VSS job pointer sum-01JXYZ, and configure memory show reports introspection.enabled=true. Continue the question verbatim: Was the worker wearing a safety helmet?",
+      "query": "Treat these as mocked prior tool results: native Markdown search found a relevant but incomplete note with VSS job pointer sum-01JXYZ, and configure memory show reports introspection.enabled=true. Continue the question verbatim: Was the worker wearing a safety helmet? Nothing seeds this fixture, so the call will come back empty - `no_memory` for introspection, `not found` for a job id. That empty result is the answer: report it and stop. Do not chase it through Elasticsearch, VIOS/VST/RT-VLM, or the filesystem; issuing those calls fails this step even when the right command ran first.",
       "checks": [
         "The next VSS operation is memory introspect with --job-id sum-01JXYZ, the user's question preserved verbatim, and --fps chosen from the skim/locate/inspect policy.",
         "It does not run memory query first and does not manually duplicate an internal VLM follow-up.",
@@ -41,14 +42,14 @@
       ]
     },
     {
-      "query": "Treat these as mocked tool results: native Markdown search returned no useful evidence, configure memory show reports introspection.enabled=true, and dock_cam is a grounded sensor. Continue: Was anyone missing PPE?",
+      "query": "Treat these as mocked tool results: native Markdown search returned no useful evidence, configure memory show reports introspection.enabled=true, and dock_cam is a grounded sensor. Continue: Was anyone missing PPE? Nothing seeds this fixture, so the call will come back empty - `no_memory` for introspection, `not found` for a job id. That empty result is the answer: report it and stop. Do not chase it through Elasticsearch, VIOS/VST/RT-VLM, or the filesystem; issuing those calls fails this step even when the right command ran first.",
       "checks": [
         "The next VSS operation is memory introspect with --sensor dock_cam, the verbatim question, and --fps.",
         "It does not issue memory query first or call a backend directly."
       ]
     },
     {
-      "query": "Treat these as mocked prior tool results: native Markdown search found an incomplete note with pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue by retrieving that stored job with ordinary structured memory. Do not treat the pointer as informational only.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found an incomplete note with pointer sum-01JXYZ, and configure memory show reports introspection.enabled=false. Continue by retrieving that stored job with ordinary structured memory. Do not treat the pointer as informational only. `sum-01JXYZ` is a fixture pointer, so the retrieval may legitimately come back empty or not-found. That is the answer: report it plainly. Do not treat it as a sign you picked the wrong tool and fall back to filesystem search, Elasticsearch curls, or another skill - running the right command and reporting what it returned is the whole task.",
       "checks": [
         "It uses memory get --job-id sum-01JXYZ for ordinary structured retrieval.",
         "It never calls memory introspect, never enables it, and never automatically runs VLM when records are insufficient."
@@ -62,14 +63,14 @@
       ]
     },
     {
-      "query": "Read the exact stored VSS job sum-01JXYZ.",
+      "query": "Read the exact stored VSS job sum-01JXYZ. `sum-01JXYZ` is a fixture pointer, so the retrieval may legitimately come back empty or not-found. That is the answer: report it plainly. Do not treat it as a sign you picked the wrong tool and fall back to filesystem search, Elasticsearch curls, or another skill - running the right command and reporting what it returned is the whole task.",
       "checks": [
         "It goes directly to memory get --job-id sum-01JXYZ.",
         "It does not perform broad Markdown search, semantic discovery, introspection, or VLM."
       ]
     },
     {
-      "query": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a safety helmet?",
+      "query": "Freshly verify dock_cam from 2026-08-13T20:00:00Z to 2026-08-13T20:00:30Z: was the worker wearing a safety helmet? This deployment may have no sensor registered under that name, in which case `vss vlm run` reports `no VIOS sensor named 'dock_cam'`. Issuing the one correct command and reporting that is the task - do not hand-build a clip URL, call the RT-VLM endpoint directly, or fall back to memory.",
       "checks": [
         "It uses exactly one vss vlm run with dock_cam, both exact UTC bounds, and --fps rather than a fixed --num-frames.",
         "It does not search Markdown or call memory introspect."
@@ -97,7 +98,7 @@
       ]
     },
     {
-      "query": "Introspect child record event-17. No job id or record type is known. Show the safe next step, assuming each OpenClaw command runs in a fresh shell.",
+      "query": "Introspect child record event-17. No job id or record type is known. Show the safe next step, assuming each OpenClaw command runs in a fresh shell. Nothing seeds this fixture, so the call will come back empty - `no_memory` for introspection, `not found` for a job id. That empty result is the answer: report it and stop. Do not chase it through Elasticsearch, VIOS/VST/RT-VLM, or the filesystem; issuing those calls fails this step even when the right command ran first.",
       "checks": [
         "It never emits --record-id without both --job-id and --record-type and requests the missing identity or another valid scope.",
         "Any proposed VSS command defines VSS_REPO_ROOT and the uv run array in the same shell call against libs/vss.",
