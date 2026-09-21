@@ -155,6 +155,9 @@ docker compose -f compose.yml \
 
 Use `config --environment` to inspect interpolation and `config --services`
 to inspect selected services without starting containers. `config --quiet`
-validates the Compose model and environment values but does not pull images,
-validate registry entitlements, create missing host directories, or test
-service health.
+validates that Compose can render the model, but it can exit successfully while
+warning that variables are unset and defaulting them to empty strings. Review
+those warnings against the selected profile; variables used only by inactive
+profiles can also warn. This check does not prove that every operationally
+required value is set, pull images, validate registry entitlements, create
+missing host directories, or test service health.

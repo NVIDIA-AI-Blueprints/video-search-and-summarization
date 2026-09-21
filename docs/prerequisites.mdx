@@ -48,20 +48,13 @@ The following software must be installed on your system:
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
 - **NGC CLI:** 4.10.0+
-- **Python runner for Build Vision AI:** `uv` is required when you select the
-  default NemoClaw harness and is preferred for other deployments. For a
-  deployment without NemoClaw, Python 3 with PyYAML is also supported for the
-  Skill's service-graph checks and helper scripts.
+- **Python runner for Build Vision AI:** `uv` is required for the Skill's
+  mandatory service-graph checks and helper scripts.
 
-Install `uv` for the default NemoClaw path. For a deployment without NemoClaw,
-you can instead use the active Python 3 environment:
+Install `uv` before starting the coding agent:
 
 ```bash
-# Required for NemoClaw; preferred otherwise
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Alternative only for deployments without NemoClaw
-python3 -m pip install PyYAML
 ```
 
 Build Vision AI runs the NemoClaw setup notebook non-interactively with a
@@ -271,8 +264,10 @@ If you encounter permission errors, contact NVIDIA support for assistance.
 The `Login Succeeded` response verifies NGC Docker registry authentication.
 Run this step before the Build Vision AI Skill or any manual
 `docker compose up` command that pulls gated NIM or other `nvcr.io` images. A
-later `docker compose config --quiet` validates the Compose model and
-environment values, but does not contact the registry or validate image
+later `docker compose config --quiet` validates that Compose can render the
+model, but a successful exit does not prove that every operationally required
+environment value is set. Review its unset-variable warnings against the
+selected profile. The command does not contact the registry or validate image
 entitlements.
 
 ### Hugging Face Access Token

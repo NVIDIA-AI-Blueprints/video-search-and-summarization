@@ -114,10 +114,8 @@ are working with a separate custom or headless deployment.
 
 The host must satisfy [Prerequisites](/vss/getting-started/prerequisites) (Linux, GPU, Docker, NVIDIA Container Toolkit, NGC). The Skill's own checks in `skills/vss-build-vision-ai/references/prerequisites.md` also require:
 
-- A Python runner for mandatory service-graph checks and helper scripts. `uv`
-  is preferred; Python 3 with PyYAML is also supported. Install `uv` with
-  `curl -LsSf https://astral.sh/uv/install.sh | sh`, or install the fallback
-  with `python3 -m pip install PyYAML`.
+- `uv` for mandatory service-graph checks and helper scripts. Install it with
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`.
 - `curl`, `docker`, and NGC CLI access.
 
 The Skill asks which developer workflow or warehouse variant you want, LLM/VLM locality (local vs remote), and hardware. Defaults follow the selected profile (for example alerts `2d_vlm` vs `2d_cv`). Each answer changes the composed stack (services, `MODE`, GPU placement).

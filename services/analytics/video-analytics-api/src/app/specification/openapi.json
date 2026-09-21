@@ -11,7 +11,18 @@
     },
     "servers": [
         {
-            "url": "https://ai.nvidia.com/api/v3.3/analytics",
+            "url": "http://{host}:{port}",
+            "description": "Direct access to a self-hosted Video Analytics API deployment",
+            "variables": {
+                "host": {
+                    "default": "localhost",
+                    "description": "VSS deployment host"
+                },
+                "port": {
+                    "default": "8081",
+                    "description": "VIDEO_ANALYTICS_API_HOST_PORT"
+                }
+            },
             "x-internal": false
         }
     ],
@@ -80,7 +91,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -90,7 +102,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -278,7 +291,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -515,7 +529,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -525,7 +540,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -726,7 +742,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -736,7 +753,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -3167,7 +3185,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -3177,7 +3196,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "objectTypes",
@@ -6171,7 +6191,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -6181,7 +6202,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -6628,7 +6650,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -6638,7 +6661,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "place",
@@ -7385,7 +7409,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -7395,7 +7420,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "objectType",
@@ -7581,7 +7607,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:00.000Z"
                     },
                     {
                         "name": "toTimestamp",
@@ -7591,7 +7618,8 @@
                             "type": "string",
                             "format": "date-time",
                             "maxLength": 24
-                        }
+                        },
+                        "example": "2022-08-25T00:00:10.000Z"
                     },
                     {
                         "name": "maxResultSize",

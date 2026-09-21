@@ -147,16 +147,11 @@ quickstart, the deployment host must meet the supported Linux platform,
 GPU, Docker, and NVIDIA Container Toolkit requirements in
 [Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use Ubuntu
 24.04.
-The Build Vision AI Skill needs a Python runner for mandatory service-graph
-checks and helper scripts. `uv` is preferred; Python 3 with PyYAML is also
-supported:
+The Build Vision AI Skill requires `uv` for mandatory service-graph checks and
+helper scripts. Install it before starting the coding agent:
 
 ```bash
-# Preferred
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Alternative: use the active Python 3 environment
-python3 -m pip install PyYAML
 ```
 
 You can use a remote development environment such as a Brev or Omnistation
@@ -484,6 +479,15 @@ developer profiles is `dev-profile.sh`. It creates `generated.env`, derives the
 profile-specific service set, applies host paths and model placement, and starts
 the matching Compose project.
 
+<Warning>
+Both `up` and `down` perform destructive cleanup. `up` runs the cleanup first,
+before starting a fresh deployment. The cleanup stops the helper-managed Compose
+project with `down -v`, deletes the helper-managed `deploy/docker/data-dir`, and
+removes all dangling Docker volumes on the host. Back up any data you need and
+do not use the helper when those volumes or that data directory must be
+preserved.
+</Warning>
+
 The helper always recreates the selected profile's `generated.env` from the
 checked-in `overrides.env` template, its flags, and supported environment
 inputs, then passes `.env` and `generated.env` to Compose. It does not read
@@ -594,10 +598,17 @@ VSS_DATA_DIR=/absolute/path/to/vss-apps-data
 HOST_IP=<reachable-host-ip-or-name>
 ```
 
-**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+**Prepare host data directories before starting Compose.** Export
+`VSS_DATA_DIR` with the same absolute path you set in `user-overrides.env`, then
+run this block. The guard stops before `mkdir` or `chmod` if the value is absent
+or is not absolute:
 
 ```bash
-VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
 mkdir -p \
   "$VSS_DATA_DIR/data_log/analytics_cache" \
   "$VSS_DATA_DIR/data_log/calibration_toolkit" \
@@ -1077,7 +1088,12 @@ docker compose -f compose.yml \
   up -d
 ```
 
-Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
+Review every unset-variable warning from `config --quiet` against the selected
+profile before running `up -d`. A zero exit code confirms that Compose could
+render the model; it does not prove that every operationally required value is
+set. Variables used only by inactive profiles can also produce warnings.
+
+Docker Compose downloads the required containers from the configured GHCR and NGC registries and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
 <Note>
