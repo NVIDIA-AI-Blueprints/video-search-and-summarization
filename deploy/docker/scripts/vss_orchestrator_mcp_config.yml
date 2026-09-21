@@ -91,6 +91,10 @@ function_groups:
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.4"
           L40S:
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
+            # search co-locates RT-CV (SigLIP v2.0 + RT-DETR) with RT-VLM on the
+            # one 48 GiB GPU; 0.8 starves RT-CV and crashes the vLLM EngineCore.
+            search:
+              RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.7"
           RTXPRO4500BW:
             RTVI_VLLM_GPU_MEMORY_UTILIZATION: "0.8"
             RTVI_VLM_MAX_MODEL_LEN: "18000"
