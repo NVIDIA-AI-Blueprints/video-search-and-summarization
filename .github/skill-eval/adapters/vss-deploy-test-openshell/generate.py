@@ -376,6 +376,11 @@ PROFILES: dict[str, dict] = {
         "description": "Compose a vision stack with vss-build-vision-ai (proposal-only smoke)",
         "bundled_skills": ("vss-build-vision-ai",),
     },
+    "vdr_1_quickstart_vision_agent": {
+        "description": "VDR-1 quickstart: replace the in-stack agent with NemoClaw",
+        "bundled_skills": ("vss-build-vision-ai",),
+        "build_exam": True,
+    },
     "deploy-profile": {
         "description": "Full vss-deploy-profile catalog on OpenShell (base smoke)",
         "profile": "base",
@@ -498,7 +503,16 @@ PREAMBLE = (
 )
 
 
-def generate_instruction(profile: str, platform: str, spec_query: str | None = None) -> str:
+def generate_instruction(
+    profile: str,
+    platform: str,
+    spec_query: str | None = None,
+    *,
+    spec_env: str = "",
+    build_profile: str = "",
+    step_idx: int = 1,
+    step_count: int = 1,
+) -> str:
     """Short, query-style instruction. The `/vss-deploy-test-openshell` skill reads the host
     and env vars and picks the actual LLM/VLM placement.
 
@@ -509,7 +523,21 @@ def generate_instruction(profile: str, platform: str, spec_query: str | None = N
     the generic template is used as a safe fallback.
     """
     if spec_query is not None:
-        return "\n".join([PREAMBLE, "", spec_query]) + "\n"
+        lines = [PREAMBLE, ""]
+        if PROFILES[profile].get("build_exam"):
+            lines.extend([
+                f"Use the `/vss-build-vision-ai` skill for the "
+                f"`{build_profile}` build on `{platform}`.",
+                "Work from `$HOME/video-search-and-summarization`.",
+                "",
+                f"## Query {step_idx} of {step_count}",
+                "",
+            ])
+        lines.append(spec_query)
+        if spec_env:
+            lines.extend(["", "## Environment notes", "", spec_env])
+        lines.extend(["", "Run autonomously without prompting for confirmation."])
+        return "\n".join(lines) + "\n"
 
     profile_def = PROFILES[profile]
     underlying = deploy_profile(profile)
@@ -739,6 +767,40 @@ def generate_solve_script(profile: str, platform: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def generate_build_solve_script(
+    platform: str,
+    build_profile: str,
+    artifact_expected: bool,
+) -> str:
+    """Validate a `/vss-build-vision-ai` turn without pre-deploying a stock profile."""
+    lines = [
+        "#!/bin/bash\n",
+        f"# Gold solution: vss-build-vision-ai / {build_profile} on {platform}\n",
+        "set -euo pipefail\n",
+        'REPO_ROOT="${HOME}/video-search-and-summarization"\n',
+        f'BUILD_DIR="${{REPO_ROOT}}/_builds/{build_profile}"\n',
+    ]
+    if not artifact_expected:
+        lines.append(
+            'echo "No artifact required for this documentation turn; '
+            'the verifier checks that it stayed side-effect free."\n'
+        )
+        return "".join(lines)
+    lines.extend([
+        "for artifact in override.env compose.yml resolved.yml; do\n",
+        '    test -f "${BUILD_DIR}/${artifact}" || { '
+        'echo "Build output missing: ${BUILD_DIR}/${artifact}"; exit 1; }\n',
+        "done\n",
+        'grep -q "^FOUNDATION=" "${BUILD_DIR}/override.env"\n',
+        'grep -q "^COMPOSE_PROFILES=" "${BUILD_DIR}/override.env"\n',
+        'docker compose -f "${BUILD_DIR}/resolved.yml" config --quiet\n',
+        'uv run "${REPO_ROOT}/skills/vss-build-vision-ai/scripts/'
+        'validate_resolved_yml.py" "${BUILD_DIR}/resolved.yml" '
+        '--repo-root "${REPO_ROOT}"\n',
+    ])
+    return "".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Task generation
 # ---------------------------------------------------------------------------
@@ -765,22 +827,28 @@ def generate_task(
     spec_path = _spec_path_for(profile, skill_dir)
     expected_services: list[str] = []
     expects: list[dict] = []
+    raw_spec: dict = {}
     if spec_path is not None:
         try:
-            raw = json.loads(spec_path.read_text())
-            declared_services = raw.get("expected_services") or []
+            raw_spec = json.loads(spec_path.read_text())
+            declared_services = raw_spec.get("expected_services") or []
             if not isinstance(declared_services, list) or any(
                 not isinstance(name, str) for name in declared_services
             ):
                 raise ValueError("expected_services must be a string list")
             expected_services = declared_services
-            raw_expects = raw.get("expects") or []
+            raw_expects = raw_spec.get("expects") or []
             if isinstance(raw_expects, list):
                 expects = [e for e in raw_expects if isinstance(e, dict)]
         except Exception as exc:  # noqa: BLE001
             print(f"WARN: could not read spec for {profile}: {exc}", file=sys.stderr)
 
     step_count = max(len(expects), 1)
+    rendered_spec = _render_eval_spec(
+        raw_spec,
+        str(raw_spec.get("profile") or profile),
+        platform,
+    )
     for idx in range(1, step_count + 1):
         spec_query: str | None = None
         if expects:
@@ -799,6 +867,13 @@ def generate_task(
             skill_dir=skill_dir,
             spec_path=spec_path,
             spec_query=spec_query,
+            spec_env=str(rendered_spec.get("env") or ""),
+            build_profile=str(raw_spec.get("profile") or profile),
+            artifact_expected=(
+                expects[idx - 1].get("artifact_expected", True)
+                if expects else True
+            ),
+            judge_max_turns=int(raw_spec.get("judge_max_turns", 60)),
             expected_services=expected_services,
             gpu_count=gpu_count,
             step_idx=idx,
@@ -816,6 +891,10 @@ def _write_openshell_step(
     skill_dir: Path | None,
     spec_path: Path | None,
     spec_query: str | None,
+    spec_env: str,
+    build_profile: str,
+    artifact_expected: bool,
+    judge_max_turns: int,
     expected_services: list[str],
     gpu_count: int,
     step_idx: int,
@@ -825,9 +904,20 @@ def _write_openshell_step(
     task_id = platform_spec["short_name"]
     step_suffix = f"-step-{step_idx}" if step_count > 1 else ""
 
-    (dest / "instruction.md").write_text(
-        generate_instruction(profile, platform, spec_query=spec_query),
-    )
+    if not isinstance(artifact_expected, bool):
+        raise ValueError(
+            f"expects[{step_idx}].artifact_expected must be a JSON boolean"
+        )
+    rendered_env = re.sub(r"\{\{\s*platform\s*\}\}", platform, spec_env)
+    (dest / "instruction.md").write_text(generate_instruction(
+        profile,
+        platform,
+        spec_query=spec_query,
+        spec_env=rendered_env,
+        build_profile=build_profile,
+        step_idx=step_idx,
+        step_count=step_count,
+    ))
 
     meta_lines = [
         "[task]",
@@ -864,6 +954,7 @@ def _write_openshell_step(
         'ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}"',
         'ANTHROPIC_BASE_URL = "${ANTHROPIC_BASE_URL}"',
         'ANTHROPIC_MODEL = "${ANTHROPIC_MODEL}"',
+        f'JUDGE_MAX_TURNS = "{judge_max_turns}"',
         "",
     ]
     (dest / "task.toml").write_text("\n".join(meta_lines))
@@ -895,7 +986,13 @@ def _write_openshell_step(
 
     solution_dir = dest / "solution"
     solution_dir.mkdir(exist_ok=True)
-    if step_idx == 1:
+    if profile_def.get("build_exam"):
+        (solution_dir / "solve.sh").write_text(
+            generate_build_solve_script(
+                platform, build_profile, artifact_expected
+            ),
+        )
+    elif step_idx == 1:
         (solution_dir / "solve.sh").write_text(
             generate_solve_script(profile, platform),
         )
