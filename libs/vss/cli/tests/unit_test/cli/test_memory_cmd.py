@@ -22,6 +22,7 @@ from vss_core.memory import EmbeddingBackfillResult
 from vss_core.memory import MemoryService
 from vss_core.memory import UnifiedMemoryRecord
 from vss_core.memory.backends.in_memory import InMemoryStore
+from vss_core.memory.store import MemoryQuery
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -850,3 +851,61 @@ def test_an_unknown_group_matches_nothing() -> None:
     result = _invoke("query", "--group", "tripwire")
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["records"] == []
+
+
+def test_a_group_may_write_several_record_types() -> None:
+    """One group, several kinds of result row -- grouped, and none dropped.
+
+    The map this replaced gave a group exactly one record type, so a
+    summarization that emits chapters as well as events, or a search that
+    emits clusters over its hits, had nowhere to put the second kind. Each
+    type is ordered on what its own rows carry.
+    """
+    store = InMemoryStore()
+    service = MemoryService(store)
+    handle = Memory(service, index="vss-memory-test")
+
+    service.upsert(
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": "nv.vss.memory/1.0",
+                "job": {
+                    "job_id": "summarize-1",
+                    "group": "summary",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                },
+                # Counts are summed, not maxed: advertising only the largest
+                # would cap the read below the number of rows that exist.
+                "output": {"answer": "a shift", "ext": {"event_count": 2, "chapter_count": 1}},
+            }
+        )
+    )
+    for record_type, record_id, rank in (("event", "e2", 2), ("event", "e1", 1), ("chapter", "c1", 1)):
+        service.upsert(
+            UnifiedMemoryRecord.model_validate(
+                {
+                    "schema": "nv.vss.memory/1.0",
+                    "job": {
+                        "job_id": "summarize-1",
+                        "group": "summary",
+                        "record_type": record_type,
+                        "record_id": record_id,
+                        "operation": "run",
+                        "status": "completed",
+                        "created_at": "2026-07-22T12:00:00Z",
+                    },
+                    "output": {"answer": record_id, "ext": {"rank": rank}},
+                }
+            )
+        )
+
+    results = handle.get("summarize", "summarize-1")["results"]
+    assert sorted(results) == ["chapter", "event"]
+    assert [row["job"]["record_id"] for row in results["event"]] == ["e1", "e2"]
+    assert [row["job"]["record_id"] for row in results["chapter"]] == ["c1"]
+
+    # And each type stays independently queryable across the whole index.
+    assert len(service.query(MemoryQuery(job_id="summarize-1", record_type="event"))) == 2
+    assert len(service.query(MemoryQuery(job_id="summarize-1", record_type="chapter"))) == 1

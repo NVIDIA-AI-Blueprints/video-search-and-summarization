@@ -526,3 +526,22 @@ only its own domain:
 `status`, `get` and `list` are inherited — they are memory reads, so a group has
 nothing to add. A group's records carry its own `job.group` token; the schema
 accepts it without a release.
+
+A group may write **several kinds of result row**. `build_bundle` returns a
+`RecordBundle` whose rows each carry their own `record_type`, and
+`vss memory get` returns them grouped by it:
+
+```json
+{
+  "job": {"job_id": "summarize-01K…", "group": "summary", "status": "completed"},
+  "results": {
+    "chapter": [{"job": {"record_type": "chapter", "record_id": "c1"}, …}],
+    "event":   [{"job": {"record_type": "event",   "record_id": "e1"}, …}]
+  }
+}
+```
+
+Grouped rather than flat because ordering only means something within a type —
+`rank` orders search hits, time orders events. Each type is also queryable on
+its own with `vss memory query --record-type <type>`, and `--group <token>
+--parents-only` lists every job a group has run.

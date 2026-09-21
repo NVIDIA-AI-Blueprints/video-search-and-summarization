@@ -559,7 +559,8 @@ def test_status_get_and_list_are_memory_reads() -> None:
     context = Context(deployment=_deployment(), memory=memory)
 
     assert VLM.status(result.job_id, context).body["job"]["status"] == "completed"
-    assert VLM.get(result.job_id, context).body["results"] == []
+    # A point call writes one lifecycle row and no result rows.
+    assert VLM.get(result.job_id, context).body["results"] == {}
     listed = VLM.list({"sensor_id": "warehouse"}, context).body
     assert listed[0]["job"]["job_id"] == result.job_id
 

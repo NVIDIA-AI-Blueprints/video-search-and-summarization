@@ -481,8 +481,11 @@ def test_search_get_status_list_parent_oriented(search_group: SearchGroup) -> No
     got = search_group.get(run.job_id, ctx)
     assert got.body["job"]["job_id"] == run.job_id
     assert "record_id" not in got.body["job"]
-    assert len(got.body["results"]) == 2
-    assert [child["output"]["ext"]["rank"] for child in got.body["results"]] == [1, 2]
+    # Results are grouped by record_type: rank ordering means something within
+    # `search_hit`, and would mean nothing interleaved with another type.
+    assert list(got.body["results"]) == ["search_hit"]
+    assert len(got.body["results"]["search_hit"]) == 2
+    assert [row["output"]["ext"]["rank"] for row in got.body["results"]["search_hit"]] == [1, 2]
     status = search_group.status(run.job_id, ctx)
     assert status.body["job"]["status"] == "completed"
     assert "results" not in status.body

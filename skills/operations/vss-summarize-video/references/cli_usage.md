@@ -166,7 +166,7 @@ Pure reads against the memory index — they start no summarization:
 
 ```bash
 vss memory status --job-id summarize-01K...      # the job's lifecycle row; reconcile a pending job
-vss memory get --job-id summarize-01K...         # the job and every event row under it
+vss memory get --job-id summarize-01K...         # the job, with its rows grouped under `results.event`
 vss memory query --group summary --parents-only --since 2026-01-01T00:00:00Z --status completed
 ```
 
