@@ -649,3 +649,49 @@ def test_object_is_dropped_when_no_id_is_free(two_cameras, monkeypatch):
     out = [len(mf.fuse_frames(b, _views(("Camera_A", _at(30, 0), (10, 10)))).objects)
            for b in (311, 312, 313)]
     assert out == [0, 0, 0]          # nothing to hand it, so nothing published
+
+
+@pytest.mark.unit
+def test_smoothed_frames_publish_in_bucket_order():
+    """Concurrent flushes must not interleave buckets on the output topic.
+
+    Two threads release overlapping ranges of held frames at once; every frame
+    must still be published, exactly once, in non-decreasing bucket order.
+    """
+    import threading
+    import time
+
+    svc = mf.MeasurementFusionService.__new__(mf.MeasurementFusionService)
+    svc._lock = threading.Lock()
+    svc._publish_lock = threading.Lock()
+    svc._pending = {}
+    svc._published = 0
+    published = []
+    svc._publish = lambda payload: published.append(int(payload))
+    # Skip smoothing maths: this test is about ordering, not positions. The
+    # sleep widens the detach->publish window so an unserialised publish
+    # interleaves reliably instead of depending on GIL scheduling luck.
+    def emit(ready):
+        for b, _ in ready:
+            time.sleep(0.0005)
+            svc._publish(str(b).encode())
+    svc._emit_smoothed = emit
+
+    buckets = list(range(200))
+    for b in buckets:
+        svc._pending[b] = b
+
+    barrier = threading.Barrier(2)
+
+    def releaser(step):
+        barrier.wait()
+        for up_to in range(0, 200, step):
+            svc._release_smoothed(up_to)
+        svc._release_smoothed(199)
+
+    threads = [threading.Thread(target=releaser, args=(s,)) for s in (3, 7)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+
+    assert sorted(published) == buckets, "every held frame is published exactly once"
+    assert published == sorted(published), f"published out of order: {published[:12]}"

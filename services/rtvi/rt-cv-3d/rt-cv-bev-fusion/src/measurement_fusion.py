@@ -963,6 +963,10 @@ class MeasurementFusionService:
         self._latest_seen_posix = 0.0
 
         self._lock = threading.Lock()
+        # Publication order. Held across detach+emit so two threads cannot
+        # interleave buckets; kept separate from _lock so broker I/O never
+        # blocks buffering.
+        self._publish_lock = threading.Lock()
         self._shutdown = threading.Event()
         self._flush_timeout_ms = SENSOR_TIMEOUT_MS
 
@@ -977,10 +981,11 @@ class MeasurementFusionService:
     def _release_smoothed(self, up_to: int):
         """Publish every held frame at or before up_to, smoothed where possible.
         A track that has since ended keeps what the causal filter produced."""
-        with self._lock:
-            ready = [(b, self._pending.pop(b))
-                     for b in sorted(b for b in self._pending if b <= up_to)]
-        self._emit_smoothed(ready)
+        with self._publish_lock:
+            with self._lock:
+                ready = [(b, self._pending.pop(b))
+                         for b in sorted(b for b in self._pending if b <= up_to)]
+            self._emit_smoothed(ready)
 
     def _emit_smoothed(self, ready):
         """Smooth and publish detached frames. Runs without the lock held."""
@@ -1103,8 +1108,9 @@ class MeasurementFusionService:
                     self._pending[bucket] = fused
                 self._release_smoothed(bucket - SMOOTH_LAG)
             else:
-                self._publish(fused.SerializeToString())
-                self._published += 1
+                with self._publish_lock:
+                    self._publish(fused.SerializeToString())
+                    self._published += 1
             logger.debug(
                 "[DBG] PUBLISH     bucket=%d sensors=%s (%d/%d) "
                 "age=%.0fms event_ts=%.3f objects=%d",
