@@ -1,3 +1,5 @@
+<img src="assets/vss-kv-1360w-330h.png" alt="NVIDIA AI Blueprint: Video Search and Summarization" width="100%">
+
 <h2>NVIDIA AI Blueprint: Video Search and Summarization (VSS)</h2>
 
 **Build GPU-accelerated video AI agents that search, analyze, summarize, and reason over live or recorded video using natural language.**
@@ -90,7 +92,10 @@ This blueprint is designed for ease of setup with extensive configuration option
 
 ## Documentation
 
-For detailed instructions and additional information about this blueprint, please refer to the [official documentation](https://docs.nvidia.com/vss/latest/index.html).
+Choose the documentation that matches the build you are using:
+
+- **Official releases:** Use the [official VSS documentation](https://docs.nvidia.com/vss/latest/index.html) with versioned, officially released builds.
+- **Nightly builds:** Use the [staging VSS documentation](https://nvidia-vss-staging.docs.buildwithfern.com/vss) with nightly or development builds. This content reflects the latest development changes and may differ from the officially released documentation.
 
 ## Prerequisites
 
