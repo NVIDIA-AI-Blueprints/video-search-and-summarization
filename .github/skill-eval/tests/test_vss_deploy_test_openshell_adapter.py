@@ -259,6 +259,60 @@ def test_generate_task_does_not_write_a_guest_marker(tmp_path: Path) -> None:
     assert list(tmp_path.rglob("current-leg-*.json")) == []
 
 
+def test_routing_exam_is_an_openshell_profile() -> None:
+    adapter = _load_adapter()
+    assert "base_profile_video_understanding" in adapter.PROFILES
+    assert adapter.deploy_profile("base_profile_video_understanding") == "base"
+
+
+def test_multi_expect_spec_emits_harbor_steps(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    skill_dir = _skill_dir(
+        tmp_path,
+        {
+            "openshell": {"gpu_count": 1},
+            "expects": [
+                {"query": "Deploy on {{platform}}", "checks": ["up"]},
+                {"query": "When did the forklift cross?", "checks": ["10:14 UTC"]},
+            ],
+        },
+        profile="base_profile_video_understanding",
+    )
+    adapter.generate_task(
+        "base_profile_video_understanding",
+        "H200",
+        adapter.PROFILES["base_profile_video_understanding"],
+        tmp_path / "out",
+        skill_dir=skill_dir,
+        gpu_count=1,
+    )
+    root = tmp_path / "out" / "base_profile_video_understanding" / "h200"
+    assert (root / "step-1" / "instruction.md").is_file()
+    assert (root / "step-2" / "instruction.md").is_file()
+    assert not (root / "task.toml").exists()
+    step1 = (root / "step-1" / "tests" / "test.sh").read_text()
+    step2 = (root / "step-2" / "tests" / "test.sh").read_text()
+    assert "--step 1" in step1
+    assert "--step 2" in step2
+    assert "When did the forklift cross?" in (
+        root / "step-2" / "instruction.md"
+    ).read_text()
+
+
+def test_single_expect_spec_stays_flat(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    adapter.generate_task(
+        "base",
+        "H200",
+        adapter.PROFILES["base"],
+        tmp_path,
+        skill_dir=None,
+        gpu_count=1,
+    )
+    assert (tmp_path / "base" / "h200" / "task.toml").is_file()
+    assert not (tmp_path / "base" / "h200" / "step-1").exists()
+
+
 def test_main_refreshes_the_marker_with_the_live_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
