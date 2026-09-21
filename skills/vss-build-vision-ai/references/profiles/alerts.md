@@ -7,7 +7,6 @@
 - `2d_vlm`: continuous RT-VLM inspection and real-time alert APIs.
 - Choose for alert verification, incident reporting, or live VLM alerts.
 - RTX PRO 4500 Blackwell (`RTXPRO4500BW`) is supported only with a remote LLM.
-  Both `2d_cv` and `2d_vlm` need 2 GPUs and NVIDIA driver 580.126.09 or later.
 
 ## Profile Service Set
 

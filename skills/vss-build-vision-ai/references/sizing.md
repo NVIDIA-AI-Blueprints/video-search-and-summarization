@@ -188,10 +188,9 @@ These values apply when `rtvi-vlm` is in the effective service set, including
 stock Alerts `2d_cv` and `2d_vlm`. The BF16 co-resident row is a stock-Foundation
 layout (Alerts/LVS share BF16 with the LLM); a generated build that must converge
 variants co-resides on FP8, per step 4 of the sizing flow. Do not share the
-Do not share the Alerts LLM and RT-VLM on L40S. RTX PRO 4500 Blackwell is
-alerts-only: use a remote LLM, start RT-VLM with
-`RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and `RTVI_VLM_MAX_MODEL_LEN=18000`,
-and do not route Base, LVS, or Search onto that SKU.
+Alerts LLM and RT-VLM on L40S. RTX PRO 4500 Blackwell is alerts-only: use a
+remote LLM, start RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and
+`RTVI_VLM_MAX_MODEL_LEN=18000`.
 
 ## Warehouse industry-profile layout
 
