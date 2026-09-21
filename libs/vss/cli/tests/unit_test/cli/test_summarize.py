@@ -1372,7 +1372,7 @@ def test_get_returns_the_record_run_persisted(
     record = json.loads(result.stdout)
     assert record["job"]["job_id"] == job_id
     assert record["output"]["answer"] == "a forklift crosses the aisle"
-    assert record["results"] == []
+    assert record["results"] == {}
 
 
 def test_get_hydrates_event_children_in_time_order(
@@ -1391,8 +1391,9 @@ def test_get_hydrates_event_children_in_time_order(
     result = _read("get", "--job-id", job_id)
     assert result.exit_code == 0, result.output
     record = json.loads(result.stdout)
-    assert [child["output"]["answer"] for child in record["results"]] == ["first", "second"]
-    assert all(child["job"]["record_type"] == "event" for child in record["results"])
+    assert list(record["results"]) == ["event"]
+    assert [row["output"]["answer"] for row in record["results"]["event"]] == ["first", "second"]
+    assert all(row["job"]["record_type"] == "event" for row in record["results"]["event"])
 
 
 def test_status_reports_the_lifecycle_state(

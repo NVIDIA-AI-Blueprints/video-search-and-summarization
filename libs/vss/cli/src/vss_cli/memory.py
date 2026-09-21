@@ -153,35 +153,37 @@ class Memory:
         )
         return [record.model_dump_memory() for record in records]
 
-    def _result_rows(self, lifecycle: UnifiedMemoryRecord) -> list[dict[str, Any]]:
-        """Every other row in this job's partition, in domain order.
+    def _result_rows(self, lifecycle: UnifiedMemoryRecord) -> dict[str, list[dict[str, Any]]]:
+        """This job's result rows, grouped by ``record_type``.
 
         Found by ``job_id`` alone. The group's own name is not consulted and no
-        table maps a group to the record type it writes: a group added at
-        runtime names a record type this package has never heard of, and it
-        must still be able to read back what it wrote. That map was the one
-        thing standing between an agent-added group and its own results.
+        table maps a group to the record type it writes -- that map allowed a
+        group exactly one type, and a group legitimately has several: a
+        summarization that emits both events and chapters, a search that emits
+        hits and the clusters over them. It also could not name a type a
+        group added at runtime invents.
 
-        Ordering is read off the rows rather than declared per group: an
-        explicit ``rank`` first, then the row's own time window, then the
-        record id, so a new record type sorts sensibly without being enrolled
+        Grouped rather than flat because ordering only means something *within*
+        a type: rank orders search hits, time orders events, and interleaving
+        the two orders neither. Each type is sorted on what its rows actually
+        carry -- an explicit ``rank``, else the row's own window, else the
+        record id -- so a new type sorts sensibly without being enrolled
         anywhere.
         """
         from vss_core.memory import MemoryQuery
 
+        # Sum, not max: a job with 80 events and 60 chapters has 140 rows, and
+        # taking the largest single count would silently drop the rest.
         advertised = 0
         if lifecycle.output is not None and lifecycle.output.ext:
-            for key, value in lifecycle.output.ext.items():
-                if key.endswith("_count") and isinstance(value, int) and value > advertised:
-                    advertised = value
+            advertised = sum(
+                value
+                for key, value in lifecycle.output.ext.items()
+                if key.endswith("_count") and isinstance(value, int) and value > 0
+            )
         records = self._service.query(
             MemoryQuery(job_id=lifecycle.job.job_id, limit=max(_DEFAULT_ROW_LIMIT, advertised))
         )
-        rows = [
-            record
-            for record in records
-            if record.job.job_id == lifecycle.job.job_id and record.job.record_id is not None
-        ]
 
         def sort_key(record: UnifiedMemoryRecord) -> tuple[int, Any, str]:
             ext = record.output.ext if record.output is not None and record.output.ext else {}
@@ -193,7 +195,15 @@ class Memory:
                 return (1, record.input.window.start.timestamp.isoformat(), record.job.record_id or "")
             return (2, "", record.job.record_id or "")
 
-        return [record.model_dump_memory() for record in sorted(rows, key=sort_key)]
+        by_type: dict[str, list[UnifiedMemoryRecord]] = {}
+        for record in records:
+            if record.job.job_id != lifecycle.job.job_id or record.job.record_id is None:
+                continue
+            by_type.setdefault(str(record.job.record_type), []).append(record)
+        return {
+            record_type: [row.model_dump_memory() for row in sorted(rows, key=sort_key)]
+            for record_type, rows in sorted(by_type.items())
+        }
 
     def _scoped(self, group: str, job_id: str) -> UnifiedMemoryRecord:
         """One record, refusing another group's job under this group's verb."""
