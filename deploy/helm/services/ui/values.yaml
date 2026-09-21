@@ -89,7 +89,7 @@ agentAdapter:
   backendPath: ""
   backendToken: ""
   backendModel: agent
-  # OpenClaw-only agent/workspace used for UI-created threads.
+  # OpenClaw-only agent/workspace used for UI-created threads: main or vss-ui.
   backendOpenClawAgentId: main
   # "" means the field is omitted from the outbound payload; the docker default
   # keeps the `user` field, matching compose ${VSS_AGENT_BACKEND_SESSION_FIELD-user}.

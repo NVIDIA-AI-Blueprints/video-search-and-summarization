@@ -344,9 +344,9 @@ export class OpenClawConnector implements Connector {
   }
 
   private workspaceRoot(): string {
-    return this.config.backendOpenClawAgentId === "main"
-      ? "/sandbox/.openclaw/workspace"
-      : `/sandbox/.openclaw/workspace-${this.config.backendOpenClawAgentId}`;
+    return this.config.backendOpenClawAgentId === "vss-ui"
+      ? "/sandbox/.openclaw/workspace-vss-ui"
+      : "/sandbox/.openclaw/workspace";
   }
 
   private message(request: CreateRunRequest): string {

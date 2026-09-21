@@ -308,7 +308,7 @@ describe("embedded agent adapter", () => {
     ).toThrow("unsupported with openclaw-ws");
   });
 
-  it("validates the OpenClaw agent id used for isolated UI sessions", () => {
+  it("limits OpenClaw agents to known workspace mappings", () => {
     expect(
       loadAgentAdapterConfig({
         AGENT_BACKEND_PROTOCOL: "openclaw-ws",
@@ -320,9 +320,9 @@ describe("embedded agent adapter", () => {
       loadAgentAdapterConfig({
         AGENT_BACKEND_PROTOCOL: "openclaw-ws",
         AGENT_BACKEND_URL: "ws://backend",
-        AGENT_BACKEND_OPENCLAW_AGENT_ID: "../../shared",
+        AGENT_BACKEND_OPENCLAW_AGENT_ID: "custom-agent",
       })
-    ).toThrow("must be a lowercase OpenClaw agent id");
+    ).toThrow("must be main or vss-ui");
   });
 
   it("uses the explicit adapter switch for profile deployments", () => {
