@@ -85,6 +85,8 @@ The main configuration file for Sparse4D, `config.yaml`, handles properties rela
 | `preprocessed_width` | Width of preprocessed images | `960` |
 | `aug_configs` | Dictionary of image augmentation parameters | See below |
 
+These are network-input dimensions, not the source-video resolution: source frames such as 1920 x 1080 RGB images are preprocessed to 960 x 540 (width x height). The model image tensor is `(1, N, 3, 540, 960)`, where `N` is the number of synchronized cameras in one BEV group. Keep the model `batch_size` at 1; DeepStream's stream batch size and `num_sensors` represent `N`.
+
 **Augmentation Configuration:**
 
 ```yaml
@@ -101,11 +103,11 @@ aug_configs:
 
 | Parameter | Description | Default Value |
 | --- | --- | --- |
-| `num_anchor` | Number of anchors | `900` |
+| `num_anchor` | Number of model queries, also the raw output query dimension | `900` |
 | `embed_dims` | Embedding dimensions | `256` |
 | `anchor` | Path to anchor file | `/opt/nvidia/deepstream/deepstream/sources/sparse4d/_ov_kmeans900_v2.3_r50.npy` |
 | `anchor_handler` | Anchor handler implementation | `SparseBox3DKeyPointsGenerator` |
-| `num_temp_instances` | Number of temporal instances to track | `600` |
+| `num_temp_instances` | Number of instances cached for the next frame; not the decoded detection count | `600` |
 | `default_time_interval` | Default time interval for temporal anchor projection | `0.05` |
 | `confidence_decay` | Confidence decay rate for temporal tracking | `0.8` |
 | `anchor_grad` | Enable anchor gradients | `False` |
@@ -117,9 +119,11 @@ aug_configs:
 
 | Parameter | Description | Default Value |
 | --- | --- | --- |
-| `num_output` | Maximum number of bounding boxes to output | `300` |
+| `num_output` | Maximum number of top-confidence detections to decode before filtering | `300` |
 | `score_threshold` | Score threshold for decoding output | `0.1` |
 | `num_torch_threads` | Number of threads for PyTorch | `0` |
+
+The raw model outputs contain 900 queries. In the TAO tracking decoder, top-300 selection uses each query's maximum sigmoid classification score across the seven classes. Quality estimation then weights the selected scores by sigmoid centerness and re-sorts them. Confidence thresholds can reduce the returned count below 300. The 600-entry temporal cache is selected separately, using confidence history and decay; it is not the candidate pool for this final top-300 selection. Do not use `num_temp_instances` as the output-buffer size for raw TensorRT outputs.
 
 #### Debugging Properties
 
@@ -193,10 +197,10 @@ The `labels.txt` file contains the class labels that the model can detect along 
 The file format uses a semicolon-separated list where each entry follows the pattern `ClassName:ConfidenceThreshold`:
 
 ```text
-Person:0.85;Fourier_GR1_T2_Humanoid:0.85;Agility_Digit_Humanoid:0.85;Nova_Carter:0.90;Transporter:0.90;Forklift:0.75;
+Person:0.85;Fourier_GR1_T2_Humanoid:0.85;Agility_Digit_Humanoid:0.85;Nova_Carter:0.90;Transporter:0.90;Forklift:0.75;Pallet_Truck:0.75;
 ```
 
-These class labels represent common objects in industrial and warehouse environments that the Sparse4D model can detect and track in 3D space. Classes can be customized by training on domain-specific datasets using TAO Toolkit.
+For the released v2.3 and v3.0 models, retain all seven entries in this order (class IDs 0 through 6), even when a class is absent from your scene or evaluation set. Threshold values are examples and can be tuned without removing or reordering entries. Fine-tuned models must use their own training class count and order; changing the labels file alone does not change the model's classifier.
 
 ### Anchor File
 
@@ -253,11 +257,16 @@ The Sparse4D plugin supports model swapping, allowing you to use different Spars
 
 #### Model Compatibility Requirements
 
-Ensure your new model meets these requirements:
+Use the **Input** and **Raw ONNX/TensorRT outputs** sections of the matching NGC model card ([ResNet50](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn50), [ResNet101](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/sparse4d_rn101)) as the tensor-interface reference. For v2.3 ResNet50/ResNet101 and v3.0 ResNet50, verify the following before starting the pipeline:
 
-- Uses the same input tensor names and shapes as the plugin expects
-- Has a compatible output format with the post-processing logic
-- Follows the Sparse4D architecture pattern for 3D object detection
+- **Version and backbone:** use the ONNX model, experiment specification, and anchor from the same release/backbone. A cached engine must correspond to that model and the target TensorRT/GPU environment; rebuild it when changing the model or engine build settings.
+- **Image inputs and camera profile:** `img` is `(1, N, 3, 540, 960)`, `projection_mat` is `(1, N, 4, 4)`, and `image_wh` is `(1, N, 2)`. Use the same `N` across all three inputs, consistent with preprocessing and stream configuration. The selected engine optimization profile must support that `N`; a dynamic ONNX dimension does not guarantee every camera count is supported by an existing engine.
+- **Temporal inputs and dtypes:** `input_cached_feature` is `(1, 600, 256)`, `input_cached_anchor` is `(1, 600, 11)`, `prev_exists` is `(1,)`, and `interval_mask` is `(1, 1, 1)`. The released ONNX inputs are float32 except for Boolean `interval_mask`. `prev_exists` is float32, not Boolean. Query the engine's actual I/O dtypes before allocating buffers; FP16 execution does not imply FP16 bindings.
+- **Raw outputs:** verify all 12 binding names against the model card. Classification outputs have shape `(1, 900, 7)`, prediction/anchor outputs `(1, 900, 11)`, quality outputs `(1, 900, 2)`, and the feature output `(1, 900, 256)`. The final detection dictionary keys, such as `boxes_3d`, are post-processing results, not engine bindings.
+- **Labels and anchors:** the seven labels must follow the trained class order, and the anchor array must have shape `(900, 11)`. Matching dimensions alone do not prove that an anchor or label order belongs to the selected model; retain the release/version association.
+- **Post-processing:** keep `num_anchor = 900`, `num_temp_instances = 600`, `embed_dims = 256`, and `num_output = 300` consistent with the released configuration. Use compatible Sparse4D box decoding and temporal-cache logic. In particular, the 900-query cache outputs require instance-bank selection before reuse as 600-entry inputs.
+
+These checks can be automated in a deployment preflight: enumerate engine tensor names, dtypes, shapes, and optimization profiles with the TensorRT API, then compare them with the configuration, labels, anchor, and versioned model metadata. Resolve dynamic shapes for the intended camera count before checking buffer sizes. A class dimension only verifies the number of classes, not their semantic order. Stop deployment on a mismatch and report the offending field; do not rely on automatic correction or assume the existing plugin performs every check above.
 
 #### Updating Sparse4D Configuration
 
@@ -295,11 +304,11 @@ anchor: "/opt/nvidia/deepstream/deepstream/sources/sparse4d/your_new_anchors.npy
 
 The Perception microservice automatically builds the TensorRT engine for the new model on first run. Engine files persist in the `perception-3d` volume at `/opt/storage`.
 
-Your labels file must list classes in the same order your model was trained on.
+Your labels file must list all classes in the same order your model was trained on. This example is for the seven-class v2.3/v3.0 releases; use the matching class list for a custom fine-tuned model.
 
 ```text
 # Update the class labels - Example ``your_new_labels.txt``
-Person:0.85;Fourier_GR1_T2_Humanoid:0.85;Agility_Digit_Humanoid:0.85;Nova_Carter:0.90;Transporter:0.90;Forklift:0.75;
+Person:0.85;Fourier_GR1_T2_Humanoid:0.85;Agility_Digit_Humanoid:0.85;Nova_Carter:0.90;Transporter:0.90;Forklift:0.75;Pallet_Truck:0.75;
 ```
 
 Since model training and inference depend on the initialized anchor `.npy` file, use the anchor file from the TAO finetuning process when you finetune on a new scene or set of classes.
