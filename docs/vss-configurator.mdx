@@ -1667,6 +1667,12 @@ When `SENSOR_INFO_SOURCE=file`, the RTSP URLs provided in the sensor info source
 
 #### NVStreamer Settings
 
+The defaults in this table are the Sensor Configuration Manager's standalone
+application fallbacks. The shipped VSS Compose deployment overrides both
+endpoint variables with
+`http://${NVSTREAMER_IP}:${NVSTREAMER_HTTP_PORT}/api/v1/sensor/...`; the
+NVStreamer service defaults `NVSTREAMER_HTTP_PORT` to `31000`.
+
 | Variable | Default | Possible Values | Description |
 | --- | --- | --- | --- |
 | `NVSTREAMER_STREAMS_ENDPOINT` | `http://localhost:30000/api/v1/live/streams` | Valid HTTP URL | \| NVStreamer API endpoint for listing available streams. \| Used when `SENSOR_INFO_SOURCE=nvstreamer` |
@@ -1764,6 +1770,11 @@ The add call retries until success. A client timeout or HTTP 499 can occur while
 | `VIDEO_UPLOAD_DELAY` | `0` | Non-negative integer (seconds) | Delay between video upload attempts |
 | `NVSTREAMER_UPLOAD_BASE_URL` | `http://localhost:30000` | Valid HTTP URL | Base URL for NVStreamer video upload; the service posts to `/api/v1/storage/file` under this base URL |
 | `VMS_UPLOAD_BASE_URL` | `http://localhost:30888` | Valid HTTP URL | Base URL for VMS video upload. Each file is sent with PUT to `{base}/vst/api/v1/storage/file/{file_name}/{iso8601_timestamp}` (`Content-Type` `video/mp4` or `video/x-matroska` for `.mp4` / `.mkv`). |
+
+`NVSTREAMER_UPLOAD_BASE_URL` is not overridden by the shipped Configurator
+Compose file. When you enable `ENABLE_NVSTREAMER_VIDEO_UPLOAD`, set it
+explicitly to an NVStreamer address reachable from the Configurator container;
+do not rely on the standalone fallback for a Compose deployment.
 
 ### Examples
 

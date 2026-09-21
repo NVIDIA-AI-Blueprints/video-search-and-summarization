@@ -303,7 +303,7 @@ NemoClaw harness.
 | --- | --- |
 | `NGC_CLI_API_KEY` | Pulling gated NIM, model, sample-data, and other artifacts from NGC. This is required for the standard deployment paths. Use the same Personal API Key for `docker login nvcr.io`. Managed VSS images on public GHCR require no registry login. |
 | `COMPATIBLE_API_KEY` | The NemoClaw harness uses its default remote OpenAI-compatible endpoint, or another public OpenAI-compatible endpoint that requires a bearer token. The default has no built-in key. |
-| `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com`. |
+| `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com` or `integrate.api.nvidia.com`. |
 | `HF_TOKEN` | A selected model or helper downloads gated or rate-limited weights from Hugging Face. |
 
 A key for the default NemoClaw Inference Hub endpoint can be created at

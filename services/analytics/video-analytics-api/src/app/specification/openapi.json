@@ -1259,11 +1259,6 @@
                 "summary": "Reset place occupancy",
                 "description": "Reset the occupancy baseline for a place using the values in the request body.",
                 "operationId": "controller.metrics.resetOccupancy",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "requestBody": {
                     "description": "Details regarding the current occupancy of a place",
                     "content": {
@@ -7048,11 +7043,6 @@
                 "summary": "Label a behavior cluster",
                 "description": "Assign a label to a behavior cluster using the cluster details in the request body.",
                 "operationId": "controller.clustering.addClusterLabel",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "requestBody": {
                     "description": "Details regarding the cluster and the label",
                     "content": {
@@ -7762,11 +7752,6 @@
                 "summary": "Upload a configuration file",
                 "description": "Upload a configuration file for the document type specified in the path.",
                 "operationId": "controller.config.uploadFile",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "parameters": [
                     {
                         "name": "docType",
@@ -7901,11 +7886,6 @@
                 "summary": "Update service configuration",
                 "description": "Submit a behavior analytics configuration update for the document type specified in the path.",
                 "operationId": "controller.config.update",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "parameters": [
                     {
                         "name": "docType",
@@ -8050,11 +8030,6 @@
                 "summary": "Get configuration update status",
                 "description": "Retrieve the processing status of a behavior analytics configuration update by document type and reference identifier.",
                 "operationId": "controller.config.getUpdateStatus",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "parameters": [
                     {
                         "name": "docType",
@@ -8150,11 +8125,6 @@
                 "summary": "Upsert sensor calibration",
                 "description": "Insert or update calibration data for one or more sensors. To change file-level attributes such as version, calibration type, or OSM URL, upload the complete calibration file instead.",
                 "operationId": "controller.config.upsertCalibration",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "requestBody": {
                     "description": "Calibration of sensor(s)",
                     "content": {
@@ -8285,11 +8255,6 @@
                 "summary": "Delete sensor calibration",
                 "description": "Delete calibration data for the sensor identifiers provided in the request body.",
                 "operationId": "controller.config.deleteSensorCalibration",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "requestBody": {
                     "description": "List of sensorIds",
                     "content": {
@@ -8920,11 +8885,6 @@
                 "summary": "Upload calibration images",
                 "description": "Upload one or more calibration images together with a single image-metadata JSON file.",
                 "operationId": "controller.config.uploadCalibrationImages",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "requestBody": {
                     "content": {
                         "multipart/form-data": {
@@ -9401,11 +9361,6 @@
                 "summary": "Delete calibration images",
                 "description": "Delete the calibration images identified in the request body and return the deletion result.",
                 "operationId": "controller.config.deleteCalibrationImages",
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "requestBody": {
                     "description": "Details of calibration images to be deleted.",
                     "content": {
@@ -9737,12 +9692,6 @@
         }
     },
     "components": {
-        "securitySchemes": {
-            "BearerAuth": {
-                "type": "http",
-                "scheme": "bearer"
-            }
-        },
         "headers": {
             "Access-Control-Allow-Origin": {
                 "description": "CORS header to allow cross-origin requests.",
