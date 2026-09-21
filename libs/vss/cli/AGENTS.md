@@ -30,18 +30,29 @@ evidence. Every `run` mints a `job_id` and persists a record, so the result is
 retrievable afterwards by that id:
 
 ```
-vss <group> run     ...      execute end to end; the only execution verb
-vss <group> status  --job-id
-vss <group> get     --job-id
-vss <group> list    [--since ...]
+vss <group> run     ...      execute end to end; the only verb a group has
 ```
+
+Reads are not per-group. They are the same query against the same index
+whichever group wrote the record, so they live on the cross-group surface:
+
+```
+vss memory status --job-id <id>              the job's lifecycle row alone
+vss memory get    --job-id <id>              the job and every result row
+vss memory query  --group <token> [--parents-only] [--since ...]
+```
+
+`vss <group> status|get|list` still answer for one release and print a
+deprecation notice naming the replacement. Note the group token, not the
+command name: `summarize` writes records under `summary`.
 
 `run` is synchronous in every group. For a long job, background the process and
 read the completion marker it prints as its final stdout line — do not poll.
 
 **The media plane** — `vios`. Resolves handles and mints URLs. It runs no model
 and produces no evidence, so it mints **no `job_id`**, writes no record, and has
-no `run`/`status`/`get` verbs. Its `list` lists *sensors*, not jobs.
+no `run` verb and nothing in memory to read back. Its `list` lists
+*sensors*, not jobs.
 
 **Read-only analytics** — `analytics`. Reads incidents, calibration-backed
 sensor/place inventories, and metrics from the configured Video Analytics API.
@@ -118,13 +129,11 @@ The CLI rejects a bad one locally rather than spending the upload first.
 
 ```bash
 vss search run "forklift near the loading dock" [--limit N]
-vss search get --job-id <id>
-
 vss summarize run --video-uri <uri> --prompt "..." --timeout <seconds>
-vss summarize get --job-id <id>
-
 vss vlm run --sensor NAME --start-time <ISO-UTC> --end-time <ISO-UTC> --prompt "..."
-vss vlm get --job-id <id>
+
+# read any of them back the same way
+vss memory get --job-id <id>
 ```
 
 If a preflight fails, report its error and stop. Do not fall back to calling

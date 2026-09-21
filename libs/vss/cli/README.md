@@ -116,16 +116,19 @@ Elasticsearch, embeddings, the text judge, and optional Markdown notes.
 
 | Group | What it is | Verbs |
 |-------|-----------|-------|
-| `vss search` | Fused archive search over ES + the embedding NIM | `run`, `status`, `get`, `list` |
-| `vss summarize` | VLM summarization of stored video | `run`, `status`, `get`, `list` |
-| `vss vlm` | One VLM answer from a recorded sensor window | `run`, `status`, `get`, `list` |
-| `vss memory` | Unified-memory access, embeddings backfill, introspection | `upsert`, `get`, `query`, `events`, `introspect`, `embeddings backfill` |
+| `vss search` | Fused archive search over ES + the embedding NIM | `run` |
+| `vss summarize` | VLM summarization of stored video | `run` |
+| `vss vlm` | One VLM answer from a recorded sensor window | `run` |
+| `vss memory` | Unified-memory access, embeddings backfill, introspection | `status`, `get`, `query`, `upsert`, `events`, `introspect`, `embeddings backfill` |
 | `vss analytics` | Read-only incidents, analytics sensors/places, and metrics | `incidents`, `incident`, `sensors`, `places`, `fov-histogram`, `average-speed`, `analyze` |
 | `vss vios` | Media plane: sensors, timelines, clip and snapshot URLs | `list`, `timeline`, `clip`, `snapshot`, `add`, `delete` |
 | `vss configure` | Resolve a deployment and set static memory policy | `show`, `check`, `memory`, `memory show`, `memory check`, `memory introspection` |
 
 `search`, `summarize`, and `vlm` are **job groups**: every run mints a `job_id`, and the
-result stays retrievable by that id. `analytics` and `vios` are **not**:
+result stays retrievable by that id — through `vss memory`, which reads the same
+index for every group, including groups added at runtime. `vss <group>
+status|get|list` still answer for one release and name their replacement on
+stderr. `analytics` and `vios` are **not**:
 analytics performs direct read-only queries, while VIOS resolves handles and
 mints URLs. Neither has job verbs or writes memory. See
 [AGENTS.md](AGENTS.md#the-two-shapes).
@@ -294,7 +297,7 @@ vss vlm run --sensor warehouse --prompt "What happened?" --start-time T --end-ti
 
 Introspection follow-ups reuse this path, accept `--fps`, and honor
 `--persist-by-default`.
-Persisted jobs remain visible via `vss vlm get` / `list`.
+Persisted jobs remain visible via `vss memory get --job-id`.
 
 ### Embeddings and retrieval mode
 

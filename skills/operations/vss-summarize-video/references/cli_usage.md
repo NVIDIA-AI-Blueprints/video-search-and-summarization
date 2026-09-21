@@ -165,17 +165,23 @@ Exits 6 and 7 both mean the summarization must not be repeated.
 Pure reads against the memory index — they start no summarization:
 
 ```bash
-vss summarize get --job-id summarize-01K...      # one complete record
-vss summarize status --job-id summarize-01K...   # reconcile a pending job
-vss summarize list --since 2026-01-01T00:00:00Z --status completed
+vss memory status --job-id summarize-01K...      # the job's lifecycle row; reconcile a pending job
+vss memory get --job-id summarize-01K...         # the job and every event row under it
+vss memory query --group summary --parents-only --since 2026-01-01T00:00:00Z --status completed
 ```
 
-`--since` takes an ISO-8601 instant, not a duration: `1h` exits 2. `list` also
+`--since` takes an ISO-8601 instant, not a duration: `1h` exits 2. `query` also
 filters by `--sensor-id`, and answers `[]` rather than failing when nothing has
-been written yet. There is no `recall` verb: fetching one
-record by id *is* `get`, and querying recent ones *is* `list`. Records are
-`nv.vss.memory/1.0`, so `get` answers with the same schema every VSS memory
-writer uses.
+been written yet. There is no `recall` verb: fetching one job by id *is* `get`,
+and querying recent ones *is* `query`. Records are `nv.vss.memory/1.0`, so
+`get` answers with the same schema every VSS memory writer uses.
+
+`status` and `get` differ by cost: `status` returns the job's lifecycle row
+alone, which is what an exit-7 reconcile needs, while `get` also hydrates every
+event row under the job. Reads live on `vss memory` rather than on
+`vss summarize` because they are the same query whichever group wrote the
+record. `vss summarize status|get|list` still answer for one release and print
+the replacement on stderr.
 
 Never pass an index or endpoint the CLI did not record, and never read
 Elasticsearch directly.

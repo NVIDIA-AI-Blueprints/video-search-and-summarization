@@ -1,10 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""``vss memory`` -- cross-group unified-memory access (SDD §2).
+"""``vss memory`` -- where every job is read back, whichever group wrote it.
 
-This is an administrative domain, not a job-capable command group. Job-scoped
-reads remain available as ``vss <group> status|get|list``; these commands expose
-the underlying parent/child store across groups.
+Not a job-capable command group: it has no ``run``. It is the read surface for
+the unified index, and the only one -- a read is the same query against the
+same index whichever group produced the record, so one implementation serves
+every group, including groups added at runtime that this package has never
+heard of.
+
+``vss <group> status|get|list`` still answer for one release and name their
+replacement here on stderr.
 """
 
 from __future__ import annotations
@@ -231,41 +236,77 @@ def upsert(json_payload: str | None, pretty: bool) -> None:
 
 @memory.command("get")
 @click.option("--job-id", required=True)
-@click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
+@click.option("--record-type", help="With --record-id, fetch one result row instead of the job.")
 @click.option("--record-id")
+@click.option("--group", default=None, help="Refuse a job belonging to a different group.")
 @_output_options
 def get_record(
     job_id: str,
     record_type: str | None,
     record_id: str | None,
+    group: str | None,
     pretty: bool,
 ) -> None:
-    """Fetch a parent by job id or a child by its public identity."""
+    """Fetch a whole job -- its lifecycle row and every result row under it.
+
+    With ``--record-type`` and ``--record-id``, fetch one row instead.
+    ``--record-type`` is an open string: a command group added at runtime
+    names a row type this CLI has never heard of.
+    """
     if (record_type is None) != (record_id is None):
         raise click.UsageError("--record-type and --record-id must be supplied together")
     try:
-        service = _memory().service
-        record = (
-            service.get_record(job_id, record_type, record_id)
-            if record_type is not None and record_id is not None
-            else service.get(job_id, reconcile=False)
-        )
+        handle = _memory()
+        if record_type is not None and record_id is not None:
+            payload = handle.service.get_record(job_id, record_type, record_id).model_dump_memory()
+        else:
+            payload = handle.get(group or _group_of(handle, job_id), job_id)
     except Exception as error:
         _read_failure(error)
         raise AssertionError("unreachable") from error
-    _emit(record.model_dump_memory(), pretty=pretty)
+    _emit(payload, pretty=pretty)
+
+
+@memory.command("status")
+@click.option("--job-id", required=True)
+@click.option("--group", default=None, help="Refuse a job belonging to a different group.")
+@_output_options
+def status_record(job_id: str, group: str | None, pretty: bool) -> None:
+    """The job's lifecycle row alone, without its result rows.
+
+    What a caller polls to reconcile a handle: one document, whatever the job
+    produced, so recovering from an exit 7 costs the same on a job that wrote
+    one row and a job that wrote a thousand.
+    """
+    try:
+        handle = _memory()
+        payload = handle.status(group or _group_of(handle, job_id), job_id)
+    except Exception as error:
+        _read_failure(error)
+        raise AssertionError("unreachable") from error
+    _emit(payload, pretty=pretty)
+
+
+def _group_of(handle: Memory, job_id: str) -> str:
+    """The group a job already belongs to, when the caller did not name one.
+
+    ``vss memory`` is the cross-group surface, so its reads are not scoped by
+    default; passing ``--group`` opts into the same refusal a group's own verb
+    performs.
+    """
+    return str(handle.service.get(job_id, reconcile=False).job.group)
 
 
 @memory.command("query")
 @click.option("--query", "text", default=None, help="Free-text match over memory content.")
 @click.option("--mode", type=click.Choice(("keyword", "semantic", "hybrid")), help="Override the retrieval strategy.")
 @click.option("--job-id")
-@click.option("--group", type=click.Choice(("summary", "search", "alert", "vlm")))
+@click.option("--group", help="Restrict to one group. Open string: runtime-added groups name their own.")
 @click.option("--status", type=click.Choice(("submitted", "running", "completed", "failed", "partial", "timeout")))
 @click.option("--sensor-id")
-@click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
+@click.option("--record-type", help="Restrict to one result-row type. Open string.")
 @click.option("--record-id")
-@click.option("--parents-only", is_flag=True, help="Return parent job records only.")
+@click.option("--parents-only", is_flag=True, help="Return job lifecycle rows only.")
 @click.option("--since", help="Lower ISO-8601 time bound.")
 @click.option("--until", help="Upper ISO-8601 time bound.")
 @click.option("--time-field", type=click.Choice(("created_at", "window")), default="created_at", show_default=True)
@@ -374,7 +415,7 @@ def backfill_embeddings(
 @click.option("--job-id")
 @click.option("--record-id")
 @click.option("--record-type", type=click.Choice(("event", "search_hit", "incident")))
-@click.option("--group", type=click.Choice(("summary", "search", "alert")))
+@click.option("--group", help="Restrict to one group.")
 @click.option("--fps", type=click.FloatRange(min=0, max=256, min_open=True), help="RT-VLM frames per second.")
 @_output_options
 def introspect_memory(

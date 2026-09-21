@@ -341,7 +341,7 @@ code, is what says whether a job was created.
 | 3 | LVS unreachable or returned 5xx | report it with the marker's `job_id` |
 | 4 | deployment configuration is missing, or an explicit Markdown note lacks static sink configuration | no job, no marker — run the remediation command from stderr |
 | 6 | summary produced; Elasticsearch or Markdown cache write failed | present the summary; report ES and Markdown outcomes separately |
-| 7 | timed out | reconcile with `vss summarize get --job-id`; do not re-run |
+| 7 | timed out | reconcile with `vss memory status --job-id`; do not re-run |
 
 Exits 6 and 7 both mean the summarization already happened. Never repeat the run
 to obtain a different view of it, and never repeat it for diagnosis — a second
@@ -360,7 +360,7 @@ under `memory_note`. `record` says what the `job_id` is worth to a later read:
 record could not be closed. Do not read the record back to confirm it, and never
 read Elasticsearch directly — recalling memory is a separate skill's job. The
 one read that belongs here is reconciling an exit 7, whose outcome is genuinely
-unknown until `vss summarize get --job-id <job_id>` answers.
+unknown until `vss memory status --job-id <job_id>` answers.
 
 If `video_summary` and `events` are empty, inspect the same payload's
 `summary.usage.total_chunks_processed`. A positive integer confirms processing;
@@ -418,7 +418,7 @@ re-voice either backend's content.
 | `vss` not found | Verify `VSS_REPO_ROOT` points at the checkout; never install globally. |
 | Run exits 4 | Follow stderr: configure the deployment, or configure the Markdown sink requested explicitly. |
 | Run exits 6 | A post-operation memory write failed. Present the summary and separate ES/Markdown status; do not re-run. |
-| Run exits 7 | Timed out. `vss summarize get --job-id <id>`; do not re-run. |
+| Run exits 7 | Timed out. `vss memory status --job-id <id>`; do not re-run. |
 | VLM returns `<think>` | Remove reasoning through `</think>` when rendering. |
 | K8s `/openapi.json` looks like Agent | Expected — do not use it as LVS schema. |
 | K8s `/models` 404 / HTML | Probing the bare origin — use `${LVS_BACKEND_URL}/models` or `${VLM}/v1/models`. |

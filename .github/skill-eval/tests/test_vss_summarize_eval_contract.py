@@ -447,11 +447,11 @@ def test_read_examples_pass_the_only_since_the_cli_accepts() -> None:
     """
     cli_reference = CLI_REFERENCE.read_text()
 
-    summarize_invocations = [
-        line for line in cli_reference.splitlines() if "vss summarize" in line and "--since" in line
-    ]
-    assert summarize_invocations
-    for line in summarize_invocations:
+    # Whichever command documents `--since` -- the reads moved from
+    # `vss summarize list` to `vss memory query` -- the rule is the same.
+    since_invocations = [line for line in cli_reference.splitlines() if "vss " in line and "--since" in line]
+    assert since_invocations
+    for line in since_invocations:
         assert re.search(r"--since\s+\d+[smhdw]\b", line) is None, line
         assert re.search(r"--since\s+\d{4}-\d{2}-\d{2}T", line), line
     assert "not a duration" in cli_reference

@@ -481,15 +481,15 @@ def test_search_get_status_list_parent_oriented(search_group: SearchGroup) -> No
     got = search_group.get(run.job_id, ctx)
     assert got.body["job"]["job_id"] == run.job_id
     assert "record_id" not in got.body["job"]
-    assert len(got.body["children"]) == 2
-    assert [child["output"]["ext"]["rank"] for child in got.body["children"]] == [1, 2]
+    assert len(got.body["results"]) == 2
+    assert [child["output"]["ext"]["rank"] for child in got.body["results"]] == [1, 2]
     status = search_group.status(run.job_id, ctx)
     assert status.body["job"]["status"] == "completed"
-    assert "children" not in status.body
+    assert "results" not in status.body
     listed = search_group.list({}, ctx)
     assert len(listed.body) == 1
     assert "record_id" not in listed.body[0]["job"]
-    assert "children" not in listed.body[0]
+    assert "results" not in listed.body[0]
 
 
 def test_search_get_preserves_zero_hit_critic_diagnostic(

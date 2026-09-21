@@ -135,7 +135,6 @@ class ElasticsearchEmbeddingStore:
                 "record_type": {"type": "keyword"},
                 "group": {"type": "keyword"},
                 "status": {"type": "keyword"},
-                "is_child": {"type": "boolean"},
                 "created_at": {"type": "date"},
                 "updated_at": {"type": "date"},
                 "sensor_ids": {"type": "keyword"},
@@ -370,7 +369,9 @@ class ElasticsearchEmbeddingStore:
         if query.record_id:
             filters.append({"term": {"record_id": query.record_id}})
         if query.parents_only or not query.include_children:
-            filters.append({"term": {"is_child": False}})
+            # A lifecycle row is one with no record_id. Asking that directly
+            # beats a stored boolean that says the same thing and can drift.
+            filters.append({"bool": {"must_not": {"exists": {"field": "record_id"}}}})
 
         since = coerce_utc_instant(query.since)
         until = coerce_utc_instant(query.until)
@@ -473,7 +474,6 @@ class ElasticsearchEmbeddingStore:
             "job_id": record.job.job_id,
             "group": record.job.group,
             "status": record.job.status,
-            "is_child": record.job.is_child,
             "created_at": datetime_to_iso8601(record.job.created_at),
             "sensor_ids": sensor_ids,
         }

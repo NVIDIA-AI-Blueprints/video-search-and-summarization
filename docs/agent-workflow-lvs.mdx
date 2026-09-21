@@ -178,7 +178,7 @@ vss summarize run \
   --event "person entering restricted area"
 ```
 
-Replace `HOST_IP`, `VIDEO_NAME`, `SENSOR_ID`, `MEDIA_URL`, and `START_TIME` with values from the deployment and command outputs. `vss summarize run` is synchronous and can take several minutes for a long video. With memory enabled, it records a job before starting the model request; use `vss summarize list` to find the job ID and `vss summarize status --job-id JOB_ID` or `vss summarize get --job-id JOB_ID` from another shell while it runs. Without `vss configure memory --enable`, the retrieval commands exit with code 4.
+Replace `HOST_IP`, `VIDEO_NAME`, `SENSOR_ID`, `MEDIA_URL`, and `START_TIME` with values from the deployment and command outputs. `vss summarize run` is synchronous and can take several minutes for a long video. With memory enabled, it records a job before starting the model request; use `vss memory query --group summary --parents-only` to find the job ID and `vss memory status --job-id JOB_ID` or `vss memory get --job-id JOB_ID` from another shell while it runs. Without `vss configure memory --enable`, the retrieval commands exit with code 4.
 
 ### Manually
 
