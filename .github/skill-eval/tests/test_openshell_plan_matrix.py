@@ -240,14 +240,14 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 2)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 2)
+        self.assertEqual(len(legs), 7)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 7)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
-        self.assertEqual(counts, {"openshell": 2})
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 2)
+        self.assertEqual(counts, {"openshell": 7})
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 7)
         # Every OpenShell leg travels without a SKU: no platform for the
         # adapter to size from, and no hardware profile for the workflow to
         # export. The guest's own card decides both.
@@ -256,7 +256,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             for leg in legs
             if leg.get("cohort") == plan_matrix.OPENSHELL_COHORT_TAG
         ]
-        self.assertEqual(len(openshell), 2)
+        self.assertEqual(len(openshell), 7)
         for leg in openshell:
             self.assertEqual(leg["platform"], "", leg["slug"])
             self.assertEqual(leg["hardware_profile"], "", leg["slug"])
