@@ -13,7 +13,7 @@ runs.
 
 The adapter does **not** pick LLM/VLM placement — the
 `/vss-deploy-test-openshell` skill reads `LLM_REMOTE_URL`/`VLM_REMOTE_URL`
-(forwarded by `brev_env.py`) plus what's locally available and decides at
+(forwarded by the OpenShell Harbor environment) plus what's locally available and decides at
 runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
@@ -48,7 +48,7 @@ Usage from the repository root:
 
 Run with Harbor:
     export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
-    uvx harbor run --environment-import-path "envs.brev_env:BrevEnvironment" \\
+    uvx harbor run --environment-import-path "openshell.env:OpenShellEnvironment" \\
         -p .github/skill-eval/datasets/vss-deploy-test-openshell/vios_ops -a claude-code -n 1
 
 On a CI guest this also writes
@@ -77,7 +77,7 @@ GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_jud
 
 # Fallback only — when the harness can't tell what to sync to (no
 # PR_HEAD_SHA forwarded, e.g. a local dev run outside CI), fall back
-# to develop. In CI, brev_env.py forwards PR_HEAD_SHA + PR_REPO from
+# to develop. In CI, the OpenShell environment forwards PR_HEAD_SHA + PR_REPO from
 # the workflow step into ~/.eval_env on the instance, and the
 # pre-deploy script below resets the working tree to that exact SHA.
 # The fallback repo URL is derived from $PR_REPO at script-runtime
@@ -425,7 +425,6 @@ ALWAYS_BUNDLED_SKILLS: tuple[str, ...] = (
     "vss-deploy-dense-captioning",
     "vss-deploy-detection-tracking-2d",
     "vss-deploy-detection-tracking-3d",
-    "vss-deploy-profile",
     "vss-deploy-video-embedding",
     "vss-setup-behavior-analytics",
     "vss-setup-video-analytics-api",
@@ -485,7 +484,7 @@ def deploy_profile(eval_profile: str) -> str:
 _DEFAULT_MIN_ROOT_DISK_GB = 220        # base stack ~80GB + 2 local NIMs ~70GB each
 _DEFAULT_MIN_DRIVER_VERSION = "580.95" # cosmos-reason2-8b:1.6.0 floor
 # Caveats — both defaults are enforced unconditionally by
-# `envs/brev_env.py::_check_live_resources` on the resolved pool box:
+# the OpenShell environment's live resource check on the guest:
 # - The disk default would reject otherwise-eligible smaller-root
 #   pool members for trials that end up running fully remote and would
 #   actually fit on <220GB. Acceptable today because every `vss-eval-*`
@@ -503,7 +502,7 @@ _DEFAULT_MIN_DRIVER_VERSION = "580.95" # cosmos-reason2-8b:1.6.0 floor
 PREAMBLE = (
     "You are running inside a non-interactive evaluation harness. "
     "You are pre-authorized to deploy prerequisites autonomously — "
-    "do not pause to ask for confirmation on `/vss-deploy-profile` or any other "
+    "do not pause to ask for confirmation on `/vss-deploy-test-openshell` or any other "
     "setup action the trial requires."
 )
 
@@ -572,7 +571,7 @@ def _render_eval_spec(spec: dict, profile: str, platform: str) -> dict:
     ship to the task's tests/ dir.
 
     `{{repo_root}}` is `$HOME/video-search-and-summarization` — a shell-
-    expansion that matches whichever default user the Brev provider assigns
+    expansion that matches whichever default user the OpenShell guest assigns
     (Crusoe → `ubuntu`, Massed Compute → `shadeform`, etc.).
     """
     substitutions = {
@@ -717,7 +716,7 @@ def generate_solve_script(profile: str, platform: str) -> str:
         "",
         "# --- Sync repo to PR head ---",
         "# PR_HEAD_SHA + PR_REPO are forwarded from the workflow step by",
-        "# brev_env.py. On a warm-pool box, $REPO usually already exists",
+        "# the OpenShell environment. On a reused guest, $REPO usually already exists",
         "# from a prior trial — fetch + reset to the PR SHA instead of",
         "# re-cloning so the deploy step always validates the PR's actual",
         "# code, never a stale checkout from a previous trial.",
@@ -1249,7 +1248,7 @@ def main() -> None:
     skill_eval_root = Path(__file__).resolve().parents[2]
     first_profile_root = (output_root / first_profile).resolve()
     print(f'  export PYTHONPATH="{skill_eval_root}:${{PYTHONPATH:-}}"')
-    print(f"  uvx harbor run --environment-import-path 'envs.brev_env:BrevEnvironment' \\")
+    print(f"  uvx harbor run --environment-import-path 'openshell.env:OpenShellEnvironment' \\")
     print(f"    -p {first_profile_root} -a claude-code -n 1")
 
 
