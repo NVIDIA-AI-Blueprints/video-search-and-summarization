@@ -176,3 +176,64 @@ def test_configure_vlm_rejects_inverted_processor_size(config_home: Path) -> Non
 
     assert result.exit_code != 0
     assert "shortest_edge must be no greater than longest_edge" in result.output
+
+
+def test_vlm_environment_overlays_every_persisted_policy_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    configured = config_mod.VlmConfig(
+        backend="rt_vlm",
+        timeout=30,
+        temperature=0.5,
+        max_tokens=512,
+        seed=2,
+        enable_reasoning=True,
+        chunk_duration=30,
+        fps=2,
+        shortest_edge=131072,
+        longest_edge=8388608,
+        locked=False,
+    )
+    values = {
+        "backend": "vllm",
+        "timeout": "600",
+        "temperature": "0",
+        "max_tokens": "8192",
+        "seed": "1",
+        "enable_reasoning": "false",
+        "chunk_duration": "0",
+        "fps": "4",
+        "shortest_edge": "262144",
+        "longest_edge": "16777216",
+        "locked": "true",
+    }
+    for field_name, value in values.items():
+        monkeypatch.setenv(config_mod.VLM_ENV[field_name], value)
+
+    assert config_mod.effective_vlm_config(configured) == replace(_locked_policy(), backend="vllm")
+
+
+def test_vlm_environment_can_create_policy_without_persisted_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "4")
+
+    assert config_mod.effective_vlm_config(None) == config_mod.VlmConfig(fps=4)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        ("timeout", "", "VSS_VLM_TIMEOUT is set but empty"),
+        ("max_tokens", "8.5", "VSS_VLM_MAX_TOKENS must be an integer"),
+        ("temperature", "cold", "VSS_VLM_TEMPERATURE must be a number"),
+        ("locked", "yes", "VSS_VLM_LOCKED must be true or false"),
+        ("backend", "rt-vlm", "VSS_VLM_BACKEND must be 'rt_vlm' or 'vllm'"),
+    ],
+)
+def test_vlm_environment_rejects_malformed_values(
+    field_name: str,
+    value: str,
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV[field_name], value)
+
+    with pytest.raises(config_mod.ConfigError, match=message):
+        config_mod.effective_vlm_config(None)

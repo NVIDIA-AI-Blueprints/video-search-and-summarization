@@ -38,6 +38,23 @@ from urllib.parse import urlsplit
 #: deployment via ``VSS_CONFIG_HOME``.
 CONFIG_HOME_ENV = "VSS_CONFIG_HOME"
 
+#: Per-field runtime overrides for the persisted VLM request policy. These are
+#: intentionally separate variables so a deployment can override one value
+#: without reconstructing the complete policy written by ``vss configure vlm``.
+VLM_ENV = {
+    "backend": "VSS_VLM_BACKEND",
+    "timeout": "VSS_VLM_TIMEOUT",
+    "temperature": "VSS_VLM_TEMPERATURE",
+    "max_tokens": "VSS_VLM_MAX_TOKENS",
+    "seed": "VSS_VLM_SEED",
+    "enable_reasoning": "VSS_VLM_ENABLE_REASONING",
+    "chunk_duration": "VSS_VLM_CHUNK_DURATION",
+    "fps": "VSS_VLM_FPS",
+    "shortest_edge": "VSS_VLM_SHORTEST_EDGE",
+    "longest_edge": "VSS_VLM_LONGEST_EDGE",
+    "locked": "VSS_VLM_LOCKED",
+}
+
 #: Bumped when the on-disk shape changes incompatibly. A file written by a
 #: newer CLI is refused rather than half-read.
 CONFIG_VERSION = 1
@@ -708,6 +725,67 @@ class VlmConfig:
             **values,
             locked=raw.get("locked", False),
         ).validate()
+
+
+_VLM_INTEGER_ENV_FIELDS = frozenset(
+    {
+        "timeout",
+        "max_tokens",
+        "seed",
+        "chunk_duration",
+        "shortest_edge",
+        "longest_edge",
+    }
+)
+_VLM_FLOAT_ENV_FIELDS = frozenset({"temperature", "fps"})
+_VLM_BOOLEAN_ENV_FIELDS = frozenset({"enable_reasoning", "locked"})
+
+
+def _parse_vlm_environment_value(field_name: str, environment_name: str, raw: str) -> object:
+    """Parse one explicitly defined VLM environment override."""
+    value = raw.strip()
+    if not value:
+        raise ConfigError(f"{environment_name} is set but empty")
+    if field_name == "backend":
+        if value not in {"rt_vlm", "vllm"}:
+            raise ConfigError(f"{environment_name} must be 'rt_vlm' or 'vllm'")
+        return value
+    if field_name in _VLM_INTEGER_ENV_FIELDS:
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise ConfigError(f"{environment_name} must be an integer") from exc
+    if field_name in _VLM_FLOAT_ENV_FIELDS:
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ConfigError(f"{environment_name} must be a number") from exc
+    if field_name in _VLM_BOOLEAN_ENV_FIELDS:
+        normalized = value.lower()
+        if normalized not in {"true", "false"}:
+            raise ConfigError(f"{environment_name} must be true or false")
+        return normalized == "true"
+    raise AssertionError(f"unhandled VLM environment field {field_name!r}")
+
+
+def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
+    """Overlay per-field environment values on a persisted VLM policy.
+
+    Environment variables have precedence over values written by
+    ``vss configure vlm``. An absent environment variable leaves its persisted
+    value unchanged. When neither source defines a policy, return ``None`` so
+    existing built-in request defaults retain their current behavior.
+    """
+    overrides = {
+        field_name: _parse_vlm_environment_value(field_name, environment_name, os.environ[environment_name])
+        for field_name, environment_name in VLM_ENV.items()
+        if environment_name in os.environ
+    }
+    if not overrides:
+        return configured
+    effective = (configured or VlmConfig()).to_json()
+    effective.update(overrides)
+    return VlmConfig.from_json(effective)
 
 
 @dataclass(frozen=True)

@@ -278,9 +278,8 @@ _VLM_POLICY_FIELDS = (
 )
 
 
-def _apply_vlm_policy(inputs: VlmInput, deployment: config_mod.Deployment) -> VlmInput:
+def _apply_vlm_policy(inputs: VlmInput, policy: config_mod.VlmConfig | None) -> VlmInput:
     """Apply configured defaults and reject overrides when the policy is locked."""
-    policy = deployment.vlm
     if policy is None:
         return inputs
 
@@ -527,8 +526,9 @@ class VlmGroup(CommandGroup):
             raise TypeError(f"expected VlmInput, got {type(inputs).__name__}")
 
         deployment = ctx.deployment or config_mod.load()
-        inputs = _apply_vlm_policy(inputs, deployment)
-        backend = deployment.vlm.backend if deployment.vlm is not None else "rt_vlm"
+        policy = config_mod.effective_vlm_config(deployment.vlm)
+        inputs = _apply_vlm_policy(inputs, policy)
+        backend = policy.backend if policy is not None else "rt_vlm"
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
 
         if options.use_base64 and inputs.sensor:

@@ -66,6 +66,7 @@ does not expose is *absent* from the file rather than present-but-broken.
 | `vss configure show` | Print the recorded deployment as JSON |
 | `vss configure check` | Re-probe each recorded route, then list which command groups are available |
 | `vss configure memory …` | Static memory policy (see below) |
+| `vss configure vlm …` | Reusable VLM request policy, with optional locking |
 
 ### What gets probed and recorded
 
@@ -94,14 +95,14 @@ so configuring a fresh stack records zero `mdx-*` indices and says so — re-run
 ### The config file
 
 Written to `~/.vss/config.json` at mode 0600, holding **no credentials**: only
-URLs, discovered model/index names, `written_at`, and static memory policy.
+URLs, discovered model/index names, `written_at`, and static memory/VLM policy.
 Set `VSS_CONFIG_HOME` to point at a different directory for a second deployment
 or for tests. The file carries a `version`; one written by a newer CLI is
 refused rather than half-read, with a message telling you to re-run `configure`.
 
 Re-running `vss configure --base-url …` refreshes routes and **preserves valid
-static memory policy**, so re-probing after a deployment change does not reset
-your judge, embedding, or persistence settings.
+static memory and VLM policy**, so re-probing after a deployment change does
+not reset request, judge, embedding, or persistence settings.
 
 `vss configure check` prints per-service reachability and a `commands:` table
 marking each group available or unavailable (a group is available only when
@@ -111,6 +112,48 @@ answers.
 That same file is where memory policy lives. `vss configure` records service
 URLs (including RT-VLM). `vss configure memory` records how the CLI uses
 Elasticsearch, embeddings, the text judge, and optional Markdown notes.
+
+## Configure VLM requests
+
+`vss configure vlm` stores reusable defaults for `vss vlm run`. Add `--lock`
+to reject conflicting per-call flags:
+
+```bash
+vss configure vlm \
+  --backend rt-vlm \
+  --timeout 600 \
+  --temperature 0 \
+  --max-tokens 8192 \
+  --seed 1 \
+  --disable-reasoning \
+  --chunk-duration 0 \
+  --fps 4 \
+  --shortest-edge 262144 \
+  --longest-edge 16777216 \
+  --lock
+```
+
+Each field also has an independent runtime environment override:
+
+| Field | Environment variable |
+|-------|----------------------|
+| `backend` | `VSS_VLM_BACKEND` (`rt_vlm` or `vllm`) |
+| `timeout` | `VSS_VLM_TIMEOUT` |
+| `temperature` | `VSS_VLM_TEMPERATURE` |
+| `max_tokens` | `VSS_VLM_MAX_TOKENS` |
+| `seed` | `VSS_VLM_SEED` |
+| `enable_reasoning` | `VSS_VLM_ENABLE_REASONING` (`true` or `false`) |
+| `chunk_duration` | `VSS_VLM_CHUNK_DURATION` |
+| `fps` | `VSS_VLM_FPS` |
+| `shortest_edge` | `VSS_VLM_SHORTEST_EDGE` |
+| `longest_edge` | `VSS_VLM_LONGEST_EDGE` |
+| `locked` | `VSS_VLM_LOCKED` (`true` or `false`) |
+
+For each field, a defined environment variable overrides the persisted value;
+an absent one leaves the persisted value unchanged. If neither is present, the
+built-in request default applies. Empty or malformed variables are errors. The
+effective `locked` value then decides whether explicit `vss vlm run` arguments
+may override the resulting policy.
 
 ## The surface
 
@@ -122,7 +165,7 @@ Elasticsearch, embeddings, the text judge, and optional Markdown notes.
 | `vss memory` | Unified-memory access, embeddings backfill, introspection | `upsert`, `get`, `query`, `events`, `introspect`, `embeddings backfill` |
 | `vss analytics` | Read-only incidents, analytics sensors/places, and metrics | `incidents`, `incident`, `sensors`, `places`, `fov-histogram`, `average-speed`, `analyze` |
 | `vss vios` | Media plane: sensors, timelines, clip and snapshot URLs | `list`, `timeline`, `clip`, `snapshot`, `add`, `delete` |
-| `vss configure` | Resolve a deployment and set static memory policy | `show`, `check`, `memory`, `memory show`, `memory check`, `memory introspection` |
+| `vss configure` | Resolve a deployment and set static memory/VLM policy | `show`, `check`, `memory`, `memory show`, `memory check`, `memory introspection`, `vlm` |
 
 `search`, `summarize`, and `vlm` are **job groups**: every run mints a `job_id`, and the
 result stays retrievable by that id. `analytics` and `vios` are **not**:
