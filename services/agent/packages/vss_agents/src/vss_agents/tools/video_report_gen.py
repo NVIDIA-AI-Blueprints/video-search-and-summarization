@@ -213,6 +213,48 @@ async def collect_hitl_vlm_prompt(
         return stripped
 
 
+class VlmPromptConversationState:
+    """Per-conversation LRU of last-approved HITL VLM prompts."""
+
+    def __init__(self, max_conversations: int = 1000) -> None:
+        # Each entry stores ~1-2KB (thread_id + prompt string).
+        # At 1000 conversations: ~1-2MB memory footprint.
+        self.max_conversations = max_conversations
+        self._prompts: OrderedDict[str, str] = OrderedDict()
+
+    def store(self, thread_id: str, prompt: str) -> None:
+        """Store a prompt for a thread, evicting oldest entries if over capacity."""
+        if thread_id in self._prompts:
+            self._prompts.move_to_end(thread_id)
+        self._prompts[thread_id] = prompt
+        while len(self._prompts) > self.max_conversations:
+            evicted_id, _ = self._prompts.popitem(last=False)
+            logger.debug(f"Evicted prompt state for thread {evicted_id} (LRU capacity: {self.max_conversations})")
+
+    def get(self, thread_id: str) -> str | None:
+        """Get a prompt for a thread, updating access order (LRU behavior)."""
+        if thread_id in self._prompts:
+            self._prompts.move_to_end(thread_id)
+            return self._prompts[thread_id]
+        return None
+
+
+async def resolve_persisted_hitl_vlm_prompt(
+    state: VlmPromptConversationState,
+    thread_id: str,
+    collect: Callable[[str | None], Awaitable[str | None]],
+) -> str | None:
+    """Collect a HITL prompt using last saved edits, persisting only on approval.
+
+    Cancel returns None and leaves previously stored edits unchanged.
+    """
+    resolved = await collect(state.get(thread_id))
+    if resolved is None:
+        return None
+    state.store(thread_id, resolved)
+    return resolved
+
+
 # Appended to report VLM prompts only for Omni-capable VLMs when enable_audio=True.
 AUDIO_REPORT_PROMPT_SUFFIX = """
 AUDIO REQUIREMENTS (mandatory when speech or sound is present):
@@ -1527,17 +1569,9 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
             logger.warning(f"Failed to load HITL LLM '{config.hitl_prompt_llm}': {e}. AI prompt generation disabled.")
             hitl_llm = None
 
-    # HITL state: maps thread_id -> vlm_prompt (persisted per conversation)
-    # Uses OrderedDict as LRU cache to prevent unbounded memory growth.
-    #
-    # max_conversations: Maximum number of conversation states to retain.
-    # - Each entry stores ~1-2KB (thread_id + prompt string)
-    # - At 1000 conversations: ~1-2MB memory footprint
-    # - Oldest entries are evicted when limit is exceeded (LRU policy)
-    # - Operators can adjust this value based on expected concurrent users
-    #   and available memory. For high-traffic deployments, consider 500-2000.
-    max_conversations = 1000
-    vlm_prompt_state: OrderedDict[str, str] = OrderedDict()
+    # HITL state: maps thread_id -> vlm_prompt (persisted per conversation).
+    # Oldest entries are evicted when the LRU capacity is exceeded.
+    vlm_prompt_state = VlmPromptConversationState()
 
     def _interactive_hitl_enabled() -> bool:
         """Resolve HITL availability without changing deployment-wide configuration."""
@@ -1550,25 +1584,6 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
             "proceeding noninteractively with the configured VLM prompt for this request only"
         )
         return False
-
-    def _store_prompt(thread_id: str, prompt: str) -> None:
-        """Store a prompt for a thread, evicting oldest entries if over capacity."""
-        # If key exists, remove it first to update insertion order (LRU behavior)
-        if thread_id in vlm_prompt_state:
-            vlm_prompt_state.move_to_end(thread_id)
-        vlm_prompt_state[thread_id] = prompt
-
-        # Evict oldest entries if over capacity
-        while len(vlm_prompt_state) > max_conversations:
-            evicted_id, _ = vlm_prompt_state.popitem(last=False)
-            logger.debug(f"Evicted prompt state for thread {evicted_id} (LRU capacity: {max_conversations})")
-
-    def _get_prompt(thread_id: str) -> str | None:
-        """Get a prompt for a thread, updating access order (LRU behavior)."""
-        if thread_id in vlm_prompt_state:
-            vlm_prompt_state.move_to_end(thread_id)
-            return vlm_prompt_state[thread_id]
-        return None
 
     async def _prompt_user_input(prompt_text: str, required: bool = True, placeholder: str = "") -> str | None:
         """Prompt user for input using HITL with option to cancel via /cancel.
@@ -1826,11 +1841,14 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
         vlm_prompt_override: str | None = None
         if base_sensor_ids and _interactive_hitl_enabled():
             thread_id = ContextState.get().conversation_id.get()
-            current_prompt = _get_prompt(thread_id)
-            resolved_prompt = await _collect_hitl_vlm_prompt(
-                current_prompt,
-                sensor_ids=base_sensor_ids,
-                total_videos=request_total_videos,
+            resolved_prompt = await resolve_persisted_hitl_vlm_prompt(
+                vlm_prompt_state,
+                thread_id,
+                lambda current: _collect_hitl_vlm_prompt(
+                    current,
+                    sensor_ids=base_sensor_ids,
+                    total_videos=request_total_videos,
+                ),
             )
             if resolved_prompt is None:
                 return VideoReportGenOutput(
@@ -1838,7 +1856,6 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
                     http_url=None,
                 )
             vlm_prompt_override = resolved_prompt
-            _store_prompt(thread_id, resolved_prompt)
             logger.info(f"Collected VLM prompt for base videos: '{resolved_prompt[:100]}...'")
 
         # Step 3: Build tasks — LVS group as a single call, base VLM as individual calls
@@ -2231,8 +2248,11 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
                 clean_prompt = _remove_som_markers(vlm_prompt_override)
             elif _interactive_hitl_enabled():
                 thread_id = ContextState.get().conversation_id.get()
-                current_prompt = _get_prompt(thread_id)
-                resolved_prompt = await _collect_hitl_vlm_prompt(current_prompt)
+                resolved_prompt = await resolve_persisted_hitl_vlm_prompt(
+                    vlm_prompt_state,
+                    thread_id,
+                    _collect_hitl_vlm_prompt,
+                )
 
                 if resolved_prompt is None:
                     logger.info("Report generation cancelled by user")
@@ -2247,7 +2267,6 @@ async def video_report_gen(config: VideoReportGenConfig, builder: Builder) -> As
                         video_url=None,
                     )
 
-                _store_prompt(thread_id, resolved_prompt)
                 logger.info(f"[PROMPT LOADED] video_report_gen.vlm_prompt from HITL: '{resolved_prompt[:100]}...'")
                 clean_prompt = _remove_som_markers(resolved_prompt)
             else:
