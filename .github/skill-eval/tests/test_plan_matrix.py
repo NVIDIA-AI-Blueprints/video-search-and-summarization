@@ -298,6 +298,14 @@ class BuildMatrix(unittest.TestCase):
         )
         self.assertEqual(self._stems(inc), ["a", "b"])
 
+    def test_openshell_skill_never_enters_the_brev_matrix(self):
+        inc = plan_matrix.build_matrix([
+            "skills/vss-deploy-test-openshell/SKILL.md",
+            "skills/vss-deploy-test-openshell/evals/alerts_vlm_real_time.json",
+            ".github/skill-eval/adapters/vss-deploy-test-openshell/generate.py",
+        ])
+        self.assertEqual(inc, [])
+
     def test_spec_plus_skill_file_dedupes(self):
         inc = plan_matrix.build_matrix([
             "skills/operations/vss-summarize-video/evals/a.json",
@@ -325,6 +333,17 @@ class BuildMatrix(unittest.TestCase):
             "README.md",
         ):
             self.assertEqual(plan_matrix.build_matrix([f]), [], f)
+
+    def test_brev_runtime_does_not_import_openshell_prep(self):
+        root = plan_matrix.REPO_ROOT / ".github/skill-eval"
+        brev_env = (root / "envs" / "brev_env.py").read_text()
+        run_leg = (root / "run_leg.py").read_text()
+        self.assertNotIn("openshell.docker_prep", brev_env)
+        self.assertNotIn("OpenShellEnvironment", run_leg)
+        self.assertNotIn("openshell.env:", run_leg)
+        self.assertNotIn('"local_gpu"', (root / "plan_matrix.py").read_text())
+        self.assertIn("docker volume rm -f $vols", brev_env)
+        self.assertIn("envs.brev_env:BrevEnvironment", run_leg)
 
     def test_missing_adapter_collapses_to_one_leg(self):
         inc = plan_matrix.build_matrix(["skills/operations/vss-no-adapter/SKILL.md"])
