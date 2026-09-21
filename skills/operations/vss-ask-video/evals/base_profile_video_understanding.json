@@ -49,7 +49,7 @@
       ]
     },
     {
-      "query": "Was anyone missing PPE on warehouse_sample?",
+      "query": "Was the worker wearing a high-visibility vest as well as a helmet on warehouse_sample?",
       "checks": [
         "The VSS operation is vss memory introspect with --sensor warehouse_sample, the verbatim question, and --fps.",
         "It does not issue vss memory query first or call a backend directly."
