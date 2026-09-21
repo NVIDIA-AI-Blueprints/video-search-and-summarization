@@ -211,8 +211,9 @@ services:
       - -c
       - |
         topics="${RAW_TOPIC:-mdx-raw} ${FUSED_TOPIC:-mdx-bev}"
-        case "${REID_ENABLE_SECONDARY_EMBEDDING:-False}" in
-          [Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss]) topics="$$topics ${REID_OUTPUT_TOPIC:-mdx-compressed-embeddings}" ;;
+        case "${REID_ENABLE_COMPRESSION:-True}${REID_ENABLE_SECONDARY_EMBEDDING:-False}" in
+          # Either producer writes to REID_OUTPUT_TOPIC, so either enables it.
+          *[Tt][Rr][Uu][Ee]*|*1*|*[Yy][Ee][Ss]*) topics="$$topics ${REID_OUTPUT_TOPIC:-mdx-compressed-embeddings}" ;;
         esac
         for t in $$topics; do
           kafka-topics --bootstrap-server localhost:${KAFKA_PORT:-9092} --create --if-not-exists \

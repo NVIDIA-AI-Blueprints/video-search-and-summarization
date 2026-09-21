@@ -170,14 +170,15 @@ def _load_cameras(path: str) -> dict:
             if sensor.get("type") != "camera":
                 continue
             rows = sensor["extrinsicMatrix"]
-            height = abs(-sum(rows[k][:3][2] * rows[k][3] for k in range(3)))
+            # Camera centre is -R^T t. Taking x, y and h from one source keeps
+            # them consistent; "coordinates" is placeholder in some calibrations.
+            centre = [-sum(rows[k][:3][i] * rows[k][3] for k in range(3)) for i in range(3)]
+            height = abs(centre[2])
             focal = float(sensor["intrinsicMatrix"][0][0])
             if not (height > 0 and focal > 0):
                 continue
             cameras[str(sensor["id"])] = {
-                "x": float(sensor["coordinates"]["x"]),
-                "y": float(sensor["coordinates"]["y"]),
-                "h": height, "f": focal,
+                "x": centre[0], "y": centre[1], "h": height, "f": focal,
             }
         except (KeyError, IndexError, TypeError, ValueError):
             continue
@@ -976,8 +977,14 @@ class MeasurementFusionService:
     def _release_smoothed(self, up_to: int):
         """Publish every held frame at or before up_to, smoothed where possible.
         A track that has since ended keeps what the causal filter produced."""
-        for bucket in sorted(b for b in self._pending if b <= up_to):
-            frame = self._pending.pop(bucket)
+        with self._lock:
+            ready = [(b, self._pending.pop(b))
+                     for b in sorted(b for b in self._pending if b <= up_to)]
+        self._emit_smoothed(ready)
+
+    def _emit_smoothed(self, ready):
+        """Smooth and publish detached frames. Runs without the lock held."""
+        for bucket, frame in ready:
             for obj in frame.objects:
                 if len(obj.bbox3d.coordinates) != 12: continue
                 pos = _smoothed_position(obj.id, bucket)
@@ -1092,7 +1099,8 @@ class MeasurementFusionService:
             if SMOOTH_LAG:
                 # Hold this frame back: its positions improve once SMOOTH_LAG
                 # later buckets let the filter look backwards at it.
-                self._pending[bucket] = fused
+                with self._lock:
+                    self._pending[bucket] = fused
                 self._release_smoothed(bucket - SMOOTH_LAG)
             else:
                 self._publish(fused.SerializeToString())
@@ -1253,7 +1261,9 @@ class MeasurementFusionService:
             # Nothing more is coming, so held frames are published as they stand
             # rather than being dropped on the floor.
             try:
-                self._release_smoothed(max(self._pending) if self._pending else 0)
+                with self._lock:
+                    up_to = max(self._pending) if self._pending else 0
+                self._release_smoothed(up_to)
             except Exception:
                 pass
             try:

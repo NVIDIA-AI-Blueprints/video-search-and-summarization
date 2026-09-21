@@ -88,8 +88,7 @@ def _wait(predicate, timeout_s, what, poll=10):
 # broker offset helpers
 # --------------------------------------------------------------------------- #
 def _kafka_total_offset(kafka_name, topic):
-    # The 9092 listener advertises the host IP, which the broker cannot route to
-    # itself; 29092 is the in-container one.
+    # 29092 is the broker's in-container listener; 9092 advertises the host IP.
     r = _sh("docker", "exec", kafka_name, "kafka-get-offsets",
             "--bootstrap-server", KAFKA_BOOTSTRAP, "--topic", topic)
     assert r.returncode == 0, f"kafka-get-offsets {topic} failed: {r.stderr.strip()[:200]}"

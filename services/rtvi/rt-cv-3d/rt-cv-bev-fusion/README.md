@@ -69,9 +69,9 @@ All runtime configuration is supplied through environment variables.
 | `FOOT_OFFSET`                | `auto`           | Ground-contact offset correction. `auto` measures it from overlapping views; `off`, or a distance in metres, to pin it. |
 | `CONFLICT_RADIUS`            | `2.0`            | Views of one id further apart than this are treated as a mis-association. `0` disables. |
 | `SMOOTH_LAG`                 | `0`              | Publish each frame this many buckets late so a backward pass can use later frames. `0` is causal. |
-| `MAX_SPEED`                  | `10`             | Reject a fused step implying more than this, in m/s. `0` disables.                                |
-| `REACQUIRE`                  | `10`             | Accept after this many consecutive rejections, so a real move is not stranded.                     |
-| `SPLIT_ON_REACQUIRE`         | `1`              | Publishes a re-acquisition under a new id instead of leaping the old one.                      |
+| `MAX_SPEED`                  | `10`             | Reject a fused step whose estimated velocity, in m/s, is greater than this. `0` disables.                                |
+| `REACQUIRE`                  | `10`             | Accept after this many consecutive rejections, so an actual displacement is recovered.                     |
+| `SPLIT_ON_REACQUIRE`         | `1`              | Publishes a re-acquisition under a new id.                      |
 | `TEMPORAL_FILTER`            | `1`              | Filter each fused track over time with a constant-velocity Kalman filter.           |
 | `PIXEL_SIGMA`                | `3.0`            | Box bottom-edge jitter in pixels, scaled into the filter's measurement covariance.   |
 | `ACCEL_SIGMA`                | `3.0`            | How hard a tracked object may accelerate, m/s². 3 covers a person or forklift.       |
@@ -98,7 +98,7 @@ Four baselines, each one idea taking every view, and the combination that beat t
 
 Against ground truth, `rays` is the most precise of the five and `first` the least; the baselines trade precision for recall.
 
-`rays` derives its weights from geometry, with nothing fitted: for a camera of focal length `f` at height `h` viewing a ground point at slant range `d`, a pixel of error on the box's bottom edge gives `sigma_along = d²/(f·h)` and `sigma_across = d/f`, so the anisotropy is `d/h` and the common pixel term cancels. A ground-plane projection is precise across the camera's line of sight and vague along it, so views from a wide baseline pin a position none of them could fix alone.
+`rays` derives its weights from geometry: for a camera of focal length `f` at height `h` viewing a ground point at slant range `d`, a pixel of error on the box's bottom edge gives `sigma_along = d²/(f·h)` and `sigma_across = d/f`, so the anisotropy is `d/h` and the common pixel term cancels. A ground-plane projection is precise across the camera's line of sight and more uncertain along it, so views from a wide baseline pin a position none of them could fix alone.
 
 Fewer than two calibrated views leaves the position at an area-weighted mean of the gated views, since one view alone would simply return its own position. That same mean is the whole no-calibration path: `rays` warns at startup and keeps running, rather than refusing, so an older deployment without the calibration mount still starts.
 

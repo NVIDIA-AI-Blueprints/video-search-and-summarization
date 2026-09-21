@@ -533,10 +533,16 @@ PERCEPTION_CONTAINER="${PERCEPTION_CONTAINER:-vss-rtvi-cv-mv3dt}"
 # Cameras this deployment expects: NUM_CAMS when set, else the configured camInfo
 # entries. Defined here because the remove path runs before the add path helpers.
 required_cameras() {
-  local n="${NUM_CAMS:-}"
-  if [[ "$n" =~ ^[0-9]+$ ]] && (( n > 0 )); then printf '%s\n' "$n"; return 0; fi
-  n="$(ls -1 "$ROOT"/generated/camInfo/*.yml "$ROOT"/generated/camInfo/*.yaml 2>/dev/null | wc -l | tr -d ' ')"
-  [[ "$n" =~ ^[0-9]+$ ]] && (( n > 0 )) || return 1
+  local env_n="${NUM_CAMS:-}" staged_n n=0
+  [[ "$env_n" =~ ^[0-9]+$ ]] || env_n=0
+  # Staging writes camInfo/<sensor>.yml, so only .yml counts here.
+  staged_n="$(ls -1 "$ROOT"/generated/camInfo/*.yml 2>/dev/null | wc -l | tr -d ' ')"
+  [[ "$staged_n" =~ ^[0-9]+$ ]] || staged_n=0
+  # Take the larger: under-counting would read a partial batch as full activation
+  # and let the removal through, which is the case this guard exists to stop.
+  (( env_n > n )) && n="$env_n"
+  (( staged_n > n )) && n="$staged_n"
+  (( n > 0 )) || return 1
   printf '%s\n' "$n"
 }
 
@@ -554,6 +560,11 @@ pipeline_activated_once() {
   docker inspect "$PERCEPTION_CONTAINER" >/dev/null 2>&1 || return 2
   # grep -q closes the pipe on the first match, so a long log is not read whole.
   docker logs "$PERCEPTION_CONTAINER" 2>&1 | grep -qa "Active sources : ${required}\b"
+  local st=("${PIPESTATUS[@]}")
+  (( st[1] == 0 )) && return 0
+  # A logging driver that cannot replay logs says nothing about activation.
+  (( st[0] == 0 )) || return 2
+  return 1
 }
 
 # Refusing is the useful answer: the removal cannot succeed and would take the
@@ -652,8 +663,10 @@ if [[ "$MODE" == remove ]]; then
     report_api_lost
     (( rc )) || rc=1
   else
-    remaining="$(registered_camera_ids 2>/dev/null | grep -c . || true)"
-    [[ "${remaining:-1}" == 0 ]] && report_alignment_reset
+    # A failed query is not an empty one: advise the reset only on a real answer.
+    if remaining="$(registered_camera_ids 2>/dev/null)"; then
+      [[ -z "${remaining//[[:space:]]/}" ]] && report_alignment_reset
+    fi
   fi
   exit "$rc"
 fi
