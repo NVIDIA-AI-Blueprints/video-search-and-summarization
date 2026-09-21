@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 ADAPTER_PATH = (
     REPO_ROOT / ".github/skill-eval/adapters/vss-deploy-test-openshell/generate.py"
 )
+CANARY = "vios_ops"
 
 
 def _load_adapter():
@@ -34,7 +35,7 @@ def _load_adapter():
     return module
 
 
-def _skill_dir(tmp_path: Path, spec: dict, profile: str = "base") -> Path:
+def _skill_dir(tmp_path: Path, spec: dict, profile: str = CANARY) -> Path:
     skill_dir = tmp_path / "skill"
     (skill_dir / "evals").mkdir(parents=True)
     (skill_dir / "evals" / f"{profile}.json").write_text(json.dumps(spec))
@@ -44,14 +45,14 @@ def _skill_dir(tmp_path: Path, spec: dict, profile: str = "base") -> Path:
 def test_task_toml_omits_sku_and_vram_gates(tmp_path: Path) -> None:
     adapter = _load_adapter()
     adapter.generate_task(
-        "base",
+        CANARY,
         "H200",
-        adapter.PROFILES["base"],
+        adapter.PROFILES[CANARY],
         tmp_path,
         skill_dir=None,
         gpu_count=1,
     )
-    text = (tmp_path / "base" / "h200" / "task.toml").read_text()
+    text = (tmp_path / CANARY / "h200" / "task.toml").read_text()
     assert "gpu_count = 1" in text
     assert "gpu_type =" not in text
     assert "min_vram_gb_per_gpu =" not in text
@@ -108,9 +109,9 @@ def test_spec_platform_keys_do_not_gate_generation(tmp_path: Path) -> None:
         },
     )
     included, skipped = adapter.expand_matrix(
-        "base", "RTXPRO6000BW", skill_dir=skill_dir
+        CANARY, "RTXPRO6000BW", skill_dir=skill_dir
     )
-    assert included == [("base", "RTXPRO6000BW", 2)]
+    assert included == [(CANARY, "RTXPRO6000BW", 2)]
     assert skipped == []
 
 
@@ -120,7 +121,7 @@ def test_gpu_demand_falls_back_to_per_platform_counts(tmp_path: Path) -> None:
         tmp_path,
         {"resources": {"platforms": {"H200": {"gpu_count": 2}}}},
     )
-    assert adapter._spec_gpu_count("base", skill_dir) == (2, None)
+    assert adapter._spec_gpu_count(CANARY, skill_dir) == (2, None)
 
 
 def test_conflicting_gpu_demand_is_reported(tmp_path: Path) -> None:
@@ -136,7 +137,7 @@ def test_conflicting_gpu_demand_is_reported(tmp_path: Path) -> None:
             }
         },
     )
-    count, reason = adapter._spec_gpu_count("base", skill_dir)
+    count, reason = adapter._spec_gpu_count(CANARY, skill_dir)
     assert count is None
     assert "conflicting GPU demand" in reason
 
@@ -144,7 +145,7 @@ def test_conflicting_gpu_demand_is_reported(tmp_path: Path) -> None:
 def test_solve_script_writes_the_resolved_profile() -> None:
     adapter = _load_adapter()
     with mock.patch.dict("os.environ", {"HARDWARE_PROFILE": "H200"}, clear=False):
-        script = adapter.generate_solve_script("lvs", "RTXPRO6000BW")
+        script = adapter.generate_solve_script("lvs_profile_summarize", "RTXPRO6000BW")
     assert "HARDWARE_PROFILE=RTXPRO6000BW" in script
     assert "HARDWARE_PROFILE=H200" not in script
 
@@ -181,18 +182,23 @@ def test_guest_marker_names_the_spec_for_a_fleet_probe(tmp_path: Path) -> None:
         environ={
             "RUNNER_NAME": "h200-2-g3-xyz",
             "EVAL_SKILL": "vss-deploy-test-openshell",
-            "EVAL_SPEC_STEM": "lvs",
-            "EVAL_SPEC_PATH": "skills/vss-deploy-test-openshell/evals/lvs.json",
-            "EVAL_SLUG": "vss-deploy-test-openshell__lvs__gpus-1",
+            "EVAL_SPEC_STEM": "lvs_profile_summarize",
+            "EVAL_SPEC_PATH": (
+                "skills/vss-deploy-test-openshell/evals/"
+                "lvs_profile_summarize.json"
+            ),
+            "EVAL_SLUG": "vss-deploy-test-openshell__lvs_profile_summarize__gpus-1",
             "GITHUB_RUN_ID": "12345",
             "EVAL_PLATFORM": "",
         },
     )
     assert path == tmp_path / "current-leg-h200-2-g3-xyz.json"
     payload = json.loads(path.read_text())
-    assert payload["spec_stem"] == "lvs"
+    assert payload["spec_stem"] == "lvs_profile_summarize"
     assert payload["skill"] == "vss-deploy-test-openshell"
-    assert payload["slug"] == "vss-deploy-test-openshell__lvs__gpus-1"
+    assert payload["slug"] == (
+        "vss-deploy-test-openshell__lvs_profile_summarize__gpus-1"
+    )
     assert payload["run_id"] == "12345"
     assert payload["hardware_profile"] == "H200"
     assert payload["eval_platform"] == ""
@@ -219,7 +225,7 @@ def test_generate_task_copies_build_and_deployment_skills(tmp_path: Path) -> Non
     skills_root = tmp_path / "skills"
     skill_dir = skills_root / "vss-deploy-test-openshell"
     (skill_dir / "evals").mkdir(parents=True)
-    (skill_dir / "evals" / "base.json").write_text(
+    (skill_dir / "evals" / f"{CANARY}.json").write_text(
         json.dumps({"openshell": {"gpu_count": 1}, "expects": [{"query": "x", "checks": ["y"]}]})
     )
     (skill_dir / "SKILL.md").write_text("# openshell\n")
@@ -231,14 +237,14 @@ def test_generate_task_copies_build_and_deployment_skills(tmp_path: Path) -> Non
         dest.mkdir(parents=True)
         (dest / "SKILL.md").write_text(f"# {name}\n")
     adapter.generate_task(
-        "base",
+        CANARY,
         "H200",
-        adapter.PROFILES["base"],
+        adapter.PROFILES[CANARY],
         tmp_path / "out",
         skill_dir=skill_dir,
         gpu_count=1,
     )
-    bundled = tmp_path / "out" / "base" / "h200" / "skills"
+    bundled = tmp_path / "out" / CANARY / "h200" / "skills"
     for name in adapter.ALWAYS_BUNDLED_SKILLS:
         assert (bundled / name / "SKILL.md").is_file(), name
 
@@ -248,9 +254,9 @@ def test_generate_task_does_not_write_a_guest_marker(tmp_path: Path) -> None:
     adapter = _load_adapter()
     with mock.patch.object(adapter, "write_guest_leg_marker") as write_marker:
         adapter.generate_task(
-            "base",
+            CANARY,
             "H200",
-            adapter.PROFILES["base"],
+            adapter.PROFILES[CANARY],
             tmp_path,
             skill_dir=None,
             gpu_count=1,
@@ -261,8 +267,7 @@ def test_generate_task_does_not_write_a_guest_marker(tmp_path: Path) -> None:
 
 def test_routing_exam_is_an_openshell_profile() -> None:
     adapter = _load_adapter()
-    assert "base" in adapter.PROFILES
-    assert adapter.deploy_profile("base") == "base"
+    assert CANARY in adapter.PROFILES
     assert adapter.deploy_profile("base_profile_video_understanding") == "base"
     assert adapter.deploy_profile("direct_vlm_video_understanding") == "base"
 
@@ -278,17 +283,17 @@ def test_multi_expect_spec_emits_harbor_steps(tmp_path: Path) -> None:
                 {"query": "When did the forklift cross?", "checks": ["10:14 UTC"]},
             ],
         },
-        profile="base",
+        profile=CANARY,
     )
     adapter.generate_task(
-        "base",
+        CANARY,
         "H200",
-        adapter.PROFILES["base"],
+        adapter.PROFILES[CANARY],
         tmp_path / "out",
         skill_dir=skill_dir,
         gpu_count=1,
     )
-    root = tmp_path / "out" / "base" / "h200"
+    root = tmp_path / "out" / CANARY / "h200"
     assert (root / "step-1" / "instruction.md").is_file()
     assert (root / "step-2" / "instruction.md").is_file()
     assert not (root / "task.toml").exists()
@@ -336,15 +341,15 @@ def test_profile_suite_specs_emit_expected_harbor_steps(tmp_path: Path) -> None:
 def test_single_expect_spec_stays_flat(tmp_path: Path) -> None:
     adapter = _load_adapter()
     adapter.generate_task(
-        "base",
+        CANARY,
         "H200",
-        adapter.PROFILES["base"],
+        adapter.PROFILES[CANARY],
         tmp_path,
         skill_dir=None,
         gpu_count=1,
     )
-    assert (tmp_path / "base" / "h200" / "task.toml").is_file()
-    assert not (tmp_path / "base" / "h200" / "step-1").exists()
+    assert (tmp_path / CANARY / "h200" / "task.toml").is_file()
+    assert not (tmp_path / CANARY / "h200" / "step-1").exists()
 
 
 def test_vdr_quickstart_emits_three_build_exam_steps(tmp_path: Path) -> None:
@@ -410,7 +415,7 @@ def test_main_refreshes_the_marker_with_the_live_profile(
     monkeypatch.setattr(
         adapter,
         "expand_matrix",
-        lambda *args, **kwargs: ([("base", "H200", 1)], []),
+        lambda *args, **kwargs: ([(CANARY, "H200", 1)], []),
     )
     monkeypatch.setattr(adapter, "generate_task", lambda *args, **kwargs: None)
     monkeypatch.setattr(
@@ -421,7 +426,7 @@ def test_main_refreshes_the_marker_with_the_live_profile(
             "--output-dir",
             str(tmp_path),
             "--profile",
-            "base",
+            CANARY,
             "--platform",
             "H200",
         ],

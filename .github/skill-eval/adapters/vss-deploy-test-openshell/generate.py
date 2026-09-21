@@ -17,16 +17,14 @@ The adapter does **not** pick LLM/VLM placement — the
 runtime. `openshell.gpu_count` is the only trial-level resource hint.
 
 Matrix:
-    Profiles : one Harbor job per compose profile (base, lvs, warehouse,
-               search, alerts-cv, alerts-vlm) whose step-1 deploys.
-               Daily operations Harbor exams are their own jobs, named
-               after the Daily spec stem (ask-video, summarize, vios,
+    Profiles : Daily operations Harbor exams (ask-video, summarize, vios,
                report, search-archive, query-analytics, manage-alerts).
+               Each job deploys the compose profile that exam needs.
                Standalone / VDR specs stay their own jobs.
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
-               DGX-SPARK, IGX-THOR this guest has (warehouse, search, and
-               alerts-cv are two-GPU jobs; alerts-vlm and base/lvs are
-               one GPU)
+               DGX-SPARK, IGX-THOR this guest has (search-archive and CV
+               alert exams are two-GPU jobs; base/lvs/alerts-vlm exams
+               are one GPU)
 
 Directory layout:
     .github/skill-eval/datasets/vss-deploy-test-openshell/<profile>/<platform_short>/
@@ -41,7 +39,7 @@ Usage from the repository root:
     # One profile
     python3 .github/skill-eval/adapters/vss-deploy-test-openshell/generate.py \\
         --output-dir .github/skill-eval/datasets/vss-deploy-test-openshell \\
-        --skill-dir skills/vss-deploy-test-openshell --profile base
+        --skill-dir skills/vss-deploy-test-openshell --profile vios_ops
 
     # Override the detected card (local runs only; CI passes none)
     python3 .github/skill-eval/adapters/vss-deploy-test-openshell/generate.py \\
@@ -51,7 +49,7 @@ Usage from the repository root:
 Run with Harbor:
     export PYTHONPATH="$(pwd)/.github/skill-eval:${PYTHONPATH:-}"
     uvx harbor run --environment-import-path "envs.brev_env:BrevEnvironment" \\
-        -p .github/skill-eval/datasets/vss-deploy-test-openshell/base -a claude-code -n 1
+        -p .github/skill-eval/datasets/vss-deploy-test-openshell/vios_ops -a claude-code -n 1
 
 On a CI guest this also writes
 ``/tmp/skill-eval/current-leg-$RUNNER_NAME.json`` so a host-side fleet
@@ -299,27 +297,6 @@ PLATFORMS: dict[str, dict] = {
 # Cosmos Embed1 for search) and writes the total.
 
 PROFILES: dict[str, dict] = {
-    "base": {
-        "description": "Base profile deploy smoke",
-        "bundled_skills": (),
-    },
-    "lvs": {
-        "description": "LVS profile deploy smoke",
-        "bundled_skills": (),
-    },
-    "warehouse": {
-        "description": "Warehouse agents (`bp_wh` 2d) deploy smoke",
-        "bundled_skills": (),
-    },
-    "search": {
-        "description": "Search profile deploy smoke — RT-CV, RT-Embed, remote VLM proxy",
-        "bundled_skills": (),
-    },
-    "ask-video": {
-        "description": "VSS base profile plus vss-ask-video CLI (`vss vlm run`)",
-        "profile": "base",
-        "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
-    },
     "base_profile_video_understanding": {
         "description": "Daily vss-ask-video routing exam on a live base stack",
         "profile": "base",
@@ -433,92 +410,10 @@ PROFILES: dict[str, dict] = {
         "deploy_mode": "verification",
         "bundled_skills": ("vss-manage-alerts", "vss-manage-video-io-storage"),
     },
-    "summarize": {
-        "description": "VSS LVS profile plus vss-summarize-video CLI (`vss summarize run`)",
-        "profile": "lvs",
-        "bundled_skills": ("vss-summarize-video", "vss-manage-video-io-storage"),
-    },
-    "vios": {
-        "description": "VSS base profile plus vss-manage-video-io-storage CLI (`vss vios`)",
-        "profile": "base",
-        "bundled_skills": ("vss-manage-video-io-storage",),
-    },
-    "query-analytics": {
-        "description": "Warehouse agents plus vss-query-analytics (VA API / VA-MCP read path)",
-        "profile": "warehouse",
-        "bundled_skills": ("vss-query-analytics",),
-    },
-    "alerts": {
-        "description": "Warehouse agents plus vss-manage-alerts (alert-bridge already in bp_wh)",
-        "profile": "warehouse",
-        "bundled_skills": ("vss-manage-alerts", "vss-query-analytics"),
-    },
-    "alerts-cv": {
-        "description": "VSS alerts profile verification mode (`MODE=2d_cv`) with remote LLM",
-        "profile": "alerts",
-        "deploy_mode": "verification",
-        "bundled_skills": (),
-    },
-    "alerts-vlm": {
-        "description": "VSS alerts profile real-time mode (`MODE=2d_vlm`) with remote LLM",
-        "profile": "alerts",
-        "deploy_mode": "real-time",
-        "bundled_skills": (),
-    },
-    "report": {
-        "description": "VSS base profile plus vss-generate-video-report",
-        "profile": "base",
-        "bundled_skills": (
-            "vss-generate-video-report",
-            "vss-manage-video-io-storage",
-            "vss-query-analytics",
-        ),
-    },
-    "report-rag": {
-        "description": "VSS LVS profile plus vss-generate-video-report-rag",
-        "profile": "lvs",
-        "bundled_skills": (
-            "vss-generate-video-report-rag",
-            "vss-summarize-video",
-        ),
-    },
-    "build-vision-ai": {
-        "description": "Compose a vision stack with vss-build-vision-ai (proposal-only smoke)",
-        "bundled_skills": ("vss-build-vision-ai",),
-    },
     "vdr_1_quickstart_vision_agent": {
         "description": "VDR-1 quickstart: replace the in-stack agent with NemoClaw",
         "bundled_skills": ("vss-build-vision-ai",),
         "build_exam": True,
-    },
-    "deploy-profile": {
-        "description": "Full vss-deploy-profile catalog on OpenShell (base smoke)",
-        "profile": "base",
-        "bundled_skills": ("vss-deploy-profile",),
-    },
-    "dense-captioning": {
-        "description": "Standalone RT-VLM via vss-deploy-dense-captioning",
-        "bundled_skills": ("vss-deploy-dense-captioning",),
-    },
-    "detection-tracking-2d": {
-        "description": "Standalone RT-CV 2D via vss-deploy-detection-tracking-2d",
-        "bundled_skills": ("vss-deploy-detection-tracking-2d",),
-    },
-    "detection-tracking-3d": {
-        "description": "Standalone RT-CV 3D / MV3DT via vss-deploy-detection-tracking-3d",
-        "bundled_skills": ("vss-deploy-detection-tracking-3d",),
-    },
-    "video-embedding": {
-        "description": "Standalone RT-Embed via vss-deploy-video-embedding",
-        "bundled_skills": ("vss-deploy-video-embedding",),
-    },
-    "setup-behavior-analytics": {
-        "description": "Standalone behavior-analytics via vss-setup-behavior-analytics",
-        "bundled_skills": ("vss-setup-behavior-analytics",),
-    },
-    "setup-video-analytics-api": {
-        "description": "Standalone Video Analytics API via vss-setup-video-analytics-api",
-        "bundled_skills": ("vss-setup-video-analytics-api",),
     },
 }
 
