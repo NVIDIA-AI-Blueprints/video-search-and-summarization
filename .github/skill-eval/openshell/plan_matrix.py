@@ -204,6 +204,19 @@ OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "gpu-nvidia-h200",
     "openshell-h200-active",
 )
+OPENSHELL_L40S_LABELS: tuple[str, ...] = (
+    "vss-skill-eval-gpu",
+    OPENSHELL_RUNNER_LABEL,
+    "openshell",
+    "l40s",
+    "gpu-l40s",
+    "gpu-nvidia-l40s",
+    # Measured usable VRAM is 46068 MiB. run_leg compares nvidia-smi MiB
+    # against min_vram_gb*1000, so 48 GB does not fit; do not advertise 48.
+    "vram-46gb",
+    "video-codec",
+    "openshell-l40s-active",
+)
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = (
     "skills/vss-deploy-test-openshell/evals/"
@@ -256,8 +269,9 @@ class OpenShellCohort(NamedTuple):
 # the guest's own card decides `HARDWARE_PROFILE`; see
 # `openshell_requirements`. Capacity is runner capacity,
 # not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, 8 one-GPU
-# H200 VMs, 4 two-GPU H200 VMs, and 4 two-GPU RTX PRO 6000 VMs. H200 has no
-# NVENC; do not give it RTX PRO 6000 labels.
+# H200 VMs, 4 two-GPU H200 VMs, 8 one-GPU L40S VMs, 4 two-GPU L40S VMs, and
+# 4 two-GPU RTX PRO 6000 VMs. H200 has no NVENC; do not give it RTX PRO 6000
+# labels.
 OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     OpenShellCohort(
         "a16-1g", "A16", "A16", 1, 15, 8,
@@ -280,6 +294,14 @@ OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
         "h200-2g", "H200", "H200", 2, 141, 4,
         (*OPENSHELL_H200_LABELS, "gpus-2"),
         video_codec=False,
+    ),
+    OpenShellCohort(
+        "l40s-1g", "L40S", "L40S", 1, 46, 8,
+        (*OPENSHELL_L40S_LABELS, "gpus-1"),
+    ),
+    OpenShellCohort(
+        "l40s-2g", "L40S", "L40S", 2, 46, 4,
+        (*OPENSHELL_L40S_LABELS, "gpus-2"),
     ),
     OpenShellCohort(
         "rtxpro6000-2g", "RTXPRO6000BW", "RTXPRO6000BW", 2, 96, 4,
@@ -414,6 +436,10 @@ def runs_on_labels(
             if count not in (1, 2):
                 return list(SKIP_RUNNER)
             return [*OPENSHELL_H200_LABELS, f"gpus-{count}"]
+        if platform == "L40S":
+            if count not in (1, 2):
+                return list(SKIP_RUNNER)
+            return [*OPENSHELL_L40S_LABELS, f"gpus-{count}"]
         return list(SKIP_RUNNER)
     labels = list(BASE_LABELS)
     if count <= 0:

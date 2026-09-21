@@ -9,6 +9,9 @@
       "H200": {
         "gpu_count": 1
       },
+      "L40S": {
+        "gpu_count": 1
+      },
       "RTXPRO6000BW": {
         "gpu_count": 1
       }
@@ -58,6 +61,7 @@
     "requires_blackwell": false,
     "supported_hardware_profiles": [
       "H200",
+      "L40S",
       "RTXPRO6000BW"
     ]
   },
