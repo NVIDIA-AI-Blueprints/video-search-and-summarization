@@ -100,7 +100,7 @@ vios:
   vss-vios-sensor:
     enabled: true
     # Direct streamprocessing — sensor talks straight to vss-vios-streamprocessing:30001 (no SDR/Envoy/SDRC router).
-    streamProcessorEndpoint: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-vios-streamprocessing" .Release.Name) "vss-vios-streamprocessing" $pfx }}{{- printf "http://%s:30001" $host }}'
+    streamProcessorEndpoint: "" # use the subchart's release-aware direct endpoint
     # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }

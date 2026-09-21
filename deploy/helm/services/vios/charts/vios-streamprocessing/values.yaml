@@ -165,6 +165,10 @@ securityContext:
 # Must be paired with resources: null so the pod is not scheduled requiring a GPU.
 useSoftwarePath: false
 
+# Download budget in seconds; transcoding uses max(this value, 600).
+# Increase for long videos when using the software encoding path.
+downloadFilesTimeoutSecs: 120
+
 # Request 1 GPU for HW encode/decode (matches Docker runtime: nvidia). Requires NVIDIA device plugin on nodes.
 resources:
   limits:
