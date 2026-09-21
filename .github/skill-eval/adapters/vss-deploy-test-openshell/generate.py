@@ -506,6 +506,15 @@ PREAMBLE = (
     "setup action the trial requires."
 )
 
+ONE_GPU_REMOTE_LLM = (
+    "This trial is scheduled on **1 GPU**. Use a remote LLM "
+    "(`LLM_MODE=remote`, `LLM_NAME_SLUG=none`) via `$LLM_REMOTE_URL` / "
+    "`$LLM_REMOTE_MODEL`. Do not start a local LLM NIM. When the profile "
+    "serves the VLM through in-stack RT-VLM, keep `RTVI_VLM_PORT=8018` / "
+    "`VLM_PORT=8018` even if the VLM *backend* is remote — do not publish "
+    "rtvi-vlm on 30082."
+)
+
 
 def generate_instruction(
     profile: str,
@@ -516,6 +525,7 @@ def generate_instruction(
     build_profile: str = "",
     step_idx: int = 1,
     step_count: int = 1,
+    gpu_count: int = 1,
 ) -> str:
     """Short, query-style instruction. The `/vss-deploy-test-openshell` skill reads the host
     and env vars and picks the actual LLM/VLM placement.
@@ -528,6 +538,8 @@ def generate_instruction(
     """
     if spec_query is not None:
         lines = [PREAMBLE, ""]
+        if gpu_count == 1:
+            lines.extend([ONE_GPU_REMOTE_LLM, ""])
         if PROFILES[profile].get("build_exam"):
             lines.extend([
                 f"Use the `/vss-build-vision-ai` skill for the "
@@ -555,6 +567,7 @@ def generate_instruction(
     return "\n".join([
         PREAMBLE,
         "",
+        *([ONE_GPU_REMOTE_LLM, ""] if gpu_count == 1 else []),
         verb_phrase,
         "",
         "Use the `/vss-deploy-test-openshell` skill.",
@@ -921,6 +934,7 @@ def _write_openshell_step(
         build_profile=build_profile,
         step_idx=step_idx,
         step_count=step_count,
+        gpu_count=gpu_count,
     ))
 
     meta_lines = [
