@@ -1329,7 +1329,14 @@ VmsErrorCode handleFileUpload(std::shared_ptr<DeviceManager> deviceMngr,
         }
 
         data.m_parsedMetadata["sensorId"] = generatedSensorId;
-        data.m_parsedMetadata["timestamp"] = static_cast<Json::Int64>(getEpocTimeInMS(effectiveTimestamp));
+        // Pre-1970 dates parse to a negative epoch; fall back to the current time like the POST path.
+        int64_t epochMs = static_cast<int64_t>(getEpocTimeInMS(effectiveTimestamp));
+        if (epochMs < 0)
+        {
+            LOG(warning) << "Negative timestamp detected: " << epochMs << ", using current timestamp" << endl;
+            epochMs = getCurrentUnixTimestampInMs();
+        }
+        data.m_parsedMetadata["timestamp"] = static_cast<Json::Int64>(epochMs);
         data.m_parsedMetadata["streamName"] = getFileName(uniqueFilePath);
         data.m_hasMetadata = true;
         sensorId = generatedSensorId;
