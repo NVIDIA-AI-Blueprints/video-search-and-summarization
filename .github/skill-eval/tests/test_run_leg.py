@@ -105,7 +105,7 @@ class HarborCommand(unittest.TestCase):
             invocation,
             Path("/tmp/results"),
             "aws/anthropic/bedrock-claude-opus-4-6",
-            "https://inference.nvidia.com/v1",
+            "https://inference-api.nvidia.com/v1",
         )
 
         self.assertEqual(run_leg.SKILL_EVAL_PYTHON_VERSION, (3, 12))
@@ -126,7 +126,10 @@ class HarborCommand(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
         self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
-        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference.nvidia.com/v1")
+        self.assertEqual(
+            cmd[cmd.index("--ak") + 1],
+            "api_base=https://inference-api.nvidia.com/v1",
+        )
         agent_env = [cmd[index + 1] for index, part in enumerate(cmd) if part == "--ae"]
         self.assertIn(
             "ANTHROPIC_API_KEY=${SKILL_EVAL_AGENT_ROUTE_API_KEY}", agent_env
@@ -159,7 +162,7 @@ class HarborCommand(unittest.TestCase):
             invocation,
             Path("/tmp/results"),
             "openai/openai/gpt-5-codex",
-            "https://inference.nvidia.com/v1",
+            "https://inference-api.nvidia.com/v1",
             "codex",
         )
 
@@ -168,7 +171,10 @@ class HarborCommand(unittest.TestCase):
         # passes the values only to the agent; no credential value lands here.
         self.assertEqual(cmd[cmd.index("-a") + 1], "agents.nv_codex:NvCodex")
         self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
-        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference.nvidia.com/v1")
+        self.assertEqual(
+            cmd[cmd.index("--ak") + 1],
+            "api_base=https://inference-api.nvidia.com/v1",
+        )
         agent_env = [cmd[index + 1] for index, part in enumerate(cmd) if part == "--ae"]
         self.assertEqual(
             agent_env,
@@ -191,7 +197,7 @@ class HarborCommand(unittest.TestCase):
             invocation,
             Path("/tmp/results"),
             "aws/anthropic/bedrock-claude-opus-4-6",
-            "https://inference.nvidia.com/v1",
+            "https://inference-api.nvidia.com/v1",
             "nemoclaw",
         )
 
@@ -750,7 +756,7 @@ time.sleep(30)
 class RunInvocations(unittest.TestCase):
     ENV = {
         "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
-        "ANTHROPIC_BASE_URL": "https://inference.nvidia.com/v1",
+        "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
         "ANTHROPIC_API_KEY": "test-secret",
     }
 
@@ -816,6 +822,51 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(command.call_args.args[4], "claude-code")
         run.assert_called_once()
+
+    def test_daily_codex_selection_routes_non_operational_task_to_codex(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/build"),
+            include_task_name="l40s",
+            chain_key="build_l40s",
+        )
+        env = {
+            **self.ENV,
+            "EVAL_AGENT": "codex",
+            "CODEX_MODEL": "azure/openai/gpt-6-astra",
+            "SKILLS_EVAL_CODING_HARNESS": "codex",
+            "SKILLS_EVAL_OPERATIONAL_HARNESS": "codex",
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with (
+                mock.patch.dict(run_leg.os.environ, env, clear=True),
+                mock.patch.object(run_leg, "harbor_env", return_value={}),
+                mock.patch.object(
+                    run_leg, "build_harbor_command", return_value=["harbor"]
+                ) as command,
+                mock.patch.object(run_leg, "run_command", return_value=0),
+                mock.patch.object(run_leg, "publish_trace", return_value=None),
+            ):
+                rc = run_leg.run_invocations(
+                    [invocation],
+                    "vss-eval-box",
+                    root / "results",
+                    root / "scratch",
+                    "build",
+                    "L40S",
+                    run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+                    self.config(env),
+                )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            command.call_args.args[2:5],
+            (
+                "azure/openai/gpt-6-astra",
+                model_config.NVIDIA_INFERENCE_API_BASE_URL,
+                "codex",
+            ),
+        )
 
     def test_claude_scopes_fixed_route_to_agent_and_preserves_judge_env(self):
         invocation = run_leg.HarborInvocation(
@@ -2238,7 +2289,7 @@ run_leg.hold_pool_lock = lock_then_sigterm
 run_leg.SKILL_EVAL_PYTHON_VERSION = sys.version_info[:2]
 os.environ.update({
     "ANTHROPIC_MODEL": "aws/anthropic/bedrock-claude-opus-4-6",
-    "ANTHROPIC_BASE_URL": "https://inference.nvidia.com/v1",
+    "ANTHROPIC_BASE_URL": "https://inference-api.nvidia.com/v1",
     "ANTHROPIC_API_KEY": "test-secret",
 })
 run_leg.main(sys.argv[2:])

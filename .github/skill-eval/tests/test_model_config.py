@@ -27,6 +27,14 @@ DEFAULT_ENV = {
 }
 
 
+def test_catalog_source_is_distinct_from_fixed_inference_api() -> None:
+    assert model_config.NVIDIA_INFERENCE_SOURCE_URL == "https://inference.nvidia.com/"
+    assert (
+        model_config.NVIDIA_INFERENCE_API_BASE_URL
+        == "https://inference-api.nvidia.com/v1"
+    )
+
+
 def test_default_routes_preserve_claude_runner_configuration() -> None:
     routes = model_config.resolve_model_routes(DEFAULT_ENV)
 

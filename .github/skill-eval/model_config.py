@@ -13,7 +13,7 @@ RUNTIMES = ("claude-code", "codex", "nemoclaw")
 CODING_RUNTIMES = ("claude-code", "codex")
 NVIDIA_INFERENCE_PROVIDER = "nvidia-inference"
 NVIDIA_INFERENCE_SOURCE_URL = "https://inference.nvidia.com/"
-NVIDIA_INFERENCE_API_BASE_URL = f"{NVIDIA_INFERENCE_SOURCE_URL.rstrip('/')}/v1"
+NVIDIA_INFERENCE_API_BASE_URL = "https://inference-api.nvidia.com/v1"
 ROLES = ("coding", "operational")
 
 
