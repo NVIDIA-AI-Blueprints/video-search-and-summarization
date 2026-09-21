@@ -124,6 +124,10 @@ class HarborCommand(unittest.TestCase):
         self.assertIn("--include-task-name", cmd)
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
         self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
+        self.assertEqual(
+            cmd[cmd.index("--environment-import-path") + 1],
+            "envs.brev_env:BrevEnvironment",
+        )
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
         self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
         self.assertEqual(cmd[cmd.index("-o") + 1], "/tmp/results")

@@ -449,6 +449,25 @@ class OpenshellGpuFleet(unittest.TestCase):
             self.assertNotIn("from envs.brev_env import", text, name)
             self.assertNotIn("import envs.brev_env", text, name)
 
+    def test_brev_jobs_still_invoke_the_brev_control_plane(self):
+        workflow = (
+            plan_matrix.REPO_ROOT / ".github/workflows/skills-eval.yml"
+        ).read_text()
+        brev_plan, _, rest = workflow.partition("openshell_plan:")
+        self.assertIn("brev_plan:", brev_plan)
+        self.assertIn("python3 .github/skill-eval/plan_matrix.py", brev_plan)
+        self.assertNotIn("openshell/plan_matrix.py", brev_plan)
+        self.assertIn(
+            '.github/skill-eval/skills_eval_agent.py',
+            brev_plan,
+        )
+        self.assertNotIn(
+            "openshell/skills_eval_agent.py",
+            brev_plan,
+        )
+        self.assertIn("openshell/plan_matrix.py", rest)
+        self.assertIn("openshell/skills_eval_agent.py", rest)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
