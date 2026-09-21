@@ -39,7 +39,7 @@ This skill does not call `POST /generate` on the VSS agent. It requires a
 >   sensor stays a sensor even when a file of that name sits on disk: that file is
 >   a copy someone left behind, and `--file` on it drops the recorded timeline the
 >   window flags need, so the window is rejected and the call looks worth
->   retrying. Check `vss vios list` before reading any name as a path;
+>   retrying;
 > - a failing call is a finding: report the exit code rather than routing around
 >   it, repairing the deployment, or looking again.
 
