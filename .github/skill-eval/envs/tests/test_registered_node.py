@@ -264,77 +264,9 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
         self.assertIn("-exec rm -rf {} +", cmd)
         self.assertIn("[claude-task-scratch]", cmd)
         self.assertNotIn("sudo rm -rf /tmp/claude-", cmd)
-        self.assertIn("refusing to clean", cmd)
-        self.assertIn("/tmp/claude-[0-9]*", cmd)
+        # The rm step must not swallow stderr — a real cleanup failure has to
+        # surface its error to the caller, not raise an empty-tail RuntimeError.
         self.assertNotIn("rm -rf {} + 2>/dev/null", cmd)
-
-
-class OpenShellCountOnlyGpuGate(unittest.TestCase):
-    def test_remote_placement_keys_are_forwarded_on_guest(self):
-        env = {
-            "SKILL_EVAL_LOCAL_GPU_INSTANCE": "openshell-guest",
-            "EVAL_SKILL": "vss-deploy-test-openshell",
-        }
-        with mock.patch.dict(os.environ, env, clear=False):
-            forwarded = brev_env._eval_env_forward_keys()
-
-        self.assertIn("LLM_REMOTE_URL", forwarded)
-        self.assertIn("LLM_REMOTE_MODEL", forwarded)
-        self.assertIn("VLM_REMOTE_URL", forwarded)
-        self.assertIn("VLM_REMOTE_MODEL", forwarded)
-
-    def test_sku_mismatch_is_ignored_when_count_is_met(self):
-        async def fake_exec(command, timeout=30):
-            if "nvidia-smi -L" in command:
-                return _ExecResult(
-                    stdout="GPU 0: NVIDIA H200 NVL\nGPU 1: NVIDIA H200 NVL\n",
-                    return_code=0,
-                )
-            return _ExecResult(
-                stdout="NVIDIA H200 NVL, 143771\nNVIDIA H200 NVL, 143771\n",
-                return_code=0,
-            )
-
-        env = {
-            "SKILL_EVAL_LOCAL_GPU_INSTANCE": "openshell-guest",
-            "EVAL_SKILL": "vss-deploy-test-openshell",
-        }
-        with mock.patch.dict(os.environ, env, clear=False):
-            with mock.patch.object(
-                brev_env, "_run_local_exec", side_effect=fake_exec
-            ):
-                asyncio.run(
-                    brev_env._check_local_gpu_requirements(
-                        "openshell-guest",
-                        {
-                            "gpu_type": "RTX PRO 6000",
-                            "gpu_count": 2,
-                            "min_vram_gb_per_gpu": 96,
-                        },
-                    )
-                )
-
-    def test_count_only_still_rejects_too_few_gpus(self):
-        async def fake_exec(command, timeout=30):
-            if "nvidia-smi -L" in command:
-                return _ExecResult(stdout="GPU 0: NVIDIA H200 NVL\n", return_code=0)
-            return _ExecResult(stdout="NVIDIA H200 NVL, 143771\n", return_code=0)
-
-        env = {
-            "SKILL_EVAL_LOCAL_GPU_INSTANCE": "openshell-guest",
-            "EVAL_SKILL": "vss-deploy-test-openshell",
-        }
-        with mock.patch.dict(os.environ, env, clear=False):
-            with mock.patch.object(
-                brev_env, "_run_local_exec", side_effect=fake_exec
-            ):
-                with self.assertRaisesRegex(RuntimeError, "task requires 2"):
-                    asyncio.run(
-                        brev_env._check_local_gpu_requirements(
-                            "openshell-guest",
-                            {"gpu_type": "H200", "gpu_count": 2},
-                        )
-                    )
 
 
 if __name__ == "__main__":

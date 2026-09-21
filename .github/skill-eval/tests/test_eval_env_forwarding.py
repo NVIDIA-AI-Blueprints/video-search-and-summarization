@@ -45,27 +45,19 @@ def _workflow_env_keys() -> set[str]:
 
 
 def _forwarded_keys() -> set[str]:
-    """String literals in brev_env.py's eval-env forwarding allowlist.
+    """Every string literal iterated by the forwarding loop in brev_env.py.
 
     Read from the source rather than by importing: brev_env imports harbor,
-    which is not installed in the unit-test environment. The allowlist lives
-    in `_eval_env_forward_keys()`; older trees inlined the same names on a
-    `for name in (...):` loop.
+    which is not installed in the unit-test environment.
     """
     tree = ast.parse(BREV_ENV.read_text())
     best: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "_eval_env_forward_keys":
-            names: set[str] = set()
-            for child in ast.walk(node):
-                if isinstance(child, ast.Constant) and isinstance(child.value, str):
-                    names.add(child.value)
-            if "PR_HEAD_SHA" in names:
-                return names
         if not isinstance(node, ast.For) or not isinstance(node.iter, ast.Tuple):
             continue
         names = {e.value for e in node.iter.elts
                  if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+        # The forwarding loop is the one carrying the known-forwarded names.
         if "PR_HEAD_SHA" in names:
             best = names
     assert best, "could not locate the env-forwarding allowlist in brev_env.py"
@@ -88,16 +80,3 @@ def test_prebake_flag_is_wired_end_to_end():
     """The specific knob this test file was added for, asserted both sides."""
     assert "VSS_VIOS_PREBAKE_PACKAGES" in _workflow_env_keys()
     assert "VSS_VIOS_PREBAKE_PACKAGES" in _forwarded_keys()
-
-
-def test_openshell_workflow_preserves_remote_placement():
-    """OpenShell guests have egress to the same remote endpoints as Brev."""
-    workflow = WORKFLOW.read_text()
-    for key in (
-        "LLM_REMOTE_URL",
-        "LLM_REMOTE_MODEL",
-        "VLM_REMOTE_URL",
-        "VLM_REMOTE_MODEL",
-    ):
-        assert f'printf "{key}=\\n"' not in workflow
-        assert not re.search(rf"\bunset\b[^\n]*\b{key}\b", workflow)

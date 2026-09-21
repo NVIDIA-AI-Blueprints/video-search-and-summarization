@@ -8,7 +8,8 @@ the base ref to list changed files (skipped when CHANGED_FILES is
 provided, which the unit tests use). Prints `matrix` and `has_targets`
 to $GITHUB_OUTPUT so the workflow can fan out one `eval` leg per spec.
 
-Rules (see docs/matrix-dispatch-design.md):
+Rules (see docs/matrix-dispatch-design.md). `<skill>` is a skill dir under one
+of EVAL_SKILL_ROOTS; skills outside those roots dispatch nothing:
   - skills/<skill>/evals/<spec>.json (or legacy eval/) changed
         -> dispatch just that (skill, spec)
   - any other skills/<skill>/** file changed (SKILL.md, references, ...)
@@ -17,8 +18,8 @@ Rules (see docs/matrix-dispatch-design.md):
         -> dispatch every spec under <skill>
   - harness files (envs/, verifiers/, skills_eval_agent.py, AGENTS.md,
     plan_matrix.py, skills-eval.yml) match no rule, so a harness-only
-    diff yields an empty matrix. OpenShell carrier specs are intentionally
-    excluded and are owned by openshell/plan_matrix.py.
+    diff yields an empty matrix and the eval job is skipped. Validate
+    those via the manual workflow_dispatch sweep.
 
 A skill whose adapter is missing collapses to a single `missing_adapter`
 leg (that leg's agent commits the one adapter to the PR branch), so N specs
@@ -26,9 +27,11 @@ of an adapterless skill don't race to commit it N times.
 
 Each leg also carries `runs_on`: the runner label set implied by the
 spec's own `resources.platforms.<PLATFORM>` block (see runs_on_labels).
-This resolves the spec -> hardware mapping at PLAN time; skills-eval.yml
-uses it directly for Actions placement. run_leg.py still validates the
-selected local runner against generated task metadata at LEG time.
+This resolves the spec -> hardware mapping at PLAN time, where today
+run_leg.py re-derives it at LEG time from `brev ls` under a flock.
+Nothing consumes `runs_on` yet — it is emitted so the mapping can be
+reviewed against current placement before the GPU boxes are registered
+as runners in their own right.
 
 Env:
     PR_BASE        base branch, e.g. develop (diffed as FETCH_HEAD...HEAD)
@@ -57,6 +60,14 @@ ADAPTERS_DIR = Path(__file__).resolve().parent / "adapters"
 # An adapter edit re-scopes its whole skill (the adapter feeds every spec); the
 # adapters/ tree stays flat, keyed by the skill's leaf name.
 ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
+# What skill-eval covers, split by shape so a path can be attributed without
+# touching the filesystem: a category holds skill dirs one level down, a named
+# root is itself a skill dir. Anything under skills/ outside these roots — the
+# deployment, tools and benchmarking categories — is attributed to no skill, so
+# changing it dispatches no eval leg.
+EVAL_SKILL_CATEGORIES = ("operations",)
+EVAL_SKILL_NAMES = ("vss-build-vision-ai",)
+EVAL_SKILL_ROOTS = EVAL_SKILL_CATEGORIES + EVAL_SKILL_NAMES
 # A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
 # scratch/results paths (/tmp/skill-eval/results/<slug>/…). Skill dirs, spec
 # stems, and platform keys are safe today, but enforce the token so a future
@@ -66,25 +77,29 @@ SAFE_SLUG_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def discover_skills() -> dict[str, Path]:
-    """Map leaf skill-name -> skill dir for every dir under skills/ holding a
-    SKILL.md — flat (skills/<name>/) or one category level down
-    (skills/<category>/<name>/). Leaf names are the identity and must be unique.
-    Adapters stay keyed by this leaf name (the adapters/ tree is flat)."""
+    """Map leaf skill-name -> skill dir for every dir holding a SKILL.md under
+    an EVAL_SKILL_ROOTS root — the root itself (skills/<name>/) or one category
+    level down (skills/<category>/<name>/). Leaf names are the identity and must
+    be unique. Adapters stay keyed by this leaf name (the adapters/ tree is flat)."""
     out: dict[str, Path] = {}
     skills_root = REPO_ROOT / "skills"
     if not skills_root.is_dir():
         return out
-    for md in sorted(skills_root.rglob("SKILL.md")):
-        d = md.parent
-        rel = d.relative_to(skills_root)
-        if any(part.startswith(".") or part.startswith("_") for part in rel.parts):
+    for root_name in EVAL_SKILL_ROOTS:
+        root = skills_root / root_name
+        if not root.is_dir():
             continue
-        if d.name in out and out[d.name] != d:
-            raise ValueError(
-                f"duplicate skill name {d.name!r}: {out[d.name]} and {d} — "
-                f"skill leaf names must be unique across categories"
-            )
-        out[d.name] = d
+        for md in sorted(root.rglob("SKILL.md")):
+            d = md.parent
+            rel = d.relative_to(skills_root)
+            if any(part.startswith(".") or part.startswith("_") for part in rel.parts):
+                continue
+            if d.name in out and out[d.name] != d:
+                raise ValueError(
+                    f"duplicate skill name {d.name!r}: {out[d.name]} and {d} — "
+                    f"skill leaf names must be unique across categories"
+                )
+            out[d.name] = d
     return out
 
 
@@ -105,10 +120,15 @@ def skill_for_file(path: str, skills: dict[str, Path]) -> str | None:
             best, best_depth = name, len(d.parts)
     if best is not None:
         return best
-    # Not under any discovered skill dir (e.g. a new skill dir not yet on disk):
-    # fall back to the first path segment under skills/ (the flat layout).
+    # Not under any discovered skill dir (e.g. a new skill dir not yet on disk).
+    # Derive the name from the path, but only inside a covered root — otherwise a
+    # file under skills/deployment/<skill>/ would name the *category* as its skill.
     parts = path.split("/")
-    return parts[1] if len(parts) >= 3 and parts[1] else None
+    if len(parts) >= 3 and parts[1] in EVAL_SKILL_NAMES:
+        return parts[1]
+    if len(parts) >= 4 and parts[1] in EVAL_SKILL_CATEGORIES and parts[2]:
+        return parts[2]
+    return None
 
 
 def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:
@@ -128,14 +148,17 @@ def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:
 # routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
 # never becomes a matrix leg.
 EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
-# Infrastructure carrier specs are owned exclusively by the OpenShell planner.
+# Harbor exams for this skill run on OpenShell guests, never the Brev Daily pool.
 BREV_EXCLUDED_SKILLS = frozenset({"vss-deploy-test-openshell"})
 
 # --- Runner labels -----------------------------------------------------
 # Every leg carries a `runs_on` label set derived from the spec's own
-# hardware declaration. skills-eval.yml places the job with
-# `runs-on: ${{ matrix.runs_on }}`; run_leg.py validates generated task
-# metadata against that local GPU runner before Harbor starts.
+# hardware declaration, so the eval job *can* be placed by Actions with
+# `runs-on: ${{ matrix.runs_on }}` once the GPU boxes are registered as
+# runners in their own right. NOTHING CONSUMES THIS YET — skills-eval.yml
+# still pins the coordinator pool and run_leg.py still does fleet
+# selection + flock. This computes and publishes the mapping so it can be
+# reviewed and diffed against today's placement before any runner moves.
 
 # Labels the GPU boxes themselves would carry. Deliberately NOT
 # `vss-skill-eval-runner`: that label is on the coordinator's runner
@@ -147,16 +170,12 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # .github/skill-eval/adapters/*/generate.py.
 PLATFORM_LABELS: dict[str, str | None] = {
     "H100": "gpu-h100",
-    "H200": "gpu-h200",
     "L40S": "gpu-l40s",
     "RTXPRO6000BW": "gpu-rtxpro6000bw",
-    "A16": "gpu-a16",
-    "A40": "gpu-a40",
     "DGX-SPARK": "gpu-dgx-spark",
     "IGX-THOR": "gpu-igx-thor",
     "ANY": None,
 }
-
 
 # run_leg.pool_candidates reads `int(metadata.get("gpu_count", 1) or 0)`:
 # an ABSENT declaration means one GPU, while an explicit 0/null means
@@ -182,15 +201,6 @@ def _platform_label(platform: str) -> str | None:
     return f"gpu-{slug}" if slug else None
 
 
-def hardware_profile_for(platform: str) -> str:
-    """NIM `hw-<SKU>.env` name for a matrix platform.
-
-    Hardware profiles are identities, not nearest-neighbour substitutions.
-    Availability is checked separately before a replacement cohort is emitted.
-    """
-    return platform
-
-
 def _gpu_count(config: dict) -> int:
     """Declared GPU demand, matching run_leg's coercion exactly."""
     raw = config.get("gpu_count", DEFAULT_GPU_COUNT)
@@ -202,9 +212,24 @@ def _gpu_count(config: dict) -> int:
 
 
 def runs_on_labels(platform: str, config: dict | None) -> list[str]:
-    """Brev runner labels derived only from the spec hardware declaration."""
-    count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
+    """Runner labels for one leg, from the spec's hardware declaration.
+
+    `gpus-N` is a *demand*: the job asks for exactly N. A box advertises
+    every count it can satisfy — a 2-GPU box carries both `gpus-1` and
+    `gpus-2` — which is how pool_candidates' "over-provisioned boxes
+    remain valid" rule survives a static label set.
+
+    `gpu_count: 0` means GPU-independent and drops BOTH the `gpus-*` and
+    the `gpu-*` label, so the leg can land on any box. That mirrors
+    pool_candidates exactly: its type filter is guarded by
+    `if required_count > 0 and required_type`, so a zero-GPU spec ignores
+    the declared platform and "accepts any RUNNING box". 7 of the 50
+    platform entries are zero-GPU today (the ANY specs, and
+    detection-tracking-3d/routing on RTXPRO6000BW) — under labels they
+    stop competing for GPU boxes at all.
+    """
     labels = list(BASE_LABELS)
+    count = _gpu_count(config) if config is not None else DEFAULT_GPU_COUNT
     if count <= 0:
         return labels
     if platform:
@@ -249,18 +274,9 @@ def list_changed_files() -> list[str]:
         # job errored here too).
         skills_map = discover_skills()
         if manual != "*" and manual not in skills_map:
-            hint = ""
-            branch = (os.environ.get("PR_BASE") or "").strip()
-            if branch and manual == branch:
-                hint = (
-                    f" {manual!r} is the branch this workflow is running from "
-                    f"(Actions 'Use workflow from' / gh --ref), not a skill. "
-                    f"Leave the skills input as '*' or pass a skill directory "
-                    f"such as vss-deploy-test-openshell."
-                )
             raise ValueError(
                 f"MANUAL_SKILLS_FILTER {manual!r}: skill not found under skills/ "
-                f"on this ref — check the skill name.{hint}"
+                f"on this ref — check the skill name"
             )
         skills = sorted(skills_map) if manual == "*" else [manual]
         return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
@@ -342,6 +358,15 @@ def spec_platform_config(spec_path: str) -> dict[str, dict]:
     }
 
 
+def spec_platforms(spec_path: str) -> list[str]:
+    """Sorted platform keys from a spec's resources.platforms.
+
+    One matrix leg is emitted per platform (the slug carries it), so a
+    two-platform spec fans into two legs.
+    """
+    return sorted(spec_platform_config(spec_path))
+
+
 def build_matrix(changed: list[str]) -> list[dict]:
     # Explicitly-changed specs vs. skills pulled in wholesale by a non-spec
     # (or adapter) change. A spec reached by both paths appears once.
@@ -355,9 +380,9 @@ def build_matrix(changed: list[str]) -> list[dict]:
         # owner is the longest-ancestor skill dir, so a category dir with no
         # SKILL.md is never treated as a skill.
         owner = skill_for_file(f, skills_map)
+        if owner in BREV_EXCLUDED_SKILLS:
+            continue
         if owner is not None:
-            if owner in BREV_EXCLUDED_SKILLS:
-                continue
             si = _spec_info(f, reldir.get(owner) or f"skills/{owner}")
             # A changed `evals.json` is not a spec; fall through to whole-skill.
             if si and Path(f).name not in EXCLUDED_SPEC_NAMES:
@@ -399,7 +424,6 @@ def build_matrix(changed: list[str]) -> list[dict]:
         by_skill.setdefault(meta["skill"], []).append(meta)
 
     include: list[dict] = []
-
     for skill in sorted(by_skill):
         if not adapter_exists(skill):
             # One leg commits the single adapter for the whole skill.
@@ -415,28 +439,25 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "name": f"{skill} · missing-adapter",
                 # Commits an adapter; runs no trial and needs no GPU.
                 "runs_on": list(BASE_LABELS),
-                "local_gpu": False,
             })
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
             platform_config = spec_platform_config(meta["spec_path"])
             platforms = sorted(platform_config) or [""]
             for platform in platforms:
-                plat_cfg = platform_config.get(platform)
                 plat_tag = platform or "no-platform"
-                labels = runs_on_labels(platform, plat_cfg)
                 include.append({
                     "skill": skill,
                     "spec_path": meta["spec_path"],
                     "spec_stem": meta["spec_stem"],
                     "eval_dir": meta["eval_dir"],
                     "platform": platform,
-                    "hardware_profile": hardware_profile_for(platform),
                     "kind": "eval",
                     "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
                     "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
-                    "runs_on": labels,
-                    "local_gpu": False,
+                    "runs_on": runs_on_labels(
+                        platform, platform_config.get(platform)
+                    ),
                 })
     return include
 
@@ -494,9 +515,6 @@ def emit(include: list[dict]) -> None:
 
 def main() -> int:
     DAILY_RUN = os.environ.get("DAILY_RUN")
-    # Daily runs deliberately sweep the corpus. PR runs must retain their
-    # changed-file scope: replacing an ineligible changed skill with unrelated
-    # fleet legs can make the check green without testing the change.
     if DAILY_RUN:
         changed = list_skill_file_paths()
     else:
