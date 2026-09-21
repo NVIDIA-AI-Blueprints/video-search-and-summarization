@@ -143,6 +143,8 @@ vssIngress:
   resourceName: ""
   # Ingress class on the cluster (e.g. haproxy, nginx).
   ingressClassName: haproxy
+  # Additional controller annotations, for example a Traefik routing middleware.
+  annotations: {}
   # If empty, uses global.externalHost (set in values-base.yaml for external installs).
   host: ""
   # Backend ports for the canonical route table (deploy/helm/services/common).

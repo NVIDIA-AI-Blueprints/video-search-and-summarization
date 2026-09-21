@@ -35,4 +35,20 @@ for prefixed in (False, True):
     env = {e['name']: e.get('value') for e in sensor['spec']['template']['spec']['containers'][0]['env']}
     expected = 'http://' + ('review-' if prefixed else '') + 'vss-vios-streamprocessing:30001'
     assert env['STREAM_PROCESSOR_MODULE_ENDPOINT'] == env['RTSP_SERVER_MODULE_ENDPOINT'] == expected
-print('VIOS timeout and direct/prefixed endpoint render checks passed')
+for annotations in ({}, {'traefik.ingress.kubernetes.io/router.middlewares': 'example-routes@kubernetescrd'},
+                    {'haproxy.org/path-rewrite': '/custom /(.*)'}):
+    result = render(base, {'ngc': {'createSecrets': False},
+                          'global': {'externalHost': 'example.test', 'useReleaseNamePrefix': True},
+                          'rtvi': {'vss-rtvi-vlm': {'enabled': True}},
+                          'vssIngress': {'enabled': True, 'ingressClassName': 'traefik', 'annotations': annotations}})
+    assert result.returncode == 0, result.stderr
+    ingress = next(d for d in yaml.safe_load_all(result.stdout) if d and d['kind'] == 'Ingress')
+    assert ingress['spec']['ingressClassName'] == 'traefik'
+    actual = ingress['metadata']['annotations']
+    assert all(actual.get(k) == v for k, v in annotations.items())
+    assert 'haproxy.org/path-rewrite' in actual
+    services = {p['path']: p['backend']['service']['name']
+                for p in ingress['spec']['rules'][0]['http']['paths']}
+    assert services['/vst'] == 'review-vss-vios-ingress'
+    assert services['/rtvi-vlm'] == 'review-vss-rtvi-vlm'
+print('VIOS timeout, direct/prefixed endpoints, and ingress annotation render checks passed')
