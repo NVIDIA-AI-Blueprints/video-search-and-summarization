@@ -344,10 +344,10 @@ def _adapter() -> SummaryAdapter:
     than at module scope: every ``vss_core`` import in this file is deliberately
     lazy, so ``vss summarize --help`` does not pay for the memory package.
 
-    The concrete class, not the registry's ``get_adapter``: ``build_input`` and
-    ``build_output`` live on the subclass with per-group signatures, which the
-    ``MemoryAdapter`` protocol cannot type. The adapter holds no state, so an
-    instance serves the static builders and the record builders alike.
+    The concrete class, not the ``MemoryAdapter`` protocol: ``build_input`` and
+    ``build_output`` live on the subclass with per-group signatures the protocol
+    cannot type. The adapter holds no state, so an instance serves the static
+    builders and the record builders alike.
     """
     from .memory_adapter import SummaryAdapter
 

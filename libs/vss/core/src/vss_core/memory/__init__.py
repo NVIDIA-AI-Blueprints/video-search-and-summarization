@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from typing import Any
 
 __all__ = [
+    "BUILTIN_GROUPS",
     "SCHEMA_ID",
     "ElasticsearchEmbeddingStore",
     "EmbeddingBackfillFailure",
@@ -49,13 +50,16 @@ __all__ = [
     "canonical_searchable_text",
     "content_hash",
     "embedding_endpoint_identity",
-    "get_adapter",
     "is_embedding_eligible",
-    "register_adapter",
+    "register_known_group",
+    "register_known_record_type",
     "render_memory_note",
 ]
 
 _LAZY_EXPORTS = {
+    "BUILTIN_GROUPS": ".models",
+    "register_known_record_type": ".models",
+    "register_known_group": ".models",
     "SCHEMA_ID": ".models",
     "UnifiedMemoryRecord": ".models",
     "MemoryInput": ".models",
@@ -86,8 +90,6 @@ _LAZY_EXPORTS = {
     "build_memory_service": ".service",
     "RecordBundle": ".adapters",
     "LifecycleAdapter": ".adapters",
-    "register_adapter": ".adapters",
-    "get_adapter": ".adapters",
     "MemoryAdapter": ".adapters",
     "MemoryNoteWriteResult": ".notes",
     "OpenClawDailyNoteStore": ".notes",
@@ -98,8 +100,6 @@ if TYPE_CHECKING:
     from .adapters import LifecycleAdapter
     from .adapters import MemoryAdapter
     from .adapters import RecordBundle
-    from .adapters import get_adapter
-    from .adapters import register_adapter
     from .backends.elasticsearch_embeddings import ElasticsearchEmbeddingStore
     from .backends.elasticsearch_embeddings import EmbeddingSyncResult
     from .backends.in_memory import InMemoryStore

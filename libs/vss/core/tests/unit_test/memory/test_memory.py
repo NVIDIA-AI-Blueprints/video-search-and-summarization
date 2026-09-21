@@ -5,19 +5,16 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from pydantic import ValidationError
 import pytest
 
 from vss_core.memory.adapters import RecordBundle
 from vss_core.memory.adapters import child_record
-from vss_core.memory.adapters import clear_adapter_registry
-from vss_core.memory.adapters import get_adapter
-from vss_core.memory.adapters import register_adapter
 from vss_core.memory.adapters import utc_now_iso
 from vss_core.memory.backends.in_memory import InMemoryStore
 from vss_core.memory.models import SCHEMA_ID
-from vss_core.memory.models import MemoryGroup
 from vss_core.memory.models import MemoryInput
 from vss_core.memory.models import MemoryOutput
 from vss_core.memory.models import SensorInfo
@@ -231,37 +228,57 @@ def test_inline_vectors_rejected() -> None:
         MemoryOutput.model_validate({"embedding": [{"vector": [0.1, 0.2]}]})
 
 
-def test_media_group_rejected() -> None:
-    with pytest.raises(ValidationError):
+def test_an_unfamiliar_group_is_accepted_and_logged_once(caplog) -> None:
+    """A group no wheel ships still persists -- and says so exactly once.
+
+    This is what lets a command group dropped into the plugin directory keep
+    records at all. Rejecting the name would mean an agent could add a command
+    but never read back what it did. The log line is the whole cost, and it is
+    for a writer no mounted group accounts for, not for every new group.
+    """
+    from vss_core.memory import models as models_mod
+
+    models_mod._REPORTED_GROUPS.discard("tripwire")
+    payload = {
+        "schema": SCHEMA_ID,
+        "job": {
+            "job_id": "tripwire-1",
+            "group": "tripwire",
+            "operation": "run",
+            "status": "completed",
+            "created_at": "2026-07-22T12:00:00Z",
+        },
+        "output": {"answer": "7 crossings"},
+    }
+    with caplog.at_level(logging.INFO, logger="vss_core.memory.models"):
+        record = UnifiedMemoryRecord.model_validate(payload)
+        UnifiedMemoryRecord.model_validate(payload)
+
+    assert record.job.group == "tripwire"
+    assert sum("tripwire" in message for message in caplog.messages) == 1, caplog.messages
+
+
+def test_a_declared_group_is_not_logged(caplog) -> None:
+    """A mounted group declares itself, so its records are unremarkable."""
+    from vss_core.memory import models as models_mod
+    from vss_core.memory.models import register_known_group
+
+    models_mod._REPORTED_GROUPS.discard("turnstile")
+    register_known_group("turnstile")
+    with caplog.at_level(logging.INFO, logger="vss_core.memory.models"):
         UnifiedMemoryRecord.model_validate(
             {
                 "schema": SCHEMA_ID,
                 "job": {
-                    "job_id": "media-1",
-                    "group": "media",
-                    "operation": "run",
-                    "status": "completed",
-                    "created_at": "2026-07-22T12:00:00Z",
-                },
-                "output": {"handles": {"media_urls": ["https://x/clip.mp4"]}, "ext": {"kind": "clip"}},
-            }
-        )
-
-
-def test_unknown_group_rejected() -> None:
-    with pytest.raises(ValidationError):
-        UnifiedMemoryRecord.model_validate(
-            {
-                "schema": SCHEMA_ID,
-                "job": {
-                    "job_id": "x-1",
-                    "group": "unknown",
+                    "job_id": "turnstile-1",
+                    "group": "turnstile",
                     "operation": "run",
                     "status": "completed",
                     "created_at": "2026-07-22T12:00:00Z",
                 },
             }
         )
+    assert not [message for message in caplog.messages if "turnstile" in message]
 
 
 @pytest.mark.parametrize("collection", ["events", "results", "incidents"])
@@ -429,45 +446,26 @@ def test_stable_and_deterministic_child_ids() -> None:
 
 
 def test_future_adapter_uses_store_without_changes() -> None:
-    """Prove a new group can create parent+child without store/service changes."""
+    """A group this package never heard of writes parent+child unchanged.
 
-    @register_adapter
-    class _FutureAdapter:
-        group: MemoryGroup = "vlm"
-
-        def submitted_record(self, **kwargs: object) -> UnifiedMemoryRecord:
-            raise NotImplementedError
-
-        def running_record(self, **kwargs: object) -> UnifiedMemoryRecord:
-            raise NotImplementedError
-
-        def terminal_record(self, **kwargs: object) -> UnifiedMemoryRecord:
-            raise NotImplementedError
-
-    clear_adapter_registry()
-    # External adapters (search_core / summarize CLI / tests) opt into the registry.
-    register_adapter(SummaryAdapter)
-    register_adapter(SearchAdapter)
-    register_adapter(_FutureAdapter)
-    assert get_adapter("summary").group == "summary"
-    assert get_adapter("search").group == "search"
-    assert get_adapter("vlm").group == "vlm"
-    with pytest.raises(KeyError):
-        get_adapter("alert")
-
+    The group name is deliberately one no wheel ships: a command group dropped
+    into the plugin directory owns its own token, and the store, the service and
+    the schema must take its records without a release. There is no registry to
+    enrol in -- the caller holds the adapter class, which is the whole contract.
+    """
     store = InMemoryStore()
     service = MemoryService(store)
     parent = _parent(
         job={
-            "job_id": "vlm-1",
-            "group": "vlm",
+            "job_id": "tripwire-1",
+            "group": "tripwire",
             "operation": "run",
             "status": "completed",
             "created_at": "2026-07-22T12:00:00Z",
         }
     )
     child = child_record(
-        job_id="vlm-1",
+        job_id="tripwire-1",
         group="vlm",
         record_id="note-1",
         record_type="event",
@@ -487,9 +485,8 @@ def test_future_adapter_uses_store_without_changes() -> None:
     )
     result = service.upsert_bundle(RecordBundle(parent=parent, children=(child,)))
     assert result.ok
-    assert service.get("vlm-1").job.group == "vlm"
-    assert service.get_record("vlm-1", "event", "note-1").output is not None
-    clear_adapter_registry()
+    assert service.get("tripwire-1").job.group == "tripwire"
+    assert service.get_record("tripwire-1", "event", "note-1").output is not None
 
 
 # ---------------------------------------------------------------------------
