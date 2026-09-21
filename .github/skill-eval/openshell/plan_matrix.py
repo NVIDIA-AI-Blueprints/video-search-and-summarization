@@ -219,6 +219,20 @@ OPENSHELL_L40S_LABELS: tuple[str, ...] = (
     "openshell-l40s-active",
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
+# Throwaway openshell-test-eval-branch pin: one L40S 2-GPU guest, no
+# vram/codec/gpus-1 extras.
+DEBUG_OPENSHELL_RUNS_ON: list[str] = [
+    "vss-eval",
+    "vss-skill-eval-gpu",
+    "gpu-count-2",
+    "gpus-2",
+    "openshell",
+    "openshell-runner",
+    "l40s",
+    "gpu-l40s",
+    "gpu-nvidia-l40s",
+    "openshell-l40s-active",
+]
 SMOKE_SPEC = (
     "skills/vss-deploy-test-openshell/evals/"
     "base_profile_video_understanding.json"
@@ -368,11 +382,7 @@ def openshell_job_labels(
     """
     if gpu_count not in (1, 2):
         return list(SKIP_RUNNER)
-    if requirements and requirements.get("requires_blackwell"):
-        return [*OPENSHELL_RTXPRO6000_LABELS, f"gpus-{gpu_count}"]
-    # Debug-branch pin: land this single alerts_vlm_real_time leg on an L40S
-    # 1-GPU guest instead of any gpus-1 box in the fleet.
-    return [*OPENSHELL_L40S_LABELS, f"gpus-{gpu_count}"]
+    return list(DEBUG_OPENSHELL_RUNS_ON)
 
 
 # `cohort` on a leg names the fleet the runner comes from, and is what the
