@@ -420,6 +420,7 @@ class SummarizeGroup(CommandGroup):
     #: Elasticsearch for a summarization that was never going to run.
     requires: ClassVar[frozenset[str]] = frozenset({"lvs"})
     extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(SummarizeOptions))
+
     @classmethod
     def adapter(cls) -> type[SummaryAdapter]:
         from .memory_adapter import SummaryAdapter

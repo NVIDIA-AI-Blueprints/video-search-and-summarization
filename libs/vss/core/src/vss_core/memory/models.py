@@ -73,6 +73,7 @@ def register_known_record_type(name: str) -> None:
     """Declare a child record type legitimate for this process."""
     KNOWN_RECORD_TYPES.add(name)
 
+
 JobOperation = Literal["run"]
 JobStatus = Literal["submitted", "running", "completed", "failed", "partial", "timeout"]
 TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "partial", "timeout"})
@@ -146,12 +147,7 @@ class JobInfo(BaseModel):
     @field_validator("record_type", mode="before")
     @classmethod
     def _note_unknown_record_type(cls, value: object) -> object:
-        if (
-            isinstance(value, str)
-            and value
-            and value not in KNOWN_RECORD_TYPES
-            and value not in _REPORTED_RECORD_TYPES
-        ):
+        if isinstance(value, str) and value and value not in KNOWN_RECORD_TYPES and value not in _REPORTED_RECORD_TYPES:
             _REPORTED_RECORD_TYPES.add(value)
             logger.info(
                 "job.record_type %r is not one of %s and no command group in this process declared it",
