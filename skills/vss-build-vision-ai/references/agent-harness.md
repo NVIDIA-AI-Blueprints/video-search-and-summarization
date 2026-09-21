@@ -523,7 +523,7 @@ it can differ from what the context file publishes when the notebook's own read
 of `/etc/brev` was denied.
 
 Do not reconstruct the URL from the notebook source. Its origin branches on
-whether the Brev context file publishes a secure link for the dashboard port.
+whether the Brev context file publishes a secure link for the relay port.
 Outside the notebook, resolve that FQDN from the context file
 ([`brev.md`](brev.md) → *Resolving a secure link*) rather than assembling a
 hostname.
@@ -575,9 +575,9 @@ Confirm the two things that exit code cannot cover:
    summary; a token-free origin on its own lands the user on an unauthenticated
    page.
 
-   **On Brev the host is the secure-link FQDN for the dashboard port, and a
+   **On Brev the host is the secure-link FQDN for the relay port, and a
    `127.0.0.1` origin is a claim to prove rather than a fallback to take.**
-   Resolve `brev_origin <dashboard-port>` yourself and read what it returned
+   Resolve `brev_origin <relay-port>` yourself and read what it returned
    before reporting anything; an unread lookup is not an empty one.
 
    A denied read of `/etc/brev` is a third answer, distinct from both. A
@@ -592,17 +592,20 @@ Confirm the two things that exit code cannot cover:
    need, against an origin that does not resolve for them, is the failure this
    paragraph exists to prevent.
 
-   Confirm the forward behind it is bound as that origin requires:
+   Confirm the two listeners behind it:
 
    ```bash
-   openshell forward list   # BIND column for the dashboard port
+   openshell forward list         # BIND column for the dashboard port
+   pgrep -af dashboard-relay.py   # --listen addresses for the relay port
    ```
 
-   On Brev it must read `0.0.0.0`; a `127.0.0.1` bind answers a local health
-   probe and still `503`s behind the secure link. Without a Brev secure link,
-   an adapter-enabled run must bind to Docker's private bridge gateway, not
-   `127.0.0.1` or `0.0.0.0`. If the bind is wrong, stop and use a compatible
-   notebook rather than recreating the UI against an unreachable backend.
+   The forward must read `127.0.0.1` on every host, Brev included — NemoClaw's
+   recovery re-creates it there and retires a wider bind as stale, so a
+   loopback forward is the healthy state rather than a fault to repair.
+   Off-loopback clients are the relay's job: `0.0.0.0` on Brev, and Docker's
+   bridge gateway on an adapter-enabled run without a secure link. If the relay
+   is missing or bound elsewhere, re-run section 3.5 rather than re-binding the
+   forward, which the next lifecycle command undoes.
 2. **The sandbox can reach the build.** From the sandbox, one call against the
    origin recorded in `ENV.md`. A `403 CONNECT tunnel failed` is the egress
    policy (see Prerequisites), not a deployment fault — the distinction matters

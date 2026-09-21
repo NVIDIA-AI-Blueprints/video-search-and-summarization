@@ -105,11 +105,20 @@ succeeds.
 | `search` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
 | `alerts` | **7777**, **5601**, **31000** (nvstreamer) | 6006 |
 
-On a NemoClaw build, add the harness dashboard port (`NEMOCLAW_DASHBOARD_PORT`,
-default **18789**) to whichever row applies: it is the Agent UI's own origin and
-is not behind HAProxy, so it needs its own link. Resolve it the same way as
-7777 — the answer decides whether the summary reports a secure-link URL or a
-loopback one behind an SSH tunnel.
+On a NemoClaw build, add the harness dashboard **relay** port
+(`NEMOCLAW_DASHBOARD_RELAY_PORT`, default **18790**) to whichever row applies:
+it is the Agent UI's own origin and is not behind HAProxy, so it needs its own
+link. Resolve it the same way as 7777 — the answer decides whether the summary
+reports a secure-link URL or a loopback one behind an SSH tunnel.
+
+Publish it **before** the notebook's section 3.1. Onboard bakes that link into
+the sandbox's `CHAT_UI_URL`, which is where the gateway's Control UI origin
+allowlist comes from, and `gateway.*` is read-only afterwards: publish late and
+the browser is closed with `origin not allowed` until the sandbox is recreated.
+
+`NEMOCLAW_DASHBOARD_PORT` (default 18789) gets no link of its own. NemoClaw
+keeps that forward on loopback and the relay in front of it is the published
+path.
 
 Ports that should NOT get their own secure link (they're behind HAProxy):
 3000 (UI), 8000 (Agent), 30888 (VST).
