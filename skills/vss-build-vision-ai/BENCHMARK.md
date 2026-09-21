@@ -11,7 +11,7 @@ benchmark has been completed, so it reports no scores or publication verdict.
 - Evaluation date: Not run
 - NVSkills-Eval profile: Not selected
 - Environment: Not run
-- Dataset: 2 routing cases
+- Dataset: 6 routing cases
 - Attempts per task: 0
 - Pass threshold: Not set
 - Overall verdict: NOT RUN
@@ -29,9 +29,9 @@ time for paired with-skill and without-skill runs.
 
 ## Test Tasks
 
-The lightweight routing dataset contains 2 evaluation cases:
+The lightweight routing dataset contains 6 evaluation cases:
 
-- Positive tasks: 1 case where this skill is expected to activate.
+- Positive tasks: 5 cases where this skill is expected to activate, including GB300 Base, LVS, Alerts, and Search.
 - Negative tasks: 1 case where this skill is expected not to activate.
 - Unlabeled tasks: 0.
 

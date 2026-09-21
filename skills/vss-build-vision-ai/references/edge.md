@@ -47,7 +47,8 @@ The edge local LLM runs on the device's shared/unified memory and is **slow** (o
 | DGX Spark, local LLM | Default `nemotron-3.5-lightning-30b-a3b` NIM (INT4 profile) |
 | AGX Thor / IGX Thor, local LLM | Default `nemotron-3.5-lightning-30b-a3b` NIM (INT4 profile) |
 | Any edge platform, remote-LLM mode | External endpoint; no local LLM needed |
-| Non-edge hardware (H100, GB300, L40S, RTX PRO) | Default `nemotron-3.5-lightning-30b-a3b` NIM compose path |
+| Non-edge discrete GPUs (H100, L40S, RTX PRO) | Default `nemotron-3.5-lightning-30b-a3b` NIM compose path; two-GPU layouts in `sizing.md` |
+| DGX Station GB300 | Same default NIM, but **one shared GPU** — follow the GB300 contract in `sizing.md`, not the H100/Search two-GPU layout. SBSA tags (`-sbsa`). Not unified-memory edge: skip the cache cleaner. |
 
 ## Prerequisites
 

@@ -62,6 +62,7 @@ tune a discrete-GPU allocation above `0.85`.
 | H100 / A100 80 GB | 80 GB | 68 GB |
 | H200 | 141 GB | 119.85 GB |
 | B200 / GB200 | 192 GB | 163.2 GB |
+| DGX Station GB300 | 251 GB | 213.35 GB |
 | RTX PRO 6000 Blackwell | 96 GB | 81.6 GB |
 | L40S / L40 / RTX 6000 Ada / A40 | 48 GB | 40.8 GB |
 | RTX PRO 4500 Blackwell | 32 GB | 27.2 GB |
@@ -108,11 +109,24 @@ RT-VLM is `0.40 + 0.40`, leaving 20% unallocated.
 | LVS | One GPU: LLM + RT-VLM shared. Two GPUs: LLM on GPU 0 and RT-VLM on GPU 1. | When shared on H100/RTX PRO 6000, set `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40` and cap the LLM at about `0.40`. |
 | Search | GPU 0: RT-CV + RT-VLM FP8 at `0.40`. GPU 1: RT-Embed + LLM. | The stock local profile uses two shared GPUs (`FIXED_SHARED_DEVICE_IDS=0,1`). |
 
+**DGX Station GB300 is one GPU.** Do not inherit the two-GPU device IDs above.
+Every GPU consumer in Base, LVS, Alerts (`2d_cv` and `2d_vlm`), and Search
+lands on the single selected GB300 (`FIXED_SHARED_DEVICE_IDS=<id>`, typically
+`0`). `dev-profile.sh -H GB300` auto-detects that device when CLI IDs are
+omitted, including when a profile default such as Alerts `LLM_DEVICE_ID=1`
+does not name a GB300. Use `local_shared` for local models, SBSA image tags
+(`-sbsa`), and `RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN`. Starting fractions:
+RT-VLM `0.2` (~50 GiB of ~251 GiB) and LLM `NIM_GPU_MEM_FRACTION=0.3` from
+`hw-GB300-shared.env` (~75 GiB). Do not apply the H100 `0.40 + 0.40` pair or
+the Search `(VRAM-10)/VRAM - 0.15` LLM formula; vLLM reserves
+`fraction × total` without subtracting co-residents.
+
 RT-VLM placement and utilization starting values:
 
 | Placement | Example profile and hardware | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` |
 |---|---|---:|
 | Shared with another GPU service | Search FP8 on H100 or RTX PRO 6000; Alerts/LVS BF16 on H100, RTX PRO 6000, or DGX Spark | 0.40 |
+| Shared on DGX Station GB300 | Base, LVS, Alerts, and Search on the single GB300 | 0.2 |
 | Dedicated | Alerts/LVS BF16 on H100, RTX PRO 6000, or supported discrete GPUs not listed below | 0.70 |
 | Dedicated | Alerts/LVS BF16 on L40S or RTX PRO 4500 | 0.80 |
 
@@ -245,6 +259,7 @@ LLM fraction = (GPU_VRAM_GB - 10) / GPU_VRAM_GB - 0.15
 | H100 / A100 80 GB | 0.72 |
 | H200 | 0.78 |
 | RTX PRO 6000 Blackwell | 0.75 |
+| DGX Station GB300 | 0.3 (`hw-GB300-shared.env`); do not use the formula above |
 | L40S | 0.65; verify under load |
 
 Dedicated RT-Embed stream ceilings from its benchmark data:
