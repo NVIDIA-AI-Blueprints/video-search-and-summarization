@@ -42,6 +42,8 @@ FUSED_TOPIC = "mdx-bev"
 # One realistic scenario: REAL sensor ids from the 4-cam sample calibration +
 # 20x20m world coordinates (sample-dataset-backed, no GPU). Kafka only — the
 # broker the warehouse deployment uses.
+GT_TOL_M = 0.5   # fused output must land on ground truth; method and filtering may vary
+
 SCENARIOS = {
     "warehouse-sample": (ss, ss.SENSORS),
 }
@@ -173,8 +175,8 @@ def test_fusion_service_fuses_raw_to_bev(fusion_stack, scenario):
         for o in range(NUM_OBJECTS):
             obj = by_id[f"obj-{o}"]
             assert obj.type == ("Person" if o % 2 == 0 else "Forklift")
-            expected = mod.expected_fused_coords(instant, o, len(SENSORS))
-            assert list(obj.bbox3d.coordinates) == pytest.approx(expected, abs=1e-2)
+            expected = mod.gt_coords(instant, o)
+            assert list(obj.bbox3d.coordinates) == pytest.approx(expected, abs=GT_TOL_M)
         checked += 1
 
     assert checked > 0, "no fused frame could be matched back to a produced instant"

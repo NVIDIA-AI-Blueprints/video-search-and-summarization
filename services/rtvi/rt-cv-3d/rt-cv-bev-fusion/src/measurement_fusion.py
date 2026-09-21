@@ -26,10 +26,9 @@ Fusion logic:
     — frame IDs diverge across containers but wall-clock timestamps stay aligned.
   - For each unique object ID: views collapsed to one position per FUSION_METHOD.
     "first", "closest", "mean" and "median" are the single-idea baselines, each
-    taking every view. "rays" (default) is the combination that measured best
-    against ground truth: it refuses views under VISIBILITY_MIN, then solves for
-    the position that best fits the remaining lines of sight, which needs
-    CALIBRATION_PATH. Without it that solve is unavailable and "rays" degrades
+    taking every view. "rays" (default) refuses views under VISIBILITY_MIN, then
+    solves for the position that best fits the remaining lines of sight, which
+    needs CALIBRATION_PATH. Without it that solve is unavailable and "rays" degrades
     to an area-weighted mean of the gated views. See README, Fusion Methods.
   - Object type resolved by majority vote across the fused sensors (ties broken by
     total confidence)
@@ -81,50 +80,40 @@ MAX_EXPECTED_SENSORS = int(os.environ.get("MAX_EXPECTED_SENSORS", "4"))
 FUSED_SENSOR_ID      = "bev-sensor-1"
 
 # --- Measurement fusion -----------------------------------------------------
-# How the views of one object become one position. Four baselines and the
-# combination that beat them all against ground truth; see README, Fusion Methods.
+# How the views of one object become one position. See README, Fusion Methods.
 FUSION_METHOD        = os.environ.get("FUSION_METHOD",  "rays").strip().lower()
 FUSION_METHODS       = ("first", "closest", "mean", "median", "rays")
 BASELINE_METHODS     = ("first", "closest", "mean", "median")   # ungated, one idea each
-CALIBRATION_METHODS  = ("closest",)             # cannot run at all without geometry
-# Cameras. Required by CALIBRATION_METHODS, and what lets "rays" solve at all.
+CALIBRATION_METHODS  = ("closest",)             # cannot run without camera geometry
 CALIBRATION_PATH     = os.environ.get("CALIBRATION_PATH", "/calibration/calibration.json")
-# Drop views further than this from their own camera; 0 disables. Against ground
-# truth, 25 -> 30 m bought 12.5% more true positives for 46% more false ones.
-MAX_DIST             = float(os.environ.get("MAX_DIST", "25"))
+# Drop views further than this from their own camera; 0 disables.
+MAX_DIST             = float(os.environ.get("MAX_DIST", "30"))
 if MAX_DIST < 0:
     raise ValueError("MAX_DIST must be 0 (disabled) or a positive distance in metres")
 
-# Temporal filtering of each fused track. Stateful, so it can be switched off.
+# Constant-velocity filter over each fused track.
 TEMPORAL_FILTER      = os.environ.get("TEMPORAL_FILTER", "1").strip().lower() in ("1", "true", "yes")
-# Bottom-edge jitter in pixels: scales the ray geometry into a metric covariance.
-PIXEL_SIGMA          = float(os.environ.get("PIXEL_SIGMA", "3.0"))
-# How hard a tracked object may accelerate, m/s^2. 3 covers a person or forklift.
-ACCEL_SIGMA          = float(os.environ.get("ACCEL_SIGMA", "3.0"))
-# Buckets of silence after which a track restarts; also bounds retained state.
-FILTER_RESET_BUCKETS = int(os.environ.get("FILTER_RESET_BUCKETS", "30"))
+PIXEL_SIGMA          = float(os.environ.get("PIXEL_SIGMA", "3.0"))   # bottom-edge jitter, px
+ACCEL_SIGMA          = float(os.environ.get("ACCEL_SIGMA", "3.0"))   # m/s^2
+FILTER_RESET_BUCKETS = int(os.environ.get("FILTER_RESET_BUCKETS", "30"))  # silence before restart
 if TEMPORAL_FILTER and not (PIXEL_SIGMA > 0 and ACCEL_SIGMA > 0 and FILTER_RESET_BUCKETS > 0):
     raise ValueError("PIXEL_SIGMA, ACCEL_SIGMA and FILTER_RESET_BUCKETS must all be greater than 0")
-# Gate for "rays", from Object.info["visibility"]. 
-# Needs TargetManagement.outputVisibility: 1 upstream, or the value is pinned 
-# to 1.0 and the gate is a no-op.
+# Gate for "rays". Needs TargetManagement.outputVisibility upstream, or the
+# value is pinned to 1.0 and the gate does nothing.
 VISIBILITY_MIN       = float(os.environ.get("VISIBILITY_MIN",     "0.3"))
 if not 0.0 <= VISIBILITY_MIN <= 1.0:
     raise ValueError("VISIBILITY_MIN must be a finite value between 0 and 1")
 
 # --- Foot-point offset ------------------------------------------------------
-# A contact point d off the z=0 plane back-projects short by d/h of its range.
-# Measured: single-view positions land ~1% of range too near their own camera.
-# Not shipped as a constant -- it may be the detector's bottom edge or the
-# calibrated floor, indistinguishable from one site -- so "auto" measures the
-# offset that makes overlapping cameras agree, which needs no ground truth. A
-# site whose true offset is zero measures zero and is left alone.
+# A contact point sitting d off the z=0 plane back-projects short by d/h of its
+# range. "auto" measures the offset that makes overlapping cameras agree, so a
+# site with no offset measures zero; "off", or a fixed distance in metres.
 FOOT_OFFSET           = os.environ.get("FOOT_OFFSET", "auto").strip().lower()
 FOOT_OFFSET_MIN, FOOT_OFFSET_MAX = -0.05, 0.10   # outside this, something else is wrong
 FOOT_OFFSET_MIN_PAIRS = int(os.environ.get("FOOT_OFFSET_MIN_PAIRS", "500"))
 FOOT_OFFSET_WINDOW    = int(os.environ.get("FOOT_OFFSET_WINDOW", "20000"))
-# Consecutive buckets hold the same people on the same cameras, so sample them:
-# 5000 contiguous pairs measured 0.0125 m where 5000 spread over time measured 0.0188.
+# Sample every Nth bucket: consecutive ones hold the same people on the same
+# cameras, so they carry less information than their count suggests.
 FOOT_OFFSET_STRIDE    = int(os.environ.get("FOOT_OFFSET_STRIDE", "10"))
 FOOT_OFFSET_EVERY     = int(os.environ.get("FOOT_OFFSET_EVERY", "600"))   # buckets
 FOOT_OFFSET_ITERS     = 20                       # ternary steps; the cost is unimodal
@@ -136,19 +125,29 @@ if FOOT_OFFSET not in ("auto", "off"):
     if not FOOT_OFFSET_MIN <= _fixed <= FOOT_OFFSET_MAX:
         raise ValueError(f"FOOT_OFFSET={_fixed:g} outside [{FOOT_OFFSET_MIN:g}, {FOOT_OFFSET_MAX:g}] m")
 
-# Views of one id further apart than this are different people, mis-associated
-# upstream. Measured: correct pairs sit 0.27 m apart at the median, false ones
-# 2.27, so a metric radius separates them better than any noise model. 0 disables.
+# --- Mis-association --------------------------------------------------------
+# Views of one id further apart than this are different people; 0 disables.
 CONFLICT_RADIUS      = float(os.environ.get("CONFLICT_RADIUS", "2.0"))
 if CONFLICT_RADIUS < 0:
     raise ValueError("CONFLICT_RADIUS must be 0 (disabled) or a positive distance in metres")
+# Reject a fused position implying more than this, m/s; 0 disables.
+MAX_SPEED            = float(os.environ.get("MAX_SPEED", "10"))
+# Accept after this many refusals, else a real move or a reused id is stranded.
+REACQUIRE            = int(os.environ.get("REACQUIRE", "10"))
+if MAX_SPEED < 0 or REACQUIRE < 1:
+    raise ValueError("MAX_SPEED must be >= 0 (0 disables) and REACQUIRE >= 1")
+# Publish a re-acquisition under a new id rather than leaping the old one there.
+# The id is the longest-unused below the highest in play, and is a number.
+SPLIT_ON_REACQUIRE   = os.environ.get("SPLIT_ON_REACQUIRE", "1").strip().lower() in ("1", "true", "yes")
+GATE_DEBUG           = float(os.environ.get("GATE_DEBUG", "0"))   # log branch for steps >= this
+# How long the gate remembers a track. Must exceed the refusal sequence.
+GATE_MEMORY          = int(os.environ.get("GATE_MEMORY", "300"))
 
-# Hold each frame back this many buckets so a backward pass can use later ones.
-# Off by default: it is latency the consumer pays. 5 is ~85 ms for most of the gain.
+# Buckets of publish delay allowing an RTS backward pass. Needs
+# SPLIT_ON_REACQUIRE, or it smears an accepted leap across neighbouring frames.
 SMOOTH_LAG           = int(os.environ.get("SMOOTH_LAG", "0"))
 if SMOOTH_LAG < 0:
     raise ValueError("SMOOTH_LAG must be 0 (causal) or a positive number of buckets")
-
 
 def _load_cameras(path: str) -> dict:
     """{sensorId: {x, y, h, f}} from calibration.json, or {} when unavailable.
@@ -245,6 +244,10 @@ logger.info("Temporal filter: %s", f"on (PIXEL_SIGMA={PIXEL_SIGMA:g}px, "
 logger.info("Smoothing: %s", f"fixed lag {SMOOTH_LAG} buckets (~{SMOOTH_LAG * BUCKET_MS:g}ms)"
             if SMOOTH_LAG else "off (causal)")
 logger.info("Conflict radius: %s", f"{CONFLICT_RADIUS:g}m" if CONFLICT_RADIUS > 0 else "disabled")
+logger.info("Speed gate: %s%s", f"MAX_SPEED={MAX_SPEED:g}m/s, accept after {REACQUIRE} rejections"
+            if MAX_SPEED > 0 else "disabled",
+            "; re-acquisition reuses the longest-unused id below the highest in play"
+            if MAX_SPEED > 0 and SPLIT_ON_REACQUIRE else "")
 logger.info("Foot offset: %s", "disabled" if FOOT_OFFSET == "off"
             else (f"auto, after {FOOT_OFFSET_MIN_PAIRS} view pairs, "
                   f"clamped to [{FOOT_OFFSET_MIN:g}, {FOOT_OFFSET_MAX:g}]m"
@@ -288,11 +291,8 @@ def _element_wise_mean(arrays: list[list[float]],
                        weights: list[float] | None = None) -> list[float]:
     """Per-coordinate mean across the sensors reporting one object.
 
-    Weights are 2D box areas, a proxy for range: a sensor further away returns a
-    smaller box and gets less say. Absent or all-zero weights fall back to a plain
-    mean. Visibility gates rather than weights here — after gating it spans a narrow
-    range and barely correlates with distance, and it measured worse as a weight than
-    area or than nothing at all.
+    Weights are 2D box areas, a proxy for range. Absent or all-zero weights fall
+    back to a plain mean.
     """
     if not arrays:
         return []
@@ -338,12 +338,9 @@ def _bbox_area(obj: schema_pb2.Object) -> float:
 def _views_to_fuse(instances: list) -> tuple[list, bool]:
     """Views to fuse for one object, and whether to weight them by box area.
 
-    Takes and returns (sensorId, Object) pairs.
-
-    Returns a flag, not the weights: a view without a usable bbox3d is dropped
-    downstream, and a precomputed list would drift out of step with it. Only
-    "rays" gates on visibility and weights by area; a baseline is one idea on
-    its own, so it sees every view and counts them equally.
+    Takes and returns (sensorId, Object) pairs. Returns a flag rather than the
+    weights, since a view without a usable bbox3d is dropped downstream. Only
+    "rays" gates on visibility and weights by area.
     """
     if FUSION_METHOD in BASELINE_METHODS:
         return instances, False
@@ -509,6 +506,105 @@ def _apply_foot_offset(sensor_id: str, coords: list, offset: float) -> None:
     coords[1] = cam["y"] + (coords[1] - cam["y"]) * (1.0 + k)
 
 
+_LASTPUB: dict[str, tuple] = {}     # published id -> (bucket, x, y, consecutive rejects)
+_LASTOUT: dict[str, tuple] = {}     # published id -> (bucket, x, y) actually emitted
+_SPLITS:  dict[str, str]   = {}     # obj_id -> the id it is published under now
+_ID_FREED: dict[str, int]  = {}     # id -> bucket it stopped being published in
+_ID_MAX = 0                         # highest id seen in play
+
+
+def published_id(obj_id: str) -> str:
+    return _SPLITS.get(obj_id, obj_id)
+
+
+def _free_id() -> str | None:
+    """The id below the highest in play that has gone unused the longest.
+
+    _LASTPUB holds every id still being published, the tracker's own as well as
+    earlier splits, so anything absent from it is genuinely free and cannot
+    collide with a track still on screen. Never-used ids count as the oldest.
+    """
+    best, oldest = None, None
+    for i in range(1, _ID_MAX + 1):
+        s = str(i)
+        if s in _LASTPUB:
+            continue
+        freed = _ID_FREED.get(s, -1)
+        if oldest is None or freed < oldest:
+            best, oldest = s, freed
+    return best
+
+
+def _smoothing_relocates(pub: str, bucket_key: int, x: float, y: float) -> bool:
+    """True if the smoothed position cannot follow what was last emitted.
+
+    The backward pass runs after the gate, so it must refine a position rather
+    than relocate it; when it would relocate, the causal estimate is kept.
+    """
+    if MAX_SPEED <= 0: return False
+    with _TRACKS_LOCK:
+        last = _LASTOUT.get(pub)
+        if last is not None:
+            gap = bucket_key - last[0]
+            if 0 < gap <= GATE_MEMORY and \
+               math.dist((x, y), last[1:3]) / (gap * BUCKET_MS / 1000.0) > MAX_SPEED:
+                return True
+        _LASTOUT[pub] = (bucket_key, x, y)
+        return False
+
+
+def _gate_log(branch: str, pub: str, gap: int, d: float) -> None:
+    if GATE_DEBUG > 0 and d >= GATE_DEBUG:
+        logger.info("[GATE] accepted %.2f m  branch=%s id=%s gap=%d", d, branch, pub, gap)
+
+
+def _gate(obj_id: str, bucket_key: int, x: float, y: float) -> tuple[bool, str]:
+    """(withhold this object?, id to publish it under).
+
+    A position that cannot follow the last published one is withheld, until it
+    has been withheld REACQUIRE times: then the move is real, or the id was
+    reused, and refusing forever would strand the object.
+    """
+    pub = published_id(obj_id)
+    if MAX_SPEED <= 0: return False, pub
+    with _TRACKS_LOCK:
+        last = _LASTPUB.get(pub)
+        if last is None:
+            _LASTPUB[pub] = (bucket_key, x, y, 0)
+            return False, pub
+        gap = bucket_key - last[0]
+        d = math.dist((x, y), last[1:3])
+        if gap <= 0:
+            # Flushed out of order. Still judge it -- it gets published either way
+            # -- but never let an older bucket move the reference forward.
+            if d / (max(abs(gap), 1) * BUCKET_MS / 1000.0) > MAX_SPEED:
+                return True, pub
+            _gate_log("out-of-order", pub, gap, d)
+            return False, pub
+        if gap > GATE_MEMORY:               # absent long enough to be anywhere
+            _gate_log("reacquire-gap", pub, gap, d)
+            _LASTPUB[pub] = (bucket_key, x, y, 0)
+            return False, pub
+        if d / (gap * BUCKET_MS / 1000.0) <= MAX_SPEED:
+            _gate_log("within-limit", pub, gap, d)
+            _LASTPUB[pub] = (bucket_key, x, y, 0)
+            return False, pub
+        n = last[3] + 1
+        if n < REACQUIRE:
+            _LASTPUB[pub] = (last[0], last[1], last[2], n)
+            return True, pub
+        if SPLIT_ON_REACQUIRE:
+            # Break the track rather than leap it across the map.
+            fresh = _free_id()
+            if fresh is None:
+                return True, pub          # no id to give it: publish nothing
+            _TRACKS.pop(pub, None); _LASTPUB.pop(pub, None); _LASTOUT.pop(pub, None)
+            _SPLITS[obj_id] = pub = fresh
+        _gate_log("after-refusals", pub, gap, d)
+        _LASTPUB[pub] = (bucket_key, x, y, 0)
+        return False, pub
+
+
 def _predicted_position(obj_id: str, bucket_key: int):
     """Where the filter expects this track to be now, or None."""
     with _TRACKS_LOCK:
@@ -539,17 +635,20 @@ def _resolve_conflict(obj_id: str, bucket_key: int, positioned: list):
 
 
 def _filter_position(obj_id: str, bucket_key: int, x: float, y: float, cov: list):
-    """Constant-velocity filter over one object's positions, returning filtered (x, y).
+    """Constant-velocity filter over one object's positions, returning (x, y).
 
-    A track unseen for FILTER_RESET_BUCKETS restarts instead of being predicted
-    across the gap, which also bounds retained state. With SMOOTH_LAG set, each
-    step is kept so the backward pass can revisit it. F is the identity plus a
-    velocity block, so F P F^T is 16 fused updates, not a 256-term sum.
+    A track unseen for FILTER_RESET_BUCKETS restarts rather than being predicted
+    across the gap. With SMOOTH_LAG set each step is kept for the backward pass.
     """
     with _TRACKS_LOCK:
         for stale in [k for k, t in _TRACKS.items()
                       if bucket_key - t["bucket"] > FILTER_RESET_BUCKETS]:
             del _TRACKS[stale]
+        for stale in [k for k, v in _LASTPUB.items() if bucket_key - v[0] > GATE_MEMORY]:
+            del _LASTPUB[stale]; _ID_FREED[stale] = bucket_key
+        for stale in [k for k, v in _LASTOUT.items() if bucket_key - v[0] > GATE_MEMORY]:
+            del _LASTOUT[stale]
+
 
         track = _TRACKS.get(obj_id)
         if track is None or bucket_key <= track["bucket"]:
@@ -626,10 +725,8 @@ def _cholesky_solve(L: list, b: list) -> list:
 def _smoothed_position(obj_id: str, bucket_key: int):
     """RTS backward pass from the newest retained step down to bucket_key, or None.
 
-    Reaches back at most SMOOTH_LAG steps, so a published position never depends
-    on more future than the caller waited for. Only the state is recursed: the
-    smoothed covariance has its own recursion and nothing reads it. The gain
-    C = Pf Ft Pp^-1 is a Cholesky solve against the symmetric Pp, not an inverse.
+    Reaches back at most SMOOTH_LAG steps. Only the state is recursed; the gain
+    C = Pf Ft Pp^-1 is a Cholesky solve against the symmetric Pp.
     """
     with _TRACKS_LOCK:
         track = _TRACKS.get(obj_id)
@@ -671,27 +768,13 @@ def _ray_wls_xy(views: list) -> tuple[float, float] | None:
     """Ground position from views whose uncertainty is anisotropic, or None.
 
     A ground-plane projection is precise across the camera's line of sight and
-    vague along it: a pixel of jitter on the bottom edge of the box slides the
-    range, not the bearing. Measured on a live 8-camera run, 94.6% of physically
-    impossible frame-to-frame steps pointed along that ray against 26% expected
-    by chance, so treating every view as equally reliable in all directions, as
-    an area-weighted mean does, discards the one component worth trusting.
+    vague along it: a pixel of jitter on the box's bottom edge slides the range,
+    not the bearing. For focal length f at height h and slant range d,
+    sigma_along = delta*d^2/(f*h) against sigma_across = delta*d/f, so the ratio
+    is d/h and the pixel term cancels: the weights are geometry, nothing fitted.
 
-    For a camera of focal length f at height h, a ground point at slant range d
-    carries sigma_along = delta*d^2/(f*h) and sigma_across = delta*d/f for a
-    pixel error delta. Their ratio is d/h and delta is common to every view, so
-    it cancels: the weights below are geometry, with nothing fitted to a dataset.
-
-    Closed form of the Jacobian that mv3dt tools/target_journey.py propagates
-    numerically (UncertaintyPropagator.pixel_to_ground), assuming the camera is
-    not rolled. Measured over 96 ground points on this rig the principal axes
-    agree to 0.19 deg median, and the two score the same end to end.
-
-    Each view contributes its inverse covariance and the stacked normal equations
-    are solved once. Sigma_along is finite, so one view alone is already a
-    solvable ellipse and would be returned as the answer: fewer than two
-    calibrated views therefore return None and let the caller fall back to the
-    weighted mean, which at least averages the uncalibrated ones too.
+    One view alone solves to its own position, so fewer than two calibrated
+    views return None and the caller falls back to the weighted mean.
     """
     a11 = a12 = a22 = b1 = b2 = 0.0
     used = 0
@@ -736,6 +819,7 @@ def fuse_frames(bucket_key: int, sensor_frames: dict) -> schema_pb2.Frame:
     """
     Build a single fused Frame from a dict of {sensorId: Frame protobuf message}.
     """
+    global _ID_MAX
     # --- average timestamps ---
     timestamps = [_parse_proto_timestamp(f.timestamp) for f in sensor_frames.values()]
     avg_ts_posix = sum(timestamps) / len(timestamps)
@@ -789,7 +873,7 @@ def fuse_frames(bucket_key: int, sensor_frames: dict) -> schema_pb2.Frame:
 
         # Mis-associated ids: two views of different people wearing one id. Left
         # in, they drag the fused position to a point between two objects.
-        positioned = _resolve_conflict(obj_id, bucket_key, positioned)
+        positioned = _resolve_conflict(published_id(obj_id), bucket_key, positioned)
         if positioned is None:
             continue
         admitted = [(sid, obj) for sid, obj, _, _ in positioned]
@@ -821,13 +905,20 @@ def fuse_frames(bucket_key: int, sensor_frames: dict) -> schema_pb2.Frame:
 
         if TEMPORAL_FILTER and coord_arrays:
             avg_coords[0], avg_coords[1] = _filter_position(
-                obj_id, bucket_key, avg_coords[0], avg_coords[1],
+                published_id(obj_id), bucket_key, avg_coords[0], avg_coords[1],
                 _measurement_covariance(positioned))
+
+        if obj_id.isdigit(): _ID_MAX = max(_ID_MAX, int(obj_id))
+
+        withhold, pub_id = ((False, published_id(obj_id)) if not coord_arrays
+                            else _gate(obj_id, bucket_key, avg_coords[0], avg_coords[1]))
+        if withhold:
+            continue
 
         avg_conf = sum(obj.confidence for _, obj in admitted) / len(admitted)
 
         fused_obj = schema_pb2.Object()
-        fused_obj.id         = obj_id
+        fused_obj.id         = pub_id
         fused_obj.type       = _majority_type([obj for _, obj in admitted])
         fused_obj.confidence = avg_conf
         fused_obj.bbox3d.coordinates[:] = avg_coords
@@ -888,9 +979,14 @@ class MeasurementFusionService:
         for bucket in sorted(b for b in self._pending if b <= up_to):
             frame = self._pending.pop(bucket)
             for obj in frame.objects:
+                if len(obj.bbox3d.coordinates) != 12: continue
                 pos = _smoothed_position(obj.id, bucket)
-                if pos is not None and len(obj.bbox3d.coordinates) == 12:
+                if pos is not None and not _smoothing_relocates(obj.id, bucket, *pos):
                     obj.bbox3d.coordinates[0], obj.bbox3d.coordinates[1] = pos
+                else:
+                    # keep the causal position, and record what actually went out
+                    _smoothing_relocates(obj.id, bucket,
+                                         obj.bbox3d.coordinates[0], obj.bbox3d.coordinates[1])
             self._publish(frame.SerializeToString())
             self._published += 1
 

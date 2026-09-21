@@ -112,7 +112,7 @@ services:
       BUFFER_DURATION_S: "2.0"
       FUSION_METHOD: ${FUSION_METHOD:-rays}
       VISIBILITY_MIN: ${VISIBILITY_MIN:-0.3}
-      MAX_DIST: ${MAX_DIST:-25}
+      MAX_DIST: ${MAX_DIST:-30}
       TEMPORAL_FILTER: ${TEMPORAL_FILTER:-1}
       PIXEL_SIGMA: ${PIXEL_SIGMA:-3.0}
       ACCEL_SIGMA: ${ACCEL_SIGMA:-3.0}
@@ -122,6 +122,14 @@ services:
       CONFLICT_RADIUS: ${CONFLICT_RADIUS:-2.0}
       # Buckets of publish delay to let a backward pass run. 0 is causal.
       SMOOTH_LAG: ${SMOOTH_LAG:-0}
+      # Reject a fused step implying more than this, m/s. 0 disables.
+      MAX_SPEED: ${MAX_SPEED:-10}
+      REACQUIRE: ${REACQUIRE:-10}
+      # On re-acquisition publish a new id instead of leaping the old one.
+      # 0 keeps the id and accepts the jump.
+      SPLIT_ON_REACQUIRE: ${SPLIT_ON_REACQUIRE:-1}
+      # Diagnostic: log the gate branch for any accepted step >= this many metres.
+      GATE_DEBUG: ${GATE_DEBUG:-0}
       CALIBRATION_PATH: /calibration/calibration.json
     volumes:
       # Camera geometry. closest refuses to start without it and rays

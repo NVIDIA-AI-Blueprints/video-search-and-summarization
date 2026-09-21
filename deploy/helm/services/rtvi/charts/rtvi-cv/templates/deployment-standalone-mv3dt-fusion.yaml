@@ -106,7 +106,7 @@ spec:
             - name: VISIBILITY_MIN
               value: {{ $fusion.visibilityMin | default "0.3" | quote }}
             - name: MAX_DIST
-              value: {{ $fusion.maxDist | default "25" | quote }}
+              value: {{ $fusion.maxDist | default "30" | quote }}
             - name: TEMPORAL_FILTER
               value: {{ $fusion.temporalFilter | default "1" | quote }}
             - name: PIXEL_SIGMA
@@ -119,6 +119,12 @@ spec:
               value: {{ $fusion.conflictRadius | default "2.0" | quote }}
             - name: SMOOTH_LAG
               value: {{ $fusion.smoothLag | default "0" | quote }}
+            - name: MAX_SPEED
+              value: {{ $fusion.maxSpeed | default "10" | quote }}
+            - name: REACQUIRE
+              value: {{ $fusion.reacquire | default "10" | quote }}
+            - name: SPLIT_ON_REACQUIRE
+              value: {{ $fusion.splitOnReacquire | default "1" | quote }}
             {{- if $calibrationMounted }}
             - name: CALIBRATION_PATH
               value: "/calibration/calibration.json"

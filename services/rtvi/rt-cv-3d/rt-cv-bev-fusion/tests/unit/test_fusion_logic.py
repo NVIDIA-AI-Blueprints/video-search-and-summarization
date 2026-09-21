@@ -87,6 +87,13 @@ def _isolated(monkeypatch):
     monkeypatch.setattr(mf, "TEMPORAL_FILTER", False)
     monkeypatch.setattr(mf, "_TRACKS", {})
     monkeypatch.setattr(mf, "CONFLICT_RADIUS", 0.0)
+    monkeypatch.setattr(mf, "MAX_SPEED", 0.0)
+    monkeypatch.setattr(mf, "_LASTPUB", {})
+    monkeypatch.setattr(mf, "_SPLITS", {})
+    monkeypatch.setattr(mf, "_LASTOUT", {})
+    monkeypatch.setattr(mf, "_ID_FREED", {})
+    monkeypatch.setattr(mf, "_ID_MAX", 0)
+    monkeypatch.setattr(mf, "SPLIT_ON_REACQUIRE", False)
     monkeypatch.setattr(mf, "FOOT_OFFSET", "off")
     monkeypatch.setattr(mf, "_FOOT_PAIRS", collections.deque(maxlen=100))
     monkeypatch.setattr(mf, "_FOOT_STATE", {"value": 0.0, "pairs": 0, "next_bucket": 0})
@@ -552,3 +559,93 @@ def test_smoothed_position_needs_a_later_bucket(two_cameras, monkeypatch):
         mf.fuse_frames(bucket, _views(("Camera_A", _at(0, 0), (10, 10))))
     assert mf._smoothed_position("p1", 131) == pytest.approx((0.0, 0.0), abs=1e-6)
     assert mf._smoothed_position("p1", 99) is None       # no longer retained
+
+
+# --- speed gate ---------------------------------------------------------------
+
+def test_speed_gate_withholds_an_impossible_step(two_cameras, monkeypatch):
+    monkeypatch.setattr(mf, "MAX_SPEED", 10.0)
+    monkeypatch.setattr(mf, "FUSION_METHOD", "mean")
+    mf.fuse_frames(200, _views(("Camera_A", _at(0, 0), (10, 10))))
+    # 30 m in one 17 ms bucket is ~1700 m/s.
+    assert list(mf.fuse_frames(201, _views(("Camera_A", _at(30, 0), (10, 10)))).objects) == []
+
+
+def test_speed_gate_accepts_a_persistent_move(two_cameras, monkeypatch):
+    monkeypatch.setattr(mf, "MAX_SPEED", 10.0)
+    monkeypatch.setattr(mf, "REACQUIRE", 3)
+    monkeypatch.setattr(mf, "FUSION_METHOD", "mean")
+    mf.fuse_frames(210, _views(("Camera_A", _at(0, 0), (10, 10))))
+    seen = [len(mf.fuse_frames(210 + i, _views(("Camera_A", _at(30, 0), (10, 10)))).objects)
+            for i in range(1, 5)]
+    # refused twice, then taken: the id was reused or the track really moved
+    assert seen[:2] == [0, 0] and seen[2] == 1
+
+
+def test_speed_gate_allows_ordinary_walking(two_cameras, monkeypatch):
+    monkeypatch.setattr(mf, "MAX_SPEED", 10.0)
+    monkeypatch.setattr(mf, "FUSION_METHOD", "mean")
+    mf.fuse_frames(220, _views(("Camera_A", _at(0, 0), (10, 10))))
+    # 1.5 m/s over two buckets is a person walking
+    step = 1.5 * 2 * mf.BUCKET_MS / 1000.0
+    assert len(mf.fuse_frames(222, _views(("Camera_A", _at(step, 0), (10, 10)))).objects) == 1
+
+
+def test_reacquire_keeps_the_id_by_default(two_cameras, monkeypatch):
+    monkeypatch.setattr(mf, "MAX_SPEED", 10.0)
+    monkeypatch.setattr(mf, "REACQUIRE", 2)
+    monkeypatch.setattr(mf, "FUSION_METHOD", "mean")
+    mf.fuse_frames(300, _views(("Camera_A", _at(0, 0), (10, 10))))
+    for b in (301, 302):
+        out = mf.fuse_frames(b, _views(("Camera_A", _at(30, 0), (10, 10)))).objects
+    assert [o.id for o in out] == ["p1"]          # same id, position leapt
+
+
+def test_split_on_reacquire_starts_a_new_id(two_cameras, monkeypatch):
+    monkeypatch.setattr(mf, "MAX_SPEED", 10.0)
+    monkeypatch.setattr(mf, "REACQUIRE", 2)
+    monkeypatch.setattr(mf, "SPLIT_ON_REACQUIRE", True)
+    monkeypatch.setattr(mf, "_ID_MAX", 5)          # ids 1..5 are in play
+    monkeypatch.setattr(mf, "FUSION_METHOD", "mean")
+    mf.fuse_frames(310, _views(("Camera_A", _at(0, 0), (10, 10))))
+    for b in (311, 312):
+        out = mf.fuse_frames(b, _views(("Camera_A", _at(30, 0), (10, 10)))).objects
+    # the old id never leaps; the relocation is published as a new track
+    new = out[0].id
+    assert new != "p1" and new.isdigit()
+    assert mf.published_id("p1") == new
+
+
+def test_smoothing_may_refine_but_not_relocate(monkeypatch):
+    monkeypatch.setattr(mf, "MAX_SPEED", 10.0)
+    assert not mf._smoothing_relocates("t", 100, 0.0, 0.0)      # first, always fine
+    assert not mf._smoothing_relocates("t", 101, 0.1, 0.0)      # a refinement
+    assert mf._smoothing_relocates("t", 102, 40.0, 0.0)         # a relocation
+
+
+def test_free_id_prefers_the_longest_unused_below_the_max(monkeypatch):
+    monkeypatch.setattr(mf, "_ID_MAX", 5)
+    monkeypatch.setattr(mf, "_LASTPUB", {"1": (9, 0, 0, 0), "2": (9, 0, 0, 0)})
+    monkeypatch.setattr(mf, "_ID_FREED", {"3": 50, "4": 10})
+    assert mf._free_id() == "5"          # never used at all: the oldest there is
+    monkeypatch.setattr(mf, "_ID_FREED", {"3": 50, "4": 10, "5": 90})
+    assert mf._free_id() == "4"          # of the used ones, gone the longest
+
+
+def test_free_id_never_exceeds_the_max_in_play(monkeypatch):
+    monkeypatch.setattr(mf, "_ID_MAX", 2)
+    monkeypatch.setattr(mf, "_LASTPUB", {"1": (9, 0, 0, 0), "2": (9, 0, 0, 0)})
+    assert mf._free_id() is None         # all busy, and it will not invent a 3
+
+
+def test_object_is_dropped_when_no_id_is_free(two_cameras, monkeypatch):
+    monkeypatch.setattr(mf, "MAX_SPEED", 10.0)
+    monkeypatch.setattr(mf, "REACQUIRE", 2)
+    monkeypatch.setattr(mf, "SPLIT_ON_REACQUIRE", True)
+    monkeypatch.setattr(mf, "_ID_MAX", 2)
+    monkeypatch.setattr(mf, "_LASTPUB", {"1": (310, 0, 0, 0), "2": (310, 0, 0, 0)})
+    monkeypatch.setattr(mf, "FUSION_METHOD", "mean")
+    mf.fuse_frames(310, _views(("Camera_A", _at(0, 0), (10, 10))))
+    out = [len(mf.fuse_frames(b, _views(("Camera_A", _at(30, 0), (10, 10)))).objects)
+           for b in (311, 312, 313)]
+    assert out == [0, 0, 0]          # nothing to hand it, so nothing published
