@@ -26,7 +26,7 @@ Open `http://localhost:3000/vss`.
 
 ### Environment-variable syntax
 
-Fern performs build-time substitution for `\$\{NAME\}` expressions. Most such
+Fern performs build-time substitution for <code>&#36;{NAME}</code> expressions. Most such
 expressions in these docs are literal shell, Compose, or configuration examples,
 so escape them using Fern's literal form:
 
@@ -34,7 +34,7 @@ so escape them using Fern's literal form:
 \$\{VSS_DATA_DIR\}
 ```
 
-Fern renders that as `\$\{VSS_DATA_DIR\}`. Actual build-time documentation
+Fern renders that as <code>&#36;{VSS_DATA_DIR}</code>. Actual build-time documentation
 variables must use the `VSS_DOCS_` prefix and be explicitly added to
 `.github/scripts/check_fern_substitutions.py`. There are no build-time
 documentation variables currently.

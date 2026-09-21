@@ -72,6 +72,7 @@ jobs:
             if git diff --name-only "$BEFORE" HEAD | grep -qE \
               -e '^(docs/|fern/)' \
               -e '^services/analytics/video-analytics-api/src/app/specification/openapi\.json$' \
+              -e '^\.github/scripts/(check_fern_substitutions|test_check_fern_substitutions)\.py$' \
               -e '^\.github/workflows/(fern-docs-ci|stage-fern-docs|publish-fern-docs)\.yml$'; then
               DOCS=true
             else
