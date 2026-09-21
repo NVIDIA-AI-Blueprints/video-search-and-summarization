@@ -16,6 +16,7 @@
 %YAML:1.0
 
 BaseConfig:
+  debugVerboseLevel: 1
   minDetectorConfidence: 0.266
   checkClassMatch: 1
   useBatchNumForFrameId: 1
