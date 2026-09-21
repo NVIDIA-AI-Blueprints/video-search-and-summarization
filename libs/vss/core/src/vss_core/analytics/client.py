@@ -136,6 +136,65 @@ def _place_matches(sensor_place: str, place: str) -> bool:
     return sensor_place == place or sensor_place.startswith(f"{place}/")
 
 
+def _parse_timestamp(value: object) -> datetime.datetime | None:
+    if value is None:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _bucket_duration_seconds(bucket: dict[str, Any]) -> float | None:
+    start = _parse_timestamp(bucket.get("start"))
+    end = _parse_timestamp(bucket.get("end"))
+    if start is None or end is None:
+        return None
+    try:
+        duration = (end - start).total_seconds()
+    except TypeError:
+        return None
+    if duration <= 0:
+        return None
+    return duration
+
+
+def _occupancy_average(histogram: object, object_type: str) -> tuple[float | None, int]:
+    """Duration-weighted occupancy from FOV histogram buckets.
+
+    Each usable bucket contributes ``averageCount * duration``; the result is
+    divided by the sum of those durations. Buckets with missing, malformed,
+    reversed, or zero-length bounds are skipped rather than treated as equal.
+    """
+    if not isinstance(histogram, dict):
+        return None, 0
+    buckets = histogram.get("histogram", [])
+    if not isinstance(buckets, list):
+        return None, 0
+    weighted_sum = 0.0
+    total_duration = 0.0
+    bucket_count = 0
+    for bucket in buckets:
+        if not isinstance(bucket, dict):
+            continue
+        duration = _bucket_duration_seconds(bucket)
+        if duration is None:
+            continue
+        objects = bucket.get("objects", [])
+        if not isinstance(objects, list):
+            continue
+        for item in objects:
+            if not isinstance(item, dict) or item.get("type") != object_type:
+                continue
+            value = item.get("averageCount")
+            if isinstance(value, int | float) and not isinstance(value, bool):
+                weighted_sum += float(value) * duration
+                total_duration += duration
+                bucket_count += 1
+    average = weighted_sum / total_duration if total_duration else None
+    return average, bucket_count
+
+
 def _merge_histograms(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Combine per-sensor FOV histograms for a place deterministically."""
     if not results:
@@ -418,18 +477,8 @@ class AnalyticsClient:
                 end_time=end_time,
                 object_type=object_type,
             )
-            counts = [
-                float(item["averageCount"])
-                for bucket in histogram.get("histogram", [])
-                if isinstance(bucket, dict)
-                for item in bucket.get("objects", [])
-                if isinstance(item, dict)
-                and item.get("type") == object_type
-                and isinstance(item.get("averageCount"), int | float)
-                and not isinstance(item.get("averageCount"), bool)
-            ]
-            average = sum(counts) / len(counts) if counts else None
-            result = {"object_type": object_type, "average_count": average, "bucket_count": len(counts)}
+            average, bucket_count = _occupancy_average(histogram, object_type)
+            result = {"object_type": object_type, "average_count": average, "bucket_count": bucket_count}
             summary = (
                 f"The average number of {object_type.lower()} objects was {average:.2f}."
                 if average is not None
