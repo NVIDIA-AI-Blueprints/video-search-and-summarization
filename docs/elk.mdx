@@ -75,7 +75,7 @@ The sample GPU Dockerfile uses a multi-stage build with Elasticsearch and CUDA b
 
 **2. Infra compose (deploy/docker/services/infra/compose.yml)**
 
-In `deploy/docker/services/infra/compose.yml`, find `services.elasticsearch.build.dockerfile` in the main `elasticsearch` service and update only that field. Use `Dockerfiles/elasticsearch${ELASTICSEARCH_MODE:+-${ELASTICSEARCH_MODE}}.Dockerfile` so the value resolves to `Dockerfiles/elasticsearch.Dockerfile` by default and `Dockerfiles/elasticsearch-gpu.Dockerfile` when `ELASTICSEARCH_MODE=gpu`.
+In `deploy/docker/services/infra/compose.yml`, find `services.elasticsearch.build.dockerfile` in the main `elasticsearch` service and update only that field. Use `Dockerfiles/elasticsearch${ELASTICSEARCH_MODE:+-\$\{ELASTICSEARCH_MODE\}}.Dockerfile` so the value resolves to `Dockerfiles/elasticsearch.Dockerfile` by default and `Dockerfiles/elasticsearch-gpu.Dockerfile` when `ELASTICSEARCH_MODE=gpu`.
 
 ```yaml
 elasticsearch-init-container:
@@ -87,7 +87,7 @@ elasticsearch-init-container:
   network_mode: "host"
   container_name: vss-elasticsearch-init
   environment:
-    - BP_PROFILE=${BP_PROFILE}
+    - BP_PROFILE=\$\{BP_PROFILE\}
     - ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS=${ELASTICSEARCH_CONNECTION_MAX_ATTEMPTS:-20}
     - ELASTICSEARCH_ILM_MIN_AGE=${ELASTICSEARCH_ILM_MIN_AGE:-4h}
     - ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM=${ELASTICSEARCH_RTVI_CV_EMBEDDINGS_DIM:-1536}

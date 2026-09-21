@@ -117,6 +117,11 @@ jobs:
             exit 1
           fi
 
+      - name: Check Fern substitutions
+        run: |
+          python3 .github/scripts/test_check_fern_substitutions.py
+          python3 .github/scripts/check_fern_substitutions.py
+
       - name: Fern check
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}   # enables the redirects check

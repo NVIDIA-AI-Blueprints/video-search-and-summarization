@@ -82,9 +82,9 @@ for file in *.mp4; do mv "$file" "$(echo "$file" | sed -E 's/(.*)__.*\.mp4$/\1.m
 for file in "$folder_path"/*.mp4; do
     filename=$(basename "$file")
     for ((i=1; i<=N; i++)); do
-        dup_dir="$folder_path/dup${i}"
+        dup_dir="$folder_path/dup\$\{i\}"
         mkdir -p "$dup_dir"
-        cp "$file" "$dup_dir/dup${i}_$filename"
+        cp "$file" "$dup_dir/dup\$\{i\}_$filename"
     done
 done
 ```
@@ -221,9 +221,9 @@ for file in *.mp4; do mv "$file" "$(echo "$file" | sed -E 's/(.*)__.*\.mp4$/\1.m
 for file in "$folder_path"/*.mp4; do
     filename=$(basename "$file")
     for ((i=1; i<=N; i++)); do
-        dup_dir="$folder_path/dup${i}"
+        dup_dir="$folder_path/dup\$\{i\}"
         mkdir -p "$dup_dir"
-        cp "$file" "$dup_dir/dup${i}_$filename"
+        cp "$file" "$dup_dir/dup\$\{i\}_$filename"
     done
 done
 ```

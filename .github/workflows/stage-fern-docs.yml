@@ -74,6 +74,9 @@ jobs:
           fi
           npm install -g "fern-api@${VERSION}"
 
+      - name: Check Fern substitutions
+        run: python3 .github/scripts/check_fern_substitutions.py
+
       - name: Stage docs
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}

@@ -365,8 +365,8 @@ tools:
   elasticsearch_db:
     type: elasticsearch
     params:
-      host: !ENV ${ES_HOST}
-      port: !ENV ${ES_PORT}
+      host: !ENV \$\{ES_HOST\}
+      port: !ENV \$\{ES_PORT\}
       kafka_consumer_settle_secs: 5.0
 
 functions:
@@ -574,7 +574,7 @@ BACKEND_PORT=${BACKEND_PORT:-38111}
 LVS_MCP_PORT=${LVS_MCP_PORT:-38112}
 
 # Build port mapping arguments
-PORT_ARGS="-p ${BACKEND_PORT}:${BACKEND_PORT} -p ${LVS_MCP_PORT}:${LVS_MCP_PORT}"
+PORT_ARGS="-p \$\{BACKEND_PORT\}:\$\{BACKEND_PORT\} -p \$\{LVS_MCP_PORT\}:\$\{LVS_MCP_PORT\}"
 
 # Build volume mount for MODEL_ROOT_DIR if set
 MODEL_VOLUME_ARG=""
@@ -583,7 +583,7 @@ if [ -n "$MODEL_ROOT_DIR" ]; then
     MODEL_ROOT_DIR_EXPANDED="${MODEL_ROOT_DIR/#\~/$HOME}"
     if [ -d "$MODEL_ROOT_DIR_EXPANDED" ] || mkdir -p "$MODEL_ROOT_DIR_EXPANDED" 2>/dev/null; then
         MODEL_ROOT_DIR_ABS="$(cd "$MODEL_ROOT_DIR_EXPANDED" && pwd)"
-        MODEL_VOLUME_ARG="-v ${MODEL_ROOT_DIR_ABS}:${MODEL_ROOT_DIR_ABS}"
+        MODEL_VOLUME_ARG="-v \$\{MODEL_ROOT_DIR_ABS\}:\$\{MODEL_ROOT_DIR_ABS\}"
         echo "MODEL_ROOT_DIR will be mounted: $MODEL_ROOT_DIR_ABS"
     else
         echo "Warning: MODEL_ROOT_DIR '$MODEL_ROOT_DIR' could not be accessed or created, skipping mount"
@@ -600,7 +600,7 @@ fi
 docker run -d \
     --name "$CONTAINER_NAME" \
     --network host \
-    --gpus "device=${GPU_DEVICES}" \
+    --gpus "device=\$\{GPU_DEVICES\}" \
     --env-file "$ENV_FILE" \
     $MODEL_VOLUME_ARG \
     --restart unless-stopped \
@@ -720,28 +720,28 @@ tools:
   elasticsearch_db:
     type: elasticsearch
     params:
-      host: !ENV ${ES_HOST}
-      port: !ENV ${ES_PORT}
+      host: !ENV \$\{ES_HOST\}
+      port: !ENV \$\{ES_PORT\}
     tools:
       embedding: nvidia_embedding
 
   summarization_llm:
     type: llm
     params:
-      model: !ENV ${LVS_LLM_MODEL_NAME}
-      base_url: !ENV ${LVS_LLM_BASE_URL}
+      model: !ENV \$\{LVS_LLM_MODEL_NAME\}
+      base_url: !ENV \$\{LVS_LLM_BASE_URL\}
       max_tokens: 10240
       temperature: 0.2
       top_p: 0.7
-      api_key: !ENV ${NVIDIA_API_KEY}
+      api_key: !ENV \$\{NVIDIA_API_KEY\}
 
   nvidia_embedding:
     type: embedding
     params:
       enable: !ENV ${LVS_EMB_ENABLE:false}
-      model: !ENV ${LVS_EMB_MODEL_NAME}
-      base_url: !ENV ${LVS_EMB_BASE_URL}
-      api_key: !ENV ${NVIDIA_API_KEY}
+      model: !ENV \$\{LVS_EMB_MODEL_NAME\}
+      base_url: !ENV \$\{LVS_EMB_BASE_URL\}
+      api_key: !ENV \$\{NVIDIA_API_KEY\}
 ```
 
 **2. Functions** - Processing pipelines:
@@ -789,8 +789,8 @@ context_manager:
 **Summarization LLM**
 
 * `type`: `llm` (default)
-* `params.model`: LLM model name (e.g., from `${LVS_LLM_MODEL_NAME}`)
-* `params.base_url`: API endpoint (e.g., from `${LVS_LLM_BASE_URL}`)
+* `params.model`: LLM model name (e.g., from `\$\{LVS_LLM_MODEL_NAME\}`)
+* `params.base_url`: API endpoint (e.g., from `\$\{LVS_LLM_BASE_URL\}`)
 * `params.max_tokens`: Maximum output tokens (default: 10240)
 * `params.temperature`: Sampling temperature (default: 0.2)
 * `params.top_p`: Top-p sampling (default: 0.7)
@@ -811,7 +811,7 @@ Used by the file summarization path (`POST /v1/summarize`). Configured as the `s
 * `type`: Function type (`vlm_structured_summarization` (default))
 * `params.time_overlap_threshold`: Threshold for overlapping time events (default: 0.1)
 * `params.max_events_per_batch`: Maximum events per batch (default: 50)
-* `params.kafka_enabled`: When `true`, the file path reads raw events from Elasticsearch (populated by the Kafka → Logstash pipeline) instead of using the in-process accumulation flow. Must be paired with `KAFKA_ENABLED=true` on the Video Summarization MS server. Default: `false` (reads from `${KAFKA_ENABLED}`)
+* `params.kafka_enabled`: When `true`, the file path reads raw events from Elasticsearch (populated by the Kafka → Logstash pipeline) instead of using the in-process accumulation flow. Must be paired with `KAFKA_ENABLED=true` on the Video Summarization MS server. Default: `false` (reads from `\$\{KAFKA_ENABLED\}`)
 * `tools.db`: Reference to database backend (from `${LVS_DATABASE_BACKEND:elasticsearch_db}`)
 * `tools.llm`: Reference to LLM tool
 
@@ -822,7 +822,7 @@ Used by the live-stream summarization path (`POST /v1/stream_summarize`). Config
 * `type`: Function type (`vlm_structured_summarization_online`)
 * `params.time_overlap_threshold`: Threshold for overlapping time events (default: 0.1)
 * `params.max_events_per_batch`: Maximum events per batch (default: 50)
-* `params.kafka_enabled`: When `true`, the aggregator reads raw events back from Elasticsearch (populated by the Logstash consumer) rather than expecting in-process accumulation. Required for the live-stream path. Must be paired with `KAFKA_ENABLED=true` on the Video Summarization MS server. Default: `false` (reads from `${KAFKA_ENABLED}`)
+* `params.kafka_enabled`: When `true`, the aggregator reads raw events back from Elasticsearch (populated by the Logstash consumer) rather than expecting in-process accumulation. Required for the live-stream path. Must be paired with `KAFKA_ENABLED=true` on the Video Summarization MS server. Default: `false` (reads from `\$\{KAFKA_ENABLED\}`)
 * `tools.db`: Reference to database backend (from `${LVS_DATABASE_BACKEND:elasticsearch_db}`)
 * `tools.llm`: Reference to LLM tool
 
@@ -925,7 +925,7 @@ and `LVS_EMB_BASE_URL` when you select one of them.
 
 ### Environment Variables
 
-Configuration supports environment variable substitution using `!ENV ${VAR_NAME}`.
+Configuration supports environment variable substitution using `!ENV \$\{VAR_NAME\}`.
 For the complete list, see the
 [Environment Variables Reference](/vss/system-components/vision-microservices/video-summarization#environment-variables-reference)
 in the appendix.
@@ -972,8 +972,8 @@ tools:
   elasticsearch_db:
     type: elasticsearch
     params:
-      host: !ENV ${ES_HOST}
-      port: !ENV ${ES_PORT}
+      host: !ENV \$\{ES_HOST\}
+      port: !ENV \$\{ES_PORT\}
       kafka_consumer_settle_secs: 5.0   # seconds the Video Summarization MS waits after the
                                          # RTVI SSE [DONE] event to let
                                          # Logstash flush the last chunk
