@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from pathlib import Path
 
 
@@ -31,6 +31,7 @@ TEXT_SUFFIXES = frozenset({".json", ".md", ".mdx", ".yaml", ".yml"})
 # Intentionally empty for the substitution-enablement migration. Add future
 # build-time documentation variables explicitly; use a VSS_DOCS_ prefix.
 ALLOWED_SUBSTITUTIONS: frozenset[str] = frozenset()
+ALLOWED_SUBSTITUTION_PREFIX = "VSS_DOCS_"
 
 # These mirror Fern's documented/implemented forms:
 #   substitution: ${NAME}
@@ -50,14 +51,28 @@ def iter_inputs(scan_roots: Iterable[Path], extra_inputs: Iterable[Path]) -> Ite
             yield path
 
 
-def find_issues(path: Path, text: str) -> list[str]:
+def find_allowlist_issues(allowed_substitutions: Collection[str]) -> list[str]:
+    """Reject allowlisted names outside the documentation-only namespace."""
+    return [
+        f"allowlisted Fern substitution ${{{name}}} must use the "
+        f"{ALLOWED_SUBSTITUTION_PREFIX} prefix"
+        for name in sorted(allowed_substitutions)
+        if not name.startswith(ALLOWED_SUBSTITUTION_PREFIX)
+    ]
+
+
+def find_issues(
+    path: Path,
+    text: str,
+    allowed_substitutions: Collection[str] = ALLOWED_SUBSTITUTIONS,
+) -> list[str]:
     """Return actionable errors for one Fern input file."""
     issues: list[str] = []
 
     for line_number, line in enumerate(text.splitlines(), start=1):
         for match in SUBSTITUTION_PATTERN.finditer(line):
             name = match.group("name")
-            if name not in ALLOWED_SUBSTITUTIONS:
+            if name not in allowed_substitutions:
                 issues.append(
                     f"{path}:{line_number}: unintended Fern substitution ${{{name}}}; "
                     f"write \\$\\{{{name}\\}} for a literal"
@@ -75,7 +90,7 @@ def find_issues(path: Path, text: str) -> list[str]:
 
 
 def main() -> int:
-    issues: list[str] = []
+    issues = find_allowlist_issues(ALLOWED_SUBSTITUTIONS)
     files = list(iter_inputs(SCAN_ROOTS, EXTRA_INPUTS))
     for path in files:
         try:
