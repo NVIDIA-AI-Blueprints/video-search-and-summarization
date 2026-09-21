@@ -836,7 +836,7 @@ class OpenShellEnvironment(BaseEnvironment):
 
         `_reset_docker_runtime` removes containers, data volumes, and
         networks (images and model caches stay), but several services persist
-        several services persist state in **host directories bind-mounted
+        state in **host directories bind-mounted
         into the containers** — invisible to `docker volume rm`:
 
         - `<root>/nvstreamer/videos{,-upload}/` — uploaded media. NvStreamer
