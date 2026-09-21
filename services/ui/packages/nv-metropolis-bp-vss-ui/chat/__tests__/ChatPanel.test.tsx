@@ -126,6 +126,22 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('first question');
   });
 
+  it('overlays conversation history without shrinking a narrow chat panel', () => {
+    render(
+      <div style={{ width: 380 }}>
+        <ChatPanel endpoint={endpoint} features={noHeader} />
+      </div>,
+    );
+
+    const history = screen.getByRole('complementary', { name: 'Conversation history' });
+    expect(history).toHaveClass('absolute', 'max-w-[calc(100%-3rem)]');
+    expect(history).not.toHaveClass('flex-shrink-0');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide conversation history' }));
+    expect(screen.queryByRole('complementary', { name: 'Conversation history' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show conversation history' })).toBeInTheDocument();
+  });
+
   it('renders and answers interaction prompts', async () => {
     const interaction = {
       event_type: 'interaction_required',

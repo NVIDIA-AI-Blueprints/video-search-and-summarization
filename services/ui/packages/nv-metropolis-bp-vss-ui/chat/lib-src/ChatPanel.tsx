@@ -372,7 +372,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       {renderInternalConversationList && showConversationList ? (
         <aside
           aria-label="Conversation history"
-          className="h-full w-64 flex-shrink-0 border-r border-gray-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"
+          className="absolute inset-y-0 left-0 z-40 w-64 max-w-[calc(100%-3rem)] border-r border-gray-200 bg-white pt-12 shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
         >
           <ConversationList {...controls} />
         </aside>
@@ -385,7 +385,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             aria-label={showConversationList ? 'Hide conversation history' : 'Show conversation history'}
             aria-expanded={showConversationList}
             onClick={() => setShowConversationList((visible) => !visible)}
-            className="absolute left-2 top-2 z-30 flex h-8 w-8 items-center justify-center rounded-md border border-black/20 bg-white text-neutral-900 shadow-sm transition-colors hover:bg-neutral-100 dark:border-white/20 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
+            className="absolute left-2 top-2 z-50 flex h-8 w-8 items-center justify-center rounded-md border border-black/20 bg-white text-neutral-900 shadow-sm transition-colors hover:bg-neutral-100 dark:border-white/20 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
             title={showConversationList ? 'Hide conversation history' : 'Show conversation history'}
           >
             <IconMenu2 size={18} />
