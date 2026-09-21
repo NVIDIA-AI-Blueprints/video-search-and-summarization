@@ -34,7 +34,7 @@ runtimeClassName: ""
 # here rather than routed through the GHCR develop-latest channel.
 image:
   repository: nvcr.io/nvstaging/vss-core/reid-embed
-  tag: 3.3.0-26.08.2
+  tag: 3.3.0-26.09.2
   pullPolicy: IfNotPresent
 
 replicas: 1

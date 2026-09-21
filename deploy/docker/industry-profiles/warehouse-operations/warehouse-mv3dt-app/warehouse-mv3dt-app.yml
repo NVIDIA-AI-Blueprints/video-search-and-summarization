@@ -110,7 +110,7 @@ services:
   # One-shot: populates $VSS_DATA_DIR/models/reid with the SigLIP secondary
   # embedding model (NGC) and the CLIP-ReID tracker ONNX.
   reid-embed-init-mv3dt:
-    image: ${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.08.2}
+    image: ${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.09.2}
     profiles: ["reid-embed-init-mv3dt"]
     container_name: vss-reid-embed-init-mv3dt
     restart: "no"
@@ -201,7 +201,7 @@ services:
       start_period: 90s
 
   reid-embed-mv3dt:
-    image: ${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.08.2}
+    image: ${VSS_REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${VSS_REID_EMBED_TAG:-3.3.0-26.09.2}
     profiles: ["reid-embed-mv3dt"]
     container_name: vss-reid-embed-mv3dt
     networks:
