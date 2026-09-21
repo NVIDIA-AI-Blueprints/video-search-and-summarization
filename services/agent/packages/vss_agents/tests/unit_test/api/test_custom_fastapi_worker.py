@@ -25,15 +25,73 @@ per-profile capability flags:
   * ``register_video_delete_routes``        — DELETE /api/v1/videos/{video_id}
 """
 
+from typing import cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+from starlette.types import Message
+from starlette.types import Receive
+from starlette.types import Scope
+from starlette.types import Send
 
 from vss_agents.api.custom_fastapi_worker import CustomFastApiFrontEndWorker
+from vss_agents.api.custom_fastapi_worker import LegacyChatTerminalMiddleware
 from vss_agents.api.front_end_config import StreamingIngestConfig
 
 _MISSING = object()
+
+
+async def _run_terminal_middleware(chunks: list[bytes], path: str = "/v1/chat/stream") -> list[Message]:
+    async def app(_scope: Scope, _receive: Receive, send: Send) -> None:
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        for chunk in chunks:
+            await send({"type": "http.response.body", "body": chunk, "more_body": True})
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    messages: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        messages.append(message)
+
+    scope = cast("Scope", {"type": "http", "method": "POST", "path": path})
+    await LegacyChatTerminalMiddleware(app)(scope, receive, send)
+    return messages
+
+
+class TestLegacyChatTerminalMiddleware:
+    @pytest.mark.asyncio
+    async def test_appends_openai_terminal_frames_after_confirmed_workflow_completion(self) -> None:
+        messages = await _run_terminal_middleware(
+            [b'intermediate_data: {"id":"workflow","parent_id": "root","name": "Function Complete: <workflow>"}\n']
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert b'"finish_reason":"stop"' in bodies[-1]
+        assert bodies[-1].endswith(b"data: [DONE]\n\n")
+        assert messages[-1]["more_body"] is False
+
+    @pytest.mark.asyncio
+    async def test_leaves_unconfirmed_eof_incomplete(self) -> None:
+        messages = await _run_terminal_middleware([b'data: {"value":"partial"}\n\n'])
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b"[DONE]" not in body for body in bodies)
+
+    @pytest.mark.asyncio
+    async def test_does_not_duplicate_existing_done_sentinel(self) -> None:
+        messages = await _run_terminal_middleware(
+            [
+                b'intermediate_data: {"parent_id":"root","name":"Function Complete: <workflow>"}\n',
+                b"data: [DONE]\n\n",
+            ]
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert sum(body.count(b"data: [DONE]") for body in bodies) == 1
 
 
 def _make_worker(streaming_ingest):
