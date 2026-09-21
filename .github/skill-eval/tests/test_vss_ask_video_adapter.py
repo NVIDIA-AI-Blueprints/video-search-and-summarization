@@ -90,11 +90,26 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
 
     harbor = json.loads(SPEC_PATH.read_text())
     contract = json.dumps(harbor)
-    assert "mocked" in contract
-    assert "introspection.enabled=false" in contract
-    assert "introspection=null" in contract
+    # The Harbor spec runs against a live deployment: step 1 deploys and seeds
+    # the fixture the later steps read, so each routing state is reached by
+    # doing the work rather than by describing a mocked tool result.
+    assert "mocked" not in contract
+    assert (
+        "onboard the local file /app/warehouse_safety_0001.mp4 "
+        "into VIOS as a sensor named warehouse_sample" in contract
+    )
+    assert "VSS unified memory (Elasticsearch) enabled" in contract
+
+    # Recall of what an earlier step persisted, rather than a supplied note.
+    assert "answers from what VSS unified memory already holds" in contract
+    assert "It does not run vss vlm run a second time" in contract
+
+    # The two introspection states are now stated as deployment facts.
+    assert "Introspection is turned off on this deployment" in contract
+    assert "Introspection is not configured on this deployment" in contract
+
     assert "--record-id without both --job-id and --record-type" in contract
-    assert "complete project-local uv run invocation" in contract
+    assert "complete uv run project-local invocation" in contract
     assert "vss vlm run --file" in contract
     assert "vss configure check" in contract
     assert "--fps chosen from the skim/locate/inspect policy" in contract
