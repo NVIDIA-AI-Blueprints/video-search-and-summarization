@@ -246,14 +246,14 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 27)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 27)
+        self.assertEqual(len(legs), 21)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 21)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
-        self.assertEqual(counts, {"openshell": 27})
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 27)
+        self.assertEqual(counts, {"openshell": 21})
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 21)
         # Every OpenShell leg travels without a SKU: no platform for the
         # adapter to size from, and no hardware profile for the workflow to
         # export. The guest's own card decides both.
@@ -262,7 +262,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             for leg in legs
             if leg.get("cohort") == plan_matrix.OPENSHELL_COHORT_TAG
         ]
-        self.assertEqual(len(openshell), 27)
+        self.assertEqual(len(openshell), 21)
         for leg in openshell:
             self.assertEqual(leg["platform"], "", leg["slug"])
             self.assertEqual(leg["hardware_profile"], "", leg["slug"])
@@ -328,10 +328,16 @@ class OpenshellGpuFleet(unittest.TestCase):
         inc = plan_matrix.build_matrix([".github/workflows/skills-eval.yml"])
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["skill"], "vss-deploy-test-openshell")
-        self.assertEqual(inc[0]["spec_stem"], "base")
+        self.assertEqual(inc[0]["spec_stem"], "base_profile_video_understanding")
         self.assertEqual(inc[0]["gpu_count"], 1)
-        self.assertEqual(inc[0]["slug"], "vss-deploy-test-openshell__base__gpus-1")
-        self.assertEqual(inc[0]["name"], "vss-deploy-test-openshell · base · gpus-1")
+        self.assertEqual(
+            inc[0]["slug"],
+            "vss-deploy-test-openshell__base_profile_video_understanding__gpus-1",
+        )
+        self.assertEqual(
+            inc[0]["name"],
+            "vss-deploy-test-openshell · base_profile_video_understanding · gpus-1",
+        )
         self.assertNotIn("rtxpro6000-2g", inc[0]["slug"])
         self.assertEqual(inc[0]["platform"], "")
         self.assertEqual(inc[0]["hardware_profile"], "")
@@ -357,7 +363,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         plan_matrix.adapter_exists = lambda s: s == "vss-deploy-test-openshell"
         try:
             inc = plan_matrix.build_matrix(
-                ["skills/vss-deploy-test-openshell/evals/base.json"]
+                ["skills/vss-deploy-test-openshell/evals/vios_ops.json"]
             )
         finally:
             plan_matrix.openshell_requirements = original
