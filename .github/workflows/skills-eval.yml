@@ -15,30 +15,26 @@
 name: Skills Eval
 
 on:
-  # No top-level `paths:` filter: GitHub evaluates `paths:` against the
-  # diff of the *pushed commits*, not the cumulative PR diff against
-  # base. That silently skipped the workflow when CPR-bot updated a
-  # mirror branch with a merge commit that didn't itself touch skills/**
-  # (observed on PR #188). The diff gate is done inside the `plan` job by
-  # plan_matrix.py, which compares the cumulative head...base range.
   push:
     branches:
       - "pull-request/[0-9]+"
-  # Manual full-sweep trigger. The `plan` job enumerates the picked skill's
-  # specs (or all skills) instead of diffing, then both runtimes use the same
-  # per-(spec, platform) matrix dispatch.
   workflow_dispatch:
     inputs:
+      infrastructure:
+        description: "GPU infrastructure used for this manual run."
+        required: true
+        default: "brev"
+        type: choice
+        options:
+          - brev
+          - openshell
       skills:
-        # `type: string` rather than `type: choice` because the skills/
-        # tree has more than 10 entries — GitHub caps `choice` at 10.
-        # plan_matrix.py validates the value (skill-dir name or `*`).
         description: "Which skill to eval: `*` or a bare skill-directory name."
         required: false
         default: "*"
         type: string
       runner:
-        description: "Execution runtime. Both options use the same per-spec matrix dispatch."
+        description: "Execution runtime."
         required: false
         default: "claude-code"
         type: choice
@@ -66,8 +62,8 @@ permissions:
 concurrency:
   group: >-
     ${{ github.event_name == 'workflow_dispatch'
-      && format('skills-eval-manual-{0}', github.run_id)
-      || format('skills-eval-{0}', github.ref) }}
+      && format('skills-eval-brev-manual-{0}', github.run_id)
+      || format('skills-eval-brev-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 defaults:
@@ -82,29 +78,17 @@ env:
   # Prebaked VIOS runtime-media packages (#1798). A repository variable so it
   # toggles from Settings; unset is not forwarded, so the default stands.
   VSS_VIOS_PREBAKE_PACKAGES: ${{ vars.VSS_VIOS_PREBAKE_PACKAGES }}
-  # OpenShell GHA guests are used only for vss-deploy-test-openshell.
-  # Every other skill lands on the Brev coordinator (`self-hosted`, `vss-eval`)
-  # with local_gpu=false. Harness-only diffs still get one RTX PRO 6000 smoke leg.
-  # Every OpenShell matrix job requires only the shared fleet tags
-  # (`vss-skill-eval-gpu`, `openshell-runner`, `openshell`) plus `gpus-N`.
-  # SKU labels stay on the VMs for operators; this workflow does not AND them.
-  # These OpenShell VMs are registered from the GitLab fleet repo
-  # (brev-openshell-gpu-runners); they are GitHub Actions runners, not
-  # GitLab CI runners. After each job the host-side OpenShell VM
-  # orchestrator recreates that one VM and restores its listener.
-  # This workflow does not implement KVM/VFIO.
-  OPENSHELL_GPU_FLEET: "1"
 
 jobs:
   # ---------------------------------------------------------------------
   # plan — compute the shared dispatch matrix from the PR diff or manual input.
   # Lightweight: gh + python3, no GPU, no brev, no flock.
   # ---------------------------------------------------------------------
-  plan:
+  brev_plan:
     name: Plan eval matrix
     if: >-
       startsWith(github.ref, 'refs/heads/pull-request/') ||
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'workflow_dispatch' && inputs.infrastructure == 'brev')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -164,10 +148,10 @@ jobs:
   # ---------------------------------------------------------------------
   # eval — one leg per (spec, platform). Each leg runs the agent once.
   # ---------------------------------------------------------------------
-  eval:
+  brev_eval:
     name: ${{ matrix.name }}
-    needs: plan
-    if: needs.plan.outputs.has_targets == 'true'
+    needs: brev_plan
+    if: needs.brev_plan.outputs.has_targets == 'true'
     runs-on: ${{ matrix.runs_on }}
     strategy:
       # One slow/failed spec must not cancel its siblings.
@@ -178,7 +162,7 @@ jobs:
       # since it declares no SKU. Legs queue on labels rather than being
       # capped per cohort here.
       max-parallel: 30
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.brev_plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1.5 h agent ceiling
     # (AGENTS.md `--agent-timeout-multiplier 9.0`). A timeout stops the
@@ -420,8 +404,8 @@ jobs:
           ps -eo pid=,ppid=,etimes=,args= \
             | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>54000 {print $1}' \
             | xargs -r kill 2>/dev/null || true
-          export PR_NUMBER="${{ needs.plan.outputs.pr_number }}"
-          export PR_BASE="${{ needs.plan.outputs.pr_base }}"
+          export PR_NUMBER="${{ needs.brev_plan.outputs.pr_number }}"
+          export PR_BASE="${{ needs.brev_plan.outputs.pr_base }}"
           export PR_HEAD_SHA="${{ github.sha }}"
           export PR_REPO="${{ github.repository }}"
           export GITHUB_RUN_ID="${{ github.run_id }}"
@@ -504,7 +488,426 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: skills-eval-results-pr-${{ needs.plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
+          name: skills-eval-results-pr-${{ needs.brev_plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
+          path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
+          if-no-files-found: ignore
+          retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation
+
+  # OpenShell control plane: separate planner and local runtime, same workflow.
+  # ---------------------------------------------------------------------
+  # plan — compute the shared dispatch matrix from the PR diff or manual input.
+  # Lightweight: gh + python3, no GPU, no brev, no flock.
+  # ---------------------------------------------------------------------
+  openshell_plan:
+    name: Plan OpenShell eval matrix
+    if: >-
+      startsWith(github.ref, 'refs/heads/pull-request/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.infrastructure == 'openshell')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_targets: ${{ steps.plan.outputs.has_targets }}
+      pr_number: ${{ steps.pr.outputs.number }}
+      pr_base: ${{ steps.pr.outputs.base }}
+    steps:
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # plan diffs the cumulative head...base range
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Extract PR number + base
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual sweep: no PR. Leave number empty — the eval legs detect
+            # "manual" and write results to their job summary instead of a PR
+            # comment; base is just this ref, for logging.
+            echo "number=" >> "$GITHUB_OUTPUT"
+            echo "base=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "manual sweep on ${{ github.ref_name }}"
+          else
+            REF="${{ github.ref_name }}"          # "pull-request/100"
+            PR="${REF##pull-request/}"
+            echo "number=$PR" >> "$GITHUB_OUTPUT"
+            # Query the source PR for its base branch (never hardcode develop).
+            BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+            echo "base=$BASE" >> "$GITHUB_OUTPUT"
+            echo "PR #$PR, base=$BASE"
+          fi
+
+      - name: Compute matrix
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_REPO: ${{ github.repository }}
+          PR_BASE: ${{ steps.pr.outputs.base }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          # Manual sweep (workflow_dispatch): enumerate the picked skill('s)
+          # specs instead of diffing (plan_matrix validates the value).
+          # Empty on push, so plan diffs as usual.
+          # Blank input → `*` (sweep all), matching the dropdown default and
+          # the old behavior — never blank, which would fall through to the
+          # diff path and silently produce an empty matrix.
+          MANUAL_SKILLS_FILTER: ${{ github.event_name == 'workflow_dispatch' && (inputs.skills || '*') || '' }}
+        run: python3 .github/skill-eval/openshell/plan_matrix.py
+
+  # ---------------------------------------------------------------------
+  # eval — one leg per (spec, platform). Each leg runs the agent once.
+  # ---------------------------------------------------------------------
+  openshell_eval:
+    name: ${{ matrix.name }}
+    needs: openshell_plan
+    if: needs.openshell_plan.outputs.has_targets == 'true'
+    runs-on: ${{ matrix.runs_on }}
+    env:
+      HOST_INTERNAL_ALIAS: host.openshell.internal
+      NEMOCLAW_SANDBOX_NAME: skill-eval
+      NEMOCLAW_GATEWAY_PORT: "8991"
+      NEMOCLAW_POLICY_MODE: skip
+    strategy:
+      # One slow/failed spec must not cancel its siblings.
+      fail-fast: false
+      # Total OpenShell runner capacity is 30 (8 A16-1g, 4 A40-1g, 2 A40-2g,
+      # 8 H200-1g, 4 H200-2g, 4 RTX-2g). `gpus-N` keeps a 2-GPU leg off a
+      # 1-GPU guest; beyond that an OpenShell leg takes any free guest,
+      # since it declares no SKU. Legs queue on labels rather than being
+      # capped per cohort here.
+      max-parallel: 30
+      matrix: ${{ fromJSON(needs.openshell_plan.outputs.matrix) }}
+    # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
+    # sequential harbor invocations, each up to the 1 h agent ceiling
+    # (AGENTS.md `--agent-timeout-multiplier 6.0`). A timeout stops the
+    # remaining chain; successful steps normally finish well below their
+    # 200-minute emergency backstop. AGENTS.md's box-lock wait
+    # (run_leg.py --lock-timeout-sec
+    # 21000 ≈ 5.8 h) is kept strictly under this 840 m ceiling so a
+    # lock-starved leg emits `BLOCKED: lock timeout`
+    # before the job-killer fires (a 43200 s / 12 h wait would be
+    # silently killed while waiting on a box with no verdict — the exit-4 trap).
+    timeout-minutes: 840
+    steps:
+      - name: Report required coverage not acquired
+        if: matrix.kind == 'not_run_infra_acquisition'
+        run: |
+          echo "NOT_RUN_INFRA_ACQUISITION: ${{ matrix.skip_reason }}"
+          echo "Required changed-skill coverage did not run; this is an infrastructure acquisition failure, not a skill result."
+          exit 1
+
+      - name: Checkout mirror head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # agent needs full history to fetch + commit to the contributor's branch (§ 3c)
+
+      - name: Set up skill-eval Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}
+
+      - name: Prepare isolated agent runtime
+        env:
+          SKILL_EVAL_VENV: ${{ runner.temp }}/skill-eval-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.slug }}
+        run: |
+          # OpenShell guests may put /sandbox/.venv (CPython 3.14) first on
+          # PATH. The harness contract is 3.12; use that interpreter explicitly.
+          PYTHON312="$(command -v python3.12 || true)"
+          [ -x "$PYTHON312" ] || PYTHON312="/usr/bin/python3.12"
+          "$PYTHON312" -m venv "$SKILL_EVAL_VENV"
+          "$SKILL_EVAL_VENV/bin/python" -m pip install --quiet "claude-agent-sdk==0.2.128"
+          "$SKILL_EVAL_VENV/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          echo "SKILL_EVAL_VENV=$SKILL_EVAL_VENV" >> "$GITHUB_ENV"
+          echo "$SKILL_EVAL_VENV/bin" >> "$GITHUB_PATH"
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+
+      - name: Assert OpenShell GPU runtime
+        # Planner sets matrix.local_gpu on every OpenShell leg, whichever
+        # guest claims it (A16/A40/H200/RTX). Do not key this on runner.name:
+        # H200 registrations are h200-N-g<gen>-<id>, not
+        # vss-skill-eval-gpu-h200-*.
+        if: ${{ matrix.local_gpu }}
+        run: |
+          export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+          # Harbor/GHA call `uvx --python` and `uvx --version`. A symlink
+          # uvx -> uv exposes the full uv CLI and those flags fail.
+          # The GHA workload namespace is often no_new_privs, so sudo cannot
+          # rewrite /usr/local/bin. Install a user-local wrapper whenever PATH
+          # uvx is missing, a symlink, or not `uv tool run`.
+          install_uvx_wrapper() {
+            mkdir -p "$HOME/.local/bin"
+            # Same wrapper as scripts/lib/openshell_uvx.sh. Do not use a
+            # YAML heredoc: an unindented `#!/bin/sh` ends the `run: |` block
+            # and GitHub never starts Skills Eval.
+            printf '%s' \
+              'IyEvYmluL3NoCiMgUmVhbCBgdXZ4YCBpcyBgdXYgdG9vbCBydW5gLiBBIHN5bWxpbmsgdG8gYHV2YCBtYWtlcyBgdXZ4IC0t' \
+              'cHl0aG9uYCBmYWlsLgojIEhhcmJvci9HSEEgYWxzbyBjYWxsIGB1dnggLS12ZXJzaW9uYC4KY2FzZSAiJHsxLX0iIGluCiAg' \
+              'LS12ZXJzaW9ufC1WKQogICAgZXhlYyAvdXNyL2xvY2FsL2Jpbi91diAtLXZlcnNpb24KICAgIDs7CiAgLS1oZWxwfC1ofCIi' \
+              'KQogICAgZXhlYyAvdXNyL2xvY2FsL2Jpbi91diB0b29sIHJ1biAtLWhlbHAKICAgIDs7CmVzYWMKZXhlYyAvdXNyL2xvY2Fs' \
+              'L2Jpbi91diB0b29sIHJ1biAiJEAiCg==' \
+              | base64 -d > "$HOME/.local/bin/uvx"
+            chmod 0755 "$HOME/.local/bin/uvx"
+          }
+          need_wrapper=0
+          if [ ! -x /usr/local/bin/uvx ] || [ -L /usr/local/bin/uvx ]; then
+            need_wrapper=1
+          elif ! command -v uvx >/dev/null || ! uvx --help 2>/dev/null | grep -q -- --from; then
+            need_wrapper=1
+          fi
+          if [ "$need_wrapper" = 1 ] && [ -x /usr/local/bin/uv ]; then
+            install_uvx_wrapper
+            hash -r
+          fi
+          command -v uvx
+          uvx --version
+          uvx --help | grep -q -- --from
+          test -S /var/run/docker.sock
+          docker info >/dev/null
+          fstype=$(findmnt -n -o FSTYPE /var/lib/docker || true)
+          [ "$fstype" = ext4 ] || {
+            echo "/var/lib/docker fstype=$fstype (need loop-ext4, not overlay)" >&2
+            findmnt /var/lib/docker >&2 || true
+            exit 1
+          }
+
+      - name: Load eval env (GitHub secrets; no coordinator host)
+        env:
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CI_NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
+        run: |
+          # Direct OpenShell GHA guests: secrets are injected on the agent
+          # step from repository secrets. An optional guest $HOME/.eval_env
+          # may overlay extra keys; it is never required. Do not persist
+          # API keys into GITHUB_ENV on a self-hosted VM.
+          # Don't echo contents.
+          GUEST_ENV=""
+          if [ -n "${SKILL_EVAL_ENV_FILE:-}" ] && [ -s "$SKILL_EVAL_ENV_FILE" ]; then
+            GUEST_ENV="$SKILL_EVAL_ENV_FILE"
+          elif [ -s "${HOME}/.eval_env" ]; then
+            GUEST_ENV="${HOME}/.eval_env"
+          fi
+          if [ -n "$GUEST_ENV" ]; then
+            printf "SKILL_EVAL_ENV_FILE=%s\n" "$GUEST_ENV" >> "$GITHUB_ENV"
+          fi
+          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+          # Pin Harbor to this guest whenever the planner placed the leg on
+          # an OpenShell GHA cohort. Runner-name prefixes miss H200
+          # (h200-2-g10-…) and send the agent down the coordinator brev path.
+          if [ "${{ matrix.local_gpu }}" = "true" ]; then
+            printf "SKILL_EVAL_LOCAL_GPU_INSTANCE=%s\n" "$RUNNER_NAME" >> "$GITHUB_ENV"
+            printf "ANTHROPIC_BASE_URL=https://inference-api.nvidia.com\n" >> "$GITHUB_ENV"
+            # sample-deployment judge requires a harness-provided NGC
+            # resource (WAREHOUSE_APP_DATA_DIR or WAREHOUSE_APP_DATA_NGC).
+            # Pin matches deploy/docker and helm 3.2.0 defaults.
+            printf "WAREHOUSE_APP_DATA_NGC=nvidia/vss-warehouse/vss-warehouse-app-data:3.2.0\n" >> "$GITHUB_ENV"
+            if [ -z "${CI_ANTHROPIC_API_KEY:-}" ]; then
+              echo "ANTHROPIC_API_KEY missing: set repository secret ANTHROPIC_API_KEY (OpenShell jobs do not use a coordinator .env)" >&2
+              exit 1
+            fi
+            if [ -z "${CI_NGC_CLI_API_KEY:-}" ]; then
+              echo "NGC_CLI_API_KEY missing: set repository secret NGC_CLI_API_KEY (OpenShell jobs do not use a coordinator .env)" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Run skills eval agent (single spec)
+        id: agent
+        env:
+          # github-actions[bot] token; scoped by the permissions: block.
+          GH_TOKEN: ${{ github.token }}
+          # Repository secrets are the source of truth on OpenShell guests
+          # (no coordinator .env). Optional $HOME/.eval_env may overlay
+          # extra keys; GitHub secrets are restored after that source.
+          CI_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          CI_NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
+          CI_HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
+          # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
+          # per-leg scratch dir with no hosts.yml so a stored OAuth on the
+          # host can't reauthor bot comments. Same fix helm-sync.yml uses.
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh-skill-eval-${{ github.run_id }}-${{ matrix.slug }}
+          # Raise the Bash-tool timeout cap above the worst-case foreground
+          # run_leg.py call. The wrapper can spend most of the job waiting
+          # for a box lock and then run one or more Harbor subprocesses.
+          # Without this the runtime auto-backgrounds the foreground wrapper
+          # call at the default cap and the agent falls into polling its task
+          # output — silently defeating the "block on Harbor" wait contract
+          # (the PreToolUse hook can't catch a
+          # runtime-initiated background; it only inspects call input). Both
+          # Match the job window. Because this call starts after the job, the
+          # Actions watchdog always owns final cancellation instead of Claude
+          # backgrounding a still-running run_leg.py process first.
+          BASH_DEFAULT_TIMEOUT_MS: "50400000"
+          BASH_MAX_TIMEOUT_MS: "50400000"
+        run: |
+          mkdir -p "$GH_CONFIG_DIR"
+          skill_eval_venv_dir="$SKILL_EVAL_VENV"
+          skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
+          guest_env="${SKILL_EVAL_ENV_FILE:-}"
+          if [ -z "$guest_env" ] && [ -s "${HOME}/.eval_env" ]; then
+            guest_env="${HOME}/.eval_env"
+          fi
+          if [ -n "$guest_env" ] && [ -s "$guest_env" ]; then
+            set -a
+            # shellcheck source=/dev/null
+            source "$guest_env"
+            set +a
+          fi
+          # A guest overlay may define PATH. Reassert the per-leg runtime
+          # afterwards so Claude's Bash children use the same Python for
+          # adapters and run_leg.py.
+          export SKILL_EVAL_VENV="$skill_eval_venv_dir"
+          export SKILL_EVAL_PYTHON_VERSION="$skill_eval_python_version"
+          export VIRTUAL_ENV="$skill_eval_venv_dir"
+          export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:$PATH"
+          hash -r
+          "$skill_eval_venv_dir/bin/python" -c 'import os, sys; expected = tuple(map(int, os.environ["SKILL_EVAL_PYTHON_VERSION"].split("."))); assert sys.version_info[:2] == expected, sys.version'
+          # The eval workers cannot resolve NVIDIA-internal Wowza DNS. Use
+          # the public relay for RTSP-dependent skill checks.
+          export RTSP_SAMPLE_URL="rtsp://global.stg.ga.launchpad.nvidia.com:11333/camera03"
+          if [ -n "${CI_ANTHROPIC_API_KEY:-}" ]; then
+            export ANTHROPIC_API_KEY="$CI_ANTHROPIC_API_KEY"
+          fi
+          if [ -n "${CI_NGC_CLI_API_KEY:-}" ]; then
+            export NGC_CLI_API_KEY="$CI_NGC_CLI_API_KEY"
+            export NVIDIA_API_KEY="$CI_NGC_CLI_API_KEY"
+          fi
+          if [ -n "${CI_HF_TOKEN:-}" ]; then
+            export HF_TOKEN="$CI_HF_TOKEN"
+          fi
+          # The repo secret is the NVIDIA inference-api key (same as helm-sync).
+          # Hitting api.anthropic.com with it returns 401. Default the gateway
+          # when the secret/base is unset so OpenShell jobs use the same path.
+          if [ -z "${ANTHROPIC_BASE_URL:-}" ]; then
+            export ANTHROPIC_BASE_URL="https://inference-api.nvidia.com"
+          fi
+          if [ -z "${ANTHROPIC_MODEL:-}" ]; then
+            export ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"
+          fi
+          if [ -n "${SKILL_EVAL_LOCAL_GPU_INSTANCE:-}" ]; then
+            # OpenShell guest egress permits the configured remote model
+            # endpoints. Preserve placement keys sourced from the optional
+            # guest env so profile skills can select remote LLM/VLM modes.
+            # Same inheritance trap: a BREV_INSTANCE left in ~/.eval_env names
+            # a coordinator pool box, and brev_env fails the leg in seconds
+            # with "BREV_INSTANCE does not match SKILL_EVAL_LOCAL_GPU_INSTANCE".
+            # Harbor is pinned to this guest; nothing here may name another box.
+            unset BREV_INSTANCE
+            # These guests run local NIMs against wiped model volumes, so a
+            # cold weight download routinely exceeds the 18-minute default
+            # and the run is cancelled mid-deploy. DEFAULT_HARD_CEILING_SEC
+            # (7200s) is not env-driven, so a hung run is still bounded.
+            export DIRECT_AGENT_IDLE_TIMEOUT_SEC="${DIRECT_AGENT_IDLE_TIMEOUT_SEC:-2700}"
+          fi
+          # ssh-agent leak guard: brev-cli spawns orphaned `ssh-agent -s`
+          # processes (reparented to PID 1, never killed) on every
+          # `brev exec` when SSH_AUTH_SOCK is unset — at eval cadence that
+          # accumulated 23k agents on the coordinator host and OOM-killed
+          # every runner service (2026-07-08). With SSH_AUTH_SOCK pointing
+          # at a live agent brev reuses it and spawns none, so give the
+          # whole leg one agent and kill it when the step ends. Runs after
+          # the .env source so nothing can overwrite SSH_AUTH_SOCK /
+          # SSH_AGENT_PID behind the trap's back.
+          eval "$(ssh-agent -s)" > /dev/null
+          trap 'ssh-agent -k > /dev/null 2>&1 || true' EXIT
+          # Reap strays a SIGKILLed leg (or pre-fix history) left behind.
+          # Orphaned agents older than the job's timeout-minutes (840m;
+          # 54000s = 15h) cannot belong to any live leg on this host.
+          ps -eo pid=,ppid=,etimes=,args= \
+            | awk '$2==1 && $4=="ssh-agent" && $5=="-s" && $3>54000 {print $1}' \
+            | xargs -r kill 2>/dev/null || true
+          export PR_NUMBER="${{ needs.openshell_plan.outputs.pr_number }}"
+          export PR_BASE="${{ needs.openshell_plan.outputs.pr_base }}"
+          export PR_HEAD_SHA="${{ github.sha }}"
+          export PR_REPO="${{ github.repository }}"
+          export GITHUB_RUN_ID="${{ github.run_id }}"
+          # Single-spec mode — plan already decided this leg's target, so
+          # the agent skips the diff and processes exactly one (skill, spec).
+          export EVAL_KIND="${{ matrix.kind }}"
+          export EVAL_SKILL="${{ matrix.skill }}"
+          export EVAL_SPEC_PATH="${{ matrix.spec_path }}"
+          export EVAL_SPEC_STEM="${{ matrix.spec_stem }}"
+          export EVAL_PLATFORM="${{ matrix.platform }}"
+          # NIM compose `hw-${HARDWARE_PROFILE}.env`. Exact identities only;
+          # no SKU substitution. Both of these are EMPTY for an OpenShell
+          # leg: it is placed by label + GPU count, so its adapter reads the
+          # SKU off this guest's card and exports the profile itself.
+          export HARDWARE_PROFILE="${{ matrix.hardware_profile }}"
+          # Per-leg scratch scope. Every leg keys its datasets/results/
+          # viewer under <slug>/<run_id> (slug = skill__spec_stem__platform)
+          # so concurrent legs — and concurrent PR runs on the same host —
+          # never collide (AGENTS.md § "Per-leg scratch isolation").
+          export EVAL_SLUG="${{ matrix.slug }}"
+          # `.github` isn't a valid Python package prefix; expose the
+          # harness via PYTHONPATH for `uvx harbor --environment-import-path`.
+          export PYTHONPATH="${GITHUB_WORKSPACE}/.github/skill-eval:${PYTHONPATH:-}"
+          mkdir -p /tmp/brev /tmp/skill-eval
+          "$skill_eval_venv_dir/bin/python" .github/skill-eval/openshell/skills_eval_agent.py
+
+      - name: Collect results for workflow artifact
+        if: always()
+        env:
+          EVAL_SLUG: ${{ matrix.slug }}
+        run: |
+          # This leg's harbor output lives under its own scratch scope,
+          # /tmp/skill-eval/results/<slug>/<run_id>/, so the artifact
+          # carries only this (spec,platform)'s trials. missing_adapter /
+          # blocker legs finish without a results dir — a valid outcome.
+          LEG_RESULTS="/tmp/skill-eval/results/${EVAL_SLUG}/${GITHUB_RUN_ID}"
+          if [ ! -d "$LEG_RESULTS" ]; then
+            echo "no results dir for this leg — blocked before running a trial (expected for blocker outcomes)"
+            exit 0
+          fi
+          # Exclude per-trial agent/ trajectory subdirs from the tarball
+          # (NOT from the on-disk tree the Harbor viewer serves). Those
+          # files capture every tool_use/tool_result verbatim, so a `.env`
+          # read or `docker compose config` dump would otherwise carry
+          # secret values into the public artifact (PR #516 leaked
+          # NGC_CLI_API_KEY this way). Reward / judge / result.json — what
+          # the report consumes — stay in.
+          # Per-leg tarball path scoped by slug + run_id. `max-parallel`
+          # places multiple legs on one runner host, so a fixed
+          # /tmp/skills-eval-results.tar.gz would let overlapping legs
+          # overwrite each other's archive before upload — each leg then
+          # uploads whichever sibling wrote last. The slug makes the path
+          # unique per (skill,spec,platform).
+          LEG_TARBALL="/tmp/skills-eval-results-${EVAL_SLUG}-${GITHUB_RUN_ID}.tar.gz"
+          RESULTS=$(find "$LEG_RESULTS" -maxdepth 3 -name "result.json" 2>/dev/null | head -50 || true)
+          if [ -n "$RESULTS" ]; then
+            tar czf "$LEG_TARBALL" \
+              -C "/tmp/skill-eval/results/${EVAL_SLUG}" --exclude='agent' "$GITHUB_RUN_ID"
+            echo "archived $(echo "$RESULTS" | wc -l) result.json files (agent/ trajectories excluded)"
+          elif [ -f "$LEG_RESULTS/progress-journal.jsonl" ] || \
+               [ -f "$LEG_RESULTS/timeout-diagnostics.json" ]; then
+            # A direct-agent timeout may precede Harbor result.json. Archive
+            # only the two closed-schema, bounded diagnostics; never partial
+            # trial logs, trajectories, command output, or environment data.
+            SAFE_FILES=()
+            [ -f "$LEG_RESULTS/progress-journal.jsonl" ] && \
+              SAFE_FILES+=("progress-journal.jsonl")
+            [ -f "$LEG_RESULTS/timeout-diagnostics.json" ] && \
+              SAFE_FILES+=("timeout-diagnostics.json")
+            tar czf "$LEG_TARBALL" -C "$LEG_RESULTS" "${SAFE_FILES[@]}"
+            echo "archived sanitized direct-agent timeout diagnostics"
+          else
+            echo "results dir exists but empty — nothing to archive"
+          fi
+
+      - name: Upload results artifact
+        if: always()
+        # A Harbor 1.0 must not fail the check because Azure blob PUT stalled
+        # (run 32235369765: 4 KB tarball, "Upload progress stalled").
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: skills-eval-results-pr-${{ needs.openshell_plan.outputs.pr_number }}-${{ matrix.slug }}-${{ github.run_id }}
           path: /tmp/skills-eval-results-${{ matrix.slug }}-${{ github.run_id }}.tar.gz
           if-no-files-found: ignore
           retention-days: 28   # 4 weeks (was 7) — longer window for trend ingest + investigation

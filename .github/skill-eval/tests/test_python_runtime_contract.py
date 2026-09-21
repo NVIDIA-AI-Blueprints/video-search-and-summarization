@@ -13,10 +13,10 @@ SDK_REQUIREMENT = "claude-agent-sdk==0.2.128"
 
 def test_pr_and_daily_workflows_pin_every_python_job() -> None:
     python_job_counts = {
-        ".github/workflows/skills-eval.yml": 2,
-        ".github/workflows/skills-eval-daily.yml": 2,
+        ".github/workflows/skills-eval.yml": (4, 2),
+        ".github/workflows/skills-eval-daily.yml": (2, 1),
     }
-    for relative_path, python_job_count in python_job_counts.items():
+    for relative_path, (python_job_count, agent_job_count) in python_job_counts.items():
         workflow = (REPO_ROOT / relative_path).read_text()
         assert f'SKILL_EVAL_PYTHON_VERSION: "{PYTHON_VERSION}"' in workflow
         assert workflow.count("name: Set up skill-eval Python") == python_job_count
@@ -24,13 +24,20 @@ def test_pr_and_daily_workflows_pin_every_python_job() -> None:
             workflow.count("python-version: ${{ env.SKILL_EVAL_PYTHON_VERSION }}")
             == python_job_count
         )
-        assert workflow.count("name: Prepare isolated agent runtime") == 1
+        assert (
+            workflow.count("name: Prepare isolated agent runtime")
+            == agent_job_count
+        )
         assert SDK_REQUIREMENT in workflow
         assert 'export PATH=' in workflow
         assert "$skill_eval_venv_dir/bin" in workflow
         if relative_path.endswith("skills-eval.yml"):
             assert 'export PATH="$skill_eval_venv_dir/bin:/usr/local/bin:$PATH"' in workflow
             assert '"$skill_eval_venv_dir/bin/python" .github/skill-eval/skills_eval_agent.py' in workflow
+            assert (
+                '"$skill_eval_venv_dir/bin/python" '
+                ".github/skill-eval/openshell/skills_eval_agent.py"
+            ) in workflow
             assert "python3 .github/skill-eval/skills_eval_agent.py" not in workflow
             assert "Assert OpenShell GPU runtime" in workflow
             assert "matrix.local_gpu" in workflow

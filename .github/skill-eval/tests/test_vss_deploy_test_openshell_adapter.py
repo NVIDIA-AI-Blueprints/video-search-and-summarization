@@ -313,6 +313,52 @@ def test_single_expect_spec_stays_flat(tmp_path: Path) -> None:
     assert not (tmp_path / "base" / "h200" / "step-1").exists()
 
 
+def test_vdr_quickstart_emits_three_build_exam_steps(tmp_path: Path) -> None:
+    adapter = _load_adapter()
+    profile = "vdr_1_quickstart_vision_agent"
+    skill_dir = REPO_ROOT / "skills" / "vss-deploy-test-openshell"
+    assert adapter.PROFILES[profile]["build_exam"] is True
+
+    adapter.generate_task(
+        profile,
+        "RTXPRO6000BW",
+        adapter.PROFILES[profile],
+        tmp_path,
+        skill_dir=skill_dir,
+        gpu_count=1,
+    )
+
+    root = tmp_path / profile / "rtxpro6000bw"
+    assert sorted(p.name for p in root.glob("step-*")) == [
+        "step-1",
+        "step-2",
+        "step-3",
+    ]
+    instruction = (root / "step-1" / "instruction.md").read_text()
+    assert "Use the `/vss-build-vision-ai` skill" in instruction
+    assert "Queries 1 and 2 are questions, not build requests" in instruction
+    assert "{{repo_root}}" not in instruction
+
+    solve1 = (root / "step-1" / "solution" / "solve.sh").read_text()
+    solve2 = (root / "step-2" / "solution" / "solve.sh").read_text()
+    solve3 = (root / "step-3" / "solution" / "solve.sh").read_text()
+    assert "docker compose" not in solve1
+    assert "docker compose" not in solve2
+    assert "_builds/vdr-1-quickstart" in solve3
+    assert "validate_resolved_yml.py" in solve3
+    assert "dev-profile-base" not in solve1 + solve2 + solve3
+
+    assert 'JUDGE_MAX_TURNS = "60"' in (
+        root / "step-3" / "task.toml"
+    ).read_text()
+    assert "--step 3" in (
+        root / "step-3" / "tests" / "test.sh"
+    ).read_text()
+    assert (
+        root / "step-1" / "skills" / "vss-build-vision-ai" / "SKILL.md"
+    ).is_file()
+
+
 def test_main_refreshes_the_marker_with_the_live_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
