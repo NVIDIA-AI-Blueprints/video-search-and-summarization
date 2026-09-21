@@ -88,6 +88,16 @@ def test_yaml_unicode_escapes_are_rejected_after_decoding() -> None:
     assert "unintended Fern substitution ${FERN_TOKEN}" in issues[0]
 
 
+def test_yaml_literal_contexts_are_not_decoded() -> None:
+    text = r"""description: '"\u0024{NAME}"'
+comment: safe # "\u0024{NAME}"
+block: |
+  "\u0024{NAME}"
+plain: a "\u0024{NAME}" example
+"""
+    assert CHECK.find_file_issues(Path("fern/docs.yml"), text) == []
+
+
 def test_mdx_remains_a_raw_text_check() -> None:
     assert CHECK.find_file_issues(Path("docs/example.mdx"), r"Use \u0024{NAME}.") == []
 
@@ -103,4 +113,5 @@ if __name__ == "__main__":
     test_json_unicode_escape_is_rejected_after_decoding()
     test_json_literal_unicode_escape_is_not_decoded_twice()
     test_yaml_unicode_escapes_are_rejected_after_decoding()
+    test_yaml_literal_contexts_are_not_decoded()
     test_mdx_remains_a_raw_text_check()

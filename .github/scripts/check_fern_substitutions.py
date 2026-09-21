@@ -149,75 +149,145 @@ def find_json_issues(
 
 
 def iter_yaml_double_quoted_scalars(text: str) -> Iterable[tuple[int, str, str]]:
-    """Yield raw and decoded YAML double-quoted scalars without a YAML dependency.
+    """Yield actual YAML double-quoted scalars decoded without a dependency.
 
     Fern parses YAML before applying substitutions. CI intentionally runs this
-    guard with the Python standard library only, so decode the YAML escape forms
-    that can conceal a placeholder instead of adding a package dependency.
+    guard with the Python standard library only, so this lexer distinguishes
+    double-quoted scalars from quotes in plain, single-quoted, comment, and block
+    contexts before decoding the escape forms that can conceal a placeholder.
     """
-    index = 0
-    line_number = 1
-    while index < len(text):
-        character = text[index]
-        if character == "\n":
-            line_number += 1
-            index += 1
-            continue
-        if character != '"':
-            index += 1
-            continue
+    single_quoted = False
+    double_quoted = False
+    plain_scalar = False
+    block_scalar_indent: int | None = None
+    start_line = 0
+    raw: list[str] = []
+    decoded: list[str] = []
+    strip_double_quoted_indent = False
 
-        start_line = line_number
-        index += 1
-        raw: list[str] = []
-        decoded: list[str] = []
-        while index < len(text):
-            character = text[index]
-            if character == '"':
-                index += 1
-                yield start_line, "".join(raw), "".join(decoded)
-                break
-            if character == "\n":
-                raw.append(character)
-                decoded.append(character)
-                line_number += 1
-                index += 1
+    for line_number, line in enumerate(text.splitlines(keepends=True), start=1):
+        indentation = len(line) - len(line.lstrip(" "))
+        if block_scalar_indent is not None:
+            if not line.strip() or indentation > block_scalar_indent:
                 continue
-            if character != "\\" or index + 1 >= len(text):
-                raw.append(character)
-                decoded.append(character)
-                index += 1
-                continue
+            block_scalar_indent = None
 
-            escape = text[index + 1]
-            raw.extend((character, escape))
-            if escape == "\n":
-                line_number += 1
-                index += 2
-                while index < len(text) and text[index] in " \t":
-                    raw.append(text[index])
+        index = 0
+        plain_scalar = False
+        expect_scalar = True
+        if double_quoted and strip_double_quoted_indent:
+            while index < len(line) and line[index] in " \t":
+                raw.append(line[index])
+                index += 1
+            strip_double_quoted_indent = False
+
+        while index < len(line):
+            character = line[index]
+
+            if double_quoted:
+                if character == '"':
+                    yield start_line, "".join(raw), "".join(decoded)
+                    double_quoted = False
+                    raw = []
+                    decoded = []
+                    expect_scalar = False
                     index += 1
-                continue
-            if escape in YAML_SIMPLE_ESCAPES:
-                decoded.append(YAML_SIMPLE_ESCAPES[escape])
-                index += 2
-                continue
-            if escape in YAML_HEX_ESCAPE_LENGTHS:
-                width = YAML_HEX_ESCAPE_LENGTHS[escape]
-                digits = text[index + 2 : index + 2 + width]
-                raw.append(digits)
-                if len(digits) == width and all(
-                    char in "0123456789abcdefABCDEF" for char in digits
-                ):
-                    try:
-                        decoded.append(chr(int(digits, 16)))
-                    except ValueError:
-                        decoded.extend((character, escape, digits))
-                    index += 2 + width
+                    continue
+                if character != "\\" or index + 1 >= len(line):
+                    raw.append(character)
+                    decoded.append(character)
+                    index += 1
                     continue
 
-            decoded.extend((character, escape))
-            index += 2
+                escape = line[index + 1]
+                raw.extend((character, escape))
+                if escape == "\n":
+                    strip_double_quoted_indent = True
+                    index += 2
+                    continue
+                if escape in YAML_SIMPLE_ESCAPES:
+                    decoded.append(YAML_SIMPLE_ESCAPES[escape])
+                    index += 2
+                    continue
+                if escape in YAML_HEX_ESCAPE_LENGTHS:
+                    width = YAML_HEX_ESCAPE_LENGTHS[escape]
+                    digits = line[index + 2 : index + 2 + width]
+                    if len(digits) == width and all(
+                        char in "0123456789abcdefABCDEF" for char in digits
+                    ):
+                        raw.append(digits)
+                        try:
+                            decoded.append(chr(int(digits, 16)))
+                        except ValueError:
+                            decoded.extend((character, escape, digits))
+                        index += 2 + width
+                        continue
+
+                decoded.extend((character, escape))
+                index += 2
+                continue
+
+            if single_quoted:
+                if character == "'":
+                    if index + 1 < len(line) and line[index + 1] == "'":
+                        index += 2
+                        continue
+                    single_quoted = False
+                    expect_scalar = False
+                index += 1
+                continue
+
+            if plain_scalar:
+                if character == "#" and (index == 0 or line[index - 1].isspace()):
+                    break
+                if character == ":" and (
+                    index + 1 == len(line)
+                    or line[index + 1].isspace()
+                    or line[index + 1] in ",[]{}"
+                ):
+                    plain_scalar = False
+                    expect_scalar = True
+                elif character in ",]}":
+                    plain_scalar = False
+                    expect_scalar = character == ","
+                index += 1
+                continue
+
+            if character == "#" and (index == 0 or line[index - 1].isspace()):
+                break
+            if character.isspace():
+                index += 1
+                continue
+            if character == '"' and expect_scalar:
+                double_quoted = True
+                start_line = line_number
+                raw = []
+                decoded = []
+                index += 1
+                continue
+            if character == "'" and expect_scalar:
+                single_quoted = True
+                index += 1
+                continue
+            if character in "|>" and expect_scalar:
+                block_scalar_indent = indentation
+                break
+            if character in "[{,:" or (
+                character in "-?"
+                and index + 1 < len(line)
+                and line[index + 1].isspace()
+            ):
+                expect_scalar = True
+                index += 1
+                continue
+            if character in "]}":
+                expect_scalar = False
+                index += 1
+                continue
+
+            plain_scalar = True
+            expect_scalar = False
+            index += 1
 
 
 def find_yaml_issues(
