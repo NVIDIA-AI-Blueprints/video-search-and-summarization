@@ -186,6 +186,7 @@ OPENSHELL_A40_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
     "openshell",
+    
     "a40",
     "gpu-a40",
     "gpu-nvidia-a40",
@@ -369,7 +370,9 @@ def openshell_job_labels(
         return list(SKIP_RUNNER)
     if requirements and requirements.get("requires_blackwell"):
         return [*OPENSHELL_RTXPRO6000_LABELS, f"gpus-{gpu_count}"]
-    return [*OPENSHELL_FLEET_LABELS, f"gpus-{gpu_count}"]
+    # Debug-branch pin: land this single alerts_vlm_real_time leg on an L40S
+    # 1-GPU guest instead of any gpus-1 box in the fleet.
+    return [*OPENSHELL_L40S_LABELS, f"gpus-{gpu_count}"]
 
 
 # `cohort` on a leg names the fleet the runner comes from, and is what the
