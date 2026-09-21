@@ -704,6 +704,7 @@ function usage() {
   echo "                                     - IGX-THOR"
   echo "                                     - AGX-THOR"
   echo "                                     - OTHER"
+  echo "                                   • RTXPRO4500BW is only valid for alerts with a remote LLM"
   echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base or alerts"
   echo "                                   • profile search additionally supported on DGX-SPARK and AGX-THOR (not IGX-THOR):"
   echo "                                     VLM must be remote (--use-remote-vlm); LLM defaults to remote, pass"
