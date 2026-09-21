@@ -123,6 +123,13 @@ Hard rules:
 - `VLM_NAME_SLUG=none` — alerts `COMPOSE_PROFILES` has no `vlm_*_<slug>` segment.
 - `VLM_NAME` must match RT-VLM `/v1/models` or alert-bridge returns HTTP 400.
 - Do not co-deploy a standalone Cosmos NIM.
+- Leave `RTVI_VLM_PORT=8018` and `VLM_PORT=8018`. `rtvi-vlm-docker-compose.yml`
+  publishes `${RTVI_VLM_PORT}:8000`, so lowering these to the `30082` the
+  `overrides.env` comments offer for remote-VLM compatibility moves RT-VLM off
+  the only host port alerts addresses it on — `curl localhost:8018` then fails
+  with connection refused even though the container is healthy. 30082 belongs
+  to a standalone Cosmos NIM, which alerts never runs. A remote VLM backend
+  changes `RTVI_VLM_ENDPOINT` / `VLM_BASE_URL`, never the published port.
 - `RTVI_VLM_KAFKA_ENABLED=false` only for verification. Real-time needs Kafka on.
 
 ## 4. Deploy
