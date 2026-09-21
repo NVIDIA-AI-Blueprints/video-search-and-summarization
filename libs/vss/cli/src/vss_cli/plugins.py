@@ -153,7 +153,9 @@ def _manifests() -> list[GroupRef]:
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
             # A malformed manifest becomes a broken command, not a dead CLI:
             # the reason shows up when that group is invoked.
-            refs.append(GroupRef(name=directory.name, summary="", value=f"<unreadable: {error}>", dist=None, source=directory))
+            refs.append(
+                GroupRef(name=directory.name, summary="", value=f"<unreadable: {error}>", dist=None, source=directory)
+            )
             continue
         name = str(declared.get("name") or directory.name)
         value = declared.get("group")

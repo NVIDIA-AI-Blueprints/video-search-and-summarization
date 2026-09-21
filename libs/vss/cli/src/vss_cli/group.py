@@ -404,7 +404,9 @@ class CommandGroup(ABC):
         lifecycle = Lifecycle(memory, self.adapter()(), job_id=job.job_id, created_at=job.created_at)
         if lifecycle.active and not lifecycle.open(job.input_data):
             persist_error = lifecycle.persist_error
-            click.echo(f"vss: unified memory is not writable, running {self.name} without it ({persist_error})", err=True)
+            click.echo(
+                f"vss: unified memory is not writable, running {self.name} without it ({persist_error})", err=True
+            )
 
         def marker(status: str, persisted: bool) -> dict[str, Any]:
             return {"marker": {"asset_id": job.asset_id, "status": status, "persisted": persisted}}
