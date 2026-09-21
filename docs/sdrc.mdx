@@ -477,7 +477,7 @@ SDRC does not use a single shared ingress port. When the Envoy routing layer sta
 - Reads `config.yml` and generates one Envoy **listener** per workload block that defines both `WDM_MS_LISTENER_PORT` and `port`.
 - Configures per-listener stream lookup with that block's `wl_obj_name` as the default `X-WL-OBJECT-NAME`, so each workload gets its own dedicated listener port (for example `:9000` for one workload, `:9001` for another).
 - Starts Envoy with that generated configuration.
-- Publishes **xDS cluster definitions** so Envoy knows how to reach each worker per `WDM_TARGET_PORT_MAPPING`. REST CDS/RDS is the source default on the controller port (default `5002`). VSS compose and Helm profiles set `WDM_XDS_GRPC_ADS_ENABLED: true` (with `GRPC_XDS_PORT`, default `4001`) so Envoy uses gRPC Aggregated Discovery Service instead of REST polling.
+- Publishes **xDS cluster definitions** so Envoy knows how to reach each worker per `WDM_TARGET_PORT_MAPPING`. REST CDS on the controller port (default `5002`) is the source default. VSS compose and Helm profiles set `WDM_XDS_GRPC_ADS_ENABLED: true` (with `GRPC_XDS_PORT`, default `4001`) to enable gRPC ADS for dynamic CDS cluster updates instead of REST CDS polling. Generated route configuration remains static and must be regenerated when routes change.
 - Exposes a separate **direct listener** (default `8010`, overridable with `WDM_SDRC_DIRECT_LISTENER_PORT`) that forwards `/sdrc` paths to the SDRC controller without stream routing.
 - When `WDM_LIFECYCLE_INGRESS_MODE` is `http` / `http-header`, also generates **lifecycle routes** on the per-workload listener. Those paths (add, delete, reprovision) rewrite to `/sdrc/<wl_obj_name>/...` and go to the controller instead of Redis stream routing.
 
@@ -702,7 +702,7 @@ Most read-only endpoints use `GET` and do not require a request body. Mutating a
 | Surface | Default endpoint | Purpose |
 | --- | --- | --- |
 | SDRC controller / router | `http://<sdrc-host>:5002/` by default; Helm profiles may expose this as service port `5003`. | Multi-workload controller API, dashboard, OpenAPI document, REST xDS endpoints, and `/sdrc/<wl_obj_name>/...` proxy to each workload coordinator. |
-| gRPC ADS (optional) | `GRPC_XDS_PORT` (default `4001`) when `WDM_XDS_GRPC_ADS_ENABLED` is `true`. | Combined CDS/RDS updates for Envoy. VSS profiles enable this by default. |
+| gRPC ADS (optional) | `GRPC_XDS_PORT` (default `4001`) when `WDM_XDS_GRPC_ADS_ENABLED` is `true`. | Dynamic CDS cluster updates for Envoy instead of REST CDS polling. Generated route configuration remains static and must be regenerated when routes change. VSS profiles enable this by default. |
 | Direct SDRC Envoy listener | `http://<sdrc-host>:8010/` by default; Helm profiles may expose this as service port `8011`. | Envoy listener that forwards requests without an `upstream-cluster` header directly to the SDRC controller. Use this for controller access when the controller port is not exposed directly. |
 | Per-workload Envoy listener | `http://<sdrc-host>:<WDM_MS_LISTENER_PORT>/`. | Stream-routing listener generated from each enabled workload block. `/sdrc/...` and HTTP-header lifecycle paths go to SDRC APIs; other paths route to the assigned worker using the configured stream ID header. |
 | Envoy admin | `http://<sdrc-host>:9901/` by default; Helm profiles may expose this as service port `9902`. | Envoy diagnostics and configuration inspection. Treat this as an operational/admin interface, not an application API. |
@@ -949,7 +949,7 @@ Add these only when clients will send workload traffic through SDRC's generated 
 | **WDM_WL_REDIS_SERVER** / **WDM_WL_REDIS_PORT** | Redis endpoint Envoy uses to resolve `stream ID -> assigned worker` at request time. |
 | **NOHEADERTARGETROUTE** | Optional. Set `true` only when headerless requests should route to a fallback workload endpoint instead of failing. |
 | **HEADERLESS_SERVICE_ENDPOINTS** | Required only when `NOHEADERTARGETROUTE` is `true`. JSON array of fallback `host:port` endpoints for requests that do not include the route header. |
-| **WDM_XDS_GRPC_ADS_ENABLED** | Optional. Source default `false` (REST xDS). VSS profiles set `true` so Envoy uses gRPC ADS on `GRPC_XDS_PORT`. Pod-wide: env, then `defaults:`, then (only if both unset) any workload `true`. |
+| **WDM_XDS_GRPC_ADS_ENABLED** | Optional. Source default `false` (REST CDS). VSS profiles set `true` so Envoy uses gRPC ADS for dynamic CDS cluster updates on `GRPC_XDS_PORT`. Routes stay inline in the generated Envoy config. Pod-wide: env, then `defaults:`, then (only if both unset) any workload `true`. |
 
 ### Advanced customization parameters
 
@@ -1034,7 +1034,7 @@ The values below show WDM container default values unless a value is explicitly 
 | **ENVOY_ROUTE_URL_PREFIX_REWRITE** | "/hello" | Prefix rewrite used by generated Envoy route configuration. |
 | **WDM_XDS_USE_POD_DNS** | True | Prefer pod DNS names in generated xDS cluster endpoints. |
 | **WDM_XDS_USE_IP_ADDRESS** | False | Use pod IPs for generated xDS cluster endpoints when pod DNS is disabled. |
-| **WDM_XDS_GRPC_ADS_ENABLED** | False | Enable gRPC Aggregated Discovery Service instead of REST CDS/RDS polling. VSS profiles set `true`. Resolved pod-wide as env → `defaults:` → workload true-wins only when the first two are unset. |
+| **WDM_XDS_GRPC_ADS_ENABLED** | False | Enable gRPC ADS for dynamic CDS cluster updates instead of REST CDS polling. Generated route configuration remains static and must be regenerated when routes change. VSS profiles set `true`. Resolved pod-wide as env → `defaults:` → workload true-wins only when the first two are unset. |
 | **GRPC_XDS_PORT** | 4001 | Port for the gRPC ADS server when ADS is enabled. |
 
 #### Startup, preload, and recovery
