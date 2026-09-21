@@ -32,8 +32,7 @@ spec:
       labels:
         app.kubernetes.io/name: vss-vios-sensor
         app.kubernetes.io/instance: {{ .Release.Name }}
-      {{- $viosGlobal := index (.Values.global | default dict) "vios" | default dict }}
-      {{- $notifCm := .Values.notificationConfigMapName | default (index $viosGlobal "notificationConfigMapName" | default "") }}
+      {{- $notifCm := include "vss-vios-sensor.notificationConfigMapName" . }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- if $notifCm }}

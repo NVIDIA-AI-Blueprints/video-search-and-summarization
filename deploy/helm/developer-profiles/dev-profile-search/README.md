@@ -334,8 +334,15 @@ VIOS loads `configs/vios/notification_config.json` — the Helm counterpart of
 the Compose file
 `deploy/docker/developer-profiles/dev-profile-search/vios/configs/notification_config.json`.
 The Search chart renders it into ConfigMap `vios-notification-config` (see
-`global.vios.notificationConfigFile` / `notificationConfigMapName`) and both
-VIOS pods project that file over the subchart default.
+`global.vios.notificationConfigFile` / `notificationConfigMapName`; the
+ConfigMap name is `<release>-vios-notification-config` when
+`global.useReleaseNamePrefix` is true) and both VIOS pods project that file
+over the subchart default.
+
+`global.vios.notificationConfig` (inline JSON) replaces the bundled file in
+that ConfigMap. A per-subchart `vios.vss-vios-sensor.notificationConfig` or
+`vios.vss-vios-streamprocessing.notificationConfig` skips the overlay on that
+pod so the subchart-generated file is used instead.
 
 Edit the JSON to change Search webhook fan-out. Service-address placeholders
 (`__RTVI_CV_ADDRESS__`, `__RTVI_EMBED_ADDRESS__`, `__RTVI_VLM_ADDRESS__`,

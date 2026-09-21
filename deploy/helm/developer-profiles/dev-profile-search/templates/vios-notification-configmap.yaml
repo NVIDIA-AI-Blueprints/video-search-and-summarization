@@ -3,9 +3,10 @@
 
 {{- $g := .Values.global | default dict }}
 {{- $vios := index $g "vios" | default dict }}
-{{- $cm := index $vios "notificationConfigMapName" | default "" }}
+{{- $cm := include "dev-profile-search.viosNotificationConfigMapName" . }}
 {{- $file := index $vios "notificationConfigFile" | default "" }}
-{{- if and $cm $file }}
+{{- $inline := index $vios "notificationConfig" | default "" }}
+{{- if and $cm (or $inline $file) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

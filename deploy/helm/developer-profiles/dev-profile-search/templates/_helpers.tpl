@@ -147,9 +147,29 @@ NGC image pull secret name.
 {{- end }}
 
 {{/*
-Search VIOS webhook notification_config.json. Loaded from
-configs/vios/notification_config.json (Compose equivalent) with in-cluster
-service-address placeholders resolved.
+Kubernetes name of the Search VIOS webhook ConfigMap. The values key
+global.vios.notificationConfigMapName is the unprefixed logical name;
+when global.useReleaseNamePrefix is true the release is prepended so two
+Search installs in one namespace do not share one ConfigMap.
+*/}}
+{{- define "dev-profile-search.viosNotificationConfigMapName" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $vios := index $g "vios" | default dict -}}
+{{- $cm := index $vios "notificationConfigMapName" | default "" -}}
+{{- $pfx := default false (index $g "useReleaseNamePrefix") -}}
+{{- if and $cm $pfx -}}
+{{- printf "%s-%s" .Release.Name $cm | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- $cm -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Search VIOS webhook notification_config.json. Same precedence as the VIOS
+subcharts: global.vios.notificationConfig (inline) wins over
+notificationConfigFile (bundled Search JSON). Placeholders are resolved
+to in-cluster addresses. Per-subchart notificationConfig is applied by
+skipping this overlay on that pod (see vss-vios-*.notificationConfigMapName).
 */}}
 {{- define "dev-profile-search.viosNotificationConfig" -}}
 {{- $g := .Values.global | default dict }}
@@ -157,9 +177,15 @@ service-address placeholders resolved.
 {{- $viosRoot := index .Values "vios" | default dict }}
 {{- $sensor := index $viosRoot "vss-vios-sensor" | default dict }}
 {{- $path := index $vios "notificationConfigFile" | default "configs/vios/notification_config.json" }}
-{{- $raw := .Files.Get $path }}
+{{- $raw := index $vios "notificationConfig" | default "" }}
+{{- if kindIs "map" $raw }}
+{{- $raw = $raw | toPrettyJson }}
+{{- end }}
 {{- if not $raw }}
-{{- fail (printf "Search VIOS notification config %q is missing" $path) }}
+{{- $raw = .Files.Get $path }}
+{{- end }}
+{{- if not $raw }}
+{{- fail (printf "Search VIOS notification config is empty (set global.vios.notificationConfig or %q)" $path) }}
 {{- end }}
 {{- $pfx := default false (index $g "useReleaseNamePrefix") }}
 {{- $redisH := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}

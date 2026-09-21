@@ -39,6 +39,9 @@ data:
 {{- $elasticsearchAddr := .Values.elasticsearchServerAddress | default (printf "%s:9200" $esH) }}
 {{- $viosGlobal := index $g "vios" | default dict }}
 {{- $notificationConfig := .Values.notificationConfig | default (index $viosGlobal "notificationConfig" | default "") | default (.Files.Get "configs/notification_config.json") }}
+{{- if kindIs "map" $notificationConfig }}
+{{- $notificationConfig = $notificationConfig | toPrettyJson }}
+{{- end }}
 {{- $messageBrokerConsumer := .Values.messageBrokerConsumer | default (index $viosGlobal "messageBrokerConsumer" | default "redis") }}
 {{- $messageBrokerTopicConsumer := .Values.messageBrokerTopicConsumer | default (index $viosGlobal "messageBrokerTopicConsumer" | default "mdx-raw") }}
 {{- $messageBrokerMetadataTopic := .Values.messageBrokerMetadataTopic | default (index $viosGlobal "messageBrokerMetadataTopic" | default "mdx-raw") }}
