@@ -30,8 +30,13 @@ data:
 {{- $esH := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
 {{- $redisAddr := .Values.redisServerAddress | default (printf "%s:6379" $redisH) }}
 {{- $kafkaAddr := .Values.kafkaServerAddress | default (printf "%s:9092" $kafkaH) }}
+{{- $rtviCvH := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx }}
+{{- $rtviCvAddr := .Values.rtviCvServerAddress | default (printf "%s:9000" $rtviCvH) }}
+{{- $rtviEmbedH := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}
+{{- $rtviEmbedAddr := .Values.rtviEmbedServerAddress | default (printf "%s:8000" $rtviEmbedH) }}
 {{- $rtviVlmH := ternary (printf "%s-vss-rtvi-vlm" .Release.Name) "vss-rtvi-vlm" $pfx }}
 {{- $rtviVlmAddr := .Values.rtviVlmServerAddress | default (printf "%s:8000" $rtviVlmH) }}
+{{- $elasticsearchAddr := .Values.elasticsearchServerAddress | default (printf "%s:9200" $esH) }}
 {{- $viosGlobal := index $g "vios" | default dict }}
 {{- $notificationConfig := .Values.notificationConfig | default (index $viosGlobal "notificationConfig" | default "") | default (.Files.Get "configs/notification_config.json") }}
 {{- $messageBrokerConsumer := .Values.messageBrokerConsumer | default (index $viosGlobal "messageBrokerConsumer" | default "redis") }}
@@ -57,7 +62,7 @@ data:
 {{- end }}
 {{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__STATIC_TURNURL_LIST__" ($turnUrls | toJson) | indent 4 }}
   notification_config.json: |
-{{ $notificationConfig | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | replace "__USE_MESSAGE_BROKER_CONSUMER__" $messageBrokerConsumer | replace "__MESSAGE_BROKER_TOPIC_CONSUMER__" $messageBrokerTopicConsumer | replace "__MESSAGE_BROKER_METADATA_TOPIC__" $messageBrokerMetadataTopic | indent 4 }}
+{{ $notificationConfig | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_CV_ADDRESS__" $rtviCvAddr | replace "__RTVI_EMBED_ADDRESS__" $rtviEmbedAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | replace "__ELASTICSEARCH_ADDRESS__" $elasticsearchAddr | replace "__USE_MESSAGE_BROKER_CONSUMER__" $messageBrokerConsumer | replace "__MESSAGE_BROKER_TOPIC_CONSUMER__" $messageBrokerTopicConsumer | replace "__MESSAGE_BROKER_METADATA_TOPIC__" $messageBrokerMetadataTopic | indent 4 }}
   adaptor_config.json: |
 {{ .Files.Get "configs/adaptor_config.json" | indent 4 }}
   vst_storage.json: |

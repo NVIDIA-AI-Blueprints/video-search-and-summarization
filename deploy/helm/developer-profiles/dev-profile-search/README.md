@@ -328,6 +328,22 @@ This single chart deploys all application components:
 - **Search Pipeline**: NVStreamer, RTVI Embed (Cosmos), Search Analytics
 - **Agent Services**: VSS Agent (search mode), VSS UI
 
+### Webhook-based ingestion
+
+VIOS loads `configs/vios/notification_config.json` — the Helm counterpart of
+the Compose file
+`deploy/docker/developer-profiles/dev-profile-search/vios/configs/notification_config.json`.
+The Search chart renders it into ConfigMap `vios-notification-config` (see
+`global.vios.notificationConfigFile` / `notificationConfigMapName`) and both
+VIOS pods project that file over the subchart default.
+
+Edit the JSON to change Search webhook fan-out. Service-address placeholders
+(`__RTVI_CV_ADDRESS__`, `__RTVI_EMBED_ADDRESS__`, `__RTVI_VLM_ADDRESS__`,
+`__ELASTICSEARCH_ADDRESS__`) are resolved at install and honor
+`global.useReleaseNamePrefix`. Override the resolved host:port with
+`vios.vss-vios-sensor.{rtviCvServerAddress,rtviEmbedServerAddress,rtviVlmServerAddress,elasticsearchServerAddress}`
+if needed.
+
 ### Critic Verification
 
 The critic agent performs VLM-based verification of search results and is available by default. Set the request-level `use_critic` option to enable or skip verification for each search; it defaults to `true`.

@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- $g := .Values.global | default dict }}
+{{- $vios := index $g "vios" | default dict }}
+{{- $cm := index $vios "notificationConfigMapName" | default "" }}
+{{- $file := index $vios "notificationConfigFile" | default "" }}
+{{- if and $cm $file }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $cm }}
+  labels:
+    app.kubernetes.io/name: vios-notification
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  notification_config.json: |
+{{ include "dev-profile-search.viosNotificationConfig" . | nindent 4 }}
+{{- end }}

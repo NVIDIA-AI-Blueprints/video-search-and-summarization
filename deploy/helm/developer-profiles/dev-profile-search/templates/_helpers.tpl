@@ -145,3 +145,40 @@ NGC image pull secret name.
 {{- printf "%s-scripts" $base | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Search VIOS webhook notification_config.json. Loaded from
+configs/vios/notification_config.json (Compose equivalent) with in-cluster
+service-address placeholders resolved.
+*/}}
+{{- define "dev-profile-search.viosNotificationConfig" -}}
+{{- $g := .Values.global | default dict }}
+{{- $vios := index $g "vios" | default dict }}
+{{- $viosRoot := index .Values "vios" | default dict }}
+{{- $sensor := index $viosRoot "vss-vios-sensor" | default dict }}
+{{- $path := index $vios "notificationConfigFile" | default "configs/vios/notification_config.json" }}
+{{- $raw := .Files.Get $path }}
+{{- if not $raw }}
+{{- fail (printf "Search VIOS notification config %q is missing" $path) }}
+{{- end }}
+{{- $pfx := default false (index $g "useReleaseNamePrefix") }}
+{{- $redisH := ternary (printf "%s-redis" .Release.Name) "redis" $pfx }}
+{{- $kafkaH := ternary (printf "%s-kafka-kafka" .Release.Name) "kafka-kafka" $pfx }}
+{{- $esH := ternary (printf "%s-elasticsearch" .Release.Name) "elasticsearch" $pfx }}
+{{- $rtviCvH := ternary (printf "%s-vss-rtvi-cv" .Release.Name) "vss-rtvi-cv" $pfx }}
+{{- $rtviEmbedH := ternary (printf "%s-vss-rtvi-embed" .Release.Name) "vss-rtvi-embed" $pfx }}
+{{- $rtviVlmH := ternary (printf "%s-vss-rtvi-vlm" .Release.Name) "vss-rtvi-vlm" $pfx }}
+{{- $mqttH := ternary (printf "%s-mosquitto" .Release.Name) "mosquitto" $pfx }}
+{{- $redisAddr := index $sensor "redisServerAddress" | default (printf "%s:6379" $redisH) }}
+{{- $kafkaAddr := index $sensor "kafkaServerAddress" | default (printf "%s:9092" $kafkaH) }}
+{{- $rtviCvAddr := index $sensor "rtviCvServerAddress" | default (printf "%s:9000" $rtviCvH) }}
+{{- $rtviEmbedAddr := index $sensor "rtviEmbedServerAddress" | default (printf "%s:8000" $rtviEmbedH) }}
+{{- $rtviVlmAddr := index $sensor "rtviVlmServerAddress" | default (printf "%s:8000" $rtviVlmH) }}
+{{- $elasticsearchAddr := index $sensor "elasticsearchServerAddress" | default (printf "%s:9200" $esH) }}
+{{- $mqttAddr := index $sensor "mqttBrokerAddress" | default (printf "tcp://%s:1883" $mqttH) }}
+{{- $messageBrokerConsumer := index $vios "messageBrokerConsumer" | default "redis" }}
+{{- $messageBrokerTopicConsumer := index $vios "messageBrokerTopicConsumer" | default "mdx-raw" }}
+{{- $messageBrokerMetadataTopic := index $vios "messageBrokerMetadataTopic" | default "mdx-raw" }}
+{{- $raw | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_CV_ADDRESS__" $rtviCvAddr | replace "__RTVI_EMBED_ADDRESS__" $rtviEmbedAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | replace "__ELASTICSEARCH_ADDRESS__" $elasticsearchAddr | replace "__USE_MESSAGE_BROKER_CONSUMER__" $messageBrokerConsumer | replace "__MESSAGE_BROKER_TOPIC_CONSUMER__" $messageBrokerTopicConsumer | replace "__MESSAGE_BROKER_METADATA_TOPIC__" $messageBrokerMetadataTopic -}}
+{{- end }}
+
