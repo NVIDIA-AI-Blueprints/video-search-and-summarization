@@ -206,7 +206,6 @@ def test_exact_strict_mapping_meta_and_complete_filter_document() -> None:
     assert document["record_type"] == "event"
     assert document["group"] == "summary"
     assert document["status"] == "completed"
-    assert document["is_child"] is True
     assert document["schema"] == EMBEDDING_SCHEMA
     assert document["provider"] == PROVIDER_NAME
     assert document["canonical_text_version"] == CANONICAL_SEARCHABLE_TEXT_VERSION
@@ -529,7 +528,12 @@ def test_semantic_search_filters_out_children(parents_only: bool, include_childr
     )
 
     assert client.search_body is not None
-    assert {"term": {"is_child": False}} in client.search_body["knn"]["filter"]["bool"]["filter"]
+    # Lifecycle rows are the ones with no record_id. Asking that directly also
+    # selects correctly among documents written before `is_child` was dropped,
+    # so there is nothing to reindex.
+    assert {"bool": {"must_not": {"exists": {"field": "record_id"}}}} in (
+        client.search_body["knn"]["filter"]["bool"]["filter"]
+    )
 
 
 def test_semantic_search_created_at_range_and_dimension_validation() -> None:

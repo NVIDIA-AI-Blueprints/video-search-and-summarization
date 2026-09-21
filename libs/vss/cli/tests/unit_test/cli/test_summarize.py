@@ -1352,6 +1352,11 @@ def test_success_says_what_the_handle_is_worth_too(
 
 
 def _read(*argv: str) -> Any:
+    """Invoke a deprecated read verb.
+
+    Its deprecation notice goes to stderr, so callers here parse ``.stdout``:
+    the payload a harness consumes is unchanged for this release.
+    """
     return CliRunner().invoke(SUMMARIZE.cli(), list(argv))
 
 
@@ -1364,10 +1369,10 @@ def test_get_returns_the_record_run_persisted(
 
     result = _read("get", "--job-id", job_id)
     assert result.exit_code == 0, result.output
-    record = json.loads(result.output)
+    record = json.loads(result.stdout)
     assert record["job"]["job_id"] == job_id
     assert record["output"]["answer"] == "a forklift crosses the aisle"
-    assert record["children"] == []
+    assert record["results"] == []
 
 
 def test_get_hydrates_event_children_in_time_order(
@@ -1385,9 +1390,9 @@ def test_get_hydrates_event_children_in_time_order(
 
     result = _read("get", "--job-id", job_id)
     assert result.exit_code == 0, result.output
-    record = json.loads(result.output)
-    assert [child["output"]["answer"] for child in record["children"]] == ["first", "second"]
-    assert all(child["job"]["record_type"] == "event" for child in record["children"])
+    record = json.loads(result.stdout)
+    assert [child["output"]["answer"] for child in record["results"]] == ["first", "second"]
+    assert all(child["job"]["record_type"] == "event" for child in record["results"])
 
 
 def test_status_reports_the_lifecycle_state(
@@ -1398,7 +1403,7 @@ def test_status_reports_the_lifecycle_state(
 
     result = _read("status", "--job-id", _store(memory).upsert_ids[0])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["job"]["status"] == "timeout"
+    assert json.loads(result.stdout)["job"]["status"] == "timeout"
 
 
 def test_list_filters_by_sensor(
@@ -1408,8 +1413,8 @@ def test_list_filters_by_sensor(
     assert _run("--id", "v1").exit_code == 0
     assert _run("--id", "v2").exit_code == 0
 
-    assert len(json.loads(_read("list").output)) == 2
-    only = json.loads(_read("list", "--sensor-id", "v2").output)
+    assert len(json.loads(_read("list").stdout)) == 2
+    only = json.loads(_read("list", "--sensor-id", "v2").stdout)
     assert [record["input"]["sensors"][0]["id"] for record in only] == ["v2"]
 
 

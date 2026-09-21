@@ -524,7 +524,20 @@ class CommandGroup(ABC):
 
         return Result(body=body, exit=code, job_id=job.job_id, extra=marker(status, persisted))
 
-    # -- framework-provided reads (§6.2) --------------------------------
+    # -- deprecated reads, forwarding to `vss memory` --------------------
+    #
+    # §6.2 made these pure reads against the memory index, so a group never had
+    # anything to contribute to them: every one was `self.memory(ctx).<verb>`
+    # with the group's own name. Reads belong on the cross-group surface, where
+    # one implementation serves every group including the ones added at
+    # runtime, so `vss memory get|status|query` is now where they live.
+    #
+    # They stay mounted for one release because they are published --
+    # `cli/README.md` lists them for all three job groups, `cli/AGENTS.md`
+    # shows `vss search get` and `vss vlm get`, and the shipped
+    # vss-summarize-video skill reconciles an exit 7 with `vss summarize get`.
+    # Hidden from help, warned on stderr, and removed in the release after the
+    # one that ships this.
 
     @final
     def memory(self, ctx: Context) -> Any:
@@ -562,6 +575,8 @@ class CommandGroup(ABC):
         group.add_command(self._handle_command("status", self.status))
         group.add_command(self._handle_command("get", self.get))
         group.add_command(self._list_command())
+        for verb in ("status", "get", "list"):
+            group.commands[verb].hidden = True
         for primitive in self.primitives:
             group.add_command(primitive)
         return group
@@ -629,6 +644,7 @@ class CommandGroup(ABC):
 
         def callback(**values: Any) -> None:
             ctx = context_from(values)
+            _warn_deprecated_read(owner.name, verb)
             emit(guarded(lambda: fn(values["job_id"], ctx)), ctx)
 
         return click.Command(
@@ -672,6 +688,7 @@ class CommandGroup(ABC):
 
         def callback(**values: Any) -> None:
             ctx = context_from(values)
+            _warn_deprecated_read(owner.name, "list")
             selected = {k: values[k] for k in ("since", "sensor_id", "status") if values.get(k)}
             emit(guarded(lambda: owner.list(selected, ctx)), ctx)
 
@@ -684,6 +701,27 @@ class CommandGroup(ABC):
 
 
 # -- helpers ------------------------------------------------------------
+
+
+#: `vss <group> <verb>` -> the `vss memory` command that replaces it.
+_READ_REPLACEMENTS = {
+    "status": "vss memory status --job-id <id>",
+    "get": "vss memory get --job-id <id>",
+    "list": "vss memory query --group <group> --parents-only",
+}
+
+
+def _warn_deprecated_read(group: str, verb: str) -> None:
+    """Name the replacement on stderr, once per invocation.
+
+    stdout stays exactly what it was, so a caller that only reads the payload
+    is unaffected for this release.
+    """
+    replacement = _READ_REPLACEMENTS[verb].replace("<group>", memory_mod.group_token(group))
+    click.echo(
+        f"vss: `vss {group} {verb}` is deprecated and will be removed in the next release; use `{replacement}`",
+        err=True,
+    )
 
 
 def context_from(values: dict[str, Any]) -> Context:

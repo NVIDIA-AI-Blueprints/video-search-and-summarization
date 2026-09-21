@@ -3,11 +3,15 @@
 """The CLI's view of the unified memory tier (``nv.vss.memory/1.0``).
 
 ``vss_core.memory`` is deliberately group-agnostic: it stores records keyed by
-``job_id`` and knows nothing about command groups. The framework's read verbs
-ask a narrower question -- *this group's* job, by id (SDD §6.2) -- so the two
-need one adapter, and this is it. It resolves the store from the recorded
-deployment, scopes reads to the calling group, and returns plain JSON for the
-emitter.
+``job_id`` and knows nothing about command groups. A read asks a narrower
+question -- *this group's* job, by id (SDD §6.2) -- so the two need one
+adapter, and this is it. It resolves the store from the recorded deployment,
+scopes reads to the named group, and returns plain JSON for the emitter.
+
+A job is a partition: one lifecycle row carrying ``job.status``, and zero or
+more result rows sharing its ``job_id``. Rows are found by that id alone --
+nothing here maps a group to the record type it writes, because a group added
+at runtime names a type no table could have listed.
 
 Nothing here is imported at CLI start-up: ``vss_core.memory`` and the
 Elasticsearch client load on the first call that actually touches memory, so
@@ -40,20 +44,11 @@ if TYPE_CHECKING:
 #: writes is a ``summary``. Identity for every other group.
 _GROUP_TOKENS = {"summarize": "summary"}
 
-#: Child collections owned by each job group. ``get`` hydrates these into a
-#: presentation-only envelope; they are never nested back into the stored
-#: ``nv.vss.memory/1.0`` parent.
-_CHILD_RECORD_TYPES = {
-    "summary": "event",
-    "search": "search_hit",
-    "alert": "incident",
-}
-_CHILD_COUNT_KEYS = {
-    "event": "event_count",
-    "search_hit": "result_count",
-    "incident": "incident_count",
-}
-_DEFAULT_CHILD_LIMIT = 100
+#: How many result rows ``get`` hydrates for one job before truncating.
+_DEFAULT_ROW_LIMIT = 100
+
+#: Result-row keys that may carry an explicit ordering rank.
+_RANK_KEYS: tuple[str, ...] = ("rank",)
 
 
 class MemoryUnavailable(click.ClickException):
@@ -131,12 +126,18 @@ class Memory:
         _close_resources(self._closeables)
 
     def status(self, group: str, job_id: str) -> dict[str, Any]:
+        """The job's lifecycle row alone -- one document, whatever it produced.
+
+        What a caller polls after an exit 7, so it stays a single fetch even
+        for a job that wrote thousands of result rows.
+        """
         return self._scoped(group, job_id).model_dump_memory()
 
     def get(self, group: str, job_id: str) -> dict[str, Any]:
-        parent = self._scoped(group, job_id)
-        payload = parent.model_dump_memory()
-        payload["children"] = self._children(parent)
+        """The whole partition: the lifecycle row plus every result row under it."""
+        lifecycle = self._scoped(group, job_id)
+        payload = lifecycle.model_dump_memory()
+        payload["results"] = self._result_rows(lifecycle)
         return payload
 
     def query(self, group: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
@@ -152,40 +153,47 @@ class Memory:
         )
         return [record.model_dump_memory() for record in records]
 
-    def _children(self, parent: UnifiedMemoryRecord) -> list[dict[str, Any]]:
-        """Return this parent's independently retrievable results in domain order."""
+    def _result_rows(self, lifecycle: UnifiedMemoryRecord) -> list[dict[str, Any]]:
+        """Every other row in this job's partition, in domain order.
+
+        Found by ``job_id`` alone. The group's own name is not consulted and no
+        table maps a group to the record type it writes: a group added at
+        runtime names a record type this package has never heard of, and it
+        must still be able to read back what it wrote. That map was the one
+        thing standing between an agent-added group and its own results.
+
+        Ordering is read off the rows rather than declared per group: an
+        explicit ``rank`` first, then the row's own time window, then the
+        record id, so a new record type sorts sensibly without being enrolled
+        anywhere.
+        """
         from vss_core.memory import MemoryQuery
 
-        record_type = _CHILD_RECORD_TYPES.get(parent.job.group)
-        if record_type is None:
-            return []
         advertised = 0
-        if parent.output is not None and parent.output.ext:
-            value = parent.output.ext.get(_CHILD_COUNT_KEYS[record_type])
-            if isinstance(value, int) and value > 0:
-                advertised = value
+        if lifecycle.output is not None and lifecycle.output.ext:
+            for key, value in lifecycle.output.ext.items():
+                if key.endswith("_count") and isinstance(value, int) and value > advertised:
+                    advertised = value
         records = self._service.query(
-            MemoryQuery(
-                job_id=parent.job.job_id,
-                record_type=record_type,  # type: ignore[arg-type]
-                limit=max(_DEFAULT_CHILD_LIMIT, advertised),
-            )
+            MemoryQuery(job_id=lifecycle.job.job_id, limit=max(_DEFAULT_ROW_LIMIT, advertised))
         )
-        children = [
+        rows = [
             record
             for record in records
-            if record.job.is_child and record.job.group == parent.job.group and record.job.job_id == parent.job.job_id
+            if record.job.job_id == lifecycle.job.job_id and record.job.record_id is not None
         ]
 
-        def sort_key(record: UnifiedMemoryRecord) -> tuple[int, str]:
-            if record_type == "search_hit":
-                rank = record.output.ext.get("rank") if record.output is not None and record.output.ext else None
-                return (int(rank) if isinstance(rank, int | float) else 2**31 - 1, record.job.record_id or "")
+        def sort_key(record: UnifiedMemoryRecord) -> tuple[int, Any, str]:
+            ext = record.output.ext if record.output is not None and record.output.ext else {}
+            for key in _RANK_KEYS:
+                rank = ext.get(key)
+                if isinstance(rank, int | float):
+                    return (0, int(rank), record.job.record_id or "")
             if record.input is not None and record.input.window is not None:
-                return (0, record.input.window.start.timestamp.isoformat())
-            return (1, record.job.record_id or "")
+                return (1, record.input.window.start.timestamp.isoformat(), record.job.record_id or "")
+            return (2, "", record.job.record_id or "")
 
-        return [record.model_dump_memory() for record in sorted(children, key=sort_key)]
+        return [record.model_dump_memory() for record in sorted(rows, key=sort_key)]
 
     def _scoped(self, group: str, job_id: str) -> UnifiedMemoryRecord:
         """One record, refusing another group's job under this group's verb."""

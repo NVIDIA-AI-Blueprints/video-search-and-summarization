@@ -84,8 +84,10 @@ def _invoke(*args: str, input: str | None = None) -> Any:
 def test_memory_exposes_store_verbs_not_job_grammar() -> None:
     result = _invoke("--help")
     assert result.exit_code == 0
-    assert all(verb in result.output for verb in ("upsert", "get", "query", "events", "introspect"))
-    assert all(verb not in result.output for verb in ("run", "status", "list"))
+    assert all(verb in result.output for verb in ("upsert", "get", "query", "status", "events", "introspect"))
+    # `status` reads one job's lifecycle row; `run` and `list` are the job
+    # grammar, which this surface still does not have.
+    assert all(verb not in result.output for verb in ("run", "list"))
 
 
 def test_memory_verbs_do_not_expose_static_index_selection() -> None:
@@ -405,7 +407,9 @@ def test_events_empty_filters_succeed_for_known_asset(injected_memory: Memory) -
 
 def test_invalid_inputs_exit_two() -> None:
     assert _invoke("upsert", "--json", "{").exit_code == int(Exit.INVALID_INPUT)
-    assert _invoke("query", "--group", "media").exit_code == int(Exit.INVALID_INPUT)
+    # `--group` is an open string: a group added at runtime names its own
+    # token, so an unfamiliar one is a query that matches nothing, not a
+    # usage error. See test_an_unknown_group_matches_nothing.
     mismatch = _invoke("get", "--job-id", "summary-01", "--record-type", "event")
     assert mismatch.exit_code == int(Exit.INVALID_INPUT)
 
@@ -835,3 +839,14 @@ def test_judge_endpoint_failure_does_not_fall_back_to_rt_vlm_and_closes_client(
     assert observed["client"]["base_url"] == "https://text-judge.example/v1"
     assert observed["client"]["model"] != "visual-model"
     assert observed["closed"] is True
+
+
+def test_an_unknown_group_matches_nothing() -> None:
+    """An unfamiliar --group is answerable, not a usage error.
+
+    Rejecting it would mean a command group added at runtime could never be
+    queried by name -- the CLI cannot know every group's token in advance.
+    """
+    result = _invoke("query", "--group", "tripwire")
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["records"] == []
