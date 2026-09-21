@@ -142,12 +142,25 @@ class OpenshellGpuFleet(unittest.TestCase):
     def test_openshell_job_labels_are_not_sku_specific(self):
         one = plan_matrix.openshell_job_labels(1)
         two = plan_matrix.openshell_job_labels(2)
-        self.assertEqual(one, plan_matrix.DEBUG_OPENSHELL_RUNS_ON)
-        self.assertEqual(two, plan_matrix.DEBUG_OPENSHELL_RUNS_ON)
-        self.assertNotIn("vram-46gb", one)
-        self.assertNotIn("video-codec", one)
-        self.assertNotIn("gpus-1", one)
-        self.assertNotIn("gpu-h200", one)
+        self.assertEqual(
+            one,
+            ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-1"],
+        )
+        self.assertEqual(
+            two,
+            ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-2"],
+        )
+        sku = {
+            "h200", "a16", "a40", "l40s", "rtx-pro-6000",
+            "gpu-h200", "gpu-nvidia-h200", "gpu-rtxpro6000bw",
+            "gpu-l40s", "gpu-nvidia-l40s",
+            "gpu-a16", "gpu-a40", "gpu-nvidia-a16", "gpu-nvidia-a40",
+            "openshell-h200-active", "openshell-a16-active",
+            "openshell-a40-active", "openshell-l40s-active",
+            "openshell-rtxpro6000-active",
+            "vram-15gb", "vram-46gb", "video-codec",
+        }
+        self.assertFalse(sku & set(one + two))
         self.assertEqual(plan_matrix.openshell_job_labels(3), list(plan_matrix.SKIP_RUNNER))
         self.assertEqual(plan_matrix.openshell_placement_tag(1), "gpus-1")
         self.assertEqual(plan_matrix.openshell_placement_tag(2), "gpus-2")
@@ -185,7 +198,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             )
             self.assertEqual(
                 plan_matrix.openshell_job_labels(spec["gpu_count"]),
-                plan_matrix.DEBUG_OPENSHELL_RUNS_ON,
+                ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-1"],
             )
 
     def test_metadata_gate_is_gpu_count_only(self):
