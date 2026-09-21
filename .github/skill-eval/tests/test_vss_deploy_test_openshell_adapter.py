@@ -272,6 +272,15 @@ def test_routing_exam_is_an_openshell_profile() -> None:
     assert adapter.deploy_profile("direct_vlm_video_understanding") == "base"
 
 
+def test_one_gpu_instruction_requires_remote_llm() -> None:
+    adapter = _load_adapter()
+    one = adapter.generate_instruction(CANARY, "H200", spec_query="Deploy", gpu_count=1)
+    two = adapter.generate_instruction(CANARY, "H200", spec_query="Deploy", gpu_count=2)
+    assert "LLM_MODE=remote" in one
+    assert "RTVI_VLM_PORT=8018" in one
+    assert "LLM_MODE=remote" not in two
+
+
 def test_multi_expect_spec_emits_harbor_steps(tmp_path: Path) -> None:
     adapter = _load_adapter()
     skill_dir = _skill_dir(
@@ -304,6 +313,9 @@ def test_multi_expect_spec_emits_harbor_steps(tmp_path: Path) -> None:
     assert "When did the forklift cross?" in (
         root / "step-2" / "instruction.md"
     ).read_text()
+    step1_instruction = (root / "step-1" / "instruction.md").read_text()
+    assert "LLM_MODE=remote" in step1_instruction
+    assert "LLM_NAME_SLUG=none" in step1_instruction
 
 
 def test_profile_suite_specs_emit_expected_harbor_steps(tmp_path: Path) -> None:

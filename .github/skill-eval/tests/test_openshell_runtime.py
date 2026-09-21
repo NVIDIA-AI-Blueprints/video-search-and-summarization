@@ -47,3 +47,9 @@ def test_nemoclaw_uses_openshell_environment() -> None:
         command[index + 1]
         == "openshell.nemoclaw_env:NemoClawOpenShellEnvironment"
     )
+
+
+def test_harbor_is_pinned_to_one_trial_and_no_retry() -> None:
+    command = _command("claude-code")
+    assert command[command.index("-n") + 1] == "1"
+    assert command[command.index("--max-retries") + 1] == "0"

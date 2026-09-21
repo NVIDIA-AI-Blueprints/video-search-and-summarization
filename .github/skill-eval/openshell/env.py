@@ -41,6 +41,8 @@ import uuid
 from harbor.environments.base import BaseEnvironment
 from harbor.environments.base import ExecResult
 
+from openshell.docker_prep import DOCKER_PREWARM_SCRIPT, DOCKER_RESET_SCRIPT
+
 logger = logging.getLogger(__name__)
 
 # The pre-existing Brev instance to connect to.
@@ -563,9 +565,10 @@ class OpenShellEnvironment(BaseEnvironment):
             await self.upload_dir(str(task_skills_dir), "/skills")
 
         # Wipe the warm-pool box's docker runtime to a clean slate so no
-        # prior trial's deployment state can contaminate this one. Images are
-        # preserved (re-pulling the image set is slow); all containers,
-        # user-defined networks, and volumes are removed. See
+        # prior trial's deployment state can contaminate this one. Images and
+        # model/apt cache volumes are preserved (re-pulling images and
+        # re-downloading weights dominates wall-clock); all containers,
+        # user-defined networks, and *data* volumes are removed. See
         # _reset_docker_runtime for why this is blanket, not VSS-scoped.
         #
         # Gate: ONLY on a spec's first trial — a single-step spec (task dir is
@@ -665,6 +668,12 @@ class OpenShellEnvironment(BaseEnvironment):
         await self._probe_bind_mount(f"{task_dir_name}:before-sync")
         if is_first_trial:
             await self._sync_repo_to_pr_head()
+            # After the PR checkout exists, pull any developer-stack images
+            # the golden list names that are not already local. NIMs stay
+            # out of this list so a 1-GPU remote-LLM trial does not fetch
+            # unused multi-GB checkpoints. Best-effort: a pull failure does
+            # not fail start().
+            await self._prewarm_docker_images()
         await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
         if local_instance:
@@ -740,10 +749,13 @@ class OpenShellEnvironment(BaseEnvironment):
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.
 
-        Removes **all** containers (running + stopped), **all** volumes
-        (named + anonymous), and **all** user-defined networks, while
-        **preserving images** — re-pulling the multi-GB VSS/NIM image set on
-        every trial would dominate wall-clock.
+        Removes **all** containers (running + stopped), **data** volumes,
+        and **all** user-defined networks, while **preserving images** and
+        **model/apt cache volumes** (`rtvi-hf-cache`, `rtvi-ngc-model-cache`,
+        NIM `*_cache`, `vios_apt_cache`). Re-pulling the image set and
+        re-downloading weights dominate wall-clock; a cache-preserving reset
+        is what makes a later spec or a Harbor retry of step-1 warm (~55 s
+        weight reload) without inheriting the previous spec's bound ports.
 
         Why blanket, not VSS-project-scoped: trials reach a deploy through
         heterogeneous paths — direct `docker compose --profile …`, the
@@ -754,57 +766,35 @@ class OpenShellEnvironment(BaseEnvironment):
         deploy (observed: a profile_in_1 trial where `phoenix` was stuck
         `Created` and several init containers were missing because a prior
         base-profile deploy's containers still held the ports). Removing
-        everything is the only reset that doesn't depend on knowing what the
-        last trial deployed. Safe because `vss-eval-*` boxes are a dedicated,
-        flock-serialised eval pool — nothing else runs on them.
+        every container/network is the only reset that doesn't depend on
+        knowing what the last trial deployed. Safe because `vss-eval-*`
+        boxes are a dedicated, flock-serialised eval pool — nothing else
+        runs on them.
 
-        NOTE: wiping all volumes also drops the model-weight caches
-        (`rtvi-hf-cache`, `rtvi-ngc-model-cache`), so the next deploy pays the
-        full cold model-weight download (~20 min vs ~55 s warm). The caller
-        gates this to a spec's first trial only (single-step, or step-1 of a
-        multi-step spec — later steps reuse step-1's deployment), so under the
-        canonical `-n 1 --max-retries 0` invocation (one trial per spec) the
-        cost is paid once per spec, not once per step. An `-n>1` rollout, a
-        harbor retry, or a repeated manual run on the same warm box each
-        re-wipes the caches and re-pays the cold start. The per-trial harbor
-        timeout already budgets for a cold deploy.
+        The caller still gates this to a spec's first trial only
+        (single-step, or step-1 of a multi-step spec). Later steps reuse
+        step-1's deployment. Harbor is pinned to `-n 1 --max-retries 0`;
+        a retry or a second spec on the same box still resets containers
+        but keeps the caches. Set `SKILL_EVAL_COLD_DOCKER_RESET=1` to drop
+        caches too (true cold start).
 
         Runs as the normal (docker-group) user — the same identity the
         trial's deploy uses; no sudo. `network prune` leaves the built-in
         bridge/host/none networks, which is correct. Fails loud (`set -u`,
         explicit `exit 1`) if the daemon is unreachable or dies mid-reset, or
-        if any container, volume, or user-defined network survives, so a
-        half-reset box surfaces as a trial error rather than silent cross-trial
-        contamination.
+        if any container, non-cache volume, or user-defined network survives.
         """
-        cmd = r"""set -uo pipefail
-docker info >/dev/null 2>&1 || { echo "docker daemon unreachable" >&2; exit 1; }
-cids=$(docker ps -aq); [ -n "$cids" ] && docker rm -f $cids >/dev/null 2>&1 || true
-vols=$(docker volume ls -q); [ -n "$vols" ] && docker volume rm -f $vols >/dev/null 2>&1 || true
-docker network prune -f >/dev/null 2>&1 || true
-# Re-confirm the daemon survived the reset. Without `set -e`, a daemon that
-# died mid-script would make the count commands below print nothing and the
-# guard read 0/0/0 -- faking a clean reset. The counts run microseconds after
-# this check, so the remaining TOCTOU window is negligible.
-docker info >/dev/null 2>&1 || { echo "docker daemon died during reset" >&2; exit 1; }
-rc=$(docker ps -aq | wc -l | tr -d ' ')
-rv=$(docker volume ls -q | wc -l | tr -d ' ')
-# Only user-defined networks should be gone; the built-in bridge/host/none
-# are never removable, so filter to type=custom. A surviving user network
-# would collide ("network already exists" / address-range clash) on the next
-# `compose up`, so it must fail the reset like a surviving container/volume.
-rn=$(docker network ls --filter type=custom -q | wc -l | tr -d ' ')
-if [ "$rc" != "0" ] || [ "$rv" != "0" ] || [ "$rn" != "0" ]; then
-  echo "docker runtime reset incomplete: ${rc} containers, ${rv} volumes, ${rn} user-defined networks remain" >&2
-  exit 1
-fi
-echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr -d ' ') layers)"
-"""
         logger.info(
-            "Resetting docker runtime (all containers/networks/volumes; images kept) on %s",
+            "Resetting docker runtime (containers/networks/data volumes; "
+            "images and model caches kept) on %s",
             self._instance_name,
         )
-        result = await _run_brev_exec(self._instance_name, cmd, timeout=300)
+        cold = "1" if os.environ.get("SKILL_EVAL_COLD_DOCKER_RESET") == "1" else "0"
+        result = await _run_brev_exec(
+            self._instance_name,
+            f"export SKILL_EVAL_COLD_DOCKER_RESET={cold}\n{DOCKER_RESET_SCRIPT}",
+            timeout=300,
+        )
         if result.return_code != 0:
             tail = (result.stderr or result.stdout or "")[-500:]
             raise RuntimeError(
@@ -817,10 +807,35 @@ echo "docker runtime reset OK; images preserved ($(docker images -q | wc -l | tr
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
+    async def _prewarm_docker_images(self) -> None:
+        """Pull developer-stack images that are not already on the box.
+
+        Runs after repo sync so ``compose-images.golden`` exists. Industry
+        profiles and ``nvcr.io/nim/*`` are skipped — 1-GPU OpenShell trials
+        use a remote LLM and must not pay for unused NIM images. Failures
+        are logged, not raised; compose can still pull during deploy.
+        """
+        logger.info("Pre-warming developer-stack images on %s", self._instance_name)
+        result = await _run_brev_exec(
+            self._instance_name, DOCKER_PREWARM_SCRIPT, timeout=1800
+        )
+        summary = (result.stdout or result.stderr or "").strip().splitlines()
+        last = summary[-1] if summary else "<no output>"
+        if result.return_code != 0:
+            logger.warning(
+                "Image prewarm on %s exited %s: %s",
+                self._instance_name,
+                result.return_code,
+                last,
+            )
+            return
+        logger.info("Image prewarm on %s: %s", self._instance_name, last)
+
     async def _purge_host_data_dirs(self) -> None:
         """Purge per-trial VSS state that lives in host bind-mounts.
 
-        `_reset_docker_runtime` removes containers/volumes/networks, but
+        `_reset_docker_runtime` removes containers, data volumes, and
+        networks (images and model caches stay), but several services persist
         several services persist state in **host directories bind-mounted
         into the containers** — invisible to `docker volume rm`:
 

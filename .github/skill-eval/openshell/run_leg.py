@@ -410,6 +410,9 @@ def build_harbor_command(
         str(harbor_agent_timeout_multiplier()),
         "--verifier-timeout-multiplier",
         str(HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
+        # One Harbor trial, no harness retry. A second `start()` still
+        # resets containers (port isolation) but now keeps model caches;
+        # pinning -n 1 avoids paying even that extra reset/prewarm cycle.
         "--max-retries",
         "0",
         "-n",
