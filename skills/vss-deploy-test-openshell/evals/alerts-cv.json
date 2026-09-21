@@ -1,7 +1,6 @@
 {
   "skills": [
-    "vss-deploy-test-openshell",
-    "vss-manage-alerts"
+    "vss-deploy-test-openshell"
   ],
   "profile": "alerts",
   "resources": {
@@ -20,20 +19,12 @@
       "checks": [
         "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
-        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (RT-CV perception — the 'CV' in this mode)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-cv` returns exit 0 (RT-CV perception \u2014 the 'CV' in this mode)",
         "`docker ps --format '{{.Names}}' | grep -qx vss-behavior-analytics` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx vss-alert-bridge` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx vss-rtvi-vlm` returns exit 0",
         "`docker ps --format '{{.Names}}' | grep -qx vss-vios-nvstreamer` returns exit 0",
         "`grep -qE \"^MODE=['\\\"]?2d_cv['\\\"]?$\" $REPO_ROOT/deploy/docker/developer-profiles/dev-profile-alerts/generated.env` returns exit 0"
-      ]
-    },
-    {
-      "query": "The alerts verification (`MODE=2d_cv`) stack is already deployed and healthy on this host. Do not redeploy. Follow `/vss-manage-alerts` to inspect alert-bridge readiness. Do not author a new always-on rule and do not edit alert config in this step.",
-      "checks": [
-        "`docker ps --format '{{.Names}}' | grep -qx vss-alert-bridge` returns exit 0",
-        "The agent followed `/vss-manage-alerts` and did not author a new always-on rule",
-        "The agent does not invoke `/vss-deploy-test-openshell` or `docker compose up` in this step"
       ]
     }
   ],

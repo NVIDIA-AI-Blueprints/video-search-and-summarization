@@ -145,6 +145,12 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(plan_matrix.openshell_job_labels(3), list(plan_matrix.SKIP_RUNNER))
         self.assertEqual(plan_matrix.openshell_placement_tag(1), "gpus-1")
         self.assertEqual(plan_matrix.openshell_placement_tag(2), "gpus-2")
+        self.assertEqual(
+            plan_matrix.openshell_placement_tag(
+                1, {"requires_blackwell": True, "gpu_count": 1}
+            ),
+            "gpus-1",
+        )
         for labels in (
             plan_matrix.OPENSHELL_A16_LABELS,
             plan_matrix.OPENSHELL_A40_LABELS,
@@ -240,14 +246,14 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 7)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 7)
+        self.assertEqual(len(legs), 27)
+        self.assertEqual(len({leg["spec_path"] for leg in legs}), 27)
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
-        self.assertEqual(counts, {"openshell": 7})
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 7)
+        self.assertEqual(counts, {"openshell": 27})
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 27)
         # Every OpenShell leg travels without a SKU: no platform for the
         # adapter to size from, and no hardware profile for the workflow to
         # export. The guest's own card decides both.
@@ -256,7 +262,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             for leg in legs
             if leg.get("cohort") == plan_matrix.OPENSHELL_COHORT_TAG
         ]
-        self.assertEqual(len(openshell), 7)
+        self.assertEqual(len(openshell), 27)
         for leg in openshell:
             self.assertEqual(leg["platform"], "", leg["slug"])
             self.assertEqual(leg["hardware_profile"], "", leg["slug"])
@@ -290,7 +296,14 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(len(legs), 1)
         leg = legs[0]
         self.assertEqual(leg["spec_stem"], "vdr_1_quickstart_vision_agent")
-        self.assertEqual(leg["name"].split(" · ")[-1], "RTXPRO6000BW")
+        self.assertEqual(
+            leg["name"],
+            "vss-deploy-test-openshell · vdr_1_quickstart_vision_agent · gpus-1",
+        )
+        self.assertEqual(
+            leg["slug"],
+            "vss-deploy-test-openshell__vdr_1_quickstart_vision_agent__gpus-1",
+        )
         self.assertIn("gpu-rtxpro6000bw", leg["runs_on"])
         self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
 
