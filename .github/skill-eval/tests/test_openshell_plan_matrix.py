@@ -142,11 +142,11 @@ class OpenshellGpuFleet(unittest.TestCase):
     def test_openshell_job_labels_are_not_sku_specific(self):
         one = plan_matrix.openshell_job_labels(1)
         two = plan_matrix.openshell_job_labels(2)
-        # Debug branch: this skill is pinned to the L40S 1/2-GPU cohort.
-        self.assertEqual(one, [*plan_matrix.OPENSHELL_L40S_LABELS, "gpus-1"])
-        self.assertEqual(two, [*plan_matrix.OPENSHELL_L40S_LABELS, "gpus-2"])
-        self.assertIn("openshell-l40s-active", one)
-        self.assertIn("gpu-l40s", one)
+        self.assertEqual(one, plan_matrix.DEBUG_OPENSHELL_RUNS_ON)
+        self.assertEqual(two, plan_matrix.DEBUG_OPENSHELL_RUNS_ON)
+        self.assertNotIn("vram-46gb", one)
+        self.assertNotIn("video-codec", one)
+        self.assertNotIn("gpus-1", one)
         self.assertNotIn("gpu-h200", one)
         self.assertEqual(plan_matrix.openshell_job_labels(3), list(plan_matrix.SKIP_RUNNER))
         self.assertEqual(plan_matrix.openshell_placement_tag(1), "gpus-1")
@@ -185,7 +185,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             )
             self.assertEqual(
                 plan_matrix.openshell_job_labels(spec["gpu_count"]),
-                ["vss-skill-eval-gpu", "openshell-runner", "openshell", "gpus-1"],
+                plan_matrix.DEBUG_OPENSHELL_RUNS_ON,
             )
 
     def test_metadata_gate_is_gpu_count_only(self):
