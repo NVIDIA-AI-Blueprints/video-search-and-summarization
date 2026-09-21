@@ -49,6 +49,47 @@ interface PendingInteraction {
   conversationId: string;
 }
 
+interface InternalConversationHistoryProps {
+  controls: ChatSidebarControlHandlers;
+  enabled: boolean;
+}
+
+/** Conversation controls for hosts that do not provide their own placement. */
+const InternalConversationHistory: React.FC<InternalConversationHistoryProps> = ({
+  controls,
+  enabled,
+}) => {
+  const [visible, setVisible] = useState(true);
+
+  if (!enabled) return null;
+
+  const toggleLabel = visible ? 'Hide conversation history' : 'Show conversation history';
+
+  return (
+    <>
+      {visible ? (
+        <aside
+          aria-label="Conversation history"
+          className="absolute inset-y-0 left-0 z-40 w-64 max-w-[calc(100%-3rem)] border-r border-gray-200 bg-white pt-12 shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          <ConversationList {...controls} />
+        </aside>
+      ) : null}
+
+      <button
+        type="button"
+        aria-label={toggleLabel}
+        aria-expanded={visible}
+        onClick={() => setVisible((current) => !current)}
+        className="absolute left-2 top-2 z-50 flex h-8 w-8 items-center justify-center rounded-md border border-black/20 bg-white text-neutral-900 shadow-sm transition-colors hover:bg-neutral-100 dark:border-white/20 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
+        title={toggleLabel}
+      >
+        <IconMenu2 size={18} />
+      </button>
+    </>
+  );
+};
+
 /** Stable per-mount id so the backend maps this panel to one agent thread. */
 function useFallbackConversationId(supplied?: string): string {
   const ref = useRef(supplied);
@@ -120,7 +161,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const [uploadFlowActive, setUploadFlowActive] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [showConversationList, setShowConversationList] = useState(true);
   const [pendingInteraction, setPendingInteraction] = useState<PendingInteraction | null>(null);
   const [interactionText, setInteractionText] = useState('');
   const interactionResolveRef = useRef<((value: string) => void) | null>(null);
@@ -356,11 +396,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const visibleMessages = messages.filter((m) => !m.hidden);
   const workflowName = title || 'Chat';
-  // A host that requests the controls owns their placement (the full-page
-  // Chat tab puts them in the app's left rail). Standalone and docked panels
-  // keep the controls beside the chat so starting a new conversation never
-  // strands the previous one without a way back.
-  const renderInternalConversationList = !onControlsReady;
 
   return (
     <section
@@ -369,29 +404,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       }`}
       data-theme={theme}
     >
-      {renderInternalConversationList && showConversationList ? (
-        <aside
-          aria-label="Conversation history"
-          className="absolute inset-y-0 left-0 z-40 w-64 max-w-[calc(100%-3rem)] border-r border-gray-200 bg-white pt-12 shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
-        >
-          <ConversationList {...controls} />
-        </aside>
-      ) : null}
+      {/* The full-page Chat tab owns the controls it requests; standalone and
+          docked panels keep an internal selector so old chats remain reachable. */}
+      <InternalConversationHistory controls={controls} enabled={!onControlsReady} />
 
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        {renderInternalConversationList ? (
-          <button
-            type="button"
-            aria-label={showConversationList ? 'Hide conversation history' : 'Show conversation history'}
-            aria-expanded={showConversationList}
-            onClick={() => setShowConversationList((visible) => !visible)}
-            className="absolute left-2 top-2 z-50 flex h-8 w-8 items-center justify-center rounded-md border border-black/20 bg-white text-neutral-900 shadow-sm transition-colors hover:bg-neutral-100 dark:border-white/20 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
-            title={showConversationList ? 'Hide conversation history' : 'Show conversation history'}
-          >
-            <IconMenu2 size={18} />
-          </button>
-        ) : null}
-
         {features.headerMenu ? (
           <ChatHeader
             workflowName={workflowName}
