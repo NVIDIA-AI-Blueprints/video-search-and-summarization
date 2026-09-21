@@ -211,6 +211,14 @@ def resolve_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
         signatures = [_semantic_signature(label) for label in semantic_media]
         if len(set(signatures)) != len(signatures):
             raise ValueError("semantic_media labels require distinct token signatures")
+        if any(
+            left < right or right < left
+            for index, left in enumerate(signatures)
+            for right in signatures[index + 1 :]
+        ):
+            raise ValueError(
+                "semantic_media labels require non-overlapping token signatures"
+            )
     qualification_only = manifest.get("qualification_only", False)
     if not isinstance(qualification_only, bool):
         raise TypeError("qualification_only must be a boolean")
@@ -233,6 +241,7 @@ def status_wait_timeout(manifest: dict[str, Any]) -> int:
     """Bound the watcher across readiness, semantic work, benchmark, and cleanup."""
     total = (
         startup_timeout_budget(manifest["stream_count"])
+        + (1 + len(manifest["semantic_media"])) * FILE_HASH_TIMEOUT
         + manifest["timeouts"]["ready"]
         + 2 * manifest["timeouts"]["benchmark"]
         # Final readiness call, benchmark shutdown, compose ps, and service logs.
@@ -438,7 +447,7 @@ def score_semantic_isolation(
             foreign = [
                 other
                 for other, signature in signatures.items()
-                if other != label and signature <= tokens and not signature < wanted
+                if other != label and signature <= tokens
             ]
             if not wanted <= tokens or foreign:
                 failures.append(f"{label}[{index}]={caption!r}")

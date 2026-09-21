@@ -324,19 +324,25 @@ class CanaryExecutorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "distinct token signatures"):
             canary_executor.resolve_manifest(manifest)
 
-    def test_semantic_score_supports_nested_label_signatures(self):
-        passed = canary_executor.score_semantic_isolation(
-            {"red": ["RED"], "red-solid": ["RED SOLID"]},
-            samples=1,
-            expected=("red", "red-solid"),
-        )
-        self.assertEqual(passed["status"], "PASS")
+    def test_rejects_nested_semantic_label_signatures(self):
+        manifest = valid_manifest()
+        manifest["semantic_isolation"] = True
+        manifest["plan"]["scenarios"][0]["concurrency_levels"] = [2]
+        manifest["plan"]["workload"]["source_identity_count"] = 2
+        manifest["semantic_media"] = {
+            "solid": {"path": "/fixtures/solid.jpg", "sha256": "1" * 64},
+            "red-solid": {"path": "/fixtures/red-solid.jpg", "sha256": "2" * 64},
+        }
 
+        with self.assertRaisesRegex(ValueError, "non-overlapping token signatures"):
+            canary_executor.resolve_manifest(manifest)
+
+    def test_semantic_score_rejects_nested_label_contamination(self):
         with self.assertRaisesRegex(ValueError, "semantic isolation"):
             canary_executor.score_semantic_isolation(
-                {"red": ["RED SOLID"], "red-solid": ["RED SOLID"]},
+                {"solid": ["SOLID"], "red-solid": ["RED SOLID"]},
                 samples=1,
-                expected=("red", "red-solid"),
+                expected=("solid", "red-solid"),
             )
 
     def test_semantic_score_rejects_swapped_mixed_and_missing_outputs(self):
@@ -459,11 +465,16 @@ class CanaryExecutorTests(unittest.TestCase):
         semantic_manifest["plan"]["workload"]["source_identity_count"] = 2
         semantic_manifest["plan"]["scenarios"][0]["concurrency_levels"] = [2]
         semantic_manifest["semantic_isolation"] = True
+        semantic_manifest["semantic_media"] = {
+            "red": {"path": "/fixtures/red.jpg", "sha256": "1" * 64},
+            "blue": {"path": "/fixtures/blue.jpg", "sha256": "2" * 64},
+        }
         semantic = canary_executor.resolve_manifest(semantic_manifest)
 
         self.assertEqual(
             canary_executor.status_wait_timeout(plain),
             canary_executor.startup_timeout_budget(plain["stream_count"])
+            + canary_executor.FILE_HASH_TIMEOUT
             + plain["timeouts"]["ready"]
             + 2 * plain["timeouts"]["benchmark"]
             + 4 * canary_executor.RUNTIME_COMMAND_TIMEOUT
@@ -485,7 +496,8 @@ class CanaryExecutorTests(unittest.TestCase):
             + canary_executor.startup_timeout_budget(semantic["stream_count"])
             - canary_executor.startup_timeout_budget(plain["stream_count"])
             + canary_executor.cleanup_timeout_budget(semantic["stream_count"])
-            - canary_executor.cleanup_timeout_budget(plain["stream_count"]),
+            - canary_executor.cleanup_timeout_budget(plain["stream_count"])
+            + 2 * canary_executor.FILE_HASH_TIMEOUT,
         )
 
     def test_cleanup_timeout_is_terminal_and_evidenced(self):
