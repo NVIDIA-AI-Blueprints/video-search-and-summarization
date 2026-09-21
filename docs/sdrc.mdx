@@ -819,7 +819,7 @@ The two primary VSS workload object types managed through SDRC are:
   - **Routing, if enabled:** check `port`, `WDM_MS_LISTENER_PORT`, and `WDM_TARGET_PORT_MAPPING`. Profiles that use rtvi-cv only for placement/lifecycle may not expose it as a routed client-facing listener.
 
 - The Docker service exposes fixed runtime ports for the controller, direct `/sdrc` listener, and Envoy admin. Per-workload listener ports are generated from the active SDRC config only for workload blocks that define both `port` and `WDM_MS_LISTENER_PORT`.
-- VSS compose and Helm SDRC wiring sets `WDM_XDS_GRPC_ADS_ENABLED: true`. Optional `defaults:` in `config.yml` can set pod-wide flags such as this; `true` wins if any block or `defaults:` enables it.
+- VSS compose and Helm SDRC wiring sets `WDM_XDS_GRPC_ADS_ENABLED: true`. ADS is **pod-wide**. Resolution is environment → `defaults:` in `config.yml` → per-workload entries. An explicit env or `defaults:` value is used as-is and stops further lookup, so a workload-level `true` cannot enable ADS when `defaults:` is `false`, and a workload-level `false` cannot disable ADS when `defaults:` is `true`. Workload-level true-wins (any enabled workload with `true`) applies only when neither env nor `defaults:` sets the flag. Set ADS in env or `defaults:` so Envoy and the controller stay on the same path; otherwise the pod can keep REST xDS.
 - For HTTP-header lifecycle examples that are not part of a warehouse blueprint, use `services/sdrc/demo/http-header-lifecycle/`.
 - For less common tuning knobs, see **Advanced customization parameters**.
 
@@ -899,7 +899,7 @@ The following parameters are set in the SDRC workload configuration unless noted
 
 Set these explicitly for each new SDRC workload. Source defaults exist for some of them, but many defaults are demo-oriented and should not be treated as deployment recommendations. Start with deployment mode and workload discovery because those settings determine how SDRC finds workers in Docker Compose or Helm/Kubernetes profiles.
 
-An optional top-level `defaults:` block in `config.yml` sets pod-wide values shared across workloads (for example `WDM_XDS_GRPC_ADS_ENABLED`). Per-workload entries override `defaults:`. For boolean flags, `true` wins if any workload or `defaults:` sets it.
+An optional top-level `defaults:` block in `config.yml` sets pod-wide values shared across workloads (for example `WDM_XDS_GRPC_ADS_ENABLED`). For ADS, environment and `defaults:` take precedence over per-workload entries: each of those layers is pod-wide, and the first explicit value wins. Per-workload true-wins is used only when ADS is unset in both env and `defaults:`. Do not expect a workload-level `true` or `false` to override an explicit `defaults:` or environment value.
 
 #### Deployment mode and workload discovery
 
@@ -949,7 +949,7 @@ Add these only when clients will send workload traffic through SDRC's generated 
 | **WDM_WL_REDIS_SERVER** / **WDM_WL_REDIS_PORT** | Redis endpoint Envoy uses to resolve `stream ID -> assigned worker` at request time. |
 | **NOHEADERTARGETROUTE** | Optional. Set `true` only when headerless requests should route to a fallback workload endpoint instead of failing. |
 | **HEADERLESS_SERVICE_ENDPOINTS** | Required only when `NOHEADERTARGETROUTE` is `true`. JSON array of fallback `host:port` endpoints for requests that do not include the route header. |
-| **WDM_XDS_GRPC_ADS_ENABLED** | Optional. Source default `false` (REST xDS). VSS profiles set `true` so Envoy uses gRPC ADS on `GRPC_XDS_PORT`. |
+| **WDM_XDS_GRPC_ADS_ENABLED** | Optional. Source default `false` (REST xDS). VSS profiles set `true` so Envoy uses gRPC ADS on `GRPC_XDS_PORT`. Pod-wide: env, then `defaults:`, then (only if both unset) any workload `true`. |
 
 ### Advanced customization parameters
 
@@ -1034,7 +1034,7 @@ The values below show WDM container default values unless a value is explicitly 
 | **ENVOY_ROUTE_URL_PREFIX_REWRITE** | "/hello" | Prefix rewrite used by generated Envoy route configuration. |
 | **WDM_XDS_USE_POD_DNS** | True | Prefer pod DNS names in generated xDS cluster endpoints. |
 | **WDM_XDS_USE_IP_ADDRESS** | False | Use pod IPs for generated xDS cluster endpoints when pod DNS is disabled. |
-| **WDM_XDS_GRPC_ADS_ENABLED** | False | Enable gRPC Aggregated Discovery Service instead of REST CDS/RDS polling. VSS profiles set `true`. |
+| **WDM_XDS_GRPC_ADS_ENABLED** | False | Enable gRPC Aggregated Discovery Service instead of REST CDS/RDS polling. VSS profiles set `true`. Resolved pod-wide as env → `defaults:` → workload true-wins only when the first two are unset. |
 | **GRPC_XDS_PORT** | 4001 | Port for the gRPC ADS server when ADS is enabled. |
 
 #### Startup, preload, and recovery
