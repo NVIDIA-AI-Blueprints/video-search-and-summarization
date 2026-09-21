@@ -19,8 +19,8 @@ runtime. `openshell.gpu_count` is the only trial-level resource hint.
 Matrix:
     Profiles : one Harbor job per compose profile. step-1 deploys; later
                expects[] are operations skills on that live stack
-               (base_profile_video_understanding, lvs, warehouse, search,
-               alerts-cv, alerts-vlm). Standalone / VDR specs stay their
+               (base, lvs, warehouse, search, alerts-cv, alerts-vlm).
+               Standalone / VDR specs stay their
                own jobs (vss-build-vision-ai, RT-VLM / RT-CV / RT-Embed,
                behavior-analytics, video-analytics-api).
     Platform : whichever of H100, L40S, RTXPRO6000BW, H200, A40, A16,
@@ -300,7 +300,12 @@ PLATFORMS: dict[str, dict] = {
 
 PROFILES: dict[str, dict] = {
     "base": {
-        "description": "VSS base profile — agent, UI, VST, LLM/VLM NIMs",
+        "description": "Base deploy, Daily ask-video routing exam, then vios + report CLI smoke",
+        "bundled_skills": (
+            "vss-ask-video",
+            "vss-manage-video-io-storage",
+            "vss-generate-video-report",
+        ),
     },
     "lvs": {
         "description": "VSS LVS profile, then summarize + RAG-report CLI smoke",
@@ -322,15 +327,6 @@ PROFILES: dict[str, dict] = {
         "description": "VSS base profile plus vss-ask-video CLI (`vss vlm run`)",
         "profile": "base",
         "bundled_skills": ("vss-ask-video", "vss-manage-video-io-storage"),
-    },
-    "base_profile_video_understanding": {
-        "description": "Base deploy, Daily ask-video routing exam, then vios + report CLI smoke",
-        "profile": "base",
-        "bundled_skills": (
-            "vss-ask-video",
-            "vss-manage-video-io-storage",
-            "vss-generate-video-report",
-        ),
     },
     "summarize": {
         "description": "VSS LVS profile plus vss-summarize-video CLI (`vss summarize run`)",
@@ -618,7 +614,7 @@ def generate_test_script(spec_name: str, profile: str, step: int = 1) -> str:
     /logs/verifier/reward.txt.
 
     `step` is 1-based and matches `expects[step-1]` so a multi-query spec
-    (base_profile_video_understanding) judges the query this Harbor
+    (base, lvs, warehouse, …) judges the query this Harbor
     directory was generated for.
 
     No `profile` argument is needed by the script itself anymore — the
