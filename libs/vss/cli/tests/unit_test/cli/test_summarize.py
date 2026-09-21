@@ -23,6 +23,7 @@ import pytest
 from vss_cli import config as config_mod
 from vss_cli import memory as memory_mod
 from vss_cli.exits import Exit
+from vss_cli.lifecycle import mint_job_id
 from vss_cli.summarize import group as summarize_group
 from vss_cli.summarize.group import SUMMARIZE
 from vss_cli.summarize.group import SummarizeInput
@@ -625,6 +626,7 @@ def test_persist_writes_one_unified_memory_record(
         "expected": 1,
         "written": 1,
         "collapsed": 0,
+        "failed": [],
     }
 
 
@@ -852,8 +854,8 @@ def test_colliding_events_report_partial_and_keep_summary(
     marker = _marker(result)
     assert body["summary"]["id"] == "cmpl-1"
     assert body["persist"]["status"] == "failed"
-    assert "'requested': 3" in body["persist"]["error"]
-    assert "'collapsed': 1" in body["persist"]["error"]
+    assert body["persist"]["requested"] == 3
+    assert body["persist"]["collapsed"] == 1
     assert marker["status"] == "partial"
     assert marker["persisted"] is False
     parent = memory.service.get(body["job_id"], reconcile=False)
@@ -1499,8 +1501,8 @@ def test_a_refused_read_is_a_typed_exit_not_a_traceback(
 
 def test_job_ids_are_prefixed_and_sortable() -> None:
     """ULID ordering keeps job ids sortable by mint time without a separate key."""
-    first = summarize_group._mint_job_id()
-    second = summarize_group._mint_job_id()
+    first = mint_job_id(SUMMARIZE.name)
+    second = mint_job_id(SUMMARIZE.name)
     assert first.startswith("summarize-")
     assert len(first.split("-", 1)[1]) == 26
     assert first < second or first[:14] == second[:14]

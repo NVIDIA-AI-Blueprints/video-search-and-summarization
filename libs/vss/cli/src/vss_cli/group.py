@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""The command-group base class: the framework owns the verbs.
+"""The command-group base class: the framework owns the verbs and the lifecycle.
 
 Every group answers the same four verbs (SDD §3.1)::
 
@@ -9,12 +9,17 @@ Every group answers the same four verbs (SDD §3.1)::
     vss <group> get       fetch a completed record by job_id
     vss <group> list      recent jobs, including in-flight
 
-A group implements exactly one of them. §6.2 makes ``status``/``get``/``list``
-pure reads against the memory index -- "get on a completed job, list, and
-terminal status never touch a backend" -- so a group has nothing to contribute
-to them and inherits the framework's. That is the whole reason this is an ABC
-rather than the Protocol it replaces: a Protocol can state a shape, but it
-cannot hand down an implementation.
+A group contributes only its domain. ``run`` is the framework's: it resolves
+memory policy, mints the job, writes ``submitted``, calls the group's
+:meth:`~CommandGroup.execute`, writes the outcome, and reports through one
+:class:`Result` shape. The group supplies four hooks -- :meth:`~CommandGroup.adapter`,
+:meth:`~CommandGroup.prepare`, :meth:`~CommandGroup.execute`,
+:meth:`~CommandGroup.build_bundle` -- and one renderer,
+:meth:`~CommandGroup.render`, for the keys only it knows.
+
+§6.2 makes ``status``/``get``/``list`` pure reads against the memory index --
+"get on a completed job, list, and terminal status never touch a backend" --
+so a group has nothing to contribute to them and inherits the framework's.
 
 The cost is that a plugin now imports ``vss_cli``, so plugin and CLI can skew.
 :data:`API_VERSION` is the guard, checked at load time by
@@ -52,9 +57,14 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
+    from vss_core.memory import RecordBundle
+    from vss_core.memory.adapters import LifecycleAdapter
+
+    from .lifecycle import Job
+
 #: Contract version. A group built against a different major is refused at
 #: load time rather than half-mounted.
-API_VERSION = 1
+API_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -247,7 +257,8 @@ class CommandGroup(ABC):
 
     api_version: ClassVar[int] = API_VERSION
 
-    #: Group name as it appears in ``vss <name> ...``.
+    #: Group name as it appears in ``vss <name> ...``. Also the job-id domain:
+    #: jobs are ``<name>-<ULID>``.
     name: ClassVar[str]
     #: One-line help. Mirrors the ``vss.command_summaries`` entry point, which
     #: is what ``vss --help`` reads without importing anything.
@@ -281,6 +292,11 @@ class CommandGroup(ABC):
 
     #: Shapes the deriver cannot express -- mutually exclusive flags, help
     #: sections. Appended verbatim rather than smuggled through the model.
+    #:
+    #: Two names are read by the framework when a group declares them:
+    #: ``no_persist`` opts one run out of memory, and ``write_memory_note``
+    #: overrides the Markdown-note policy. A group that does not declare
+    #: ``write_memory_note`` never writes notes.
     extra_params: ClassVar[Sequence[click.Parameter]] = ()
 
     #: Non-job subcommands. §2 keeps ``search embed|attribute`` as
@@ -288,15 +304,223 @@ class CommandGroup(ABC):
     #: persistence, not part of the verb grammar.
     primitives: ClassVar[Sequence[click.Command]] = ()
 
-    # -- the one verb a group implements -------------------------------
+    #: Whether a configured-but-unreachable memory tier stops the run before
+    #: the work (exit 4) or lets it proceed unpersisted (exit 6 on success).
+    #: Both are deliberate: an hour of summarization that nothing can hold is
+    #: worth refusing up front; a seconds-long visual answer is not worth
+    #: losing to a store outage. Default is refuse; a point call flips it.
+    require_memory: ClassVar[bool] = True
+
+    # -- what a group contributes ----------------------------------------
+
+    @classmethod
+    @abstractmethod
+    def adapter(cls) -> type[LifecycleAdapter]:
+        """The adapter that maps this group's jobs onto memory records.
+
+        A classmethod rather than a class attribute so the ``vss_core`` import
+        stays inside the body and off the ``--help`` path.
+        """
 
     @abstractmethod
-    def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:
-        """Do the work. Persistence and markers are the framework's job.
+    def prepare(self, action: str, inputs: BaseModel, ctx: Context, job: Job, *, persist: bool) -> None:
+        """Resolve what to run and fill ``job.input_data`` (and ``job.asset_id``).
 
-        ``action`` is the sub-action name, or ``""`` for a group that
-        declares no :attr:`actions`.
+        Runs before anything is written, so raising here -- an
+        :class:`InvalidInput`, a :class:`~vss_cli.config.ConfigError` -- leaves
+        no record and exits without a marker, like any pre-work usage error.
+        ``persist`` says whether the framework intends to write, for checks
+        such as "a persisted record needs an asset id".
         """
+
+    @abstractmethod
+    def execute(self, action: str, inputs: BaseModel, ctx: Context, job: Job) -> Any:
+        """Do the work and return the domain output.
+
+        Everything raised here is post-mint and owes the caller a record.
+        Raise :class:`~vss_cli.lifecycle.JobError` to classify the outcome
+        (exit code, ``failed``/``timeout``, stderr text); an :class:`InvalidInput`
+        becomes exit 2; anything else is mapped by :func:`_exit_for`, or exit 1.
+        May refine ``job.input_data`` before returning -- a resolved window, say.
+        """
+
+    @abstractmethod
+    def build_bundle(self, job: Job, output: Any) -> RecordBundle:
+        """Map the output onto the terminal parent record plus its result rows."""
+
+    @abstractmethod
+    def render(self, job: Job, output: Any, persist: dict[str, Any] | None) -> dict[str, Any]:
+        """The group's own body keys for a successful run.
+
+        ``persist`` is the framework's persistence block (or None when nothing
+        was attempted); a group may add to it. The framework overlays
+        ``job_id``, ``status``, ``persisted``, ``record`` and ``persist`` after.
+        """
+
+    # -- the framework's run ---------------------------------------------
+
+    @final
+    def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:
+        """Mint, write ``submitted``, execute, write the outcome, report.
+
+        ``action`` is the sub-action name, or ``""`` for a group that declares
+        no :attr:`actions`.
+        """
+        from vss_core.memory.adapters import utc_now_iso
+
+        from .lifecycle import Job
+        from .lifecycle import JobError
+        from .lifecycle import Lifecycle
+        from .lifecycle import mint_job_id
+        from .memory_policy import MemoryPolicyInputError
+        from .memory_policy import resolve_memory_policy
+
+        declared = {param.name for param in self.extra_params}
+        no_persist = bool(ctx.extra.get("no_persist", False))
+        note_override = ctx.extra.get("write_memory_note") if "write_memory_note" in declared else False
+        try:
+            policy = resolve_memory_policy(ctx.deployment, no_persist=no_persist, note_override=note_override)
+        except MemoryPolicyInputError as error:
+            raise InvalidInput(str(error)) from error
+
+        job = Job(job_id=mint_job_id(self.name), created_at=utc_now_iso())
+        self.prepare(action, inputs, ctx, job, persist=policy.persist)
+
+        # Opened before the work, not after: a deployment with no memory at all
+        # is worth an immediate exit 4 rather than an hour of work followed by
+        # the discovery that nothing can hold it -- unless the group says a
+        # store outage must not cost the caller the answer.
+        memory: memory_mod.Memory | None = None
+        persist_error: str | None = None
+        if policy.persist:
+            try:
+                memory = self.memory(ctx)
+            except memory_mod.MemoryUnavailable as error:
+                if self.require_memory:
+                    raise
+                persist_error = str(error)
+                click.echo(f"vss: unified memory is unavailable, running {self.name} without it ({error})", err=True)
+
+        lifecycle = Lifecycle(memory, self.adapter()(), job_id=job.job_id, created_at=job.created_at)
+        if lifecycle.active and not lifecycle.open(job.input_data):
+            persist_error = lifecycle.persist_error
+            click.echo(f"vss: unified memory is not writable, running {self.name} without it ({persist_error})", err=True)
+
+        def marker(status: str, persisted: bool) -> dict[str, Any]:
+            return {"marker": {"asset_id": job.asset_id, "status": status, "persisted": persisted}}
+
+        def close(status: str, detail: str) -> str:
+            """Close the record out, and say so when the handle went stale.
+
+            A stale record is worse than none: it still reads ``submitted``, so
+            ``status`` reports a finished job as running. Silence would leave a
+            caller reconciling against a handle that cannot answer.
+            """
+            record = lifecycle.close(status, detail, job.input_data)  # type: ignore[arg-type]
+            if record == "stale":
+                click.echo(
+                    f"vss: could not record job {job.job_id} as {status} in unified memory, "
+                    f"so `status` still reports it submitted",
+                    err=True,
+                )
+            return record
+
+        def failure(status: str, detail: str, code: Exit, diagnostic: str) -> Result:
+            record = close(status, detail)
+            click.echo(diagnostic, err=True)
+            body = {
+                "job_id": job.job_id,
+                "status": status,
+                "record": record,
+                "persisted": record == "closed",
+                "error": detail,
+            }
+            return Result(body=body, exit=code, job_id=job.job_id, extra=marker(status, record == "closed"))
+
+        try:
+            output = self.execute(action, inputs, ctx, job)
+        except JobError as fail:
+            return failure(fail.status, fail.detail, fail.exit, fail.diagnostic or f"vss: {fail.detail}")
+        except InvalidInput as exc:
+            return failure("failed", exc.message, Exit.INVALID_INPUT, f"vss: {exc.message}")
+        except ValidationError as exc:
+            detail = _format_validation(exc)
+            return failure("failed", detail, Exit.INVALID_INPUT, InvalidInput(detail).format_message())
+        except Exception as exc:
+            code = _exit_for(exc) or Exit.ERROR
+            return failure("failed", str(exc), code, f"vss: {self.name} failed: {exc}")
+
+        token = memory_mod.group_token(self.name)
+        persist: dict[str, Any] | None = None
+        persisted = False
+        record = "absent"
+        status = "completed"
+        code = Exit.SUCCESS
+        if lifecycle.active:
+            assert memory is not None
+            # ValueError joins the store's own failures: an output this group
+            # cannot shape into a record is as unpersistable as a refused write,
+            # and costs the caller the same nothing. RuntimeError covers an
+            # adapter that refuses a bundle it cannot build.
+            unpersistable: tuple[type[BaseException], ...] = (ValueError, RuntimeError, *memory_mod.write_failures())
+            try:
+                outcome = lifecycle.complete(self.build_bundle(job, output))
+            except unpersistable as error:
+                # Never lose the result the caller already paid for: degrade to
+                # partial so only the write is retried, not the whole job.
+                persist = {"status": "failed", "index": memory.index, "group": token, "error": str(error)}
+                record = close("partial", str(error))
+                status, code = "partial", Exit.PARTIAL
+            else:
+                persist = {
+                    "status": "complete" if outcome.ok else "failed",
+                    "index": memory.index,
+                    "group": token,
+                    **outcome.to_dict(),
+                }
+                if outcome.ok:
+                    # `closed` without asking: the terminal upsert above is what
+                    # closing means, and it returned.
+                    record, persisted = "closed", True
+                else:
+                    persist["error"] = "persistence incomplete"
+                    # upsert_bundle re-marks a written parent `partial` itself;
+                    # only a parent that never got past `submitted` needs closing.
+                    stored = memory.service.get(job.job_id, reconcile=False)
+                    record = (
+                        close("partial", f"persistence incomplete: {outcome.to_dict()}")
+                        if stored.job.status in {"submitted", "running"}
+                        else "closed"
+                    )
+                    status, code = "partial", Exit.PARTIAL
+        elif persist_error is not None:
+            # Retrieval succeeded and only the write did not: exit 6 tells the
+            # harness to keep this answer instead of re-running the job.
+            persist = {"status": "failed", "error": persist_error}
+            status, code = "partial", Exit.PARTIAL
+
+        body = self.render(job, output, persist)
+        body["job_id"] = job.job_id
+        body["status"] = status
+        body["persisted"] = persisted
+        body["record"] = record
+        if persist is not None:
+            body["persist"] = persist
+
+        if persisted and policy.write_note:
+            assert memory is not None and ctx.deployment is not None
+            try:
+                from . import memory_notes
+
+                parent = memory.service.get(job.job_id, reconcile=False)
+                note = memory_notes.write(parent, ctx.deployment)
+                body["memory_note"] = {"written": note.written, "path": note.path}
+            except Exception as error:
+                click.echo(f"vss: {self.name} succeeded but Markdown memory-note write failed ({error})", err=True)
+                body["memory_note"] = {"written": False, "error": str(error)}
+                return Result(body=body, exit=Exit.PARTIAL, job_id=job.job_id, extra=marker("completed", True))
+
+        return Result(body=body, exit=code, job_id=job.job_id, extra=marker(status, persisted))
 
     # -- framework-provided reads (§6.2) --------------------------------
 
@@ -316,24 +540,6 @@ class CommandGroup(ABC):
             if click_context is not None:
                 click_context.call_on_close(ctx.memory.close)
         return ctx.memory
-
-    @final
-    def persist_memory(self, ctx: Context, *, no_persist: bool) -> Any:
-        """Return the memory store when the deployment policy says to persist, else None.
-
-        Delegates the full persistence-policy decision to the memory module so
-        individual commands do not inspect ``memory.enabled`` or
-        ``memory.persist_by_default`` directly.  See
-        :func:`vss_cli.memory.open_for_persist` for the policy semantics.
-
-        An injected :attr:`Context.memory` (e.g. a test double) bypasses the
-        policy check so tests can control the store directly.
-        """
-        if no_persist:
-            return None
-        if ctx.memory is not None:
-            return ctx.memory
-        return memory_mod.open_for_persist(ctx.deployment, no_persist=False)
 
     def status(self, job_id: str, ctx: Context) -> Result:
         return Result(body=self.memory(ctx).status(self.name, job_id), job_id=job_id)

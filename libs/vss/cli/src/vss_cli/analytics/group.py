@@ -10,6 +10,7 @@ from typing import Any
 import click
 
 from vss_cli import params as params_mod
+from vss_cli import plugins
 from vss_cli.group import InvalidInput
 from vss_cli.group import Result
 from vss_cli.group import context_from
@@ -301,7 +302,7 @@ def _build() -> click.Group:
 
 
 class _AnalyticsGroup:
-    api_version = 1
+    api_version = plugins.API_VERSION
     name = "analytics"
     requires = REQUIRES
     summary = "Read incidents and video analytics metrics"

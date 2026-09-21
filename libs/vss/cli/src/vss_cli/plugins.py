@@ -43,7 +43,9 @@ if TYPE_CHECKING:
 
 #: Contract version. A group declaring a different major version is rejected at
 #: load time with a diagnostic rather than being imported and half-mounted.
-API_VERSION = 1
+#: Kept in step with :data:`vss_cli.group.API_VERSION`, which is what a group
+#: declares; this module is where that declaration is checked.
+API_VERSION = 2
 
 #: Entry-point group naming the importable command-group object.
 COMMANDS_GROUP = "vss.commands"

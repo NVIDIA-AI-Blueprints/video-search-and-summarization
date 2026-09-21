@@ -44,12 +44,11 @@ to run it again -- not that an in-flight VLM call can be rejoined.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 import json
-import secrets
-import time
 from typing import TYPE_CHECKING
 from typing import Annotated
 from typing import Any
@@ -62,23 +61,20 @@ from pydantic import field_validator
 from pydantic import model_validator
 
 from vss_cli import config as config_mod
-from vss_cli import memory as memory_mod
 from vss_cli import params as params_mod
 from vss_cli.exits import Exit
 from vss_cli.group import CommandGroup
 from vss_cli.group import Context
 from vss_cli.group import InvalidInput
-from vss_cli.group import Result
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from collections.abc import Sequence
 
     import click
 
+    from vss_cli.lifecycle import Job
     from vss_core.memory import MemoryInput
-    from vss_core.memory import PersistResult
-    from vss_core.memory.models import JobStatus
+    from vss_core.memory import RecordBundle
 
     from .memory_adapter import SummaryAdapter
 
@@ -256,20 +252,6 @@ class SummarizeOptions(BaseModel):
     )
 
 
-def _ulid() -> str:
-    """A lexicographically sortable 26-char ULID (48-bit time + 80-bit random).
-
-    Stdlib-only so the group stays dependency-light; sortability keeps
-    ``job_id`` ordering stable over time.
-    """
-    value = (int(time.time() * 1000) & ((1 << 48) - 1)) << 80 | secrets.randbits(80)
-    return "".join(_CROCKFORD32[(value >> shift) & 0x1F] for shift in range(125, -1, -5))
-
-
-def _mint_job_id() -> str:
-    return f"{_JOB_DOMAIN}-{_ulid()}"
-
-
 def _default_model(deployment: config_mod.Deployment) -> str:
     """The VLM the deployment reports serving, or a ConfigError naming the fix.
 
@@ -425,68 +407,6 @@ def _memory_provenance(completion: dict[str, Any], model: str) -> dict[str, Any]
     return {k: v for k, v in provenance.items() if v is not None}
 
 
-def _mark_terminal(
-    memory: memory_mod.Memory | None,
-    *,
-    job_id: str,
-    created_at: str,
-    input_data: MemoryInput,
-    status: JobStatus,
-    message: str,
-) -> bool:
-    """Close out a submitted job that will not produce a summary.
-
-    Retried, then best-effort: this runs on paths that are already failing, so
-    a memory write that keeps failing must not replace the caller's diagnosis
-    with one about Elasticsearch. Whether it finally succeeded is returned
-    rather than swallowed, because a record that stays ``submitted`` is one
-    ``status`` will report as running forever.
-    """
-    if memory is None:
-        return False
-    from vss_cli.persistence import mark_terminal
-
-    return mark_terminal(
-        memory,
-        _adapter(),
-        job_id=job_id,
-        created_at=created_at,
-        input_data=input_data,
-        status=status,
-        message=message,
-        attempts=_TERMINAL_WRITE_ATTEMPTS,
-        backoff_seconds=_TERMINAL_WRITE_BACKOFF_SECONDS,
-    )
-
-
-def _record(
-    memory: memory_mod.Memory,
-    *,
-    job_id: str,
-    created_at: str,
-    input_data: MemoryInput,
-    completion: dict[str, Any],
-    model: str,
-    anchor: datetime | None,
-) -> tuple[PersistResult, dict[str, Any]]:
-    """Build and store the completed parent plus one child per event."""
-    content = _summary_content(completion, anchor)
-    bundle = _adapter().terminal_bundle(
-        job_id=job_id,
-        created_at=created_at,
-        status="completed",
-        input_data=input_data,
-        answer=content["video_summary"],
-        events=content["events"],
-        ext=_memory_provenance(completion, model),
-        default_sensor_id=(input_data.sensors[0].id if input_data.sensors else None),
-    )
-    persist = memory.service.upsert_bundle(bundle)
-    if not persist.ok:
-        raise RuntimeError(f"persistence incomplete: {persist.to_dict()}")
-    return persist, content
-
-
 class SummarizeGroup(CommandGroup):
     """Summarize video and persist to memory."""
 
@@ -500,255 +420,122 @@ class SummarizeGroup(CommandGroup):
     #: Elasticsearch for a summarization that was never going to run.
     requires: ClassVar[frozenset[str]] = frozenset({"lvs"})
     extra_params: ClassVar[Sequence[click.Parameter]] = tuple(params_mod.options_from_model(SummarizeOptions))
-    #: Which memory adapter this group's records are built by, alongside the
-    #: other declarations rather than restated at each use. A callable so the
-    #: ``vss_core`` import stays off the ``--help`` path.
-    Adapter: ClassVar[Callable[[], SummaryAdapter]] = staticmethod(_adapter)
+    @classmethod
+    def adapter(cls) -> type[SummaryAdapter]:
+        from .memory_adapter import SummaryAdapter
 
-    def run(self, action: str, inputs: BaseModel, ctx: Context) -> Result:  # noqa: ARG002 - fixed verb signature
-        import click
-        import httpx
+        return SummaryAdapter
 
+    def prepare(self, action: str, inputs: BaseModel, ctx: Context, job: Job, *, persist: bool) -> None:  # noqa: ARG002 - fixed hook signature
         if not isinstance(inputs, SummarizeInput):  # pragma: no cover - the framework builds this
             raise TypeError(f"expected SummarizeInput, got {type(inputs).__name__}")
 
         deployment = ctx.deployment or config_mod.load()
         options = SummarizeOptions(**{k: v for k, v in ctx.extra.items() if k in SummarizeOptions.model_fields})
-        from vss_cli.memory_policy import MemoryPolicyInputError
-        from vss_cli.memory_policy import resolve_memory_policy
-
-        try:
-            policy = resolve_memory_policy(
-                deployment,
-                no_persist=options.no_persist,
-                note_override=options.write_memory_note,
-            )
-        except MemoryPolicyInputError as error:
-            raise InvalidInput(str(error)) from error
-        want_persist = policy.persist
 
         # Fail before the expensive summarization: a persisted record needs a
         # video_id, which for a --url summary can only come from --video-id.
         asset_id = options.video_id or inputs.id
-        if want_persist and not asset_id:
+        if persist and not asset_id:
             raise InvalidInput("cannot persist a --url summary without --video-id (pass --video-id or --no-persist)")
 
         request = inputs.model_dump(exclude_none=True, exclude_defaults=True)
         model = inputs.model or _default_model(deployment)
         request["model"] = model
 
-        # Opened before the VLM call, not after: a deployment with no memory at
-        # all is worth an immediate exit 4, rather than an hour of
-        # summarization followed by the discovery that nothing can hold it.
-        memory = self.memory(ctx) if want_persist else None
+        resolved_sensor = _resolve_memory_sensor(deployment, inputs, options) if persist else None
+        job.input_data = _memory_input(inputs, options, request, resolved_sensor)
+        job.asset_id = asset_id
+        job.state = _SummarizeRun(
+            deployment=deployment,
+            options=options,
+            request=request,
+            model=model,
+            anchor=datetime.fromisoformat(inputs.creation_time.replace("Z", "+00:00"))
+            if inputs.creation_time
+            else None,
+        )
 
-        from vss_core.memory.adapters import utc_now_iso
+    def execute(self, action: str, inputs: BaseModel, ctx: Context, job: Job) -> Any:  # noqa: ARG002 - fixed hook signature
+        import httpx
 
-        job_id = _mint_job_id()
-        created_at = utc_now_iso()
-        resolved_sensor = _resolve_memory_sensor(deployment, inputs, options) if want_persist else None
-        input_data = _memory_input(inputs, options, request, resolved_sensor)
-        persist_error: str | None = None
+        from vss_cli.lifecycle import JobError
 
-        def outcome(
-            body: dict[str, Any],
-            code: Exit,
-            *,
-            status: JobStatus,
-            persisted_override: bool | None = None,
-        ) -> Result:
-            """Attach the compact §7.2 marker facts without changing the result."""
-            persisted = body.get("record") == "closed" if persisted_override is None else persisted_override
-            return Result(
-                body=body,
-                exit=code,
-                job_id=job_id,
-                extra={"marker": {"asset_id": asset_id, "status": status, "persisted": persisted}},
-            )
-
-        if memory is not None:
-            # Write the job before doing the work. From here on every exit path
-            # calls close(), which tries -- with a bounded retry -- to replace
-            # this with the outcome. When every attempt fails the record stays
-            # `submitted` and the marker says `stale`, which is the one case
-            # `status` reports a finished job as still running.
-            try:
-                memory.service.upsert(
-                    _adapter().submitted_record(job_id=job_id, created_at=created_at, input_data=input_data)
-                )
-            except memory_mod.write_failures() as error:
-                # A configured store that refuses the write is a persistence
-                # failure, not a reason to skip the work the caller asked for:
-                # carry on unpersisted and report it in the marker.
-                click.echo(f"vss: unified memory is not writable, summarizing without it ({error})", err=True)
-                persist_error = str(error)
-                memory = None
-
-        def close(status: JobStatus, message: str) -> str:
-            """Close the record out and say what the job_id is now worth.
-
-            ``absent`` when nothing was persisted, ``closed`` when the record
-            reflects the outcome, ``stale`` when it could not be updated and so
-            still reads as ``submitted``. Reported rather than swallowed: an
-            exit that advertises "reconcile with status" must not point at a
-            record that will answer with the wrong state.
-
-            The success paths answer in the same three words without coming
-            through here, since what they would say is already known. That is
-            what makes the marker's ``record`` total, so a caller keys off one
-            field instead of reading its absence as an outcome.
-            """
-            if memory is None:
-                return "absent"
-            if _mark_terminal(
-                memory,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                status=status,
-                message=message,
-            ):
-                return "closed"
-            click.echo(
-                f"vss: could not record job {job_id} as {status} in unified memory, "
-                f"so `status` still reports it submitted",
-                err=True,
-            )
-            return "stale"
-
-        def failed(detail: str, diagnostic: str, code: Exit) -> Result:
-            """Close the record out, diagnose on stderr, and still mark completion.
-
-            §7.2 makes the marker the final stdout line of *any* run, failures
-            included, for the same reason the timeout path returns instead of
-            raising: a harness reads stdout, so raising would leave the handle
-            for the record this just wrote nowhere it can be found.
-            """
-            record = close("failed", detail)
-            click.echo(diagnostic, err=True)
-            return outcome(
-                {"job_id": job_id, "status": "failed", "record": record, "error": detail},
-                code,
-                status="failed",
-            )
-
-        url = deployment.endpoint("lvs").rstrip("/") + _SUMMARIZE_PATH
+        state: _SummarizeRun = job.state
+        url = state.deployment.endpoint("lvs").rstrip("/") + _SUMMARIZE_PATH
         try:
-            response = httpx.post(url, json=request, timeout=float(options.request_timeout_seconds))
+            response = httpx.post(url, json=state.request, timeout=float(state.options.request_timeout_seconds))
         except httpx.TimeoutException as error:
             # Exit 7 carries the job id as a correlation handle: reconcile with
-            # `status` rather than re-running an hour of summarization. Returned
-            # as a Result so that handle is the final line of stdout like any
-            # other outcome -- a harness should not have to parse stderr prose
-            # for the one identifier it needs.
-            record = close("timeout", str(error))
-            click.echo(
-                f"vss: summarization timed out after {options.request_timeout_seconds}s (job {job_id})",
-                err=True,
-            )
-            return outcome(
-                {"job_id": job_id, "status": "timeout", "record": record},
-                Exit.TIMEOUT,
+            # `status` rather than re-running an hour of summarization.
+            raise JobError(
+                str(error),
+                exit=Exit.TIMEOUT,
                 status="timeout",
-            )
+                diagnostic=(
+                    f"vss: summarization timed out after {state.options.request_timeout_seconds}s (job {job.job_id})"
+                ),
+            ) from error
         except httpx.HTTPError as error:
-            return failed(str(error), f"vss: lvs unreachable at {url}: {error}", Exit.BACKEND_UNREACHABLE)
+            raise JobError(
+                str(error), exit=Exit.BACKEND_UNREACHABLE, diagnostic=f"vss: lvs unreachable at {url}: {error}"
+            ) from error
 
         if response.status_code >= 400:
             detail = f"HTTP {response.status_code}"
             if response.status_code >= 500:
-                return failed(detail, f"vss: lvs backend error {detail}", Exit.BACKEND_UNREACHABLE)
-            # Built through InvalidInput rather than by hand: returning instead
-            # of raising skips the framework's formatting, and a second copy of
+                raise JobError(detail, exit=Exit.BACKEND_UNREACHABLE, diagnostic=f"vss: lvs backend error {detail}")
+            # Built through InvalidInput rather than by hand: a second copy of
             # the prefix would drift the moment that one is reworded.
-            return failed(
+            raise JobError(
                 detail,
-                InvalidInput(f"summarization rejected {detail}: {response.text[:500]}").format_message(),
-                Exit.INVALID_INPUT,
+                exit=Exit.INVALID_INPUT,
+                diagnostic=InvalidInput(f"summarization rejected {detail}: {response.text[:500]}").format_message(),
             )
 
         try:
             completion = response.json()
-        except ValueError:
+        except ValueError as error:
             detail = "response was not valid JSON"
-            return failed(detail, f"vss: lvs {detail}", Exit.BACKEND_UNREACHABLE)
+            raise JobError(detail, exit=Exit.BACKEND_UNREACHABLE, diagnostic=f"vss: lvs {detail}") from error
         if not isinstance(completion, dict):
             detail = "response was not a JSON object"
-            return failed(detail, f"vss: lvs {detail}", Exit.BACKEND_UNREACHABLE)
+            raise JobError(detail, exit=Exit.BACKEND_UNREACHABLE, diagnostic=f"vss: lvs {detail}")
+        return completion
 
-        body: dict[str, Any] = {"job_id": job_id, "summary": completion}
-        if memory is None:
-            if persist_error is None:
-                # `record` is on every path, this one included: a caller that
-                # reconciles a handle against `status` should switch on one
-                # field, not on whether that field is there. Nothing was asked
-                # to be written here, so what the handle is worth is `absent`.
-                body["record"] = "absent"
-                return outcome(body, Exit.SUCCESS, status="completed")
-            # Retrieval succeeded and only the write did not: exit 6 tells the
-            # harness to keep this answer instead of re-running the job.
-            body["persist"] = {"status": "failed", "error": persist_error}
-            body["record"] = close("partial", persist_error)
-            return outcome(body, Exit.PARTIAL, status="partial")
+    def build_bundle(self, job: Job, output: Any) -> RecordBundle:
+        """The completed parent plus one ``event`` child per event."""
+        state: _SummarizeRun = job.state
+        content = _summary_content(output, state.anchor)
+        state.content = content
+        return self.adapter()().terminal_bundle(
+            job_id=job.job_id,
+            created_at=job.created_at,
+            status="completed",
+            input_data=job.input_data,
+            answer=content["video_summary"],
+            events=content["events"],
+            ext=_memory_provenance(output, state.model),
+            default_sensor_id=(job.input_data.sensors[0].id if job.input_data.sensors else None),
+        )
 
-        # ValueError joins the store's own failures: a completion this command
-        # cannot shape into a record is as unpersistable as a refused write,
-        # and costs the caller the same nothing. RuntimeError covers a bundle
-        # that landed only in part — the parent alone is not the paid-for result.
-        unpersistable: tuple[type[BaseException], ...] = (ValueError, RuntimeError, *memory_mod.write_failures())
-        try:
-            persist_result, content = _record(
-                memory,
-                job_id=job_id,
-                created_at=created_at,
-                input_data=input_data,
-                completion=completion,
-                model=model,
-                anchor=datetime.fromisoformat(inputs.creation_time.replace("Z", "+00:00"))
-                if inputs.creation_time
-                else None,
-            )
-        except unpersistable as error:
-            # Never lose the summary the caller already paid for: degrade to
-            # partial so only the write is retried, not the whole job. What the
-            # close answers matters as much as the failure that forced it: when
-            # the partial write cannot land either, the record still reads
-            # `submitted` and `status` will call this job running, so the marker
-            # is the only place that can say the handle went stale.
-            body["persist"] = {"status": "failed", "error": str(error)}
-            body["record"] = close("partial", str(error))
-            return outcome(body, Exit.PARTIAL, status="partial", persisted_override=False)
+    def render(self, job: Job, output: Any, persist: dict[str, Any] | None) -> dict[str, Any]:
+        state: _SummarizeRun = job.state
+        if persist is not None and persist.get("status") == "complete" and state.content is not None:
+            persist["events"] = len(state.content["events"])
+        return {"summary": output}
 
-        body["persist"] = {
-            "status": "complete",
-            "index": memory.index,
-            "group": memory_mod.group_token(self.name),
-            "events": len(content["events"]),
-            "requested": persist_result.requested,
-            "expected": persist_result.expected,
-            "written": persist_result.written,
-            "collapsed": persist_result.collapsed,
-        }
-        # `closed` without asking: the terminal upsert above is what closing
-        # means, and it either returned or we are in the except clause.
-        body["record"] = "closed"
-        if policy.write_note:
-            try:
-                from vss_cli import memory_notes
 
-                parent = memory.service.get(job_id, reconcile=False)
-                note = memory_notes.write(parent, deployment)
-                body["memory_note"] = {"written": note.written, "path": note.path}
-            except Exception as error:
-                click.echo(f"vss: summary succeeded but Markdown memory-note write failed ({error})", err=True)
-                body["memory_note"] = {"written": False, "error": str(error)}
-                return outcome(
-                    body,
-                    Exit.PARTIAL,
-                    status="completed",
-                    persisted_override=True,
-                )
-        return outcome(body, Exit.SUCCESS, status="completed")
+@dataclass
+class _SummarizeRun:
+    """What ``prepare`` resolved, for ``execute`` and ``build_bundle``."""
+
+    deployment: config_mod.Deployment
+    options: SummarizeOptions
+    request: dict[str, Any]
+    model: str
+    anchor: datetime | None
+    content: dict[str, Any] | None = None
 
 
 SUMMARIZE = SummarizeGroup()
