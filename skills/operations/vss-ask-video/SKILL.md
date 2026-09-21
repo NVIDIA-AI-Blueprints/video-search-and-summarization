@@ -34,8 +34,12 @@ This skill does not call `POST /generate` on the VSS agent. It requires a
 > - `vss vlm run` is the only eye on the video - never post to
 >   `/v1/chat/completions`, `/generate` or `/v1/summarize` yourself, and never
 >   decode or sample frames and answer from them;
-> - a named sensor is `--sensor`, never a file found under the deployment's media
->   storage, and its window goes in `--start-time`/`--end-time`, not the prompt;
+> - a named sensor is `--sensor`, never a file, and its window goes in
+>   `--start-time`/`--end-time`, not the prompt. A name the deployment knows as a
+>   sensor stays a sensor even when a file of that name sits on disk: that file is
+>   a copy someone left behind, and `--file` on it drops the recorded timeline the
+>   window flags need, so the window is rejected and the call looks worth
+>   retrying. Check `vss vios list` before reading any name as a path;
 > - a failing call is a finding: report the exit code rather than routing around
 >   it, repairing the deployment, or looking again.
 
