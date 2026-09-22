@@ -89,7 +89,7 @@ template <typename Fn>
 void runOnDefaultStack(Fn&& fn)
 {
     std::exception_ptr failure;
-    std::thread worker([&]() {
+    std::thread worker([&fn, &failure]() {
         try
         {
             fn();
@@ -766,7 +766,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
          * session, not the process. */
         try
         {
-            runOnDefaultStack([&]() {
+            runOnDefaultStack([&session, &compositeRequested, &compositeUrls, &mediaUrl, &opts]() {
                 session->source = std::make_shared<CommonVideoSource>(
                     compositeRequested ? compositeUrls : mediaUrl, opts, session->packager);
                 session->source->createConsumerPipeline();
@@ -1042,7 +1042,7 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
      * a failed start for this session alone. */
     try
     {
-        runOnDefaultStack([&]() {
+        runOnDefaultStack([&session, &uri, &opts]() {
             session->source = std::make_shared<CommonVideoSource>(uri, opts, session->packager);
             session->source->createConsumerPipeline();
             session->source->setConsumerReady();
