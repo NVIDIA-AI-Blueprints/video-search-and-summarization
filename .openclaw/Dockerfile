@@ -275,6 +275,10 @@ RUN chmod 755 /usr/local/bin/vss-apply-onboard-config \
 # _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
 ENV VSS_WORKSPACE_VARIANT=nemoclaw
 
+# OpenShell mounts /proc read-only. OpenClaw's supported zero value disables
+# its optional child OOM-score write; pod resource limits remain authoritative.
+ENV OPENCLAW_CHILD_OOM_SCORE_ADJ=0
+
 # The managed base image already contains generic workspace Markdown, while
 # register-time seeding intentionally preserves existing files. Seed the VSS
 # variant while building the immutable image so a fresh sandbox starts with

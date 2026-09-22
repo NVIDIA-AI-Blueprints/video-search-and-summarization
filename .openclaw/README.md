@@ -89,6 +89,11 @@ so they always match. `nvidia-vss` is on no reachable index, so the checkout
 stage builds it as wheels and the runtime installs those by name — no VSS
 source ships in the image. The workspace files come from this directory.
 
+At runtime, use `vss_cli` or `/usr/local/bin/vss`; no checkout or installation
+is needed. The workspace preserves the operator's deployment origin and skips
+deployment bootstrap for operation requests. `OPENCLAW_CHILD_OOM_SCORE_ADJ=0`
+disables OpenClaw's optional write to the sandbox's read-only `/proc`.
+
 ```
 docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
 ```
@@ -109,6 +114,18 @@ The snapshot is git's view of the tree (tracked + untracked-unignored files),
 and the image logs its provenance (`sha`, `dirty`, pretend version) from the
 snapshot's `STAGED` marker at build time. Gitignored, never committed;
 shipping builds stay on the pin.
+
+When changing a skill, pin `VSS_REF` to a published commit containing the change
+and build from a clean context without `.vss-src/`. This includes the corrected
+skill alongside the CLI from the same source revision.
+
+Run the instruction regressions from the repository root. Supplying a locally
+cached image also executes the real CLI without network, GPU access, or a home
+checkout, and verifies the installed OpenClaw OOM-score switch:
+
+```bash
+VSS_TEST_IMAGE=<cached-image> python3 -m unittest discover -s .openclaw/tests -v
+```
 
 The eval harness's Provision panel does the same: it shows this Dockerfile,
 lets an operator edit it for a variant experiment, and builds a
