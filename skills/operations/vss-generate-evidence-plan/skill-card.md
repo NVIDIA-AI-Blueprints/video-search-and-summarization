@@ -25,7 +25,7 @@ Mitigation: The skill is option-blind, defaults to one claim, caps the initial p
 
 ## Skill Output: <br>
 **Output Type(s):** [Evidence Plan] <br>
-**Output Format:** [JSON conforming to references/evidence-plan.schema.json] <br>
+**Output Format:** [JSON conforming to one of the plan, gathering-gap, or rejection variants in references/evidence-plan.schema.json] <br>
 **Output Parameters:** [1D] <br>
 **Other Properties Related to Output:** [Contains observable claims, evidence types, coverage requirements, and support/falsification tests; contains no answer choices, evidence records, or conclusions] <br>
 

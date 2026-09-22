@@ -4,7 +4,7 @@
 Create the minimal option-blind visual evidence plan for this video question.
 
 question_id: {{question_id}}
-question_text: {{question_text}}
+question_stem: {{question_stem}}
 asset_id: {{asset_id}}
 allowed_modalities: {{allowed_modalities}}
 task_constraints: {{task_constraints}}
@@ -25,5 +25,7 @@ Use whole_video for unscoped absence, counts accumulated across time, never, onl
 
 The falsification_test must describe visible counterevidence. Do not use missing visibility, ambiguity, occlusion, or insufficient coverage as falsification; those make the later sufficiency result unresolved.
 
-Do not use answer choices, a proposed answer, memory, evidence IDs, timestamps, or prior conclusions. Do not decide what happened. Return only JSON conforming to evidence-plan.schema.json with plan_version "2.0" and mode "initial".
+The question_stem has been sanitized before this prompt. It must contain only the question being asked, never answer choices, answer labels, or a proposed answer. If it is not sanitized, return a schema-valid rejection with reason_code "unsanitized_question" instead of planning.
+
+Do not use answer choices, a proposed answer, memory, evidence IDs, timestamps, or prior conclusions. Do not decide what happened. Return only JSON conforming to evidence-plan.schema.json with plan_version "2.1" and mode "initial".
 ```

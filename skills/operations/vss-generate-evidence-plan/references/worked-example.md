@@ -8,10 +8,10 @@ The initial plan uses one claim. The requested outcome is a visible attribute: t
 
 ```json
 {
-  "plan_version": "2.0",
+  "plan_version": "2.1",
   "mode": "initial",
   "question_id": "vss-sample-warehouse-ladder-combined-g1-4",
-  "question_text": "What was the last person who climbed the ladder wearing?",
+  "question_stem": "What was the last person who climbed the ladder wearing?",
   "asset_id": "vss-sample-warehouse-ladder-combined",
   "claims": [
     {
@@ -34,7 +34,9 @@ Suppose memory shows a ladder climb and describes a climber's clothing, but does
 
 ```json
 {
+  "plan_version": "2.1",
   "decision": "gather_evidence",
+  "question_id": "vss-sample-warehouse-ladder-combined-g1-4",
   "claim_id": "claim-last-ladder-climber-clothing",
   "missing_visible_fact": "Complete video coverage is needed to enumerate the ladder-climb events, establish which completed climb is last, and inspect that climber's clothing."
 }
