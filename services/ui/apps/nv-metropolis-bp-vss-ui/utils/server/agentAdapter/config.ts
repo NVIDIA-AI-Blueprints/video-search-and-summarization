@@ -4,6 +4,7 @@
 import { strictJsonParse, isJsonObject } from "./json";
 
 export type BackendProtocol = "openclaw-ws" | "responses" | "legacy-chat";
+export type BackendOpenClawAgentId = "main" | "vss-ui";
 
 export interface AgentAdapterConfig {
   backendProtocol: BackendProtocol;
@@ -11,6 +12,7 @@ export interface AgentAdapterConfig {
   backendPath: string;
   backendToken?: string;
   backendModel: string;
+  backendOpenClawAgentId: BackendOpenClawAgentId;
   backendSessionField?: string;
   backendSessionHeader?: string;
   backendHeaders: Record<string, string>;
@@ -246,6 +248,14 @@ export const loadAgentAdapterConfig = (
       "AGENT_BACKEND_HEADERS_JSON is unsupported with openclaw-ws"
     );
   }
+  const rawOpenClawAgentId =
+    environment.AGENT_BACKEND_OPENCLAW_AGENT_ID?.trim() || "main";
+  if (rawOpenClawAgentId !== "main" && rawOpenClawAgentId !== "vss-ui") {
+    throw new ConfigError(
+      "AGENT_BACKEND_OPENCLAW_AGENT_ID must be main or vss-ui"
+    );
+  }
+  const backendOpenClawAgentId = rawOpenClawAgentId;
   const maxEventsPerRun = numberEnv(
     environment,
     "AGENT_MAX_EVENTS_PER_RUN",
@@ -288,6 +298,7 @@ export const loadAgentAdapterConfig = (
     backendPath,
     backendToken: environment.AGENT_BACKEND_TOKEN?.trim() || undefined,
     backendModel: environment.AGENT_BACKEND_MODEL?.trim() || "agent",
+    backendOpenClawAgentId,
     backendSessionField,
     backendSessionHeader,
     backendHeaders,

@@ -340,7 +340,13 @@ export class OpenClawConnector implements Connector {
       .update(`vss-ui:${threadId}`)
       .digest("hex")
       .slice(0, 40);
-    return `agent:main:vss-ui-${digest}`;
+    return `agent:${this.config.backendOpenClawAgentId}:vss-ui-${digest}`;
+  }
+
+  private workspaceRoot(): string {
+    return this.config.backendOpenClawAgentId === "vss-ui"
+      ? "/sandbox/.openclaw/workspace-vss-ui"
+      : "/sandbox/.openclaw/workspace";
   }
 
   private message(request: CreateRunRequest): string {
@@ -434,7 +440,7 @@ export class OpenClawConnector implements Connector {
     return original === alt ? [alt] : [original, alt];
   }
 
-  private static toolImageSource(
+  private toolImageSource(
     toolData: JsonObject
   ): { source: string; mimeType: string } | undefined {
     const name = asString(toolData.name || toolData.tool)?.toLowerCase();
@@ -452,7 +458,7 @@ export class OpenClawConnector implements Connector {
     }
     if (!readArgs || typeof readArgs.path !== "string") return undefined;
     const source = readArgs.path.trim();
-    const workspacePrefix = "/sandbox/.openclaw/workspace/";
+    const workspacePrefix = `${this.workspaceRoot()}/`;
     if (
       !source.startsWith(workspacePrefix) ||
       source.length > 1_024 ||
@@ -608,10 +614,8 @@ export class OpenClawConnector implements Connector {
   ): Promise<JsonObject | undefined> {
     const names = OpenClawConnector.managedImageSourceNames(image);
     if (!names.length || typeof image.mimeType !== "string") return undefined;
-    const roots = [
-      "/sandbox/.openclaw/workspace",
-      "/sandbox/.openclaw/workspace/artifacts",
-    ];
+    const workspaceRoot = this.workspaceRoot();
+    const roots = [workspaceRoot, `${workspaceRoot}/artifacts`];
     for (const root of roots) {
       for (const name of names) {
         if (signal.aborted) return undefined;
@@ -731,7 +735,7 @@ export class OpenClawConnector implements Connector {
     toolCallId: string,
     name: string
   ): NormalizedFrame {
-    const imageSource = OpenClawConnector.toolImageSource(toolData);
+    const imageSource = this.toolImageSource(toolData);
     if (imageSource) state.imageSources.set(toolCallId, imageSource);
     const events: ConnectorEvent[] = [];
     OpenClawConnector.ensureToolStarted(events, state, toolCallId, name);

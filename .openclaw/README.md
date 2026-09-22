@@ -14,7 +14,7 @@ that harness loads skills.
 |---|---|
 | `Dockerfile` | The sandbox image: NemoClaw's published managed OpenClaw runtime (digest-pinned) + the `vss` CLI + this plugin, installed with `openclaw plugins install` |
 | `plugin/` | The VSS OpenClaw plugin: `openclaw.plugin.json`, `package.json` + lockfile, `src/index.ts` (tool, workspace seeding, skill-selection shim), `stage-assets.sh` |
-| `workspace/` | The OpenClaw workspace instruction files (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `TOOLS.md`, `BOOTSTRAP.md`) and the `_nemoclaw/` overlay for the sandbox (`ENV.md`, host alias, proxy notes) |
+| `workspace/` | The OpenClaw workspace instruction files, the `_nemoclaw/` overlay for the normal durable agent, and the `_vss-ui/` overlay for isolated UI chats |
 
 ## The plugin
 
@@ -49,6 +49,23 @@ the OpenClaw SDK:
   `VSS_WORKSPACE_VARIANT` selects the overlay; unset, it is `nemoclaw` when
   running under NemoClaw's runtime. Existing files are never overwritten: the
   workspace is the agent's memory.
+
+## VSS UI conversation isolation
+
+The image keeps the normal `main` agent and its durable workspace unchanged.
+It also configures a dedicated `vss-ui` agent for VSS UI traffic. That agent
+uses `/sandbox/.openclaw/workspace-vss-ui`, which contains no user profile,
+long-term memory, daily memory, or first-run bootstrap file. Its tool policy
+denies memory lookup, other-session access, automation, shell execution, and
+workspace mutation. Its only allowed tools are the workspace-scoped reader and
+the typed `vss_cli` tool. Each UI conversation still gets a distinct OpenClaw
+session key, so a new chat has neither transcript nor durable user context from
+an earlier chat.
+
+Set `VSS_AGENT_BACKEND_OPENCLAW_AGENT_ID=vss-ui` on the VSS UI service when it
+connects to this image. Use `main` only when intentionally connecting the UI to
+an older or general-purpose OpenClaw deployment that does not define the
+dedicated agent.
 
 ### Working on it
 

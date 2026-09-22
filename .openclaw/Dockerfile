@@ -291,6 +291,17 @@ RUN set -eu; \
     done; \
     chown -R sandbox:sandbox "$workspace"
 
+# The VSS UI uses a separate OpenClaw agent. Its workspace deliberately has no
+# USER.md, MEMORY.md, daily memory, or bootstrap file, and its per-agent policy
+# denies persistence and cross-session tools. This leaves the normal main agent
+# and its durable memory unchanged for direct OpenClaw users.
+USER root
+RUN set -eu; \
+    workspace=/sandbox/.openclaw/workspace-vss-ui; \
+    mkdir -p "$workspace"; \
+    cp /opt/vss-plugin/workspace/_vss-ui/*.md "$workspace"/; \
+    chown -R sandbox:sandbox "$workspace"
+
 # NemoClaw's shell hooks apply a hard `ulimit -u 512` in every shell
 # (/etc/profile.d/nemoclaw-rlimits.sh and /etc/bash.bashrc, sourcing
 # /usr/local/lib/nemoclaw/sandbox-rlimits.sh). That is harmless when the shell
