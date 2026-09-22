@@ -46,7 +46,7 @@ MinioStorageWriter::~MinioStorageWriter()
 
 bool MinioStorageWriter::isAvailable() const
 {
-    return m_client_initialized.load(std::memory_order_acquire) && !m_endpoint_url.empty() && !m_access_key.empty() && !m_secret_key.empty() &&
+    return m_client_initialized.load() && !m_endpoint_url.empty() && !m_access_key.empty() && !m_secret_key.empty() &&
            !m_bucket_name.empty();
 }
 
@@ -500,7 +500,7 @@ bool MinioStorageWriter::initializeMinioClient()
             LOG(info) << "Created MinIO bucket: " << m_bucket_name << endl;
         }
 
-        m_client_initialized.store(true, std::memory_order_release);
+        m_client_initialized.store(true);
         LOG(info) << "MinIO client initialized successfully" << endl;
         return true;
     }
@@ -516,12 +516,12 @@ void MinioStorageWriter::shutdownMinioClient()
     std::lock_guard<std::mutex> lock(m_client_mutex);
     m_minio_client.reset();
     m_credentials.reset();
-    m_client_initialized.store(false, std::memory_order_release);
+    m_client_initialized.store(false);
 }
 
 bool MinioStorageWriter::ensureClientInitialized()
 {
-    if (m_client_initialized.load(std::memory_order_acquire) && m_minio_client)
+    if (m_client_initialized.load() && m_minio_client)
     {
         return true;
     }
@@ -575,7 +575,7 @@ bool MinioStorageWriter::startMultipartUpload(MultipartSession& session)
 
 bool MinioStorageWriter::uploadPart(MultipartSession& session, const std::vector<uint8_t>& data)
 {
-    if (!m_client_initialized.load(std::memory_order_acquire))
+    if (!m_client_initialized.load())
     {
         setLastError("MinIO client not initialized");
         return false;
@@ -635,7 +635,7 @@ bool MinioStorageWriter::uploadPart(MultipartSession& session, const std::vector
 
 bool MinioStorageWriter::completeMultipartUpload(MultipartSession& session)
 {
-    if (!m_client_initialized.load(std::memory_order_acquire))
+    if (!m_client_initialized.load())
     {
         setLastError("MinIO client not initialized");
         return false;
@@ -697,7 +697,7 @@ bool MinioStorageWriter::completeMultipartUpload(MultipartSession& session)
 
 bool MinioStorageWriter::abortMultipartUpload(MultipartSession& session)
 {
-    if (!m_client_initialized.load(std::memory_order_acquire))
+    if (!m_client_initialized.load())
     {
         setLastError("MinIO client not initialized");
         return false;
@@ -738,7 +738,7 @@ bool MinioStorageWriter::abortMultipartUpload(MultipartSession& session)
 bool MinioStorageWriter::putObject(const std::string& bucket_name, const std::string& object_key, 
                                    const std::vector<uint8_t>& data)
 {
-    if (!m_client_initialized.load(std::memory_order_acquire))
+    if (!m_client_initialized.load())
     {
         setLastError("MinIO client not initialized");
         return false;
@@ -784,7 +784,7 @@ bool MinioStorageWriter::putObject(const std::string& bucket_name, const std::st
 
 bool MinioStorageWriter::deleteObject(const std::string& bucket_name, const std::string& object_key)
 {
-    if (!m_client_initialized.load(std::memory_order_acquire))
+    if (!m_client_initialized.load())
     {
         setLastError("MinIO client not initialized");
         return false;
@@ -817,7 +817,7 @@ bool MinioStorageWriter::deleteObject(const std::string& bucket_name, const std:
 
 bool MinioStorageWriter::objectExists(const std::string& bucket_name, const std::string& object_key) const
 {
-    if (!m_client_initialized.load(std::memory_order_acquire))
+    if (!m_client_initialized.load())
     {
         return false;
     }
@@ -841,7 +841,7 @@ bool MinioStorageWriter::objectExists(const std::string& bucket_name, const std:
 
 size_t MinioStorageWriter::getObjectSize(const std::string& bucket_name, const std::string& object_key) const
 {
-    if (!m_client_initialized.load(std::memory_order_acquire))
+    if (!m_client_initialized.load())
     {
         return 0;
     }
@@ -870,7 +870,7 @@ size_t MinioStorageWriter::getObjectSize(const std::string& bucket_name, const s
 
 bool MinioStorageWriter::testConnection() const
 {
-    if (!m_client_initialized.load(std::memory_order_acquire))
+    if (!m_client_initialized.load())
     {
         return false;
     }
