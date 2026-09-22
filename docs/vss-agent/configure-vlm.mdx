@@ -340,7 +340,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
    **Get model id** (use for `VLM_NAME`):
 
    ```bash
-   curl -s "http://\$\{VLM_HOST\}:30082/v1/models" | jq -r '.data[].id'
+   curl -s "http://${VLM_HOST}:30082/v1/models" | jq -r '.data[].id'
    ```
 
 <Note>
@@ -350,13 +350,14 @@ A mismatch between `VLM_NAME` and the `id` from `/v1/models` produces **HTTP 404
    **Reachability from the VSS host:**
 
    ```bash
-   curl -s "http://\$\{VLM_HOST\}:30082/v1/models"
+   curl -s "http://${VLM_HOST}:30082/v1/models"
    ```
 
    **If step 1 ran before vLLM was ready** — set `VLM_NAME` in `user-overrides.env` to the returned `id`, then recreate `vss-agent`:
 
    ```bash
    cd /path/to/video-search-and-summarization/deploy/docker
+   export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
    
    docker compose -f compose.yml \
      --env-file containers.env \

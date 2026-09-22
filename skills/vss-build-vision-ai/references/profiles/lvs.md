@@ -6,6 +6,8 @@
   report generation.
 - Uses RT-VLM for VLM serving and ELK/Kafka for event flow.
 - Choose for video summarization or LVS requests.
+- RTX PRO 4500 Blackwell (`RTXPRO4500BW`) is not a valid hardware profile here;
+  route that SKU to Alerts with a remote LLM.
 
 ## Profile Service Set
 

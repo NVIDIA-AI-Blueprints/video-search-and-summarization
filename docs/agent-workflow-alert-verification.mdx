@@ -83,26 +83,12 @@ Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=alerts
-cp "developer-profiles/dev-profile-\$\{PROFILE\}/overrides.env" \
-  "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env"
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
 ```
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
-
-```bash
-PROFILE=alerts
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/.env" \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env" \
-  config --quiet
-
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/.env" \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env" \
-  up -d
-```
+Before starting Compose, complete the host settings and select one hardware
+layout below in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`.
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
@@ -111,7 +97,7 @@ docker compose -f compose.yml \
 - `VSS_APPS_DIR`: Absolute path to this repository's `deploy/docker` directory.
 - `VSS_DATA_DIR`: Absolute writable host directory for downloaded models, videos, and service data.
 - `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
-- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `\$\{HOST_IP\}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
+- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
 <Note>
 The default deployed model is Cosmos3 Nano Reasoner with BF16 precision.
@@ -192,6 +178,21 @@ mkdir -p "$VSS_APPS_DIR/engines/gdino" "$VSS_APPS_DIR/engines/rtdetr-its"
 chmod -R 777 "$VSS_APPS_DIR/engines"
 chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```
+
+
+**Default container image tag**
+
+`containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.
+Export the tag selected for this documentation branch before choosing a hardware
+layout:
+
+```bash
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
+```
+
+Any service-specific image tag or tag suffix shown inside a hardware tab
+supersedes or augments this common default. Use the SBSA settings shown in the
+GB300 and DGX Spark tabs when deploying on those platforms.
 
 
 <Tabs>
@@ -277,8 +278,8 @@ LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
@@ -291,8 +292,8 @@ MODE=2d_cv
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
@@ -310,8 +311,8 @@ MODE=2d_cv
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -330,8 +331,8 @@ HARDWARE_PROFILE=GB300
 MODE=2d_cv
 RT_CV_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -515,8 +516,8 @@ MODE=2d_cv
 RT_CV_DEVICE_ID=0
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
@@ -658,6 +659,24 @@ RTVI_VLM_MODEL_PATH=none
 </Tab>
 </Tabs>
 
+After replacing every placeholder in the selected layout, from `deploy/docker`
+validate the resolved configuration, then start the profile:
+
+```bash
+PROFILE=alerts
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  up -d
+```
+
 Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
@@ -683,11 +702,11 @@ Once all the containers are running, you can access the agent UI at `http://<HOS
 
 As an alternative to running the deployment command manually, you can use VSS
 Agent Skills from a coding agent such as Claude Code, Codex, or NemoClaw.
-First, install the `deploy` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
+First, install the [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your coding agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
-The deploy skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The `vss-build-vision-ai` skill composes the stack from the capabilities you name and selects the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 **Deploy prompt structure**
@@ -696,7 +715,7 @@ Refer to the requirements table for valid platform and mode combinations compati
 Deploy the VSS alerts verification profile.
 ```
 
-For edge platforms, ask the deploy skill to use a remote LLM when possible.
+For edge platforms, ask the `vss-build-vision-ai` skill to use a remote LLM when possible.
 Local LLM/VLM sharing on the edge GPU is supported, but a remote LLM is recommended for better response time.
 See [VSS Agent Customization - Configure LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
 
@@ -708,7 +727,7 @@ Deploy the VSS alerts verification profile on this IGX-THOR machine with a remot
 Deploy the VSS alerts verification profile on this AGX-THOR machine with a remote LLM.
 ```
 
-The deploy skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
+The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:
 

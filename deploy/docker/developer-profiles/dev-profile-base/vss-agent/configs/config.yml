@@ -124,6 +124,8 @@ functions:
 
       • Type `/refine <instructions>` → AI modifies the current prompt
 
+      • Type `/default` → Restore the system default prompt
+
       • Type `/cancel` → Cancel report generation
 
       Enter your choice or press Submit to keep current value:

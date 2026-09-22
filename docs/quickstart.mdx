@@ -29,11 +29,11 @@ The following diagram illustrates a conceptual architecture of the base vision a
 
 ## What's being deployed
 
-- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM/VLM NIMs) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`), which handles query routing, reasoning, and report generation.
+- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM and RT-VLM) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`), which handles query routing, reasoning, and report generation.
 - **VSS Agent UI:** Web UI with chat, video upload, and different views
 - **VSS Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
 - **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
-- **Cosmos3 Nano Reasoner (NIM):** Vision-language model with physical reasoning capabilities
+- **Real-Time VLM (RT-VLM):** VLM microservice that serves the integrated Cosmos3 Nano Reasoner model for physical reasoning and video understanding
 - **Phoenix:** Observability and telemetry service for agent workflow monitoring
 
 ## Agent Harness Options
@@ -87,8 +87,8 @@ See [Prerequisites](/vss/getting-started/prerequisites) for NGC setup.
 ngc registry resource download-version nvidia/vss-developer/dev-profile-sample-data:3.2.0
 
 EXTRACT_DIR=./sample-data
-mkdir -p "\$\{EXTRACT_DIR\}"
-tar -xf dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz -C "\$\{EXTRACT_DIR\}"
+mkdir -p "${EXTRACT_DIR}"
+tar -xf dev-profile-sample-data_v3.2.0/dev-profile-sample-data.tar.gz -C "${EXTRACT_DIR}"
 
 rm -rf dev-profile-sample-data_v3.2.0
 ```
@@ -102,16 +102,17 @@ Perform this on the machine where you intend to deploy the agent.
 </Note>
 
 ```bash
-git clone --branch develop https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone --branch "${VSS_DOCS_GIT_REF:-develop}" https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
 git lfs install
 git lfs pull
 ```
 
 <Note>
-The native Docker Compose workflow below requires the `develop` branch. The
-latest release tag, `v3.2.1`, does not contain `deploy/docker/containers.env` or
-the per-profile `overrides.env` templates used by these commands.
+The native Docker Compose workflow below uses checkout reference
+`${VSS_DOCS_GIT_REF:-develop}`. Keep that reference aligned with the image tags
+selected for the documentation build because the Compose file layout is
+release-specific.
 </Note>
 
 ## Prepare your coding agent
@@ -218,26 +219,12 @@ Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=base
-cp "developer-profiles/dev-profile-\$\{PROFILE\}/overrides.env" \
-  "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env"
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
 ```
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
-
-```bash
-PROFILE=base
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/.env" \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env" \
-  config --quiet
-
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/.env" \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env" \
-  up -d
-```
+Before starting Compose, complete the host settings and select one hardware
+layout below in `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`.
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
@@ -246,7 +233,7 @@ docker compose -f compose.yml \
 - `VSS_APPS_DIR`: Absolute path to this repository's `deploy/docker` directory.
 - `VSS_DATA_DIR`: Absolute writable host directory for downloaded models, videos, and service data.
 - `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
-- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `\$\{HOST_IP\}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
+- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
 
 Set these required placeholder values in the existing assignments:
@@ -273,6 +260,21 @@ mkdir -p \
   "$VSS_DATA_DIR/agent_eval/results"
 chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```
+
+
+**Default container image tag**
+
+`containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.
+Export the tag selected for this documentation branch before choosing a hardware
+layout:
+
+```bash
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
+```
+
+Any service-specific image tag or tag suffix shown inside a hardware tab
+supersedes or augments this common default. Use the SBSA settings shown in the
+GB300 and DGX Spark tabs when deploying on those platforms.
 
 
 <Tabs>
@@ -352,7 +354,7 @@ HARDWARE_PROFILE=GB300
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
@@ -363,7 +365,7 @@ RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 HARDWARE_PROFILE=GB300
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
@@ -379,7 +381,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 HARDWARE_PROFILE=GB300
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -396,7 +398,7 @@ RTVI_VLM_MODEL_PATH=none
 ```ini
 HARDWARE_PROFILE=GB300
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -553,7 +555,7 @@ and [Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for 
 HARDWARE_PROFILE=DGX-SPARK
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -680,6 +682,24 @@ RTVI_VLM_MODEL_PATH=none
 </Tabs>
 </Tab>
 </Tabs>
+
+After replacing every placeholder in the selected layout, from `deploy/docker`
+validate the resolved configuration, then start the profile:
+
+```bash
+PROFILE=base
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  up -d
+```
 
 Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
 your network speed, this may take a few minutes.
@@ -836,7 +856,8 @@ The HITL options for prompt-editing include:
   <img src="/assets/images/agent-workflows/base_hitl_refine.png" alt="HITL: Refine the existing prompt based on description" />
 </Frame>
 
-5. Type `/cancel` → Cancel report generation
+5. Type `/default` → Restore the system default VLM prompt. Last approved edits remain saved until you submit the restored default.
+6. Type `/cancel` → Cancel report generation
 
 <Frame>
   <img src="/assets/images/agent-workflows/base_hitl_cancelled.png" alt="HITL: LLM-refined prompt result" />
@@ -856,7 +877,7 @@ For any video clip, a report can be generated and then follow-up questions can b
 
 <Note>
 The agent generates both Markdown (`.md`) and PDF (`.pdf`) reports. Generated reports are accessible at
-`http://<HOST_IP>:8000/static/agent_report_<DATE>.md` and `http://<HOST_IP>:8000/static/agent_report_<DATE>.pdf`. By default, the agent uses an in-memory object store (`_type: in_memory`), so reports will be lost when the
+`http://<HOST_IP>:7777/static/agent_report_<DATE>.md` and `http://<HOST_IP>:7777/static/agent_report_<DATE>.pdf` through the public ingress. By default, the agent uses an in-memory object store (`_type: in_memory`), so reports will be lost when the
 `vss-agent` container restarts. To persist reports, enable `save_local_copy` in the agent configuration and
 mount a host directory as a Docker volume. For details, refer to [Report Generation](/vss/vision-agent/vss-agents/report-generation).
 </Note>
@@ -951,9 +972,12 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 7. Returns a browser-reachable ingress URL (for example
    `http://<HOST_IP>:7777/`) for opening the UI.
 
-The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM (port
-`30081`) and the `nvidia/cosmos3-nano-reasoner` VLM NIM (port `30082`). To use
-a different model or a remote endpoint, name it in the prompt and the agent
+The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM on
+host port `30081` and the `vss-rtvi-vlm` service on host port `8018`. RT-VLM
+serves the integrated Cosmos3 Nano Reasoner model; the local base profile does
+not deploy a separate VLM NIM. In remote mode, RT-VLM remains available on host
+port `8018` and proxies requests to the configured external VLM endpoint. To
+use a different model or a remote endpoint, name it in the prompt and the agent
 sets `LLM_MODE` / `VLM_MODE` accordingly.
 
 ### Upload a video and manage storage
@@ -992,9 +1016,10 @@ Is the worker in warehouse_safety_0001 wearing PPE?
    link you supply — and the VLM endpoint and model, which it reads from the
    running deployment or takes from `VLM_ENDPOINT` and `VLM_MODEL`.
 3. Sends the question and the video to the VLM in a single
-   `POST <vlm-endpoint>/v1/chat/completions` call — the Cosmos VLM NIM on port
-   `30082` for the base profile, RT-VLM for the `lvs` and `alerts`
-   profiles. (Does **not** go through the VSS agent — neither its
+   `POST <vlm-endpoint>/v1/chat/completions` call. Local `base`, `lvs`, and
+   `alerts` profiles expose RT-VLM on host port `8018`. In remote mode, this
+   RT-VLM service proxies requests to the configured external VLM endpoint.
+   (Does **not** go through the VSS agent — neither its
    `video_understanding` tool nor its `/generate` endpoint.)
 4. Returns a grounded natural-language answer. Follow-up questions are
    supported in the same thread.

@@ -57,6 +57,8 @@ from server.rtvi_vlm_server import (
     GENERATE_CAPTIONS_STREAM_POLL_INTERVAL_SEC,
     RTVIServer,
     _build_chat_assistant_message,
+    _has_prompt_reasoning_format,
+    _prompt_requests_reasoning,
 )
 from tests.tests_common import TempEnv
 from vlm_pipeline.vlm_pipeline import PipelineChunkResult, VlmModelType, VlmPipeline, VlmProcess
@@ -118,6 +120,91 @@ def _config_payload(
 
 class TestChatCompletionFormatting:
     """Test chat completion response formatting helpers."""
+
+    @pytest.mark.parametrize(
+        ("request_data", "expected"),
+        [
+            (
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": (
+                                "Answer using this format: "
+                                "<think>reasoning</think> verdict."
+                            ),
+                        }
+                    ]
+                },
+                True,
+            ),
+            (
+                {
+                    "enable_reasoning": False,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": (
+                                "Answer using this format: "
+                                "<think>reasoning</think> verdict."
+                            ),
+                        }
+                    ],
+                },
+                False,
+            ),
+            (
+                {"messages": [{"role": "user", "content": "Explain the `<think>` tag."}]},
+                False,
+            ),
+            (
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": (
+                                "Answer using this format: "
+                                "<think>reasoning</think> verdict."
+                            ),
+                        },
+                        {"role": "assistant", "content": "Earlier answer."},
+                        {"role": "user", "content": "Answer yes or no."},
+                    ]
+                },
+                False,
+            ),
+            (
+                {
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "Respond in this format: "
+                                "<think>reasoning</think><answer>yes</answer>."
+                            ),
+                        },
+                        {"role": "user", "content": "Classify the video."},
+                    ]
+                },
+                True,
+            ),
+        ],
+    )
+    def test_prompt_requests_reasoning(self, request_data, expected):
+        request = ChatCompletionRequest(model="test-model", **request_data)
+
+        assert _prompt_requests_reasoning(request) is expected
+
+    def test_prompt_reasoning_format_handles_large_non_contract_input(self):
+        assert _has_prompt_reasoning_format("answer " * 16_000) is False
+        assert (
+            _has_prompt_reasoning_format("Answer with information: <think>example</think>.")
+            is False
+        )
+        assert (
+            _has_prompt_reasoning_format("A reformatted <think>example</think> response.")
+            is False
+        )
 
     def test_stream_poll_interval_avoids_one_second_ttft_floor(self):
         assert CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC <= 0.005

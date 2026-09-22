@@ -66,6 +66,7 @@ does not expose is *absent* from the file rather than present-but-broken.
 | `vss configure show` | Print the recorded deployment as JSON |
 | `vss configure check` | Re-probe each recorded route, then list which command groups are available |
 | `vss configure memory …` | Static memory policy (see below) |
+| `vss configure vlm …` | Reusable VLM request policy, with optional locking |
 
 ### What gets probed and recorded
 
@@ -94,14 +95,14 @@ so configuring a fresh stack records zero `mdx-*` indices and says so — re-run
 ### The config file
 
 Written to `~/.vss/config.json` at mode 0600, holding **no credentials**: only
-URLs, discovered model/index names, `written_at`, and static memory policy.
+URLs, discovered model/index names, `written_at`, and static memory/VLM policy.
 Set `VSS_CONFIG_HOME` to point at a different directory for a second deployment
 or for tests. The file carries a `version`; one written by a newer CLI is
 refused rather than half-read, with a message telling you to re-run `configure`.
 
 Re-running `vss configure --base-url …` refreshes routes and **preserves valid
-static memory policy**, so re-probing after a deployment change does not reset
-your judge, embedding, or persistence settings.
+static memory and VLM policy**, so re-probing after a deployment change does
+not reset request, judge, embedding, or persistence settings.
 
 `vss configure check` prints per-service reachability and a `commands:` table
 marking each group available or unavailable (a group is available only when
@@ -111,6 +112,48 @@ answers.
 That same file is where memory policy lives. `vss configure` records service
 URLs (including RT-VLM). `vss configure memory` records how the CLI uses
 Elasticsearch, embeddings, the text judge, and optional Markdown notes.
+
+## Configure VLM requests
+
+`vss configure vlm` stores reusable defaults for `vss vlm run`. Add `--lock`
+to reject conflicting per-call flags:
+
+```bash
+vss configure vlm \
+  --backend rt-vlm \
+  --timeout 600 \
+  --temperature 0 \
+  --max-tokens 8192 \
+  --seed 1 \
+  --disable-reasoning \
+  --chunk-duration 0 \
+  --fps 4 \
+  --shortest-edge 262144 \
+  --longest-edge 16777216 \
+  --lock
+```
+
+Each field also has an independent runtime environment override:
+
+| Field | Environment variable |
+|-------|----------------------|
+| `backend` | `VSS_VLM_BACKEND` (`rt_vlm`, `vllm`, or alpha `cosmos_reason_nim`) |
+| `timeout` | `VSS_VLM_TIMEOUT` |
+| `temperature` | `VSS_VLM_TEMPERATURE` |
+| `max_tokens` | `VSS_VLM_MAX_TOKENS` |
+| `seed` | `VSS_VLM_SEED` |
+| `enable_reasoning` | `VSS_VLM_ENABLE_REASONING` (`true` or `false`) |
+| `chunk_duration` | `VSS_VLM_CHUNK_DURATION` |
+| `fps` | `VSS_VLM_FPS` |
+| `shortest_edge` | `VSS_VLM_SHORTEST_EDGE` |
+| `longest_edge` | `VSS_VLM_LONGEST_EDGE` |
+| `locked` | `VSS_VLM_LOCKED` (`true` or `false`) |
+
+Environment variables provide per-field defaults. Values persisted by
+`vss configure vlm` override those defaults. Explicit `vss vlm run` arguments
+override the resulting policy when it is unlocked; conflicting arguments are
+rejected when it is locked. If neither source defines a field, its built-in
+request default applies. Empty or malformed environment variables are errors.
 
 ## The surface
 
@@ -122,7 +165,7 @@ Elasticsearch, embeddings, the text judge, and optional Markdown notes.
 | `vss memory` | Unified-memory access, embeddings backfill, introspection | `upsert`, `get`, `query`, `events`, `introspect`, `embeddings backfill` |
 | `vss analytics` | Read-only incidents, analytics sensors/places, and metrics | `incidents`, `incident`, `sensors`, `places`, `fov-histogram`, `average-speed`, `analyze` |
 | `vss vios` | Media plane: sensors, timelines, clip and snapshot URLs | `list`, `timeline`, `clip`, `snapshot`, `add`, `delete` |
-| `vss configure` | Resolve a deployment and set static memory policy | `show`, `check`, `memory`, `memory show`, `memory check`, `memory introspection` |
+| `vss configure` | Resolve a deployment and set static memory/VLM policy | `show`, `check`, `memory`, `memory show`, `memory check`, `memory introspection`, `vlm` |
 
 `search`, `summarize`, and `vlm` are **job groups**: every run mints a `job_id`, and the
 result stays retrievable by that id. `analytics` and `vios` are **not**:
@@ -287,13 +330,15 @@ vss vlm run --sensor warehouse --prompt "What happened?" --start-time T --end-ti
 | `--model` | deployment `rt_vlm` model | Override the recorded model name |
 | `--timeout` | 30s (`vlm run`); 180s (introspection follow-ups) | HTTP / workflow budget |
 | `--num-frames` | 8 when neither sampling flag is set | Fixed frame count across the clip |
-| `--fps` | unset | Frames per second; mutually exclusive with `--num-frames`. When clip duration is known, `fps × seconds` is capped at 60 frames (converted to a fixed sample if it would exceed). |
+| `--fps` | unset | Frames per second; mutually exclusive with `--num-frames`. Direct `vlm run` sends the requested rate to the backend without converting it to a 60-frame sample. For standalone vLLM, its loader receives `fps` with `num_frames=-1`, then Qwen consumes the selected frames without sampling again. Backend/deployment limits still apply. |
 | `--max-tokens` / `--temperature` | unset | Optional generation knobs |
 | `--intent` | `qa` (`vlm run`); `introspection` (follow-ups) | Stored on the memory record |
 | `--no-persist` | off | Skip writing this VLM job |
 
-Introspection follow-ups reuse this path, accept `--fps`, and honor
-`--persist-by-default`.
+Introspection follow-ups use the bounded analyzer rather than direct
+`vlm run`'s FPS translation. They accept `--fps`, but a known-duration request
+that implies more than 60 frames becomes a fixed 60-frame sample. They also
+honor `--persist-by-default`.
 Persisted jobs remain visible via `vss vlm get` / `list`.
 
 ### Embeddings and retrieval mode

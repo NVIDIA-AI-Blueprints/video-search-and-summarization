@@ -516,3 +516,204 @@ async def test_max_min_analysis_clips_incidents_to_query_window(
     assert body["result"]["minimum_overlap"] == 2
     assert body["result"]["maximum_overlap_at"] == "2026-01-01T00:30:00+00:00"
     assert body["result"]["minimum_overlap_at"] == "2026-01-01T00:30:00+00:00"
+
+
+def _occupancy_histogram(*buckets: dict[str, object]) -> dict[str, object]:
+    return {"bucketSizeInSec": 5, "histogram": list(buckets)}
+
+
+def _occupancy_bucket(start: str, end: str, object_type: str, average_count: object) -> dict[str, object]:
+    return {
+        "start": start,
+        "end": end,
+        "objects": [{"type": object_type, "averageCount": average_count}],
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("analysis_type", "object_type"),
+    [("avg-num-people", "Person"), ("avg-num-vehicles", "Vehicle")],
+)
+async def test_occupancy_average_weights_unequal_bucket_durations(
+    client: AnalyticsClient,
+    transport: tuple[list[tuple[str, dict[str, object] | None]], dict[str, object]],
+    analysis_type: str,
+    object_type: str,
+) -> None:
+    _calls, responses = transport
+    responses["metrics/occupancy/fov/histogram"] = _occupancy_histogram(
+        _occupancy_bucket("2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z", object_type, 100),
+        _occupancy_bucket("2026-01-01T00:00:01Z", "2026-01-01T00:00:06Z", object_type, 0),
+    )
+    body = await client.analyze(
+        source="cam",
+        source_type="sensor",
+        start_time="2026-01-01T00:00:00Z",
+        end_time="2026-01-01T00:00:06Z",
+        analysis_type=analysis_type,
+    )
+    assert body["result"]["average_count"] == pytest.approx(100 / 6)
+    assert body["result"]["average_count"] != 50
+    assert body["result"]["bucket_count"] == 2
+    assert body["result"]["object_type"] == object_type
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "analysis_type",
+    ["avg-num-people", "avg-num-vehicles"],
+)
+async def test_occupancy_average_matches_arithmetic_mean_for_equal_durations(
+    client: AnalyticsClient,
+    transport: tuple[list[tuple[str, dict[str, object] | None]], dict[str, object]],
+    analysis_type: str,
+) -> None:
+    object_type = "Person" if analysis_type == "avg-num-people" else "Vehicle"
+    _calls, responses = transport
+    responses["metrics/occupancy/fov/histogram"] = _occupancy_histogram(
+        _occupancy_bucket("2026-01-01T00:00:00Z", "2026-01-01T00:00:05Z", object_type, 2),
+        _occupancy_bucket("2026-01-01T00:00:05Z", "2026-01-01T00:00:10Z", object_type, 4),
+    )
+    body = await client.analyze(
+        source="cam",
+        source_type="sensor",
+        start_time="2026-01-01T00:00:00Z",
+        end_time="2026-01-01T00:00:10Z",
+        analysis_type=analysis_type,
+    )
+    assert body["result"]["average_count"] == pytest.approx(3)
+    assert body["result"]["bucket_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_occupancy_average_empty_histogram_returns_none(
+    client: AnalyticsClient,
+    transport: tuple[list[tuple[str, dict[str, object] | None]], dict[str, object]],
+) -> None:
+    _calls, responses = transport
+    responses["metrics/occupancy/fov/histogram"] = _occupancy_histogram()
+    body = await client.analyze(
+        source="cam",
+        source_type="sensor",
+        start_time="2026-01-01T00:00:00Z",
+        end_time="2026-01-01T00:01:00Z",
+        analysis_type="avg-num-people",
+    )
+    assert body["result"] == {"object_type": "Person", "average_count": None, "bucket_count": 0}
+    assert "No person objects were detected" in body["summary"]
+
+
+@pytest.mark.asyncio
+async def test_occupancy_average_excludes_boolean_average_count(
+    client: AnalyticsClient,
+    transport: tuple[list[tuple[str, dict[str, object] | None]], dict[str, object]],
+) -> None:
+    _calls, responses = transport
+    responses["metrics/occupancy/fov/histogram"] = _occupancy_histogram(
+        _occupancy_bucket("2026-01-01T00:00:00Z", "2026-01-01T00:00:05Z", "Person", True),
+        _occupancy_bucket("2026-01-01T00:00:05Z", "2026-01-01T00:00:10Z", "Person", False),
+        _occupancy_bucket("2026-01-01T00:00:10Z", "2026-01-01T00:00:15Z", "Person", 3),
+    )
+    body = await client.analyze(
+        source="cam",
+        source_type="sensor",
+        start_time="2026-01-01T00:00:00Z",
+        end_time="2026-01-01T00:00:15Z",
+        analysis_type="avg-num-people",
+    )
+    assert body["result"]["average_count"] == pytest.approx(3)
+    assert body["result"]["bucket_count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bucket",
+    [
+        _occupancy_bucket("not-a-timestamp", "2026-01-01T00:00:05Z", "Person", 100),
+        _occupancy_bucket("2026-01-01T00:00:05Z", "2026-01-01T00:00:00Z", "Person", 100),
+        _occupancy_bucket("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", "Person", 100),
+        {"end": "2026-01-01T00:00:05Z", "objects": [{"type": "Person", "averageCount": 100}]},
+        {
+            "start": "2026-01-01T00:00:00Z",
+            "end": "2026-01-01T00:00:05Z",
+            "objects": [{"type": "Person", "averageCount": "100"}],
+        },
+    ],
+)
+async def test_occupancy_average_skips_unusable_buckets(
+    client: AnalyticsClient,
+    transport: tuple[list[tuple[str, dict[str, object] | None]], dict[str, object]],
+    bucket: dict[str, object],
+) -> None:
+    _calls, responses = transport
+    responses["metrics/occupancy/fov/histogram"] = _occupancy_histogram(
+        bucket,
+        _occupancy_bucket("2026-01-01T00:00:05Z", "2026-01-01T00:00:10Z", "Person", 4),
+    )
+    body = await client.analyze(
+        source="cam",
+        source_type="sensor",
+        start_time="2026-01-01T00:00:00Z",
+        end_time="2026-01-01T00:00:10Z",
+        analysis_type="avg-num-people",
+    )
+    assert body["result"]["average_count"] == pytest.approx(4)
+    assert body["result"]["bucket_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_occupancy_average_all_unusable_buckets_returns_none(
+    client: AnalyticsClient,
+    transport: tuple[list[tuple[str, dict[str, object] | None]], dict[str, object]],
+) -> None:
+    _calls, responses = transport
+    responses["metrics/occupancy/fov/histogram"] = _occupancy_histogram(
+        _occupancy_bucket("2026-01-01T00:00:05Z", "2026-01-01T00:00:00Z", "Person", 100),
+        _occupancy_bucket("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z", "Person", 50),
+    )
+    body = await client.analyze(
+        source="cam",
+        source_type="sensor",
+        start_time="2026-01-01T00:00:00Z",
+        end_time="2026-01-01T00:00:05Z",
+        analysis_type="avg-num-people",
+    )
+    assert body["result"]["average_count"] is None
+    assert body["result"]["bucket_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_place_occupancy_average_uses_each_merged_bucket_duration(
+    client: AnalyticsClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def sensors(place: str | None = None) -> list[str]:
+        assert place == "building=Warehouse"
+        return ["cam-1", "cam-2"]
+
+    results = iter(
+        [
+            _occupancy_histogram(
+                _occupancy_bucket("2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z", "Person", 100),
+            ),
+            _occupancy_histogram(
+                _occupancy_bucket("2026-01-01T00:00:01Z", "2026-01-01T00:00:06Z", "Person", 0),
+            ),
+        ]
+    )
+
+    async def get(_path: str, _operation: str, _params: object = None) -> object:
+        return next(results)
+
+    monkeypatch.setattr(client, "sensors", sensors)
+    monkeypatch.setattr(client, "_get", get)
+    body = await client.analyze(
+        source="building=Warehouse",
+        source_type="place",
+        start_time="2026-01-01T00:00:00Z",
+        end_time="2026-01-01T00:00:06Z",
+        analysis_type="avg-num-people",
+    )
+    assert body["result"]["average_count"] == pytest.approx(100 / 6)
+    assert body["result"]["bucket_count"] == 2

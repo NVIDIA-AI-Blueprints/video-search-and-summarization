@@ -29,9 +29,9 @@ def test_unescaped_substitution_is_rejected() -> None:
 
 
 def test_prefixed_substitution_still_requires_explicit_allowlisting() -> None:
-    issues = CHECK.find_issues(Path("docs/example.mdx"), "${VSS_DOCS_GIT_REF}")
+    issues = CHECK.find_issues(Path("docs/example.mdx"), "${VSS_DOCS_UNDECLARED}")
     assert len(issues) == 1
-    assert "unintended Fern substitution ${VSS_DOCS_GIT_REF}" in issues[0]
+    assert "unintended Fern substitution ${VSS_DOCS_UNDECLARED}" in issues[0]
 
 
 def test_explicitly_allowlisted_docs_substitution_is_allowed() -> None:
@@ -58,6 +58,16 @@ def test_partial_escape_is_rejected() -> None:
 
 def test_shell_default_expression_is_not_a_fern_substitution() -> None:
     assert CHECK.find_issues(Path("docs/example.mdx"), "${PORT:-8080}") == []
+
+
+def test_docs_substitution_defaults_are_declared() -> None:
+    assert CHECK.ALLOWED_SUBSTITUTIONS == frozenset(
+        {
+            "VSS_DOCS_GIT_REF",
+            "VSS_DOCS_IMAGE_TAG",
+            "VSS_DOCS_SBSA_IMAGE_TAG",
+        }
+    )
 
 
 def test_json_unicode_escape_is_rejected_after_decoding() -> None:
@@ -110,6 +120,7 @@ if __name__ == "__main__":
     test_allowlist_rejects_names_outside_docs_namespace()
     test_partial_escape_is_rejected()
     test_shell_default_expression_is_not_a_fern_substitution()
+    test_docs_substitution_defaults_are_declared()
     test_json_unicode_escape_is_rejected_after_decoding()
     test_json_literal_unicode_escape_is_not_decoded_twice()
     test_yaml_unicode_escapes_are_rejected_after_decoding()
