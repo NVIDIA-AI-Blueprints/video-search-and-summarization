@@ -56,7 +56,8 @@ extern "C" void deleteStreamBridgeObject(IVstModule* object)
 
 StreamBridgeService::StreamBridgeService(std::shared_ptr<PeerConnectionManager> peerConnectionManager,
                                     std::shared_ptr<DeviceManager> deviceManager)
-                                    : m_peerConnectionManager(peerConnectionManager), m_deviceManager(deviceManager)
+                                    : m_peerConnectionManager(peerConnectionManager), m_deviceManager(deviceManager),
+                                      m_remoteConnections(), m_callbackMap()
 {
     if (m_peerConnectionManager.get() == nullptr)
     {

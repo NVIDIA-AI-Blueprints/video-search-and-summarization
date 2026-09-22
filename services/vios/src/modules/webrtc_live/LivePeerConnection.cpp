@@ -107,7 +107,8 @@ extern "C" void deletePeerConnectionLiveManagerObject(IVstModule* object)
 
 LivePeerConnection::LivePeerConnection(std::shared_ptr<PeerConnectionManager> peerConnectionManager,
                                                     std::shared_ptr<DeviceManager> deviceManager)
-                                                    : m_peerConnectionManager(peerConnectionManager), m_deviceManager(deviceManager)
+                                                    : m_peerConnectionManager(peerConnectionManager), m_deviceManager(deviceManager),
+                                                      m_imageCleanupScheduler(nullptr)
 {
     if (m_peerConnectionManager.get() == nullptr)
     {

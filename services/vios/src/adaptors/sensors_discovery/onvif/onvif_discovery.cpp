@@ -74,7 +74,7 @@ extern "C" void destroyObject( OnvifDiscovery* object )
     std::unique_ptr<OnvifDiscovery> deleter(object);
 }
 
-OnvifDiscovery::OnvifDiscovery()
+OnvifDiscovery::OnvifDiscovery() : m_exit(false)
 {
     // Initialize CURL multi handle for sensor synchronization
     m_sensorSyncMultiHandle = curl_multi_init();

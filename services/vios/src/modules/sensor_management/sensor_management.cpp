@@ -137,7 +137,8 @@ void SensorManagement::setConfigValues(std::shared_ptr<DeviceManager> deviceMana
     LOG(info) << "enable_stream_monitoring: " << deviceManager->needStreamMonitoring << endl;
 }
 
-SensorManagement::SensorManagement(std::shared_ptr<DeviceManager> deviceMngr): m_deviceManager(deviceMngr)
+SensorManagement::SensorManagement(std::shared_ptr<DeviceManager> deviceMngr): m_deviceManager(deviceMngr),
+    m_sensorMonitoring(nullptr), m_sensorControl(nullptr), m_userRemovedList()
 {
 
     map<string, std::shared_ptr<DeviceManager>, std::less<>>::iterator it_server;

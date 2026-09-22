@@ -98,7 +98,8 @@ ReplayPeerConnection::ReplayPeerConnection(std::shared_ptr<PeerConnectionManager
                                                         std::shared_ptr<DeviceManager> deviceManager)
                                                         : m_peerConnectionManager(peerConnectionManager), 
                                                           m_deviceManager(deviceManager),
-                                                          m_unifiedStorageReader(nullptr)
+                                                          m_unifiedStorageReader(nullptr),
+                                                          m_imageCleanupScheduler(nullptr)
 {
     if (m_peerConnectionManager.get() == nullptr)
     {
