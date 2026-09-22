@@ -486,10 +486,12 @@ For a group built at runtime — by an agent, or while iterating — drop it und
 
 ```toml
 # plugin.toml
-name    = "tripwire"
 summary = "Tripwire detections"
 group   = "tripwire_plugin:GROUP"     # module:attr, same shape as an entry point
 ```
+
+The **directory name is the group name** — there is no `name` key, so two
+directories cannot claim one mount point.
 
 The directory goes on `sys.path` when — and only when — that group is invoked.
 `name` and `summary` are read as data on every startup, so `vss --help` lists
@@ -507,6 +509,17 @@ vss memory get --job-id tripwire-01M3...
 hides a group without deleting it. A directory whose name is already installed
 is refused, naming both sources — a dropped file must not silently replace
 `search`.
+
+Why a directory rather than a wheel: installing couples *adding a command* to
+*knowing and mutating the environment the CLI runs from*, and on a host with
+more than one `vss` install that is ambiguous. The plugin root is resolved by
+the CLI itself, so whichever `vss` runs finds the same groups, with no install
+step and no write access to site-packages. Ship a wheel to get merged; drop a
+directory to iterate.
+
+**This is a code-execution surface.** Anything able to write under the plugin
+root runs in the `vss` process. That is the point for an agent adding its own
+commands, but it means the root deserves the same trust as the virtualenv.
 
 ### What a job group implements
 

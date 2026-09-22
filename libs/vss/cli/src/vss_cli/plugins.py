@@ -105,12 +105,12 @@ class GroupRef:
     value: str
     dist: str | None
     #: Directory the manifest was read from, for an on-disk group. None for an
-    #: installed one. Carried so ``load`` can import from it, and so a
-    #: collision can name where each side came from.
+    #: installed one. Carried so ``load`` can import from it, and so a clash
+    #: with an installed name can say where the other side came from.
     source: Path | None = None
-    #: Why this group cannot be loaded, when discovery already knows. Set for a
-    #: manifest that will not parse, one that declares no importable, and a name
-    #: two directories both claim. ``load`` raises it rather than guessing.
+    #: Why this group cannot be loaded, when discovery already knows: a
+    #: manifest that will not parse, or one declaring no importable.
+    #: ``load`` raises it rather than guessing.
     unavailable: str | None = None
 
 
@@ -136,11 +136,13 @@ def plugin_root() -> Path:
 def _manifests() -> list[GroupRef]:
     """Read every ``<root>/<name>/plugin.toml``. Imports nothing.
 
-    A manifest carries ``summary`` as data for the same reason the
-    ``vss.command_summaries`` entry point does: ``vss --help`` can list an
-    installed group without importing it, and an on-disk group must not be the
-    one exception that makes help pay for an import -- or lets a broken
-    third-party module break help for everything else.
+    The directory name *is* the group name, so the manifest carries only what
+    the filesystem cannot say: a one-line ``summary`` and the ``module:attr``
+    to import. ``summary`` is data for the same reason the
+    ``vss.command_summaries`` entry point is: ``vss --help`` lists every group
+    without importing any, and an on-disk group must not be the one exception
+    that makes help pay for an import -- or lets a broken third-party module
+    break help for everything else.
     """
     root = plugin_root()
     try:
@@ -168,7 +170,9 @@ def _manifests() -> list[GroupRef]:
                 )
             )
             continue
-        name = str(declared.get("name") or directory.name)
+        # The directory *is* the name. A `name` key would let two directories
+        # claim one mount point, which is the collision this cannot now have.
+        name = directory.name
         value = declared.get("group")
         refs.append(
             GroupRef(
@@ -181,31 +185,7 @@ def _manifests() -> list[GroupRef]:
             )
         )
 
-    # Two directories may declare the same manifest `name` -- the directory
-    # name and the declared name need not match, so this is not prevented by
-    # the filesystem. Collapsing them by dict order would pick a winner in
-    # silence, which is the failure the installed-name check exists to avoid;
-    # refuse both and name each directory instead.
-    by_name: dict[str, list[GroupRef]] = {}
-    for ref in refs:
-        by_name.setdefault(ref.name, []).append(ref)
-    resolved: list[GroupRef] = []
-    for name, group in by_name.items():
-        if len(group) == 1:
-            resolved.append(group[0])
-            continue
-        sources = ", ".join(str(ref.source) for ref in group)
-        resolved.append(
-            GroupRef(
-                name=name,
-                summary="",
-                value="",
-                dist=None,
-                source=group[0].source,
-                unavailable=f"more than one directory declares the name {name!r}: {sources}",
-            )
-        )
-    return resolved
+    return refs
 
 
 def _summaries() -> dict[str, str]:
