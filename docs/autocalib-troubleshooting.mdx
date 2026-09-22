@@ -140,7 +140,7 @@ This section provides solutions to common issues and error messages.
 **Solutions**:
 
 1. **Confirm project type** — VGGT is **multi-camera only** (two or more videos); not supported for single-camera
-2. **Verify model installation** — download the VGGT model and place it in `\$\{VSS_DATA_DIR\}/auto-calib/vggt/`
+2. **Verify model installation** — download the VGGT model and place it in `${VSS_DATA_DIR}/auto-calib/vggt/`
 3. **Run at the right time** — complete Rectification, verify the project, then **Start VGGT Calibration**; AMC is **not** required
 4. **View VGGT results** — after VGGT completes, run layout post-processing (multi-camera) for overlays; open **Results** and use the **VGGT** tab
 5. **Check server logs**: `docker compose logs | grep -i vggt`

@@ -67,7 +67,7 @@ export NGC_CLI_ORG='nvidia'
 ```bash
 # Create directory for mdx-data
 export MDX_DATA_DIR={some path to a directory where data, videos etc will be placed}
-mkdir -p \$\{MDX_DATA_DIR\}
+mkdir -p ${MDX_DATA_DIR}
 ```
 
 ### Download Sample Data
@@ -84,9 +84,9 @@ tar \
     -xvf \
     public-safety-metropolis-app-data-tailgate_v3.0.0/metropolis-apps-data.tar.gz \
     --strip-components=1 \
-    -C \$\{MDX_DATA_DIR\}
+    -C ${MDX_DATA_DIR}
 
-sudo chmod -R 777 \$\{MDX_DATA_DIR\}
+sudo chmod -R 777 ${MDX_DATA_DIR}
 
 rm -rf public-safety-metropolis-app-data-tailgate_v3.0.0
 ```
@@ -120,10 +120,10 @@ export MDX_SAMPLE_APPS_DIR="$(realpath .)"
 export HOST_IP="$(ip route get 1.1.1.1 | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") print $(i+1)}')"
 
 sed -i \
-    -e "s|^MDX_SAMPLE_APPS_DIR=.*|MDX_SAMPLE_APPS_DIR=\"\$\{MDX_SAMPLE_APPS_DIR\}\"|" \
-    -e "s|^MDX_DATA_DIR=.*|MDX_DATA_DIR=\"\$\{MDX_DATA_DIR\}\"|" \
-    -e "s|^HOST_IP=.*|HOST_IP=\"\$\{HOST_IP\}\"|" \
-    -e "s|^NGC_CLI_API_KEY=.*|NGC_CLI_API_KEY=\"\$\{NGC_CLI_API_KEY\}\"|" \
+    -e "s|^MDX_SAMPLE_APPS_DIR=.*|MDX_SAMPLE_APPS_DIR=\"${MDX_SAMPLE_APPS_DIR}\"|" \
+    -e "s|^MDX_DATA_DIR=.*|MDX_DATA_DIR=\"${MDX_DATA_DIR}\"|" \
+    -e "s|^HOST_IP=.*|HOST_IP=\"${HOST_IP}\"|" \
+    -e "s|^NGC_CLI_API_KEY=.*|NGC_CLI_API_KEY=\"${NGC_CLI_API_KEY}\"|" \
     public-safety/.env
 ```
 
@@ -177,7 +177,7 @@ export VLM_CUSTOM_WEIGHTS="</path/to/custom/weights>"
 
 # Update the .env file
 sed -i \
-    -e "s|^# VLM_CUSTOM_WEIGHTS.*|VLM_CUSTOM_WEIGHTS=\"\$\{VLM_CUSTOM_WEIGHTS\}\"|" \
+    -e "s|^# VLM_CUSTOM_WEIGHTS.*|VLM_CUSTOM_WEIGHTS=\"${VLM_CUSTOM_WEIGHTS}\"|" \
     public-safety/.env
 ```
 
@@ -218,7 +218,7 @@ To use remote NIM endpoints, modify the `public-safety/.env` file:
 # Docker login to the NGC docker registry
 docker login \
     --username '$oauthtoken' \
-    --password "\$\{NGC_CLI_API_KEY\}" \
+    --password "${NGC_CLI_API_KEY}" \
     nvcr.io
 
 # Start the blueprint

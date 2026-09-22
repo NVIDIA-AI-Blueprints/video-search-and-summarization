@@ -8,25 +8,11 @@ from __future__ import annotations
 import json
 import re
 import sys
+from argparse import ArgumentParser
 from collections.abc import Collection, Iterable
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCAN_ROOTS = (
-    REPO_ROOT / "docs",
-    REPO_ROOT / "fern",
-)
-EXTRA_INPUTS = (
-    REPO_ROOT
-    / "services"
-    / "analytics"
-    / "video-analytics-api"
-    / "src"
-    / "app"
-    / "specification"
-    / "openapi.json",
-)
 TEXT_SUFFIXES = frozenset({".json", ".md", ".mdx", ".yaml", ".yml"})
 JSON_SUFFIXES = frozenset({".json"})
 YAML_SUFFIXES = frozenset({".yaml", ".yml"})
@@ -324,15 +310,40 @@ def find_file_issues(
     return find_issues(path, text, allowed_substitutions)
 
 
-def main() -> int:
+def find_tree_issues(root: Path) -> tuple[list[Path], list[str]]:
+    """Return files and issues from a repository-shaped Fern input tree."""
     issues = find_allowlist_issues(ALLOWED_SUBSTITUTIONS)
-    files = list(iter_inputs(SCAN_ROOTS, EXTRA_INPUTS))
+    scan_roots = (root / "docs", root / "fern")
+    extra_inputs = (
+        root
+        / "services"
+        / "analytics"
+        / "video-analytics-api"
+        / "src"
+        / "app"
+        / "specification"
+        / "openapi.json",
+    )
+    files = list(iter_inputs(scan_roots, extra_inputs))
     for path in files:
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        issues.extend(find_file_issues(path.relative_to(REPO_ROOT), text))
+        issues.extend(find_file_issues(path.relative_to(root), text))
+    return files, issues
+
+
+def main() -> int:
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--root",
+        type=Path,
+        required=True,
+        help="repository-shaped prepared input tree to validate",
+    )
+    args = parser.parse_args()
+    files, issues = find_tree_issues(args.root.resolve())
 
     if issues:
         print(

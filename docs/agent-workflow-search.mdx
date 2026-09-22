@@ -127,8 +127,8 @@ Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=search
-cp "developer-profiles/dev-profile-\$\{PROFILE\}/overrides.env" \
-  "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env"
+cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
+  "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
 ```
 
 For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-search/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
@@ -137,14 +137,14 @@ For each layout below, update the shown values in `deploy/docker/developer-profi
 PROFILE=search
 docker compose -f compose.yml \
   --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/.env" \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
   config --quiet
 
 docker compose -f compose.yml \
   --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/.env" \
-  --env-file "developer-profiles/dev-profile-\$\{PROFILE\}/user-overrides.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
   up -d
 ```
 
@@ -155,7 +155,7 @@ docker compose -f compose.yml \
 - `VSS_APPS_DIR`: Absolute path to this repository's `deploy/docker` directory.
 - `VSS_DATA_DIR`: Absolute writable host directory for downloaded models, videos, and service data.
 - `HOST_IP`: IP address or hostname that clients use to reach services on this VSS host. Set it to an address reachable by the intended clients.
-- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `\$\{HOST_IP\}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
+- `EXTERNAL_IP`: Address VSS puts in externally reachable service URLs. It defaults to `${HOST_IP}`; on a cloud host or when clients connect from outside the host network, set it to the instance's public address or external hostname.
 
 
 Set these required placeholder values in the existing assignments:
@@ -1292,8 +1292,8 @@ Before the CLI can search, it has to be pointed at the build's ingress, but this
 Run it yourself when you want to see what was recorded, or to point the CLI at a different deployment. It is a host process invoked project-locally, never a globally installed `vss` and never inside a container:
 
 ```bash
-VSS=(uv run --project "\$\{VSS_REPO_ROOT\}/services/agent" --no-dev --extra cli vss)
-"${VSS[@]}" configure --base-url "http://\$\{HOST_IP\}:7777"
+VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
+"${VSS[@]}" configure --base-url "http://${HOST_IP}:7777"
 "${VSS[@]}" configure show
 ```
 

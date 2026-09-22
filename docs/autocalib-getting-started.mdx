@@ -37,7 +37,7 @@ Auto Calibration can also be deployed as part of the Warehouse Blueprint with `M
 ```bash
 export NGC_CLI_API_KEY=<NGC_CLI_API_KEY>
 export NGC_CLI_ORG='nvidia'
-printf '%s' "\$\{NGC_CLI_API_KEY\}" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+printf '%s' "${NGC_CLI_API_KEY}" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 ```
 
 Generate an API key from [NGC Setup](https://org.ngc.nvidia.com/setup) if needed. Do not print or commit the key.
@@ -85,9 +85,9 @@ This Compose deployment does not start VIOS. To use RTSP capture, deploy VIOS se
 ### 5. Optional VGGT model setup
 
 
-The Auto Calibration service can run the AMC method without VGGT support. To enable VGGT calibration, download the licensed [VGGT model](https://huggingface.co/facebook/VGGT-1B-Commercial) and place it in `\$\{VSS_DATA_DIR\}/auto-calib/vggt/`:
+The Auto Calibration service can run the AMC method without VGGT support. To enable VGGT calibration, download the licensed [VGGT model](https://huggingface.co/facebook/VGGT-1B-Commercial) and place it in `${VSS_DATA_DIR}/auto-calib/vggt/`:
 ```bash
-mkdir -p "\$\{VSS_DATA_DIR\}/auto-calib/vggt"
+mkdir -p "${VSS_DATA_DIR}/auto-calib/vggt"
 ```
 
 You must accept the model license before downloading it.
@@ -95,13 +95,13 @@ You must accept the model license before downloading it.
 ### 6. Prepare the projects directory
 
 ```bash
-mkdir -p "\$\{VSS_APPS_DIR\}/services/auto-calibration/projects"
+mkdir -p "${VSS_APPS_DIR}/services/auto-calibration/projects"
 if ! sudo -n true 2>/dev/null; then
   echo "sudo requires authentication; enter your password when prompted."
   sudo -v || { echo "sudo authentication failed. Verify sudo access, then retry." >&2; exit 1; }
 fi
-sudo chown -R 1000:1000 "\$\{VSS_DATA_DIR\}/auto-calib"
-sudo chown -R 1000:1000 "\$\{VSS_APPS_DIR\}/services/auto-calibration/projects"
+sudo chown -R 1000:1000 "${VSS_DATA_DIR}/auto-calib"
+sudo chown -R 1000:1000 "${VSS_APPS_DIR}/services/auto-calibration/projects"
 ```
 
 The Auto Calibration service stores project data in the projects directory and the containers use UID/GID `1000`.

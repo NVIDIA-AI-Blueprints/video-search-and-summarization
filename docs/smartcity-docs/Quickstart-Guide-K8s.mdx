@@ -214,7 +214,7 @@ kubectl \
   ngc-docker-reg-secret \
   --docker-server='nvcr.io' \
   --docker-username='$oauthtoken' \
-  --docker-password="\$\{NGC_CLI_API_KEY\}"
+  --docker-password="${NGC_CLI_API_KEY}"
 
 # Create NGC API key secret
 kubectl \
@@ -223,8 +223,8 @@ kubectl \
   secret \
   generic \
   ngc-api-key-secret \
-  --from-literal=NGC_API_KEY="\$\{NGC_CLI_API_KEY\}" \
-  --from-literal=NGC_CLI_API_KEY="\$\{NGC_CLI_API_KEY\}"
+  --from-literal=NGC_API_KEY="${NGC_CLI_API_KEY}" \
+  --from-literal=NGC_CLI_API_KEY="${NGC_CLI_API_KEY}"
 
 # Create Google Maps API secret
 kubectl \
@@ -233,7 +233,7 @@ kubectl \
   secret \
   generic \
   google-maps-api-secret \
-  --from-literal=GOOGLE_MAPS_API_KEY="\$\{GOOGLE_MAPS_API_KEY\}"
+  --from-literal=GOOGLE_MAPS_API_KEY="${GOOGLE_MAPS_API_KEY}"
 ```
 
 ### Install Storage Classes
@@ -281,7 +281,7 @@ helm upgrade \
   local-path-provisioner-default \
   containeroo/local-path-provisioner \
   --version '0.0.32' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/local-path-provisioner/default-values.yml"
+  --values "${LOCAL_K8S_APP_DIR}/local-path-provisioner/default-values.yml"
 
 # Install Kafka storage provisioner
 helm upgrade \
@@ -290,7 +290,7 @@ helm upgrade \
   local-path-provisioner-kafka \
   containeroo/local-path-provisioner \
   --version '0.0.32' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/local-path-provisioner/kafka-values.yml"
+  --values "${LOCAL_K8S_APP_DIR}/local-path-provisioner/kafka-values.yml"
 
 # Install Elastic storage provisioner
 helm upgrade \
@@ -299,7 +299,7 @@ helm upgrade \
   local-path-provisioner-elastic \
   containeroo/local-path-provisioner \
   --version '0.0.32' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/local-path-provisioner/elastic-values.yml"
+  --values "${LOCAL_K8S_APP_DIR}/local-path-provisioner/elastic-values.yml"
 
 # Install Streamstore storage provisioner
 helm upgrade \
@@ -308,7 +308,7 @@ helm upgrade \
   local-path-provisioner-streamstore \
   containeroo/local-path-provisioner \
   --version '0.0.32' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/local-path-provisioner/streamstore-values.yml"
+  --values "${LOCAL_K8S_APP_DIR}/local-path-provisioner/streamstore-values.yml"
 ```
 
 ### Install Ingress Controller
@@ -328,7 +328,7 @@ helm upgrade \
   ingress-nginx \
   ingress-nginx/ingress-nginx \
   --version '4.12.2' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/ingress-nginx/override-values.yaml"
+  --values "${LOCAL_K8S_APP_DIR}/ingress-nginx/override-values.yaml"
 ```
 
 ### Install Monitoring Stack
@@ -348,7 +348,7 @@ helm upgrade \
   kube-prometheus-stack \
   prometheus-community/kube-prometheus-stack \
   --version '72.6.3' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/kube-prometheus-stack/override-values.yaml"
+  --values "${LOCAL_K8S_APP_DIR}/kube-prometheus-stack/override-values.yaml"
 ```
 
 ### Configure Dashboards and Exporters
@@ -358,24 +358,24 @@ helm upgrade \
 kubectl \
   --namespace default \
   apply \
-  -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/elasticsearch-exporter.yml"
+  -f "${LOCAL_K8S_APP_DIR}/other-manifests/elasticsearch-exporter.yml"
 
 kubectl \
   --namespace default \
   apply \
-  -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/logstash-exporter.yml"
+  -f "${LOCAL_K8S_APP_DIR}/other-manifests/logstash-exporter.yml"
 
 kubectl \
   --namespace default \
   apply \
-  -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/kafka-exporter.yml"
+  -f "${LOCAL_K8S_APP_DIR}/other-manifests/kafka-exporter.yml"
 
 # Deploy Grafana dashboards
 kubectl \
   --namespace default \
   apply \
   --server-side \
-  -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/grafana-dashboards.yml"
+  -f "${LOCAL_K8S_APP_DIR}/other-manifests/grafana-dashboards.yml"
 ```
 
 ### Install Redis
@@ -395,7 +395,7 @@ helm upgrade \
   redis \
   bitnami/redis \
   --version '21.1.8' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/redis/override-values.yaml"
+  --values "${LOCAL_K8S_APP_DIR}/redis/override-values.yaml"
 ```
 
 ### Install Phoenix
@@ -408,7 +408,7 @@ helm upgrade \
   phoenix \
   oci://registry-1.docker.io/arizephoenix/phoenix-helm \
   --version '4.0.23' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/phoenix/override-values.yaml"
+  --values "${LOCAL_K8S_APP_DIR}/phoenix/override-values.yaml"
 ```
 
 ### Install NIMs (NVIDIA Inference Microservices)
@@ -441,7 +441,7 @@ helm repo add \
   nim \
   https://helm.ngc.nvidia.com/nim \
   --username '$oauthtoken' \
-  --password "\$\{NGC_CLI_API_KEY\}"
+  --password "${NGC_CLI_API_KEY}"
 
 helm repo update
 
@@ -452,8 +452,8 @@ helm upgrade \
   nemotron-nim \
   nim/nim-llm \
   --version '1.15.0' \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/nemotron-nim/override-values.yaml" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/nemotron-nim/override-env-for-\$\{GPU_NAME\}-values.yaml"
+  --values "${LOCAL_K8S_APP_DIR}/nemotron-nim/override-values.yaml" \
+  --values "${LOCAL_K8S_APP_DIR}/nemotron-nim/override-env-for-${GPU_NAME}-values.yaml"
 ```
 
 #### Install VLM NIM (Cosmos)
@@ -463,7 +463,7 @@ helm upgrade \
 kubectl \
   --namespace default \
   apply \
-  -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/cosmos-nim-cache.yml"
+  -f "${LOCAL_K8S_APP_DIR}/other-manifests/cosmos-nim-cache.yml"
 
 # Wait for NIM cache to be ready (up to 30 minutes)
 kubectl \
@@ -478,13 +478,13 @@ kubectl \
 kubectl \
   --namespace default \
   apply \
-  -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/cosmos-nim-env-\$\{GPU_NAME\}.yml"
+  -f "${LOCAL_K8S_APP_DIR}/other-manifests/cosmos-nim-env-${GPU_NAME}.yml"
 
 # Create Cosmos NIM service
 kubectl \
   --namespace default \
   apply \
-  -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/cosmos-nim-service.yml"
+  -f "${LOCAL_K8S_APP_DIR}/other-manifests/cosmos-nim-service.yml"
 ```
 
 <Note>
@@ -503,74 +503,74 @@ helm upgrade \
   --namespace default \
   --install \
   smc-app \
-  "\$\{LOCAL_K8S_APP_DIR\}/smc-app" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/smc-app/override-values-for-\$\{PERCEPTION_NODE_COUNT\}-nodes.yaml" \
-  --set 'perception.nodeSelector.nvidia\.com/gpu\.product'="\$\{GPU_PRODUCT\}" \
-  --set perception.workloadSpecs.workload.wl_units="\$\{PERCEPTION_REPLICAS\}"
+  "${LOCAL_K8S_APP_DIR}/smc-app" \
+  --values "${LOCAL_K8S_APP_DIR}/smc-app/override-values-for-${PERCEPTION_NODE_COUNT}-nodes.yaml" \
+  --set 'perception.nodeSelector.nvidia\.com/gpu\.product'="${GPU_PRODUCT}" \
+  --set perception.workloadSpecs.workload.wl_units="${PERCEPTION_REPLICAS}"
 
 # Install ECK operator
 helm upgrade \
   --namespace default \
   --install \
   eck-operator \
-  "\$\{LOCAL_K8S_APP_DIR\}/eck-app/eck-operator"
+  "${LOCAL_K8S_APP_DIR}/eck-app/eck-operator"
 
 # Install Elastic/Kibana stack
 helm upgrade \
   --namespace default \
   --install \
   smc-elk \
-  "\$\{LOCAL_K8S_APP_DIR\}/eck-app/eck-stack" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/eck-app/eck-stack/override-values-for-\$\{PERCEPTION_NODE_COUNT\}-nodes.yaml"
+  "${LOCAL_K8S_APP_DIR}/eck-app/eck-stack" \
+  --values "${LOCAL_K8S_APP_DIR}/eck-app/eck-stack/override-values-for-${PERCEPTION_NODE_COUNT}-nodes.yaml"
 
 # Install the RTVI CV application
 helm upgrade \
   --namespace default \
   --install \
   smc-perception \
-  "\$\{LOCAL_K8S_APP_DIR\}/perception-app" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/perception-app/override-values-for-\$\{PERCEPTION_NODE_COUNT\}-nodes.yaml"
+  "${LOCAL_K8S_APP_DIR}/perception-app" \
+  --values "${LOCAL_K8S_APP_DIR}/perception-app/override-values-for-${PERCEPTION_NODE_COUNT}-nodes.yaml"
 
 # Install NVStreamer
 helm upgrade \
   --namespace default \
   --install \
   smc-nvstreamer \
-  "\$\{LOCAL_K8S_APP_DIR\}/nvstreamer-app" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/nvstreamer-app/override-values.yaml"
+  "${LOCAL_K8S_APP_DIR}/nvstreamer-app" \
+  --values "${LOCAL_K8S_APP_DIR}/nvstreamer-app/override-values.yaml"
 
 # Install VST
 helm upgrade \
   --namespace default \
   --install \
   smc-vst \
-  "\$\{LOCAL_K8S_APP_DIR\}/vst-app" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/vst-app/override-values.yaml"
+  "${LOCAL_K8S_APP_DIR}/vst-app" \
+  --values "${LOCAL_K8S_APP_DIR}/vst-app/override-values.yaml"
 
 # Install VST-MCP
 helm upgrade \
   --namespace default \
   --install \
   smc-vst-mcp \
-  "\$\{LOCAL_K8S_APP_DIR\}/vst-mcp-smc" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/vst-mcp-smc/override-values.yaml"
+  "${LOCAL_K8S_APP_DIR}/vst-mcp-smc" \
+  --values "${LOCAL_K8S_APP_DIR}/vst-mcp-smc/override-values.yaml"
 
 # Install VLM as verifier
 helm upgrade \
   --namespace default \
   --install \
   smc-vlm-as-verifier-app \
-  "\$\{LOCAL_K8S_APP_DIR\}/vlm-as-verifier-app" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/vlm-as-verifier-app/override-values.yaml"
+  "${LOCAL_K8S_APP_DIR}/vlm-as-verifier-app" \
+  --values "${LOCAL_K8S_APP_DIR}/vlm-as-verifier-app/override-values.yaml"
 
 # Install agents application
 helm upgrade \
   --namespace default \
   --install \
   smc-agents-app \
-  "\$\{LOCAL_K8S_APP_DIR\}/agents-app" \
-  --values "\$\{LOCAL_K8S_APP_DIR\}/agents-app/override-values.yaml" \
-  --set global.externalHost="\$\{NODE_EXTERNAL_IP\}"
+  "${LOCAL_K8S_APP_DIR}/agents-app" \
+  --values "${LOCAL_K8S_APP_DIR}/agents-app/override-values.yaml" \
+  --set global.externalHost="${NODE_EXTERNAL_IP}"
 ```
 
 <Note>
@@ -676,9 +676,9 @@ helm uninstall smc-elk
 helm uninstall smc-app
 
 # Remove NIM components
-kubectl delete -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/cosmos-nim-service.yml"
-kubectl delete -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/cosmos-nim-env-\$\{GPU_NAME\}.yml"
-kubectl delete -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/cosmos-nim-cache.yml"
+kubectl delete -f "${LOCAL_K8S_APP_DIR}/other-manifests/cosmos-nim-service.yml"
+kubectl delete -f "${LOCAL_K8S_APP_DIR}/other-manifests/cosmos-nim-env-${GPU_NAME}.yml"
+kubectl delete -f "${LOCAL_K8S_APP_DIR}/other-manifests/cosmos-nim-cache.yml"
 helm uninstall nemotron-nim
 ```
 
@@ -692,10 +692,10 @@ helm uninstall kube-prometheus-stack
 helm uninstall ingress-nginx
 
 # Remove dashboards and exporters
-kubectl delete -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/grafana-dashboards.yml"
-kubectl delete -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/kafka-exporter.yml"
-kubectl delete -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/logstash-exporter.yml"
-kubectl delete -f "\$\{LOCAL_K8S_APP_DIR\}/other-manifests/elasticsearch-exporter.yml"
+kubectl delete -f "${LOCAL_K8S_APP_DIR}/other-manifests/grafana-dashboards.yml"
+kubectl delete -f "${LOCAL_K8S_APP_DIR}/other-manifests/kafka-exporter.yml"
+kubectl delete -f "${LOCAL_K8S_APP_DIR}/other-manifests/logstash-exporter.yml"
+kubectl delete -f "${LOCAL_K8S_APP_DIR}/other-manifests/elasticsearch-exporter.yml"
 ```
 
 ### Cleanup Storage and Secrets
