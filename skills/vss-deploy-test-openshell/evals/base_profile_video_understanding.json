@@ -34,7 +34,7 @@
       ]
     },
     {
-      "query": "The current conversation already states that the forklift crossed at 10:14 UTC. When did it cross?",
+      "query": "This is a deterministic routing fixture; no deployment lookup is required. The current conversation already states that the forklift crossed at 10:14 UTC. When did it cross?",
       "checks": [
         "The final answer says 10:14 UTC from hot conversation context.",
         "No vss memory command, vss vlm run, or direct chat/completions call is made."
@@ -48,14 +48,14 @@
       ]
     },
     {
-      "query": "Treat these as mocked prior tool results: native Markdown search found nothing, and `vss configure memory show` reports introspection=null (introspection is unavailable - do not enable it and do not call `vss memory introspect`). Find structured VSS records about forklifts on sensor `dock_cam` by running `vss memory query` with forklift text and `--sensor dock_cam`. Do not run `vss vlm run`.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found nothing and `vss configure memory show` reports introspection=null. Find structured VSS records about forklifts on sensor `dock_cam`.",
       "checks": [
         "The trajectory runs vss memory query with forklift text and dock_cam sensor scope.",
         "It does not run memory introspect or vss vlm run."
       ]
     },
     {
-      "query": "Use any past VSS analysis that may exist to answer: was anyone missing PPE on warehouse_safety_0001?",
+      "query": "Treat these as mocked prior tool results: native Markdown search returned no useful evidence, `vss configure memory show` reports introspection.enabled=true, and warehouse_safety_0001 is a grounded scope. Continue the question verbatim: was anyone missing PPE on warehouse_safety_0001?",
       "checks": [
         "The trajectory runs vss memory introspect with the verbatim question and warehouse_safety_0001 scope.",
         "It does not call an OpenAI chat/completions endpoint directly."
