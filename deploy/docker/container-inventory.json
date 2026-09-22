@@ -18,6 +18,13 @@
     "                   override variables; out of GHCR release-set scope,",
     "                   classified here so it is not silently omitted.",
     "",
+    "compose_image_names:",
+    "  omitted        - the image's compose name is its own name.",
+    "  []             - declared EMPTY: a GHCR build that no compose service",
+    "                   references (the NemoClaw sandbox harnesses). It is",
+    "                   carried into a release set at its tree-<sha> content",
+    "                   tag, the same way an -sbsa variant is.",
+    "",
     "GHCR variants:",
     "  repository     - optional GHCR repository basename; defaults to name.",
     "                   Set the same value on multiple logical inventory entries",
@@ -376,6 +383,17 @@
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
       "notes": "NemoClaw OpenClaw sandbox harness (VSS skills + vss CLI). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts. Skills/CLI content is pinned by the Dockerfile's VSS_REF, which lives inside source_path — a pin bump is what triggers a rebuild."
+    },
+    {
+      "name": "vss-harness-hermes",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": ".hermes",
+      "context": ".hermes",
+      "dockerfile": ".hermes/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": [],
+      "notes": "NemoClaw Hermes sandbox harness (VSS skills + vss CLI on NemoClaw's managed Hermes runtime). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts and by the eval harness's Provision panel. Skills/CLI content is pinned by the Dockerfile's VSS_REF, which lives inside source_path — a pin bump is what triggers a rebuild."
     }
   ]
 }
