@@ -59,8 +59,9 @@ Direct VLM requires:
 The delegated evidence loop requires `vss-introspect-video` and
 `vss-generate-evidence-plan` to be installed. Structured-memory retrieval
 requires memory and Elasticsearch. Visual follow-up requires RT-VLM and VIOS
-for sensor-based media. No legacy memory-introspection configuration or judge
-endpoint is part of this answering workflow.
+for sensor-based media. Existing memory-introspection enablement is a routing
+signal only: when enabled, delegate to the skill-owned loop. The loop does not
+call the legacy command or use its judge endpoint.
 
 ```bash
 vss configure check
@@ -103,16 +104,24 @@ Use these exact routes:
 1. **Hot context sufficient:** answer directly.
 2. **Exact stored read:** a specific `job_id` or complete child identity uses
    `vss memory get` directly. Preserve this simple route; do not delegate it.
-3. **Explicit one-scope fresh inspection:** a grounded sensor and exact window,
+3. **Introspection requested or enabled:** explicit introspection, multi-claim,
+   answer-choice, whole-video, or reassessment requests delegate once to
+   `vss-introspect-video`. A general video question also delegates when
+   `vss configure memory show` reports memory introspection enabled. The new
+   skill replaces the legacy answering command; do not invoke
+   `vss memory introspect`.
+4. **Explicit one-scope fresh inspection while introspection is not enabled:**
+   a grounded sensor and exact window,
    a trusted bounded `VIDEO_URL`, or a safe user-named local file uses exactly
    one `vss vlm run`. Preserve this exact route; do not delegate it.
-4. **General direct answer:** search agent Markdown memory. If it is sufficient,
-   answer directly. Otherwise retain grounded pointers/selectors and delegate
-   once to `vss-introspect-video`.
-5. **Explicit introspection, multi-claim, answer-choice, whole-video, or
-   reassessment request:** delegate once to `vss-introspect-video`, even when
-   the request mentions memory. That skill must call
-   `vss-generate-evidence-plan` option-blind before it reads memory.
+5. **General direct answer while introspection is disabled or unconfigured:**
+   search agent Markdown memory, then ordinary structured VSS memory if needed.
+   Answer only when that evidence is sufficient. Otherwise report the missing
+   grounded scope or evidence; do not enable introspection or automatically run
+   VLM.
+
+The delegated skill must call `vss-generate-evidence-plan` option-blind before
+it reads memory.
 
 Delegation transfers the verbatim question, a stable question ID, grounded
 media selectors, and any separate answer choices. It does not pre-query VSS
@@ -223,8 +232,9 @@ For a general memory-aware question that Markdown does not fully answer:
 
 The delegated skill uses ordinary `vss memory get`, `vss memory query`, VIOS
 lookup, and `vss vlm run` as evidence producers. It never uses the legacy
-memory-owned introspection command. Whether legacy introspection configuration
-is enabled, disabled, or absent does not affect this route.
+memory-owned introspection command. Existing enabled state selects this route;
+disabled or unconfigured state retains the ordinary memory and explicit
+one-scope routes above.
 
 If the user explicitly asks to configure the legacy deployment feature, treat
 that as a configuration request rather than an answering route. Do not enable,
