@@ -109,7 +109,7 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
     assert "Introspection is not configured on this deployment" in contract
 
     assert "--record-id without both --job-id and --record-type" in contract
-    assert "complete uv run project-local invocation" in contract
+    assert "installed CLI when available" in contract
     assert "vss vlm run --file" in contract
     assert "vss configure check" in contract
     assert "--fps chosen from the skim/locate/inspect policy" in contract

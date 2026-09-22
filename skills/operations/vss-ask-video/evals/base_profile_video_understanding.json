@@ -94,14 +94,14 @@
       "query": "I want the stored child record event-17 but I do not know its job id or record type. What is the safe way to ask for it? Assume each command runs in a fresh shell.",
       "checks": [
         "It never emits --record-id without both --job-id and --record-type and requests the missing identity or another valid scope.",
-        "Any proposed VSS command defines VSS_REPO_ROOT and the uv run array in the same shell call against libs/vss.",
+        "Any proposed VSS command uses the installed vss CLI when available; only a development checkout without it uses uv run --project against libs/vss, in the same shell call.",
         "It does not rely on a shell function or prior-shell state and does not use raw REST."
       ]
     },
     {
       "query": "Freshly inspect the local video file warehouse_safety_0001.mp4 using the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: is the worker wearing PPE?",
       "checks": [
-        "It uses the complete uv run project-local invocation of vss vlm run --file against that file in one shell call and returns its answer.",
+        "It uses vss vlm run --file through the installed CLI when available, in one shell call, and returns its answer. Only a development checkout without an installed CLI uses the project-local fallback.",
         "It does not search Markdown, introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent."
       ]
     }

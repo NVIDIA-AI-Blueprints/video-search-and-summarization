@@ -104,9 +104,8 @@ the source pin. To include a skill or CLI change, publish it and add
 `--build-arg VSS_REF=<commit-sha>` to the archived-context build above. Skills and CLI then come from that same
 revision; using the resulting image requires no source checkout.
 
-Run the instruction regressions from the repository root. Supplying a locally
-cached image also executes the real CLI without network, GPU access, or a home
-checkout, and verifies the installed OpenClaw OOM-score switch:
+Run the regressions from the repository root; a cached image enables the
+installed-CLI and OOM-score checks without network or GPU access:
 
 ```bash
 VSS_TEST_IMAGE=<cached-image> python3 -m unittest discover -s .openclaw/tests -v

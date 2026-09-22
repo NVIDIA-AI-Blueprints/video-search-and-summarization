@@ -1,9 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Run instruction snippets without a checkout; optionally use the real image.
-
-VSS_TEST_IMAGE=<cached image> python3 -m unittest discover -s .openclaw/tests
-"""
+"""Run instruction snippets; VSS_TEST_IMAGE enables cached-image checks."""
 
 import json
 import os
@@ -95,13 +92,13 @@ class EnvironmentInstructions(unittest.TestCase):
             + "\n"
             + bash_block(SKILL, "For a trusted bounded URL")
         )
-        result = subprocess.run(
-            [
-                "bash",
-                "--noprofile",
-                "--norc",
-                "-ec",
-                """
+        result = self.exports(
+            {
+                "VIDEO_URL": "https://media.example/video.mp4",
+                "USER_QUESTION": "What happened?",
+            },
+            names=(),
+            script="""set -e
             vss() {
               case "$*" in
                 'configure check') return 0 ;;
@@ -110,19 +107,9 @@ class EnvironmentInstructions(unittest.TestCase):
               esac
             }
             """
-                + script,
-            ],
-            env={
-                "PATH": "/usr/bin:/bin",
-                "VIDEO_URL": "https://media.example/video.mp4",
-                "USER_QUESTION": "What happened?",
-            },
-            capture_output=True,
-            text=True,
-            check=False,
+            + script,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("direct-url-answer", result.stdout)
+        self.assertIn("direct-url-answer", result)
 
     def notebook_script(self, origin, hitl):
         path = ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb"
