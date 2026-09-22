@@ -170,8 +170,14 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     assert "must call `vss-generate-evidence-plan` option-blind before it reads memory" in normalized
     assert "does not pre-query VSS memory, pre-plan claims, run visual inspection, or choose an answer" in normalized
     assert (
-        "Whether legacy introspection configuration is enabled, disabled, or absent does not affect this route"
+        "Existing enabled state selects this route; disabled or unconfigured state retains the ordinary memory"
         in normalized
+    )
+    assert "Introspection requested or enabled" in ask_video
+    assert "Uses vss memory get for sum-01JXYZ." in evals_by_id["introspection-disabled"]["expected_behavior"]
+    assert (
+        "Uses vss memory query with forklift text and dock_cam scope."
+        in evals_by_id["introspection-unconfigured"]["expected_behavior"]
     )
     assert "Never pass `--record-id` alone" in normalized
     assert "Complete child identity: `--job-id`, `--record-type`, and `--record-id`" in normalized

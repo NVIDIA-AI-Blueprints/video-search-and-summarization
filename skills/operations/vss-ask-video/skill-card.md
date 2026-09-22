@@ -1,5 +1,5 @@
 ## Description: <br>
-Entry point for direct VSS video answers. Preserves hot-context answers, exact stored-memory reads, and explicit one-scope `vss vlm run` requests, while delegating evidence-intensive and answer-choice questions once to the agent-owned `vss-introspect-video` loop. <br>
+Entry point for direct VSS video answers. Preserves hot-context answers, exact stored-memory reads, and explicit one-scope `vss vlm run` requests, while delegating requested, enabled, evidence-intensive, and answer-choice introspection once to the agent-owned `vss-introspect-video` loop. <br>
 
 This skill is ready for commercial/non-commercial use. <br>
 
