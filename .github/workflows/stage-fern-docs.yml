@@ -35,6 +35,8 @@ on:
       - 'docs/**'
       - 'fern/**'
       - 'services/analytics/video-analytics-api/src/app/specification/openapi.json'
+      - '.github/scripts/check_fern_substitutions.py'
+      - '.github/scripts/prepare_fern_inputs.py'
       - '.github/workflows/stage-fern-docs.yml'
 
 permissions:
@@ -74,10 +76,13 @@ jobs:
           fi
           npm install -g "fern-api@${VERSION}"
 
-      - name: Check Fern substitutions
-        run: python3 .github/scripts/check_fern_substitutions.py
+      - name: Prepare and check Fern inputs
+        run: |
+          python3 .github/scripts/prepare_fern_inputs.py --output "${RUNNER_TEMP}/fern-input"
+          python3 .github/scripts/check_fern_substitutions.py --root "${RUNNER_TEMP}/fern-input"
 
       - name: Stage docs
+        working-directory: ${{ runner.temp }}/fern-input
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         run: |
