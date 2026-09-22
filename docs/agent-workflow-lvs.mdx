@@ -604,6 +604,7 @@ validate the resolved configuration, then start the profile:
 
 ```bash
 PROFILE=lvs
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \

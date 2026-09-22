@@ -357,6 +357,7 @@ A mismatch between `VLM_NAME` and the `id` from `/v1/models` produces **HTTP 404
 
    ```bash
    cd /path/to/video-search-and-summarization/deploy/docker
+   export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
    
    docker compose -f compose.yml \
      --env-file containers.env \
