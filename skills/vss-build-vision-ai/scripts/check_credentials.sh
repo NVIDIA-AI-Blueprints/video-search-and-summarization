@@ -23,6 +23,7 @@ Environment variables:
 
 Unset credentials are reported as skipped.
 EOF
+  return 0
 }
 
 case "${1:-}" in
