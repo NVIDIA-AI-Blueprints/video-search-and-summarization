@@ -14,6 +14,7 @@ import pytest
 
 from vss_cli import config as config_mod
 from vss_cli import configure as configure_mod
+from vss_cli.exits import Exit
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -99,7 +100,7 @@ def test_vlm_config_without_backend_defaults_to_rt_vlm() -> None:
 def test_standalone_vllm_rejects_positive_chunk_duration(config_home: Path) -> None:
     result = _invoke("--backend", "vllm", "--chunk-duration", "5")
 
-    assert result.exit_code != 0
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
     assert "positive chunk_duration is supported only by RT-VLM" in result.output
 
 
@@ -167,15 +168,27 @@ def test_main_configure_preserves_vlm_policy(
 
 def test_locked_policy_requires_at_least_one_value(config_home: Path) -> None:
     result = _invoke("--lock")
-    assert result.exit_code != 0
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
     assert "must configure at least one" in result.output
 
 
 def test_configure_vlm_rejects_inverted_processor_size(config_home: Path) -> None:
     result = _invoke("--shortest-edge", "16777216", "--longest-edge", "262144")
 
-    assert result.exit_code != 0
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
     assert "shortest_edge must be no greater than longest_edge" in result.output
+
+
+def test_configure_vlm_without_saved_deployment_exits_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.CONFIG_HOME_ENV, str(tmp_path))
+
+    result = _invoke("--fps", "4")
+
+    assert result.exit_code == int(Exit.CONFIGURATION), result.output
+    assert "vss configure vlm: configuration error:" in result.output
 
 
 def test_vlm_environment_overlays_every_persisted_policy_field(monkeypatch: pytest.MonkeyPatch) -> None:

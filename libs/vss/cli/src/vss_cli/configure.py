@@ -655,6 +655,12 @@ def check_memory() -> None:
         click.echo(f"OpenClaw Markdown cache enabled at {memory_config.markdown.workspace}/memory/YYYY-MM-DD-vss.md")
 
 
+def _vlm_config_error(message: str) -> NoReturn:
+    """Report a VLM policy/config-file failure using the stable CLI contract."""
+    click.echo(f"vss configure vlm: configuration error: {message}", err=True)
+    raise SystemExit(int(Exit.CONFIGURATION))
+
+
 @configure.command("vlm")
 @click.option(
     "--backend",
@@ -706,7 +712,7 @@ def configure_vlm(
     try:
         deployment = config_mod.load()
     except config_mod.ConfigError as exc:
-        raise click.ClickException(str(exc)) from exc
+        _vlm_config_error(str(exc))
 
     supplied = any(
         value is not None
@@ -754,7 +760,7 @@ def configure_vlm(
             locked=current.locked if locked is None else locked,
         ).validate()
     except config_mod.ConfigError as exc:
-        raise click.ClickException(str(exc)) from exc
+        _vlm_config_error(str(exc))
     path = config_mod.save(replace(deployment, vlm=policy))
     click.echo(f"wrote VLM request policy to {path}", err=True)
 
