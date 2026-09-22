@@ -27,6 +27,10 @@ creates a sandbox, so no entrypoint of ours ever runs, `openshell` is not on
 PATH inside the sandbox, and nemoclaw-start's own fixes are root-gated while it
 runs as the sandbox user.
 
+The values arrive in ARGS_FILE, not in this process's environment: the managed
+base exports ENV of these same names, and the classic builder lets an inherited
+ENV beat an ARG, so the environment here holds the base image's own values.
+
 Derivations mirror NemoClaw's generator (scripts/generate-openclaw-config.mts):
 origins are unique([loopback, chat, portless]); allowInsecureAuth is
 scheme == http; device auth is disabled for a non-loopback UI host.
@@ -41,7 +45,27 @@ import sys
 from urllib.parse import urlparse
 
 CONFIG = "/sandbox/.openclaw/openclaw.json"
+ARGS_FILE = "/etc/vss-onboard-args.env"
 _LOOPBACK = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def read_args_file(path: str) -> dict[str, str]:
+    """The onboard build args as the `onboard-args` stage wrote them.
+
+    `NAME=value` per line, one per ARG. An empty value means "not supplied this
+    session" and must still override the base image's ENV, so callers overlay
+    this on the environment rather than falling back to it.
+    """
+    values: dict[str, str] = {}
+    try:
+        with open(path) as handle:
+            for line in handle:
+                name, separator, value = line.partition("=")
+                if separator and name.strip():
+                    values[name.strip()] = value.rstrip("\n")
+    except FileNotFoundError:
+        return {}
+    return values
 
 
 def _is_loopback(host: str) -> bool:
@@ -81,7 +105,7 @@ def control_ui(chat_ui_url: str, gateway_port: int) -> dict | None:
 def apply(config: str | None = None, env: dict | None = None) -> list[str]:
     """Patch the config in place. Returns one line per change, for the build log."""
     config = CONFIG if config is None else config
-    env = os.environ if env is None else env
+    env = {**os.environ, **read_args_file(ARGS_FILE)} if env is None else env
     with open(config) as handle:
         cfg = json.load(handle)
     changes: list[str] = []
@@ -140,11 +164,19 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     strict = "--require-change" in argv
+    # "No changes" is ambiguous without this: an already-matching config and a
+    # session that staged nothing look identical in the build log.
+    supplied = sorted(name for name, value in read_args_file(ARGS_FILE).items() if value)
+    print(
+        f"[vss-onboard-config] {ARGS_FILE}: "
+        + (", ".join(supplied) if supplied else "no values staged by onboard"),
+        file=sys.stderr,
+    )
     changes = apply()
     for line in changes:
         print(f"[vss-onboard-config] {line}", file=sys.stderr)
     if not changes:
-        print("[vss-onboard-config] no onboard build args supplied; config left as the base image generated it", file=sys.stderr)
+        print("[vss-onboard-config] nothing to change; config left as the base image generated it", file=sys.stderr)
         if strict:
             return 1
     return 0

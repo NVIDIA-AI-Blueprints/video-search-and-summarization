@@ -191,25 +191,37 @@ RUN set -eux; \
     && vss vlm run --help | grep -F -- '--fps' \
     && su -s /bin/sh sandbox -c "vss --version"
 
-# ── Extend the managed runtime with the VSS plugin ─────────────────────────────
-FROM nemoclaw-runtime AS vss-runtime
-# Re-declared here because build args are stage-scoped and this is the final stage.
-ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
-ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
-# `onboard --from` rewrites these ARGs in this file with the session's values
-# (src/lib/onboard/dockerfile-patch.ts) and expects NemoClaw's config generator
-# to run again at build. A custom image cannot re-run that generator, so it
-# inherits the base image's openclaw.json -- and every ARG this file does not
-# declare is dropped by a regex String.replace that matches nothing and warns
-# nothing. Declaring them is what makes the session values reach the build;
-# apply-onboard-config.py below is what writes them into the inherited config.
-# Only NEMOCLAW_TOOL_DISCLOSURE has a contract NemoClaw verifies; the rest fail
-# silently, which is how the model and the UI origins were being lost.
+# ── The session's onboard build args ──────────────────────────────────────────
+# Must stay the only declarations of these five names: `onboard --from` rewrites
+# the first matching `ARG <name>=` and reports nothing. Must stay on
+# BUILDER_IMAGE: the managed base exports ENV of these names, and the classic
+# builder lets an inherited ENV beat an ARG, in RUN and in expansion both.
+FROM ${BUILDER_IMAGE} AS onboard-args
 ARG NEMOCLAW_PRIMARY_MODEL_REF=
 ARG NEMOCLAW_MODEL=
 ARG NEMOCLAW_CONTEXT_WINDOW=
 ARG NEMOCLAW_MAX_TOKENS=
 ARG CHAT_UI_URL=
+# chat-ui-url.env wins over the ARG: onboard replaces CHAT_UI_URL with the
+# loopback dashboard URL whenever the sandbox already exists. Dockerfile is
+# named only so the glob may match nothing; absent means use the ARG.
+COPY Dockerfile chat-ui-url.env* /onboard-src/
+RUN chat_ui_url="${CHAT_UI_URL}"; \
+    if [ -s /onboard-src/chat-ui-url.env ]; then \
+      chat_ui_url="$(sed -n 's/^CHAT_UI_URL=//p' /onboard-src/chat-ui-url.env | tail -n 1)"; \
+    fi; \
+    printf '%s\n' \
+      "NEMOCLAW_PRIMARY_MODEL_REF=${NEMOCLAW_PRIMARY_MODEL_REF}" \
+      "NEMOCLAW_MODEL=${NEMOCLAW_MODEL}" \
+      "NEMOCLAW_CONTEXT_WINDOW=${NEMOCLAW_CONTEXT_WINDOW}" \
+      "NEMOCLAW_MAX_TOKENS=${NEMOCLAW_MAX_TOKENS}" \
+      "CHAT_UI_URL=${chat_ui_url}" > /onboard-args.env
+
+# ── Extend the managed runtime with the VSS plugin ─────────────────────────────
+FROM nemoclaw-runtime AS vss-runtime
+# Stays in the final stage: NemoClaw verifies this ARG/ENV pair here.
+ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
+ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox \
     /opt/vss-plugin/package.json \
     /opt/vss-plugin/package-lock.json \
@@ -257,7 +269,11 @@ RUN printf '%s\n' '#!/bin/sh' 'exec python3 /sandbox/.openclaw/extensions/vss/sy
 # is left unlocked (mutable default) for the same reason: two writers, one file.
 USER root
 COPY apply-onboard-config.py /usr/local/bin/vss-apply-onboard-config
+COPY --from=onboard-args /onboard-args.env /etc/vss-onboard-args.env
+# `test -s`: the script reads an absent file as "no session values" and exits 0.
 RUN chmod 755 /usr/local/bin/vss-apply-onboard-config \
+    && chmod 644 /etc/vss-onboard-args.env \
+    && test -s /etc/vss-onboard-args.env \
     && python3 /usr/local/bin/vss-apply-onboard-config \
     && chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
     && chmod 660 /sandbox/.openclaw/openclaw.json \

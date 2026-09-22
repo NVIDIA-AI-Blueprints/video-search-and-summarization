@@ -132,6 +132,37 @@ to the OpenClaw that release pins and regenerating the plugin lockfile
 `devDependencies.openclaw`). NemoClaw's doc is explicit that a plugin image must
 not mix one release's runtime with another's OpenClaw.
 
+Five more build args carry the *session's* values rather than a pin:
+`CHAT_UI_URL`, `NEMOCLAW_MODEL`, `NEMOCLAW_PRIMARY_MODEL_REF`,
+`NEMOCLAW_CONTEXT_WINDOW` and `NEMOCLAW_MAX_TOKENS`. `onboard --from` rewrites
+them here and expects NemoClaw's config generator to run again at build; a
+custom image cannot, so `apply-onboard-config.py` writes them into the
+openclaw.json this image inherits — the agent's model and limits, and the
+`gateway.controlUi.allowedOrigins` the Agent UI is reached through.
+
+They are declared in the `onboard-args` stage, on `BUILDER_IMAGE`, and reach the
+final stage as `/etc/vss-onboard-args.env`. That indirection is load-bearing:
+the managed base exports ENV of these same names, NemoClaw builds the sandbox
+with the classic builder, and there an inherited ENV beats an ARG of the same
+name — in the RUN environment and in instruction expansion both, so neither a
+plain `ARG` in the consuming stage nor an `ENV X=${X}` mirror sees the patched
+value. Declare them anywhere else and the build silently applies the base
+image's own model and a loopback-only UI origin; the build log's
+`[vss-onboard-config] /etc/vss-onboard-args.env: …` line names what it actually
+received.
+
+`CHAT_UI_URL` needs one more step, because its patched value is not the
+operator's. Onboard substitutes `http://127.0.0.1:<dashboard port>` whenever a
+sandbox of that name already exists — `applyReusedSandboxDashboardState` for
+onboard, `rebuild-target-runtime` for `<sandbox> rebuild` — and
+`--recreate-sandbox` does not avoid it, so the arg alone can only ever bake a
+loopback origin on a host that has onboarded before. The origin therefore comes
+from the build context: notebook section 3.1 resolves the link the browser will
+use and writes `chat-ui-url.env` beside this Dockerfile (gitignored; rewritten
+every run), and the `onboard-args` stage prefers it over the arg. The file is
+copied through a glob so that its absence is allowed — that is the loopback /
+SSH-tunnel case, and a hand-run `docker build`, both of which want the arg.
+
 ### Trial paths
 
 `WORKDIR /sandbox` makes `/sandbox` the OpenShell workspace, which the sandbox

@@ -52,3 +52,7 @@ deploy/helm/**/charts/*.tgz
 # the Dockerfiles' pinned VSS_REF fetch).
 .openclaw/.vss-src/
 .hermes/.vss-src/
+
+# Agent UI origin staged into the harness build context by notebook section 3.1.
+# Per-deployment (a Brev secure link, an operator's own hostname), never a pin.
+.openclaw/chat-ui-url.env

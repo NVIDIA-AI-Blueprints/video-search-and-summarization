@@ -145,3 +145,62 @@ def test_full_onboard_arg_set(cfg):
     assert d["agents"]["defaults"]["model"]["primary"] == "inference/aws/anthropic/bedrock-claude-opus-5"
     assert "https://chat.example.brevlab.com" in d["gateway"]["controlUi"]["allowedOrigins"]
     assert changes  # reported to the build log
+
+
+# --- the args file: why the values do not come from the environment ------------
+#
+# The managed base exports ENV named CHAT_UI_URL, NEMOCLAW_MODEL and friends, and
+# NemoClaw builds with the classic builder, where an inherited ENV beats an ARG
+# of the same name. The onboard-args stage writes the patched values to a file;
+# these cover reading it and overriding that ENV with it.
+
+def test_args_file_is_parsed(tmp_path):
+    path = tmp_path / "vss-onboard-args.env"
+    path.write_text(
+        "NEMOCLAW_PRIMARY_MODEL_REF=inference/aws/anthropic/bedrock-claude-opus-5\n"
+        "NEMOCLAW_MODEL=aws/anthropic/bedrock-claude-opus-5\n"
+        "NEMOCLAW_CONTEXT_WINDOW=\n"
+        "CHAT_UI_URL=https://18790-abc.brevlab.com:18789\n"
+    )
+    assert mod.read_args_file(str(path)) == {
+        "NEMOCLAW_PRIMARY_MODEL_REF": "inference/aws/anthropic/bedrock-claude-opus-5",
+        "NEMOCLAW_MODEL": "aws/anthropic/bedrock-claude-opus-5",
+        "NEMOCLAW_CONTEXT_WINDOW": "",
+        "CHAT_UI_URL": "https://18790-abc.brevlab.com:18789",
+    }
+
+
+def test_absent_args_file_is_not_an_error(tmp_path):
+    assert mod.read_args_file(str(tmp_path / "absent.env")) == {}
+
+
+def test_args_file_overrides_the_inherited_env(cfg, tmp_path, monkeypatch):
+    """A staged value wins over the base image's ENV of the same name."""
+    path = tmp_path / "vss-onboard-args.env"
+    path.write_text("CHAT_UI_URL=https://18790-abc.brevlab.com:18789\n")
+    monkeypatch.setattr(mod, "ARGS_FILE", str(path))
+    monkeypatch.setenv("CHAT_UI_URL", "http://127.0.0.1:18789")
+    mod.apply(str(cfg))
+    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == [
+        "http://127.0.0.1:18789",
+        "https://18790-abc.brevlab.com:18789",
+        "https://18790-abc.brevlab.com",
+    ]
+
+
+def test_empty_staged_value_beats_the_inherited_env(cfg, tmp_path, monkeypatch):
+    """Empty means "not supplied this session"; the base image's ENV must not
+    stand in for it, or a limit baked for another model looks supplied."""
+    path = tmp_path / "vss-onboard-args.env"
+    path.write_text(
+        "NEMOCLAW_PRIMARY_MODEL_REF=aws/anthropic/bedrock-claude-opus-5\n"
+        "NEMOCLAW_CONTEXT_WINDOW=\n"
+        "NEMOCLAW_MAX_TOKENS=\n"
+    )
+    monkeypatch.setattr(mod, "ARGS_FILE", str(path))
+    monkeypatch.setenv("NEMOCLAW_CONTEXT_WINDOW", "131072")
+    monkeypatch.setenv("NEMOCLAW_MAX_TOKENS", "4096")
+    mod.apply(str(cfg))
+    model = read(cfg)["models"]["providers"]["inference"]["models"][0]
+    assert "contextWindow" not in model
+    assert "maxTokens" not in model
