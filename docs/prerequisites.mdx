@@ -48,8 +48,10 @@ The following software must be installed on your system:
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
 - **NGC CLI:** 4.10.0+
-- **Python runner for Build Vision AI:** `uv` is required for the Skill's
-  mandatory service-graph checks and helper scripts.
+- **uv:** 0.5.0+ — required to run the `vss` CLI (`uv run --project libs/vss vss`)
+  and the agent skill's validator scripts, whose shebangs invoke `uv run`.
+  Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh`. Without it
+  those scripts exit 127 with `/usr/bin/env: 'uv': No such file or directory`.
 
 Install `uv` before starting the coding agent:
 

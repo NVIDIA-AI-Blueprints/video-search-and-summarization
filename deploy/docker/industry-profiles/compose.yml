@@ -13,5 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# warehouse-operations is the only industry profile included here. ./smartcities
+# is deliberately absent: it is an overlay, not an entry point. Its compose,
+# .env and overrides.env are merged into developer-profiles/dev-profile-alerts
+# by scripts/deploy_smartcities_launchable.ipynb, so including it would define
+# its services twice. Do not add it to satisfy a reachability check.
 include:
   - path: ./warehouse-operations/compose.yml

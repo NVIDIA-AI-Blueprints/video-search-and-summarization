@@ -12,6 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Overlay, not a profile entry point. ../compose.yml does not include this file;
+# scripts/deploy_smartcities_launchable.ipynb merges this directory into
+# developer-profiles/dev-profile-alerts and deploys from there, so these
+# services reach Compose through the alerts profile rather than on their own.
 
 services:
 

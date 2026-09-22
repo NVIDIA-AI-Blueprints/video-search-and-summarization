@@ -193,10 +193,20 @@ file are not recomputed when a later file changes one of their inputs.
 Therefore, materialize the complete dependent-value closure in `override.env`.
 For example:
 
-- changing `VSS_APPS_DIR` also requires the effective `VST_CONFIG_PATH`,
+- `VSS_APPS_DIR` also requires the effective `VST_CONFIG_PATH`,
   `SDR_CONTROLLER_CONFIG_PATH`, and any selected profile-specific config paths;
-- changing `HOST_IP` also requires the effective `EXTERNAL_IP`,
+- `HOST_IP` also requires the effective `EXTERNAL_IP`,
   `VSS_PUBLIC_HOST`, public VIOS/Agent URLs, and selected UI/API endpoints.
+
+This closure is unconditional, not only for values you change: the Foundation
+ships `VSS_APPS_DIR`, `VSS_DATA_DIR` and `HOST_IP` empty so Compose names them
+rather than interpolating a placeholder, which means every dependent value
+expanded from them in the Foundation layer is empty until `override.env`
+supplies it. `HOST_IP` and `EXTERNAL_IP` are guarded and fail at interpolation;
+a path derived from an empty `VSS_APPS_DIR` is not, so it reaches
+`resolved.yml` as an absolute path outside the repository — which
+`validate_resolved_yml.py` skips, since its bind-source check only inspects
+sources under the repo root.
 
 Find the exact closure by following variable references in the selected
 Foundation's `.env` and `overrides.env`; do not assume a later primitive
