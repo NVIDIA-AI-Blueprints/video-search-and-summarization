@@ -281,6 +281,13 @@ chmod -R a+rwx \
   "$VSS_DATA_DIR/videos"
 ```
 
+<Warning>
+These broad write permissions are for a single-user development host only. On a
+shared or production host, limit access to trusted administrators and grant
+each mounted directory only the access required by its containers. See
+[Host Filesystem Permissions](/vss/appendix/additional-deployments/secure-deployment#host-filesystem-permissions).
+</Warning>
+
 
 **Default container image tag**
 
