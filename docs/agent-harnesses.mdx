@@ -9,20 +9,20 @@ Because every VSS Skill follows the [agentskills.io](https://agentskills.io) spe
 compatible harness can load the same Skills folder and drive VSS without bespoke
 integration code.
 
+The default runtime harness is OpenClaw managed by NemoClaw. Claude Code and
+Codex are supported for development-time deployment and operations.
+
 The following harnesses are validated against the VSS Agent Skills:
 
 - **Claude Code** - Anthropic's CLI coding agent.
 - **OpenAI Codex** - OpenAI's CLI coding agent.
-- **OpenClaw** - the open agent sandbox that exposes an `agentskills.io`-compatible
-  host with a chat UI.
-- **NemoClaw** - NVIDIA's open-source reference stack for running always-on AI agents (such as Hermes and OpenClaw) more safely inside NVIDIA OpenShell sandboxes.
+- **OpenClaw** - the default runtime, with an `agentskills.io`-compatible host and chat UI.
+- **NemoClaw** - NVIDIA's reference stack for running OpenClaw in an NVIDIA OpenShell sandbox.
 
 <Note>
-Agent harnesses are a developer-side tool for working with the VSS Blueprint. They
-are distinct from the in-product [VSS Agent](/vss/vision-agent/vss-agents), which is built on the
-NeMo Agent Toolkit (NAT) and runs inside a deployed VSS workflow. For a broader
-comparison of ways to drive VSS, including direct MCP and REST integrations, see the
-harness comparison in the [Quickstart](/vss/getting-started/quickstart).
+The default [VSS Agent](/vss/vision-agent/vss-agents) experience runs through
+OpenClaw in a NemoClaw sandbox. It does not require the in-stack agent service.
+For a comparison, see the [Quickstart](/vss/getting-started/quickstart).
 </Note>
 
 ## How Harnesses Use VSS Skills
@@ -46,8 +46,8 @@ in two complementary ways:
 
 - **Deployment.** A coding agent such as Claude Code or Codex loads the Skills and stands
   up a VSS profile from a request like *"Deploy VSS for video search"*.
-- **Runtime.** An always-on sandbox such as NemoClaw loads the same Skills and acts as the
-  operational chat interface to a running deployment.
+- **Runtime.** NemoClaw runs OpenClaw with the same Skills as the operational
+  chat interface to a deployed VSS stack.
 
 ## Claude Code
 
@@ -69,17 +69,16 @@ catalog is used, so the available capabilities and example prompts are unchanged
 
 ## OpenClaw
 
-OpenClaw is an open agent sandbox that exposes an `agentskills.io`-compatible host with
-a chat UI. As a generic compatible host, it loads VSS Skills from `~/.agents/skills/<name>/`.
-OpenClaw is the foundation that [NemoClaw](/vss/vision-agent/agent-harnesses#nemoclaw) builds on:
-NemoClaw packages OpenClaw together with the VSS plugin, VSS policy preset, and the VSS
-Orchestrator MCP server so that Skills, safety policy, and host orchestration are
-preconfigured rather than installed by hand.
+OpenClaw is the default runtime harness. It exposes an
+`agentskills.io`-compatible host with a chat UI and loads VSS Skills from
+`~/.agents/skills/<name>/`. Use [NemoClaw](#nemoclaw) to install and run it with
+the VSS plugin, policy preset, and Orchestrator MCP configuration.
 
 ## NemoClaw
 
-[NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) is an open-source reference stack for running always-on AI agents more safely inside NVIDIA OpenShell sandboxes.
-Instead of installing Skills by hand, the bundled `deploy_nemoclaw.ipynb` and
+[NVIDIA NemoClaw](https://github.com/NVIDIA/NemoClaw) is the default way to run
+OpenClaw with VSS inside an NVIDIA OpenShell sandbox. Instead of installing
+Skills by hand, the bundled `deploy_nemoclaw.ipynb` and
 `deploy_vss_orchestrator.ipynb` notebooks apply the VSS policy, install the repository's
 VSS Skills and workspace docs into the sandbox, register the VSS Orchestrator MCP, and
 start the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) on the
@@ -88,6 +87,9 @@ incidents, run searches, summarize videos, and pull logs - with confirmation pro
 before destructive actions. For setup, configuration, and troubleshooting, see
 [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw).
 
+OpenClaw is the default `AGENT_RUNTIME`. Select another supported runtime only
+when your deployment requires it.
+
 <Note>
 The NemoClaw notebooks are released as an Early Access feature.
 </Note>
@@ -95,5 +97,5 @@ The NemoClaw notebooks are released as an Early Access feature.
 ## Related Documentation
 
 - [Agent Skills](/vss/vision-agent/agent-skills) - The reusable Skills that every harness loads.
-- [VSS Agents](/vss/vision-agent/vss-agents) - The in-product agent that runs inside a deployed VSS workflow.
+- [VSS Agents](/vss/vision-agent/vss-agents) - The agent experience delivered through OpenClaw and VSS Skills.
 - [Quickstart](/vss/getting-started/quickstart) - Harness comparison, including direct MCP and REST options.

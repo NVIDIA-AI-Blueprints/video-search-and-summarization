@@ -3,12 +3,14 @@ title: "Agent Evaluation"
 description: ""
 position: 5
 ---
-The VSS Agent includes a comprehensive evaluation with three specialized evaluators,
+The in-stack VSS Agent service includes three specialized evaluators,
 each targeting a different aspect of agent behavior. The evaluators support customizable prompts,
 configurable metrics, and multi-turn conversation evaluation.
 
-The evaluation is based on the [NVIDIA NeMo Agent Toolkit (NAT)](https://docs.nvidia.com/nemo/agent-toolkit/latest/index.html),
-specifically the [Evaluate Workflows](https://docs.nvidia.com/nemo/agent-toolkit/latest/workflows/evaluate.html) module.
+This page applies to the manual profile deployments that include that service;
+`nat eval` does not evaluate the default OpenClaw runtime. For NemoClaw with
+OpenClaw, use the notebook verification in
+[Additional Configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).
 
 ## Evaluators
 
@@ -256,7 +258,7 @@ You can customize the prompt by modifying the `custom_prompt_template` field in 
 ### Customized Trajectory Evaluator
 
 The Customized Trajectory Evaluator assesses the agent's execution path, focusing on tool selection,
-parameter accuracy, and overall workflow efficiency. It extends NAT's built-in [Trajectory Evaluator](https://docs.nvidia.com/nemo/agent-toolkit/latest/workflows/evaluate.html#trajectory-evaluator) with features such
+parameter accuracy, and overall workflow efficiency. It extends the built-in trajectory evaluator with features such
 as customizable LLM Judge prompts, agent-selected tools filtering, and multi-turn conversation support.
 
 #### Purpose
@@ -371,9 +373,8 @@ Prompt template for no-reference evaluation. Required if any dataset items have 
 - `{tool_schemas}`: Available tools with their parameter schemas
 - `{conversation_history}`: Previous turns in the conversation (for multi-turn evaluation)
 
-In addition to the customized evaluators above, you can use NAT's
-built-in evaluators or create your own custom evaluators. For more
-details, please refer to the [NAT Evaluation Documentation](https://docs.nvidia.com/nemo/agent-toolkit/latest/workflows/evaluate.html).
+In addition to the customized evaluators above, you can use the bundled
+evaluators or create your own custom evaluators.
 
 ## Configuring Evaluation Dataset
 
@@ -531,7 +532,7 @@ eval:
 
 ### Execution
 
-The evaluation can be run using the `nat eval` command:
+Run the in-stack agent evaluation with `nat eval`:
 
 ```bash
 nat eval --config_file <agent-config-file>
@@ -594,7 +595,7 @@ The multi-turn IDs in evaluation output follow the format `{dataset-item-id}_{tu
 
 ### Experiment Tracking (Optional)
 
-The evaluation supports Weights and Biases (W&B) Weave dashboard for experiment tracking and visualization. Please refer to the [NAT documentation on visualizing results](https://docs.nvidia.com/nemo/agent-toolkit/latest/workflows/evaluate.html#visualizing-evaluation-result) for more details.
+The evaluation supports the Weights and Biases (W&B) Weave dashboard for experiment tracking and visualization.
 
 To enable experiment tracking, follow these steps:
 

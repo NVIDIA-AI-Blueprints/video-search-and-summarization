@@ -7,8 +7,9 @@ position: 2
 
 **Deploy a vision agent in 10 minutes**
 
-This guide will walk you through the steps to deploy a vision agent using the VSS Blueprint. You'll
-create a simple vision agent that you can upload videos to, ask questions about the videos, and generate reports.
+This guide walks you through deploying the VSS Blueprint with the default
+NemoClaw-managed OpenClaw harness. You'll create a vision agent that can upload
+videos, answer questions about them, and generate reports.
 Afterwards, you can explore adding agent workflows such as video summarization, search, and alerting.
 
 <Note>
@@ -17,7 +18,8 @@ Unsupported Docker Engine versions can fail when pulling some NGC-hosted image t
 See [Prerequisites](/vss/getting-started/prerequisites) for Docker setup and the supported version band.
 </Note>
 
-The following diagram illustrates a conceptual architecture of the base vision agent that you'll deploy:
+The following diagram illustrates the base VSS services. The default OpenClaw
+harness runs in a NemoClaw sandbox outside the Compose project.
 
 ![Base Vision Agent Architecture](/assets/images/agent-workflows/profile-base-arch.png)
 
@@ -52,25 +54,22 @@ explicitly names the in-stack Agent, its REST API, or its chat workflow.
 
 ## Agent Harness Options
 
-For Build Vision AI deployments, NemoClaw is the default and recommended agent
-harness for interacting with VSS.
-The underlying VSS microservices (Video Analytics MCP, VSS Orchestrator MCP,
-VST/VIOS, and Video Analytics API) are framework-agnostic, so you can also drive
-them through direct MCP or REST integrations. The table below compares the
-supported options.
+For Build Vision AI deployments, NemoClaw with OpenClaw is the default and
+recommended harness. The VSS microservices are framework-agnostic, so you can
+also use direct MCP or REST integrations.
 
 | Harness | What it is | Pros | Cons |
 | --- | --- | --- | --- |
-| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The [NemoClaw setup](/vss/vision-agent/agent-harnesses/nemoclaw) provides a separate, notebook-driven route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
+| **NemoClaw with OpenClaw (Build Vision AI default)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The [NemoClaw setup](/vss/vision-agent/agent-harnesses/nemoclaw) provides a separate, notebook-driven route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
 | **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/vss/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
 | **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
 <Note>
 When you deploy with Build Vision AI, NemoClaw runs on the host outside the
-Docker Compose project, and the in-stack VSS Agent is omitted unless the request
-explicitly names it. The manual Docker Compose base-profile commands later on
-this page use the stock `COMPOSE_PROFILES` and still deploy the NAT-based VSS
-Agent.
+Docker Compose project and provides the default VSS Agent experience through
+OpenClaw. The in-stack VSS Agent is omitted unless the request explicitly names
+it. The manual Docker Compose commands later on this page use the stock service
+set, which includes the in-stack VSS Agent.
 
 Use one NemoClaw setup route for a deployment. For this quickstart, let Build
 Vision AI provision the harness when it prompts you. Use the standalone
@@ -235,21 +234,23 @@ the validated `base` developer profile. This is the default quickstart path.
 Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
 ```
 
-The agent will:
+The coding agent will:
 
-1. Load `vss-build-vision-ai` and route the request to the stock `base`
-   workflow.
+1. Load `vss-build-vision-ai` and use the `base` profile as the foundation.
 2. Confirm prerequisites, credentials, GPU hardware, model placement, and
    host/ingress settings.
-3. Ask whether to add a host-side agent harness and, when selected, confirm its
-   model provider and required credential.
+3. Ask whether to deploy a harness. The recommended/default yes-path is
+   NemoClaw with OpenClaw; when selected, confirm its model provider and
+   required credential.
 4. Show the generated deployment plan, including services, model placement,
    endpoints, and readiness checks.
 5. Ask for confirmation before starting containers.
-6. Deploy the base profile and return the browser-reachable VSS UI URL.
+6. Deploy VSS and, on the default yes-path, connect OpenClaw and return the VSS
+   UI and Agent UI links.
 
-When deployment completes, open the returned URL, typically
-`http://<HOST_IP>:7777/`, to use the base vision agent.
+When deployment completes, open the returned VSS UI, typically
+`http://<HOST_IP>:7777/`. If you selected NemoClaw, you can also use the
+returned Agent UI.
 
 <Note>
 On edge platforms (DGX Spark, IGX Thor, AGX Thor), a checked-in local
@@ -322,7 +323,7 @@ The base profile journey exercises four skills:
 
 | Quickstart step | Skill | What it does |
 | --- | --- | --- |
-| Deploy the base profile | `vss-build-vision-ai` | Selects the stock `base` workflow, confirms deployment context, and brings up the base stack. |
+| Deploy the base profile | `vss-build-vision-ai` | Uses the `base` profile as the foundation and deploys NemoClaw with OpenClaw by default. |
 | Upload a video | `vss-manage-video-io-storage` | Ingests files and manages sensors, snapshots, and clips via VIOS/VST. |
 | Ask questions | `vss-ask-video` | Routes through conversation context and memory first, then uses `vss vlm run` only for an exact, grounded visual inspection. |
 | Generate a report | `vss-generate-video-report` | Generates a report through Mode A (VIOS clip + direct VLM call) or Mode B (incident query via analytics), depending on the prompt. |
@@ -351,19 +352,21 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 
 **What the agent does:**
 
-1. Loads the `vss-build-vision-ai` skill and selects the stock `base`
-   workflow.
-2. Collects the required deployment context (repo path, GPU hardware,
+1. Loads the `vss-build-vision-ai` skill and selects the `base` profile as the
+   foundation.
+2. Asks whether to deploy a harness; the recommended/default yes-path is
+   NemoClaw with OpenClaw.
+3. Collects the required deployment context (repo path, GPU hardware,
    local/remote LLM-VLM mode, credentials, and host/ingress settings) and asks
    for anything missing.
-3. Runs pre-flight checks and credential validation before deployment.
-4. Generates and validates the base deployment plan, then shows a review
+4. Runs pre-flight checks and credential validation before deployment.
+5. Generates and validates the base deployment plan, then shows a review
    summary (services, model placement, and key endpoints).
-5. Waits for your confirmation before starting containers.
-6. Deploys with `up -d` and waits for readiness gates (container state and
+6. Waits for your confirmation before starting containers.
+7. Deploys with `up -d` and waits for readiness gates (container state and
    core health checks).
-7. Returns a browser-reachable ingress URL (for example
-   `http://<HOST_IP>:7777/`) for opening the UI.
+8. Starts NemoClaw, connects OpenClaw to the VSS UI, and returns links for both
+   interfaces.
 
 The default Skill-generated base stack serves
 `nvidia/cosmos3-nano-reasoner` through RT-VLM in the `vss-rtvi-vlm`
@@ -471,6 +474,11 @@ Tear down the VSS deployment.
 
 Use this section when you want to run the deployment yourself instead of asking
 the Build Vision AI Skill to do it.
+
+<Note>
+The checked-in base profile includes the in-stack agent service. Use the skill
+path above for the default OpenClaw-based VSS Agent deployment.
+</Note>
 
 ### Docker Compose deployment
 
@@ -1109,8 +1117,8 @@ For the recommended agent-guided deployment path, see
 
 The upload, chat, and report steps in this section require the manual stock
 Compose deployment, or a Build Vision AI request that explicitly retained the
-in-stack VSS Agent. For the default agentless Skill deployment, use the
-[Agent Skills walkthrough](#agent-skills-walkthrough) instead.
+in-stack VSS Agent. For the default NemoClaw with OpenClaw deployment, use the
+[Agent Skills walkthrough](#agent-skills-walkthrough).
 
 ### Upload a video
 
@@ -1130,7 +1138,7 @@ Once the video is uploaded, the agent will respond with the playback clip.
   <img src="/assets/images/agent-workflows/base_upload_video_3.png" alt="Video uploaded" />
 </Frame>
 
-### Ask the Agent questions
+### Ask the VSS Agent questions
 
 You can now ask the agent questions about the video. Here is an example:
 
@@ -1230,7 +1238,7 @@ The agent generates both Markdown (`.md`) and PDF (`.pdf`) reports. Generated re
 mount a host directory as a Docker volume. For details, refer to [Report Generation](/vss/vision-agent/vss-agents/report-generation).
 </Note>
 
-### Teardown the Agent
+### Teardown the manual deployment
 
 To teardown the agent, run the following command:
 
@@ -1266,4 +1274,5 @@ Additionally, you can dive deeper into the agent tools for [report generation](/
 
 ### Known Issues
 
-For current agent limitations, see [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).
+For the default harness, see [NemoClaw Troubleshooting](/vss/vision-agent/agent-harnesses/nemoclaw/troubleshooting).
+For VSS Agent workflow limitations, see [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).
