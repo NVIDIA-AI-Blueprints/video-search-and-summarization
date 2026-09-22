@@ -60,18 +60,25 @@ def observation(
     source_type: str = "vlm",
     record_id: str = "record-1",
     job_id: str = "vlm-1",
+    media_scope: dict | None = None,
 ) -> dict:
-    source = (
-        {"type": "memory", "job_id": "memory-job-1", "record_id": record_id}
-        if source_type == "memory"
-        else {
-            "type": "vlm",
-            "job_id": job_id,
-            "sensor_id": "sensor-1",
-            "start": START,
-            "end": END,
-        }
-    )
+    if source_type == "memory":
+        source = {"type": "memory", "job_id": "memory-job-1", "record_id": record_id}
+    else:
+        scope = media_scope or MEDIA_SCOPE
+        source = {"type": "vlm", "job_id": job_id}
+        if scope["type"] == "sensor":
+            source.update(
+                {
+                    "sensor_id": scope["sensor_id"],
+                    "start": scope["start"],
+                    "end": scope["end"],
+                }
+            )
+        elif scope["type"] == "media_url":
+            source["media_url"] = scope["media_url"]
+        else:
+            source["path"] = scope["path"]
     value = {
         "observation_id": "obs-" + "0" * 24,
         "claim_id": claim_id,
@@ -625,6 +632,61 @@ def test_task_records_and_enforces_assigned_media_scope() -> None:
 
 
 @pytest.mark.parametrize(
+    "media_scope",
+    [
+        {"type": "media_url", "media_url": "https://example.com/clip.mp4"},
+        {"type": "file", "path": "/media/bounded-clip.mp4"},
+    ],
+)
+def test_non_sensor_vlm_provenance_matches_assigned_scope(media_scope: dict) -> None:
+    ledger = initialized()
+    task = ledger_mod.create_inspection_tasks(
+        ledger,
+        {"claim-color": media_scope},
+    )[0]
+    item = observation(media_scope=media_scope)
+    assert "sensor_id" not in item["source"]
+    assert "start" not in item["source"]
+    assert "end" not in item["source"]
+
+    merged = ledger_mod.merge_round_results(
+        ledger,
+        [task],
+        [result(task, (item,))],
+    )
+    assert merged["status"] == "answered"
+    assert merged["observations"][0]["source"] == item["source"]
+
+
+@pytest.mark.parametrize(
+    ("assigned", "reported"),
+    [
+        (
+            {"type": "media_url", "media_url": "https://example.com/assigned.mp4"},
+            {"type": "media_url", "media_url": "https://example.com/other.mp4"},
+        ),
+        (
+            {"type": "file", "path": "/media/assigned.mp4"},
+            {"type": "file", "path": "/media/other.mp4"},
+        ),
+    ],
+)
+def test_non_sensor_vlm_provenance_rejects_scope_mismatch(
+    assigned: dict, reported: dict
+) -> None:
+    ledger = initialized()
+    task = ledger_mod.create_inspection_tasks(
+        ledger,
+        {"claim-color": assigned},
+    )[0]
+    with pytest.raises(ledger_mod.LedgerValidationError, match="assigned"):
+        ledger_mod.validate_inspection_result(
+            result(task, (observation(media_scope=reported),)),
+            task,
+        )
+
+
+@pytest.mark.parametrize(
     ("start", "end"),
     [
         (START, START),
@@ -695,11 +757,12 @@ def test_terminal_ledgers_reject_memory_merge_and_expansion() -> None:
             ledger_mod.expand_ledger(terminal, expansion)
 
 
-def test_final_result_schema_requires_audit_provenance() -> None:
-    schema_path = SCRIPT.parents[1] / "references" / "final-result.schema.json"
-    schema = json.loads(schema_path.read_text())
-    assert {
-        "evidence_details",
-        "revision",
-        "artifact_dir",
-    }.issubset(schema["required"])
+def test_final_result_contains_audit_provenance() -> None:
+    ledger = ledger_mod.merge_memory(
+        initialized(),
+        [memory_update("claim-color", observation(source_type="memory"))],
+    )
+    final = ledger_mod.final_result(ledger, "runs/question-1", "Visible result.")
+    assert final["evidence_details"] == ledger["observations"]
+    assert final["revision"] == ledger["revision"]
+    assert final["artifact_dir"] == "runs/question-1"
