@@ -83,6 +83,7 @@ For each selected configuration, save the remaining values in
 
 ```bash
 cd deploy/docker
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file developer-profiles/dev-profile-base/.env \
