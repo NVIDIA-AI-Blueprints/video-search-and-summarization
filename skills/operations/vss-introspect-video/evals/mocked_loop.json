@@ -18,9 +18,9 @@
       "checks": [
         "The trajectory calls or explicitly applies `vss-generate-evidence-plan` before binding the mocked memory fixture, and no answer option or evidence is inserted into the plan.",
         "The trajectory uses only the declared ordinary memory-query and bounded VLM fixture surfaces; it never invokes `vss memory introspect`, raw HTTP, the VSS Agent `/generate` endpoint, or a live deployment.",
-        "The visual task contains one claim and the current frozen base revision; its dispatch supplies the bounded ISO-8601 window and an allocation validated from `config/ledger-budgets.json`.",
+        "The visual task contains one claim, the current frozen base revision, an explicit immutable sensor scope with the bounded ISO-8601 window, and an allocation validated from `config/ledger-budgets.json`.",
         "The mocked memory and visual results are merged deterministically through `scripts/evidence_ledger.py`, preserving source, sensor, time-window, and VLM-job provenance.",
-        "The final answer identifies worker B, cites accepted observation IDs, states unresolved gaps (including none if the deterministic sufficiency result has none), reports the final revision, and gives the run artifact directory under the documented VSS workspace path."
+        "The final answer identifies worker B, cites accepted observation IDs with memory or VLM provenance, states unresolved gaps (including none if the deterministic sufficiency result has none), reports the final revision, and gives the run artifact directory under the documented VSS workspace path."
       ]
     }
   ]

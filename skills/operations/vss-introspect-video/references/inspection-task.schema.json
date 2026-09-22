@@ -11,6 +11,7 @@
     "gap",
     "existing_observations",
     "asset_id",
+    "media_scope",
     "max_vlm_calls"
   ],
   "properties": {
@@ -26,6 +27,44 @@
       "items": {"$ref": "evidence-ledger.schema.json#/$defs/observation"}
     },
     "asset_id": {"type": ["string", "null"]},
+    "media_scope": {
+      "oneOf": [
+        {"$ref": "#/$defs/sensorScope"},
+        {"$ref": "#/$defs/mediaUrlScope"},
+        {"$ref": "#/$defs/fileScope"}
+      ]
+    },
     "max_vlm_calls": {"type": "integer", "minimum": 1}
+  },
+  "$defs": {
+    "sensorScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "sensor_id", "start", "end"],
+      "properties": {
+        "type": {"const": "sensor"},
+        "sensor_id": {"type": "string", "minLength": 1},
+        "start": {"type": "string", "format": "date-time"},
+        "end": {"type": "string", "format": "date-time"}
+      }
+    },
+    "mediaUrlScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "media_url"],
+      "properties": {
+        "type": {"const": "media_url"},
+        "media_url": {"type": "string", "format": "uri", "minLength": 1}
+      }
+    },
+    "fileScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "path"],
+      "properties": {
+        "type": {"const": "file"},
+        "path": {"type": "string", "minLength": 1}
+      }
+    }
   }
 }

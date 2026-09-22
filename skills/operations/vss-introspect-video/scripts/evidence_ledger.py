@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 BUDGET_PATH = ROOT / "config" / "ledger-budgets.json"
@@ -91,6 +92,7 @@ TASK_KEYS = {
     "gap",
     "existing_observations",
     "asset_id",
+    "media_scope",
     "max_vlm_calls",
 }
 RESULT_KEYS = {
@@ -105,6 +107,9 @@ RESULT_KEYS = {
 MEMORY_SOURCE_REQUIRED = {"type", "record_id"}
 MEMORY_SOURCE_OPTIONAL = {"job_id", "sensor_id", "start", "end"}
 VLM_SOURCE_KEYS = {"type", "job_id", "sensor_id", "start", "end"}
+SENSOR_SCOPE_KEYS = {"type", "sensor_id", "start", "end"}
+MEDIA_URL_SCOPE_KEYS = {"type", "media_url"}
+FILE_SCOPE_KEYS = {"type", "path"}
 CLAIM_ID_RE = re.compile(r"^claim-[a-z0-9]+(?:-[a-z0-9]+)*$")
 TASK_ID_RE = re.compile(r"^inspect-claim-[a-z0-9]+(?:-[a-z0-9]+)*-r[1-9][0-9]*$")
 OBSERVATION_ID_RE = re.compile(r"^obs-[a-f0-9]{24}$")
@@ -152,7 +157,7 @@ def _integer(
     return value
 
 
-def _timestamp(value: Any, path: str) -> str:
+def _parse_timestamp(value: Any, path: str) -> datetime:
     value = _nonempty(value, path)
     candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
     try:
@@ -161,7 +166,14 @@ def _timestamp(value: Any, path: str) -> str:
         raise LedgerValidationError(f"{path}: must be an ISO-8601 timestamp") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         _fail(path, "must include a timezone")
-    return value
+    return parsed
+
+
+def _validate_window(start: Any, end: Any, path: str) -> None:
+    start_time = _parse_timestamp(start, f"{path}.start")
+    end_time = _parse_timestamp(end, f"{path}.end")
+    if start_time >= end_time:
+        _fail(path, "start must be strictly earlier than end")
 
 
 def load_budgets(path: str | os.PathLike[str] = BUDGET_PATH) -> dict[str, int]:
@@ -282,17 +294,40 @@ def _validate_source(source: Any, path: str) -> None:
         _nonempty(source["record_id"], f"{path}.record_id")
         _nullable_string(source.get("job_id"), f"{path}.job_id")
         _nullable_string(source.get("sensor_id"), f"{path}.sensor_id")
-        for field in ("start", "end"):
-            if source.get(field) is not None:
-                _timestamp(source[field], f"{path}.{field}")
+        has_start = source.get("start") is not None
+        has_end = source.get("end") is not None
+        if has_start != has_end:
+            _fail(path, "memory start and end must be provided together")
+        if has_start:
+            _validate_window(source["start"], source["end"], path)
     elif source_type == "vlm":
         source = _strict(source, VLM_SOURCE_KEYS, path)
         for field in ("job_id", "sensor_id"):
             _nonempty(source[field], f"{path}.{field}")
-        _timestamp(source["start"], f"{path}.start")
-        _timestamp(source["end"], f"{path}.end")
+        _validate_window(source["start"], source["end"], path)
     else:
         _fail(f"{path}.type", "must be memory or vlm")
+
+
+def _validate_media_scope(scope: Any, path: str = "media_scope") -> None:
+    if not isinstance(scope, dict):
+        _fail(path, "must be an object")
+    scope_type = scope.get("type")
+    if scope_type == "sensor":
+        scope = _strict(scope, SENSOR_SCOPE_KEYS, path)
+        _nonempty(scope["sensor_id"], f"{path}.sensor_id")
+        _validate_window(scope["start"], scope["end"], path)
+    elif scope_type == "media_url":
+        scope = _strict(scope, MEDIA_URL_SCOPE_KEYS, path)
+        media_url = _nonempty(scope["media_url"], f"{path}.media_url")
+        parsed = urlsplit(media_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            _fail(f"{path}.media_url", "must be an absolute HTTP(S) URL")
+    elif scope_type == "file":
+        scope = _strict(scope, FILE_SCOPE_KEYS, path)
+        _nonempty(scope["path"], f"{path}.path")
+    else:
+        _fail(f"{path}.type", "must be sensor, media_url, or file")
 
 
 def _validate_observation(
@@ -519,6 +554,7 @@ def validate_inspection_task(
                 "must target assigned claim",
             )
     _nullable_string(task["asset_id"], "task.asset_id")
+    _validate_media_scope(task["media_scope"], "task.media_scope")
     _integer(
         task["max_vlm_calls"],
         "task.max_vlm_calls",
@@ -556,6 +592,7 @@ def validate_inspection_task(
 
 def create_inspection_tasks(
     ledger: Mapping[str, Any],
+    media_scopes: Mapping[str, Mapping[str, Any]],
     claim_ids: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Create a bounded task batch without mutating canonical state."""
@@ -581,6 +618,12 @@ def create_inspection_tasks(
         _fail("claim_ids", "parallel subagent limit exceeded")
     if any(claim_id not in unresolved for claim_id in selected):
         _fail("claim_ids", "tasks may target only unresolved claims")
+    if not isinstance(media_scopes, dict):
+        _fail("media_scopes", "must be an object keyed by selected claim ID")
+    if set(media_scopes) != set(selected):
+        _fail("media_scopes", "must contain exactly one scope per selected claim")
+    for claim_id in selected:
+        _validate_media_scope(media_scopes[claim_id], f"media_scopes.{claim_id}")
     if len(selected) > remaining:
         selected = selected[:remaining]
     observations = {item["observation_id"]: item for item in ledger["observations"]}
@@ -603,6 +646,7 @@ def create_inspection_tasks(
                 for item_id in state["observation_ids"]
             ],
             "asset_id": ledger["plan"]["asset_id"],
+            "media_scope": copy.deepcopy(media_scopes[claim_id]),
             "max_vlm_calls": allocation,
         }
         validate_inspection_task(task, ledger)
@@ -645,6 +689,28 @@ def validate_inspection_result(
     claim_id = task["claim"]["claim_id"]
     if any(item["claim_id"] != claim_id for item in result["observations"]):
         _fail("result.observations", "every observation must target the assigned claim")
+    scope = task["media_scope"]
+    if scope["type"] == "sensor":
+        scope_start = _parse_timestamp(scope["start"], "task.media_scope.start")
+        scope_end = _parse_timestamp(scope["end"], "task.media_scope.end")
+        for index, item in enumerate(result["observations"]):
+            source = item["source"]
+            if source["sensor_id"] != scope["sensor_id"]:
+                _fail(
+                    f"result.observations[{index}].source.sensor_id",
+                    "does not match assigned media scope",
+                )
+            start = _parse_timestamp(
+                source["start"], f"result.observations[{index}].source.start"
+            )
+            end = _parse_timestamp(
+                source["end"], f"result.observations[{index}].source.end"
+            )
+            if start < scope_start or end > scope_end:
+                _fail(
+                    f"result.observations[{index}].source",
+                    "window falls outside assigned media scope",
+                )
 
 
 def _append_observations(
@@ -684,6 +750,8 @@ def merge_memory(
 ) -> dict[str, Any]:
     """Bind memory evidence in one canonical revision before inspection."""
     validate_ledger(ledger)
+    if ledger["status"] != "in_progress":
+        _fail("ledger.status", "cannot merge memory into a terminal ledger")
     if (
         not isinstance(updates, Sequence)
         or isinstance(updates, (str, bytes))
@@ -842,6 +910,8 @@ def expand_ledger(
 ) -> dict[str, Any]:
     """Accept one PR #2322 expansion while preserving prior claims and evidence."""
     validate_ledger(ledger)
+    if ledger["status"] != "in_progress":
+        _fail("ledger.status", "cannot expand a terminal ledger")
     validate_plan(expansion_plan, "expansion")
     if ledger["expansions_used"] >= BUDGETS["max_expansions"]:
         _fail("ledger.expansions_used", "at most one expansion is permitted")
@@ -908,10 +978,16 @@ def apply_budget_stop(ledger: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def final_result(
-    ledger: Mapping[str, Any], answer: str | None = None
+    ledger: Mapping[str, Any],
+    artifact_dir: str,
+    answer: str | None = None,
 ) -> dict[str, Any]:
-    """Build the required small answered or unresolved handoff object."""
+    """Build an answered or unresolved handoff with self-contained provenance."""
     validate_ledger(ledger)
+    if ledger["status"] == "in_progress":
+        _fail("ledger.status", "cannot finalize an in-progress ledger")
+    artifact_dir = _nonempty(artifact_dir, "artifact_dir")
+    observation_map = {item["observation_id"]: item for item in ledger["observations"]}
     if ledger["status"] == "answered":
         answer = _nonempty(answer, "answer")
         evidence = sorted(
@@ -925,7 +1001,12 @@ def final_result(
             "status": "answered",
             "answer": answer,
             "evidence": evidence,
+            "evidence_details": [
+                copy.deepcopy(observation_map[item_id]) for item_id in evidence
+            ],
             "unresolved_gaps": [],
+            "revision": ledger["revision"],
+            "artifact_dir": artifact_dir,
         }
     if answer is not None:
         _fail("answer", "must be null for an unresolved ledger")
@@ -958,7 +1039,10 @@ def final_result(
         "status": "unresolved",
         "answer": None,
         "evidence": [],
+        "evidence_details": [],
         "unresolved_gaps": gaps,
+        "revision": ledger["revision"],
+        "artifact_dir": artifact_dir,
     }
 
 
@@ -1009,6 +1093,7 @@ def _parser() -> argparse.ArgumentParser:
     validate.add_argument("--task")
     create = commands.add_parser("create-tasks")
     create.add_argument("--ledger", required=True)
+    create.add_argument("--media-scopes", required=True)
     create.add_argument("--claim-id", action="append")
     create.add_argument("--output", required=True)
     memory = commands.add_parser("merge-memory")
@@ -1028,6 +1113,7 @@ def _parser() -> argparse.ArgumentParser:
     assess.add_argument("--ledger", required=True)
     finish = commands.add_parser("final-result")
     finish.add_argument("--ledger", required=True)
+    finish.add_argument("--artifact-dir", required=True)
     finish.add_argument("--answer")
     finish.add_argument("--output")
     identifier = commands.add_parser("observation-id")
@@ -1050,7 +1136,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             validate_inspection_result(value, _read(args.task) if args.task else None)
         print("valid")
     elif args.command == "create-tasks":
-        _emit(create_inspection_tasks(_read(args.ledger), args.claim_id), args.output)
+        _emit(
+            create_inspection_tasks(
+                _read(args.ledger), _read(args.media_scopes), args.claim_id
+            ),
+            args.output,
+        )
     elif args.command == "merge-memory":
         _emit(merge_memory(_read(args.ledger), _read(args.updates)), args.output)
     elif args.command == "merge-round":
@@ -1069,7 +1160,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             None,
         )
     elif args.command == "final-result":
-        _emit(final_result(_read(args.ledger), args.answer), args.output)
+        _emit(
+            final_result(_read(args.ledger), args.artifact_dir, args.answer),
+            args.output,
+        )
     else:
         print(observation_id(_read(args.observation)))
     return 0
