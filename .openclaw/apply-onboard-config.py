@@ -12,24 +12,19 @@ attestation allowlist forbids it), so it inherits the base image's config -- and
 every ARG the custom Dockerfile does not declare is dropped by a regex
 `String.replace` that matches nothing and reports nothing.
 
-Two user-visible bugs come from that silence:
-
-  * the sandbox keeps the base image's model, context window and max tokens, so
-    the agent caps output and compacts against the wrong model's limits;
-  * `gateway.controlUi.allowedOrigins` keeps the generator's default loopback
-    origin, so the Agent UI answers "Browser origin not allowed" over any
-    non-loopback link.
-
-This script closes both: the Dockerfile declares the ARGs, and this applies
-them to the inherited config at build, before the config hash is recomputed.
-It is deliberately build-time -- OpenShell replaces the image entrypoint when it
-creates a sandbox, so no entrypoint of ours ever runs, `openshell` is not on
-PATH inside the sandbox, and nemoclaw-start's own fixes are root-gated while it
-runs as the sandbox user.
+The user-visible bug that comes from that silence is the model: the sandbox keeps
+the base image's model, context window and max tokens, so the agent caps output
+and compacts against the wrong model's limits. This script closes it -- the
+Dockerfile declares the ARGs, and this applies them to the inherited config at
+build, before the config hash is recomputed.
 
 Derivations mirror NemoClaw's generator (scripts/generate-openclaw-config.mts):
 origins are unique([loopback, chat, portless]); allowInsecureAuth is
 scheme == http; device auth is disabled for a non-loopback UI host.
+
+Do not register remote UI origins here. Onboard rewrites CHAT_UI_URL to its
+loopback dashboard forward. Register the remote origin after onboard in
+deploy_nemoclaw.ipynb; keep the derivation below for callers whose URL survives.
 """
 
 from __future__ import annotations
