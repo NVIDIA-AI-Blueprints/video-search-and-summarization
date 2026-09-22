@@ -106,7 +106,9 @@ RESULT_KEYS = {
 }
 MEMORY_SOURCE_REQUIRED = {"type", "record_id"}
 MEMORY_SOURCE_OPTIONAL = {"job_id", "sensor_id", "start", "end"}
-VLM_SOURCE_KEYS = {"type", "job_id", "sensor_id", "start", "end"}
+VLM_SENSOR_SOURCE_KEYS = {"type", "job_id", "sensor_id", "start", "end"}
+VLM_MEDIA_URL_SOURCE_KEYS = {"type", "job_id", "media_url"}
+VLM_FILE_SOURCE_KEYS = {"type", "job_id", "path"}
 SENSOR_SCOPE_KEYS = {"type", "sensor_id", "start", "end"}
 MEDIA_URL_SCOPE_KEYS = {"type", "media_url"}
 FILE_SCOPE_KEYS = {"type", "path"}
@@ -255,12 +257,10 @@ def _observation_material(observation: Mapping[str, Any]) -> dict[str, Any]:
         identifiers["start"] = source.get("start")
         identifiers["end"] = source.get("end")
     else:
-        identifiers.update(
-            job_id=source["job_id"],
-            sensor_id=source["sensor_id"],
-            start=source["start"],
-            end=source["end"],
-        )
+        identifiers["job_id"] = source["job_id"]
+        for field in ("sensor_id", "start", "end", "media_url", "path"):
+            if field in source:
+                identifiers[field] = source[field]
     return {
         "claim_id": observation["claim_id"],
         "relation": observation["relation"],
@@ -278,6 +278,13 @@ def observation_id(observation: Mapping[str, Any]) -> str:
         {**material, "observation_id": "obs-" + "0" * 24}, check_id=False
     )
     return "obs-" + _digest(_observation_material(material))[:24]
+
+
+def _validate_media_url(value: Any, path: str) -> None:
+    media_url = _nonempty(value, path)
+    parsed = urlsplit(media_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        _fail(path, "must be an absolute HTTP(S) URL")
 
 
 def _validate_source(source: Any, path: str) -> None:
@@ -301,10 +308,21 @@ def _validate_source(source: Any, path: str) -> None:
         if has_start:
             _validate_window(source["start"], source["end"], path)
     elif source_type == "vlm":
-        source = _strict(source, VLM_SOURCE_KEYS, path)
-        for field in ("job_id", "sensor_id"):
-            _nonempty(source[field], f"{path}.{field}")
-        _validate_window(source["start"], source["end"], path)
+        if "sensor_id" in source or "start" in source or "end" in source:
+            source = _strict(source, VLM_SENSOR_SOURCE_KEYS, path)
+            for field in ("job_id", "sensor_id"):
+                _nonempty(source[field], f"{path}.{field}")
+            _validate_window(source["start"], source["end"], path)
+        elif "media_url" in source:
+            source = _strict(source, VLM_MEDIA_URL_SOURCE_KEYS, path)
+            _nonempty(source["job_id"], f"{path}.job_id")
+            _validate_media_url(source["media_url"], f"{path}.media_url")
+        elif "path" in source:
+            source = _strict(source, VLM_FILE_SOURCE_KEYS, path)
+            _nonempty(source["job_id"], f"{path}.job_id")
+            _nonempty(source["path"], f"{path}.path")
+        else:
+            _fail(path, "vlm source must identify a sensor window, media URL, or file")
     else:
         _fail(f"{path}.type", "must be memory or vlm")
 
@@ -319,10 +337,7 @@ def _validate_media_scope(scope: Any, path: str = "media_scope") -> None:
         _validate_window(scope["start"], scope["end"], path)
     elif scope_type == "media_url":
         scope = _strict(scope, MEDIA_URL_SCOPE_KEYS, path)
-        media_url = _nonempty(scope["media_url"], f"{path}.media_url")
-        parsed = urlsplit(media_url)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            _fail(f"{path}.media_url", "must be an absolute HTTP(S) URL")
+        _validate_media_url(scope["media_url"], f"{path}.media_url")
     elif scope_type == "file":
         scope = _strict(scope, FILE_SCOPE_KEYS, path)
         _nonempty(scope["path"], f"{path}.path")
@@ -690,27 +705,28 @@ def validate_inspection_result(
     if any(item["claim_id"] != claim_id for item in result["observations"]):
         _fail("result.observations", "every observation must target the assigned claim")
     scope = task["media_scope"]
-    if scope["type"] == "sensor":
-        scope_start = _parse_timestamp(scope["start"], "task.media_scope.start")
-        scope_end = _parse_timestamp(scope["end"], "task.media_scope.end")
-        for index, item in enumerate(result["observations"]):
-            source = item["source"]
+    for index, item in enumerate(result["observations"]):
+        source = item["source"]
+        source_path = f"result.observations[{index}].source"
+        if scope["type"] == "sensor":
+            if "sensor_id" not in source:
+                _fail(source_path, "does not match assigned sensor scope")
             if source["sensor_id"] != scope["sensor_id"]:
                 _fail(
-                    f"result.observations[{index}].source.sensor_id",
+                    f"{source_path}.sensor_id",
                     "does not match assigned media scope",
                 )
-            start = _parse_timestamp(
-                source["start"], f"result.observations[{index}].source.start"
-            )
-            end = _parse_timestamp(
-                source["end"], f"result.observations[{index}].source.end"
-            )
+            scope_start = _parse_timestamp(scope["start"], "task.media_scope.start")
+            scope_end = _parse_timestamp(scope["end"], "task.media_scope.end")
+            start = _parse_timestamp(source["start"], f"{source_path}.start")
+            end = _parse_timestamp(source["end"], f"{source_path}.end")
             if start < scope_start or end > scope_end:
-                _fail(
-                    f"result.observations[{index}].source",
-                    "window falls outside assigned media scope",
-                )
+                _fail(source_path, "window falls outside assigned media scope")
+        elif scope["type"] == "media_url":
+            if source.get("media_url") != scope["media_url"]:
+                _fail(source_path, "does not match assigned media URL scope")
+        elif source.get("path") != scope["path"]:
+            _fail(source_path, "does not match assigned file scope")
 
 
 def _append_observations(
