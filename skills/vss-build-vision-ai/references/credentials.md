@@ -36,8 +36,12 @@ Surface discovered credentials to the user; do not auto-source them without conf
 
 Run the credential gate, naming the credentials the chosen mode requires with
 `--require`. It validates each key that is set, reports it as validated,
-rejected, unreachable, or skipped, resolves `NGC_CLI_API_KEY` / `NGC_API_KEY`
-to one key, and reports a conflict when both are set and differ.
+rejected by the service, not validated because the service never answered, or
+skipped, resolves `NGC_CLI_API_KEY` / `NGC_API_KEY` to one key, and reports a
+conflict when both are set and differ. Only a `401`/`403` is a verdict on the
+key itself; a timeout, a rate limit, or a `5xx` means the probe got no verdict,
+so retry or check the service rather than replacing the key. Each probe is
+bounded at 5s to connect and 15s in total.
 
 | Chosen mode | Pass |
 | --- | --- |
@@ -150,6 +154,7 @@ re-probe, and do not proceed to env mutation until it resolves — an unset key
 that reaches `resolved.yml` is baked in as `''` and no later export fixes it.
 
 The gate applies requiredness itself, so a `skip` for a key the mode does not
-use exits `0` and is fine, as is a rejected or unreachable key the mode does
-not need. `unreachable` means the probe never reached the service and the key
-was not validated: fix the host's egress rather than the key.
+use exits `0` and is fine, as is a rejected or unvalidated key the mode does
+not need. `not validated` means the service gave no verdict on the key — no
+answer within the probe timeout, a rate limit, or a `5xx`: fix the host's
+egress or wait for the service, rather than replacing a key that may be good.

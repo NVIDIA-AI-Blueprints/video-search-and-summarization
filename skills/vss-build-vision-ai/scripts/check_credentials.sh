@@ -6,8 +6,9 @@
 # (NGC / NVIDIA_API_KEY / HF_TOKEN) against their services so a bad key fails in
 # seconds, not after a cold NIM start. Read-only: it reads env vars and curls —
 # it does NOT write override.env (the skill writes the resolved key per
-# credentials.md). Each probe reports the key as validated, rejected,
-# unreachable, or skipped. Requiredness is mode-dependent and comes from
+# credentials.md). Each probe reports the key as validated, rejected by the
+# service, not validated because the service never answered, or skipped.
+# Requiredness is mode-dependent and comes from
 # --require, so the exit code is the verdict the caller branches on:
 # 0 gate passed, 1 usage error, 2 gate failed.
 set -u
@@ -31,9 +32,11 @@ Environment variables:
   NVIDIA_API_KEY                build.nvidia.com API key for remote NIMs
   HF_TOKEN                      Hugging Face token for gated checkpoints
 
-A credential that is unset or rejected is a blocker only when its --require
-name was passed; otherwise it is reported and does not gate. Conflicting
-NGC_CLI_API_KEY / NGC_API_KEY values always gate.
+A credential that is unset, rejected, or left unvalidated by an unreachable or
+erroring service is a blocker only when its --require name was passed;
+otherwise it is reported and does not gate. Conflicting NGC_CLI_API_KEY /
+NGC_API_KEY values always gate. Each probe is bounded at 5s to connect and 15s
+in total, so the gate cannot hang on a host with no egress.
 
 Exit codes:
   0  every required credential validated
@@ -114,9 +117,29 @@ report_failure() {
 # HTTP status of a read-only probe, or 000 when the request never completed.
 # Deliberately not `curl -f`: -f collapses a refused connection, a DNS failure
 # and a real 401 into one non-zero exit, which reports a working key as invalid
-# on a host with no egress.
+# on a host with no egress. Timeouts are mandatory for a gate that promises to
+# fail in seconds: without them, blackholed egress or a server that accepts and
+# stalls leaves curl on the OS timeout, so the whole preflight hangs instead of
+# reporting 000. Same bounds as
+# skills/operations/vss-search-archive/scripts/select_brev_origin.sh.
 http_status() {
-  curl -s -o /dev/null -w '%{http_code}' "$@" 2>/dev/null || true
+  curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 15 "$@" 2>/dev/null || true
+}
+
+# Turn a probe status into a verdict for one credential. Only 401/403 is a
+# statement about the credential itself; 000 and 429/5xx mean the service never
+# gave one, and reporting those as "rejected" sends someone to rotate a working
+# key. Both still gate when the credential is required — an unvalidated
+# requirement is not a pass — so this changes the message, not the exit code.
+report_status() {
+  local status="$1" required="$2" label="$3" host="$4" reject_hint="${5:-}"
+  case "$status" in
+    2??) echo "$label ok" ;;
+    000) report_failure "$required" "$label not validated — $host did not answer within the probe timeout" ;;
+    401|403) report_failure "$required" "$label rejected by $host (HTTP $status)${reject_hint:+ — $reject_hint}" ;;
+    429|5??) report_failure "$required" "$label not validated — $host returned HTTP $status (rate limit or service error), which is not a verdict on the credential; retry" ;;
+    *) report_failure "$required" "$label not validated — unexpected HTTP $status from $host" ;;
+  esac
 }
 
 # NGC — local NIM image pulls. NGC_CLI_API_KEY (NGC CLI / VSS env) and
@@ -136,11 +159,7 @@ elif [[ -n "${NGC_CLI_API_KEY:-${NGC_API_KEY:-}}" ]]; then
   # but is rejected by the ngc platform scope (false negative).
   ngc_status=$(http_status -u "\$oauthtoken:${ngc_resolved}" \
     "https://authn.nvidia.com/token?service=registry&scope=repository:nvidia/vss-core/vss-agent:pull")
-  case "$ngc_status" in
-    2??) echo "NGC key ok" ;;
-    000) report_failure "$require_ngc" "NGC key unreachable — authn.nvidia.com did not respond; the key was not validated" ;;
-    *) report_failure "$require_ngc" "NGC key rejected (HTTP $ngc_status)" ;;
-  esac
+  report_status "$ngc_status" "$require_ngc" "NGC key" "authn.nvidia.com"
 elif [[ "$require_ngc" == 1 ]]; then
   ngc_missing="NGC: not set — required for any local NIM image pull"
   echo "$ngc_missing"
@@ -153,11 +172,7 @@ fi
 if [[ -n "${NVIDIA_API_KEY:-}" ]]; then
   nvidia_status=$(http_status -H "Authorization: Bearer ${NVIDIA_API_KEY}" \
     "https://integrate.api.nvidia.com/v1/models")
-  case "$nvidia_status" in
-    2??) echo "NVIDIA_API_KEY ok" ;;
-    000) report_failure "$require_nvidia" "NVIDIA_API_KEY unreachable — integrate.api.nvidia.com did not respond; the key was not validated" ;;
-    *) report_failure "$require_nvidia" "NVIDIA_API_KEY rejected (HTTP $nvidia_status)" ;;
-  esac
+  report_status "$nvidia_status" "$require_nvidia" "NVIDIA_API_KEY" "integrate.api.nvidia.com"
 elif [[ "$require_nvidia" == 1 ]]; then
   nvidia_missing="NVIDIA_API_KEY: not set — required for remote NIM endpoints"
   echo "$nvidia_missing"
@@ -170,11 +185,8 @@ fi
 if [[ -n "${HF_TOKEN:-}" ]]; then
   hf_status=$(http_status -H "Authorization: Bearer ${HF_TOKEN}" \
     "https://huggingface.co/api/models/Qwen/Qwen3-VL-8B-Instruct")
-  case "$hf_status" in
-    200) echo "HF_TOKEN ok" ;;
-    000) report_failure "$require_hf" "HF_TOKEN unreachable — huggingface.co did not respond; the token was not validated" ;;
-    *) report_failure "$require_hf" "HF_TOKEN invalid or no access to the probed HF model (HTTP $hf_status)" ;;
-  esac
+  report_status "$hf_status" "$require_hf" "HF_TOKEN" "huggingface.co" \
+    "the token is invalid or has no access to the probed model"
 elif [[ "$require_hf" == 1 ]]; then
   hf_missing="HF_TOKEN: not set — required for the standalone RT-VLM / RT-Embed Hugging Face checkpoints"
   echo "$hf_missing"
