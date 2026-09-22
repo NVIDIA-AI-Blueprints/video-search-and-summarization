@@ -130,7 +130,7 @@ derived runtime values, and starts Compose with `containers.env`, the profile
 `.env`, and `generated.env` in that order.
 
 The helper resets its managed state before every `up`: it stops the Compose
-project **`mdx`**, removes Compose volumes, deletes old `generated.env` files,
+project **`vss`**, removes Compose volumes, deletes old `generated.env` files,
 cleans generated SDRC artifacts, and deletes the developer data directory
 (default: **`deploy/docker/data-dir`**) before recreating it. Use `--dry-run` to
 preview the commands and generated environment without starting containers.
