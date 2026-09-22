@@ -19,6 +19,12 @@ SPEC.loader.exec_module(ledger_mod)
 
 START = "2026-09-21T20:00:00Z"
 END = "2026-09-21T20:00:10Z"
+MEDIA_SCOPE = {
+    "type": "sensor",
+    "sensor_id": "sensor-1",
+    "start": START,
+    "end": END,
+}
 
 
 def claim(
@@ -79,6 +85,16 @@ def observation(
 
 def initialized(*claims: dict) -> dict:
     return ledger_mod.initialize_ledger(plan(*claims))
+
+
+def create_tasks(ledger: dict, claim_ids: list[str] | None = None) -> list[dict]:
+    selected = claim_ids or [
+        state["claim_id"]
+        for state in ledger["claims"]
+        if state["status"] == "unresolved"
+    ]
+    media_scopes = {claim_id: copy.deepcopy(MEDIA_SCOPE) for claim_id in selected}
+    return ledger_mod.create_inspection_tasks(ledger, media_scopes, claim_ids)
 
 
 def result(
@@ -164,7 +180,7 @@ def test_06_preserves_pr_2322_plan_unchanged() -> None:
 
 def test_07_merges_one_successful_inspection_result() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     merged = ledger_mod.merge_round_results(
         ledger,
         tasks,
@@ -179,7 +195,7 @@ def test_07_merges_one_successful_inspection_result() -> None:
 
 def test_08_merges_two_parallel_results_from_same_revision_once() -> None:
     ledger = initialized(claim(), claim("claim-count", "count", "whole_video"))
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     assert {task["base_revision"] for task in tasks} == {0}
     merged = ledger_mod.merge_round_results(
         ledger,
@@ -199,7 +215,7 @@ def test_08_merges_two_parallel_results_from_same_revision_once() -> None:
 
 def test_parallel_failure_preserves_successful_sibling_result() -> None:
     ledger = initialized(claim(), claim("claim-count", "count", "whole_video"))
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     merged = ledger_mod.merge_round_results(
         ledger,
         tasks,
@@ -221,7 +237,7 @@ def test_parallel_failure_preserves_successful_sibling_result() -> None:
 
 def test_09_rejects_stale_result() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     stale = result(tasks[0], (observation(),))
     stale["base_revision"] = 9
     with pytest.raises(ledger_mod.LedgerValidationError, match="frozen"):
@@ -230,7 +246,7 @@ def test_09_rejects_stale_result() -> None:
 
 def test_10_rejects_result_for_unknown_task() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     unknown = result(tasks[0])
     unknown["task_id"] = "inspect-claim-unknown-r1"
     with pytest.raises(ledger_mod.LedgerValidationError, match="unknown task"):
@@ -239,7 +255,7 @@ def test_10_rejects_result_for_unknown_task() -> None:
 
 def test_11_rejects_result_exceeding_task_allocation() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     tasks[0]["max_vlm_calls"] = 1
     with pytest.raises(ledger_mod.LedgerValidationError, match="allocation"):
         ledger_mod.merge_round_results(
@@ -251,7 +267,7 @@ def test_11_rejects_result_exceeding_task_allocation() -> None:
 
 def test_12_enforces_global_five_call_cap() -> None:
     ledger = initialized(claim(), claim("claim-count"))
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     ledger = ledger_mod.merge_round_results(
         ledger,
         tasks,
@@ -271,7 +287,7 @@ def test_12_enforces_global_five_call_cap() -> None:
         ],
     )
     assert ledger["vlm_calls_used"] == 4
-    second = ledger_mod.create_inspection_tasks(ledger, ["claim-color"])
+    second = create_tasks(ledger, ["claim-color"])
     overallocated = copy.deepcopy(second)
     overallocated[0]["max_vlm_calls"] = 2
     with pytest.raises(ledger_mod.LedgerValidationError, match="global"):
@@ -284,7 +300,7 @@ def test_12_enforces_global_five_call_cap() -> None:
 
 def test_13_deduplicates_identical_observations() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     duplicate = observation()
     merged = ledger_mod.merge_round_results(
         ledger,
@@ -339,7 +355,7 @@ def test_15_conflicting_support_and_contradiction_remain_unresolved() -> None:
 
 def test_16_tool_failure_is_error_not_contradiction() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     merged = ledger_mod.merge_round_results(
         ledger,
         tasks,
@@ -360,7 +376,7 @@ def test_16_tool_failure_is_error_not_contradiction() -> None:
 
 def test_17_missing_visibility_remains_unresolved_not_contradicted() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     merged = ledger_mod.merge_round_results(
         ledger,
         tasks,
@@ -389,15 +405,22 @@ def test_18_detects_sufficient_completion_and_builds_traceable_result() -> None:
         ],
     )
     assert ledger_mod.assess_sufficiency(ledger)["sufficient"]
-    final = ledger_mod.final_result(ledger, "The worker wore a yellow vest.")
+    final = ledger_mod.final_result(
+        ledger,
+        "runs/question-1",
+        "The worker wore a yellow vest.",
+    )
     assert final["status"] == "answered"
     assert final["evidence"] == ledger["claims"][0]["observation_ids"]
+    assert final["evidence_details"] == ledger["observations"]
+    assert final["revision"] == ledger["revision"]
+    assert final["artifact_dir"] == "runs/question-1"
     assert final["unresolved_gaps"] == []
 
 
 def test_19_detects_no_progress() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     merged = ledger_mod.merge_round_results(
         ledger,
         tasks,
@@ -409,7 +432,7 @@ def test_19_detects_no_progress() -> None:
 
 def test_20_detects_budget_exhaustion_across_rounds() -> None:
     ledger = initialized(claim(), claim("claim-count"))
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     ledger = ledger_mod.merge_round_results(
         ledger,
         tasks,
@@ -428,7 +451,7 @@ def test_20_detects_budget_exhaustion_across_rounds() -> None:
             ),
         ],
     )
-    second = ledger_mod.create_inspection_tasks(ledger, ["claim-color"])
+    second = create_tasks(ledger, ["claim-color"])
     ledger = ledger_mod.merge_round_results(
         ledger,
         second,
@@ -517,7 +540,7 @@ def test_23_rejects_more_than_three_total_poc_claims() -> None:
 def test_24_only_top_level_merge_changes_canonical_ledger(tmp_path: Path) -> None:
     ledger = initialized()
     before = copy.deepcopy(ledger)
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     assert ledger == before
     result_payload = result(tasks[0], (observation(),))
     result_path = tmp_path / "result.json"
@@ -555,13 +578,128 @@ def test_unknown_fields_and_non_iso_vlm_times_are_rejected() -> None:
 
 def test_final_unresolved_result_uses_allowed_reason() -> None:
     ledger = initialized()
-    tasks = ledger_mod.create_inspection_tasks(ledger)
+    tasks = create_tasks(ledger)
     ledger = ledger_mod.merge_round_results(
         ledger,
         tasks,
         [result(tasks[0], coverage="none", gap="The person is not visible.")],
     )
-    final = ledger_mod.final_result(ledger)
+    final = ledger_mod.final_result(ledger, "runs/question-1")
     assert final["status"] == "unresolved"
     assert final["answer"] is None
+    assert final["evidence_details"] == []
+    assert final["revision"] == ledger["revision"]
+    assert final["artifact_dir"] == "runs/question-1"
     assert final["unresolved_gaps"][0]["reason"] == "not_visible"
+
+
+def test_task_records_and_enforces_assigned_media_scope() -> None:
+    ledger = initialized(claim(), claim("claim-count", "count", "whole_video"))
+    scopes = {
+        "claim-color": MEDIA_SCOPE,
+        "claim-count": {"type": "file", "path": "/media/bounded-clip.mp4"},
+    }
+    tasks = ledger_mod.create_inspection_tasks(ledger, scopes)
+    task = tasks[0]
+    assert task["media_scope"] == MEDIA_SCOPE
+    assert task["media_scope"] is not MEDIA_SCOPE
+    assert tasks[1]["media_scope"] == scopes["claim-count"]
+
+    wrong_sensor = observation()
+    wrong_sensor["source"]["sensor_id"] = "sensor-2"
+    wrong_sensor["observation_id"] = ledger_mod.observation_id(wrong_sensor)
+    with pytest.raises(ledger_mod.LedgerValidationError, match="media scope"):
+        ledger_mod.validate_inspection_result(
+            result(task, (wrong_sensor,)),
+            task,
+        )
+
+    outside_window = observation()
+    outside_window["source"]["start"] = "2026-09-21T19:59:59Z"
+    outside_window["observation_id"] = ledger_mod.observation_id(outside_window)
+    with pytest.raises(ledger_mod.LedgerValidationError, match="outside assigned"):
+        ledger_mod.validate_inspection_result(
+            result(task, (outside_window,)),
+            task,
+        )
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (START, START),
+        (END, START),
+    ],
+)
+def test_rejects_equal_and_reversed_observation_windows(start: str, end: str) -> None:
+    item = observation()
+    item["source"]["start"] = start
+    item["source"]["end"] = end
+    with pytest.raises(ledger_mod.LedgerValidationError, match="strictly earlier"):
+        ledger_mod.observation_id(item)
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (START, START),
+        (END, START),
+    ],
+)
+def test_rejects_equal_and_reversed_task_windows(start: str, end: str) -> None:
+    media_scope = {**MEDIA_SCOPE, "start": start, "end": end}
+    with pytest.raises(ledger_mod.LedgerValidationError, match="strictly earlier"):
+        ledger_mod.create_inspection_tasks(
+            initialized(),
+            {"claim-color": media_scope},
+        )
+
+
+def test_rejects_invalid_media_url_scope() -> None:
+    with pytest.raises(ledger_mod.LedgerValidationError, match="HTTP"):
+        ledger_mod.create_inspection_tasks(
+            initialized(),
+            {
+                "claim-color": {
+                    "type": "media_url",
+                    "media_url": "not-a-url",
+                }
+            },
+        )
+
+
+def test_terminal_ledgers_reject_memory_merge_and_expansion() -> None:
+    answered = ledger_mod.merge_memory(
+        initialized(),
+        [memory_update("claim-color", observation(source_type="memory"))],
+    )
+    in_progress = initialized()
+    tasks = create_tasks(in_progress)
+    unresolved = ledger_mod.merge_round_results(
+        in_progress,
+        tasks,
+        [result(tasks[0], coverage="none", gap="No useful view was found.")],
+    )
+    assert answered["status"] == "answered"
+    assert unresolved["status"] == "unresolved"
+
+    expansion = plan(
+        claim("claim-count", "count", "whole_video"),
+        mode="expansion",
+    )
+    update = [memory_update("claim-color", observation(source_type="memory"))]
+    for terminal in (answered, unresolved):
+        with pytest.raises(ledger_mod.LedgerValidationError, match="terminal"):
+            ledger_mod.merge_memory(terminal, update)
+        with pytest.raises(ledger_mod.LedgerValidationError, match="terminal"):
+            ledger_mod.expand_ledger(terminal, expansion)
+
+
+def test_final_result_schema_requires_audit_provenance() -> None:
+    schema_path = SCRIPT.parents[1] / "references" / "final-result.schema.json"
+    schema = json.loads(schema_path.read_text())
+    assert {
+        "evidence_details",
+        "revision",
+        "artifact_dir",
+    }.issubset(schema["required"])
