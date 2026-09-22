@@ -27,7 +27,7 @@
     "expected_behavior": [
       "Activates vss-build-vision-ai.",
       "Applies DGX Station GB300 OS and driver checks from prerequisites.md.",
-      "Writes the complete single-GB300 device placement, RT-VLM utilization 0.2, and concrete SBSA tags directly to the build override — not a two-GPU H100 layout or a dev-profile.sh invocation."
+      "Writes the complete single-GB300 device placement, RT-VLM utilization 0.2, and concrete SBSA tags directly to the build override — not a two-GPU H100 layout or a dev-profile.sh invocation — and never duplicates an existing -sbsa suffix."
     ]
   },
   {

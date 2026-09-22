@@ -144,16 +144,17 @@ reserves `fraction × total` without subtracting co-residents.
 SBSA tags are also part of the build override. Because `containers.env` is
 expanded before `override.env`, setting only `VSS_CONTAINER_TAG_SUFFIX=-sbsa`
 in the build override is too late to recompute per-image tags. Read the
-effective `VSS_CONTAINER_TAG`, append `-sbsa`, and write concrete values for
-the services the Foundation uses:
+effective `VSS_CONTAINER_TAG` and derive `<sbsa-tag>` idempotently: if the tag
+already ends in `-sbsa`, use it unchanged; otherwise append `-sbsa` exactly
+once. Write that concrete `<sbsa-tag>` for the services the Foundation uses:
 
 | Foundation | Additional `override.env` values |
 |---|---|
-| Base | `VSS_RT_VLM_TAG=<effective-tag>-sbsa` |
-| LVS | `VSS_RT_VLM_TAG=<effective-tag>-sbsa`, `VSS_VIDEO_SUMMARIZATION_TAG=<effective-tag>-sbsa` |
-| Alerts `2d_cv` | `VSS_RT_CV_TAG=<effective-tag>-sbsa`, `VSS_RT_VLM_TAG=<effective-tag>-sbsa` |
-| Alerts `2d_vlm` | `VSS_RT_VLM_TAG=<effective-tag>-sbsa` |
-| Search | `VSS_RT_CV_TAG=<effective-tag>-sbsa`, `VSS_RT_EMBED_TAG=<effective-tag>-sbsa`, `VSS_RT_VLM_TAG=<effective-tag>-sbsa` |
+| Base | `VSS_RT_VLM_TAG=<sbsa-tag>` |
+| LVS | `VSS_RT_VLM_TAG=<sbsa-tag>`, `VSS_VIDEO_SUMMARIZATION_TAG=<sbsa-tag>` |
+| Alerts `2d_cv` | `VSS_RT_CV_TAG=<sbsa-tag>`, `VSS_RT_VLM_TAG=<sbsa-tag>` |
+| Alerts `2d_vlm` | `VSS_RT_VLM_TAG=<sbsa-tag>` |
+| Search | `VSS_RT_CV_TAG=<sbsa-tag>`, `VSS_RT_EMBED_TAG=<sbsa-tag>`, `VSS_RT_VLM_TAG=<sbsa-tag>` |
 
 Verify these device IDs, modes, utilization values, and concrete `-sbsa` image
 tags in `resolved.yml` before deployment.
