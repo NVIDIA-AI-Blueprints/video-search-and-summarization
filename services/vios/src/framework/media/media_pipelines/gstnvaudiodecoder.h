@@ -81,7 +81,7 @@ class GstNvAudioDecoder : public IMediaDataConsumer, public GstNvDecoder
             {
                 m_audioData.m_audioCodec = opts.at("audio_codec");
             }
-            setConsumerMediaType(MediaTypeAudio);
+            IMediaDataConsumer::setConsumerMediaType(MediaTypeAudio);
         }
         ~GstNvAudioDecoder ()
         {

@@ -49,7 +49,7 @@ NvMediaSource
     LOG(info) << "::NvMediaSource filename:" << m_filename << ", media:" << mediaTypeAsString(m_mediaType)
         << ", source:" << m_sourceType << ", m_sessionId:" << m_sessionId << endl;
 
-    setConsumerMediaType(m_mediaType);
+    IMediaDataConsumer::setConsumerMediaType(m_mediaType);
     if (m_sourceType == SourceTypeFile)
     {
         if (m_mediaType == MediaTypeVideo)
