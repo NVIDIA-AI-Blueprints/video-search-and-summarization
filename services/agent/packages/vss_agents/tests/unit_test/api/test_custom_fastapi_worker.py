@@ -112,9 +112,9 @@ class TestLegacyChatTerminalMiddleware:
     async def test_detects_root_workflow_completion_split_across_chunks(self) -> None:
         messages = await _run_terminal_middleware(
             [
-                b'intermediate_data: {"id":"workflow","parent_id":"ro',
-                b'ot","name":"Function Complete: <work',
-                b'flow>"}\n\n',
+                b'intermediate_data: {"id":"workflow","name":"Function Complete: <work',
+                b'flow>","parent_id":"ro',
+                b'ot"}\n\n',
             ]
         )
 

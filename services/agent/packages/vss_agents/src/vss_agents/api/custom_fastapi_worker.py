@@ -46,8 +46,9 @@ _DONE_EVENT = re.compile(rb"(?:^|\r?\n)data:[\t ]*\[DONE\]\r?\n\r?\n")
 _ERROR_EVENT = re.compile(rb"(?:^|\r?\n)event:[\t ]*error[\t ]*\r?\n")
 _WORKFLOW_ERROR = re.compile(rb'"code"\s*:\s*"workflow_error"')
 _ROOT_WORKFLOW_COMPLETE = re.compile(
-    rb'(?:^|\r?\n)intermediate_data:[\t ]*\{[^\r\n]{0,256}"parent_id"\s*:\s*"root"'
-    rb'[^\r\n]{0,256}"name"\s*:\s*"Function Complete: <workflow>"'
+    rb"(?:^|\r?\n)intermediate_data:[\t ]*\{"
+    rb'(?=[^\r\n]{0,512}"parent_id"\s*:\s*"root")'
+    rb'(?=[^\r\n]{0,512}"name"\s*:\s*"Function Complete: <workflow>")'
 )
 _STREAM_EVENT_TAIL_BYTES = 1024
 _LEGACY_CHAT_STREAM_PATHS = frozenset({"/chat/stream", "/v1/chat/stream"})
