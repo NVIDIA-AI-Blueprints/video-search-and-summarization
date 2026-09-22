@@ -56,7 +56,7 @@ class IStreamStatusEvent
 {
 public:
     virtual void onStreamStatusChange(const string &url, const StreamStatus newStatus, StreamEncParam& details) = 0;
-    virtual void onDecoderPlayingStatus(const string &url) {}
+    virtual void onDecoderPlayingStatus(const string &url) { /* intentionally empty: default no-op */ }
 };
 
 class StreamMonitor : public IMediaDataProducer

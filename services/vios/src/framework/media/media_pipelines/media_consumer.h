@@ -211,8 +211,8 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
                 m_transcodeStats.clearQueue();
             }
 
-        virtual void onFrame(FrameParams& frame_params) {}
-        virtual void onFrame(std::shared_ptr<RawFrameParams> frame_data) {};
+        virtual void onFrame(FrameParams& frame_params) { /* intentionally empty: default no-op */ }
+        virtual void onFrame(std::shared_ptr<RawFrameParams> frame_data) { /* intentionally empty: default no-op */ };
 
         virtual eMediaType getConsumerMediaType() { return m_mediaType; }
         virtual void setConsumerMediaType(eMediaType media_type) { m_mediaType = media_type; }
@@ -222,16 +222,16 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         bool isPpsAvailable();
         bool isSpsPpsAvailable();
 
-        virtual void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) { };
-        virtual void onLastFrame() { }
-        virtual void reset() { }
+        virtual void setWebrtcBroadcaster(webrtc::VideoBroadcaster* broadcaster) { /* intentionally empty: default no-op */ };
+        virtual void onLastFrame() { /* intentionally empty: default no-op */ }
+        virtual void reset() { /* intentionally empty: default no-op */ }
         /* Update start time for overlay */
-        virtual void updateStartTime(string start_time) { }
+        virtual void updateStartTime(string start_time) { /* intentionally empty: default no-op */ }
         /* Set decoder frame size provides original resolution decoded */
-        virtual void setOriginalFrameSize(int w, int h) { }
-        virtual void setOriginalFrameSize() { }
-        virtual void setIPCMeta() { };
-        virtual void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate) {}
+        virtual void setOriginalFrameSize(int w, int h) { /* intentionally empty: default no-op */ }
+        virtual void setOriginalFrameSize() { /* intentionally empty: default no-op */ }
+        virtual void setIPCMeta() { /* intentionally empty: default no-op */ };
+        virtual void getwebRTCFeedback(int* qp, int* bitrate, double* frame_rate) { /* intentionally empty: default no-op */ }
         void startStatsProcessing()
         {
             m_transcodeStats.startProcessing();
@@ -278,8 +278,8 @@ class IMediaDataConsumer : public std::enable_shared_from_this<IMediaDataConsume
         // Writer lifecycle methods - default no-op implementations
         // ─────────────────────────────────────────────────────────────
         virtual bool start() { return true; }
-        virtual void stop() { }
-        virtual void sendEOS() { }
+        virtual void stop() { /* intentionally empty: default no-op */ }
+        virtual void sendEOS() { /* intentionally empty: default no-op */ }
         virtual bool waitForCompletion(int64_t /*timeout_secs*/) { return true; }
         virtual bool hasError() const { return false; }
         virtual std::shared_ptr<IMediaDataConsumer> getAudioConsumer() { return nullptr; }

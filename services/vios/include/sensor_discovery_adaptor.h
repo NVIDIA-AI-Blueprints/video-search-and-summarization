@@ -36,15 +36,15 @@ class ISensorDiscoveryEvent
         virtual int onSensorChanged(SensorInfo& sensorInfo) = 0;
         virtual int onSensorRemoved(const string& sensorInfo) = 0;
 
-        virtual void notifyEvent(const SensorStatus& status, const string& url, const string& ipc_url = "") {}
-        virtual void refreshSensorList() {}
+        virtual void notifyEvent(const SensorStatus& status, const string& url, const string& ipc_url = "") { /* intentionally empty: default no-op */ }
+        virtual void refreshSensorList() { /* intentionally empty: default no-op */ }
 };
 
 class ISensorDiscoveryInterface
-{	
+{
 public:
-    ISensorDiscoveryInterface() {}
-    virtual ~ISensorDiscoveryInterface() {}
+    ISensorDiscoveryInterface() = default;
+    virtual ~ISensorDiscoveryInterface() = default;
 
     virtual void start() = 0;
     virtual void stop()  = 0;

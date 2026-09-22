@@ -32,7 +32,7 @@ public:
 
     // Intentionally blank: the paho async client is created with
     // set_automatic_reconnect(true), so reconnection is handled internally.
-    void retryConnection() override {}
+    void retryConnection() override { /* reconnection handled internally by paho async client */ }
     bool deliverMessage(Json::Value& message) override;
     bool sendToMqtt(std::string payload);
 

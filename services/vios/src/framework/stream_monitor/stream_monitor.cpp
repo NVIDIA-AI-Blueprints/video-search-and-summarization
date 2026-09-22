@@ -410,7 +410,7 @@ void StreamMonitor::sendStatusEvent(const string &url, StreamStatus status, Stre
 
 void StreamMonitor::notifyStreamStatus(const StreamStatus& status, const std::string& camera_id)
 {
-
+    /* intentionally empty: default no-op */
 }
 
 /* =============Implementation of QoS Measurement ====================== */
