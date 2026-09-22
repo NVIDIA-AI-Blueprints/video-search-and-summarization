@@ -669,6 +669,20 @@ docker compose version
 Docker Compose v2 uses the command `docker compose` (without hyphen) instead of the older `docker-compose` command.
 </Note>
 
+### Install uv
+
+`uv` 0.5.0 or later is required by the `vss` CLI and the Build Vision AI
+validator scripts. Install it and make it available in the current shell:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+uv --version
+```
+
+If a validator exits with `/usr/bin/env: 'uv': No such file or directory`,
+install `uv` with the command above and retry.
+
 ### Install NVIDIA Container Toolkit
 
 The NVIDIA Container Toolkit is required to run the NVIDIA containers. Follow the guide here for installing the NVIDIA Container Toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
