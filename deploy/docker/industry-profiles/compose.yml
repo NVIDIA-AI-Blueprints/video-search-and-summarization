@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Smart Cities keeps its environment overlay on the Alerts foundation, but its
-# uniquely named services are included directly here. The launchable merges
-# only the environment layers; it does not copy Compose or profile artifacts.
+# Smart Cities is absent by design: its overlay is applied by
+# scripts/deploy_smartcities_launchable.ipynb, which rsyncs
+# ./smartcities over developer-profiles/dev-profile-alerts and runs the alerts
+# profile. Including ./smartcities/compose.yml here would not work as written —
+# see the header of that file.
 include:
   - path: ./warehouse-operations/compose.yml
-  - path: ./smartcities/compose.yml
