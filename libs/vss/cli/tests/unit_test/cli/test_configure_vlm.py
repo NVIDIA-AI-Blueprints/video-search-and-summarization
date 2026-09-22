@@ -90,6 +90,16 @@ def test_configure_vlm_writes_standalone_vllm_backend(config_home: Path) -> None
     )
 
 
+def test_configure_vlm_writes_cosmos_reason_nim_backend(config_home: Path) -> None:
+    result = _invoke("--backend", "cosmos-reason-nim", "--fps", "4")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm == config_mod.VlmConfig(
+        backend="cosmos_reason_nim",
+        fps=4,
+    )
+
+
 def test_vlm_config_without_backend_defaults_to_rt_vlm() -> None:
     policy = config_mod.VlmConfig.from_json({"fps": 4, "locked": True})
 
@@ -230,6 +240,12 @@ def test_vlm_environment_can_create_policy_without_persisted_config(monkeypatch:
     assert config_mod.effective_vlm_config(None) == config_mod.VlmConfig(fps=4)
 
 
+def test_vlm_environment_accepts_cosmos_reason_nim_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["backend"], "cosmos_reason_nim")
+
+    assert config_mod.effective_vlm_config(None) == config_mod.VlmConfig(backend="cosmos_reason_nim")
+
+
 @pytest.mark.parametrize(
     ("field_name", "value", "message"),
     [
@@ -237,7 +253,11 @@ def test_vlm_environment_can_create_policy_without_persisted_config(monkeypatch:
         ("max_tokens", "8.5", "VSS_VLM_MAX_TOKENS must be an integer"),
         ("temperature", "cold", "VSS_VLM_TEMPERATURE must be a number"),
         ("locked", "yes", "VSS_VLM_LOCKED must be true or false"),
-        ("backend", "rt-vlm", "VSS_VLM_BACKEND must be 'rt_vlm' or 'vllm'"),
+        (
+            "backend",
+            "rt-vlm",
+            "VSS_VLM_BACKEND must be 'rt_vlm', 'vllm', or 'cosmos_reason_nim'",
+        ),
     ],
 )
 def test_vlm_environment_rejects_malformed_values(

@@ -37,6 +37,7 @@ import asyncio
 import base64
 import contextlib
 import json as _json_mod
+import logging
 import os
 import secrets
 import tempfile
@@ -72,6 +73,7 @@ _JOB_DOMAIN = "vlm"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _DEFAULT_FIXED_FRAME_BUDGET = 8
+_LOG = logging.getLogger(__name__)
 
 
 def _ulid() -> str:
@@ -458,6 +460,26 @@ def _build_vllm_request(
     return request
 
 
+def _build_cosmos_reason_nim_request(
+    *,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """Temporarily translate Cosmos Reason NIM calls with RT-VLM's schema."""
+    _LOG.warning(
+        "Cosmos Reason NIM backend support is alpha; request construction "
+        "currently uses the RT-VLM request schema and is pending refinement."
+    )
+    return _build_rt_vlm_request(
+        prompt=prompt,
+        media_url=media_url,
+        model=model,
+        inputs=inputs,
+    )
+
+
 def _build_vlm_request(
     *,
     backend: str,
@@ -471,6 +493,13 @@ def _build_vlm_request(
         return _build_rt_vlm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
     if backend == "vllm":
         return _build_vllm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    if backend == "cosmos_reason_nim":
+        return _build_cosmos_reason_nim_request(
+            prompt=prompt,
+            media_url=media_url,
+            model=model,
+            inputs=inputs,
+        )
     raise config_mod.ConfigError(f"unsupported VLM backend: {backend}")
 
 

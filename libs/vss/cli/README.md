@@ -137,7 +137,7 @@ Each field also has an independent runtime environment override:
 
 | Field | Environment variable |
 |-------|----------------------|
-| `backend` | `VSS_VLM_BACKEND` (`rt_vlm` or `vllm`) |
+| `backend` | `VSS_VLM_BACKEND` (`rt_vlm`, `vllm`, or alpha `cosmos_reason_nim`) |
 | `timeout` | `VSS_VLM_TIMEOUT` |
 | `temperature` | `VSS_VLM_TEMPERATURE` |
 | `max_tokens` | `VSS_VLM_MAX_TOKENS` |

@@ -664,7 +664,7 @@ def _vlm_config_error(message: str) -> NoReturn:
 @configure.command("vlm")
 @click.option(
     "--backend",
-    type=click.Choice(["rt-vlm", "vllm"]),
+    type=click.Choice(["rt-vlm", "vllm", "cosmos-reason-nim"]),
     help="VLM request backend.",
 )
 @click.option("--timeout", type=click.IntRange(1, 3600), help="VLM HTTP timeout in seconds.")

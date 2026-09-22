@@ -660,6 +660,45 @@ def test_standalone_vllm_translates_vlm_controls(monkeypatch: pytest.MonkeyPatch
     assert "use_fps_for_chunking" not in captured["json"]
 
 
+def test_cosmos_reason_nim_delegates_to_rt_vlm_with_alpha_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kwargs: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    deployment = _deployment(vlm=config_mod.VlmConfig(backend="cosmos_reason_nim"))
+    ctx = Context(deployment=deployment)
+    ctx.extra = {"no_persist": True}
+    with caplog.at_level("WARNING", logger="vss_cli.vlm.group"):
+        VlmGroup().run(
+            "",
+            VlmInput(
+                prompt="What?",
+                media_url="http://h/clip.mp4",
+                enable_reasoning=False,
+                chunk_duration=0,
+                fps=4,
+            ),
+            ctx,
+        )
+
+    assert captured["json"]["enable_reasoning"] is False
+    assert captured["json"]["chunk_duration"] == 0
+    assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
+    assert captured["json"]["use_fps_for_chunking"] is True
+    assert "Cosmos Reason NIM backend support is alpha" in caplog.text
+    assert "pending refinement" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("num_frames", "expected"),
     [

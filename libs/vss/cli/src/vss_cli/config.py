@@ -614,7 +614,7 @@ class MemoryConfig:
         ).validate()
 
 
-VlmBackend = Literal["rt_vlm", "vllm"]
+VlmBackend = Literal["rt_vlm", "vllm", "cosmos_reason_nim"]
 
 
 @dataclass(frozen=True)
@@ -634,8 +634,8 @@ class VlmConfig:
     locked: bool = False
 
     def validate(self) -> VlmConfig:
-        if self.backend not in {"rt_vlm", "vllm"}:
-            raise ConfigError("VLM backend must be 'rt_vlm' or 'vllm'")
+        if self.backend not in {"rt_vlm", "vllm", "cosmos_reason_nim"}:
+            raise ConfigError("VLM backend must be 'rt_vlm', 'vllm', or 'cosmos_reason_nim'")
         if self.backend == "vllm" and self.chunk_duration not in (None, 0):
             raise ConfigError("positive chunk_duration is supported only by RT-VLM")
         for name, value, low, high in (
@@ -747,8 +747,10 @@ def _parse_vlm_environment_value(field_name: str, environment_name: str, raw: st
     if not value:
         raise ConfigError(f"{environment_name} is set but empty")
     if field_name == "backend":
-        if value not in {"rt_vlm", "vllm"}:
-            raise ConfigError(f"{environment_name} must be 'rt_vlm' or 'vllm'")
+        if value not in {"rt_vlm", "vllm", "cosmos_reason_nim"}:
+            raise ConfigError(
+                f"{environment_name} must be 'rt_vlm', 'vllm', or 'cosmos_reason_nim'"
+            )
         return value
     if field_name in _VLM_INTEGER_ENV_FIELDS:
         try:
