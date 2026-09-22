@@ -70,6 +70,9 @@ from collections.abc import Mapping
 from pathlib import Path
 
 GENERIC_JUDGE = Path(__file__).resolve().parents[2] / "verifiers" / "generic_judge.py"
+DEFAULT_SKILL_DIR = (
+    Path(__file__).resolve().parents[4] / "skills" / "vss-deploy-test-openshell"
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1117,10 +1120,12 @@ def _spec_gpu_count(
     """
     spec_path = _spec_path_for(profile, skill_dir)
     if spec_path is None:
-        return None, (
-            "no spec at skills/vss-deploy-test-openshell/evals/"
-            f"{profile}.json"
-        )
+        if skill_dir is None:
+            return None, (
+                "no skill dir to read specs from - pass "
+                "--skill-dir skills/vss-deploy-test-openshell"
+            )
+        return None, f"no spec at {skill_dir}/evals/{profile}.json"
     try:
         spec = json.loads(spec_path.read_text())
     except Exception as exc:  # noqa: BLE001
@@ -1178,7 +1183,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", required=True, help="Dataset output root")
-    parser.add_argument("--skill-dir", default=None, help="Path to skills/vss-deploy-test-openshell")
+    parser.add_argument(
+        "--skill-dir",
+        default=None,
+        help="Path to skills/vss-deploy-test-openshell "
+             "(default: the copy in this checkout)",
+    )
     selector = parser.add_mutually_exclusive_group()
     selector.add_argument("--profile", default=None, choices=list(PROFILES.keys()))
     selector.add_argument(
@@ -1196,6 +1206,8 @@ def main() -> None:
 
     output_root = Path(args.output_dir)
     skill_dir = Path(args.skill_dir) if args.skill_dir else None
+    if skill_dir is None and (DEFAULT_SKILL_DIR / "evals").is_dir():
+        skill_dir = DEFAULT_SKILL_DIR
     profile = args.profile
     if args.spec:
         spec_path = Path(args.spec)
