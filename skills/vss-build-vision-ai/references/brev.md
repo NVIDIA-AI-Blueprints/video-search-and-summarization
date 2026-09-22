@@ -111,10 +111,12 @@ it is the Agent UI's own origin and is not behind HAProxy, so it needs its own
 link. Resolve it the same way as 7777 — the answer decides whether the summary
 reports a secure-link URL or a loopback one behind an SSH tunnel.
 
-Publish it **before** the notebook's section 3.1. Onboard bakes that link into
-the sandbox's `CHAT_UI_URL`, which is where the gateway's Control UI origin
-allowlist comes from, and `gateway.*` is read-only afterwards: publish late and
-the browser is closed with `origin not allowed` until the sandbox is recreated.
+Publish it **before** the notebook's section 3.5. Onboard rewrites
+`CHAT_UI_URL` to the loopback dashboard forward, so the image only allows
+loopback origins; 3.5 then writes the link's origin into the sandbox's
+`gateway.controlUi`, recomputes `.config-hash` and restarts the gateway. A
+browser that gets `origin not allowed` needs 3.5 re-run once the link exists,
+not a recreated sandbox.
 
 `NEMOCLAW_DASHBOARD_PORT` (default 18789) gets no link of its own. NemoClaw
 keeps that forward on loopback and the relay in front of it is the published
