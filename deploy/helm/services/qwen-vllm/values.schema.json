@@ -1,0 +1,204 @@
+{
+  "$comment": "SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved. SPDX-License-Identifier: Apache-2.0",
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "enabled",
+    "image",
+    "vllm",
+    "requestPolicy",
+    "service",
+    "resources"
+  ],
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "global": {
+      "type": "object",
+      "properties": {
+        "imagePullSecrets": {
+          "type": "array"
+        },
+        "useReleaseNamePrefix": {
+          "type": "boolean"
+        }
+      }
+    },
+    "useReleaseNamePrefix": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "image": {
+      "type": "object",
+      "required": [
+        "repository",
+        "tag",
+        "pullPolicy"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
+    },
+    "vllm": {
+      "type": "object",
+      "required": [
+        "model",
+        "port",
+        "tensorParallelSize",
+        "gpuMemoryUtilization",
+        "maxModelLen",
+        "maxNumSeqs"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "servedModelName": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "tensorParallelSize": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gpuMemoryUtilization": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "maxModelLen": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxNumSeqs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mmProcessorCacheGiB": {
+          "type": "number",
+          "minimum": 0
+        },
+        "extraArgs": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        }
+      }
+    },
+    "requestPolicy": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "payload"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "payload": {
+          "type": "object",
+          "required": [
+            "temperature",
+            "max_tokens",
+            "seed",
+            "chat_template_kwargs",
+            "mm_processor_kwargs"
+          ],
+          "properties": {
+            "temperature": {
+              "type": "number"
+            },
+            "max_tokens": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "seed": {
+              "type": "integer"
+            },
+            "chat_template_kwargs": {
+              "type": "object"
+            },
+            "mm_processor_kwargs": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": [
+        "type",
+        "port"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "existingClaim": {
+          "type": "string"
+        },
+        "mountPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "resources": {
+      "type": "object"
+    }
+  }
+}
