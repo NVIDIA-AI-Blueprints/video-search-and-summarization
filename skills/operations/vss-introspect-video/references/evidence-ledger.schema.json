@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/skills/vss-introspect-video/evidence-ledger.schema.json",
+  "title": "VSS Introspection Evidence Ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ledger_version",
+    "revision",
+    "plan",
+    "claims",
+    "observations",
+    "round",
+    "expansions_used",
+    "vlm_calls_used",
+    "status",
+    "stop_reason"
+  ],
+  "properties": {
+    "ledger_version": {"const": "1.0"},
+    "revision": {"type": "integer", "minimum": 0},
+    "plan": {"$ref": "#/$defs/plan"},
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/claimState"}
+    },
+    "observations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/observation"}
+    },
+    "round": {"type": "integer", "minimum": 0},
+    "expansions_used": {"type": "integer", "minimum": 0},
+    "vlm_calls_used": {"type": "integer", "minimum": 0},
+    "status": {"enum": ["in_progress", "answered", "unresolved"]},
+    "stop_reason": {
+      "enum": [null, "resolved", "no_progress", "budget_exhausted", "tool_failure"]
+    }
+  },
+  "$defs": {
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_version",
+        "mode",
+        "question_id",
+        "question_text",
+        "asset_id",
+        "claims"
+      ],
+      "properties": {
+        "plan_version": {"const": "2.0"},
+        "mode": {"const": "initial"},
+        "question_id": {"type": "string", "minLength": 1},
+        "question_text": {"type": "string", "minLength": 1},
+        "asset_id": {"type": ["string", "null"]},
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/planClaim"}
+        }
+      }
+    },
+    "planClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "requirement",
+        "evidence_type",
+        "coverage_requirement",
+        "support_test",
+        "falsification_test"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "pattern": "^claim-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "requirement": {"type": "string", "minLength": 1},
+        "evidence_type": {
+          "enum": [
+            "attribute",
+            "object",
+            "count",
+            "action",
+            "state_change",
+            "order",
+            "duration",
+            "trajectory",
+            "identity",
+            "spatial",
+            "cause",
+            "prediction",
+            "counterfactual",
+            "negative"
+          ]
+        },
+        "coverage_requirement": {
+          "enum": ["local_window", "before_after", "repeated_observation", "whole_video"]
+        },
+        "support_test": {"type": "string", "minLength": 1},
+        "falsification_test": {"type": "string", "minLength": 1}
+      }
+    },
+    "claimState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "status", "coverage", "observation_ids", "gap"],
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "pattern": "^claim-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "status": {"enum": ["supported", "contradicted", "unresolved"]},
+        "coverage": {"enum": ["none", "partial", "sufficient"]},
+        "observation_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^obs-[a-f0-9]{24}$"}
+        },
+        "gap": {"type": ["string", "null"]}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observation_id", "claim_id", "relation", "text", "source"],
+      "properties": {
+        "observation_id": {"type": "string", "pattern": "^obs-[a-f0-9]{24}$"},
+        "claim_id": {
+          "type": "string",
+          "pattern": "^claim-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "relation": {"enum": ["supports", "contradicts", "context"]},
+        "text": {"type": "string", "minLength": 1},
+        "source": {"$ref": "#/$defs/source"}
+      }
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "record_id"],
+          "properties": {
+            "type": {"const": "memory"},
+            "job_id": {"type": ["string", "null"]},
+            "record_id": {"type": "string", "minLength": 1},
+            "sensor_id": {"type": ["string", "null"]},
+            "start": {"type": ["string", "null"], "format": "date-time"},
+            "end": {"type": ["string", "null"], "format": "date-time"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "job_id", "sensor_id", "start", "end"],
+          "properties": {
+            "type": {"const": "vlm"},
+            "job_id": {"type": "string", "minLength": 1},
+            "sensor_id": {"type": "string", "minLength": 1},
+            "start": {"type": "string", "format": "date-time"},
+            "end": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    }
+  }
+}
