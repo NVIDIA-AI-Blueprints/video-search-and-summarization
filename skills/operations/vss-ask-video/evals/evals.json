@@ -21,42 +21,42 @@
   },
   {
     "id": "markdown-pointer-introspection-enabled",
-    "question": "A mocked Markdown result is incomplete and points to VSS job sum-01JXYZ. Configured introspection state is enabled. Was the worker wearing a helmet?",
+    "question": "A mocked Markdown result is incomplete and points to VSS job sum-01JXYZ. Memory introspection is enabled. Was the worker wearing a helmet?",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Use the pointer as scope for introspection.",
+    "ground_truth": "Delegate once and use the pointer as grounded scope.",
     "expected_behavior": [
-      "Calls vss memory introspect with --job-id sum-01JXYZ, the verbatim question, and --fps.",
-      "Does not run vss memory query first or duplicate VLM follow-ups."
+      "Delegates once to vss-introspect-video with the verbatim question and job pointer.",
+      "Does not query structured memory, plan claims, or run VLM before delegation."
     ]
   },
   {
     "id": "no-markdown-introspection-enabled",
-    "question": "A mocked native Markdown search returned no useful evidence. Introspection is enabled and dock_cam is grounded. Was anyone missing PPE?",
+    "question": "A mocked native Markdown search returned no useful evidence, memory introspection is enabled, and dock_cam is grounded. Was anyone missing PPE?",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Use introspection with valid sensor scope.",
+    "ground_truth": "Delegate the evidence loop with valid sensor scope.",
     "expected_behavior": [
-      "Calls vss memory introspect with dock_cam.",
-      "Uses the installed vss CLI when available; the project-local fallback applies only to development checkouts without it."
+      "Delegates once to vss-introspect-video with dock_cam.",
+      "Leaves planning, ordinary memory retrieval, and bounded VLM work to the delegated skill."
     ]
   },
   {
     "id": "introspection-disabled",
-    "question": "A mocked Markdown result is incomplete and introspection is configured but disabled. Its VSS pointer is sum-01JXYZ. Continue safely.",
+    "question": "A mocked Markdown result is incomplete and legacy memory introspection is disabled. Its VSS pointer is sum-01JXYZ. Continue safely.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Retrieve ordinary structured memory without introspection or VLM escalation.",
+    "ground_truth": "Use ordinary structured memory without enabling or delegating to the introspection loop.",
     "expected_behavior": [
       "Uses vss memory get for sum-01JXYZ.",
-      "Never introspects, enables introspection, or automatically runs VLM."
+      "Does not delegate, enable introspection, or automatically run VLM."
     ]
   },
   {
     "id": "introspection-unconfigured",
-    "question": "A mocked Markdown search found nothing and memory.introspection is null. Query structured VSS memory about forklifts on dock_cam.",
+    "question": "A mocked Markdown search found nothing and legacy memory introspection is unconfigured. Answer whether forklifts crossed dock_cam.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Treat introspection as unavailable and use structured retrieval.",
+    "ground_truth": "Use ordinary structured retrieval and preserve unresolved gaps when it is insufficient.",
     "expected_behavior": [
-      "Uses vss memory query with grounded filters.",
-      "Does not call or configure introspection."
+      "Uses vss memory query with forklift text and dock_cam scope.",
+      "Does not delegate, configure introspection, or automatically run VLM."
     ]
   },
   {
@@ -82,29 +82,29 @@
   },
   {
     "id": "introspection-partial",
-    "question": "A mocked introspection result is partial with answer 'A helmet is visible, but identity is uncertain' and unresolved_gaps ['identity not confirmed']. Return it safely.",
+    "question": "The delegated evidence loop reports that a helmet is visible but identity remains unresolved. Return it safely.",
     "expected_skill": "vss-ask-video",
     "ground_truth": "Preserve the partial answer and limitation.",
     "expected_behavior": [
       "Reports the answer as partial and includes the unresolved gap.",
-      "Does not retry internal VLM inspection."
+      "Does not re-enter the loop or retry visual inspection."
     ]
   },
   {
     "id": "no-memory-grounded-window",
-    "question": "A mocked introspection result is no_memory; dock_cam and 2026-08-13T20:00:00Z through 2026-08-13T20:00:30Z were grounded before the call.",
+    "question": "For dock_cam from 2026-08-13T20:00:00Z through 2026-08-13T20:00:30Z, determine who was the last person to enter.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Allow one direct VLM job for the pre-grounded exact scope.",
+    "ground_truth": "Delegate because this requires a planned evidence loop rather than an explicit one-scope fresh check.",
     "expected_behavior": [
-      "Uses one vss vlm run for exactly that window.",
-      "Does not broaden the scope."
+      "Delegates once to vss-introspect-video with exactly that grounded window.",
+      "Does not pre-query memory, pre-plan, or broaden the scope."
     ]
   },
   {
     "id": "no-memory-without-scope",
-    "question": "A mocked introspection result is no_memory and no exact sensor/window was previously grounded.",
+    "question": "Did a forklift cross last week? No exact sensor or window is grounded.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Request missing scope.",
+    "ground_truth": "Request the missing grounded scope before delegation.",
     "expected_behavior": [
       "Asks for an exact recorded sensor and UTC window.",
       "Does not call VLM."
@@ -138,6 +138,16 @@
     "expected_behavior": [
       "Uses the installed vss CLI when available; only a development checkout without it may use uv run --project against libs/vss.",
       "Does not depend on a shell function or array from an earlier call."
+    ]
+  },
+  {
+    "id": "answer-choice-delegation",
+    "question": "Watch the scoped recording and tell me whether the correct answer is A, B, C, or D.",
+    "expected_skill": "vss-ask-video",
+    "ground_truth": "Enter ask-video and delegate once; keep choices out of planning and inspection.",
+    "expected_behavior": [
+      "Delegates once to vss-introspect-video instead of routing directly to the planner.",
+      "Passes the choices only for final answer rendering after option-blind evidence gathering."
     ]
   },
   {

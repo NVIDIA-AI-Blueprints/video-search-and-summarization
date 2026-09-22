@@ -163,20 +163,25 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
 
     assert 'version: "3.3.0"' in ask_video
     assert "user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL" in ask_video
-    assert "Search agent Markdown memory using the harness-native memory search" in normalized
+    assert "search agent Markdown memory" in normalized
     assert "Markdown search is not a `vss` command" in normalized
-    assert "Never send raw Markdown documents to the VSS judge" in normalized
-    assert "If introspection is enabled, call `vss memory introspect`" in normalized
-    assert "If introspection is disabled or unconfigured" in normalized
-    assert "do not enable it or rewrite static configuration automatically" in normalized
-    assert "Users and the agent may still configure and enable introspection" in normalized
-    assert "Do not run `vss memory query` immediately before introspection" in normalized
-    assert "Do not run `vss vlm run` after a completed or partial result" in normalized
+    assert "Never send raw Markdown documents to VSS or a visual subagent" in normalized
+    assert "delegate once to `vss-introspect-video`" in normalized
+    assert "must call `vss-generate-evidence-plan` option-blind before it reads memory" in normalized
+    assert "does not pre-query VSS memory, pre-plan claims, run visual inspection, or choose an answer" in normalized
+    assert (
+        "Existing enabled state selects this route; disabled or unconfigured state retains the ordinary memory"
+        in normalized
+    )
+    assert "Introspection requested or enabled" in ask_video
+    assert "Uses vss memory get for sum-01JXYZ." in evals_by_id["introspection-disabled"]["expected_behavior"]
+    assert (
+        "Uses vss memory query with forklift text and dock_cam scope."
+        in evals_by_id["introspection-unconfigured"]["expected_behavior"]
+    )
     assert "Never pass `--record-id` alone" in normalized
     assert "Complete child identity: `--job-id`, `--record-type`, and `--record-id`" in normalized
     assert "OpenClaw may execute every tool call in a fresh shell" in normalized
-    assert "Capture stdout and the exit code separately" in normalized
-    assert "Only one direct VLM fallback is allowed" in normalized
     assert "Do not call an OpenAI-compatible `/chat/completions` endpoint directly" in normalized
     assert "curl " not in ask_video
     assert {
@@ -199,7 +204,7 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
         "Does not call VLM" in behavior for behavior in evals_by_id["no-memory-without-scope"]["expected_behavior"]
     )
     assert any(
-        "Uses one vss vlm run" in behavior for behavior in evals_by_id["no-memory-grounded-window"]["expected_behavior"]
+        "Delegates once" in behavior for behavior in evals_by_id["no-memory-grounded-window"]["expected_behavior"]
     )
     serialized_harbor = json.dumps(harbor_evals)
     assert "vss vlm run --file" in serialized_harbor
