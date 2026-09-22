@@ -24,7 +24,7 @@
 
 using namespace std;
 
-std::unordered_map<std::string, ModuleId> g_moduleMap =
+const std::unordered_map<std::string, ModuleId> g_moduleMap =
 {
     {"rtspserver", ModuleRtspServer},
     {"sensor", ModuleSensorManagement},

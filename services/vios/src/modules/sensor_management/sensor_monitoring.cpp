@@ -24,7 +24,7 @@
 
 using namespace nv_vms;
 
-unsigned int max_n_threads = 10;
+static const unsigned int max_n_threads = 10;
 
 SensorMonitoring::SensorMonitoring(SensorManagement* sensorMgmt,
                              std::vector<std::pair<ISensorDiscoveryInterface*, destroyDiscoveryObject_t>>& objs)

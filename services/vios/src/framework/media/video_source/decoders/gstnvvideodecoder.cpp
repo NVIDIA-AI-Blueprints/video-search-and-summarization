@@ -99,7 +99,7 @@ constexpr int STATE_NOT_PLAYING = 0;
 bool GstNvVideoDecoder::m_debug_logging_live = false;
 bool GstNvVideoDecoder::m_debug_logging_vod = false;
 
-static std::array<FrameSize, 7> g_resolutions = { FrameSize(WIDTH_2160p, HEIGHT_2160p),
+static const std::array<FrameSize, 7> g_resolutions = { FrameSize(WIDTH_2160p, HEIGHT_2160p),
                                                   FrameSize(WIDTH_1080p, HEIGHT_1080p),
                                                   FrameSize(WIDTH_720p, HEIGHT_720p),
                                                   FrameSize(WIDTH_480p, HEIGHT_480p),
