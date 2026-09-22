@@ -33,9 +33,6 @@ remain invisible to the VSS CLI and libraries.
 
 ## Contracts and configuration
 
-This `SKILL.md` is the complete agent-facing workflow and contract. Do not load
-separate reference files or infer fields beyond those listed here.
-`scripts/evidence_ledger.py` is the deterministic implementation.
 `config/ledger-budgets.json` is the only numeric budget source; never copy its
 values into prompts or other configuration. Never exceed any maximum loaded
 from that file.
@@ -45,7 +42,7 @@ and unknown fields are rejected.
 
 ### Evidence plan
 
-The PR #2322 plan fields are:
+The evidence plan fields are:
 
 - `plan_version`: `"2.0"`;
 - `mode`: `"initial"` or `"expansion"`;
@@ -212,7 +209,7 @@ audio, speech, ASR, transcripts, or external subtitles. OCR is allowed only
 when visible text is an explicitly allowed modality.
 The evidence planner never answers the question.
 
-Apply the complete PR #2322 rubric. In particular:
+Apply these claim-classification rules:
 
 - classify the smallest visible answer-bearing outcome, not every locating fact;
 - use exactly one strict evidence type and one strict coverage requirement;
@@ -308,7 +305,7 @@ gate passes, skip visual inspection.
 Create one utility-generated task per selected unresolved claim. Every task:
 
 - targets one existing claim;
-- carries the complete PR #2322 claim unchanged;
+- carries the complete evidence-plan claim unchanged;
 - carries the current gap and accepted observations;
 - uses the same frozen `base_revision` from the canonical ledger;
 - embeds one strict immutable media scope: sensor plus bounded ISO-8601 window,
