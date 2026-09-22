@@ -12,3 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Intentionally empty, and kept: the base profile's service set comes entirely
+# from COMPOSE_PROFILES over ../../services/compose.yml, so this file has
+# nothing to declare. It stays as the base profile's override point, symmetric
+# with the sibling dev profiles and listed under Sources in
+# skills/vss-build-vision-ai/references/profiles/base.md. Do not delete it to
+# satisfy an empty-file check.
