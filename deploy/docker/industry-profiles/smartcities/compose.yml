@@ -19,15 +19,14 @@
 # services reach Compose through the alerts profile rather than on their own.
 
 services:
-
-  vss-behavior-analytics-alerts:
+  vss-behavior-analytics-smartcities:
     extends:
       file: ${VSS_APPS_DIR}/services/analytics/behavior-analytics/compose.yml
       service: vss-behavior-analytics-base
-    profiles: ["vss-behavior-analytics-alerts"]
+    profiles: ["vss-behavior-analytics-smartcities"]
     volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/vss-behavior-analytics/configs/vss-behavior-analytics-kafka-config.json:/resources/vss-behavior-analytics-config.json
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/calibration/sample-data/calibration.json:/resources/calibration.json
+      - $VSS_APPS_DIR/industry-profiles/smartcities/vss-behavior-analytics/configs/vss-behavior-analytics-kafka-config.json:/resources/vss-behavior-analytics-config.json
+      - $VSS_APPS_DIR/industry-profiles/smartcities/smc-app/calibration/sample-data/calibration.json:/resources/calibration.json
     container_name: vss-behavior-analytics
     networks:
       default:
@@ -38,27 +37,24 @@ services:
       broker-health-check:
         condition: service_completed_successfully
 
-  # The Smart Cities launchable overlays this file onto dev-profile-alerts,
-  # replacing that profile's Compose file. Keep this blueprint adapter here so
-  # the resulting project still defines the nvstreamer-alerts service.
-
-  perception-alerts:
+  perception-smartcities:
     extends:
       file: $VSS_APPS_DIR/services/rtvi/rtvi-cv/compose.yaml
       service: perception
-    profiles: ["perception-alerts"]
+    profiles: ["perception-smartcities"]
     container_name: vss-rtvi-cv
     volumes:
       - $VSS_DATA_DIR/models/:/opt/storage/
       - $VSS_APPS_DIR/engines/:/opt/engines/
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/
+      - $VSS_APPS_DIR/industry-profiles/smartcities/deepstream/configs/rtdetr-960x544-labels.txt:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs/rtdetr-960x544-labels.txt:ro
       - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/models-download.json:/opt/config/models-download.json:ro
 
     environment:
-      MODEL_TYPE: ${MODEL_TYPE}
-      STREAM_TYPE: ${STREAM_TYPE}
-      MODEL_NAME_2D: ${MODEL_NAME_2D}
-      NUM_SENSORS: ${NUM_SENSORS}
+      MODEL_TYPE: ${MODEL_TYPE:-RTDETR}
+      STREAM_TYPE: ${STREAM_TYPE:-kafka}
+      MODEL_NAME_2D: ${MODEL_NAME_2D:-RTDETR}
+      NUM_SENSORS: ${NUM_SENSORS:-10}
       DS_MODEL_FAMILY: rtdetr-gdino
       DS_TRACKER_REID: "false"
       DS_SHOW_SENSOR_ID: "true"
@@ -70,12 +66,17 @@ services:
         condition: service_healthy
         required: false
 
-  kibana-init-container-alerts:
+  kibana-init-container-smartcities:
     build:
+      # Reuse the Alerts image context so the shared import script is present.
+      # The Smart Cities dashboard is mounted below instead of being copied
+      # over the Alerts source tree by the deployment notebook.
       context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts
-      dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile
-    profiles: ["kibana-init-container-alerts"]
+      dockerfile: Dockerfiles/kibana-dashboard.Dockerfile
+    profiles: ["kibana-init-container-smartcities"]
     container_name: vss-kibana-init
+    volumes:
+      - $VSS_APPS_DIR/industry-profiles/smartcities/kibana-dashboard/its-kibana-objects.ndjson:/opt/mdx/its-kibana-objects.ndjson:ro
     # Host networking bypasses Compose DNS, so the default kibana/elasticsearch
     # service names are unresolvable here; dial the published host ports instead.
     environment:
@@ -88,8 +89,8 @@ services:
 
   import-calibration-output-container-smartcities:
     build:
-      context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app
-      dockerfile: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/Dockerfiles/import-calibration.Dockerfile
+      context: $VSS_APPS_DIR/industry-profiles/smartcities/smc-app
+      dockerfile: $VSS_APPS_DIR/industry-profiles/smartcities/smc-app/Dockerfiles/import-calibration.Dockerfile
     profiles: ["import-calibration-output-container-smartcities"]
     container_name: mdx-import-calibration-output-smc
     environment:
@@ -98,7 +99,7 @@ services:
     restart: on-failure
 
   calibration-toolkit-smartcities:
-    image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-nvcr.io/nvidia/vss-core/calibration}:${CALIBRATION_TOOLKIT_IMAGE_TAG}
+    image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-nvcr.io/nvidia/vss-core/calibration}:${CALIBRATION_TOOLKIT_IMAGE_TAG:-3.3.0-26.09.1}
     profiles: ["calibration-toolkit-smartcities"]
     ports:
       - ${CALIBRATION_TOOLKIT_HOST_PORT:-8003}:8003
@@ -108,18 +109,18 @@ services:
     command: "deploy.sh 8003"
 
   vss-video-analytics-ui-smartcities:
-    image: ${VSS_VIDEO_ANALYTICS_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-analytics-ui}:${VIDEO_ANALYTICS_UI_IMAGE_TAG}
+    image: ${VSS_VIDEO_ANALYTICS_UI_IMAGE:-nvcr.io/nvstaging/vss-core/vss-video-analytics-ui}:${VIDEO_ANALYTICS_UI_IMAGE_TAG:-3.3-26.09.3}
     profiles: ["vss-video-analytics-ui-smartcities"]
     ports:
       - ${VIDEO_ANALYTICS_UI_HOST_PORT:-3002}:3002
     volumes:
-      - $VSS_APPS_DIR/developer-profiles/dev-profile-alerts/smc-app/vss-video-analytics-ui/config/vss-video-analytics-ui-config.json:/config/${VIDEO_ANALYTICS_UI_APP_NAME}/default-ui-config.json
+      - $VSS_APPS_DIR/industry-profiles/smartcities/smc-app/vss-video-analytics-ui/config/vss-video-analytics-ui-config.json:/config/${VIDEO_ANALYTICS_UI_APP_NAME:-its}/default-ui-config.json
     environment:
-      APP_NAME: ${VIDEO_ANALYTICS_UI_APP_NAME}
+      APP_NAME: ${VIDEO_ANALYTICS_UI_APP_NAME:-its}
       REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS: ${REACT_APP_OBTAIN_DYNAMIC_SERVICE_URLS:-false}
       REACT_APP_MEDIA_STREAMING_URL_BASE: http://$EXTERNAL_IP:30888/vst/api/v1
-      REACT_APP_GOOGLE_MAPS_API_KEY: $GOOGLE_MAPS_API_KEY
-      REACT_APP_API_URL_BASE: http://$EXTERNAL_IP:${VIDEO_ANALYTICS_API_HOST_PORT}
+      REACT_APP_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      REACT_APP_API_URL_BASE: http://$EXTERNAL_IP:${VIDEO_ANALYTICS_API_HOST_PORT:-8081}
       PORT: "3002"
     container_name: vss-video-analytics-ui-smc
     restart: always

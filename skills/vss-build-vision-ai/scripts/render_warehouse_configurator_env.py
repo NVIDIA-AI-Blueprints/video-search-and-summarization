@@ -12,8 +12,8 @@ interpolation. It declares:
 
 so with those knobs unset it loads the *checked-in* files directly, bypassing the
 --env-file layering entirely. A build's `override.env` therefore cannot reach it,
-and the pristine `HOST_IP='<HOST_IP>'` sentinel is baked into the container that
-renders every stream and hardware config.
+and an unset stock `HOST_IP` would otherwise reach the container that renders
+every stream and hardware config.
 
 This script renders the effective env -- all four ordered layers, with ${VAR} and
 $VAR references expanded to a fixpoint -- into a build-local file. Point

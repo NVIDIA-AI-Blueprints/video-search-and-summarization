@@ -136,12 +136,12 @@ its absence from the service list is not a defect.
 | `SAMPLE_VIDEO_DATASET`, `NUM_STREAMS` | Must match each other and the variant — see Hard constraints. |
 | `DATASET_TYPE` | `MODE=3d` **only** — inert for `2d`, `mv3dt` and `auto-calibration`. `real` or `synthetic`; selects the whole Sparse4D bundle: ONNX and engine (`v3.0` vs `v2.3`), the `_ov_kmeans900_v*_r50.npy` anchor, `labels-<type>.txt`, and the NGC TAO Sparse4D artifact the configurator writes into `warehouse-3d-app/models-download.json`. Must track `SAMPLE_VIDEO_DATASET` — see Hard constraints. Effective default is `synthetic`, from `overrides.env`; the `${DATASET_TYPE:-synthetic}` fallback in `warehouse-3d-app.yml` only fires if no env layer sets it. |
 | `HARDWARE_PROFILE` | Selects perception tuning in `blueprint-configurator/blueprint_config.yml` and LLM NIM sizing, including the per-mode stream ceiling in [`../sizing.md`](../sizing.md). Not validated by Compose; the configurator only uppercases it, so an unrecognized value (including a spacing or hyphenation variant such as `IGX THOR`) silently matches no tuning section. |
-| `VSS_APPS_DIR`, `VSS_DATA_DIR` | Ship as `/path/to/…` sentinels — always set both. See the closure table under Build and resolve. |
+| `VSS_APPS_DIR`, `VSS_DATA_DIR` | Ship blank — always set both in the build override. Root Compose uses `${VAR:?}` and rejects either value when it is unset or empty. See the closure table under Build and resolve. |
 | `RT_CV_DEVICE_ID` (0), `RT_VLM_DEVICE_ID` (1), `LLM_DEVICE_ID` (2) | GPU layout. |
 | `LLM_MODE`, `LLM_NAME`, `LLM_NAME_SLUG`, `LLM_BASE_URL` | `bp_wh` + `MODE=2d` only; `none` everywhere else. For `remote`, `LLM_BASE_URL` is the endpoint root **without** a trailing `/v1` — the agent config appends it. |
 | `VLM_MODE`, `VLM_NAME_SLUG` | Keep both `none`. Warehouse uses the integrated RTVI VLM, never the standalone VLM NIM path, and remote VLM is not wired end to end on the Docker path — see below. |
 | `VSS_RT_CV_TAG` | Must be `sbsa`-tagged when `HARDWARE_PROFILE=GB300` or `DGX-SPARK`. |
-| `BP_CONFIGURATOR_ENV_FILE` | Point at the build's generated `configurator.env`. Without it the configurator reads the checked-in `overrides.env` and bakes the `<HOST_IP>` sentinel — see [`../services/configurator.md`](../services/configurator.md). |
+| `BP_CONFIGURATOR_ENV_FILE` | Point at the build's generated `configurator.env`. Without it the configurator reads the checked-in env layers, whose deployment roots are intentionally blank; root Compose rejects that input, while a standalone configurator invocation can render empty host values — see [`../services/configurator.md`](../services/configurator.md). |
 | `NVSTREAMER_CONFIG_DIR`, `TURN_PUBLIC_HOST` | Easily-missed closure members. `TURN_PUBLIC_HOST` derives from `HOST_IP` only transitively, through `EXTERNAL_IP` and `VSS_PUBLIC_HOST`. |
 
 ## Hard constraints
@@ -156,7 +156,7 @@ config` — `scripts/validate_warehouse_env.py` checks them before deploy.
 | `BP_PROFILE=bp_wh_auto_calib` pairs only with `MODE=auto-calibration`, and vice versa | routes to a list that is not the one selected |
 | `BP_PROFILE=bp_wh` is rejected on `IGX-THOR` and `DGX-SPARK` | configurator refuses |
 | `HARDWARE_PROFILE=GB300` or `DGX-SPARK` requires an `sbsa` `VSS_RT_CV_TAG` | configurator refuses |
-| `LLM_MODE=local` requires `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env` | compose dies with a bare "no such file" |
+| `LLM_MODE=local` requires `services/nim/<LLM_NAME_SLUG>/hw-<HARDWARE_PROFILE>.env` | `validate_nim_hardware_env.py` rejects the unsupported model/hardware selection before resolution |
 | `NUM_STREAMS` must equal the dataset's camera count: `nv-warehouse-4cams` 4, `warehouse-loading-dock-3cams-synthetic` 3, `warehouse-4cams-20mx20m-synthetic` 4. **Dataset and mode are independent** — every shipped dataset now carries calibration for `2d`, `3d` and `mv3dt`, so any dataset pairs with any analytics mode | short stream count with every container healthy |
 | Under `MODE=3d`, `DATASET_TYPE` must track the footage family: `nv-warehouse-4cams` → `real`; both `*-synthetic` → `synthetic`; a custom dataset → whatever the footage actually is. It must also be non-empty — the label mount interpolates it into a **host path** | wrong Sparse4D weights and detection thresholds (`real` 0.85/0.75 vs `synthetic` 0.5/0.3), every container healthy, no error anywhere. Empty resolves to `labels-.txt`, so Docker creates a directory where a file is expected |
 | `STREAM_TYPE=redis` iff `BP_PROFILE=bp_wh_redis` | no metadata reaches the broker |
@@ -272,9 +272,9 @@ env_file:
 ```
 
 so with those knobs unset it loads the **checked-in** files directly, bypassing
-`--env-file` layering entirely — `override.env` cannot reach it, and the pristine
-`HOST_IP='<HOST_IP>'` sentinel is baked into the container that renders every
-stream and hardware config. Generate the file and point
+`--env-file` layering entirely — `override.env` cannot reach it, and an unset
+stock `HOST_IP` would reach the container that renders every stream and hardware
+config. Generate the file and point
 `BP_CONFIGURATOR_ENV_FILE` at it from `override.env`. Regenerate it whenever
 `override.env` changes.
 
@@ -284,7 +284,7 @@ Compose expands each env file as it is read, so a value derived in an earlier
 layer is **not** recomputed when a later layer changes its input. Materialize the
 full closure in `override.env`, and follow references **transitively** — `HOST_IP`
 reaches `TURN_PUBLIC_HOST` only through two hops, so a single-level scan for
-`${HOST_IP}` misses it and the build bakes the sentinel into
+`${HOST_IP}` misses it and the build can bake an empty or stale value into
 `streamprocessing-ms-<mode>`.
 
 | Change | Also re-materialize |
@@ -293,9 +293,13 @@ reaches `TURN_PUBLIC_HOST` only through two hops, so a single-level scan for
 | `MODE` | `SDR_CONTROLLER_CONFIG_PATH` — embeds the mode |
 | `VSS_APPS_DIR` | `SDR_CONTROLLER_CONFIG_PATH`, `SENSOR_FILE_PATH`, `NVSTREAMER_CONFIG_DIR`, `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` |
 
-`overrides.env` ships `VSS_APPS_DIR` and `VSS_DATA_DIR` as `/path/to/...`
-placeholders — always set both. A missed closure member surfaces as a
-`<HOST_IP>` or `/path/to/deploy/docker` sentinel in `validate_resolved_yml.py`.
+`overrides.env` ships `VSS_APPS_DIR`, `VSS_DATA_DIR`, and `HOST_IP` blank;
+`EXTERNAL_IP` derives from `HOST_IP` in that same layer. Always materialize all
+four values in the build override because a later `HOST_IP` does not recompute
+the earlier derived `EXTERNAL_IP`. Root Compose `${VAR:?}` checks reject an
+unset or empty value. Materialize the dependent-value closure above as well,
+then inspect and validate `resolved.yml` so a value expanded by an earlier env
+layer cannot remain empty or stale.
 
 ### Resolve
 
@@ -320,6 +324,13 @@ fi
 "${VSS_SKILL_PY[@]}" "$SCRIPTS/render_warehouse_configurator_env.py" \
   "$BUILD_DIR" --repo-root "$REPO"
 
+env_args=(
+  --env-file "$REPO/deploy/docker/containers.env"
+  --env-file "$FOUNDATION_DIR/.env"
+  --env-file "$FOUNDATION_DIR/overrides.env"
+  --env-file "$BUILD_DIR/override.env"
+)
+
 # containers.env derives every managed image tag from VSS_CONTAINER_TAG and is
 # expanded before override.env, so only an exported value reaches those tags.
 VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-$(
@@ -331,11 +342,24 @@ if [ -n "$VSS_CONTAINER_TAG" ]; then
   tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
 fi
 
-docker compose \
-  --env-file "$REPO/deploy/docker/containers.env" \
-  --env-file "$FOUNDATION_DIR/.env" \
-  --env-file "$FOUNDATION_DIR/overrides.env" \
-  --env-file "$BUILD_DIR/override.env" \
+effective_environment="$(
+  docker compose "${env_args[@]}" -f "$BUILD_DIR/compose.yml" \
+    config --environment --no-consistency
+)"
+effective_hardware="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^HARDWARE_PROFILE=//p' | tail -n 1
+)"
+effective_profiles="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^COMPOSE_PROFILES=//p' | tail -n 1
+)"
+"${VSS_SKILL_PY[@]}" "$SCRIPTS/validate_nim_hardware_env.py" \
+  --repo-root "$REPO" \
+  --profiles "$effective_profiles" \
+  --hardware-profile "$effective_hardware"
+
+docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"
 

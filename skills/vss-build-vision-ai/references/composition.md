@@ -316,6 +316,24 @@ if [ -n "$VSS_CONTAINER_TAG" ]; then
   tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
 fi
 
+effective_environment="$(
+  docker compose "${env_args[@]}" -f "$BUILD_DIR/compose.yml" \
+    config --environment
+)"
+effective_hardware="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^HARDWARE_PROFILE=//p' | tail -n 1
+)"
+effective_profiles="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^COMPOSE_PROFILES=//p' | tail -n 1
+)"
+"${VSS_SKILL_PY[@]}" \
+  "$REPO/skills/vss-build-vision-ai/scripts/validate_nim_hardware_env.py" \
+  --repo-root "$REPO" \
+  --profiles "$effective_profiles" \
+  --hardware-profile "$effective_hardware"
+
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"
@@ -424,8 +442,10 @@ Then verify:
   `credentials.md` Artifact Entitlement Probes against the exact baked `nvcr.io/`
   images and `ngc:` paths. A `401`/`403`/missing-repo result is a blocker — a
   Validate gate on every build, deploy or not.
-- `resolved.yml` contains no stock sentinels such as
-  `/path/to/deploy/docker` or `<HOST_IP>`.
+- `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `EXTERNAL_IP` are non-empty in
+  the build override. Root Compose `${VAR:?}` checks reject an unset or empty
+  value before resolution. `resolved.yml` must also contain no legacy sentinel
+  supplied by a custom input, such as `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a
   directory. This is a validation check only: do not create placeholder files
   or directories under `deploy/docker/` to satisfy it.

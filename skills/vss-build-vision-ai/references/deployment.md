@@ -52,6 +52,24 @@ if [ -n "$VSS_CONTAINER_TAG" ]; then
   tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
 fi
 
+effective_environment="$(
+  docker compose "${env_args[@]}" -f "$BUILD_DIR/compose.yml" \
+    config --environment --no-consistency
+)"
+effective_hardware="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^HARDWARE_PROFILE=//p' | tail -n 1
+)"
+effective_profiles="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^COMPOSE_PROFILES=//p' | tail -n 1
+)"
+"${VSS_SKILL_PY[@]}" \
+  "$REPO/skills/vss-build-vision-ai/scripts/validate_nim_hardware_env.py" \
+  --repo-root "$REPO" \
+  --profiles "$effective_profiles" \
+  --hardware-profile "$effective_hardware"
+
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"

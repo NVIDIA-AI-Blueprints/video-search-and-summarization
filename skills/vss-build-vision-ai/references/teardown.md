@@ -131,10 +131,10 @@ removed when that path contains `industry-profiles/warehouse-operations`.
 `_builds/` is this skill's own artifact; the cleaner is a shared deploy script,
 so the skill adapts to its interface rather than the reverse.
 
-The build's `VSS_DATA_DIR` / `VSS_APPS_DIR` still have to win over the
-placeholders the checked-in files ship (`/path/to/...`). Export them: the
-cleaner's `load_env()` saves both before sourcing and restores them afterwards,
-so a pre-set value always beats the file's.
+The build's `VSS_DATA_DIR` / `VSS_APPS_DIR` still have to win over the blank
+values in the checked-in override template. Export them: the cleaner's
+`load_env()` saves both before sourcing and restores them afterwards, so a
+pre-set value always beats the file's empty assignment.
 
 ```bash
 BUILD_DIR="$REPO/_builds/<name>"
