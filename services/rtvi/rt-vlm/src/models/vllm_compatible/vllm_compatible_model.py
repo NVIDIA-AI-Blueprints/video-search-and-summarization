@@ -1784,13 +1784,24 @@ class VllmCompatible(BaseVlmModel):
         if getattr(self, "_vlm_model_type", None) != "cosmos-reason3" or config.enable_reasoning:
             return config
 
-        for message in messages:
+        active_messages = [
+            next(
+                (message for message in reversed(messages) if message.get("role") == role),
+                None,
+            )
+            for role in ("system", "user")
+        ]
+        for message in filter(None, active_messages):
             content = message.get("content")
             text_items = [content] if isinstance(content, str) else content or []
-            if any(
-                "<think>" in (item if isinstance(item, str) else str(item.get("text", "")))
+            prompt_text = " ".join(
+                item if isinstance(item, str) else str(item.get("text", ""))
                 for item in text_items
                 if isinstance(item, (str, dict))
+            )
+            if all(
+                tag in prompt_text
+                for tag in ("<think>", "</think>", "<answer>", "</answer>")
             ):
                 effective_config = copy.copy(config)
                 effective_config.enable_reasoning = True

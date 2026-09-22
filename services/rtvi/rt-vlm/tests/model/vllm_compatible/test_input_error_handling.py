@@ -265,22 +265,67 @@ def test_qwen3vl_reasoning_prompt_is_not_modified():
 
 
 @pytest.mark.parametrize(
-    ("model_type", "content", "expected_reasoning"),
+    ("model_type", "messages", "expected_reasoning"),
     [
         (
             "cosmos-reason3",
-            [{"type": "text", "text": "Use <think>reasoning</think>."}],
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Respond as <think>reasoning</think><answer>yes/no</answer>.",
+                        }
+                    ],
+                }
+            ],
             True,
         ),
-        ("cosmos-reason3", "Answer yes or no.", False),
-        ("qwen3-vl", "Use <think>reasoning</think>.", False),
+        (
+            "cosmos-reason3",
+            [
+                {
+                    "role": "system",
+                    "content": "Respond as <think>reasoning</think><answer>yes/no</answer>.",
+                },
+                {"role": "user", "content": "Classify the video."},
+            ],
+            True,
+        ),
+        (
+            "cosmos-reason3",
+            [{"role": "user", "content": "Explain the `<think>` tag."}],
+            False,
+        ),
+        (
+            "cosmos-reason3",
+            [
+                {
+                    "role": "user",
+                    "content": "Respond as <think>reasoning</think><answer>yes/no</answer>.",
+                },
+                {"role": "assistant", "content": "Earlier response."},
+                {"role": "user", "content": "Answer yes or no."},
+            ],
+            False,
+        ),
+        (
+            "qwen3-vl",
+            [
+                {
+                    "role": "user",
+                    "content": "Respond as <think>reasoning</think><answer>yes/no</answer>.",
+                }
+            ],
+            False,
+        ),
     ],
 )
-def test_prompt_reasoning_config(model_type, content, expected_reasoning):
+def test_prompt_reasoning_config(model_type, messages, expected_reasoning):
     model = VllmCompatible.__new__(VllmCompatible)
     model._vlm_model_type = model_type
     config = VlmGenerationConfig(enable_reasoning=False)
-    messages = [{"role": "user", "content": content}]
 
     effective_config = model._resolve_prompt_reasoning_config(messages, config)
 
