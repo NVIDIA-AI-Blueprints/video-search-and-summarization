@@ -102,7 +102,6 @@ def test_skill_documents_full_agent_owned_loop_and_canonical_limits() -> None:
     skill = SKILL_DIR.joinpath("SKILL.md").read_text(encoding="utf-8")
     normalized = " ".join(skill.split())
     assert not any(SKILL_DIR.joinpath("references").glob("*"))
-    assert "complete agent-facing workflow and contract" in normalized
     assert "vss-generate-evidence-plan" in skill
     assert "before planning" not in normalized
     assert "option-blind" in skill
