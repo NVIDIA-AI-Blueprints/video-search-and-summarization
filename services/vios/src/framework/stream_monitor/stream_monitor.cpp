@@ -410,7 +410,8 @@ void StreamMonitor::sendStatusEvent(const string &url, StreamStatus status, Stre
 
 void StreamMonitor::notifyStreamStatus(const StreamStatus& status, const std::string& camera_id)
 {
-
+    /* Intentionally empty: status is published by StreamEventManager via sendStatusEvent();
+     * this override exists only to satisfy the IMediaDataProducer interface. */
 }
 
 /* =============Implementation of QoS Measurement ====================== */

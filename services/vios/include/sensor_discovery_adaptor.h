@@ -36,8 +36,8 @@ class ISensorDiscoveryEvent
         virtual int onSensorChanged(SensorInfo& sensorInfo) = 0;
         virtual int onSensorRemoved(const string& sensorInfo) = 0;
 
-        virtual void notifyEvent(const SensorStatus& status, const string& url, const string& ipc_url = "") {}
-        virtual void refreshSensorList() {}
+        virtual void notifyEvent(const SensorStatus& status, const string& url, const string& ipc_url = "") { /* Optional hook: listeners that do not track sensor status changes keep this no-op. */ }
+        virtual void refreshSensorList() { /* Optional hook: backends holding no cached sensor list keep this no-op. */ }
 };
 
 class ISensorDiscoveryInterface
