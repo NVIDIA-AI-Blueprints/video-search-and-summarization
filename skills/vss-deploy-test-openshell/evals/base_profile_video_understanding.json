@@ -48,7 +48,7 @@
       ]
     },
     {
-      "query": "Find stored VSS results about forklifts for sensor dock_cam.",
+      "query": "Treat these as mocked prior tool results: native Markdown search found nothing, and `vss configure memory show` reports introspection=null (introspection is unavailable - do not enable it and do not call `vss memory introspect`). Find structured VSS records about forklifts on sensor `dock_cam` by running `vss memory query` with forklift text and `--sensor dock_cam`. Do not run `vss vlm run`.",
       "checks": [
         "The trajectory runs vss memory query with forklift text and dock_cam sensor scope.",
         "It does not run memory introspect or vss vlm run."
