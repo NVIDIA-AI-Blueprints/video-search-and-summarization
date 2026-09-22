@@ -12,7 +12,7 @@
   },
   "expects": [
     {
-      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS, a video-understanding VLM, and VSS unified memory (Elasticsearch) enabled. Enable memory introspection too, with its sufficiency judge pointed at the profile's own text LLM. Then, so the following queries have a camera to work with, onboard the local file /app/warehouse_safety_0001.mp4 into VIOS as a sensor named warehouse_sample. Use the configured remote model endpoints and run autonomously.",
+      "query": "Deploy the VSS base profile on `{{platform}}` with VIOS, a video-understanding VLM, and VSS unified memory (Elasticsearch) enabled. Then, so the following exact-route queries have a camera to work with, onboard the local file /app/warehouse_safety_0001.mp4 into VIOS as a sensor named warehouse_sample. Use the configured remote model endpoints and run autonomously.",
       "checks": [
         "`curl -sf --max-time 15 http://localhost:30888/vst/api/v1/sensor/version` returns exit 0 (VIOS is responsive).",
         "`timeout 570s sh -c 'while :; do for url in http://localhost:30081/v1/models http://localhost:30082/v1/models http://localhost:8018/v1/models; do curl -sf --connect-timeout 2 --max-time 5 \"$url\" >/dev/null 2>&1 && exit 0; done; sleep 5; done'` returns exit 0 (at least one configured video-understanding VLM becomes ready; polls for up to 9.5 minutes to absorb model warmup).",
@@ -23,8 +23,8 @@
     {
       "query": "Was the worker wearing a safety helmet on warehouse_sample? Check the video itself, not anything already stored.",
       "checks": [
-        "It uses exactly one vss vlm run against warehouse_sample, with --fps rather than a fixed --num-frames, and returns the answer.",
-        "It does not search Markdown or call memory introspect first, because the request already names its own scope."
+        "It uses exactly one vss vlm run against warehouse_sample, with --fps chosen from the skim/locate/inspect policy and --fps rather than a fixed --num-frames, and returns the answer.",
+        "It does not search Markdown or delegate first, because the request explicitly asks for one fresh inspection of a named scope."
       ]
     },
     {
@@ -42,31 +42,31 @@
       ]
     },
     {
-      "query": "First find the job id of the most recent stored warehouse_sample analysis, then introspect that job with --job-id: was anyone missing PPE?",
+      "query": "First find the job id of the most recent stored warehouse_sample analysis, then read that exact job with --job-id and report what it says about PPE.",
       "checks": [
-        "It resolves the job id from VSS memory and calls vss memory introspect with --job-id, the user's question preserved verbatim, and --fps chosen from the skim/locate/inspect policy.",
-        "It does not run vss vlm run after introspection returns."
+        "It resolves the job id from VSS memory and calls vss memory get with --job-id.",
+        "It answers from that exact stored job and does not delegate or run VLM."
       ]
     },
     {
-      "query": "Was the worker wearing a high-visibility vest as well as a helmet on warehouse_sample?",
+      "query": "Read the most recent stored warehouse_sample job and report whether its existing text mentions both a high-visibility vest and a helmet.",
       "checks": [
-        "The VSS operation is vss memory introspect with --sensor warehouse_sample, the verbatim question, and --fps.",
-        "It does not issue vss memory query first or call a backend directly."
+        "The VSS operations are ordinary memory discovery followed by an exact vss memory get.",
+        "It does not delegate, run VLM, or call a backend directly."
       ]
     },
     {
       "query": "Introspection is turned off on this deployment. Read the stored VSS job for the most recent warehouse_sample analysis.",
       "checks": [
         "It reads the record with vss memory get --job-id for ordinary structured retrieval.",
-        "It never calls vss memory introspect, never enables it, and never runs vss vlm run when the records are thin."
+        "It does not delegate or run vss vlm run for this exact stored-job read."
       ]
     },
     {
-      "query": "Introspection is not configured on this deployment. Find the stored VSS records about forklifts on warehouse_sample.",
+      "query": "Introspection is not configured on this deployment. Find the stored VSS records about forklifts on warehouse_sample without performing a fresh analysis.",
       "checks": [
-        "It treats introspection as unavailable and uses vss memory query with forklift text and warehouse_sample scope.",
-        "It does not call or configure introspection and does not run vss vlm run."
+        "It uses vss memory query with forklift text and warehouse_sample scope.",
+        "It does not delegate or run vss vlm run because the user requested stored records."
       ]
     },
     {
@@ -77,16 +77,16 @@
       ]
     },
     {
-      "query": "Introspection came back partial: the answer was 'a helmet is visible, but identity is uncertain', and identity was left unconfirmed. Respond to the user.",
+      "query": "The delegated evidence loop returned: 'a helmet is visible, but identity is uncertain', with identity unresolved and artifact path /tmp/mock-run. Respond to the user.",
       "checks": [
         "It returns the partial answer with the identity limitation and the unresolved gap.",
-        "It does not retry introspection or any internal VLM work."
+        "It does not re-enter the delegated loop or retry visual work."
       ]
     },
     {
-      "query": "Where did the worker put the box down on warehouse_sample in the first 10 seconds?",
+      "query": "Freshly inspect warehouse_sample in the first 10 seconds exactly once: where did the worker put the box down?",
       "checks": [
-        "When stored memory does not cover the question, it allows exactly one vss vlm run for warehouse_sample and that exact window.",
+        "It uses exactly one vss vlm run for warehouse_sample and that exact window.",
         "It does not broaden or invent scope."
       ]
     },
@@ -102,7 +102,7 @@
       "query": "Freshly inspect the local video file warehouse_safety_0001.mp4 using the canonical vss-ask-video skill. Do not use VST/VIOS or raw HTTP: is the worker wearing PPE?",
       "checks": [
         "It uses vss vlm run --file through the installed CLI when available, in one shell call, and returns its answer. Only a development checkout without an installed CLI uses the project-local fallback.",
-        "It does not search Markdown, introspect, access VIOS, call RT-VLM directly, or POST to the VSS Agent."
+        "It does not search Markdown, delegate, access VIOS, call RT-VLM directly, or POST to the VSS Agent."
       ]
     }
   ]
