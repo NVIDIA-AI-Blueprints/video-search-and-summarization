@@ -847,16 +847,15 @@ def test_locked_vlm_policy_rejects_conflicting_override() -> None:
         )
 
 
-def test_environment_policy_overrides_persisted_policy_and_locks_request(
+def test_locked_config_overrides_environment_and_rejects_explicit_run_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from vss_cli.group import Context
     from vss_cli.group import InvalidInput
     from vss_cli.vlm.group import VlmGroup
 
-    monkeypatch.setenv("VSS_VLM_TEMPERATURE", "0")
-    monkeypatch.setenv("VSS_VLM_LOCKED", "true")
-    deployment = _deployment(vlm=config_mod.VlmConfig(temperature=0.5, locked=False))
+    monkeypatch.setenv("VSS_VLM_TEMPERATURE", "0.5")
+    deployment = _deployment(vlm=config_mod.VlmConfig(temperature=0, locked=True))
     ctx = Context(deployment=deployment)
     ctx.extra = {"no_persist": True}
 
@@ -866,6 +865,32 @@ def test_environment_policy_overrides_persisted_policy_and_locks_request(
             VlmInput(prompt="What?", media_url="http://h/clip.mp4", temperature=0.5),
             ctx,
         )
+
+
+def test_explicit_run_argument_overrides_environment_when_unlocked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kwargs: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+    monkeypatch.setenv("VSS_VLM_TEMPERATURE", "0")
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment())
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", temperature=0.5),
+        ctx,
+    )
+
+    assert captured["json"]["temperature"] == 0.5
 
 
 def test_environment_policy_applies_without_persisted_policy(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -910,7 +935,7 @@ def test_environment_policy_applies_without_persisted_policy(monkeypatch: pytest
     }
 
 
-def test_environment_backend_overrides_persisted_request_translation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_persisted_backend_overrides_environment_default(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     def _capture(_url: str, *, json: Any, **_kw: Any) -> httpx.Response:
@@ -928,9 +953,9 @@ def test_environment_backend_overrides_persisted_request_translation(monkeypatch
     ctx.extra = {"no_persist": True}
     VlmGroup().run("", VlmInput(prompt="What?", media_url="http://h/clip.mp4"), ctx)
 
-    assert captured["json"]["media_io_kwargs"] == {"video": {"num_frames": -1, "fps": 4}}
-    assert captured["json"]["mm_processor_kwargs"]["do_sample_frames"] is False
-    assert "num_frames_per_second_or_fixed_frames_chunk" not in captured["json"]
+    assert captured["json"]["num_frames_per_second_or_fixed_frames_chunk"] == 4
+    assert captured["json"]["use_fps_for_chunking"] is True
+    assert "media_io_kwargs" not in captured["json"]
 
 
 def test_locked_processor_size_policy_rejects_conflicting_override() -> None:

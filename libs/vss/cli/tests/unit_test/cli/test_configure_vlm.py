@@ -100,6 +100,18 @@ def test_configure_vlm_writes_cosmos_reason_nim_backend(config_home: Path) -> No
     )
 
 
+def test_configure_vlm_inherits_environment_defaults(config_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["backend"], "vllm")
+
+    result = _invoke("--fps", "4")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm == config_mod.VlmConfig(
+        backend="vllm",
+        fps=4,
+    )
+
+
 def test_vlm_config_without_backend_defaults_to_rt_vlm() -> None:
     policy = config_mod.VlmConfig.from_json({"fps": 4, "locked": True})
 
@@ -201,7 +213,7 @@ def test_configure_vlm_without_saved_deployment_exits_configuration(
     assert "vss configure vlm: configuration error:" in result.output
 
 
-def test_vlm_environment_overlays_every_persisted_policy_field(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_persisted_policy_overrides_every_environment_default(monkeypatch: pytest.MonkeyPatch) -> None:
     configured = config_mod.VlmConfig(
         backend="rt_vlm",
         timeout=30,
@@ -231,13 +243,27 @@ def test_vlm_environment_overlays_every_persisted_policy_field(monkeypatch: pyte
     for field_name, value in values.items():
         monkeypatch.setenv(config_mod.VLM_ENV[field_name], value)
 
-    assert config_mod.effective_vlm_config(configured) == replace(_locked_policy(), backend="vllm")
+    assert config_mod.effective_vlm_config(configured) == configured
 
 
-def test_vlm_environment_can_create_policy_without_persisted_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "4")
+def test_persisted_policy_overrides_environment_temperature_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["temperature"], "0.5")
+    configured = config_mod.VlmConfig(temperature=0, locked=True)
 
-    assert config_mod.effective_vlm_config(None) == config_mod.VlmConfig(fps=4)
+    effective = config_mod.effective_vlm_config(configured)
+
+    assert effective is not None
+    assert effective.temperature == 0
+    assert effective.locked is True
+
+
+def test_environment_supplies_default_without_persisted_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["temperature"], "0.5")
+
+    effective = config_mod.effective_vlm_config(None)
+
+    assert effective is not None
+    assert effective.temperature == 0.5
 
 
 def test_vlm_environment_accepts_cosmos_reason_nim_backend(monkeypatch: pytest.MonkeyPatch) -> None:

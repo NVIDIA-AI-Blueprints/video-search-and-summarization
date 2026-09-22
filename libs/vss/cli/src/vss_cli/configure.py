@@ -737,7 +737,7 @@ def configure_vlm(
         click.echo(f"removed VLM request policy from {path}", err=True)
         return
 
-    current = deployment.vlm or config_mod.VlmConfig()
+    current = config_mod.effective_vlm_config(deployment.vlm) or config_mod.VlmConfig()
     if not supplied:
         click.echo(json.dumps(current.to_json(), indent=2))
         return

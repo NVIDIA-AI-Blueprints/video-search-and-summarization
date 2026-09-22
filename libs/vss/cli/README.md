@@ -149,11 +149,11 @@ Each field also has an independent runtime environment override:
 | `longest_edge` | `VSS_VLM_LONGEST_EDGE` |
 | `locked` | `VSS_VLM_LOCKED` (`true` or `false`) |
 
-For each field, a defined environment variable overrides the persisted value;
-an absent one leaves the persisted value unchanged. If neither is present, the
-built-in request default applies. Empty or malformed variables are errors. The
-effective `locked` value then decides whether explicit `vss vlm run` arguments
-may override the resulting policy.
+Environment variables provide per-field defaults. Values persisted by
+`vss configure vlm` override those defaults. Explicit `vss vlm run` arguments
+override the resulting policy when it is unlocked; conflicting arguments are
+rejected when it is locked. If neither source defines a field, its built-in
+request default applies. Empty or malformed environment variables are errors.
 
 ## The surface
 

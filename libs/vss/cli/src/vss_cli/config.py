@@ -748,9 +748,7 @@ def _parse_vlm_environment_value(field_name: str, environment_name: str, raw: st
         raise ConfigError(f"{environment_name} is set but empty")
     if field_name == "backend":
         if value not in {"rt_vlm", "vllm", "cosmos_reason_nim"}:
-            raise ConfigError(
-                f"{environment_name} must be 'rt_vlm', 'vllm', or 'cosmos_reason_nim'"
-            )
+            raise ConfigError(f"{environment_name} must be 'rt_vlm', 'vllm', or 'cosmos_reason_nim'")
         return value
     if field_name in _VLM_INTEGER_ENV_FIELDS:
         try:
@@ -771,22 +769,29 @@ def _parse_vlm_environment_value(field_name: str, environment_name: str, raw: st
 
 
 def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
-    """Overlay per-field environment values on a persisted VLM policy.
+    """Resolve environment defaults beneath the persisted VLM policy.
 
-    Environment variables have precedence over values written by
-    ``vss configure vlm``. An absent environment variable leaves its persisted
-    value unchanged. When neither source defines a policy, return ``None`` so
-    existing built-in request defaults retain their current behavior.
+    Precedence, from lowest to highest:
+
+    1. built-in defaults
+    2. ``VSS_VLM_*`` environment defaults
+    3. values persisted by ``vss configure vlm``
+
+    Explicit ``vss vlm run`` arguments are applied afterward. They override
+    the effective policy only when that policy is unlocked.
     """
-    overrides = {
+    environment_defaults = {
         field_name: _parse_vlm_environment_value(field_name, environment_name, os.environ[environment_name])
         for field_name, environment_name in VLM_ENV.items()
         if environment_name in os.environ
     }
-    if not overrides:
-        return configured
-    effective = (configured or VlmConfig()).to_json()
-    effective.update(overrides)
+    if configured is None and not environment_defaults:
+        return None
+
+    effective = VlmConfig().to_json()
+    effective.update(environment_defaults)
+    if configured is not None:
+        effective.update(configured.to_json())
     return VlmConfig.from_json(effective)
 
 
