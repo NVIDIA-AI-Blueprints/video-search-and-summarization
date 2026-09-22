@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Overlay, not a profile entry point. ../compose.yml does not include this file;
-# scripts/deploy_smartcities_launchable.ipynb merges this directory into
-# developer-profiles/dev-profile-alerts and deploys from there, so these
-# services reach Compose through the alerts profile rather than on their own.
+# Included directly by ../compose.yml. Every service here is gated behind its
+# own profile key, so it reaches a bring-up only when COMPOSE_PROFILES names
+# it and no other profile gains a service from this file. The environment side
+# is separate: scripts/deploy_smartcities_launchable.ipynb copies this
+# directory's .env and overrides.env onto the Alerts foundation's env layers,
+# and copies no Compose or profile artifacts.
 
 services:
   vss-behavior-analytics-smartcities:
