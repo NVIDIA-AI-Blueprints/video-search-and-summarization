@@ -169,6 +169,6 @@ class Stats
         std::mutex                                       m_timeStampQueueMutex;
 
         /* Private constructor to prevent instancing. */
-        Stats () {}
-        ~Stats () {}
+        Stats () = default;
+        ~Stats () = default;
 };

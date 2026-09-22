@@ -43,8 +43,8 @@ class ISensorDiscoveryEvent
 class ISensorDiscoveryInterface
 {	
 public:
-    ISensorDiscoveryInterface() {}
-    virtual ~ISensorDiscoveryInterface() {}
+    ISensorDiscoveryInterface() = default;
+    virtual ~ISensorDiscoveryInterface() = default;
 
     virtual void start() = 0;
     virtual void stop()  = 0;

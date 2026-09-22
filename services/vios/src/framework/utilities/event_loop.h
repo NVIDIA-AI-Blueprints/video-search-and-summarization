@@ -33,7 +33,7 @@ struct EventLoopOutData
     std::condition_variable m_outDataWait;
     std::shared_ptr<void> m_outData;
     uint32_t m_timeout = 0;
-    virtual ~EventLoopOutData() {}
+    virtual ~EventLoopOutData() = default;
 };
 struct EventLoopData
 {
@@ -43,7 +43,7 @@ struct EventLoopData
     std::atomic<bool> m_error {false};
     std::shared_ptr<EventLoopOutData> m_outResult;
     Json::Value m_inData;
-    virtual ~EventLoopData() {}
+    virtual ~EventLoopData() = default;
 };
 
 struct EventLoopMsg;

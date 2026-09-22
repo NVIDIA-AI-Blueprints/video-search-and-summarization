@@ -29,8 +29,8 @@ using namespace std;
 class RtspStreams : public ISensorControlInterface
 {
     public:
-        RtspStreams() {}
-        virtual ~RtspStreams() {}
+        RtspStreams() = default;
+        virtual ~RtspStreams() = default;
 
         int connect();
         int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);
