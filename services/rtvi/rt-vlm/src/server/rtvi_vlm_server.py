@@ -164,6 +164,21 @@ RESOURCE_IN_USE_RESPONSE = {
 _FILE_NAME_REGEX = re.compile(FILE_NAME_PATTERN)
 
 
+def _find_prompt_word(text: str, word: str, end: int) -> int:
+    """Find an ASCII instruction word without backtracking."""
+    start = 0
+    while (index := text.find(word, start, end)) >= 0:
+        word_end = index + len(word)
+        before_is_word = index > 0 and (text[index - 1].isalnum() or text[index - 1] == "_")
+        after_is_word = word_end < len(text) and (
+            text[word_end].isalnum() or text[word_end] == "_"
+        )
+        if not before_is_word and not after_is_word:
+            return index
+        start = word_end
+    return -1
+
+
 def _has_prompt_reasoning_format(text: str) -> bool:
     """Recognize the ordered Alert output contract in linear time."""
     text = text.casefold()
@@ -171,9 +186,9 @@ def _has_prompt_reasoning_format(text: str) -> bool:
     if think_start < 0 or text.find("</think>", think_start + len("<think>")) < 0:
         return False
 
-    format_start = text.rfind("format", 0, think_start)
+    format_start = _find_prompt_word(text, "format", think_start)
     return format_start >= 0 and any(
-        text.rfind(keyword, 0, format_start) >= 0
+        _find_prompt_word(text, keyword, format_start) >= 0
         for keyword in ("answer", "respond", "response")
     )
 

@@ -129,7 +129,10 @@ class TestChatCompletionFormatting:
                     "messages": [
                         {
                             "role": "user",
-                            "content": "Answer using this format: <think>reasoning</think> verdict.",
+                            "content": (
+                                "Answer using this format: "
+                                "<think>reasoning</think> verdict."
+                            ),
                         }
                     ]
                 },
@@ -141,7 +144,10 @@ class TestChatCompletionFormatting:
                     "messages": [
                         {
                             "role": "user",
-                            "content": "Answer using this format: <think>reasoning</think> verdict.",
+                            "content": (
+                                "Answer using this format: "
+                                "<think>reasoning</think> verdict."
+                            ),
                         }
                     ],
                 },
@@ -156,7 +162,10 @@ class TestChatCompletionFormatting:
                     "messages": [
                         {
                             "role": "user",
-                            "content": "Answer using this format: <think>reasoning</think> verdict.",
+                            "content": (
+                                "Answer using this format: "
+                                "<think>reasoning</think> verdict."
+                            ),
                         },
                         {"role": "assistant", "content": "Earlier answer."},
                         {"role": "user", "content": "Answer yes or no."},
@@ -169,7 +178,10 @@ class TestChatCompletionFormatting:
                     "messages": [
                         {
                             "role": "system",
-                            "content": "Respond in this format: <think>reasoning</think><answer>yes</answer>.",
+                            "content": (
+                                "Respond in this format: "
+                                "<think>reasoning</think><answer>yes</answer>."
+                            ),
                         },
                         {"role": "user", "content": "Classify the video."},
                     ]
@@ -185,6 +197,14 @@ class TestChatCompletionFormatting:
 
     def test_prompt_reasoning_format_handles_large_non_contract_input(self):
         assert _has_prompt_reasoning_format("answer " * 16_000) is False
+        assert (
+            _has_prompt_reasoning_format("Answer with information: <think>example</think>.")
+            is False
+        )
+        assert (
+            _has_prompt_reasoning_format("A reformatted <think>example</think> response.")
+            is False
+        )
 
     def test_stream_poll_interval_avoids_one_second_ttft_floor(self):
         assert CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC <= 0.005
