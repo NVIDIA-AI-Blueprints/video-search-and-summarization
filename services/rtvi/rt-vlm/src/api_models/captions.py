@@ -20,7 +20,7 @@ from enum import Enum
 from typing import Annotated, List, Optional
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from .common import (
     ANY_CHAR_PATTERN,
@@ -284,6 +284,8 @@ class VlmCaptionsCompletionResponse(CommonBaseModel):
 
 class VlmQuery(CommonBaseModel):
     """VLM Captions Query Request Fields."""
+
+    _prompt_driven_reasoning: bool = PrivateAttr(default=False)
 
     id: UUID | List[UUID] = Field(
         description="Unique ID or list of IDs of the file(s)/live-stream(s) to generate VLM captions for",
@@ -610,7 +612,6 @@ class VlmQuery(CommonBaseModel):
         description="Enable reasoning for VLM captions generation",
         examples=[True, False],
     )
-    prompt_driven_reasoning: bool = Field(default=False, exclude=True)
     preserve_reasoning_tags: bool = Field(
         default=False,
         description=(

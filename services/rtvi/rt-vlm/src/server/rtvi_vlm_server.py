@@ -162,10 +162,20 @@ RESOURCE_IN_USE_RESPONSE = {
 
 # Compile regex patterns at module level for performance
 _FILE_NAME_REGEX = re.compile(FILE_NAME_PATTERN)
-_PROMPT_REASONING_FORMAT_REGEX = re.compile(
-    r"\b(?:answer|respond|response)\b.*?\bformat\b.*?<think>.*?</think>",
-    flags=re.DOTALL | re.IGNORECASE,
-)
+
+
+def _has_prompt_reasoning_format(text: str) -> bool:
+    """Recognize the ordered Alert output contract in linear time."""
+    text = text.casefold()
+    think_start = text.find("<think>")
+    if think_start < 0 or text.find("</think>", think_start + len("<think>")) < 0:
+        return False
+
+    format_start = text.rfind("format", 0, think_start)
+    return format_start >= 0 and any(
+        text.rfind(keyword, 0, format_start) >= 0
+        for keyword in ("answer", "respond", "response")
+    )
 
 
 def _prompt_requests_reasoning(request_body) -> bool:
@@ -181,8 +191,7 @@ def _prompt_requests_reasoning(request_body) -> bool:
         for role in ("system", "user")
     ]
     return any(
-        message is not None
-        and _PROMPT_REASONING_FORMAT_REGEX.search(message.get_text_content()) is not None
+        message is not None and _has_prompt_reasoning_format(message.get_text_content())
         for message in active_messages
     )
 
@@ -589,7 +598,6 @@ class RTVIServer:
             "chunk_duration": 0,
             "chunk_overlap_duration": 0,
             "preserve_reasoning_tags": True,
-            "prompt_driven_reasoning": _prompt_requests_reasoning(request_body),
         }
         if request_body.max_completion_tokens is not None:
             vlm_query_dict["max_tokens"] = request_body.max_completion_tokens
@@ -611,6 +619,7 @@ class RTVIServer:
             vlm_query_dict["ignore_eos"] = request_body.ignore_eos
 
         vlm_query = _create_vlm_query(vlm_query_dict)
+        vlm_query._prompt_driven_reasoning = _prompt_requests_reasoning(request_body)
 
         request_id = str(uuid4())
         created = int(time.time())
@@ -3343,7 +3352,6 @@ class RTVIServer:
                 "chunk_overlap_duration": request_body.chunk_overlap_duration or 0,
                 "enable_audio": request_body.enable_audio or False,
                 "enable_reasoning": request_body.enable_reasoning or False,
-                "prompt_driven_reasoning": _prompt_requests_reasoning(request_body),
                 "preserve_reasoning_tags": True,
                 "num_frames_per_second_or_fixed_frames_chunk": (
                     request_body.num_frames_per_second_or_fixed_frames_chunk or 0
@@ -3390,6 +3398,7 @@ class RTVIServer:
                     ) from e
             try:
                 vlm_query = _create_vlm_query(vlm_query_dict)
+                vlm_query._prompt_driven_reasoning = _prompt_requests_reasoning(request_body)
             except Exception:
                 await self._cleanup_temporary_chat_assets(temp_asset_ids)
                 raise

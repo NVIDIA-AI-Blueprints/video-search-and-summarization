@@ -57,6 +57,7 @@ from server.rtvi_vlm_server import (
     GENERATE_CAPTIONS_STREAM_POLL_INTERVAL_SEC,
     RTVIServer,
     _build_chat_assistant_message,
+    _has_prompt_reasoning_format,
     _prompt_requests_reasoning,
 )
 from tests.tests_common import TempEnv
@@ -181,6 +182,9 @@ class TestChatCompletionFormatting:
         request = ChatCompletionRequest(model="test-model", **request_data)
 
         assert _prompt_requests_reasoning(request) is expected
+
+    def test_prompt_reasoning_format_handles_large_non_contract_input(self):
+        assert _has_prompt_reasoning_format("answer " * 16_000) is False
 
     def test_stream_poll_interval_avoids_one_second_ttft_floor(self):
         assert CHAT_COMPLETION_STREAM_POLL_INTERVAL_SEC <= 0.005
