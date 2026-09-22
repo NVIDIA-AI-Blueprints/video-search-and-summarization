@@ -150,7 +150,20 @@ DashPackagerConsumer::DashPackagerConsumer(DashPackagerConfig config)
 
 DashPackagerConsumer::~DashPackagerConsumer()
 {
-    stop();
+    /* stop() flushes the packager and may throw; an escaping exception here
+     * would call std::terminate, so contain it. */
+    try
+    {
+        stop();
+    }
+    catch (const std::exception& e)
+    {
+        LOG(error) << "Exception during DashPackagerConsumer stop: " << e.what() << endl;
+    }
+    catch (...)
+    {
+        LOG(error) << "Unknown exception during DashPackagerConsumer stop" << endl;
+    }
 }
 
 bool DashPackagerConsumer::isFmp4Available()

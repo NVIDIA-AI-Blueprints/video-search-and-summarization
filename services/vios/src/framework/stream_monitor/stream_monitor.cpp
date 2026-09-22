@@ -474,8 +474,21 @@ public:
     }
     virtual ~QosMeasurementRecord()
     {
-        LOG(info) << "~QosMeasurementRecord - " << m_fName << endl;
-        stopQoS();
+        /* stopQoS() closes the QoS dump file and may throw; an escaping exception
+         * here would call std::terminate, so contain it. */
+        try
+        {
+            LOG(info) << "~QosMeasurementRecord - " << m_fName << endl;
+            stopQoS();
+        }
+        catch (const std::exception& e)
+        {
+            LOG(error) << "Exception during QosMeasurementRecord teardown: " << e.what() << endl;
+        }
+        catch (...)
+        {
+            LOG(error) << "Unknown exception during QosMeasurementRecord teardown" << endl;
+        }
     }
 
     void startQoS(const string& url, RTPSource* rtpSrcProxy)
