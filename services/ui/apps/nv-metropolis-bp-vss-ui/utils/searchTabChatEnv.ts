@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 /**
  * Search tab Chat sidebar config. Thin wrapper over the reusable tabChatEnv utils

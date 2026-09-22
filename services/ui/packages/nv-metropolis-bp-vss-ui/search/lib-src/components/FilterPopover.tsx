@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import React, { useMemo, useCallback, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Button } from '@nvidia/foundations-react-core';

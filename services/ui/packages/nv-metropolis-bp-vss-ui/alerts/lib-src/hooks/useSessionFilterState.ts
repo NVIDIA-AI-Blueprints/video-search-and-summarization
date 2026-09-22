@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { useState, useCallback, type Dispatch, type SetStateAction } from 'react';
 import { FilterState } from '../types';

@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 import { createVssMainTabChatVideoUploadRegistry } from '../../utils/chatVideoUploadCompleteRegistry';
 import { createMainTabChatVideoUploadRegistrars } from '../../utils/mainTabChatVideoUploadRegistrars';

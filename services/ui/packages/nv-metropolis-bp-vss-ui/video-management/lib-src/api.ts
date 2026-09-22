@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 export const createApiEndpoints = (vstApiUrl: string) => ({
   STREAMS: `${vstApiUrl}/v1/replay/streams`,

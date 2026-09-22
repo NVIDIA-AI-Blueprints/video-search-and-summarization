@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: MIT
 // Re-export all components from nv-metropolis-bp-vss-ui packages
 export { AlertsComponent, AlertsSidebarControls as AlertsControls, CreateAlertRulesView } from '@nv-metropolis-bp-vss-ui/alerts';
