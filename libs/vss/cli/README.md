@@ -330,13 +330,15 @@ vss vlm run --sensor warehouse --prompt "What happened?" --start-time T --end-ti
 | `--model` | deployment `rt_vlm` model | Override the recorded model name |
 | `--timeout` | 30s (`vlm run`); 180s (introspection follow-ups) | HTTP / workflow budget |
 | `--num-frames` | 8 when neither sampling flag is set | Fixed frame count across the clip |
-| `--fps` | unset | Frames per second; mutually exclusive with `--num-frames`. When clip duration is known, `fps × seconds` is capped at 60 frames (converted to a fixed sample if it would exceed). |
+| `--fps` | unset | Frames per second; mutually exclusive with `--num-frames`. Direct `vlm run` sends the requested rate to the backend without converting it to a 60-frame sample. For standalone vLLM, its loader receives `fps` with `num_frames=-1`, then Qwen consumes the selected frames without sampling again. Backend/deployment limits still apply. |
 | `--max-tokens` / `--temperature` | unset | Optional generation knobs |
 | `--intent` | `qa` (`vlm run`); `introspection` (follow-ups) | Stored on the memory record |
 | `--no-persist` | off | Skip writing this VLM job |
 
-Introspection follow-ups reuse this path, accept `--fps`, and honor
-`--persist-by-default`.
+Introspection follow-ups use the bounded analyzer rather than direct
+`vlm run`'s FPS translation. They accept `--fps`, but a known-duration request
+that implies more than 60 frames becomes a fixed 60-frame sample. They also
+honor `--persist-by-default`.
 Persisted jobs remain visible via `vss vlm get` / `list`.
 
 ### Embeddings and retrieval mode
