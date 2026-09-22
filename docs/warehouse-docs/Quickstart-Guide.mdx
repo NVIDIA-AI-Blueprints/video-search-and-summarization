@@ -411,6 +411,21 @@ Container image coordinates are centralized in `containers.env` and loaded by th
 1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For GB300 and DGX-SPARK, also export the SBSA image-tag suffix as described in the hardware tab.
 2. Choose exactly one deployment path and copy its settings into the same file.
 
+**Default container image tag**
+
+`containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.
+Export the tag selected for this documentation branch before choosing a hardware
+layout:
+
+```bash
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
+```
+
+Any service-specific image tag or tag suffix shown inside a hardware tab
+supersedes or augments this common default. Use the SBSA settings shown in the
+GB300 and DGX Spark tabs when deploying on those platforms.
+
+
 <Tabs>
 <Tab title="RTXPRO6000BW">
 <Tabs>
@@ -819,7 +834,6 @@ Ensure `industry-profiles/warehouse-operations/.env` and `overrides.env` are con
 
 ```bash title="Deploy Warehouse Blueprint"
 cd /path/to/deploy/docker
-export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
 
 # Log in to the NGC container registry.
 docker login \

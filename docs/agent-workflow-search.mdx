@@ -175,6 +175,21 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 `HARDWARE_PROFILE` accepts `IGX-THOR`, but search is not supported there. The profile's edge handling covers DGX Spark and AGX Thor only. Use one of the layouts below.
 </Note>
 
+**Default container image tag**
+
+`containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.
+Export the tag selected for this documentation branch before choosing a hardware
+layout:
+
+```bash
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
+```
+
+Any service-specific image tag or tag suffix shown inside a hardware tab
+supersedes or augments this common default. Use the SBSA settings shown in the
+GB300 and DGX Spark tabs when deploying on those platforms.
+
+
 <Tabs>
 <Tab title="H100">
 <Tabs>
@@ -626,7 +641,6 @@ validate the resolved configuration, then start the profile:
 
 ```bash
 PROFILE=search
-export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
 docker compose -f compose.yml \
   --env-file containers.env \
   --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
