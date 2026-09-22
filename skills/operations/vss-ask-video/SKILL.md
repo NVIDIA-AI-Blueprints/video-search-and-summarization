@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video, or when reading a stored VSS memory job or record by id, or whenever a question should be answered by running the `vss memory introspect` command. Route through hot context, agent Markdown notes, `vss memory get` or `vss memory query`, `vss memory introspect`, or an exact-window `vss vlm run`. Not for video retrieval or metadata-answerable questions.
+description: Use this skill for every direct question about previously analyzed or freshly scoped VSS video, including answer-choice requests and exact stored-memory reads. Preserve simple hot-context and exact get/VLM routes; delegate evidence-intensive or introspective answering once to vss-introspect-video. Not for archive retrieval or metadata-answerable questions.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -15,10 +15,12 @@ metadata:
 
 # Ask a VSS video question
 
-Answer from the cheapest grounded source that can satisfy the question. For a
-running VSS deployment, use the project-local `vss` CLI. Do not call an
-OpenAI-compatible `/chat/completions` endpoint directly or fall back to raw REST
-when a CLI command fails.
+This is the entry point for direct video answers. Answer from the cheapest
+grounded source that can satisfy the question, or delegate the complete
+evidence loop once to `vss-introspect-video`. For a running VSS deployment, use
+the project-local `vss` CLI. Do not call an OpenAI-compatible
+`/chat/completions` endpoint directly or fall back to raw REST when a CLI
+command fails.
 
 This skill does not call `POST /generate` on the VSS agent. It requires a
 **deployed VSS with `vss configure` already run**.
@@ -53,13 +55,11 @@ Direct VLM requires:
 - Reachable RT-VLM.
 - VIOS when using sensor-based media.
 
-Introspection requires:
-- Memory enabled and Elasticsearch reachable.
-- Existing VSS memory records.
-- Introspection configured and enabled.
-- The judge endpoint reachable from the CLI execution environment.
-- Its configured credential environment variable available, when one is named.
-- RT-VLM only when a bounded visual follow-up is required.
+The delegated evidence loop requires `vss-introspect-video` and
+`vss-generate-evidence-plan` to be installed. Structured-memory retrieval
+requires memory and Elasticsearch. Visual follow-up requires RT-VLM and VIOS
+for sensor-based media. No legacy memory-introspection configuration or judge
+endpoint is part of this answering workflow.
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
@@ -72,10 +72,8 @@ VSS=(uv run \
 "${VSS[@]}" configure memory check
 ```
 
-These checks show endpoint names and credential environment-variable names, not
-secret values. A judge URL on `127.0.0.1` works only when the OpenClaw Gateway
-and the VSS CLI process share a network namespace. Otherwise an operator must
-configure a private Gateway URL reachable from the CLI execution environment.
+These checks show endpoint names and credential environment-variable names,
+not secret values.
 
 ## Memory layers
 
@@ -93,50 +91,45 @@ configure a private Gateway URL reachable from the CLI execution environment.
   Markdown search is not a `vss` command.
 - **Structured VSS memory** is authoritative data in Elasticsearch, accessed
   only through `vss memory get` and `vss memory query`.
-- **Introspection** is the `vss memory introspect` command, which performs its
-  own structured retrieval, judge call and bounded visual follow-ups inside
-  the deployment. It never means reflecting on what you yourself know:
-  "introspection is enabled" is a fact about the deployment's
-  configuration, and the only way to act on it is to run the command.
+- **Skill-owned introspection** is the `vss-introspect-video` workflow. The
+  coding agent owns planning, memory binding, bounded visual tasks,
+  deterministic reassessment, and artifacts. VSS memory remains an evidence
+  source only.
 
 The agent decides whether Markdown evidence already answers the question.
-Never send raw Markdown documents to the VSS judge.
+Never send raw Markdown documents to VSS or a visual subagent.
 
 ## Route the request
 
-For a general question about previously analyzed video, use this exact order:
+All requests for an answer about video enter this skill, including "which
+option is correct?" The planner is never the answering route.
 
-1. Use hot conversation context if it already answers the question.
-2. Search agent Markdown memory using the harness-native memory search.
-3. If Markdown contains enough evidence, answer directly.
-4. If Markdown contains a VSS job/record pointer, retain that pointer as
-   grounded scope.
-5. Check the configured introspection state if it is not already known in the
-   current session.
-6. If introspection is enabled, call `vss memory introspect`.
-7. If introspection is disabled or unconfigured, retrieve structured VSS memory
-   with `vss memory get` or `vss memory query`, but do not introspect.
-8. If the available memory still cannot answer, name the missing information
-   and ask the user for the selectors that would make it answerable. The
-   question stays open until they arrive.
+Use these exact routes:
 
-When the request already names its own scope, that order does not apply. Skip
-it and make the matching command below the first thing you run: do not search
-Markdown, do not check the introspection state, and do not probe the deployment
-first. Confirming readiness is a step of its own only when the request asks for
-it.
+1. **Hot context sufficient:** answer directly.
+2. **Exact stored read:** a specific `job_id` or complete child identity uses
+   `vss memory get` directly. Preserve this simple route; do not delegate it.
+3. **Explicit one-scope fresh inspection:** a grounded sensor and exact window,
+   a trusted bounded `VIDEO_URL`, or a safe user-named local file uses exactly
+   one `vss vlm run`. Preserve this exact route; do not delegate it.
+4. **General direct answer:** search agent Markdown memory. If it is sufficient,
+   answer directly. Otherwise retain grounded pointers/selectors and delegate
+   once to `vss-introspect-video`.
+5. **Explicit introspection, multi-claim, answer-choice, whole-video, or
+   reassessment request:** delegate once to `vss-introspect-video`, even when
+   the request mentions memory. That skill must call
+   `vss-generate-evidence-plan` option-blind before it reads memory.
 
-- Hot context already answers -> answer from it.
-- A specific known `job_id` or complete child identity -> `vss memory get`, or
-  a group-specific `get`.
-- An explicit fresh visual inspection of a grounded sensor and time window ->
-  `vss vlm run`. "Freshly verify" means the recall layers are already ruled
-  out, not that they should be tried first.
-- A pre-resolved bounded `VIDEO_URL` from a search skill ->
-  `vss vlm run --media-url`.
-- A named local file with configured VSS -> `vss vlm run --file`, resolving the
-  name against the working directory. The file is already on disk; do not hunt
-  for it through Markdown, VIOS, or the deployment's own media paths.
+Delegation transfers the verbatim question, a stable question ID, grounded
+media selectors, and any separate answer choices. It does not pre-query VSS
+memory, pre-plan claims, run visual inspection, or choose an answer. The
+delegated skill owns the full loop and returns the answer or unresolved gaps,
+observation provenance, and artifact path. Never re-enter this skill from the
+delegated loop.
+
+For a named local file, resolve the name against the working directory. The
+file is already on disk; do not hunt for it through Markdown, VIOS, or the
+deployment's own media paths.
 
   `--file` reads the path and sends its bytes to the configured VLM endpoint,
   so the name decides what leaves the machine. Resolve it against the working
@@ -195,7 +188,7 @@ VSS=(uv run \
   --limit 20
 ```
 
-Valid introspection scope is established by one of:
+Valid delegated scope is established by one of:
 - `--sensor`
 - `--job-id`
 - Both `--start-time` and `--end-time`
@@ -214,8 +207,8 @@ or ask for the bounds.
 
 ## Choose visual sampling density
 
-For every introspection or direct VLM call, choose `VLM_FPS` from the visual
-task. RT-VLM samples at that rate across the requested window:
+For every direct VLM call, choose `VLM_FPS` from the visual task. RT-VLM
+samples at that rate across the requested window:
 
 - **Skim (`0.5`)**: locate whether or roughly when a sustained event occurred.
 - **Locate (`1`)**: default event and action questions.
@@ -232,92 +225,27 @@ Do not use fixed `--num-frames` unless the user explicitly requests a fixed
 frame budget or a reproducibility workflow requires it. Never combine
 `--num-frames` and `--fps`.
 
-## When introspection is enabled
+## Delegated evidence loop
 
 For a general memory-aware question that Markdown does not fully answer:
-- Preserve the user's question verbatim: pass exactly the words asked, with
-  nothing appended. Do not expand it into a checklist of what to look for,
-  name the items you expect, or ask for timestamps or a report format. The
-  question is the scope the judge reasons over, so a longer one asks
-  something the user did not.
-- Pass only grounded selectors.
-- Prefer a known `job_id` from the Markdown pointer.
-- Otherwise use a grounded sensor or complete time range.
-- Do not run `vss memory query` immediately before introspection merely to
-  duplicate its internal retrieval.
-- Do not run `vss vlm run` after a completed or partial result. Introspection
-  owns bounded VLM follow-ups.
 
-```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-VSS=(uv run \
-  --project "${VSS_REPO_ROOT}/libs/vss" \
-  vss)
-VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
+- preserve the user's question verbatim;
+- pass only grounded selectors and retain any job/record pointer;
+- keep answer choices separate so planning and evidence gathering remain
+  option-blind;
+- invoke `vss-introspect-video` once;
+- do not query structured memory or run VLM before delegation;
+- return the delegated answer or unresolved result with observation IDs,
+  provenance, gaps, final revision, and artifact path.
 
-RC=0
-RESULT=$("${VSS[@]}" memory introspect \
-  --query "${USER_QUESTION}" \
-  --sensor "${SENSOR_NAME}" \
-  --fps "${VLM_FPS}") || RC=$?
+The delegated skill uses ordinary `vss memory get`, `vss memory query`, VIOS
+lookup, and `vss vlm run` as evidence producers. It never uses the legacy
+memory-owned introspection command. Whether legacy introspection configuration
+is enabled, disabled, or absent does not affect this route.
 
-if [ -n "${RESULT}" ]; then
-  printf '%s\n' "${RESULT}"
-fi
-printf 'vss_exit_code=%s\n' "${RC}" >&2
-```
-
-Capture stdout and the exit code separately. Useful JSON can precede a nonzero
-timeout or backend exit; parse it when present while still respecting the exit
-code. Never pipe the CLI directly to `jq`, which would hide the VSS exit code.
-
-Handle the result fields `status`, `sufficient_from_memory`, `answer`,
-`memory_evidence`, `sufficiency`, `vlm_evidence`, and `unresolved_gaps`:
-- **`completed`**: return `.answer`; when useful say whether memory alone or
-  memory plus VLM supplied it, and cite available job/record handles.
-- **`partial` with an answer**: return the answer with its limitations and
-  relevant `unresolved_gaps`; do not present it as fully confirmed.
-- **`partial` without an answer**: explain the failure or unresolved gaps; do
-  not invent an answer or repeat internal VLM calls.
-- **`no_memory`**: treat it as expected not-found output. Only one direct VLM
-  fallback is allowed, and only when an exact sensor plus an exact window were
-  grounded before introspection - a window the CLI can take, meaning ISO-8601
-  UTC bounds or seconds from the start of a recording, not a vague phrase. Otherwise the reply is a request,
-  not a status: ask the user which exact recorded sensor to read and which
-  exact UTC start and end bounds to use, and state that the question stays open
-  until they supply them. "No memory was found, no action taken" is not an
-  acceptable ending - nothing was asked for, so nothing can arrive.
-
-## When introspection is disabled or unconfigured
-
-Do not call `vss memory introspect` while answering an ordinary video question,
-and do not enable it or rewrite static configuration automatically. Users and
-the agent may still configure and enable introspection when the user explicitly
-asks. If Markdown supplies a `job_id`, use `vss memory get`; otherwise use
-`vss memory query` with relevant text, sensor, and time filters. Answer from
-the returned records when sufficient. If insufficient, say what is known and
-ask for what is missing by name rather than closing the request out.
-
-Do not simulate introspection by selecting a sensor/window and automatically
-calling VLM. Direct VLM is still allowed only for an explicit fresh-verification
-request, an exact grounded sensor/window, or a trusted bounded media handoff.
-If the user explicitly asks to enable or configure introspection, explain the
-current state and run the project-local configure command. `--enable` alone
-fails when introspection was never configured; include the judge endpoint on
-first setup:
-
-```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-VSS=(uv run \
-  --project "${VSS_REPO_ROOT}/libs/vss" \
-  vss)
-
-"${VSS[@]}" configure memory introspection \
-  --enable \
-  --judge-endpoint "${JUDGE_ENDPOINT}"
-```
-
-Do not silently substitute ordinary VLM inspection.
+If the user explicitly asks to configure the legacy deployment feature, treat
+that as a configuration request rather than an answering route. Do not enable,
+disable, or rewrite it as a side effect of answering a video question.
 
 ## Direct fresh inspection
 
@@ -409,23 +337,23 @@ answer and report that limitation.
   aisle at 10:14 UTC." Answer `10:14 UTC` directly; search nothing.
 - **Markdown sufficient:** Native agent Markdown memory search finds a note that
   directly answers the question -> answer from it; call no VSS command.
-- **Markdown incomplete:** Retain its `job_id`, inspect known/configured state,
-  then introspect by that job when enabled.
+- **Markdown incomplete:** Retain its `job_id` and delegate once to
+  `vss-introspect-video`; do not pre-query structured memory.
 - **Explicit stored parent:** "Show me the summary from job `sum-01JXYZ`." ->
   `vss memory get --job-id sum-01JXYZ`.
-- **Disabled introspection:** Search Markdown, then structured memory. Do not
-  introspect, enable it, or escalate automatically to VLM.
+- **Answer choice:** "Watch this scoped clip and tell me which option is
+  correct." -> enter this skill, then delegate once. The evidence planner and
+  visual tasks never receive the choices.
 - **Exact fresh verification:** "Freshly verify whether the worker wore a hard
   hat on `dock_cam` from `2026-08-13T20:00:00Z` to
   `2026-08-13T20:00:30Z`." -> `vss vlm run` with that exact sensor/window.
 - **Search handoff:** a user-confirmed vss-search-archive handoff with a pre-resolved bounded VIDEO_URL -> Path A `--media-url`.
-- **No memory with scope:** Introspection returns `no_memory`, while trusted
-  context provides `dock_cam` and `2026-08-13T20:00:00Z` through
-  `2026-08-13T20:00:30Z` -> run one `vss vlm run` for exactly that interval.
-- **No memory without scope:** "Did a forklift enter the loading area last
-  week?" returns `no_memory`, with no exact sensor/window -> explain no matching
-  memory/window exists and ask for the sensor and exact UTC window; do not run
-  the VLM.
+- **Evidence loop with scope:** "Across the complete grounded recording, which
+  worker was last to enter?" -> delegate to `vss-introspect-video`, which plans
+  before memory and owns bounded visual follow-up.
+- **No grounded scope:** "Did a forklift enter last week?" with no exact
+  sensor/window -> ask for the recorded sensor and exact UTC bounds; do not
+  invent a range or invoke VLM.
 
 ## Negative triggers
 
@@ -439,6 +367,9 @@ answer and report that limitation.
 
 ## Cross-Reference
 
+- **`/vss-introspect-video`** — delegated claim/evidence/reassessment loop.
+- **`/vss-generate-evidence-plan`** — option-blind planner used by the
+  delegated loop; never an answering route.
 - **`/vss-manage-video-io-storage`** — optional Path B upload semantics.
 - **`/vss-generate-video-report`** — timestamped reports; this skill returns an
   ad-hoc answer.
