@@ -3,11 +3,15 @@ title: "Observability"
 description: ""
 position: 7
 ---
-This page covers observability features for VSS Agents, including distributed tracing via Phoenix.
+This page covers Phoenix tracing for the in-stack VSS Agent service used by
+manual profile deployments. It does not instrument the default OpenClaw
+runtime. For NemoClaw with OpenClaw, see
+[Additional Configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration)
+and [Troubleshooting](/vss/vision-agent/agent-harnesses/nemoclaw/troubleshooting).
 
 ## Overview
 
-VSS Agents support distributed tracing through [Phoenix](https://arize.com/docs/phoenix), an open-source observability platform for AI applications. The NeMo Agent Toolkit (NAT) natively integrates with Phoenix as a built-in telemetry exporter, enabling you to monitor and debug agent workflows.
+The in-stack agent supports distributed tracing through [Phoenix](https://arize.com/docs/phoenix), an open-source observability platform for AI applications. Use it to monitor and debug agent workflows.
 
 Phoenix provides:
 

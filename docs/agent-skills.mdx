@@ -16,9 +16,9 @@ cameras and streams, query incidents, run searches, summarize videos, and genera
 reports. All from natural-language requests.
 
 <Note>
-Agent Skills are a developer-side tool for working with the VSS Blueprint. They are
-distinct from the in-product [VSS Agent](/vss/vision-agent/vss-agents), which runs inside a
-deployed VSS workflow and orchestrates VSS microservices.
+Agent Skills provide the capabilities used by the
+[VSS Agent](/vss/vision-agent/vss-agents). The default runtime is OpenClaw
+managed by NemoClaw.
 </Note>
 
 ## Skill Anatomy
@@ -44,9 +44,10 @@ the following:
 
 When a coding agent loads its skills directory, it reads each `SKILL.md` frontmatter and
 adds the VSS Skill to its tool list. The agent then matches user requests against the
-Skills' descriptions and invokes the appropriate VSS Skill for each task. VSS Skills can
-be added or updated while the agent is running. When a new `SKILL.md` appears in the
-skills directory, the agent picks it up without a restart.
+Skills' descriptions and invokes the appropriate VSS Skill for each task. After
+installing a new Skill, start a new agent session before invoking it. Symlinked
+Skills do not need to be reinstalled after a repository update; start a new session
+to load the updated Skill.
 
 ## Usage Patterns
 
@@ -57,8 +58,8 @@ VSS Agent Skills are used in two complementary ways:
   `vss-build-vision-ai` to select the profile or capability set, run pre-flight
   checks, generate the Compose plan, and bring up the stack. The developer does
   not need to remember exact flags, profile names, or compose commands.
-- **Runtime.** Once VSS is running, an always-on coding agent such as NemoClaw loads
-  the same Skills and acts as the operational interface to the deployment. The user can
+- **Runtime.** Once VSS is running, NemoClaw runs OpenClaw with the same Skills as
+  the operational interface to the deployment. The user can
   manage cameras and streams, submit and verify alerts, run searches, summarize videos,
   and generate reports through natural-language chat.
 
@@ -267,5 +268,5 @@ directory.
 
 ## Related Documentation
 
-- [VSS Agents](/vss/vision-agent/vss-agents) - The in-product agent that runs inside a deployed VSS workflow.
+- [VSS Agents](/vss/vision-agent/vss-agents) - The agent experience delivered through OpenClaw and VSS Skills.
 - [Agent Workflows](/vss/vision-agent/agent-workflows) - End-to-end workflows demonstrated through developer profiles.

@@ -10,7 +10,7 @@ that provides video and text embedding generation capabilities. It supports vide
 live RTSP streams, and text inputs, enabling real-time analysis and batch processing of visual media content.
 
 All REST endpoints use the `/v1` prefix. The service listens on port `8000` inside the
-container; map it to the host with `BACKEND_PORT` (default `8000`).
+container; map it to a host port by setting the required `BACKEND_PORT` variable.
 
 ## Key Features
 
@@ -72,8 +72,8 @@ To fine-tune Cosmos-Embed1 with NVIDIA TAO and integrate custom checkpoints, see
 
 ## API Reference
 
-For complete API documentation including all endpoints, request/response
-schemas, and interactive examples, see the
+For the endpoint catalog and links to the runtime Swagger UI and OpenAPI JSON,
+see the
 [Real-Time Embedding API Reference](/vss/system-components/vision-microservices/video-embedding-generation/api-reference).
 
 The API is organized into the following categories:
@@ -121,8 +121,8 @@ The API is organized into the following categories:
 | `/v1/version` | `GET` | Get release and API versions |
 | `/v1/manifest` | `GET` | Get service manifest information |
 
-All endpoints are prefixed with `/v1`. The API is available at
-`http://<host>:8000`.
+All endpoints are prefixed with `/v1`. For a Docker Compose deployment, the API
+is available at `http://<host>:<BACKEND_PORT>`.
 
 ## Deployment
 
@@ -146,8 +146,8 @@ following NVIDIA GPUs:
 * **OS**: Ubuntu 24.04 (x86); DGX OS 7.6.0 (DGX Station GB300); DGX OS
   7.5.0 (DGX Spark); IGX-SW 2.0 Production/LTS (IGX Thor); JetPack 7.2
   (Jetson Linux/L4T r39.2) for Jetson AGX Thor and AGX Orin
-* **Docker**: Version 28.2+ and earlier than 29.5.0
-* **Docker Compose**: Version 2.36+
+* **Docker**: Version 28.3.3+ and earlier than 29.5.0
+* **Docker Compose**: Version 2.39.1+
 * **NVIDIA Driver**: 595.58.03 (x86 and DGX Station GB300); 580.173.02 (DGX Spark); 580.00, bundled with IGX-SW 2.0 (IGX Thor);
   595.78 (Jetson AGX Thor and AGX Orin)
 * **NVIDIA Container Toolkit**: Latest version
@@ -248,7 +248,7 @@ docker compose up -d
 docker compose logs -f rtvi-server
 
 # Check service health
-curl http://localhost:${BACKEND_PORT:-8000}/v1/ready?detailed=false
+curl http://localhost:${BACKEND_PORT}/v1/ready?detailed=false
 
 # Stop the service
 docker compose down
@@ -323,7 +323,7 @@ The API is available at `http://localhost:8000/docs`.
 
 | Variable | Description | Default | Required |
 | --- | --- | --- | --- |
-| `BACKEND_PORT` | Port for REST API server | `8000` | Yes |
+| `BACKEND_PORT` | Host port mapped to container port `8000` | - | Yes |
 | `LOG_LEVEL` | Logging verbosity | `INFO` | No |
 
 #### Hugging Face Token Configuration

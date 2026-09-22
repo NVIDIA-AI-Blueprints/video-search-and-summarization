@@ -5,6 +5,11 @@ position: 4
 ---
 Agents built using VSS are AI-powered agents that can perform workflows such as video search, summarization, and reporting through leveraging vision-based tools.
 
+<Note>
+The VSS Agent runs through [OpenClaw managed by NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw)
+by default and uses VSS Skills to operate the deployed services.
+</Note>
+
 ## Deployment Architecture
 
 The VSS Agents are deployed along with the 2D Vision AI with Agents Profile.
@@ -18,4 +23,4 @@ Above shows Agents deployed with the 2D Vision AI with Agents Profile.
 - **LLM** ([Nemotron-3.5-Lightning-30B-A3B](https://build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b)): Reasoning and report generation
 - **VLM** ([Cosmos3 Nano Reasoner](https://build.nvidia.com/nvidia/cosmos3-nano-reasoner)): Video understanding
 - **VSS Agent**: Orchestrates LLM/VLM to process events and generate reports
-- **Reference UI**: Browser-based chat interface for agent conversations
+- **Reference UI**: Browser-based chat interface connected to OpenClaw

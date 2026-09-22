@@ -3,13 +3,22 @@ title: "Troubleshooting"
 description: ""
 position: 4
 ---
-Recovery steps for common NemoClaw / OpenClaw / VSS orchestrator issues. Commands assume the default sandbox name `demo` from [nemoclaw-deploy-vss-and-skills](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills); substitute your sandbox name wherever `<sandbox>` appears.
+Recovery steps for common NemoClaw / OpenClaw / VSS orchestrator issues. Substitute your sandbox name wherever `<sandbox>` appears. The manual notebook flow in [Deploy VSS and Skills](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills) uses `demo` by default.
+
+<Note>
+If the Build Vision AI Skill provisioned NemoClaw, use the sandbox name returned
+by the Skill. Ask your coding agent to resume the Skill for the existing build
+and rerun the harness setup; the Skill executes `deploy_nemoclaw.ipynb`
+non-interactively and preserves the existing sandbox unless you request a
+rebuild. Do not manually rerun individual notebook cells for this flow. The
+numbered-section recovery steps below apply when you ran the notebook manually.
+</Note>
 
 ## Cursor or IDE Kernel Uses Node.js 20
 
 **Symptom**: Section 3.1 of `deploy_nemoclaw.ipynb` fails during the NemoClaw installer with a Node.js version error.
 
-**Cause**: NemoClaw's installer needs Node.js `>= 22.16`. Cursor and some other IDEs can put their bundled Node.js 20 ahead of `nvm` on the Jupyter kernel's `PATH`.
+**Cause**: NemoClaw's pinned installer needs Node.js `>= 22.19`. Cursor and some other IDEs can put their bundled Node.js 20 ahead of `nvm` on the Jupyter kernel's `PATH`.
 
 **Solution**: Fix the Node.js version manually in a host terminal, then restart the Jupyter kernel and re-run the failed Section 3.1 cell:
 

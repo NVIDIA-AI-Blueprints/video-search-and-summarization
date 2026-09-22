@@ -191,9 +191,10 @@ documents the developer profiles.
   (OpenAI-compatible VLM endpoint) that the Alerts microservice calls for
   inference.
 * `CONFIG_PATH` — Path to the service configuration file (`config.yml`).
-* `ALWAYS_ON_RULES_CONFIG` — Explicit path to the always-on (real-time)
-  alert rules YAML file; takes precedence over the default
-  `realtime-config.yaml` lookup.
+* `ALWAYS_ON_RULES_CONFIG` — Required container path to the always-on
+  (real-time) alert rules YAML file. There is no implicit fallback lookup.
+  Docker Compose sets it to `/app/runtime/realtime-config.yml` after processing
+  the host file selected by `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`.
 
 * Docker Compose x86 default: `nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0`.
 * Helm chart default: `nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0`.
