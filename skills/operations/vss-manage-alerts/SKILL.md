@@ -34,7 +34,7 @@ Follow the routing tables and step-by-step workflows below. Each section that en
 
 ## Examples
 
-Runnable end-to-end scenarios live under `evals/` (each `*.json` manifest); inline `curl` blocks appear in each workflow below. Replay with `nv-base validate <this-skill-dir> --agent-eval`.
+Runnable end-to-end scenarios live under `evals/` (each `*.json` manifest); inline `curl` blocks appear in each workflow below. These specs are replayed by the repository's Skills Eval workflow on every change to this skill (harness behavior: [`.github/skill-eval/AGENTS.md`](../../../.github/skill-eval/AGENTS.md)); to replay one by hand, issue a manifest's `expects[].query` to the agent and run its `checks`.
 
 ## Limitations
 

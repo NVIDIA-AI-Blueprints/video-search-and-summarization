@@ -20,11 +20,11 @@ Follow the routing tables and step-by-step workflows below. Each section that en
 ## Examples
 
 Worked end-to-end examples are kept under `evals/` (each `*.json` manifest
-contains a runnable scenario). Run a Tier-3 evaluation to replay them:
-
-```bash
-nv-base validate skills/deployment/vss-setup-behavior-analytics --agent-eval
-```
+contains a runnable scenario). These specs are replayed by the repository's
+Skills Eval workflow on every change to this skill (harness behavior:
+[`.github/skill-eval/AGENTS.md`](../../../.github/skill-eval/AGENTS.md)). To
+replay one by hand, issue a manifest's `expects[].query` to the agent and run
+its `checks`.
 
 A minimal standalone bring-up looks like:
 
