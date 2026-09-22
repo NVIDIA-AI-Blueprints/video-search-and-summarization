@@ -43,9 +43,9 @@ from vss_agents.api.video_search_ingest import register_video_search_ingest_rout
 logger = logging.getLogger(__name__)
 
 _DONE_EVENT = re.compile(rb"(?:^|\r?\n)data:[\t ]*\[DONE\]\r?\n\r?\n")
-_DONE_EVENT_TAIL_BYTES = 64
-_WORKFLOW_COMPLETE = re.compile(rb'"name"\s*:\s*"Function Complete: <workflow>"')
-_ROOT_PARENT = re.compile(rb'"parent_id"\s*:\s*"root"')
+_ERROR_EVENT = re.compile(rb"(?:^|\r?\n)event:[\t ]*error[\t ]*\r?\n")
+_WORKFLOW_ERROR = re.compile(rb'"code"\s*:\s*"workflow_error"')
+_STREAM_EVENT_TAIL_BYTES = 256
 _LEGACY_CHAT_STREAM_PATHS = frozenset({"/chat/stream", "/v1/chat/stream"})
 
 
@@ -53,37 +53,42 @@ class LegacyChatTerminalMiddleware:
     """Complete successful NAT interactive chat streams using the OpenAI SSE contract.
 
     NAT 1.8 routes interactive ``*/chat/stream`` requests through its interactive
-    runner, which emits the workflow-complete intermediate frame but omits the
-    final ``finish_reason=stop`` chunk and ``[DONE]`` sentinel emitted by its
-    non-interactive response helper. Only repair streams where NAT explicitly
-    confirmed root workflow completion; a dropped or failed stream remains
-    incomplete for clients to detect.
+    runner, which omits the final ``finish_reason=stop`` chunk and ``[DONE]``
+    sentinel emitted by its non-interactive response helper. Repair cleanly
+    ended streams, but preserve incomplete termination after either NAT error
+    format so clients do not mistake a partial answer for success.
     """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        workflow_completed = False
+        response_successful = False
+        stream_failed = False
         done_sent = False
-        done_event_tail = b""
+        stream_event_tail = b""
 
         async def send_with_terminal(message: Message) -> None:
-            nonlocal workflow_completed, done_sent, done_event_tail
+            nonlocal response_successful, stream_failed, done_sent, stream_event_tail
+
+            if message["type"] == "http.response.start":
+                response_successful = 200 <= message["status"] < 300
+                await send(message)
+                return
 
             if message["type"] != "http.response.body":
                 await send(message)
                 return
 
             body = message.get("body", b"")
-            workflow_completed = workflow_completed or bool(
-                _WORKFLOW_COMPLETE.search(body) and _ROOT_PARENT.search(body)
+            stream_event_window = stream_event_tail + body
+            stream_failed = stream_failed or bool(
+                _ERROR_EVENT.search(stream_event_window) or _WORKFLOW_ERROR.search(stream_event_window)
             )
-            done_event_window = done_event_tail + body
-            done_sent = done_sent or bool(_DONE_EVENT.search(done_event_window))
-            done_event_tail = done_event_window[-_DONE_EVENT_TAIL_BYTES:]
+            done_sent = done_sent or bool(_DONE_EVENT.search(stream_event_window))
+            stream_event_tail = stream_event_window[-_STREAM_EVENT_TAIL_BYTES:]
 
-            if not message.get("more_body", False) and workflow_completed and not done_sent:
+            if not message.get("more_body", False) and response_successful and not stream_failed and not done_sent:
                 if body:
                     await send({**message, "more_body": True})
                 terminal = (

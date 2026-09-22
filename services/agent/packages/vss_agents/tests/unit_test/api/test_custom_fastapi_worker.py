@@ -44,9 +44,9 @@ from vss_agents.api.front_end_config import StreamingIngestConfig
 _MISSING = object()
 
 
-async def _run_terminal_middleware(chunks: list[bytes]) -> list[Message]:
+async def _run_terminal_middleware(chunks: list[bytes], status: int = 200) -> list[Message]:
     async def app(_scope: Scope, _receive: Receive, send: Send) -> None:
-        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.start", "status": status, "headers": []})
         for chunk in chunks:
             await send({"type": "http.response.body", "body": chunk, "more_body": True})
         await send({"type": "http.response.body", "body": b"", "more_body": False})
@@ -102,10 +102,42 @@ class TestLegacyChatTerminalMiddleware:
         assert messages[-1]["more_body"] is False
 
     @pytest.mark.asyncio
-    async def test_leaves_unconfirmed_eof_incomplete(self) -> None:
+    async def test_appends_openai_terminal_frames_after_clean_eof(self) -> None:
         messages = await _run_terminal_middleware([b'data: {"value":"partial"}\n\n'])
 
         bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert bodies[-1].endswith(b"data: [DONE]\n\n")
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_interactive_workflow_error_as_success(self) -> None:
+        messages = await _run_terminal_middleware(
+            [
+                b'intermediate_data: {"parent_id":"root","name":"Function Complete: <workflow>"}\n',
+                b'event: error\ndata: {"code":"work',
+                b'flow_error","message":"boom","details":"RuntimeError"}\n\n',
+            ]
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b'"finish_reason":"stop"' not in body for body in bodies)
+        assert all(b"[DONE]" not in body for body in bodies)
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_noninteractive_workflow_error_as_success(self) -> None:
+        messages = await _run_terminal_middleware(
+            [b'{"code": "workflow_error", "message":"boom","details":"RuntimeError"}']
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b'"finish_reason":"stop"' not in body for body in bodies)
+        assert all(b"[DONE]" not in body for body in bodies)
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_unsuccessful_http_response_as_success(self) -> None:
+        messages = await _run_terminal_middleware([b'{"detail":"failed"}'], status=500)
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b'"finish_reason":"stop"' not in body for body in bodies)
         assert all(b"[DONE]" not in body for body in bodies)
 
     @pytest.mark.asyncio
