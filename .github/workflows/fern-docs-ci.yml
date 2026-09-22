@@ -76,6 +76,7 @@ jobs:
              git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
             if git diff --name-only "$BEFORE" HEAD | grep -qE \
               -e '^(docs/|fern/)' \
+              -e '^services/alert/openapi\.json$' \
               -e '^services/analytics/video-analytics-api/src/app/specification/openapi\.json$' \
               -e '^\.github/scripts/(check_fern_substitutions|prepare_fern_inputs|test_check_fern_substitutions|test_prepare_fern_inputs)\.py$' \
               -e '^\.github/workflows/(fern-docs-ci|stage-fern-docs|publish-fern-docs)\.yml$'; then

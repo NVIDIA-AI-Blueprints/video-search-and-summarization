@@ -380,6 +380,8 @@ navigation:
               - page: "Alert Verification API"
                 slug: alert-verification-api
                 path: ../docs/alert-verification-api.mdx
+              - api: "Alerts API Reference"
+                api-name: alerts
       - section: "Middleware"
         slug: middleware
         path: ../docs/middleware.mdx
@@ -448,6 +450,7 @@ navigation:
                 path: ../docs/video-analytics-api-server.mdx
                 contents:
                   - api: "Video Analytics API Reference"
+                    api-name: analytics
                     slug: video-analytics-api-reference
                     summary: ../docs/video-analytics-api-reference-overview.mdx
                     paginated: false
