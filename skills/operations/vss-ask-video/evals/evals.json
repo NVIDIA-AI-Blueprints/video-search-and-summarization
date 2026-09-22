@@ -21,7 +21,7 @@
   },
   {
     "id": "markdown-pointer-introspection-enabled",
-    "question": "A mocked Markdown result is incomplete and points to VSS job sum-01JXYZ. Was the worker wearing a helmet?",
+    "question": "A mocked Markdown result is incomplete and points to VSS job sum-01JXYZ. Memory introspection is enabled. Was the worker wearing a helmet?",
     "expected_skill": "vss-ask-video",
     "ground_truth": "Delegate once and use the pointer as grounded scope.",
     "expected_behavior": [
@@ -31,7 +31,7 @@
   },
   {
     "id": "no-markdown-introspection-enabled",
-    "question": "A mocked native Markdown search returned no useful evidence and dock_cam is grounded. Was anyone missing PPE?",
+    "question": "A mocked native Markdown search returned no useful evidence, memory introspection is enabled, and dock_cam is grounded. Was anyone missing PPE?",
     "expected_skill": "vss-ask-video",
     "ground_truth": "Delegate the evidence loop with valid sensor scope.",
     "expected_behavior": [
@@ -43,20 +43,20 @@
     "id": "introspection-disabled",
     "question": "A mocked Markdown result is incomplete and legacy memory introspection is disabled. Its VSS pointer is sum-01JXYZ. Continue safely.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Legacy state does not affect delegation to the skill-owned loop.",
+    "ground_truth": "Use ordinary structured memory without enabling or delegating to the introspection loop.",
     "expected_behavior": [
-      "Delegates once to vss-introspect-video with sum-01JXYZ as grounded scope.",
-      "Does not enable or configure the legacy feature."
+      "Uses vss memory get for sum-01JXYZ.",
+      "Does not delegate, enable introspection, or automatically run VLM."
     ]
   },
   {
     "id": "introspection-unconfigured",
     "question": "A mocked Markdown search found nothing and legacy memory introspection is unconfigured. Answer whether forklifts crossed dock_cam.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Delegate to the skill-owned loop regardless of legacy configuration.",
+    "ground_truth": "Use ordinary structured retrieval and preserve unresolved gaps when it is insufficient.",
     "expected_behavior": [
-      "Delegates once to vss-introspect-video with the grounded sensor.",
-      "Does not call or configure the legacy deployment feature."
+      "Uses vss memory query with forklift text and dock_cam scope.",
+      "Does not delegate, configure introspection, or automatically run VLM."
     ]
   },
   {
