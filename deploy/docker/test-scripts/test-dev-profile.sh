@@ -193,6 +193,13 @@ run_negative_test() {
     echo "  stderr:"
     sed 's/^/    /' "${err_file}"
     ((TESTS_FAILED++)) || true
+  elif [[ -n "${EXPECTED_ERROR:-}" ]] && ! grep -Fq "${EXPECTED_ERROR}" "${out_file}" "${err_file}"; then
+    echo "FAIL: ${name} (expected error containing: ${EXPECTED_ERROR})"
+    echo "  stdout:"
+    sed 's/^/    /' "${out_file}"
+    echo "  stderr:"
+    sed 's/^/    /' "${err_file}"
+    ((TESTS_FAILED++)) || true
   else
     echo "PASS: ${name}"
     ((TESTS_PASSED++)) || true
@@ -461,7 +468,7 @@ cat > "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi" <<'EOF'
 echo "NVIDIA RTX PRO 4500 Blackwell"
 EOF
 chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
-PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_negative_test "RTXPRO4500BW rejects base even when detected GPU is RTX PRO 4500 Blackwell" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
+EXPECTED_ERROR="only valid for profile alerts" PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_negative_test "RTXPRO4500BW rejects base even when detected GPU is RTX PRO 4500 Blackwell" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 _mock_rtx4500_ok_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_rtx4500_ok_dir}")
 cat > "${_mock_rtx4500_ok_dir}/nvidia-smi" <<'EOF'
@@ -501,7 +508,7 @@ fi
 EOF
 chmod +x "${_mock_rtx4500_one_gpu_dir}/nvidia-smi"
 LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_one_gpu_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
-  run_negative_test "RTXPRO4500BW rejects alerts when fewer than 2 GPUs are present" 1 \
+  EXPECTED_ERROR="requires at least 2 NVIDIA GPUs" run_negative_test "RTXPRO4500BW rejects alerts when fewer than 2 GPUs are present" 1 \
   up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
 _mock_rtx4500_old_driver_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_rtx4500_old_driver_dir}")
@@ -521,7 +528,7 @@ fi
 EOF
 chmod +x "${_mock_rtx4500_old_driver_dir}/nvidia-smi"
 LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_old_driver_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
-  run_negative_test "RTXPRO4500BW rejects alerts when the NVIDIA driver is older than 580.126.09" 1 \
+  EXPECTED_ERROR="requires NVIDIA driver 580.126.09 or newer" run_negative_test "RTXPRO4500BW rejects alerts when the NVIDIA driver is older than 580.126.09" 1 \
   up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
 run_negative_test "GB300 search requires one shared device" 1 up -p search -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 0 -d
 
@@ -808,10 +815,10 @@ LLM_ENDPOINT_URL=http://127.0.0.1:8000 run_dry_run_up_and_check_generated_env "g
 LLM_ENDPOINT_URL=http://127.0.0.1:8000 run_dry_run_up_and_check_generated_env "generated.env alerts real-time RTXPRO4500BW remote LLM" "alerts" \
   -i 127.0.0.1 -m real-time -H RTXPRO4500BW --use-remote-llm --llm x -d -- \
   "LLM_MODE" "remote" "HARDWARE_PROFILE" "RTXPRO4500BW"
-run_negative_test "RTXPRO4500BW rejects alerts without a remote LLM" 1 up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW -d
-run_negative_test "RTXPRO4500BW rejects lvs" 1 up -p lvs -i 127.0.0.1 -H RTXPRO4500BW -d
-run_negative_test "RTXPRO4500BW rejects search" 1 up -p search -i 127.0.0.1 -H RTXPRO4500BW -d
-run_negative_test "RTXPRO4500BW rejects base" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
+EXPECTED_ERROR="requires --use-remote-llm" run_negative_test "RTXPRO4500BW rejects alerts without a remote LLM" 1 up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW -d
+EXPECTED_ERROR="only valid for profile alerts" run_negative_test "RTXPRO4500BW rejects lvs" 1 up -p lvs -i 127.0.0.1 -H RTXPRO4500BW -d
+EXPECTED_ERROR="only valid for profile alerts" run_negative_test "RTXPRO4500BW rejects search" 1 up -p search -i 127.0.0.1 -H RTXPRO4500BW -d
+EXPECTED_ERROR="only valid for profile alerts" run_negative_test "RTXPRO4500BW rejects base" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
