@@ -62,7 +62,7 @@ class _Ref:
 
 def test_the_group_carries_none_of_the_job_grammar(cli: click.Group) -> None:
     """VIOS is not processing, so run/status/get/list must not exist."""
-    assert set(cli.commands) == {"list", "timeline", "clip", "snapshot", "add", "delete"}
+    assert set(cli.commands) == {"list", "timeline", "clip", "snapshot", "add", "delete", "readiness"}
     for job_verb in ("run", "status", "get"):
         assert job_verb not in cli.commands
 
@@ -150,6 +150,258 @@ def test_clip_defaults_to_the_covering_segment_and_echoes_it(
     assert body["media_url"].endswith("clip.mp4")
     assert body["kind"] == "clip"
     assert body["name"] == "warehouse_safety_0001"
+
+
+def test_clip_rebases_a_synthetic_interval_onto_the_current_timeline(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--rebase-from/--rebase-from-end map a synthetic file-search interval onto the
+    sensor's current VST timeline, preserving duration -- the piece the CLI
+    did not used to do for the search-result verification handoff."""
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()
+        if len(calls) == 2:
+            # A 30s recording on a different date than the synthetic interval.
+            return [("2026-08-01T12:00:00.000Z", "2026-08-01T12:00:30.000Z")]
+        return "https://vss.test/vst/storage/clip.mp4"
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "clip",
+            "--sensor",
+            "warehouse_safety_0001",
+            "--rebase-from",
+            "2025-01-01T00:00:05Z",
+            "--rebase-from-end",
+            "2025-01-01T00:00:25Z",
+        ],
+    )
+
+    body = json.loads(result.stdout)
+    # 20s duration preserved, rebased from the 2025 synthetic date onto the 2026 timeline.
+    assert body["start_time"] == "2026-08-01T12:00:05.000Z"
+    assert body["end_time"] == "2026-08-01T12:00:25.000Z"
+    assert body["media_url"].endswith("clip.mp4")
+
+
+def test_clip_rebase_flags_are_mutually_exclusive_with_start_end_time(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mixing the rebase flags with --start-time/--end-time is a usage error (exit 2)."""
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])
+    result = CliRunner().invoke(
+        cli,
+        [
+            "clip",
+            "--sensor",
+            "warehouse_safety_0001",
+            "--rebase-from",
+            "2025-01-01T00:00:00Z",
+            "--rebase-from-end",
+            "2025-01-01T00:00:20Z",
+            "--start-time",
+            "2026-08-01T12:00:00Z",
+        ],
+    )
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+
+
+def test_clip_rebase_flags_must_be_given_together(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One rebase flag without the other is a usage error (exit 2)."""
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])
+    result = CliRunner().invoke(
+        cli,
+        ["clip", "--sensor", "warehouse_safety_0001", "--rebase-from", "2025-01-01T00:00:00Z"],
+    )
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+
+
+def test_clip_rebase_rejects_a_non_positive_source_window(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[Any] = []
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()
+        return [("2026-08-01T12:00:00.000Z", "2026-08-01T12:01:00.000Z")]
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "clip",
+            "--sensor",
+            "warehouse_safety_0001",
+            "--rebase-from",
+            "2025-01-01T00:00:20Z",
+            "--rebase-from-end",
+            "2025-01-01T00:00:10Z",
+        ],
+    )
+
+    assert result.exit_code == int(Exit.INVALID_INPUT)
+    assert "must be after" in result.output
+
+
+def test_readiness_counts_the_search_indexes_and_reports_ready(
+    cli: click.Group, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`vss vios readiness` counts embed/behavior/raw docs and reports ready when all > 0."""
+
+    class _ES:
+        url = "https://vss.test/elasticsearch"
+        indices: ClassVar[list[str]] = [
+            "mdx-embed-filtered-2025-01-01",
+            "mdx-behavior-2025-01-01",
+            "mdx-raw-2025-01-01",
+        ]
+
+    class _Deployment:
+        base_url = "https://vss.test"
+        services: ClassVar[dict[str, object]] = {"vst": object(), "elasticsearch": _ES()}
+
+        def has(self, name: str) -> bool:
+            return name in self.services
+
+    monkeypatch.setattr(vios_group, "context_from", lambda values: _ctx(_Deployment(), values))
+
+    calls: list[Any] = []
+    counts = [5, 3, 2]  # embed, behavior, raw — the order _readiness calls them
+
+    def fake_run(coro: Any) -> Any:
+        coro.close()
+        calls.append(coro)
+        if len(calls) == 1:
+            return _Ref()  # resolve_sensor
+        return counts[len(calls) - 2]  # count_documents: embed, then behavior, then raw
+
+    monkeypatch.setattr(vios_group, "_run", fake_run)
+    result = CliRunner().invoke(cli, ["readiness", "--sensor", "warehouse_safety_0001"])
+
+    body = json.loads(result.stdout)
+    assert body["ready"] is True
+    assert body["counts"] == {"embed": 5, "behavior": 3, "raw": 2}
+    assert body["name"] == "warehouse_safety_0001"
+
+
+def test_stream_readiness_uses_all_three_index_families(
+    cli: click.Group, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _ES:
+        url = "https://vss.test/elasticsearch"
+        indices: ClassVar[list[str]] = []
+
+    class _Deployment:
+        base_url = "https://vss.test"
+        services: ClassVar[dict[str, object]] = {"vst": object(), "elasticsearch": _ES()}
+
+        def has(self, name: str) -> bool:
+            return name in self.services
+
+    class _StreamRef(_Ref):
+        kind = "stream"
+
+    calls: list[tuple[str, str, str]] = []
+
+    async def resolve_sensor(_origin: str, _sensor: str) -> _StreamRef:
+        return _StreamRef()
+
+    async def count_documents(_url: str, index: str, field: str, value: str) -> int:
+        calls.append((index, field, value))
+        return 1
+
+    from vss_core import vios as vios_lib
+
+    monkeypatch.setattr(vios_group, "context_from", lambda values: _ctx(_Deployment(), values))
+    monkeypatch.setattr(vios_lib, "resolve_sensor", resolve_sensor)
+    monkeypatch.setattr(vios_lib, "count_documents", count_documents)
+
+    result = CliRunner().invoke(cli, ["readiness", "--sensor", "warehouse_safety_0001"])
+
+    assert result.exit_code == 0
+    assert calls == [
+        ("mdx-embed-filtered-*", "sensor.id.keyword", _StreamRef.stream_id),
+        ("mdx-behavior-*", "sensor.id.keyword", _StreamRef.name),
+        ("mdx-raw-*", "sensorId.keyword", _StreamRef.name),
+    ]
+
+
+def test_readiness_timeout_bounds_requests_and_final_sleep(
+    cli: click.Group, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A short timeout is a deadline, not permission for one five-second sleep per poll."""
+
+    class _ES:
+        url = "https://vss.test/elasticsearch"
+        indices: ClassVar[list[str]] = [
+            "mdx-embed-filtered-2025-01-01",
+            "mdx-behavior-2025-01-01",
+            "mdx-raw-2025-01-01",
+        ]
+
+    class _Deployment:
+        base_url = "https://vss.test"
+        services: ClassVar[dict[str, object]] = {"vst": object(), "elasticsearch": _ES()}
+
+        def has(self, name: str) -> bool:
+            return name in self.services
+
+    from vss_core import vios as vios_lib
+
+    request_timeouts: list[float] = []
+
+    async def resolve_sensor(_origin: str, _sensor: str) -> _Ref:
+        return _Ref()
+
+    async def count_documents(
+        _url: str,
+        _index: str,
+        _field: str,
+        _value: str,
+        timeout_seconds: float,
+    ) -> int:
+        request_timeouts.append(timeout_seconds)
+        return 0
+
+    now = [100.0]
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(vios_group, "context_from", lambda values: _ctx(_Deployment(), values))
+    monkeypatch.setattr(vios_group, "_monotonic", lambda: now[0])
+    monkeypatch.setattr(vios_group, "_sleep", sleep)
+    monkeypatch.setattr(vios_lib, "resolve_sensor", resolve_sensor)
+    monkeypatch.setattr(vios_lib, "count_documents", count_documents)
+
+    result = CliRunner().invoke(cli, ["readiness", "--sensor", _Ref.name, "--timeout", "0.1"])
+
+    assert result.exit_code == int(Exit.TIMEOUT)
+    assert sleeps == pytest.approx([0.1])
+    assert request_timeouts == pytest.approx([0.1, 0.1, 0.1])
+
+
+def test_readiness_requires_elasticsearch_to_be_configured(
+    cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without elasticsearch in the recorded deployment, readiness is a usage error (exit 2)."""
+    monkeypatch.setattr(vios_group, "_run", lambda coro: (coro.close(), _Ref())[1])
+    result = CliRunner().invoke(cli, ["readiness", "--sensor", "warehouse_safety_0001"])
+    assert result.exit_code != 0  # elasticsearch missing -> preflight ConfigError (non-zero)
 
 
 def test_delete_refuses_a_type_mismatch(cli: click.Group, configured: None, monkeypatch: pytest.MonkeyPatch) -> None:
