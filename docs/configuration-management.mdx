@@ -15,9 +15,9 @@ additional modes, datasets, brokers, and calibration requirements.
 
 ## Configuration files and precedence
 
-Developer-profile deployments use native Docker Compose with a local override
-file copied from the checked-in template. Run commands from `deploy/docker`
-and supply files in this order:
+For a manual developer-profile deployment, use native Docker Compose with a
+local override file copied from the checked-in template. Run commands from
+`deploy/docker` and supply files in this order:
 
 1. `containers.env` selects the shared image registry and tag.
 2. `developer-profiles/dev-profile-<profile>/.env` supplies stable defaults.
@@ -88,8 +88,8 @@ for complete examples.
 | Variable | Meaning | Default and valid values | Profiles |
 | --- | --- | --- | --- |
 | `RTVI_VLM_PORT` | Host-published RT-VLM REST API port; the container listens on `8000`. | Default: `8018`. Call profile deployments at `http://<host>:${RTVI_VLM_PORT}`. | Profiles containing `rtvi-vlm` |
-| `RTVI_VLM_MESSAGE_BUS` | Selects the generated-output message bus. | Compose default: `kafka`. An empty value disables the generated-output bus. | Profiles containing `rtvi-vlm` |
-| `RTVI_VLM_KAFKA_ENABLED` | Legacy compatibility field still forwarded by Compose. | Compose default: `true`; Base, Search, and Alerts templates set `false`. Set `true` with `RTVI_VLM_MESSAGE_BUS=kafka` for real-time Alerts. Keep `false` for Alerts verification. | Profiles containing `rtvi-vlm` |
+| `RTVI_VLM_MESSAGE_BUS` | Selects the generated-output message bus. | Developer-profile Compose defaults to `kafka`. Its current `${RTVI_VLM_MESSAGE_BUS:-kafka}` fallback also resolves an empty env-file value to `kafka`; disabling the service runtime's bus requires a Compose service-environment override that sets `MESSAGE_BUS: ""`. | Profiles containing `rtvi-vlm` |
+| `RTVI_VLM_KAFKA_ENABLED` | Legacy compatibility field forwarded by Compose as `KAFKA_ENABLED`. | Compose default: `true`; Base, Search, and Alerts templates set `false`. RT-VLM 26.08.2 uses `MESSAGE_BUS`, not this legacy field, to select generated-message routing. Set both this field and `RTVI_VLM_MESSAGE_BUS=kafka` for real-time Alerts. | Profiles containing `rtvi-vlm` |
 | `RTVI_VLM_MODEL_PATH` | Model artifact loaded by integrated RT-VLM. | Base, Alerts, and LVS default to the Cosmos3 Nano Reasoner BF16 NGC path; Search uses its optimized path. Set to `none` when RT-VLM proxies a remote VLM. | Profiles containing `rtvi-vlm` |
 | `RTVI_VLM_ENDPOINT` | Endpoint passed to RT-VLM's VLM adapter. | Base, Search, and LVS leave this empty while loading a local model; the Alerts template uses `http://rtvi-vlm:8000/v1`. For a remote VLM, use `<VLM_BASE_URL>/v1`. | Profiles containing `rtvi-vlm` |
 | `RTVI_VLM_MODEL_TO_USE` | Selects RT-VLM's inference adapter. | Local integrated default: `cosmos-reason3`. Use `openai-compat` for a remote OpenAI-compatible VLM. | Profiles containing `rtvi-vlm` |

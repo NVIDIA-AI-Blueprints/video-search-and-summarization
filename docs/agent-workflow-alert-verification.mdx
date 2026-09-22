@@ -167,10 +167,22 @@ VSS_DATA_DIR=/absolute/path/to/vss-apps-data
 HOST_IP=<reachable-host-ip-or-name>
 ```
 
-**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+**Prepare host data directories before starting Compose.** Export
+`VSS_DATA_DIR` and `VSS_APPS_DIR` with the same absolute paths set above, then
+run this block. The guards stop before `mkdir` or `chmod` if either value is
+absent or is not absolute:
 
 ```bash
-VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+: "${VSS_APPS_DIR:?Export VSS_APPS_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
+case "$VSS_APPS_DIR" in
+  /*) ;;
+  *) echo "VSS_APPS_DIR must be an absolute path" >&2; exit 1 ;;
+esac
 mkdir -p \
   "$VSS_DATA_DIR/data_log/analytics_cache" \
   "$VSS_DATA_DIR/data_log/calibration_toolkit" \
@@ -186,7 +198,6 @@ mkdir -p \
   "$VSS_DATA_DIR/agent_eval/results" \
   "$VSS_DATA_DIR/models" \
   "$VSS_DATA_DIR/videos/dev-profile-alerts"
-VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
 mkdir -p "$VSS_APPS_DIR/engines/gdino" "$VSS_APPS_DIR/engines/rtdetr-its"
 chmod -R a+rwx "$VSS_APPS_DIR/engines"
 chmod -R a+rwx \
@@ -848,7 +859,10 @@ For this profile, use the `sample-warehouse-ladder.mp4` stream.
 <Note>
 By default, this profile only supports up to one stream being processed at a time.
 
-This can be increased by modifying the `NUM_SENSORS` environment variable in the `deploy/docker/developer-profiles/dev-profile-alerts/.env` file before deployment. On RTX PRO 6000, up to 4 streams at 30 FPS have been tested to work.
+This can be increased by setting `NUM_SENSORS` in
+`deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env` before
+deployment. On RTX PRO 6000, up to 4 streams at 30 FPS have been tested to
+work.
 
 On edge platforms like DGX Spark, IGX Thor, and AGX Thor, up to 1 stream at 30 FPS has been tested to work due to GPU requirements.
 

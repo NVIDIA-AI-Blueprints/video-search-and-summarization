@@ -14,10 +14,10 @@ When deploying with a local VLM, the agent workflow uses a default NIM endpoint.
 - **Default model:** Local VLMs are served by RT-VLM. The Base, Alerts, and Live Video Search profiles use Cosmos3 Nano Reasoner BF16 (`nim_nvidia_cosmos3-nano-reasoner_bf16-final`); Search uses the FP8 checkpoint (`nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix`) to share the GPU with its critic workload. The `VLM_NAME` value is the model ID advertised by RT-VLM, not the checkpoint name.
 
 <Info>
-The **Personal API Key** requirement applies when you explicitly deploy the
-standalone Cosmos3 Reasoner NIM. The default developer profiles serve Cosmos3
-through RT-VLM instead; use an authorized NGC credential for the RT-VLM image
-and model artifacts.
+Use an **NGC Personal API Key** when you explicitly deploy the standalone Cosmos3
+Reasoner NIM. The default developer profiles serve Cosmos3 through RT-VLM
+instead; use an authorized NGC credential for the RT-VLM image and model
+artifacts.
 </Info>
 
 - **Custom NIM env file:** Set `VLM_ENV_FILE` in the selected profile's `*-overrides.env` file to the path (absolute or relative to `deploy/docker`) of an env file that overrides NIM settings. See [NIM configuration settings](/vss/getting-started/prerequisites#nim-configuration-settings) in Prerequisites.
@@ -270,7 +270,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 **Before you start**
 
 - **Remote VLM only:** VSS does not bundle Omni weights when `VLM_MODE=remote`. Serve the model yourself (step 3).
-- **Enable audio:** Set `ENABLE_AUDIO=true` in the profile `.env`. Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM_NAME`.
+- **Enable audio:** Set `ENABLE_AUDIO=true` in the local `user-overrides.env` file. Audio-aware prompts and full-MP4 delivery apply only when `omni` appears in `VLM_NAME`.
 - **Non-Omni VLMs:** Cosmos and other VLMs ignore the audio track even with `ENABLE_AUDIO=true`; the agent logs a warning and falls back to JPEG frame sampling.
 - **Step order:** Run steps 1–3 in order. Video Q&A with audio needs the vLLM server (step 3) running. Deployed VSS in step 1 before vLLM was up? Finish step 3, then update `VLM_NAME` in `user-overrides.env` and recreate `vss-agent` (see step 3).
 </Note>
@@ -281,7 +281,7 @@ While some models support up to 256K tokens, VSS agent requests typically use un
 
    **Profile settings** (in `developer-profiles/dev-profile-base/user-overrides.env`):
 
-   - `ENABLE_AUDIO=true` in `deploy/docker/developer-profiles/dev-profile-base/.env`
+   - `ENABLE_AUDIO=true` in `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`
    - `VLM_BASE_URL` → vLLM host from step 3; use `http://` with **no** trailing `/v1` (for example `http://<VLM_HOST>:30082`)
    - VLM host IP unknown? Deploy in step 1 anyway, then set `VLM_BASE_URL` and redeploy after step 3
 

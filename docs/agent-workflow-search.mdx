@@ -152,10 +152,16 @@ VSS_DATA_DIR=/absolute/path/to/vss-apps-data
 HOST_IP=<reachable-host-ip-or-name>
 ```
 
-**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+**Prepare host data directories before starting Compose.** Export
+`VSS_DATA_DIR` with the same absolute path set above, then run this block. The
+guard stops before `mkdir` or `chmod` if the value is absent or is not absolute:
 
 ```bash
-VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
 mkdir -p \
   "$VSS_DATA_DIR/data_log/analytics_cache" \
   "$VSS_DATA_DIR/data_log/calibration_toolkit" \

@@ -415,10 +415,22 @@ VSS_DATA_DIR=/absolute/path/to/vss-apps-data
 HOST_IP=<reachable-host-ip-or-name>
 ```
 
-**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+**Prepare host data directories before starting Compose.** Export
+`VSS_DATA_DIR` and `VSS_APPS_DIR` with the same absolute paths set above, then
+run this block. The guards stop before `mkdir` or `chmod` if either value is
+absent or is not absolute:
 
 ```bash
-VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+: "${VSS_APPS_DIR:?Export VSS_APPS_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
+case "$VSS_APPS_DIR" in
+  /*) ;;
+  *) echo "VSS_APPS_DIR must be an absolute path" >&2; exit 1 ;;
+esac
 mkdir -p \
   "$VSS_DATA_DIR/data_log/analytics_cache" \
   "$VSS_DATA_DIR/data_log/calibration_toolkit" \
@@ -434,7 +446,6 @@ mkdir -p \
   "$VSS_DATA_DIR/agent_eval/results" \
   "$VSS_DATA_DIR/models" \
   "$VSS_DATA_DIR/videos/dev-profile-alerts"
-VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
 mkdir -p "$VSS_APPS_DIR/engines/gdino" "$VSS_APPS_DIR/engines/rtdetr-its"
 chmod -R a+rwx "$VSS_APPS_DIR/engines"
 chmod -R a+rwx \

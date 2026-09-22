@@ -60,11 +60,16 @@ cp deploy/docker/developer-profiles/dev-profile-base/overrides.env \
 ```
 
 In `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, update the existing
-`VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `EXTERNAL_IP` values in place. Then prepare
-the host data directories before running Compose:
+`VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `EXTERNAL_IP` values in place. Export
+`VSS_DATA_DIR` with that same absolute path, then run this block. The guard stops
+before `mkdir` or `chmod` if the value is absent or is not absolute:
 
 ```bash
-VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
 mkdir -p \
   "$VSS_DATA_DIR/data_log/analytics_cache" \
   "$VSS_DATA_DIR/data_log/calibration_toolkit" \

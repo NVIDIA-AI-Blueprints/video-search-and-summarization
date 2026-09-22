@@ -505,8 +505,8 @@ Select a hardware tab, then a deployment mode. **Shared GPU** runs the local
 LLM and integrated RT-VLM on the same GPU. **Dedicated GPU** assigns them to
 separate GPUs with `LLM_DEVICE_ID` and `RT_VLM_DEVICE_ID`. Keep
 `VLM_DEVICE_ID` aligned with `RT_VLM_DEVICE_ID` for local integrated RT-VLM:
-the profile configuration uses `VLM_DEVICE_ID` when deriving RT-VLM placement,
-while the RT-VLM container binds the GPU named by `RT_VLM_DEVICE_ID`.
+the local VLM service binds the GPU named by `VLM_DEVICE_ID`, while the RT-VLM
+container binds the GPU named by `RT_VLM_DEVICE_ID`.
 
 `overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
