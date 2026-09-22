@@ -264,6 +264,31 @@ def test_qwen3vl_reasoning_prompt_is_not_modified():
     assert model._apply_chat_template([], config) == "<|im_start|>assistant\n"
 
 
+@pytest.mark.parametrize(
+    ("model_type", "content", "expected_reasoning"),
+    [
+        (
+            "cosmos-reason3",
+            [{"type": "text", "text": "Use <think>reasoning</think>."}],
+            True,
+        ),
+        ("cosmos-reason3", "Answer yes or no.", False),
+        ("qwen3-vl", "Use <think>reasoning</think>.", False),
+    ],
+)
+def test_prompt_reasoning_config(model_type, content, expected_reasoning):
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._vlm_model_type = model_type
+    config = VlmGenerationConfig(enable_reasoning=False)
+    messages = [{"role": "user", "content": content}]
+
+    effective_config = model._resolve_prompt_reasoning_config(messages, config)
+
+    assert effective_config.enable_reasoning is expected_reasoning
+    assert (effective_config is not config) is expected_reasoning
+    assert config.enable_reasoning is False
+
+
 def test_qwen3vl_non_reasoning_keeps_fixed_work_generation_with_ignore_eos():
     model = VllmCompatible.__new__(VllmCompatible)
     model._model_architecture = "Qwen3VLForConditionalGeneration"
