@@ -453,10 +453,7 @@ NvDecodeBin::NvDecodeBin(DecoderBase* parent, const string codec)
     m_useNvV4l2Dec = NvHwDetection::getInstance()->m_useNvV4l2Dec;
 }
 
-NvDecodeBin::~NvDecodeBin()
-{
-
-}
+NvDecodeBin::~NvDecodeBin() = default;
 
 GstElement* NvDecodeBin::create(bool is_image_capture)
 {

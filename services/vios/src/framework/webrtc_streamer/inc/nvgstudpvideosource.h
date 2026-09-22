@@ -50,7 +50,7 @@ class VideoDataConsumer : public IMediaDataConsumer
         VideoDataConsumer () : IMediaDataConsumer("VideoDataConsumer")
         {
         }
-        ~VideoDataConsumer () {}
+        ~VideoDataConsumer () = default;
         FrameSize qualityToFrameSize(const string& quality)
         {
             FrameSize size;

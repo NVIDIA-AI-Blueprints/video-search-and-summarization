@@ -294,7 +294,7 @@ public:
              , m_membership(false)
     {
     }
-    ~NvSoap() {}
+    ~NvSoap() = default;
     bool ping(SensorInfo& sensor);
     int sendProbeToDevice(SensorInfo& sensor, bool ping = false);
     int GetSystemDateAndTime(nvsoap_& soap, std::string& res);
