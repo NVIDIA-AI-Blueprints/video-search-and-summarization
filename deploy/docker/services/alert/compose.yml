@@ -39,9 +39,12 @@ services:
     stop_grace_period: 60s
     ports:
       - ${ALERT_BRIDGE_HOST_PORT:-9080}:${ALERT_BRIDGE_PORT:-9080}
+      - ${ALERT_BRIDGE_PROMETHEUS_HOST_PORT:-9081}:9081
     environment:
       VLM_BASE_URL: ${VLM_BASE_URL:-http://rtvi-vlm:8000}
       VLM_NAME: ${VLM_NAME}
+      PROMETHEUS_METRICS_ENABLED: true
+      PROMETHEUS_PORT: 9081
       # URL rewriting configuration
       EXTERNAL_IP: ${EXTERNAL_IP}
       INTERNAL_IP: ${HOST_IP}
