@@ -277,7 +277,7 @@ def _drop_plugin(
     directory = root / name
     directory.mkdir(parents=True)
     if manifest is None:
-        manifest = f'name = "{name}"\nsummary = "{name} operations"\ngroup = "{name}_plugin:GROUP"\n'
+        manifest = f'summary = "{name} operations"\ngroup = "{name}_plugin:GROUP"\n'
     (directory / plugins.MANIFEST_NAME).write_text(manifest, encoding="utf-8")
     if module:
         (directory / f"{name}_plugin.py").write_text(module, encoding="utf-8")
@@ -369,7 +369,7 @@ def test_a_malformed_manifest_does_not_break_discovery(plugin_root: Path) -> Non
 
 
 def test_a_manifest_without_a_group_key_says_so(plugin_root: Path) -> None:
-    _drop_plugin(plugin_root, "acme", manifest='name = "acme"\nsummary = "no importable"\n')
+    _drop_plugin(plugin_root, "acme", manifest='summary = "no importable"\n')
     with pytest.raises(plugins.PluginLoadError) as excinfo:
         plugins.load("acme")
     assert "group" in str(excinfo.value)
@@ -408,31 +408,6 @@ def test_a_dropped_group_reaches_the_root_dispatcher(plugin_root: Path) -> None:
     assert "rootacme ran" in ran.output
 
 
-def test_two_directories_may_not_declare_the_same_name(plugin_root: Path) -> None:
-    """A manifest `name` need not match its directory, so this is possible.
-
-    Picking a winner in silence is the exact failure the installed-name check
-    exists to prevent; both directories are named instead.
-    """
-    _drop_plugin(
-        plugin_root,
-        "first",
-        manifest='name = "acme"\nsummary = "one"\ngroup = "first_plugin:GROUP"\n',
-        module=_WORKING_PLUGIN.format(name="acme", version=plugins.API_VERSION),
-    )
-    _drop_plugin(
-        plugin_root,
-        "second",
-        manifest='name = "acme"\nsummary = "two"\ngroup = "second_plugin:GROUP"\n',
-        module=_WORKING_PLUGIN.format(name="acme", version=plugins.API_VERSION),
-    )
-    with pytest.raises(plugins.PluginLoadError) as excinfo:
-        plugins.load("acme")
-    message = str(excinfo.value)
-    assert str(plugin_root / "first") in message
-    assert str(plugin_root / "second") in message
-
-
 def test_a_plugin_module_does_not_shadow_an_installed_one(plugin_root: Path) -> None:
     """Loading by path keeps a plugin out of the ordinary module namespace.
 
@@ -445,7 +420,7 @@ def test_a_plugin_module_does_not_shadow_an_installed_one(plugin_root: Path) -> 
     _drop_plugin(
         plugin_root,
         "shadow",
-        manifest='name = "shadow"\nsummary = "shadowy"\ngroup = "json:GROUP"\n',
+        manifest='summary = "shadowy"\ngroup = "json:GROUP"\n',
         module=_WORKING_PLUGIN.format(name="shadow", version=plugins.API_VERSION),
     )
     (plugin_root / "shadow" / "json.py").write_text(
@@ -468,7 +443,7 @@ def test_two_plugins_sharing_a_module_basename_stay_separate(plugin_root: Path) 
         directory = plugin_root / name
         directory.mkdir(parents=True)
         (directory / plugins.MANIFEST_NAME).write_text(
-            f'name = "{name}"\nsummary = "{name} ops"\ngroup = "shared:GROUP"\n', encoding="utf-8"
+            f'summary = "{name} ops"\ngroup = "shared:GROUP"\n', encoding="utf-8"
         )
         (directory / "shared.py").write_text(
             _WORKING_PLUGIN.format(name=name, version=plugins.API_VERSION), encoding="utf-8"
@@ -479,7 +454,7 @@ def test_two_plugins_sharing_a_module_basename_stay_separate(plugin_root: Path) 
 
 
 def test_a_manifest_naming_a_missing_module_says_so(plugin_root: Path) -> None:
-    _drop_plugin(plugin_root, "absent", manifest='name = "absent"\nsummary = "x"\ngroup = "nope:GROUP"\n')
+    _drop_plugin(plugin_root, "absent", manifest='summary = "x"\ngroup = "nope:GROUP"\n')
     with pytest.raises(plugins.PluginLoadError) as excinfo:
         plugins.load("absent")
     assert "not in" in str(excinfo.value)
