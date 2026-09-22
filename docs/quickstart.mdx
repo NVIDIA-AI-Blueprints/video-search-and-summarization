@@ -955,9 +955,10 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM on
 host port `30081` and the `vss-rtvi-vlm` service on host port `8018`. RT-VLM
 serves the integrated Cosmos3 Nano Reasoner model; the local base profile does
-not deploy a separate VLM NIM. Port `30082` is reserved for remote-VLM
-compatibility. To use a different model or a remote endpoint, name it in the
-prompt and the agent sets `LLM_MODE` / `VLM_MODE` accordingly.
+not deploy a separate VLM NIM. In remote mode, RT-VLM remains available on host
+port `8018` and proxies requests to the configured external VLM endpoint. To
+use a different model or a remote endpoint, name it in the prompt and the agent
+sets `LLM_MODE` / `VLM_MODE` accordingly.
 
 ### Upload a video and manage storage
 
@@ -996,8 +997,9 @@ Is the worker in warehouse_safety_0001 wearing PPE?
    running deployment or takes from `VLM_ENDPOINT` and `VLM_MODEL`.
 3. Sends the question and the video to the VLM in a single
    `POST <vlm-endpoint>/v1/chat/completions` call. Local `base`, `lvs`, and
-   `alerts` profiles use RT-VLM on host port `8018`; a remote VLM can use the
-   compatibility port `30082`. (Does **not** go through the VSS agent — neither its
+   `alerts` profiles expose RT-VLM on host port `8018`. In remote mode, this
+   RT-VLM service proxies requests to the configured external VLM endpoint.
+   (Does **not** go through the VSS agent — neither its
    `video_understanding` tool nor its `/generate` endpoint.)
 4. Returns a grounded natural-language answer. Follow-up questions are
    supported in the same thread.
