@@ -40,12 +40,18 @@ Before starting, read:
 - `references/evidence-ledger.schema.json`;
 - `references/inspection-task.schema.json`;
 - `references/inspection-result.schema.json`;
+- `references/final-result.schema.json`;
 - `scripts/evidence_ledger.py`.
 
-Load all limits from `config/ledger-budgets.json`; do not copy them into
-prompts, scripts, or other configuration. Never exceed any maximum loaded from
-that file. The utility rejects unknown fields and enforces immutable plan
-claims, append-only observations, budgets, revisions, and rounds.
+Do not copy the numeric budgets into prompts, scripts, or other configuration.
+Load them from `config/ledger-budgets.json`. The utility enforces them when
+initializing, expanding, creating tasks, validating results, and merging.
+Never exceed any maximum loaded from that file.
+
+The ledger contains the original evidence plan, one small runtime state per
+claim, append-only accepted observations, the completed round count, and the
+global VLM-call count. Runtime state never edits the claim objects. Unknown
+fields are rejected.
 
 Use the utility for canonical state transitions:
 
@@ -63,6 +69,7 @@ python3 "${LEDGER_TOOL}" merge-memory \
 
 python3 "${LEDGER_TOOL}" create-tasks \
   --ledger "${RUN_DIR}/ledger.json" \
+  --media-scopes "${ROUND_DIR}/media-scopes.json" \
   --output "${ROUND_DIR}/tasks.json"
 
 python3 "${LEDGER_TOOL}" merge-round \
@@ -72,6 +79,12 @@ python3 "${LEDGER_TOOL}" merge-round \
   --output "${RUN_DIR}/ledger.json"
 
 python3 "${LEDGER_TOOL}" assess --ledger "${RUN_DIR}/ledger.json"
+
+python3 "${LEDGER_TOOL}" final-result \
+  --ledger "${RUN_DIR}/ledger.json" \
+  --artifact-dir "${RUN_DIR}" \
+  --answer "${ANSWER}" \
+  --output "${RUN_DIR}/final-result.json"
 ```
 
 Only the top-level agent invokes a command that writes `ledger.json`.
@@ -89,6 +102,7 @@ ${VSS_WORKSPACE:-$HOME/.vss}/runs/vss-introspection/<question-id>/
 └── rounds/
     ├── round-1/
     │   ├── base-ledger.json
+    │   ├── media-scopes.json
     │   ├── tasks.json
     │   ├── task-<claim-id>.json
     │   ├── results.json
@@ -195,25 +209,30 @@ Create one utility-generated task per selected unresolved claim. Every task:
 - carries the complete PR #2322 claim unchanged;
 - carries the current gap and accepted observations;
 - uses the same frozen `base_revision` from the canonical ledger;
+- embeds one strict immutable media scope: sensor plus bounded ISO-8601 window,
+  media URL, or local file;
 - receives an allocation from the remaining canonical budget.
 
 Use `vss vios list` and `vss vios timeline --sensor NAME` only after planning
 to ground sensor identity and useful ISO-8601 windows. Window selection may be
-agent-driven. For `whole_video`, inspect useful non-overlapping bounded windows;
-do not issue one arbitrarily large VLM request. Report partial coverage unless
-the accepted windows defensibly cover the complete grounded interval, and keep
-uncovered intervals as explicit gaps. These are ordinary `vss vios` lookups,
-not an orchestration service.
+agent-driven. Write the chosen strict selectors to `media-scopes.json` before
+creating the task batch. The file must map each selected claim ID to
+exactly one scope, so parallel claims may use different media or windows. Do
+not alter a task's embedded scope after dispatch. For `whole_video`, inspect
+useful non-overlapping bounded windows; do not issue one arbitrarily large VLM
+request. Report partial coverage unless the accepted windows defensibly cover
+the complete grounded interval, and keep uncovered intervals as explicit gaps.
+These are ordinary `vss vios` lookups, not an orchestration service.
 
 ### 5. Dispatch bounded parallel subagents
 
 Spawn no more subagents than the loaded parallelism limit. Give each one task
-containing one claim ID, immutable media selectors, and a result path. Instruct
+containing one claim ID, its immutable `media_scope`, and a result path. Instruct
 it to:
 
-- read only its claim, gap, existing observations, asset ID, and coverage;
-- inspect only the missing visible fact, using supplied memory timestamps,
-  VIOS timeline information, or question context to select assigned media;
+- read only its claim, gap, existing observations, asset ID, media scope, and
+  coverage;
+- inspect only the missing visible fact in the assigned media scope;
 - use targeted `vss vlm run` calls within its allocation; never search memory,
   summarize broadly, include answer choices, or spawn agents;
 - report visible facts against the support and falsification tests, leaving
@@ -224,6 +243,9 @@ it to:
   usable evidence while recording the persistence limitation;
 - return exactly one schema-valid result without changing claims, canonical
   state, or the final answer.
+
+For a sensor scope, every returned VLM observation must use the assigned sensor
+and remain within the assigned window. The utility rejects mismatches.
 
 Example command shape:
 
@@ -296,10 +318,6 @@ unresolved run, set `answer` to null and report each claim gap using only:
 
 Do not suppress gaps, fill them with inference, or present context observations
 as answers. Report whether each cited source is memory or VLM and preserve VSS
-job, record, sensor, and time provenance.
-
-## POC boundary
-
-This skill does not implement probability or semantic-threshold scoring,
-historical learning, long-term ledger persistence, NeMo Fabric, NeMo Relay,
-NAT, LangGraph, new services, or new VSS job types.
+job, record, sensor, and time provenance. `final-result.json` must be
+self-contained: include the final ledger revision, run artifact directory, and
+full provenance for every cited observation.
