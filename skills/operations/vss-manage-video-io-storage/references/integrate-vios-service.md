@@ -457,13 +457,18 @@ Root Compose `${VAR:?}` checks reject an unset or empty `VSS_APPS_DIR`,
 `VSS_DATA_DIR`, `HOST_IP`, or `EXTERNAL_IP`:
 
 ```bash
-cd deploy/docker
+cd deploy/docker || {
+  echo "deploy/docker is not accessible." >&2
+  exit 1
+}
 FOUNDATION_DIR=developer-profiles/dev-profile-alerts
 docker compose \
+  --env-file containers.env \
   --env-file "$FOUNDATION_DIR/.env" \
   --env-file "$FOUNDATION_DIR/generated.env" \
   config
 docker compose \
+  --env-file containers.env \
   --env-file "$FOUNDATION_DIR/.env" \
   --env-file "$FOUNDATION_DIR/generated.env" \
   up -d

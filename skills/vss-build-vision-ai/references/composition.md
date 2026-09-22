@@ -318,7 +318,7 @@ fi
 
 effective_environment="$(
   docker compose "${env_args[@]}" -f "$BUILD_DIR/compose.yml" \
-    config --environment
+    config --environment --no-consistency
 )"
 effective_hardware="$(
   printf '%s\n' "$effective_environment" |
@@ -328,11 +328,14 @@ effective_profiles="$(
   printf '%s\n' "$effective_environment" |
     sed -n 's/^COMPOSE_PROFILES=//p' | tail -n 1
 )"
-"${VSS_SKILL_PY[@]}" \
+if ! "${VSS_SKILL_PY[@]}" \
   "$REPO/skills/vss-build-vision-ai/scripts/validate_nim_hardware_env.py" \
   --repo-root "$REPO" \
   --profiles "$effective_profiles" \
-  --hardware-profile "$effective_hardware"
+  --hardware-profile "$effective_hardware"; then
+  echo "NIM hardware validation failed." >&2
+  exit 1
+fi
 
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \

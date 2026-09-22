@@ -199,7 +199,10 @@ Pick the deployment variant that matches the intent, initialize the runtime env 
 | Standalone AMC only (no warehouse agent/UI stack) | `vss-auto-calibration,vss-auto-calibration-ui` |
 
 ```bash
-cd deploy/docker
+cd deploy/docker || {
+  echo "deploy/docker is not accessible." >&2
+  exit 1
+}
 [ -f industry-profiles/warehouse-operations/generated.env ] || cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
 grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/generated.env \
   || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "$(pwd)" >> industry-profiles/warehouse-operations/generated.env
@@ -233,20 +236,33 @@ set +a
 
 # Root compose.yml rejects any unset or empty deployment root/public address.
 for _key in VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP; do
-  _value="$(printenv "$_key" || true)"
-  if [ -z "$_value" ]; then
+  if ! _value="$(printenv "$_key")" || [ -z "$_value" ]; then
     echo "Set $_key to a non-empty value in $GEN before invoking root Compose." >&2
     exit 1
   fi
 done
 
 # 1. Generate the resolved compose for review
-docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config > resolved.yml
+docker compose \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  config > resolved.yml
 # Review resolved.yml — confirm vss-auto-calibration and vss-auto-calibration-ui appear
 
 # 2. Confirm the NGC key can access the AMC images before bringing the stack up.
 #    Image references are read from the resolved compose, so this tracks the release tag automatically.
-AMC_IMAGES=$(docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config --images | grep auto-calibration)
+if ! ALL_IMAGES="$(
+  docker compose \
+    --env-file containers.env \
+    --env-file industry-profiles/warehouse-operations/.env \
+    --env-file industry-profiles/warehouse-operations/generated.env \
+    config --images
+)"; then
+  echo "Failed to resolve image references from the Compose model." >&2
+  exit 1
+fi
+AMC_IMAGES="$(printf '%s\n' "$ALL_IMAGES" | grep 'auto-calibration' || true)"
 if [ -z "$AMC_IMAGES" ]; then
   echo "No auto-calibration images found in the resolved compose."
   echo "Confirm COMPOSE_PROFILES is exported and the chosen service list includes vss-auto-calibration before continuing."
@@ -264,7 +280,11 @@ for img in $AMC_IMAGES; do
 done
 
 # 3. Bring up the stack (images are already local from the access check)
-docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env up -d
+docker compose \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  up -d
 ```
 
 ### Step 4 — Verify
@@ -371,8 +391,15 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 ## Stopping the services
 
 ```bash
-cd deploy/docker
-COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
+cd deploy/docker || {
+  echo "deploy/docker is not accessible." >&2
+  exit 1
+}
+COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui docker compose \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  down
 
 # Or, if running as part of warehouse auto-calibration: always use the
 # auto-calib list. Do not reuse COMPOSE_PROFILES from generated.env — the
@@ -388,7 +415,11 @@ test -n "${COMPOSE_PROFILES}" || {
   exit 1
 }
 export COMPOSE_PROFILES
-docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
+docker compose \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  down
 ```
 
 ## What comes next

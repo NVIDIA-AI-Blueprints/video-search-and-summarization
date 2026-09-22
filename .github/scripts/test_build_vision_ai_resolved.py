@@ -158,12 +158,20 @@ class ValidateResolvedYmlTest(unittest.TestCase):
 
         for reference in references:
             content = reference.read_text()
-            validator = content.index("validate_nim_hardware_env.py")
             resolution = content.index(
                 'config --no-consistency > "$BUILD_DIR/resolved.yml"'
             )
+            validator = content.rfind(
+                "validate_nim_hardware_env.py", 0, resolution
+            )
+            self.assertNotEqual(validator, -1, str(reference))
             self.assertLess(validator, resolution, str(reference))
-            self.assertIn("config --environment", content, str(reference))
+            self.assertIn(
+                "config --environment --no-consistency", content, str(reference)
+            )
+            validator_guard = content.rfind("if !", 0, validator)
+            self.assertNotEqual(validator_guard, -1, str(reference))
+            self.assertLess(validator - validator_guard, 200, str(reference))
             self.assertIn(
                 '--profiles "$effective_profiles"', content, str(reference)
             )
@@ -227,6 +235,18 @@ class ValidateResolvedYmlTest(unittest.TestCase):
             "for _key in VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP",
             auto_calibration,
         )
+        self.assertIn(
+            'if ! _value="$(printenv "$_key")" || [ -z "$_value" ]; then',
+            auto_calibration,
+        )
+        self.assertIn("if ! ALL_IMAGES=", auto_calibration)
+        self.assertIn('if [ -z "$AMC_IMAGES" ]; then', auto_calibration)
+        self.assertIn("cd deploy/docker || {", auto_calibration)
+        self.assertGreaterEqual(
+            auto_calibration.count("--env-file containers.env"), 5
+        )
+        self.assertIn("cd deploy/docker || {", vios)
+        self.assertEqual(vios.count("--env-file containers.env"), 2)
 
     def test_selected_nim_hardware_file_resolution(self) -> None:
         files = required_tuning_files(
