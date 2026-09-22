@@ -1069,25 +1069,7 @@ function process_args() {
             ((_all_good++))
           fi
         else
-          # Profile defaults often agree on GPU 1 (alerts) even on a 1xGB300
-          # host whose only device is 0. Honor a non-CLI candidate only when
-          # that index is actually a GB300; otherwise auto-detect below.
-          local _gb300_candidate="${_llm_selector:-${_vlm_selector}}"
-          local _gb300_candidate_is_cli=0
-          if [[ -n "${_llm_selector}" && "${_llm_id_is_cli}" -eq 1 ]] || [[ -n "${_vlm_selector}" && "${_vlm_id_is_cli}" -eq 1 ]]; then
-            _gb300_candidate_is_cli=1
-          fi
-          if [[ -n "${_gb300_candidate}" ]]; then
-            if [[ "${_gb300_candidate_is_cli}" -eq 1 ]]; then
-              hardware_device_id="${_gb300_candidate}"
-            else
-              local _gb300_candidate_name
-              _gb300_candidate_name="$(get_nvidia_smi_gpu_name "${_gb300_candidate}")"
-              if [[ "$(get_detected_hardware_profile "${_gb300_candidate_name}")" == "GB300" ]]; then
-                hardware_device_id="${_gb300_candidate}"
-              fi
-            fi
-          fi
+          hardware_device_id="${_llm_selector:-${_vlm_selector}}"
         fi
 
         if [[ -z "${hardware_device_id}" ]]; then

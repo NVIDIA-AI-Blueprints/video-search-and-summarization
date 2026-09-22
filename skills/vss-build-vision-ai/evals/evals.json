@@ -27,7 +27,7 @@
     "expected_behavior": [
       "Activates vss-build-vision-ai.",
       "Applies DGX Station GB300 OS and driver checks from prerequisites.md.",
-      "Places every GPU consumer on the single GB300 with RT-VLM utilization 0.2, SBSA tags, and HARDWARE_PROFILE=GB300 — not a two-GPU H100 layout."
+      "Writes the complete single-GB300 device placement, RT-VLM utilization 0.2, and concrete SBSA tags directly to the build override — not a two-GPU H100 layout or a dev-profile.sh invocation."
     ]
   },
   {
@@ -38,7 +38,7 @@
     "expected_behavior": [
       "Activates vss-build-vision-ai.",
       "Selects the lvs profile with HARDWARE_PROFILE=GB300.",
-      "Co-locates the local LLM and RT-VLM on the one detected GB300 using the documented 0.2 / 0.3 fractions."
+      "Co-locates the local LLM and RT-VLM on the one selected GB300 using the documented 0.2 / 0.3 fractions and writes the placement envs directly to override.env."
     ]
   },
   {
@@ -48,8 +48,8 @@
     "ground_truth": "Use the GB300 single-GPU sizing contract and deploy alerts.",
     "expected_behavior": [
       "Activates vss-build-vision-ai.",
-      "Does not inherit the stock alerts GPU-1 device IDs when the host has a single GB300.",
-      "Places RT-CV, LLM, and RT-VLM on the selected GB300 with RT-VLM utilization 0.2 and SBSA tags."
+      "Does not inherit the stock alerts GPU-1 device IDs when they do not identify the selected GB300.",
+      "Writes RT-CV, LLM, and RT-VLM placement on the selected GB300, RT-VLM utilization 0.2, and the applicable concrete SBSA tags directly to override.env."
     ]
   },
   {
@@ -60,7 +60,7 @@
     "expected_behavior": [
       "Activates vss-build-vision-ai.",
       "Selects the search profile with HARDWARE_PROFILE=GB300.",
-      "Collapses the stock two-GPU search layout onto the single GB300 and keeps the local LLM nvidia/nemotron-3.5-lightning-30b-a3b."
+      "Collapses the stock two-GPU search layout onto the selected GB300 through explicit override.env values and keeps the local LLM nvidia/nemotron-3.5-lightning-30b-a3b."
     ]
   }
 ]

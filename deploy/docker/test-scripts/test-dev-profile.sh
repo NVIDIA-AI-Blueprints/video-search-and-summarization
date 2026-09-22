@@ -537,47 +537,6 @@ PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up
   "RT_VLM_DEVICE_ID" "1"
 mv "${_search_overrides_env_backup}" "${_search_overrides_env}"
 
-# Single-GPU Station: the only GB300 is index 0. Alerts ships LLM=VLM=1, which
-# must not be treated as a selector when GPU 1 is missing. `-H GB300` with no
-# device-ID flags is the documented command for every developer profile.
-_mock_single_gb300_nvidia_smi_dir="$(mktemp -d)"
-CLEANUP_DIRS+=("${_mock_single_gb300_nvidia_smi_dir}")
-cat > "${_mock_single_gb300_nvidia_smi_dir}/nvidia-smi" <<'EOF'
-#!/bin/bash
-if [[ "$*" == *"--query-gpu=index,name"* ]]; then
-  printf '0, NVIDIA GB300\n'
-elif [[ " $* " == *" --id=0 "* ]]; then
-  echo "NVIDIA GB300"
-elif [[ " $* " == *" --id="* ]]; then
-  exit 1
-else
-  echo "NVIDIA GB300"
-fi
-EOF
-chmod +x "${_mock_single_gb300_nvidia_smi_dir}/nvidia-smi"
-for _gb300_single_profile_args in \
-  "base|" \
-  "lvs|" \
-  "alerts|-m verification" \
-  "alerts|-m real-time" \
-  "search|"; do
-  _gb300_single_profile="${_gb300_single_profile_args%%|*}"
-  _gb300_single_mode="${_gb300_single_profile_args#*|}"
-  # shellcheck disable=SC2086
-  PATH="${_mock_single_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_up_and_check_generated_env \
-    "generated.env ${_gb300_single_profile}${_gb300_single_mode:+ ${_gb300_single_mode}} GB300 auto-detects the only GPU 0" "${_gb300_single_profile}" \
-    -i 127.0.0.1 -H GB300 ${_gb300_single_mode} -d -- \
-    "HARDWARE_PROFILE" "GB300" \
-    "LLM_DEVICE_ID" "0" \
-    "VLM_DEVICE_ID" "0" \
-    "SHARED_LLM_VLM_DEVICE_ID" "0" \
-    "FIXED_SHARED_DEVICE_IDS" "0" \
-    "RT_CV_DEVICE_ID" "0" \
-    "RT_EMBED_DEVICE_ID" "0" \
-    "RT_VLM_DEVICE_ID" "0" \
-    "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.2"
-done
-
 # The default profile VLM ID is 0. A CLI LLM ID of 1 must be checked against
 # that environment-sourced value instead of silently replacing it.
 PATH="${_mock_gb300_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_negative_test \

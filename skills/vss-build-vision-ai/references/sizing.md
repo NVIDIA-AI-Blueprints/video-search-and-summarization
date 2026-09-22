@@ -111,15 +111,52 @@ RT-VLM is `0.40 + 0.40`, leaving 20% unallocated.
 
 **DGX Station GB300 is one GPU.** Do not inherit the two-GPU device IDs above.
 Every GPU consumer in Base, LVS, Alerts (`2d_cv` and `2d_vlm`), and Search
-lands on the single selected GB300 (`FIXED_SHARED_DEVICE_IDS=<id>`, typically
-`0`). `dev-profile.sh -H GB300` auto-detects that device when CLI IDs are
-omitted, including when a profile default such as Alerts `LLM_DEVICE_ID=1`
-does not name a GB300. Use `local_shared` for local models, SBSA image tags
-(`-sbsa`), and `RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN`. Starting fractions:
-RT-VLM `0.2` (~50 GiB of ~251 GiB) and LLM `NIM_GPU_MEM_FRACTION=0.3` from
-`hw-GB300-shared.env` (~75 GiB). Do not apply the H100 `0.40 + 0.40` pair or
-the Search `(VRAM-10)/VRAM - 0.15` LLM formula; vLLM reserves
-`fraction × total` without subtracting co-residents.
+lands on one selected GB300. Resolve its index from the prerequisite GPU
+inventory: use the sole GB300 when exactly one is present; when multiple are
+present, ask which one to use. Do not inherit a Foundation device ID that does
+not identify the selected GB300.
+
+Write this complete placement closure directly to the build's
+`_builds/<name>/override.env`:
+
+```text
+HARDWARE_PROFILE=GB300
+LLM_MODE=local_shared
+VLM_MODE=local_shared
+LLM_DEVICE_ID=<gb300-id>
+VLM_DEVICE_ID=<gb300-id>
+SHARED_LLM_VLM_DEVICE_ID=<gb300-id>
+RT_CV_DEVICE_ID=<gb300-id>
+RT_EMBED_DEVICE_ID=<gb300-id>
+RT_VLM_DEVICE_ID=<gb300-id>
+RESERVED_DEVICE_IDS=
+FIXED_SHARED_DEVICE_IDS=<gb300-id>
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
+```
+
+`HARDWARE_PROFILE=GB300` plus `LLM_MODE=local_shared` selects
+`hw-GB300-shared.env`, whose LLM fraction is `NIM_GPU_MEM_FRACTION=0.3`
+(~75 GiB). RT-VLM `0.2` reserves ~50 GiB of ~251 GiB. Do not apply the H100
+`0.40 + 0.40` pair or the Search `(VRAM-10)/VRAM - 0.15` LLM formula; vLLM
+reserves `fraction × total` without subtracting co-residents.
+
+SBSA tags are also part of the build override. Because `containers.env` is
+expanded before `override.env`, setting only `VSS_CONTAINER_TAG_SUFFIX=-sbsa`
+in the build override is too late to recompute per-image tags. Read the
+effective `VSS_CONTAINER_TAG`, append `-sbsa`, and write concrete values for
+the services the Foundation uses:
+
+| Foundation | Additional `override.env` values |
+|---|---|
+| Base | `VSS_RT_VLM_TAG=<effective-tag>-sbsa` |
+| LVS | `VSS_RT_VLM_TAG=<effective-tag>-sbsa`, `VSS_VIDEO_SUMMARIZATION_TAG=<effective-tag>-sbsa` |
+| Alerts `2d_cv` | `VSS_RT_CV_TAG=<effective-tag>-sbsa`, `VSS_RT_VLM_TAG=<effective-tag>-sbsa` |
+| Alerts `2d_vlm` | `VSS_RT_VLM_TAG=<effective-tag>-sbsa` |
+| Search | `VSS_RT_CV_TAG=<effective-tag>-sbsa`, `VSS_RT_EMBED_TAG=<effective-tag>-sbsa`, `VSS_RT_VLM_TAG=<effective-tag>-sbsa` |
+
+Verify these device IDs, modes, utilization values, and concrete `-sbsa` image
+tags in `resolved.yml` before deployment.
 
 RT-VLM placement and utilization starting values:
 
