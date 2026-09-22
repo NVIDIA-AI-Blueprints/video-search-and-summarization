@@ -3331,12 +3331,21 @@ This is very important and you must follow this strictly.
                 decoded_events = json_repair.loads(events)
             except (TypeError, ValueError):
                 decoded_events = None
-            if isinstance(decoded_events, list):
-                parsed["events"] = decoded_events
-            elif isinstance(decoded_events, dict):
-                parsed["events"] = [decoded_events]
+            events = decoded_events
         elif isinstance(events, dict):
-            parsed["events"] = [events]
+            events = [events]
+
+        # Aggregated events are structured objects. Discard scalar values instead
+        # of allowing a truthy malformed field (for example ``"null"``) to bypass
+        # the empty-result guard and reach Kafka or the HTTP response.
+        if isinstance(events, list):
+            parsed["events"] = [event for event in events if isinstance(event, dict)]
+        else:
+            parsed["events"] = []
+
+        video_summary = parsed.get("video_summary")
+        if not isinstance(video_summary, str):
+            parsed["video_summary"] = ""
         return parsed
 
     @classmethod
@@ -3362,7 +3371,7 @@ This is very important and you must follow this strictly.
             return True
         events = parsed.get("events") or []
         video_summary = parsed.get("video_summary") or ""
-        return not events and not str(video_summary).strip()
+        return not events and not video_summary.strip()
 
     def _call_aggregation_with_empty_guard(
         self,

@@ -191,6 +191,55 @@ class TestCallAggregationWithEmptyGuard:
         assert parsed["events"] == [{"type": "forklift"}]
         assert len(ctx_mgr.calls) == 1
 
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            '{"events": "null", "video_summary": ""}',
+            '{"events": "42", "video_summary": ""}',
+            '{"events": [null, "not-an-event"], "video_summary": {}}',
+            '{"events": [], "video_summary": 42}',
+        ],
+        ids=[
+            "serialized-null-events",
+            "serialized-scalar-events",
+            "scalar-event-list-and-object-summary",
+            "numeric-summary",
+        ],
+    )
+    def test_malformed_fields_do_not_bypass_empty_guard(self, raw):
+        from via_exception import ViaException
+
+        handler = _make_handler(retries=0)
+        ctx_mgr = _FakeCtxMgr([_response("summarization", raw)])
+
+        with pytest.raises(ViaException) as exc_info:
+            handler._call_aggregation_with_empty_guard(
+                ctx_mgr, "summarization", {"start_index": 0, "end_index": 21}, "test-id"
+            )
+
+        assert exc_info.value.code == "AggregationFailed"
+        assert len(ctx_mgr.calls) == 1
+
+    def test_malformed_events_do_not_discard_valid_summary(self):
+        handler = _make_handler(retries=0)
+        ctx_mgr = _FakeCtxMgr(
+            [
+                _response(
+                    "summarization",
+                    '{"events": "null", "video_summary": "Warehouse activity."}',
+                )
+            ]
+        )
+
+        result = handler._call_aggregation_with_empty_guard(
+            ctx_mgr, "summarization", {"start_index": 0, "end_index": 21}, "test-id"
+        )
+
+        parsed = json.loads(result["summarization"]["result"])
+        assert parsed["events"] == []
+        assert parsed["video_summary"] == "Warehouse activity."
+        assert len(ctx_mgr.calls) == 1
+
     def test_error_response_is_not_retried(self):
         handler = _make_handler(retries=2)
         error = {"error": "elasticsearch shard limit exceeded"}
