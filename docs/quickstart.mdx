@@ -29,11 +29,11 @@ The following diagram illustrates a conceptual architecture of the base vision a
 
 ## What's being deployed
 
-- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM/VLM NIMs) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`), which handles query routing, reasoning, and report generation.
+- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM and RT-VLM) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`), which handles query routing, reasoning, and report generation.
 - **VSS Agent UI:** Web UI with chat, video upload, and different views
 - **VSS Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
 - **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
-- **Cosmos3 Nano Reasoner (NIM):** Vision-language model with physical reasoning capabilities
+- **Real-Time VLM (RT-VLM):** VLM microservice that serves the integrated Cosmos3 Nano Reasoner model for physical reasoning and video understanding
 - **Phoenix:** Observability and telemetry service for agent workflow monitoring
 
 ## Agent Harness Options
@@ -857,7 +857,7 @@ For any video clip, a report can be generated and then follow-up questions can b
 
 <Note>
 The agent generates both Markdown (`.md`) and PDF (`.pdf`) reports. Generated reports are accessible at
-`http://<HOST_IP>:8000/static/agent_report_<DATE>.md` and `http://<HOST_IP>:8000/static/agent_report_<DATE>.pdf`. By default, the agent uses an in-memory object store (`_type: in_memory`), so reports will be lost when the
+`http://<HOST_IP>:7777/static/agent_report_<DATE>.md` and `http://<HOST_IP>:7777/static/agent_report_<DATE>.pdf` through the public ingress. By default, the agent uses an in-memory object store (`_type: in_memory`), so reports will be lost when the
 `vss-agent` container restarts. To persist reports, enable `save_local_copy` in the agent configuration and
 mount a host directory as a Docker volume. For details, refer to [Report Generation](/vss/vision-agent/vss-agents/report-generation).
 </Note>
@@ -952,10 +952,12 @@ as documented in [Development Profile GPU Requirements](/vss/getting-started/pre
 7. Returns a browser-reachable ingress URL (for example
    `http://<HOST_IP>:7777/`) for opening the UI.
 
-The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM (port
-`30081`) and the `nvidia/cosmos3-nano-reasoner` VLM NIM (port `30082`). To use
-a different model or a remote endpoint, name it in the prompt and the agent
-sets `LLM_MODE` / `VLM_MODE` accordingly.
+The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM on
+host port `30081` and the `vss-rtvi-vlm` service on host port `8018`. RT-VLM
+serves the integrated Cosmos3 Nano Reasoner model; the local base profile does
+not deploy a separate VLM NIM. Port `30082` is reserved for remote-VLM
+compatibility. To use a different model or a remote endpoint, name it in the
+prompt and the agent sets `LLM_MODE` / `VLM_MODE` accordingly.
 
 ### Upload a video and manage storage
 
@@ -993,9 +995,9 @@ Is the worker in warehouse_safety_0001 wearing PPE?
    link you supply — and the VLM endpoint and model, which it reads from the
    running deployment or takes from `VLM_ENDPOINT` and `VLM_MODEL`.
 3. Sends the question and the video to the VLM in a single
-   `POST <vlm-endpoint>/v1/chat/completions` call — the Cosmos VLM NIM on port
-   `30082` for the base profile, RT-VLM for the `lvs` and `alerts`
-   profiles. (Does **not** go through the VSS agent — neither its
+   `POST <vlm-endpoint>/v1/chat/completions` call. Local `base`, `lvs`, and
+   `alerts` profiles use RT-VLM on host port `8018`; a remote VLM can use the
+   compatibility port `30082`. (Does **not** go through the VSS agent — neither its
    `video_understanding` tool nor its `/generate` endpoint.)
 4. Returns a grounded natural-language answer. Follow-up questions are
    supported in the same thread.
