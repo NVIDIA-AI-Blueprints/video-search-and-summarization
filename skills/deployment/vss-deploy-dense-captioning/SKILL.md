@@ -33,7 +33,7 @@ Follow the routing tables and step-by-step workflows below. Each section that en
 
 ## Examples
 
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. These specs are replayed by the repository's Skills Eval workflow on every change to this skill (harness behavior: [`.github/skill-eval/AGENTS.md`](../../../.github/skill-eval/AGENTS.md)); to replay one by hand, issue a manifest's `expects[].query` to the agent and run its `checks`.
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. The Skills Eval workflow dispatches specs only for `skills/operations/**` and `skills/vss-build-vision-ai`, so a change here runs no eval leg; replay a spec by hand by issuing a manifest's `expects[].query` to the agent and running its `checks` (spec schema: [`.github/skill-eval/AGENTS.md`](../../../.github/skill-eval/AGENTS.md)).
 
 ## Limitations
 
