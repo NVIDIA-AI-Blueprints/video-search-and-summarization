@@ -267,6 +267,7 @@ workflow:
   log_level: INFO
   max_iterations: 15
   llm_reasoning: true
+  planning_enabled: true
   tool_names:
   - video_understanding
   - video_understanding_iso

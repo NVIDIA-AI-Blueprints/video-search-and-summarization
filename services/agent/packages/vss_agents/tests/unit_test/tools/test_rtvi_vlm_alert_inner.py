@@ -285,9 +285,7 @@ class TestRTVIVLMAlertInner:
         list_hits = 0
         exact_hits = 0
         for incident_id in requested_ids:
-            listed = await inner_fn(
-                RTVIVLMAlertInput(action="get_incidents", sensor_name=sensor, max_count=1)
-            )
+            listed = await inner_fn(RTVIVLMAlertInput(action="get_incidents", sensor_name=sensor, max_count=1))
             listed_ids = [incident.get("Id") for incident in listed.incidents or []]
             if incident_id in listed_ids:
                 list_hits += 1
