@@ -35,7 +35,7 @@ ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbe
 # (the runtime uses the uv the base image ships).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=c6977a2eef1b57216ecf2a4326904f66de24636c
+ARG VSS_REF=819c22ce91798664a1793945dc5520d3ef92e43b
 
 # ── uv, for the vss-src wheel builds ───────────────────────────────────────────
 FROM ${UV_IMAGE} AS uv
