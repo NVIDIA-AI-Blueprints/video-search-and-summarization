@@ -593,7 +593,7 @@ If alignment data already exists and you want to recreate it:
 
 Verify project requirements and run calibration. AMC and VGGT are **independent** calibration choices: each can be launched or relaunched on its own. Multi-camera projects finish raw calibration first, then run **shared layout post-processing** for overlays, evaluation, MV3DT, and virtual-GT imagery.
 
-![Execute Step](/assets/images/vss-autocalib-ui/execute_step.jpg)
+![Execute Step](/assets/images/vss-autocalib-ui/execute_step_v330.png)
 
 ### Project State Overview
 
@@ -672,7 +672,7 @@ AMC (Auto Magic Calib) is the geometry-based / tracklet-based calibration method
   when ResNet produces too few or unreliable person tracks. It generally
   provides stronger detection at the cost of longer runtime.
 
-![AMC Calibration Running](/assets/images/vss-autocalib-ui/amc_after_verification.jpg)
+![AMC Calibration controls](/assets/images/vss-autocalib-ui/amc_after_verification_v330.png)
 
 **During Calibration**
 - **Elapsed Time**: Updates every second
@@ -682,7 +682,7 @@ AMC (Auto Magic Calib) is the geometry-based / tracklet-based calibration method
 - **AMC Live Logs**: Real-time calibration logs displayed during execution
 - **Auto-refresh**: Status updates every 3 seconds
 
-![AMC Calibration Running](/assets/images/vss-autocalib-ui/amc_calib_running.jpg)
+![AMC Calibration Running](/assets/images/vss-autocalib-ui/amc_calib_running_v330.png)
 
 **Stopping Calibration**
 
@@ -700,7 +700,7 @@ When AMC finishes successfully:
 - **AMC State**: Shows "COMPLETED"
 - AMC produces **raw** calibration outputs; layout overlays / GT eval / MV3DT for multi-camera come from shared post-processing
 
-![AMC Calibration Completed](/assets/images/vss-autocalib-ui/amc_completed.jpg)
+![AMC Calibration Completed](/assets/images/vss-autocalib-ui/amc_completed_v330.png)
 
 ### Calibration Failure
 
@@ -754,7 +754,7 @@ VGGT (Vision-Geometry Graph Transformer) is a **multi-camera** calibration metho
 - **Duration**: Typically a few minutes
 - Produces **raw** calibration outputs; shared post-processing builds layout-derived artifacts
 
-![VGGT Calibration](/assets/images/vss-autocalib-ui/vggt_calib.jpg)
+![VGGT Calibration](/assets/images/vss-autocalib-ui/vggt_calib_v330.png)
 
 **VGGT Completion**
 
