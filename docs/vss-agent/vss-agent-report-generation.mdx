@@ -139,8 +139,8 @@ The Video Summarization profile extends the base profile with video summarizatio
 functions:
   lvs_video_understanding:
     _type: lvs_video_understanding
-    lvs_backend_url: \$\{LVS_BACKEND_URL\}
-    model: \$\{VLM_NAME\}
+    lvs_backend_url: ${LVS_BACKEND_URL}
+    model: ${VLM_NAME}
     video_url_tool: vst_video_clip
     conn_timeout_ms: 5000
     read_timeout_ms: 600000    # 10 minutes for long videos
@@ -168,8 +168,8 @@ functions:
 
   video_report_gen:
     _type: video_report_gen
-    object_store: \$\{VSS_AGENT_OBJECT_STORE_TYPE\}
-    base_url: \$\{VSS_AGENT_REPORTS_BASE_URL\}
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
+    base_url: ${VSS_AGENT_REPORTS_BASE_URL}
     video_understanding_tool: video_understanding
     lvs_video_understanding_tool: lvs_video_understanding
     video_url_tool: vst_video_clip
@@ -214,10 +214,10 @@ functions:
 
   embed_search:
     _type: embed_search
-    cosmos_embed_endpoint: \$\{COSMOS_EMBED_ENDPOINT\}
-    es_endpoint: \$\{ELASTIC_SEARCH_ENDPOINT\}
-    es_index: \$\{ELASTIC_SEARCH_INDEX\}
-    vst_base_url: \$\{VST_BASE_URL\}
+    cosmos_embed_endpoint: ${COSMOS_EMBED_ENDPOINT}
+    es_endpoint: ${ELASTIC_SEARCH_ENDPOINT}
+    es_index: ${ELASTIC_SEARCH_INDEX}
+    vst_base_url: ${VST_BASE_URL}
 
   search:
     _type: search
@@ -226,7 +226,7 @@ functions:
 
   video_report_gen:
     _type: video_report_gen
-    object_store: \$\{VSS_AGENT_OBJECT_STORE_TYPE\}
+    object_store: ${VSS_AGENT_OBJECT_STORE_TYPE}
     video_understanding_tool: video_understanding
     video_url_tool: vst_video_url
     picture_url_tool: vst_picture_url

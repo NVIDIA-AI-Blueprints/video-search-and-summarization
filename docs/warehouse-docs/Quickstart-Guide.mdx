@@ -145,7 +145,7 @@ Select the deployment profile, message broker, and deployment size below. Update
 MODE=2d
 BP_PROFILE=bp_wh
 STREAM_TYPE=kafka
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_2D\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_2D}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -163,7 +163,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=2d
 BP_PROFILE=bp_wh_kafka
 STREAM_TYPE=kafka
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_KAFKA_2D\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -177,7 +177,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=2d
 BP_PROFILE=bp_wh_kafka
 STREAM_TYPE=kafka
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_2D_MINIMAL}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -195,7 +195,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=2d
 BP_PROFILE=bp_wh_redis
 STREAM_TYPE=redis
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_REDIS_2D\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_2D}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -209,7 +209,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=2d
 BP_PROFILE=bp_wh_redis
 STREAM_TYPE=redis
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_2D_MINIMAL}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -231,7 +231,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=3d
 BP_PROFILE=bp_wh_kafka
 STREAM_TYPE=kafka
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_KAFKA_3D\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_3D}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -245,7 +245,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=3d
 BP_PROFILE=bp_wh_kafka
 STREAM_TYPE=kafka
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_3D_MINIMAL}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -263,7 +263,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=3d
 BP_PROFILE=bp_wh_redis
 STREAM_TYPE=redis
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_REDIS_3D\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_3D}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -277,7 +277,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=3d
 BP_PROFILE=bp_wh_redis
 STREAM_TYPE=redis
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_3D_MINIMAL}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -299,7 +299,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=mv3dt
 BP_PROFILE=bp_wh_kafka
 STREAM_TYPE=kafka
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_KAFKA_MV3DT\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_MV3DT}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -313,7 +313,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=mv3dt
 BP_PROFILE=bp_wh_kafka
 STREAM_TYPE=kafka
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_KAFKA_MV3DT_MINIMAL}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -331,7 +331,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=mv3dt
 BP_PROFILE=bp_wh_redis
 STREAM_TYPE=redis
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_REDIS_MV3DT\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_MV3DT}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -345,7 +345,7 @@ VST_NGINX_MODE=vst-sdrc
 MODE=mv3dt
 BP_PROFILE=bp_wh_redis
 STREAM_TYPE=redis
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_REDIS_MV3DT_MINIMAL}
 
 # Warehouse profiles use SDRC.
 VST_USE_SDRC=true
@@ -362,7 +362,7 @@ VST_NGINX_MODE=vst-sdrc
 ```ini
 MODE=auto-calibration
 BP_PROFILE=bp_wh_auto_calib
-COMPOSE_PROFILES=\$\{COMPOSE_PROFILES_WH_AUTO_CALIB\}
+COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}
 
 # Auto-calibration does not use SDRC.
 # Comment out these existing lines in overrides.env:
@@ -410,6 +410,21 @@ Container image coordinates are centralized in `containers.env` and loaded by th
 
 1. Copy the settings from **Hardware Profile** into `industry-profiles/warehouse-operations/overrides.env`. For GB300 and DGX-SPARK, also export the SBSA image-tag suffix as described in the hardware tab.
 2. Choose exactly one deployment path and copy its settings into the same file.
+
+**Default container image tag**
+
+`containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.
+Export the tag selected for this documentation branch before choosing a hardware
+layout:
+
+```bash
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
+```
+
+Any service-specific image tag or tag suffix shown inside a hardware tab
+supersedes or augments this common default. Use the SBSA settings shown in the
+GB300 and DGX Spark tabs when deploying on those platforms.
+
 
 <Tabs>
 <Tab title="RTXPRO6000BW">
@@ -823,7 +838,7 @@ cd /path/to/deploy/docker
 # Log in to the NGC container registry.
 docker login \
     --username '$oauthtoken' \
-    --password "\$\{NGC_CLI_API_KEY\}" \
+    --password "${NGC_CLI_API_KEY}" \
     nvcr.io
 
 # Start the blueprint.

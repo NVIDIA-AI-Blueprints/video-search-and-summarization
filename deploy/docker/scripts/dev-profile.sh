@@ -99,6 +99,18 @@ function get_nvidia_smi_gpu_count() {
   echo "${_count}"
 }
 
+# Returns success when the detected dotted version is at least the required
+# version. NVIDIA driver versions are numeric and compare correctly with
+# version sort (for example, 595.58.03 > 595.57.99).
+function version_is_at_least() {
+  local _detected="${1}"
+  local _required="${2}"
+  local _lowest
+  [[ -n "${_detected}" ]] && [[ -n "${_required}" ]] || return 1
+  _lowest="$(printf '%s\n%s\n' "${_required}" "${_detected}" | sort -V | head -n1)"
+  [[ "${_lowest}" == "${_required}" ]]
+}
+
 # Returns the indices of GPUs whose product name matches the requested hardware
 # profile, one per line. This is used when a service-specific device ID cannot
 # identify the deployment GPU (for example, when both LLM and VLM are remote).
@@ -704,6 +716,7 @@ function usage() {
   echo "                                     - IGX-THOR"
   echo "                                     - AGX-THOR"
   echo "                                     - OTHER"
+  echo "                                   • RTXPRO4500BW is only valid for alerts with a remote LLM"
   echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base or alerts"
   echo "                                   • profile search additionally supported on DGX-SPARK and AGX-THOR (not IGX-THOR):"
   echo "                                     VLM must be remote (--use-remote-vlm); LLM defaults to remote, pass"
@@ -1021,6 +1034,22 @@ function process_args() {
         ((_all_good++))
       fi
 
+      # RTX PRO 4500 Blackwell is validated only for Alerts with a remote LLM.
+      # Keep this policy outside SKIP_HARDWARE_CHECK: that escape hatch skips
+      # host probing in CI, not unsupported profile/model combinations.
+      case "${hardware_profile}" in
+        RTXPRO4500BW)
+          if [[ "${profile}" != "alerts" ]]; then
+            echo "[ERROR] Hardware profile 'RTXPRO4500BW' is only valid for profile alerts, not '${profile}'"
+            ((_all_good++))
+          fi
+          if ! contains_element "use-remote-llm" "${options_provided[@]}"; then
+            echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires --use-remote-llm with LLM_ENDPOINT_URL"
+            ((_all_good++))
+          fi
+          ;;
+      esac
+
       # FIRST pass over the remote predicates. Computed here because GB300
       # placement below needs them, and that must happen before the edge search
       # policy runs -- so this pass sees only explicit --use-remote-* flags.
@@ -1128,6 +1157,26 @@ function process_args() {
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match any detected NVIDIA GPU."
           ((_all_good++))
         fi
+
+        case "${hardware_profile}" in
+          RTXPRO4500BW)
+            local _gpu_count
+            _gpu_count="$(get_nvidia_smi_gpu_count)"
+            if [[ "${_gpu_count}" -lt 2 ]]; then
+              echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires at least 2 NVIDIA GPUs; detected ${_gpu_count}."
+              ((_all_good++))
+            fi
+
+            local _minimum_driver_version="595.58.03"
+            local _driver_version
+            _driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1)"
+            _driver_version="${_driver_version//[[:space:]]/}"
+            if ! version_is_at_least "${_driver_version}" "${_minimum_driver_version}"; then
+              echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires NVIDIA driver ${_minimum_driver_version} or newer; detected ${_driver_version:-unknown}."
+              ((_all_good++))
+            fi
+            ;;
+        esac
       fi
 
       # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base and alerts,

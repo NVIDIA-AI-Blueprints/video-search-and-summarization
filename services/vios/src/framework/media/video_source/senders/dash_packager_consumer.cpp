@@ -67,15 +67,17 @@ bool dashSinkSupportsDashMp4()
     const GParamSpec* muxerSpec =
         g_object_class_find_property(G_OBJECT_GET_CLASS(dashSink), "muxer");
     bool supported = false;
-    if (muxerSpec != nullptr && G_IS_PARAM_SPEC_ENUM(muxerSpec))
+    if (muxerSpec != nullptr)
     {
-        GEnumClass* enumClass =
-            G_ENUM_CLASS(g_type_class_ref(G_PARAM_SPEC_VALUE_TYPE(muxerSpec)));
-        supported = enumClass != nullptr
-                    && g_enum_get_value_by_nick(enumClass, "dashmp4") != nullptr;
-        if (enumClass != nullptr)
+        if (G_IS_PARAM_SPEC_ENUM(muxerSpec))
         {
-            g_type_class_unref(enumClass);
+            GEnumClass* enumClass =
+                G_ENUM_CLASS(g_type_class_ref(G_PARAM_SPEC_VALUE_TYPE(muxerSpec)));
+            if (enumClass != nullptr)
+            {
+                supported = g_enum_get_value_by_nick(enumClass, "dashmp4") != nullptr;
+                g_type_class_unref(enumClass);
+            }
         }
     }
     gst_object_unref(dashSink);

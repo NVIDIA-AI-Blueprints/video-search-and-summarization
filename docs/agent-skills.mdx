@@ -65,7 +65,7 @@ VSS Agent Skills are used in two complementary ways:
 ## Available Skills
 
 The official VSS Agent Skills are published in the `skills/` folder of the
-[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/skills)
+[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/skills)
 on GitHub, and mirrored to the public NVIDIA Skills catalog at
 [github.com/nvidia/skills](https://github.com/nvidia/skills).
 
@@ -134,8 +134,8 @@ The `vss-generate-video-report` skill applies the following fail-fast handling:
 - **Clip URL rewrite env missing**: if any of `VSS_PUBLIC_HTTP_PROTOCOL`,
   `VSS_PUBLIC_HOST`, or `VSS_PUBLIC_PORT` is unset, fail with the missing
   variable instead of emitting malformed browser URLs.
-- **VLM endpoint/model mismatch**: if `\$\{VLM_ENDPOINT\}/models` fails or does not
-  list `\$\{VLM_MODEL\}`, try the alternate backend once; otherwise surface the
+- **VLM endpoint/model mismatch**: if `${VLM_ENDPOINT}/models` fails or does not
+  list `${VLM_MODEL}`, try the alternate backend once; otherwise surface the
   concrete error.
 - **Remote endpoint cannot fetch internal clip URL**: do not issue a doomed VLM
   request; return a reachability requirement for `VIDEO_URL` instead.
@@ -171,7 +171,7 @@ register each Skill into the host's skills directory. Symlinks are used so that 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout develop
+git checkout "${VSS_DOCS_GIT_REF:-develop}"
 ```
 
 ### Step 2: Ask the coding agent to install the Skills

@@ -477,8 +477,8 @@ In `compose.yml`, add the parser directory as a read-only volume:
 
 ```yaml
 volumes:
-  - \$\{VLM_AS_VERIFIER_CONFIG_FILE\}:/app/configs/config.yml:ro
-  - \$\{VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE\}:/app/alert_type_config.json:ro
+  - ${VLM_AS_VERIFIER_CONFIG_FILE}:/app/configs/config.yml:ro
+  - ${VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE}:/app/alert_type_config.json:ro
   - ${VLM_AS_VERIFIER_PARSERS_DIR:-/dev/null}:/app/parsers/:ro
 ```
 

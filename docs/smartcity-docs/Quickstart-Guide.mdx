@@ -68,9 +68,9 @@ and verification.
    log in to.
 
    ```bash
-   export VSS_SMC_WORKSPACE="\$\{HOME\}/vss-smartcities"
-   mkdir -p "\$\{VSS_SMC_WORKSPACE\}"
-   cd "\$\{VSS_SMC_WORKSPACE\}"
+   export VSS_SMC_WORKSPACE="${HOME}/vss-smartcities"
+   mkdir -p "${VSS_SMC_WORKSPACE}"
+   cd "${VSS_SMC_WORKSPACE}"
    ```
 
    Re-export `VSS_SMC_WORKSPACE` and `cd` into it at the start of any new SSH session.
@@ -78,7 +78,7 @@ and verification.
 2. Install Jupyter in a Python virtual environment
 
    ```bash
-   cd "\$\{VSS_SMC_WORKSPACE\}"
+   cd "${VSS_SMC_WORKSPACE}"
    python3 -m venv .venv
    source .venv/bin/activate
    pip install --upgrade pip
@@ -89,12 +89,12 @@ and verification.
 
    Download [`deploy_smartcities_launchable.ipynb`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/docker/scripts/deploy_smartcities_launchable.ipynb)
    from the `v3.3.0` tag, so the notebook and the deployment code it clones are the same
-   release, and place it in `\$\{VSS_SMC_WORKSPACE\}` on the server.
+   release, and place it in `${VSS_SMC_WORKSPACE}` on the server.
 
 4. Launch Jupyter
 
    ```bash
-   cd "\$\{VSS_SMC_WORKSPACE\}"
+   cd "${VSS_SMC_WORKSPACE}"
    source .venv/bin/activate
    jupyter notebook --no-browser --ip=0.0.0.0 --port=8888 --NotebookApp.token="$(openssl rand -hex 16)"
    ```
@@ -108,7 +108,7 @@ and verification.
    prompted. If you no longer have the token, run this on the server:
 
    ```bash
-   cd "\$\{VSS_SMC_WORKSPACE\}"
+   cd "${VSS_SMC_WORKSPACE}"
    source .venv/bin/activate
    jupyter server list
    ```

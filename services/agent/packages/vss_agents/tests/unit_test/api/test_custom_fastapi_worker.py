@@ -25,15 +25,159 @@ per-profile capability flags:
   * ``register_video_delete_routes``        — DELETE /api/v1/videos/{video_id}
 """
 
+from typing import cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+from fastapi import FastAPI
+from fastapi.routing import APIRoute
 import pytest
+from starlette.types import Message
+from starlette.types import Receive
+from starlette.types import Scope
+from starlette.types import Send
 
 from vss_agents.api.custom_fastapi_worker import CustomFastApiFrontEndWorker
+from vss_agents.api.custom_fastapi_worker import LegacyChatTerminalMiddleware
 from vss_agents.api.front_end_config import StreamingIngestConfig
 
 _MISSING = object()
+
+
+async def _run_terminal_middleware(chunks: list[bytes], status: int = 200) -> list[Message]:
+    async def app(_scope: Scope, _receive: Receive, send: Send) -> None:
+        await send({"type": "http.response.start", "status": status, "headers": []})
+        for chunk in chunks:
+            await send({"type": "http.response.body", "body": chunk, "more_body": True})
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    messages: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        messages.append(message)
+
+    scope = cast("Scope", {"type": "http", "method": "POST", "path": "/v1/chat/stream"})
+    await LegacyChatTerminalMiddleware(app)(scope, receive, send)
+    return messages
+
+
+class TestLegacyChatTerminalMiddleware:
+    def test_registers_route_level_wrappers_only_on_legacy_chat_post_routes(self) -> None:
+        app = FastAPI()
+
+        @app.post("/v1/chat/stream")
+        async def chat_stream() -> None:
+            return None
+
+        @app.get("/v1/chat/stream")
+        async def chat_stream_get() -> None:
+            return None
+
+        @app.post("/health")
+        async def health() -> None:
+            return None
+
+        CustomFastApiFrontEndWorker._register_legacy_chat_terminal_wrappers(app)
+
+        routes = [route for route in app.routes if isinstance(route, APIRoute)]
+        chat_post = next(route for route in routes if route.path == "/v1/chat/stream" and "POST" in route.methods)
+        chat_get = next(route for route in routes if route.path == "/v1/chat/stream" and "GET" in route.methods)
+        health_post = next(route for route in routes if route.path == "/health" and "POST" in route.methods)
+        assert isinstance(chat_post.app, LegacyChatTerminalMiddleware)
+        assert not isinstance(chat_get.app, LegacyChatTerminalMiddleware)
+        assert not isinstance(health_post.app, LegacyChatTerminalMiddleware)
+
+    @pytest.mark.asyncio
+    async def test_appends_openai_terminal_frames_after_confirmed_workflow_completion(self) -> None:
+        messages = await _run_terminal_middleware(
+            [b'intermediate_data: {"id":"workflow","parent_id": "root","name": "Function Complete: <workflow>"}\n']
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert b'"finish_reason":"stop"' in bodies[-1]
+        assert bodies[-1].endswith(b"data: [DONE]\n\n")
+        assert messages[-1]["more_body"] is False
+
+    @pytest.mark.asyncio
+    async def test_leaves_unconfirmed_eof_incomplete(self) -> None:
+        messages = await _run_terminal_middleware([b'data: {"value":"partial"}\n\n'])
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b"[DONE]" not in body for body in bodies)
+
+    @pytest.mark.asyncio
+    async def test_detects_root_workflow_completion_split_across_chunks(self) -> None:
+        messages = await _run_terminal_middleware(
+            [
+                b'intermediate_data: {"id":"workflow","name":"Function Complete: <work',
+                b'flow>","parent_id":"ro',
+                b'ot"}\n\n',
+            ]
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert bodies[-1].endswith(b"data: [DONE]\n\n")
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_interactive_workflow_error_as_success(self) -> None:
+        messages = await _run_terminal_middleware(
+            [
+                b'intermediate_data: {"parent_id":"root","name":"Function Complete: <workflow>"}\n',
+                b'event: error\ndata: {"code":"work',
+                b'flow_error","message":"boom","details":"RuntimeError"}\n\n',
+            ]
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b'"finish_reason":"stop"' not in body for body in bodies)
+        assert all(b"[DONE]" not in body for body in bodies)
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_noninteractive_workflow_error_as_success(self) -> None:
+        messages = await _run_terminal_middleware(
+            [b'{"code": "workflow_error", "message":"boom","details":"RuntimeError"}']
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b'"finish_reason":"stop"' not in body for body in bodies)
+        assert all(b"[DONE]" not in body for body in bodies)
+
+    @pytest.mark.asyncio
+    async def test_does_not_mark_unsuccessful_http_response_as_success(self) -> None:
+        messages = await _run_terminal_middleware([b'{"detail":"failed"}'], status=500)
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b'"finish_reason":"stop"' not in body for body in bodies)
+        assert all(b"[DONE]" not in body for body in bodies)
+
+    @pytest.mark.asyncio
+    async def test_answer_text_containing_done_sentinel_does_not_suppress_terminal_event(self) -> None:
+        messages = await _run_terminal_middleware(
+            [
+                b'data: {"choices":[{"delta":{"content":"The terminal marker is data: [DONE]"}}]}\n\n',
+                b'intermediate_data: {"parent_id":"root","name":"Function Complete: <workflow>"}\n',
+            ]
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert bodies[-1].endswith(b"data: [DONE]\n\n")
+
+    @pytest.mark.asyncio
+    async def test_does_not_duplicate_existing_split_done_event(self) -> None:
+        messages = await _run_terminal_middleware(
+            [
+                b'intermediate_data: {"parent_id":"root","name":"Function Complete: <workflow>"}\n',
+                b"data: [DO",
+                b"NE]\n",
+                b"\n",
+            ]
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert b"".join(bodies).count(b"data: [DONE]") == 1
 
 
 def _make_worker(streaming_ingest):

@@ -12,7 +12,7 @@ real-time video understanding capabilities using Vision Language Models
 and manage live streams through a comprehensive set of REST endpoints.
 
 For current development builds, use the multi-architecture RTVI-VLM image:
-`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest`. This is a
+`ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:${VSS_DOCS_IMAGE_TAG:-develop-latest}`. This is a
 pre-release image for development and testing; see
 [Container Image Availability](../README.md#container-image-availability).
 
@@ -263,7 +263,7 @@ cd video-search-and-summarization
 ```
 
 Then follow the Docker Compose or Helm Chart section below. These instructions
-use the pre-release `develop-latest` image described in
+use the pre-release `${VSS_DOCS_IMAGE_TAG:-develop-latest}` image described in
 [Container Image Availability](../README.md#container-image-availability).
 
 ### Docker Compose Deployment
@@ -279,7 +279,7 @@ use the pre-release `develop-latest` image described in
    ```bash
    cat > .env <<'EOF'
    BACKEND_PORT=8000
-   RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+   RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:${VSS_DOCS_IMAGE_TAG:-develop-latest}
    VLM_MODEL_TO_USE=cosmos-reason3
    MODEL_PATH=ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final
    NGC_API_KEY=<replace-with-your-ngc-api-key>
@@ -1357,7 +1357,7 @@ standalone Helm override.
 
 | Variable | Description | Standalone default |
 | --- | --- | --- |
-| `RTVI_IMAGE` | Docker Compose image to run | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest` |
+| `RTVI_IMAGE` | Docker Compose image to run | `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:${VSS_DOCS_IMAGE_TAG:-develop-latest}` |
 | `BACKEND_PORT` | Host port mapped to the RT-VLM API on container port `8000` | Required |
 | `MODEL_PATH` (Helm: `modelPath`) | Model source | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | `MODEL_IMPLEMENTATION_PATH` | Custom model implementation path | Empty |
@@ -1541,7 +1541,7 @@ The chart injects `KAFKA_BOOTSTRAP_SERVERS`, `REDIS_HOST`,
   `true`.
 * `image.repository`, `image.tag`, and `image.pullPolicy`: Image
   settings. The development defaults are
-  `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm`, `develop-latest`, and
+  `ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm`, `${VSS_DOCS_IMAGE_TAG:-develop-latest}`, and
   `IfNotPresent`. The image tag supports the supported x86 and ARM64 platforms.
 * `replicas`: Number of replicas. Default: `1`.
 * `useSharedNim`: Use a shared OpenAI-compatible NIM instead of loading a

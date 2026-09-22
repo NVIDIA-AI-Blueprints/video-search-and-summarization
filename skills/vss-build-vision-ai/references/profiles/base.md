@@ -7,6 +7,8 @@
   developer foundation.
 - Prefer as the Foundation when the request needs VIOS + inference but no
   ELK-backed alerts, search, or long-video summarization.
+- RTX PRO 4500 Blackwell (`RTXPRO4500BW`) is not a valid hardware profile here;
+  route that SKU to Alerts with a remote LLM.
 - The Agent and UI layer is **optional in a delta** — see
   [Capability owners present](#capability-owners-present) before assuming a
   request for "Q&A" requires it.

@@ -6,6 +6,7 @@
   and alert APIs.
 - `2d_vlm`: continuous RT-VLM inspection and real-time alert APIs.
 - Choose for alert verification, incident reporting, or live VLM alerts.
+- RTX PRO 4500 Blackwell (`RTXPRO4500BW`) is supported only with a remote LLM.
 
 ## Profile Service Set
 

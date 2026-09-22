@@ -224,7 +224,7 @@ The candidate-event protobuf (`nv.Incident` / `nv.Behavior` on `mdx-incidents` /
 ## Test / Smoke Hooks
 
 - **Health:** `curl -sf --connect-timeout 5 http://${HOST_IP}:9080/health` — expect HTTP 200 (NOT `/api/v1/health`).
-- **Realtime rules list (vlm-realtime):** `curl -s http://${HOST_IP}:9080/api/v1/realtime | jq .` — empty array is a valid (success) response.
+- **Realtime rules list (vlm-realtime):** `curl -s http://${HOST_IP}:9080/api/v1/realtime | jq .` — the response is an envelope; an empty `.rules` array is valid success. Iterate records with `.rules[]`, not `.[]`.
 - **Verified records in ES:** after a detection, confirm verified docs land in `mdx-vlm-incidents`:
 
 ```bash

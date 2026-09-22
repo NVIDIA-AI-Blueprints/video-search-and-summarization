@@ -3,10 +3,9 @@
 ## Sandbox host alias
 
 Inside the openshell/nemoclaw sandbox, `HOST_IP` is the sandbox host
-alias — the only hostname the egress policy whitelists for VSS backend
-ports. Skills should curl `${HOST_IP}` for every runtime call — never
-`localhost` and never a literal IP — so the same skill works in-sandbox
-and on bare metal.
+alias for Docker Compose host ports. For existing deployments, preserve the
+operator's origin from `ENV.md` and use the installed VSS CLI; no orchestrator
+check is required.
 
 `/sandbox/.bashrc` is root-owned and read-only in this sandbox, so
 `HOST_IP` is **not** persisted to a shell init file. Instead, the
@@ -221,21 +220,25 @@ The `vss` CLI is on PATH in this image and exposed as the `vss_cli` tool; the
 skills name the subcommands. Do not clone a repository or install `uv` to get
 it, and never replace it with raw HTTP.
 
-The CLI operates whatever deployment it has recorded, so record one before
-the first VSS skill of a session - the same two calls for Compose and
-Kubernetes, which differ only in the origin `ENV.md` carries:
+If the baked executable fails or is missing, report the image problem and stop.
+Development-checkout instructions in a skill do not apply to this image.
+
+The CLI operates whatever deployment it has recorded. Inspect `vss configure
+show`; record the operator's selected origin only when it is missing or differs:
 
 ```bash
 vss configure --base-url "${VSS_PUBLIC_URL}"
-vss configure check
 ```
 
 `configure` probes the path routes behind the origin (`/api`, `/vst`,
-`/alert-bridge`, `/lvs`, ...) and records what answered; `check` re-probes
-them and prints which command groups are available. Re-run `configure` after
-the deployment changes shape - the recording is a snapshot. If
+`/alert-bridge`, `/lvs`, ...) and records what answered. Use `configure check`
+when readiness is requested. Re-run `configure` after an intended deployment
+change; do not repair a failed evaluation's deployment. If
 `VSS_PUBLIC_URL` is empty, stop and follow `ENV.md` "Empty VSS_PUBLIC_URL" -
 ask the user for the origin instead of guessing one; keep the port in it.
+
+A supplied video URL uses `vss-ask-video`'s direct media path; do not ingest it
+or register a sensor unless the request explicitly calls for it.
 
 A `CONNECT tunnel failed, response 403` here is an egress-policy gap, not a
 broken deployment: the origin's host is not named in the host-side policy.
