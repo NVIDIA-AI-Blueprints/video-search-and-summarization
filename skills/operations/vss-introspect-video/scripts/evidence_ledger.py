@@ -179,7 +179,7 @@ def _validate_window(start: Any, end: Any, path: str) -> None:
 
 
 def load_budgets(path: str | os.PathLike[str] = BUDGET_PATH) -> dict[str, int]:
-    """Load and validate the single authoritative POC budget document."""
+    """Load and validate the authoritative introspection budget document."""
     with open(path, encoding="utf-8") as stream:
         value = json.load(stream)
     keys = {
@@ -214,7 +214,7 @@ def _validate_claim(claim: Any, path: str) -> None:
 
 
 def validate_plan(plan: Any, expected_mode: str | None = None) -> None:
-    """Validate the exact PR #2322 initial or expansion plan contract."""
+    """Validate the exact initial or expansion evidence-plan contract."""
     plan = _strict(plan, PLAN_KEYS, "plan")
     if plan["plan_version"] != "2.0":
         _fail("plan.plan_version", "must be 2.0")
@@ -426,7 +426,7 @@ def validate_ledger(ledger: Any) -> None:
     # A ledger plan can contain the initial claims plus one accepted expansion.
     _strict(plan, PLAN_KEYS, "ledger.plan")
     if plan["plan_version"] != "2.0" or plan["mode"] != "initial":
-        _fail("ledger.plan", "must retain the initial PR #2322 plan identity")
+        _fail("ledger.plan", "must retain the initial evidence-plan identity")
     _nonempty(plan["question_id"], "ledger.plan.question_id")
     _nonempty(plan["question_text"], "ledger.plan.question_text")
     _nullable_string(plan["asset_id"], "ledger.plan.asset_id")
@@ -506,7 +506,7 @@ def validate_ledger(ledger: Any) -> None:
 
 
 def initialize_ledger(plan: Mapping[str, Any]) -> dict[str, Any]:
-    """Initialize a canonical ledger from a valid PR #2322 initial plan."""
+    """Initialize a canonical ledger from a valid initial evidence plan."""
     validate_plan(plan, "initial")
     ledger = {
         "ledger_version": "1.0",
@@ -924,7 +924,7 @@ def merge_round_results(
 def expand_ledger(
     ledger: Mapping[str, Any], expansion_plan: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Accept one PR #2322 expansion while preserving prior claims and evidence."""
+    """Accept one expansion while preserving prior claims and evidence."""
     validate_ledger(ledger)
     if ledger["status"] != "in_progress":
         _fail("ledger.status", "cannot expand a terminal ledger")
@@ -932,7 +932,7 @@ def expand_ledger(
     if ledger["expansions_used"] >= BUDGETS["max_expansions"]:
         _fail("ledger.expansions_used", "at most one expansion is permitted")
     if len(ledger["plan"]["claims"]) >= BUDGETS["max_total_claims"]:
-        _fail("ledger.plan.claims", "total POC claim limit reached")
+        _fail("ledger.plan.claims", "configured total claim limit reached")
     for field in ("question_id", "question_text", "asset_id"):
         if expansion_plan[field] != ledger["plan"][field]:
             _fail(f"plan.{field}", "must match the initial plan")
