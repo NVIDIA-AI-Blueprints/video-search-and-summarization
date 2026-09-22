@@ -43,6 +43,22 @@ def main() -> None:
     parser.add_argument("--hardware-profile", required=True)
     args = parser.parse_args()
 
+    # An empty value means the caller's extraction failed, not that a build
+    # selected nothing: every profile layer assigns COMPOSE_PROFILES and
+    # HARDWARE_PROFILE. Refuse it, because an empty profile list requires no
+    # tuning files and would report a pass for a build this never inspected.
+    for flag, value in (
+        ("--profiles", args.profiles),
+        ("--hardware-profile", args.hardware_profile),
+    ):
+        if not value.strip():
+            print(
+                f"ERROR: {flag} is empty — the effective environment was not "
+                "read; nothing was validated",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+
     missing = [
         path
         for path in required_tuning_files(

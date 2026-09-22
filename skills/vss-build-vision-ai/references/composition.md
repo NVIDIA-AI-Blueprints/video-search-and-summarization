@@ -316,10 +316,13 @@ if [ -n "$VSS_CONTAINER_TAG" ]; then
   tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
 fi
 
-effective_environment="$(
+if ! effective_environment="$(
   docker compose "${env_args[@]}" -f "$BUILD_DIR/compose.yml" \
     config --environment --no-consistency
-)"
+)"; then
+  echo "Could not read the effective environment; NIM hardware was not validated." >&2
+  exit 1
+fi
 effective_hardware="$(
   printf '%s\n' "$effective_environment" |
     sed -n 's/^HARDWARE_PROFILE=//p' | tail -n 1

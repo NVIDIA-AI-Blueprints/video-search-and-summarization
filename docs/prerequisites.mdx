@@ -48,10 +48,10 @@ The following software must be installed on your system:
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
 - **NGC CLI:** 4.10.0+
-- **uv:** 0.5.0+ — required to run the `vss` CLI (`uv run --project libs/vss vss`)
-  and the agent skill's validator scripts, whose shebangs invoke `uv run`.
-  Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh`. Without it
-  those scripts exit 127 with `/usr/bin/env: 'uv': No such file or directory`.
+- **uv:** 0.5.0+ — required to run the `vss` CLI
+  (`uv run --project libs/vss vss`). The Build Vision AI validator scripts
+  accept either `uv` or `python3` with PyYAML installed; install `uv` with
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`.
 
 Install `uv` before starting the coding agent:
 
@@ -671,8 +671,8 @@ Docker Compose v2 uses the command `docker compose` (without hyphen) instead of 
 
 ### Install uv
 
-`uv` 0.5.0 or later is required by the `vss` CLI and the Build Vision AI
-validator scripts. Install it and make it available in the current shell:
+`uv` 0.5.0 or later is required by the `vss` CLI. Install it and make it
+available in the current shell:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -680,8 +680,13 @@ export PATH="$HOME/.local/bin:$PATH"
 uv --version
 ```
 
-If a validator exits with `/usr/bin/env: 'uv': No such file or directory`,
-install `uv` with the command above and retry.
+The Build Vision AI validator scripts do not require `uv`: they run under
+either `uv` or `python3` with PyYAML, and select whichever the host has. To use
+the `python3` path instead, install PyYAML with
+`python3 -m pip install PyYAML`. If a script exits with
+`/usr/bin/env: 'uv': No such file or directory`, it was invoked directly rather
+than through the skill's runner — install `uv` above, or call it as
+`python3 <script>`.
 
 ### Install NVIDIA Container Toolkit
 
