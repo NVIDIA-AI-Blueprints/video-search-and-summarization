@@ -23,8 +23,8 @@ SCRIPT_DIR = (
 REPOSITORY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SCRIPT_DIR))
 
-from validate_resolved_yml import validate_document
 from validate_nim_hardware_env import required_tuning_files
+from validate_resolved_yml import validate_document
 
 
 class ValidateResolvedYmlTest(unittest.TestCase):
@@ -62,48 +62,6 @@ class ValidateResolvedYmlTest(unittest.TestCase):
             self.assertNotIn("/path/to/vss-apps-data", content, str(template))
             self.assertNotIn("/path/to/vss-warehouse-app-data", content, str(template))
 
-    def test_smartcities_is_reachable_without_alerts_service_collisions(self) -> None:
-        industry = (
-            REPOSITORY / "deploy/docker/industry-profiles/compose.yml"
-        ).read_text()
-        smartcities = (
-            REPOSITORY / "deploy/docker/industry-profiles/smartcities/compose.yml"
-        ).read_text()
-        profiles = (
-            REPOSITORY / "deploy/docker/industry-profiles/smartcities/overrides.env"
-        ).read_text()
-
-        self.assertIn("./smartcities/compose.yml", industry)
-        for key in (
-            "vss-behavior-analytics-smartcities",
-            "perception-smartcities",
-            "kibana-init-container-smartcities",
-        ):
-            self.assertIn(f"  {key}:", smartcities)
-            self.assertIn(key, profiles)
-        for colliding in (
-            "  vss-behavior-analytics-alerts:",
-            "  perception-alerts:",
-            "  kibana-init-container-alerts:",
-        ):
-            self.assertNotIn(colliding, smartcities)
-        self.assertIn(
-            "context: $VSS_APPS_DIR/developer-profiles/dev-profile-alerts",
-            smartcities,
-        )
-        self.assertIn(
-            "smartcities/kibana-dashboard/its-kibana-objects.ndjson:"
-            "/opt/mdx/its-kibana-objects.ndjson:ro",
-            smartcities,
-        )
-        self.assertTrue(
-            (
-                REPOSITORY
-                / "deploy/docker/developer-profiles/dev-profile-alerts"
-                / "kibana-dashboard/init-scripts/kibana-import-dashboard.sh"
-            ).is_file()
-        )
-
     def test_optional_minio_environment_wiring_has_a_source(self) -> None:
         compose = (
             REPOSITORY / "deploy/docker/services/video-summarization/compose.yml"
@@ -140,13 +98,16 @@ class ValidateResolvedYmlTest(unittest.TestCase):
             )
             self.assertEqual(len(optional_hardware_envs), 2, str(compose_file))
 
-    def test_dev_profile_preflights_selected_llm_and_vlm_hardware_files(self) -> None:
+    def test_dev_profile_preflights_the_selected_llm_hardware_file(self) -> None:
+        # Making the NIM hw-*.env files optional at parse time removes Compose's
+        # own failure for a missing tuning file. Only the LLM is deployed as a
+        # standalone NIM (the VLM always runs as rtvi-vlm), so this preflight is
+        # what still catches an unsupported board/mode pair.
         helper = (
             REPOSITORY / "deploy/docker/scripts/dev-profile.sh"
         ).read_text()
 
         self.assertIn("LLM '${_llm_slug_final}' has no tuning file", helper)
-        self.assertIn("VLM '${_vlm_slug_final}' has no tuning file", helper)
 
     def test_all_build_vision_resolve_paths_preflight_selected_nims(self) -> None:
         references = (

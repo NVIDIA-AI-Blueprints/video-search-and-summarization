@@ -12,17 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Not included by ../compose.yml, and not a profile entry point. The Smart
-# Cities launchable (scripts/deploy_smartcities_launchable.ipynb, section 6.1)
-# merges this directory's .env and overrides.env into dev-profile-alerts and
-# then rsyncs this directory over it, so at bring-up this file *is*
-# developer-profiles/dev-profile-alerts/compose.yml. That is why the service
-# keys end in -alerts and the paths below read from dev-profile-alerts: they
-# resolve after the copy. Do not add this file to ../compose.yml to satisfy an
-# unreferenced-file check — included in place its smc-app build context, the
-# calibration sample data and the video-analytics-UI config all point at
-# dev-profile-alerts/smc-app/, which does not exist until the rsync creates it.
 
 services:
 

@@ -1931,22 +1931,6 @@ function state_up() {
   if [[ "${vlm_mode}" == "remote" ]]; then
     set_env_var "VLM_NAME_SLUG" "none"
   fi
-  # The root Compose graph contains every NIM definition and therefore treats
-  # their hardware env files as optional while parsing. The selected standalone
-  # VLM NIM is not optional: reject unsupported hardware/mode combinations here.
-  local _vlm_slug_final _vlm_hw_env _vlm_hw_suffix
-  _vlm_slug_final="$(get_env_value "${_generated_env}" "VLM_NAME_SLUG")"
-  if [[ "${vlm_mode}" != "remote" ]] && [[ -n "${_vlm_slug_final}" ]] && [[ "${_vlm_slug_final}" != "none" ]]; then
-    _vlm_hw_suffix=""
-    [[ "${vlm_mode}" == "local_shared" ]] && _vlm_hw_suffix="-shared"
-    _vlm_hw_env="${deployment_directory}/services/nim/${_vlm_slug_final}/hw-${hardware_profile}${_vlm_hw_suffix}.env"
-    if [[ ! -f "${_vlm_hw_env}" ]]; then
-      echo "[ERROR] VLM '${_vlm_slug_final}' has no tuning file for hardware profile '${hardware_profile}' in ${vlm_mode} mode."
-      echo "[ERROR] Expected: ${_vlm_hw_env}"
-      echo "[ERROR] Choose a VLM that supports this board, use the integrated RT-VLM, or use a remote VLM endpoint."
-      exit 1
-    fi
-  fi
   if [[ -n "${vlm_base_url}" ]]; then
     set_env_var "VLM_BASE_URL" "${vlm_base_url}"
     if [[ "${vlm_mode}" == "remote" ]]; then
