@@ -46,7 +46,7 @@ metadata:
 ### Bundled scripts and maintenance files
 
 Every executable shipped with this Skill has one owner and supports `-h` / `--help`
-without probing services, reading credentials, or changing files:
+without requiring credentials, probing services, or changing files:
 
 | Script | Owner and purpose |
 | --- | --- |

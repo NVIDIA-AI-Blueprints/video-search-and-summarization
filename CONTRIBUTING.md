@@ -37,9 +37,11 @@ If your contribution adds or modifies a source file, please:
 
 - Add or update the SPDX file header so that it reflects the correct copyright
   holders and license identifier.
-- For new files authored by you (or your employer) on behalf of this project,
-  use the SPDX identifier `Apache-2.0` and add the appropriate copyright
-  notice.
+- For new source files authored by you (or your employer) on behalf of this
+  project, use the SPDX identifier `Apache-2.0` and add the appropriate
+  copyright notice.
+- For documentation-only skills, use `license: CC-BY-4.0` in `SKILL.md` and in
+  any other Markdown frontmatter that declares a license.
 - For changes to files derived from third-party sources:
   - Preserve the existing third-party copyright and license notices. 
   - List the file(s) you modified in your change description.
