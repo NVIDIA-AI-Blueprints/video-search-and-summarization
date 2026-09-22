@@ -38,6 +38,14 @@ class _Input(BaseModel):
     internal: str = Field("", description="Not a flag", json_schema_extra={"cli_hide": True})
 
 
+class _CustomBooleanInput(BaseModel):
+    enable_reasoning: bool | None = Field(
+        None,
+        description="Custom negative flag",
+        json_schema_extra={params_mod.NEGATIVE_FLAG_KEY: "--disable-reasoning"},
+    )
+
+
 class _Group(CommandGroup):
     """Probe group."""
 
@@ -98,6 +106,12 @@ def test_numeric_constraints_become_ranges() -> None:
 def test_list_field_is_repeatable() -> None:
     opt = next(o for o in params_mod.options_from_model(_Input) if o.opts[0] == "--attribute")
     assert opt.multiple is True
+
+
+def test_boolean_field_can_define_clear_negative_flag() -> None:
+    option = params_mod.options_from_model(_CustomBooleanInput)[0]
+    assert option.opts == ["--enable-reasoning"]
+    assert option.secondary_opts == ["--disable-reasoning"]
 
 
 def test_unset_options_do_not_override_model_defaults() -> None:
