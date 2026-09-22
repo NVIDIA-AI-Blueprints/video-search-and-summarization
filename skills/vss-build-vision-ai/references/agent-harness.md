@@ -450,8 +450,8 @@ Set the environment, then run the notebook:
 |---|---|---|
 | `VSS_REPO_DIR` | the checkout root | resolves the policy, skills, and workspace docs |
 | `VSS_PUBLIC_URL` | **leave unset** for a Compose build | the deployment origin `vss configure` records; empty means this host's Compose deployment and 3.2 fills it in — see [`VSS_PUBLIC_URL` is the deployment origin](#vss_public_url-is-the-deployment-origin---leave-it-empty-on-compose) below |
-| `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
-| `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness - or section 3.1 stops with "exists but has no `vss` CLI": that sandbox was not built from the harness Dockerfile, and the only fix is a rebuild with `1` (report the discarded sessions) |
+| `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name replaces the first build's sandbox |
+| `NEMOCLAW_RECREATE_SANDBOX` | `1` | onboard is the only step that applies the provider, endpoint, model and key, so a reused sandbox would run on whatever it was onboarded with. Section 3.1 adds `--recreate-sandbox` when a sandbox of that name exists, discarding it and its agent sessions |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
 | `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
 | `NEMOCLAW_DASHBOARD_RELAY_PORT` | selected port; default `18790` | the section 3.5 relay the UI adapter backend URL must use (`ws://host.docker.internal:<relay-port>`); the Brev secure link and `CHAT_UI_URL` publish this port |
@@ -468,7 +468,7 @@ REPO="$(git rev-parse --show-toplevel)"
 
 export VSS_REPO_DIR="$REPO"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
-export NEMOCLAW_RECREATE_SANDBOX=0
+export NEMOCLAW_RECREATE_SANDBOX=1
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
 export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
@@ -523,7 +523,7 @@ it can differ from what the context file publishes when the notebook's own read
 of `/etc/brev` was denied.
 
 Do not reconstruct the URL from the notebook source. Its origin branches on
-whether the Brev context file publishes a secure link for the dashboard port.
+whether the Brev context file publishes a secure link for the relay port.
 Outside the notebook, resolve that FQDN from the context file
 ([`brev.md`](brev.md) → *Resolving a secure link*) rather than assembling a
 hostname.
@@ -575,9 +575,9 @@ Confirm the two things that exit code cannot cover:
    summary; a token-free origin on its own lands the user on an unauthenticated
    page.
 
-   **On Brev the host is the secure-link FQDN for the dashboard port, and a
+   **On Brev the host is the secure-link FQDN for the relay port, and a
    `127.0.0.1` origin is a claim to prove rather than a fallback to take.**
-   Resolve `brev_origin <dashboard-port>` yourself and read what it returned
+   Resolve `brev_origin <relay-port>` yourself and read what it returned
    before reporting anything; an unread lookup is not an empty one.
 
    A denied read of `/etc/brev` is a third answer, distinct from both. A
@@ -592,17 +592,20 @@ Confirm the two things that exit code cannot cover:
    need, against an origin that does not resolve for them, is the failure this
    paragraph exists to prevent.
 
-   Confirm the forward behind it is bound as that origin requires:
+   Confirm the two listeners behind it:
 
    ```bash
-   openshell forward list   # BIND column for the dashboard port
+   openshell forward list         # BIND column for the dashboard port
+   pgrep -af dashboard-relay.py   # --listen addresses for the relay port
    ```
 
-   On Brev it must read `0.0.0.0`; a `127.0.0.1` bind answers a local health
-   probe and still `503`s behind the secure link. Without a Brev secure link,
-   an adapter-enabled run must bind to Docker's private bridge gateway, not
-   `127.0.0.1` or `0.0.0.0`. If the bind is wrong, stop and use a compatible
-   notebook rather than recreating the UI against an unreachable backend.
+   The forward must read `127.0.0.1` on every host, Brev included — NemoClaw's
+   recovery re-creates it there and retires a wider bind as stale, so a
+   loopback forward is the healthy state rather than a fault to repair.
+   Off-loopback clients are the relay's job: `0.0.0.0` on Brev, and Docker's
+   bridge gateway on an adapter-enabled run without a secure link. If the relay
+   is missing or bound elsewhere, re-run section 3.5 rather than re-binding the
+   forward, which the next lifecycle command undoes.
 2. **The sandbox can reach the build.** From the sandbox, one call against the
    origin recorded in `ENV.md`. A `403 CONNECT tunnel failed` is the egress
    policy (see Prerequisites), not a deployment fault — the distinction matters
@@ -620,8 +623,12 @@ rather than assumed. It is the handle every later command takes:
 `nemoclaw <name> status`, `openshell sandbox exec -n <name>`, and the
 [Teardown](#teardown) destroy. The sandbox lives outside the Compose project, so
 nothing that lists the build reveals it, and a name left at the `demo` default is
-the one a second build silently reuses — a user who cannot name this sandbox
+the one a second build silently replaces — a user who cannot name this sandbox
 cannot tell the two apart later.
+
+Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
+`NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent
+sessions, and nothing else in the run tells the user that happened.
 
 ## Teardown
 
