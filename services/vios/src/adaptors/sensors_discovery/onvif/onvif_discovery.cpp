@@ -33,7 +33,7 @@
 
 using namespace nv_vms;
 
-#define DEFAULT_CAMERA_NAME "Camera"
+constexpr const char* DEFAULT_CAMERA_NAME = "Camera";
 
 // Prepare structures for async CURL operations
 struct SensorCurlData {

@@ -22,7 +22,7 @@
 #include "logger.h"
 #include "AvLoopSyncCoordinator.h"
 
-#define ADTS_HEADER_SIZE 7
+constexpr int ADTS_HEADER_SIZE = 7;
 constexpr int DATA_ARRIVAL_TIMEOUT_USEC = 30*1000*1000;
 
 ADTSByteStreamSource

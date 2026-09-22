@@ -21,7 +21,7 @@
 #include "logger.h"
 #include <dlfcn.h>
 
-#define ABSOLUTE_LIBRARY_PATH_X86_64 "/usr/lib/x86_64-linux-gnu/librdkafka.so"
+constexpr const char* ABSOLUTE_LIBRARY_PATH_X86_64 = "/usr/lib/x86_64-linux-gnu/librdkafka.so";
 
 using namespace std;
 

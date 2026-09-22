@@ -28,9 +28,9 @@
 #include "stats.h"
 #include "config.h"
 
-#define STREAM_MSG_EOS "_stream_msg_eos_"
-#define STREAM_MSG_ERROR "_stream_msg_error_"
-#define STREAM_DEFAULT_BUFFER_SIZE 2*1000*1000
+constexpr const char* STREAM_MSG_EOS = "_stream_msg_eos_";
+constexpr const char* STREAM_MSG_ERROR = "_stream_msg_error_";
+constexpr int STREAM_DEFAULT_BUFFER_SIZE = 2*1000*1000;
 
 constexpr std::size_t DISCRETE_FRAME_QUEUE_MAX_SIZE = 500;
 
