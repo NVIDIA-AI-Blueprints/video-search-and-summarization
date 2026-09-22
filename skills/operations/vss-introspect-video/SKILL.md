@@ -33,25 +33,93 @@ remain invisible to the VSS CLI and libraries.
 
 ## Contracts and configuration
 
-Before starting, read:
+This `SKILL.md` is the complete agent-facing workflow and contract. Do not load
+separate reference files or infer fields beyond those listed here.
+`scripts/evidence_ledger.py` is the deterministic implementation.
+`config/ledger-budgets.json` is the only numeric budget source; never copy its
+values into prompts or other configuration. Never exceed any maximum loaded
+from that file.
 
-- `../vss-generate-evidence-plan/references/claim-classification.md` in full;
-- `config/ledger-budgets.json`, the only authoritative POC budget source;
-- `references/evidence-ledger.schema.json`;
-- `references/inspection-task.schema.json`;
-- `references/inspection-result.schema.json`;
-- `references/final-result.schema.json`;
-- `scripts/evidence_ledger.py`.
+All objects are strict: every listed field is required unless marked optional,
+and unknown fields are rejected.
 
-Do not copy the numeric budgets into prompts, scripts, or other configuration.
-Load them from `config/ledger-budgets.json`. The utility enforces them when
-initializing, expanding, creating tasks, validating results, and merging.
-Never exceed any maximum loaded from that file.
+### Evidence plan
 
-The ledger contains the original evidence plan, one small runtime state per
-claim, append-only accepted observations, the completed round count, and the
-global VLM-call count. Runtime state never edits the claim objects. Unknown
-fields are rejected.
+The PR #2322 plan fields are:
+
+- `plan_version`: `"2.0"`;
+- `mode`: `"initial"` or `"expansion"`;
+- `question_id`, `question_text`: non-empty strings;
+- `asset_id`: string or null;
+- `claims`: one or two initial claims, or exactly one expansion claim.
+
+Each claim has `claim_id`, `requirement`, `evidence_type`,
+`coverage_requirement`, `support_test`, and `falsification_test`.
+`claim_id` is a stable `claim-<descriptive-slug>`. Allowed evidence types are
+`attribute`, `object`, `count`, `action`, `state_change`, `order`, `duration`,
+`trajectory`, `identity`, `spatial`, `cause`, `prediction`, `counterfactual`,
+and `negative`. Allowed coverage is `local_window`, `before_after`,
+`repeated_observation`, or `whole_video`.
+
+### Observations and provenance
+
+Every observation has exactly `observation_id`, `claim_id`, `relation`, `text`,
+and `source`. Relation is `supports`, `contradicts`, or `context`.
+`observation_id` is the utility-generated stable `obs-<24 hex>` content ID.
+
+A memory source has `type: "memory"`, non-empty `record_id`, and optional
+`job_id`, `sensor_id`, `start`, and `end`. Start and end must appear together.
+
+A VLM source has `type: "vlm"`, non-empty `job_id`, and exactly one provenance
+selector matching the inspected media:
+
+- sensor: `sensor_id`, `start`, and `end`;
+- URL: `media_url`;
+- file: `path`.
+
+Sensor times are timezone-aware ISO-8601 values with `start < end`. A media URL
+is absolute HTTP(S). Never fabricate sensor or time fields for URL or file
+inspection.
+
+### Ledger
+
+The ledger has exactly `ledger_version`, `revision`, `plan`, `claims`,
+`observations`, `round`, `expansions_used`, `vlm_calls_used`, `status`, and
+`stop_reason`. `ledger_version` is `"1.0"`. Status is `in_progress`, `answered`,
+or `unresolved`; stop reason is null, `resolved`, `no_progress`,
+`budget_exhausted`, or `tool_failure`.
+
+Each claim state has `claim_id`, `status`, `coverage`, `observation_ids`, and
+`gap`. Claim status is `supported`, `contradicted`, or `unresolved`; coverage
+is `none`, `partial`, or `sufficient`. The original plan claims are immutable,
+accepted observations are append-only, and terminal ledgers cannot be merged
+or expanded.
+
+### Inspection task and result
+
+Each task has exactly `task_id`, `base_revision`, `claim`, `gap`,
+`existing_observations`, `asset_id`, `media_scope`, and `max_vlm_calls`.
+`media_scope` is exactly one of:
+
+- `{"type":"sensor","sensor_id":"...","start":"...","end":"..."}`;
+- `{"type":"media_url","media_url":"https://..."}`;
+- `{"type":"file","path":"..."}`.
+
+Each result has exactly `task_id`, `base_revision`, `observations`, `coverage`,
+`gap`, `vlm_calls_used`, and `error`. Result observations must be VLM
+observations for the assigned claim and media scope. Sensor observations may
+use a subwindow within the assigned window; URL and file provenance must match
+the assigned selector exactly. Errors are strings or null and never evidence.
+
+### Final result
+
+The final result has exactly `status`, `answer`, `evidence`,
+`evidence_details`, `unresolved_gaps`, `revision`, and `artifact_dir`.
+`evidence_details` contains the complete accepted observations named by
+`evidence`. An answered result has a non-empty answer and no unresolved gaps.
+An unresolved result has a null answer and empty evidence arrays; every gap has
+`claim_id`, `gap`, and one reason: `insufficient_coverage`, `not_visible`,
+`tool_failure`, or `budget_exhausted`.
 
 Use the utility for canonical state transitions:
 
@@ -146,6 +214,7 @@ The evidence planner never answers the question.
 
 Apply the complete PR #2322 rubric. In particular:
 
+- classify the smallest visible answer-bearing outcome, not every locating fact;
 - use exactly one strict evidence type and one strict coverage requirement;
 - default to one initial claim;
 - allow a second initial claim only for two independently reportable outcomes
@@ -160,9 +229,42 @@ Apply the complete PR #2322 rubric. In particular:
 - use `repeated_observation` or stronger for identity, duration, trajectory,
   and cross-event order.
 
+Choose the evidence type by the answer-bearing test:
+
+- `attribute`: visible property of a qualified entity;
+- `object`: presence or category of an object, vehicle, sign, or scene element;
+- `count`: number of distinct qualifying instances;
+- `action`: defining activity or completed act;
+- `state_change`: transition between visible states;
+- `order`: relative event chronology;
+- `duration`: elapsed interval or relative length;
+- `trajectory`: path or direction through space;
+- `identity`: sameness across separated observations;
+- `spatial`: relative position or location;
+- `cause`: visible productive link between precursor and outcome;
+- `prediction`: visually grounded immediate continuation;
+- `counterfactual`: visually grounded alternative under a changed condition;
+- `negative`: absence or non-occurrence within a declared scope.
+
+When types overlap, prefer `negative`; then `counterfactual` or `prediction`;
+`cause` over mere `order`; `identity` only when sameness is answer-bearing;
+`state_change` over `action` when transition matters; `count` or `duration`
+when the number or interval is the answer; then `spatial`, `attribute`, or
+`object`. Type/category questions are `object`, not `identity`.
+
+Coverage means:
+
+- `local_window`: one bounded view can run the test;
+- `before_after`: both sides of a transition are required;
+- `repeated_observation`: linked observations over time are required;
+- `whole_video`: complete video or defensibly complete scoped interval.
+
 Support tests name visible satisfying outcomes. Falsification tests name
 visible incompatible outcomes. Occlusion, blur, incomplete coverage,
 ambiguity, VLM uncertainty, timeout, and tool failure do not falsify a claim.
+Avoid circular tests. Counts require complete scoped coverage and
+deduplication; identity requires continuity or distinguishing features; cause
+requires a visible precursor or contact leading to the outcome.
 
 Validate the plan, save it as `plan.json`, and initialize `ledger.json`.
 
@@ -238,10 +340,11 @@ it to:
 - report visible facts against the support and falsification tests, leaving
   missing visibility, ambiguity, occlusion, failure, and incomplete coverage
   unresolved;
-- preserve VSS job ID, sensor, and exact ISO-8601 window in every observation;
+- preserve VSS job ID and the exact assigned provenance selector: sensor plus
+  ISO-8601 window, media URL, or file path;
 - put tool failures in `error`, never in `observations`; exit 6 may retain
   usable evidence while recording the persistence limitation;
-- return exactly one schema-valid result without changing claims, canonical
+- return exactly one contract-valid result without changing claims, canonical
   state, or the final answer.
 
 For a sensor scope, every returned VLM observation must use the assigned sensor
@@ -260,6 +363,9 @@ VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
   --end-time "${END_TIME}" \
   --fps "${VLM_FPS}"
 ```
+
+For non-sensor input, replace the sensor and time flags with exactly one of
+`--media-url "${MEDIA_URL}"` or `--file "${FILE_PATH}"`.
 
 ### 6. Collect and merge one complete round
 
@@ -318,6 +424,6 @@ unresolved run, set `answer` to null and report each claim gap using only:
 
 Do not suppress gaps, fill them with inference, or present context observations
 as answers. Report whether each cited source is memory or VLM and preserve VSS
-job, record, sensor, and time provenance. `final-result.json` must be
+job, record, and assigned media provenance. `final-result.json` must be
 self-contained: include the final ledger revision, run artifact directory, and
 full provenance for every cited observation.
