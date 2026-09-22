@@ -53,7 +53,7 @@ ARG NGC_CLI_VERSION=4.10.0
 # on older layouts). Override with --build-arg VSS_REF=<sha>; bump the default
 # when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=819c22ce91798664a1793945dc5520d3ef92e43b
+ARG VSS_REF=01ecaf705c676123aadc77177143aa963338026f
 
 # ── uv, for wheel builds and the vss CLI venv ──────────────────────────────────
 FROM ${UV_IMAGE} AS uv
