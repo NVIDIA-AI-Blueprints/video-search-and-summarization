@@ -1804,12 +1804,17 @@ class VllmCompatible(BaseVlmModel):
             return {"enable_thinking": bool(config.enable_reasoning)}
         return {}
 
+    def _uses_qwen3vl_non_reasoning_fallback(self, config: VlmGenerationConfig) -> bool:
+        return (
+            self._model_architecture in _QWEN3VL_ARCHS
+            and getattr(self, "_vlm_model_type", None) != "cosmos-reason3"
+            and not config.enable_reasoning
+        )
+
     def _apply_chat_template(self, messages: list[dict], config: VlmGenerationConfig) -> str:
         """Apply the model template with a Qwen3-VL non-reasoning fallback."""
         template_messages = messages
-        suppress_qwen_reasoning = (
-            self._model_architecture in _QWEN3VL_ARCHS and not config.enable_reasoning
-        )
+        suppress_qwen_reasoning = self._uses_qwen3vl_non_reasoning_fallback(config)
         if suppress_qwen_reasoning:
             template_messages = copy.deepcopy(messages)
             for message in reversed(template_messages):
@@ -1839,7 +1844,7 @@ class VllmCompatible(BaseVlmModel):
         self, sampling_kwargs: dict, config: VlmGenerationConfig
     ) -> None:
         """Block reasoning tags without changing fixed-work generation length."""
-        if self._model_architecture in _QWEN3VL_ARCHS and not config.enable_reasoning:
+        if self._uses_qwen3vl_non_reasoning_fallback(config):
             sampling_kwargs["bad_words"] = ["<think>", "</think>"]
 
     def _qwen3vl_answer_boundary_token_ids(self) -> set[int]:

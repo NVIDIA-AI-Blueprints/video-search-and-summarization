@@ -264,6 +264,23 @@ def test_qwen3vl_reasoning_prompt_is_not_modified():
     assert model._apply_chat_template([], config) == "<|im_start|>assistant\n"
 
 
+def test_cosmos_reason3_non_reasoning_keeps_plain_yes_no_prompt():
+    model = VllmCompatible.__new__(VllmCompatible)
+    model._vlm_model_type = "cosmos-reason3"
+    model._model_architecture = "Qwen3VLForConditionalGeneration"
+    model._processor = _ChatTemplateIgnoringReasoning()
+    config = VlmGenerationConfig(enable_reasoning=False)
+    messages = [{"role": "user", "content": "Answer yes or no."}]
+
+    prompt = model._apply_chat_template(messages, config)
+    sampling_kwargs = vllm_compatible_model._build_vllm_sampling_kwargs(config)
+    model._apply_reasoning_suppression_sampling_params(sampling_kwargs, config)
+
+    assert prompt == "<|im_start|>assistant\n"
+    assert model._processor.messages == messages
+    assert "bad_words" not in sampling_kwargs
+
+
 @pytest.mark.parametrize(
     ("model_type", "prompt_driven_reasoning", "enable_reasoning", "expected_reasoning"),
     [
@@ -1487,7 +1504,7 @@ def test_generate_can_send_multi_frame_chunk_as_multi_image_input(monkeypatch):
     assert future.result() == ["ok"]
     content = processor.messages[-1]["content"]
     assert [item["type"] for item in content] == ["text", "image", "image", "image"]
-    assert content[0]["text"] == "Describe the time-lapsed video. /no_think"
+    assert content[0]["text"] == "Describe the time-lapsed video."
     assert [item["image"] for item in content[1:]] == [
         "frame_000000.jpg",
         "frame_000001.jpg",
