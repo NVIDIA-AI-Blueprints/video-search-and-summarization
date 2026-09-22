@@ -1,81 +1,55 @@
 # RT-CV-3D Standalone Deployment
 
-Sample configs, utility scripts, and a minimal docker compose file for RT-CV-3D microservice standalone deployment.
-The stack runs both RT-CV-3D components: **Perception**
-(`vss-rt-cv`: RT-DETR detector + MV3DT multi-view 3D tracker) and **BEV Fusion**
-(`vss-rt-cv-mv3dt-bev-fusion`: fuses per-camera measurements into BEV tracks).
-See the [RT-CV-3D README](../README.md) for the microservice introduction,
-container images, and how to build them.
+Sample configs, utility scripts, and a minimal docker compose file for RT-CV-3D microservice standalone deployment. The stack runs both RT-CV-3D components: **Perception** (`vss-rt-cv`: RT-DETR detector + MV3DT multi-view 3D tracker) and **BEV Fusion** (`vss-rt-cv-mv3dt-bev-fusion`: fuses per-camera measurements into BEV tracks). See the [RT-CV-3D README](../README.md) for the microservice introduction, container images, and how to build them.
 
 **Assumptions**
 
-- You cameras are already calibrated and you have a **`calibration.json`** for your camera setup. Refer to the
-  [VSS Calibration documentation](https://docs.nvidia.com/vss/latest/calibration.html)
-  for how to create one.
-- **Time-synchronized, 30 FPS multi-camera footage.** Whether you feed recordings or
-  live streams, the cameras must be synchronized in two ways: at any moment all cameras
-  capture the **same scene moment**, and frames of that moment carry timestamps that
-  **agree to within one frame's duration (33 ms at 30 FPS)**, so they bucket into the
-  same frame interval. Larger skew degrades cross-camera alignment and BEV fusion
-  accuracy. For **live RTSP** that correspondence is carried in-band, as an SEI
-  frame ID embedded by the VST proxy — see [§4](#4-add-streams-dynamically-rtsp).
+- You cameras are already calibrated and you have a **`calibration.json`** for your camera setup. Refer to the [VSS Calibration documentation](https://docs.nvidia.com/vss/latest/calibration.html) for how to create one.
+- **Time-synchronized, 30 FPS multi-camera footage.** Whether you feed recordings or live streams, the cameras must be synchronized in two ways: at any moment all cameras capture the **same scene moment**, and frames of that moment carry timestamps that **agree to within one frame's duration (33 ms at 30 FPS)**, so they bucket into the same frame interval. Larger skew degrades cross-camera alignment and BEV fusion accuracy. For **live RTSP** that correspondence is carried in-band, as an SEI frame ID embedded by the VST proxy — see [§4](#4-add-streams-dynamically-rtsp).
 
-You can feed that footage in one of two ways. The simplest is to point the pipeline at
-**recorded per-camera `.mp4` files**: this needs no streaming server, and
-each clip plays once and then the app exits, so it is the easiest way to try RT-CV-3D on your
-own recordings (see [§2.3](#23-stage-the-deepstream-configs)). The other is **live RTSP
-streams**, which you register after launch (see
-[§4](#4-add-streams-dynamically-rtsp)). The rest of the setup is identical either way, so it is
-best to validate on recordings first and move to live RTSP once the results look good.
+You can feed that footage in one of two ways. The simplest is to point the pipeline at **recorded per-camera `.mp4` files**: this needs no streaming server, and each clip plays once and then the app exits, so it is the easiest way to try RT-CV-3D on your own recordings (see [§2.3](#23-stage-the-deepstream-configs)). The other is **live RTSP streams**, which you register after launch (see [§4](#4-add-streams-dynamically-rtsp)). The rest of the setup is identical either way, so it is best to validate on recordings first and move to live RTSP once the results look good.
 
-If you don't have your own footage yet, the package in [§1.1](#11-download-the-assets-package)
-includes a 4-camera warehouse **sample dataset** you can run end-to-end.
-
-
+If you don't have your own footage yet, the package in [§1.1](#11-download-the-assets-package) includes a 4-camera warehouse **sample dataset** you can run end-to-end.
 
 ## Table of Contents
 
 - [1. Place models and assets](#1-place-models-and-assets)
-  - [1.1 Download the assets package](#11-download-the-assets-package)
-  - [1.2 Optional: use a different RT-DETR model](#12-optional-use-a-different-rt-detr-model)
+- [1.1 Download the assets package](#11-download-the-assets-package)
+- [1.2 Optional: use a different RT-DETR model](#12-optional-use-a-different-rt-detr-model)
 - [2. Update configs for your dataset](#2-update-configs-for-your-dataset)
-  - [2.1 Set environment variables](#21-set-environment-variables)
-  - [2.2 Generate camInfo and MQTT pub/sub configs](#22-generate-caminfo-and-mqtt-pubsub-configs)
-  - [2.3 Stage the DeepStream configs](#23-stage-the-deepstream-configs)
-  - [2.4 Optional: use your own DeepStream / tracker configs](#24-optional-use-your-own-deepstream--tracker-configs)
+- [2.1 Set environment variables](#21-set-environment-variables)
+- [2.2 Generate camInfo and MQTT pub/sub configs](#22-generate-caminfo-and-mqtt-pubsub-configs)
+- [2.3 Stage the DeepStream configs](#23-stage-the-deepstream-configs)
+- [2.4 Optional: use your own DeepStream / tracker configs](#24-optional-use-your-own-deepstream--tracker-configs)
 - [3. Launch](#3-launch)
-  - [3.1 Option A — bundled brokers](#31-option-a--bundled-brokers)
-  - [3.2 Option B — your own brokers](#32-option-b--your-own-brokers)
-  - [3.3 Optional ReID service](#33-optional-reid-service)
-  - [3.4 On screen, display, and GPU selection](#34-on-screen-display-and-gpu-selection)
-  - [3.5 Verify startup](#35-verify-startup)
+- [3.1 Option A — bundled brokers](#31-option-a--bundled-brokers)
+- [3.2 Option B — your own brokers](#32-option-b--your-own-brokers)
+- [3.3 Optional ReID service](#33-optional-reid-service)
+- [3.4 On screen, display, and GPU selection](#34-on-screen-display-and-gpu-selection)
+- [3.5 Verify startup](#35-verify-startup)
 - [4. Add streams dynamically (RTSP)](#4-add-streams-dynamically-rtsp)
 - [5. Check logs and receive metadata from Kafka](#5-check-logs-and-receive-metadata-from-kafka)
 - [6. Visualization](#6-visualization)
-  - [6.1 Perception camera view — live window (OSD)](#61-perception-camera-view--live-window-osd)
-  - [6.2 Perception camera view — save as video](#62-perception-camera-view--save-as-video)
-  - [6.3 BEV visualizer — live window](#63-bev-visualizer--live-window)
-  - [6.4 BEV visualizer — save as video](#64-bev-visualizer--save-as-video)
+- [6.1 Perception camera view — live window (OSD)](#61-perception-camera-view--live-window-osd)
+- [6.2 Perception camera view — save as video](#62-perception-camera-view--save-as-video)
+- [6.3 BEV visualizer — live window](#63-bev-visualizer--live-window)
+- [6.4 BEV visualizer — save as video](#64-bev-visualizer--save-as-video)
 - [Layout](#layout)
 
 ## 1. Place models and assets
 
 ### 1.1 Download the assets package
 
-Download the `vss-warehouse-app-data` package from NGC (substitute
-`<WAREHOUSE_APP_DATA_NGC>` / `<WAREHOUSE_APP_DATA_DIR>` with the resource
-reference and extracted directory name from the
-[VSS documentation](https://docs.nvidia.com/vss/latest/warehouse-docs/Quickstart-Guide.html#warehouse-app-data)):
+Download the `vss-warehouse-app-data` package from NGC (substitute `<WAREHOUSE_APP_DATA_NGC>` / `<WAREHOUSE_APP_DATA_DIR>` with the resource reference and extracted directory name from the [VSS documentation](https://docs.nvidia.com/vss/latest/warehouse-docs/Quickstart-Guide.html#warehouse-app-data)):
 
 ```bash
 ngc registry resource download-version "<WAREHOUSE_APP_DATA_NGC>"
 
-cd <WAREHOUSE_APP_DATA_DIR>
-tar -xvf *.tar.gz
+# Extract in a subshell so you stay in rt-cv-mv3dt for the steps that follow.
+( cd <WAREHOUSE_APP_DATA_DIR> && tar -xvf *.tar.gz )
 ```
 
-Then point **`MODELS_DIR`** in [docker/.env](docker/.env) at the extracted
-`vss-warehouse-app-data/models` directory. The stack uses:
+Then point **`MODELS_DIR`** in [docker/.env](docker/.env) at the extracted `vss-warehouse-app-data/models` directory. The stack uses:
 
 ```text
 $MODELS_DIR/mtmc/                  RT-DETR onnx (+ TensorRT engines, built on first run)
@@ -83,35 +57,26 @@ $MODELS_DIR/mv3dt/BodyPose3DNet/   3D pose model
 $MODELS_DIR/reid/                  CLIP-ReID onnx + TensorRT engine (optional ReID service)
 ```
 
-**Sample dataset (optional).** The same package also ships a 4-camera warehouse sample you
-can try RT-CV-3D on without your own footage. It consists of:
+**Sample dataset (optional).** The same package also ships a 4-camera warehouse sample you can try RT-CV-3D on without your own footage. It consists of:
 
 - **Per-camera videos** (in the app-data package) — point `VIDEO_DIR` at this directory:
   ```text
   $WAREHOUSE_APP_DATA_DIR/vss-warehouse-app-data/videos/warehouse-4cams-20mx20m-synthetic/
       Camera.mp4  Camera_01.mp4  Camera_02.mp4  Camera_03.mp4
   ```
-- **`calibration.json`** and the **BEV map `Top.png`** (in this repo, under
-  `deploy/.../warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`):
-  - [`calibration.json`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json)
-  - [`images/Top.png`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png)
+- **`calibration.json`** and the **BEV map `Top.png`** (in this repo, under `deploy/.../warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`):
+- [`calibration.json`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json)
+- [`images/Top.png`](../../../../deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png)
 
-To test with the sample dataset, set **`VIDEO_DIR`** to the absolute path of the sample videos
-directory and **`NUM_CAMS=4`** in [docker/.env](docker/.env), then continue with
-[§2.2](#22-generate-caminfo-and-mqtt-pubsub-configs) using its `calibration.json`, and
-[§2.3](#23-stage-the-deepstream-configs) with `INPUT_MODE=file`.
+To test with the sample dataset, set **`VIDEO_DIR`** to the absolute path of the sample videos directory and **`NUM_CAMS=4`** in [docker/.env](docker/.env), then continue with [§2.2](#22-generate-caminfo-and-mqtt-pubsub-configs) using its `calibration.json`, and [§2.3](#23-stage-the-deepstream-configs) with `INPUT_MODE=file`.
 
 ### 1.2 Optional: use a different RT-DETR model
 
 For example a smart-city variant:
 
 - place the onnx under `$MODELS_DIR/mtmc/`
-- update the `onnx-file` and `model-engine-file` names in
-  [configs/ds-pgie-config.yml](configs/ds-pgie-config.yml)
-- if the class set differs: update `configs/ds-detector-labels.txt` and the
-  `CLASS_SPECS` height/radius priors when generating configs
-  ([§2](#2-update-configs-for-your-dataset)) — `CLASS_SPECS` is an env override to
-  [`generate-configs.sh`](scripts/generate-configs.sh), whose header documents its format
+- update the `onnx-file` and `model-engine-file` names in [configs/ds-pgie-config.yml](configs/ds-pgie-config.yml)
+- if the class set differs: update `configs/ds-detector-labels.txt` and the `CLASS_SPECS` height/radius priors when generating configs ([§2](#2-update-configs-for-your-dataset)) — `CLASS_SPECS` is an env override to [`generate-configs.sh`](scripts/generate-configs.sh), whose header documents its format
 
 ## 2. Update configs for your dataset
 
@@ -126,9 +91,7 @@ Settings live in [docker/.env](docker/.env), in two kinds:
 
 † required, no default — compose won't start without them.
 
-`docker compose` reads `docker/.env` at launch, so everything it needs must be set in that
-file. The four staging knobs in the second row can instead be set **inline** — on the command
-line, e.g. `OSD=1 ./scripts/stage-configs.sh` — which overrides `docker/.env` for that run.
+`docker compose` reads `docker/.env` at launch, so everything it needs must be set in that file. The four staging knobs in the second row can instead be set **inline** — on the command line, e.g. `OSD=1 ./scripts/stage-configs.sh` — which overrides `docker/.env` for that run.
 
 ### 2.2 Generate camInfo and MQTT pub/sub configs
 
@@ -138,16 +101,12 @@ Generate from your `calibration.json`:
 ./scripts/generate-configs.sh /path/to/calibration.json
 ```
 
-**Expected:** `DONE. Generated:` with one camInfo file per camera. Outputs go
-to `generated/` (gitignored):
+**Expected:** `DONE. Generated:` with one camInfo file per camera. Outputs go to `generated/` (gitignored):
 
 - `generated/camInfo/<sensor>.yml` — per-camera projection matrices + object-model priors
-- `generated/pub_sub_info_config.yml` — sparse MQTT pub/sub neighbor graph
-  (tune with `NEIGHBOR_CRITERIA=top_N:<K>` or `overlap_threshold:<T>`)
+- `generated/pub_sub_info_config.yml` — sparse MQTT pub/sub neighbor graph (tune with `NEIGHBOR_CRITERIA=top_N:<K>` or `overlap_threshold:<T>`)
 
-The `/trck` topic endpoints in the generated pub/sub config default to the MQTT
-broker at `localhost:1883`. If your broker is not on localhost or on a different
-port, pass its address so the generated config points at it:
+The `/trck` topic endpoints in the generated pub/sub config default to the MQTT broker at `localhost:1883`. If your broker is not on localhost or on a different port, pass its address so the generated config points at it:
 
 ```bash
 MQTT_BROKERS=<host>:<port> ./scripts/generate-configs.sh /path/to/calibration.json
@@ -155,45 +114,30 @@ MQTT_BROKERS=<host>:<port> ./scripts/generate-configs.sh /path/to/calibration.js
 
 ### 2.3 Stage the DeepStream configs
 
-Run the staging script below. It writes `generated/configs/`, the config directory the container
-mounts. Any variable you put at the front of the command overrides its value in `.env`.
+Run the staging script below. It writes `generated/configs/`, the config directory the container mounts. Any variable you put at the front of the command overrides its value in `.env`.
 
 Pick the command for your case:
 
 ```bash
 ./scripts/stage-configs.sh                                # live RTSP streams (default), headless
-xhost + && OSD=1 ./scripts/stage-configs.sh              # + on-screen 3D-box display (needs a host display; xhost + lets the container open it)
+xhost +local: && OSD=1 ./scripts/stage-configs.sh        # + on-screen 3D-box display (needs a host display; revoke with xhost -local: when done)
 INPUT_MODE=file ./scripts/stage-configs.sh                # recorded video files  (also set VIDEO_DIR in .env — see below)
 INPUT_MODE=file SAVE_VIDEO=1 ./scripts/stage-configs.sh   # recorded files + save the grid view video with 3D boxes overlaid (see §6.2)
 TRACKER_CONFIG=/path/to/tracker.yml ./scripts/stage-configs.sh   # use your own tuned tracker config (see §2.4)
 ```
 
-**Recorded-file input (`INPUT_MODE=file`):** put one `.mp4` file per camera under `VIDEO_DIR`
-(set in `.env`), each named `<sensor_id>.mp4` to match its sensor id in `calibration.json`.
-The clips **play once and the container exits** at end of stream, so there is no stream
-registration; skip [§4](#4-add-streams-dynamically-rtsp). Everything downstream (Kafka, BEV
-fusion, visualizers) is identical to live mode.
+**Recorded-file input (`INPUT_MODE=file`):** put one `.mp4` file per camera under `VIDEO_DIR` (set in `.env`), each named `<sensor_id>.mp4` to match its sensor id in `calibration.json`. The clips **play once and the container exits** at end of stream, so there is no stream registration; skip [§4](#4-add-streams-dynamically-rtsp). Everything downstream (Kafka, BEV fusion, visualizers) is identical to live mode.
 
 ### 2.4 Optional: use your own DeepStream / tracker configs
 
-The samples live in [configs/](configs/) (RT-DETR pgie, MV3DT tracker, main
-config, Kafka/MQTT adaptors). To replace them:
+The samples live in [configs/](configs/) (RT-DETR pgie, MV3DT tracker, main config, Kafka/MQTT adaptors). To replace them:
 
-- **Tracker**: a tracker config tuned for your specific dataset usually tracks
-  more accurately than the sample config — such a config is typically obtained
-  by manual tuning or with
-  [PipeTuner](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/Pipetuner-guide.html),
-  which is why the `TRACKER_CONFIG` override is supported. Pass your own tracker
-  config when staging —
-  `TRACKER_CONFIG=/path/to/my-tracker-config.yml ./scripts/stage-configs.sh`
-  (its `cameraModelFilepath` map will still be overwritten properly to your generated camInfo files).
-- **Other DeepStream configs** (pgie, main config, adaptors): edit
-  the files in [configs/](configs/) before running `stage-configs.sh` or re-running it.
+- **Tracker**: a tracker config tuned for your specific dataset usually tracks more accurately than the sample config — such a config is typically obtained by manual tuning or with [PipeTuner](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/Pipetuner-guide.html), which is why the `TRACKER_CONFIG` override is supported. Pass your own tracker config when staging — `TRACKER_CONFIG=/path/to/my-tracker-config.yml ./scripts/stage-configs.sh` (its `cameraModelFilepath` map will still be overwritten properly to your generated camInfo files).
+- **Other DeepStream configs** (pgie, main config, adaptors): edit the files in [configs/](configs/) before running `stage-configs.sh` or re-running it.
 
 ## 3. Launch
 
-The default images are the NGC release images — run `docker login nvcr.io` first to be able to pull
-them (or build them locally instead, see the [RT-CV-3D README](../README.md#docker-images)).
+The default images are the NGC release images — run `docker login nvcr.io` first to be able to pull them (or build them locally instead, see the [RT-CV-3D README](../README.md#docker-images)).
 
 ### 3.1 Option A — bundled brokers
 
@@ -211,8 +155,7 @@ COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
 
 > **The two brokers propagate differently.** `MQTT_HOST`/`MQTT_PORT` are read by the container at every start, so editing `docker/.env` is enough for MQTT. The Kafka endpoint is written into `generated/configs/ds-main-config-mv3dt.txt` by `stage-configs.sh` and the configs are mounted read-only, so changing `KAFKA_BOOTSTRAP` without restaging leaves the old endpoint in place. Perception then retries a broker that is not there and aborts. The container checks the two against each other at startup and refuses with this remedy rather than failing that way, but restaging is what fixes it.
 
-If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](docker/.env),
-**restage**, then launch without `COMPOSE_PROFILES`:
+If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](docker/.env), **restage**, then launch without `COMPOSE_PROFILES`:
 
 ```bash
 ./scripts/stage-configs.sh     # required: the Kafka endpoint is written into the staged config
@@ -226,11 +169,7 @@ docker compose up -d
 
 ### 3.3 Optional ReID service
 
-The `reid` Compose profile adds the embedding service and its private Milvus,
-etcd, and MinIO dependencies. The tracker emits 1280-D CLIP-ReID features in
-`mdx-raw` and queries the service at `127.0.0.1:8088`; the service consumes the
-same `mdx-raw` topic. Compression and the secondary SigLIP embedding are off by
-default because neither is needed for tracker reassociation.
+The `reid` Compose profile adds the embedding service and its private Milvus, etcd, and MinIO dependencies. The tracker emits 1280-D CLIP-ReID features in `mdx-raw` and queries the service at `127.0.0.1:8088`; the service consumes the same `mdx-raw` topic. Compression and the secondary SigLIP embedding are off by default because neither is needed for tracker reassociation.
 
 For an isolated, finite evaluation, edit [docker/.env](docker/.env):
 
@@ -249,12 +188,7 @@ cd docker
 COMPOSE_PROFILES=mosquitto,kafka,reid docker compose up -d
 ```
 
-Perception waits for `GET /health/ready`, calls `POST /reset` to clear both
-Milvus collections, and only then starts `metropolis_perception_app` with
-`--tracker-reid`. That ordering means frame 0 of the finite files cannot run
-before the ReID state is reset. Startup also rejects a stale staged tracker
-config, so changing `REID_ENABLED` always requires another
-`./scripts/stage-configs.sh`.
+Perception waits for `GET /health/ready`, calls `POST /reset` to clear both Milvus collections, and only then starts `metropolis_perception_app` with `--tracker-reid`. That ordering means frame 0 of the finite files cannot run before the ReID state is reset. Startup also rejects a stale staged tracker config, so changing `REID_ENABLED` always requires another `./scripts/stage-configs.sh`.
 
 Useful checks while it starts:
 
@@ -264,30 +198,16 @@ docker logs -f vss-reid-embed-rtcv
 docker compose ps
 ```
 
-To run the comparison baseline, set `REID_ENABLED=0`, restage, and launch
-without the `reid` profile. The ReID data uses named Docker volumes and is not
-deleted by ordinary `docker compose down`; avoid `down -v`. The automatic reset
-gives each enabled experiment empty collections while retaining the volumes. A
-manual reset, when perception is stopped, is:
+To run the comparison baseline, set `REID_ENABLED=0`, restage, and launch without the `reid` profile. The ReID data uses named Docker volumes and is not deleted by ordinary `docker compose down`; avoid `down -v`. The automatic reset gives each enabled experiment empty collections while retaining the volumes. A manual reset, when perception is stopped, is:
 
 ```bash
 curl -fsS -X POST \
   'http://127.0.0.1:8088/reset?clear_main=true&clear_compressed=true'
 ```
 
-For strict isolation between repeated finite runs, consume/convert the Kafka
-results after perception exits, then run `docker compose --profile "*" down`
-before the next run. Bundled Kafka is intentionally ephemeral, so the next
-`up` begins with an empty topic and the startup reset begins with empty Milvus
-collections. Do not merely restart perception between experiments: records
-from the previous run can still be buffered in Kafka or in the ReID consumer.
-With an external persistent Kafka broker, use a fresh topic or explicitly
-truncate the experiment topic before bringing the ReID service up.
+For strict isolation between repeated finite runs, consume/convert the Kafka results after perception exits, then run `docker compose --profile "*" down` before the next run. Bundled Kafka is intentionally ephemeral, so the next `up` begins with an empty topic and the startup reset begins with empty Milvus collections. Do not merely restart perception between experiments: records from the previous run can still be buffered in Kafka or in the ReID consumer. With an external persistent Kafka broker, use a fresh topic or explicitly truncate the experiment topic before bringing the ReID service up.
 
-`REID_INPUT_TOPIC` must equal `RAW_TOPIC`, and `REID_DIMENSION` must match the
-tracker model (1280 for the supplied CLIP-ReID model). Staging checks both the
-topic wiring and the required files under `$MODELS_DIR/reid/` before changing
-the generated config.
+`REID_INPUT_TOPIC` must equal `RAW_TOPIC`, and `REID_DIMENSION` must match the tracker model (1280 for the supplied CLIP-ReID model). Staging checks both the topic wiring and the required files under `$MODELS_DIR/reid/` before changing the generated config.
 
 ### 3.4 On screen, display, and GPU selection
 
@@ -311,26 +231,16 @@ Either option — follow the perception logs until the pipeline reports ready:
 docker logs -f vss-rtvi-cv-mv3dt      # Ctrl-C to exit
 ```
 
-**Expected:** the pipeline starts without errors and prints `ds-ready: YES`. With RTSP
-input the `**PERF` blocks stay at 0.0 FPS until streams are registered in
-[§4](#4-add-streams-dynamically-rtsp); with file input (`INPUT_MODE=file`) the clips start
-immediately and the container exits when they end.
+**Expected:** the pipeline starts without errors and prints `ds-ready: YES`. With RTSP input the `**PERF` blocks stay at 0.0 FPS until streams are registered in [§4](#4-add-streams-dynamically-rtsp); with file input (`INPUT_MODE=file`) the clips start immediately and the container exits when they end.
 
-To see the per-view 3D bounding boxes on screen while the pipeline runs, stage
-the configs with `OSD=1` before launching — see [Visualization](#6-visualization).
+To see the per-view 3D bounding boxes on screen while the pipeline runs, stage the configs with `OSD=1` before launching — see [Visualization](#6-visualization).
 
 <details>
 <summary><b>Alternative: launch Perception (MV3DT) only with <code>docker run</code> — no BEV Fusion</b></summary>
 
-Runs only the Perception component (`vss-rt-cv`: RT-DETR + MV3DT).
-It still needs the MQTT/Kafka brokers, and
-it publishes per-sensor measurements to `mdx-raw` — but without the BEV Fusion
-component there are no fused `mdx-bev` tracks. Start the brokers (and
-bev-fusion, if wanted) separately.
+Runs only the Perception component (`vss-rt-cv`: RT-DETR + MV3DT). It still needs the MQTT/Kafka brokers, and it publishes per-sensor measurements to `mdx-raw` — but without the BEV Fusion component there are no fused `mdx-bev` tracks. Start the brokers (and bev-fusion, if wanted) separately.
 
-This direct command is the non-ReID baseline. Use the Compose workflow in
-[§3.3](#33-optional-reid-service) when ReID is enabled so the service readiness
-and reset ordering are enforced.
+This direct command is the non-ReID baseline. Use the Compose workflow in [§3.3](#33-optional-reid-service) when ReID is enabled so the service readiness and reset ordering are enforced.
 
 ```bash
 source docker/.env    # run from the rt-cv-mv3dt directory
@@ -354,27 +264,15 @@ docker run -d --rm --name vss-rtvi-cv-mv3dt \
 
 ## 4. Add streams dynamically (RTSP)
 
-*This is the input step for **live RTSP** (`INPUT_MODE=stream`). Skip it when
-testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
+*This is the input step for **live RTSP** (`INPUT_MODE=stream`). Skip it when testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
 
-> **Live RTSP requires SEI-carrying streams.** The staged DeepStream config sets
-> `extract-sei-sim-time=1` with `attach-sys-ts-as-ntp=0`, so each frame's
-> timestamp is read from `NVDS_CUSTOMMETA` SEI and is never replaced with host
-> time. **Every RTSP source must carry that SEI** — it is what lets MV3DT line
-> frames up across cameras. If it is missing, streams register successfully and
-> `ds-ready` reports `YES`, but no source ever activates and no `mdx-raw`
-> metadata is produced.
+> **Live RTSP requires SEI-carrying streams.** The staged DeepStream config sets `extract-sei-sim-time=1` with `attach-sys-ts-as-ntp=0`, so each frame's timestamp is read from `NVDS_CUSTOMMETA` SEI and is never replaced with host time. **Every RTSP source must carry that SEI** — it is what lets MV3DT line frames up across cameras. If it is missing, streams register successfully and `ds-ready` reports `YES`, but no source ever activates and no `mdx-raw` metadata is produced.
 >
-> In this deployment the VST proxy injects it (its upstream NVStreamer sources do
-> not: VST unifies their SEI). A source that does not go through VST must supply
-> `NVDS_CUSTOMMETA` SEI itself.
+> In this deployment the VST proxy injects it (its upstream NVStreamer sources do not: VST unifies their SEI). A source that does not go through VST must supply `NVDS_CUSTOMMETA` SEI itself.
 >
 > **Restage after any `docker/.env` change.** Several values are resolved at staging and written into `generated/`: the camera count, the broker endpoints, and the GPU selection. Editing `docker/.env` and bringing the stack up without re-running `./scripts/stage-configs.sh` leaves the staged configuration describing the previous settings. The container checks the ones it can and refuses rather than starting wrong.
 
-> `scripts/add-streams.sh` checks this before registering anything and refuses
-> with the remedy. To fix it, set `"enable_proxy_server_sei_metadata": true` in
-> both the VST and NVStreamer `vst_config.json` your deployment uses, redeploy,
-> then confirm inside the containers:
+> `scripts/add-streams.sh` checks this before registering anything and refuses with the remedy. To fix it, set `"enable_proxy_server_sei_metadata": true` in both the VST and NVStreamer `vst_config.json` your deployment uses, redeploy, then confirm inside the containers:
 >
 > ```bash
 > docker exec nvstreamer-1 sh -lc \
@@ -385,10 +283,7 @@ testing on recorded files — see [§2.3](#23-stage-the-deepstream-configs).*
 >
 > The check finds the proxy by probing ports 30000-30005 and 31000-31005: a VIOS deployment runs several VST services and only the proxy answers `/api/v1/proxy/configuration`, so a 404 does not mean VST is absent. Set `VST_HTTP_PORT` to pin the port. If nothing answers, the run stops rather than registering streams that could never activate; a source that carries the SEI without going through VST needs `--no-sei-check`.
 
-Register your RTSP streams via the perception REST API — one
-`<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras.
-**The key is the `camera_id` and must exactly match the sensor id in your
-  `calibration.json`.**
+Register your RTSP streams via the perception REST API — one `<sensor_id>=<rtsp_url>` pair per camera, for all `NUM_CAMS` cameras. **The key is the `camera_id` and must exactly match the sensor id in your `calibration.json`.**
 
 ```bash
 ./scripts/add-streams.sh \
@@ -414,9 +309,7 @@ Register your RTSP streams via the perception REST API — one
 >
 > **Adding streams after removing all of them needs a recreate.** The first-buffer alignment that gives the cameras a common time origin runs once per pipeline and is never re-armed, so streams added after the first batch are not guaranteed to be time synchronized. Recreate perception before registering the cameras again to avoid timing issues.
 
-**Expected:** the script waits for `ds-ready: YES`, then reports each stream as
-added. On the very first run for a given batch size, TensorRT builds the
-RT-DETR engine — allow several minutes; the script waits automatically.
+**Expected:** the script waits for `ds-ready: YES`, then reports each stream as added. On the very first run for a given batch size, TensorRT builds the RT-DETR engine — allow several minutes; the script waits automatically.
 
 ## 5. Check logs and receive metadata from Kafka
 
@@ -438,20 +331,18 @@ docker logs -f vss-rtvi-cv-mv3dt
 
 ## 6. Visualization
 
-Two visualizations are available: the **perception app's own camera view** (the tiled
-3D-box view, shown on-screen in [§6.1](#61-perception-camera-view--live-window-osd) or saved to file in
-[§6.2](#62-perception-camera-view--save-as-video)), and the **BEV track view**, which renders
-the object tracks consumed from Kafka onto a top-down, bird's-eye-view map (a live window
-in [§6.3](#63-bev-visualizer--live-window) or saved to file in
-[§6.4](#64-bev-visualizer--save-as-video)).
+Two visualizations are available: the **perception app's own camera view** (the tiled 3D-box view, shown on-screen in [§6.1](#61-perception-camera-view--live-window-osd) or saved to file in [§6.2](#62-perception-camera-view--save-as-video)), and the **BEV track view**, which renders the object tracks consumed from Kafka onto a top-down, bird's-eye-view map (a live window in [§6.3](#63-bev-visualizer--live-window) or saved to file in [§6.4](#64-bev-visualizer--save-as-video)).
 
 ### 6.1 Perception camera view — live window (OSD)
 
-**Requires a display on the host.** A tiled per-camera view with 3D bounding
-boxes, rendered by the perception container on your display:
+**Requires a display on the host.** A tiled per-camera view with 3D bounding boxes, rendered by the perception container on your display:
 
 ```bash
-# Run `xhost +` to allow the container to open the display.
+# Grant the container X access. Prefer the narrowest form that works:
+#   xhost +SI:localuser:#<container-uid>   grant only the container's uid
+#   xhost +local:                          grant all local clients
+# Revoke afterwards with the matching xhost -... form.
+xhost +local:
 # Add the OSD=1 flag to the staging command in §2.3
 OSD=1 ./scripts/stage-configs.sh
 ```
@@ -462,60 +353,45 @@ OSD=1 ./scripts/stage-configs.sh
 Work through the following checks in order:
 
 1. **`$DISPLAY` is set on the host** — run `echo $DISPLAY`; it should print a non-empty value matching your active display session (e.g. `:0`). If it is empty, find the correct value for your session and export it: `export DISPLAY=<value>`.
-2. **X11 access is granted** — run `xhost +` on the host to allow the container to open the display.
+2. **X11 access is granted** — grant the container access with `xhost +SI:localuser:#<container-uid>`, or `xhost +local:` for all local clients. Avoid `xhost +`, which disables access control for every client, including remote ones. Revoke with the matching `xhost -...` form when you are done.
 3. **Configs were staged with `OSD=1`** — If you didn't already, re-run `OSD=1 ./scripts/stage-configs.sh` and relaunch.
 4. **Check the perception container logs**
    ```bash
    docker logs vss-rtvi-cv-mv3dt
    ```
-   If it shows this line: `libEGL warning: egl: failed to create dri2 screen`, it often indicates the container cannot access the host DRI device (`/dev/dri`). In most cases the fix is to pass the host DRI device into the container by adding the following to the `perception` service in [docker/compose.yml](docker/compose.yml):
+If it shows this line: `libEGL warning: egl: failed to create dri2 screen`, it often indicates the container cannot access the host DRI device (`/dev/dri`). In most cases the fix is to pass the host DRI device into the container by adding the following to the `perception` service in [docker/compose.yml](docker/compose.yml):
    ```yaml
    services:
      perception:
        devices:
          - /dev/dri
    ```
-   Then relaunch the container.
+Then relaunch the container.
 
 </details>
 
 ### 6.2 Perception camera view — save as video
 
-Save the perception app's own annotated camera view (the same 3D-box view as the
-OSD) to an encoded video, useful on a headless machine with no display. Enable it with
-`SAVE_VIDEO=1`, either set in [docker/.env](docker/.env) or passed inline to the staging
-command ([§2.3](#23-stage-the-deepstream-configs)), then launch. It writes
-`video-output/grid-view.mkv`: all cameras tiled into one video, with the 3D boxes and the
-class/ID labels overlaid.
+Save the perception app's own annotated camera view (the same 3D-box view as the OSD) to an encoded video, useful on a headless machine with no display. Enable it with `SAVE_VIDEO=1`, either set in [docker/.env](docker/.env) or passed inline to the staging command ([§2.3](#23-stage-the-deepstream-configs)), then launch. It writes `video-output/grid-view.mkv`: all cameras tiled into one video, with the 3D boxes and the class/ID labels overlaid.
 
-- **Recorded files** ([§2.3](#23-stage-the-deepstream-configs)) — the clips play
-  once and the file finalizes automatically at end-of-stream (the container then exits):
+- **Recorded files** ([§2.3](#23-stage-the-deepstream-configs)) — the clips play once and the file finalizes automatically at end-of-stream (the container then exits):
   ```bash
   # Add the SAVE_VIDEO=1 flag to the staging command in §2.3
   INPUT_MODE=file SAVE_VIDEO=1 ./scripts/stage-configs.sh
   ```
-- **Live RTSP** — the DeepStream file sink writes one continuous file and does not
-  configure segment rotation, size limits, or retention cleanup. Because a live stream
-  has no natural end-of-stream, `stage-configs.sh` refuses `INPUT_MODE=stream
-  SAVE_VIDEO=1` by default. To explicitly accept an unbounded live recording, opt in:
+- **Live RTSP** — the DeepStream file sink writes one continuous file and does not configure segment rotation, size limits, or retention cleanup. Because a live stream has no natural end-of-stream, `stage-configs.sh` refuses `INPUT_MODE=stream SAVE_VIDEO=1` by default. To explicitly accept an unbounded live recording, opt in:
   ```bash
   ALLOW_UNBOUNDED_RECORDING=1 SAVE_VIDEO=1 ./scripts/stage-configs.sh
   ```
 
-Both supported modes write `video-output/grid-view.mkv`. To convert it to `.mp4` (and, for live RTSP,
-produce a finalized/seekable file), run a lossless conversion with no re-encode:
+Both supported modes write `video-output/grid-view.mkv`. To convert it to `.mp4` (and, for live RTSP, produce a finalized/seekable file), run a lossless conversion with no re-encode:
 
 ```bash
 ffmpeg -i video-output/grid-view.mkv -c copy video-output/grid-view.mp4
 # For live RTSP input, a few "Non-monotonic DTS" warnings are expected and harmless.
 ```
 
-> **NVENC-less GPUs (e.g. A100, H100, H200, GB200, GB300).** The video output from the perception container is encoded with the GPU's NVENC hardware
-> encoder by default (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). When `SAVE_VIDEO=1`,
-> `stage-configs.sh` detects these GPUs with `nvidia-smi` and stages the software (CPU) encoder (`enc-type=1`) instead.
-> The stock image does not carry that encoder, so staging also prepares it: it runs DeepStream's `user_additional_install.sh` in a throwaway container, commits the result as `<tag>-swenc`, and points `PERCEPTION_TAG` at it. That takes a few minutes on first use and needs network access to the Ubuntu archives; afterwards it is a no-op. Staging refuses rather than writing a config that would fail at runtime for lack of an encoder.
-> The prepared image is local to that host, so a later `PERCEPTION_TAG` bump needs it again — staging notices and redoes it.
-> To prepare it on its own, or just to check:
+> **NVENC-less GPUs (e.g. A100, H100, H200, GB200, GB300).** The video output from the perception container is encoded with the GPU's NVENC hardware encoder by default (`enc-type=0` for `[sink2]` in `configs/ds-main-config-mv3dt.txt`). When `SAVE_VIDEO=1`, `stage-configs.sh` detects these GPUs with `nvidia-smi` and stages the software (CPU) encoder (`enc-type=1`) instead. The stock image does not carry that encoder, so staging also prepares it: it runs DeepStream's `user_additional_install.sh` in a throwaway container, commits the result as `<tag>-swenc`, and points `PERCEPTION_TAG` at it. That takes a few minutes on first use and needs network access to the Ubuntu archives; afterwards it is a no-op. Staging refuses rather than writing a config that would fail at runtime for lack of an encoder. The prepared image is local to that host, so a later `PERCEPTION_TAG` bump needs it again — staging notices and redoes it. To prepare it on its own, or just to check:
 > ```bash
 > ./scripts/prepare-sw-encoder.sh           # prepare and update docker/.env
 > ./scripts/prepare-sw-encoder.sh --check   # report only; exit 1 if the encoder is missing
@@ -523,8 +399,7 @@ ffmpeg -i video-output/grid-view.mkv -c copy video-output/grid-view.mp4
 
 ### 6.3 BEV visualizer — live window
 
-**Requires a display on the host** (without one, use [§6.4](#64-bev-visualizer--save-as-video)).
-Reads object tracks from Kafka and renders them on a top-down BEV map.
+**Requires a display on the host** (without one, use [§6.4](#64-bev-visualizer--save-as-video)). Reads object tracks from Kafka and renders them on a top-down BEV map.
 
 **Step 1 — prepare `BEV_DATASET_PATH`.** This must be a directory containing:
 
@@ -566,8 +441,7 @@ In the live window: press `q` to quit. See [scripts/bev-visualizer.sh](scripts/b
 
 ### 6.4 BEV visualizer — save as video
 
-Same `BEV_DATASET_PATH` and `BEV_SOURCE` as [§6.3](#63-bev-visualizer--live-window). Add
-`BEV_SAVE_VIDEO=1` environment variable to save the video to file:
+Same `BEV_DATASET_PATH` and `BEV_SOURCE` as [§6.3](#63-bev-visualizer--live-window). Add `BEV_SAVE_VIDEO=1` environment variable to save the video to file:
 
 ```bash
 BEV_SAVE_VIDEO=1 BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
@@ -576,10 +450,7 @@ BEV_SAVE_VIDEO=1 BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 BEV_SAVE_VIDEO=1 BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 ```
 
-**Expected:** a `recorded N frames ...` progress line every ~10 s. With **file input** the
-recorder finalizes and exits on its own shortly after the clips end; with **live streams** it
-runs until you stop it with Ctrl-C. Either way the mp4 is saved to `./bev-output/`
-(`Video saved: .../bev-output/trajectory_video_<stamp>.mp4 (N frames)`).
+**Expected:** a `recorded N frames ...` progress line every ~10 s. With **file input** the recorder finalizes and exits on its own shortly after the clips end; with **live streams** it runs until you stop it with Ctrl-C. Either way the mp4 is saved to `./bev-output/` (`Video saved: .../bev-output/trajectory_video_<stamp>.mp4 (N frames)`).
 
 ## Layout
 

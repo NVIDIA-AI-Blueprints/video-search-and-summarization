@@ -18,7 +18,7 @@ Perception uses the same `vss-rt-cv` image as [Object Detection and Tracking](/v
 
 ## Standalone deployment
 
-This deployment ships sample configs, utility scripts, and a minimal Docker Compose file that runs both components together. For container image tags and how to build them locally, see the [RT-CV-3D README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/README.md#docker-images).
+Unless noted otherwise, run every command below from `services/rtvi/rt-cv-3d/rt-cv-mv3dt` in a checkout of the blueprint repository. This deployment ships sample configs, utility scripts, and a minimal Docker Compose file that runs both components together. For container image tags and how to build them locally, see the [RT-CV-3D README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/README.md#docker-images).
 
 **Assumptions**
 
@@ -38,8 +38,8 @@ Download the `vss-warehouse-app-data` package from NGC (substitute `<WAREHOUSE_A
 ```bash
 ngc registry resource download-version "<WAREHOUSE_APP_DATA_NGC>"
 
-cd <WAREHOUSE_APP_DATA_DIR>
-tar -xvf *.tar.gz
+# Extract in a subshell so you stay in rt-cv-mv3dt for the steps that follow.
+( cd <WAREHOUSE_APP_DATA_DIR> && tar -xvf *.tar.gz )
 ```
 
 Then point **`MODELS_DIR`** in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) at the extracted `vss-warehouse-app-data/models` directory. The stack uses:
@@ -113,7 +113,7 @@ Pick the command for your case:
 
 ```bash
 ./scripts/stage-configs.sh                                # live RTSP streams (default), headless
-xhost + && OSD=1 ./scripts/stage-configs.sh              # + on-screen 3D-box display (needs a host display; xhost + lets the container open it)
+xhost +local: && OSD=1 ./scripts/stage-configs.sh        # + on-screen 3D-box display (needs a host display; revoke with xhost -local: when done)
 INPUT_MODE=file ./scripts/stage-configs.sh                # recorded video files  (also set VIDEO_DIR in .env — see below)
 INPUT_MODE=file SAVE_VIDEO=1 ./scripts/stage-configs.sh   # recorded files + save the grid view video with 3D boxes overlaid (see §6.2)
 TRACKER_CONFIG=/path/to/tracker.yml ./scripts/stage-configs.sh   # use your own tuned tracker config (see §2.4)
@@ -331,7 +331,11 @@ Two visualizations are available: the **perception app's own camera view** (the 
 **Requires a display on the host.** A tiled per-camera view with 3D bounding boxes, rendered by the perception container on your display:
 
 ```bash
-# Run `xhost +` to allow the container to open the display.
+# Grant the container X access. Prefer the narrowest form that works:
+#   xhost +SI:localuser:#<container-uid>   grant only the container's uid
+#   xhost +local:                          grant all local clients
+# Revoke afterwards with the matching xhost -... form.
+xhost +local:
 # Add the OSD=1 flag to the staging command in §2.3
 OSD=1 ./scripts/stage-configs.sh
 ```
@@ -342,7 +346,7 @@ OSD=1 ./scripts/stage-configs.sh
 Work through the following checks in order:
 
 1. **`$DISPLAY` is set on the host** — run `echo $DISPLAY`; it should print a non-empty value matching your active display session (e.g. `:0`). If it is empty, find the correct value for your session and export it: `export DISPLAY=<value>`.
-2. **X11 access is granted** — run `xhost +` on the host to allow the container to open the display.
+2. **X11 access is granted** — grant the container access with `xhost +SI:localuser:#<container-uid>`, or `xhost +local:` for all local clients. Avoid `xhost +`, which disables access control for every client, including remote ones. Revoke with the matching `xhost -...` form when you are done.
 3. **Configs were staged with `OSD=1`** — If you didn't already, re-run `OSD=1 ./scripts/stage-configs.sh` and relaunch.
 4. **Check the perception container logs**
    ```bash
