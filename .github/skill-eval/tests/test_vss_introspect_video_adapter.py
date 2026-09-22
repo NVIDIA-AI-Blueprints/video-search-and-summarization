@@ -101,6 +101,8 @@ def test_lightweight_evals_cover_all_requested_scenarios() -> None:
 def test_skill_documents_full_agent_owned_loop_and_canonical_limits() -> None:
     skill = SKILL_DIR.joinpath("SKILL.md").read_text(encoding="utf-8")
     normalized = " ".join(skill.split())
+    assert not any(SKILL_DIR.joinpath("references").glob("*"))
+    assert "complete agent-facing workflow and contract" in normalized
     assert "vss-generate-evidence-plan" in skill
     assert "before planning" not in normalized
     assert "option-blind" in skill
@@ -114,6 +116,9 @@ def test_skill_documents_full_agent_owned_loop_and_canonical_limits() -> None:
     assert "The evidence planner never answers the question" in skill
     assert "ordinary `vss vios`" in skill
     assert "Never exceed any maximum loaded" in skill
+    assert "Never fabricate sensor or time fields" in normalized
+    assert '{"type":"media_url","media_url":"https://..."}' in skill
+    assert "`evidence_details`" in skill
 
     # The legacy command may appear only in an explicit prohibition.
     occurrences = [
