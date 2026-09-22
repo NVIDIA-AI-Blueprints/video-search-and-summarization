@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/skills/vss-introspect-video/inspection-task.schema.json",
+  "title": "VSS Introspection Inspection Task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "base_revision",
+    "claim",
+    "gap",
+    "existing_observations",
+    "asset_id",
+    "max_vlm_calls"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^inspect-claim-[a-z0-9]+(?:-[a-z0-9]+)*-r[1-9][0-9]*$"
+    },
+    "base_revision": {"type": "integer", "minimum": 0},
+    "claim": {"$ref": "evidence-ledger.schema.json#/$defs/planClaim"},
+    "gap": {"type": ["string", "null"]},
+    "existing_observations": {
+      "type": "array",
+      "items": {"$ref": "evidence-ledger.schema.json#/$defs/observation"}
+    },
+    "asset_id": {"type": ["string", "null"]},
+    "max_vlm_calls": {"type": "integer", "minimum": 1}
+  }
+}
