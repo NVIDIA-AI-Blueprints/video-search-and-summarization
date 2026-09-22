@@ -128,11 +128,13 @@ def generate_solve_script(platform: str) -> str:
         "#!/bin/bash\n"
         f"# Gold solution: vss-query-analytics on {platform}\n"
         "# The verifier judges the requested analytics behavior; this script\n"
-        "# asserts that the project-local CLI surface is available.\n"
+        "# asserts that the vss CLI surface is available.\n"
         "set -euo pipefail\n"
         "\n"
         'REPO="${VSS_REPO:-/workspace/video-search-and-summarization}"\n'
-        'uv run --project "$REPO/libs/vss" --no-sync vss analytics --help >/dev/null\n'
+        'export PATH="$HOME/.local/bin:$PATH"\n'
+        'command -v vss >/dev/null || uv tool install "$REPO/libs/vss/cli"\n'
+        'vss analytics --help >/dev/null\n'
         'echo "vss analytics is available — verifier will judge the requested query."\n'
     )
 

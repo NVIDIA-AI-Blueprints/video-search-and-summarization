@@ -3,31 +3,18 @@
 One CLI for Compose and Kubernetes. Endpoints come from the deployment recorded
 by `vss configure`; the command takes none.
 
-Run the `vss` console executable from the `vss` project in the checkout
-(`--no-dev` keeps the sync runtime-only — no NAT or dev tooling):
+Run the `vss` on `PATH` — shipped in the harness images, otherwise installed
+from this skill's checkout with `uv tool install <checkout>/libs/vss/cli`:
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
-  exit 1
-}
-cd "${VSS_REPO_ROOT}" &&
-uv run --project "${VSS_REPO_ROOT}/libs/vss" \
-  vss search run <path> [options]
+vss search run <path> [options]
 ```
 
-The executable is provided by that project and need not exist globally. Do not
-use `which vss`; verify the supported entry point directly:
+Verify the entry point directly:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/libs/vss" \
-  vss search run --help
+vss search run --help
 ```
-
-`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
-needed: the agent stack is not in it and the environment is NAT-free by
-construction.
 
 If preflight fails, report its error and stop. Do not manually call
 Elasticsearch, embedding, or search endpoints.
