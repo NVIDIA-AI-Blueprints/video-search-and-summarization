@@ -37,11 +37,15 @@ SCHEMA_ID: Literal["nv.vss.memory/1.0"] = "nv.vss.memory/1.0"
 #: than shipped in a wheel -- owns a group name this package has never heard
 #: of, and a record it cannot write is a record nothing can read back.
 #:
-#: Widening accepted values is compatible with every document already stored:
-#: the old names are still valid, the envelope has not moved, and no reader
-#: gains a shape it did not have. ``SCHEMA_ID`` therefore stays at 1.0 --
-#: bumping it would retype the ``schema`` discriminator and make every existing
-#: record fail to decode, which is the opposite of what this change is for.
+#: ``SCHEMA_ID`` stays at 1.0, and the trade is worth stating in both
+#: directions rather than one. A *new* reader decodes every record an older
+#: writer produced: the old names are still valid and the envelope has not
+#: moved. An *older* reader -- one pinned to a ``vss_core`` whose ``Literal``
+#: is still closed -- rejects a record naming a group it has never heard of.
+#: Bumping the id would not fix that; it would make the older reader reject
+#: *every* record instead of only the new ones, because the discriminator is
+#: typed too. Forward compatibility across a pinned split is not available at
+#: any version number, so the cheaper failure is the one kept here.
 MemoryGroup = str
 RecordType = str
 
@@ -135,6 +139,10 @@ class JobInfo(BaseModel):
     @field_validator("group", mode="before")
     @classmethod
     def _note_unknown_group(cls, value: object) -> object:
+        # "" is not an identifier. Widening to `str` would otherwise accept it
+        # and join every unrelated record into one nameless partition.
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("job.group must be a non-empty identifier")
         if isinstance(value, str) and value and value not in KNOWN_GROUPS and value not in _REPORTED_GROUPS:
             _REPORTED_GROUPS.add(value)
             logger.info(
@@ -147,6 +155,8 @@ class JobInfo(BaseModel):
     @field_validator("record_type", mode="before")
     @classmethod
     def _note_unknown_record_type(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("job.record_type must be a non-empty identifier when present")
         if isinstance(value, str) and value and value not in KNOWN_RECORD_TYPES and value not in _REPORTED_RECORD_TYPES:
             _REPORTED_RECORD_TYPES.add(value)
             logger.info(

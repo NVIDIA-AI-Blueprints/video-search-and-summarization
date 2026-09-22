@@ -105,9 +105,13 @@ class GroupRef:
     value: str
     dist: str | None
     #: Directory the manifest was read from, for an on-disk group. None for an
-    #: installed one. Carried so ``load`` can put it on ``sys.path`` and so a
+    #: installed one. Carried so ``load`` can import from it, and so a
     #: collision can name where each side came from.
     source: Path | None = None
+    #: Why this group cannot be loaded, when discovery already knows. Set for a
+    #: manifest that will not parse, one that declares no importable, and a name
+    #: two directories both claim. ``load`` raises it rather than guessing.
+    unavailable: str | None = None
 
 
 class PluginLoadError(Exception):
@@ -154,7 +158,14 @@ def _manifests() -> list[GroupRef]:
             # A malformed manifest becomes a broken command, not a dead CLI:
             # the reason shows up when that group is invoked.
             refs.append(
-                GroupRef(name=directory.name, summary="", value=f"<unreadable: {error}>", dist=None, source=directory)
+                GroupRef(
+                    name=directory.name,
+                    summary="",
+                    value="",
+                    dist=None,
+                    source=directory,
+                    unavailable=f"its {MANIFEST_NAME} will not parse: {error}",
+                )
             )
             continue
         name = str(declared.get("name") or directory.name)
@@ -163,12 +174,38 @@ def _manifests() -> list[GroupRef]:
             GroupRef(
                 name=name,
                 summary=str(declared.get("summary") or ""),
-                value=str(value) if value else "<no `group` key in plugin.toml>",
+                value=str(value) if value else "",
                 dist=None,
                 source=directory,
+                unavailable=None if value else f'its {MANIFEST_NAME} declares no `group = "module:attr"`',
             )
         )
-    return refs
+
+    # Two directories may declare the same manifest `name` -- the directory
+    # name and the declared name need not match, so this is not prevented by
+    # the filesystem. Collapsing them by dict order would pick a winner in
+    # silence, which is the failure the installed-name check exists to avoid;
+    # refuse both and name each directory instead.
+    by_name: dict[str, list[GroupRef]] = {}
+    for ref in refs:
+        by_name.setdefault(ref.name, []).append(ref)
+    resolved: list[GroupRef] = []
+    for name, group in by_name.items():
+        if len(group) == 1:
+            resolved.append(group[0])
+            continue
+        sources = ", ".join(str(ref.source) for ref in group)
+        resolved.append(
+            GroupRef(
+                name=name,
+                summary="",
+                value="",
+                dist=None,
+                source=group[0].source,
+                unavailable=f"more than one directory declares the name {name!r}: {sources}",
+            )
+        )
+    return resolved
 
 
 def _summaries() -> dict[str, str]:
@@ -233,6 +270,8 @@ def load(name: str) -> CommandGroupSpec:
     ref = next((candidate for candidate in discover() if candidate.name == name), None)
     if ref is None:
         raise PluginLoadError(f"no command group named {name!r}")
+    if ref.unavailable is not None:
+        raise PluginLoadError(f"{name!r} cannot be loaded: {ref.unavailable}")
     if ref.source is not None and ref.dist is not None:
         raise PluginLoadError(
             f"{name!r} is both installed (by {ref.dist}) and present at {ref.source / MANIFEST_NAME}; "
@@ -248,13 +287,31 @@ def load(name: str) -> CommandGroupSpec:
         # The plugin directory itself goes on the path, so a dropped group is
         # importable without being installed. Appended, not prepended: an
         # on-disk group must not shadow an installed module of the same name.
-        root = str(ref.source)
-        if root not in sys.path:
-            sys.path.append(root)
         try:
-            import importlib
+            import importlib.util
 
-            obj = getattr(importlib.import_module(module_name), attribute)
+            module_path = ref.source / f"{module_name.replace('.', '/')}.py"
+            if not module_path.is_file():
+                raise PluginLoadError(
+                    f"{name!r} (from {origin}) declares module {module_name!r}, which is not in {ref.source}"
+                )
+            # Private, per-plugin module name, loaded straight from the file.
+            # Going through sys.path would let an installed module of the same
+            # basename win, and would cache this one under a name the next
+            # plugin could collide with -- serving plugin A's GROUP for
+            # plugin B in the same process.
+            qualified = f"_vss_plugin_{name}_{module_name}"
+            spec = importlib.util.spec_from_file_location(qualified, module_path)
+            if spec is None or spec.loader is None:
+                raise PluginLoadError(f"{name!r} (from {origin}) could not be loaded from {module_path}")
+            module = importlib.util.module_from_spec(spec)
+            # Registered before exec so the module can import itself by name;
+            # keyed on the private name, so nothing else can be shadowed.
+            sys.modules[qualified] = module
+            spec.loader.exec_module(module)
+            obj = getattr(module, attribute)
+        except PluginLoadError:
+            raise
         except Exception as exc:
             raise PluginLoadError(f"{name!r} (from {origin}) failed to import: {exc!r}") from exc
     else:

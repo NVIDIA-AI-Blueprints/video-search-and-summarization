@@ -208,7 +208,14 @@ class Lifecycle:
             attempts = TERMINAL_WRITE_ATTEMPTS
         if backoff_seconds is None:
             backoff_seconds = TERMINAL_WRITE_BACKOFF_SECONDS
-        record = self.terminal_record(status, input_data, message=message)
+        try:
+            record = self.terminal_record(status, input_data, message=message)
+        except Exception:
+            # Building the record is as fallible as writing it -- an adapter can
+            # refuse input the job already failed on. Raising here would replace
+            # the caller's diagnosis with this one and skip the marker, so the
+            # handle is reported stale exactly as a refused write would be.
+            return "stale"
         delay = backoff_seconds
         for attempt in range(1, attempts + 1):
             try:

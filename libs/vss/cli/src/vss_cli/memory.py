@@ -113,6 +113,8 @@ class Memory:
         self.embedding_batch_size = embedding_batch_size
         self._closeables = closeables
         self._closed = False
+        #: Set by the last :meth:`get` when its partition read hit the limit.
+        self._truncated = False
 
     @property
     def service(self) -> MemoryService:
@@ -137,7 +139,13 @@ class Memory:
         """The whole partition: the lifecycle row plus every result row under it."""
         lifecycle = self._scoped(group, job_id)
         payload = lifecycle.model_dump_memory()
+        self._truncated = False
         payload["results"] = self._result_rows(lifecycle)
+        if self._truncated:
+            # A short read that says nothing is worse than a short read: a
+            # caller counting rows would conclude the job produced fewer than
+            # it did.
+            payload["results_truncated"] = True
         return payload
 
     def query(self, group: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
@@ -181,16 +189,21 @@ class Memory:
                 for key, value in lifecycle.output.ext.items()
                 if key.endswith("_count") and isinstance(value, int) and value > 0
             )
-        records = self._service.query(
-            MemoryQuery(job_id=lifecycle.job.job_id, limit=max(_DEFAULT_ROW_LIMIT, advertised))
-        )
+        # +1 for the lifecycle row, which shares the partition and counts
+        # against the same limit: asking for exactly `advertised` returned one
+        # result row fewer than the job advertised.
+        limit = max(_DEFAULT_ROW_LIMIT, advertised) + 1
+        records = self._service.query(MemoryQuery(job_id=lifecycle.job.job_id, limit=limit))
+        self._truncated = len(records) >= limit
 
         def sort_key(record: UnifiedMemoryRecord) -> tuple[int, Any, str]:
             ext = record.output.ext if record.output is not None and record.output.ext else {}
             for key in _RANK_KEYS:
                 rank = ext.get(key)
-                if isinstance(rank, int | float):
-                    return (0, int(rank), record.job.record_id or "")
+                if isinstance(rank, int | float) and not isinstance(rank, bool):
+                    # Kept as a float: int() collapsed 1.2 and 1.8 onto the same
+                    # key and then ordered them by record id instead of rank.
+                    return (0, float(rank), record.job.record_id or "")
             if record.input is not None and record.input.window is not None:
                 return (1, record.input.window.start.timestamp.isoformat(), record.job.record_id or "")
             return (2, "", record.job.record_id or "")
