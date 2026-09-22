@@ -478,7 +478,7 @@ if [[ "$*" == *"--query-gpu=index,name"* ]]; then
 elif [[ "$*" == *"--query-gpu=index"* ]]; then
   printf '0\n1\n'
 elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
-  echo "580.126.09"
+  echo "595.58.03"
 elif [[ "$*" == *"--query-gpu=name"* ]]; then
   printf 'NVIDIA RTX PRO 4500 Blackwell\nNVIDIA RTX PRO 4500 Blackwell\n'
 else
@@ -501,7 +501,7 @@ if [[ "$*" == *"--query-gpu=index,name"* ]]; then
 elif [[ "$*" == *"--query-gpu=index"* ]]; then
   echo "0"
 elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
-  echo "580.126.09"
+  echo "595.58.03"
 else
   echo "NVIDIA RTX PRO 4500 Blackwell"
 fi
@@ -519,7 +519,7 @@ if [[ "$*" == *"--query-gpu=index,name"* ]]; then
 elif [[ "$*" == *"--query-gpu=index"* ]]; then
   printf '0\n1\n'
 elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
-  echo "570.00.00"
+  echo "595.58.02"
 elif [[ "$*" == *"--query-gpu=name"* ]]; then
   printf 'NVIDIA RTX PRO 4500 Blackwell\nNVIDIA RTX PRO 4500 Blackwell\n'
 else
@@ -528,7 +528,7 @@ fi
 EOF
 chmod +x "${_mock_rtx4500_old_driver_dir}/nvidia-smi"
 LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_old_driver_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
-  EXPECTED_ERROR="requires NVIDIA driver 580.126.09 or newer" run_negative_test "RTXPRO4500BW rejects alerts when the NVIDIA driver is older than 580.126.09" 1 \
+  EXPECTED_ERROR="requires NVIDIA driver 595.58.03 or newer" run_negative_test "RTXPRO4500BW rejects alerts when the NVIDIA driver is older than 595.58.03" 1 \
   up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
 run_negative_test "GB300 search requires one shared device" 1 up -p search -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 0 -d
 

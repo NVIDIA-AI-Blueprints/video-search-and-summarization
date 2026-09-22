@@ -101,7 +101,7 @@ function get_nvidia_smi_gpu_count() {
 
 # Returns success when the detected dotted version is at least the required
 # version. NVIDIA driver versions are numeric and compare correctly with
-# version sort (for example, 580.126.09 > 580.90.00).
+# version sort (for example, 595.58.03 > 595.57.99).
 function version_is_at_least() {
   local _detected="${1}"
   local _required="${2}"
@@ -1164,7 +1164,7 @@ function process_args() {
             ((_all_good++))
           fi
 
-          local _minimum_driver_version="580.126.09"
+          local _minimum_driver_version="595.58.03"
           local _driver_version
           _driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1)"
           _driver_version="${_driver_version//[[:space:]]/}"
