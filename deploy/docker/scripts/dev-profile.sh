@@ -1037,16 +1037,18 @@ function process_args() {
       # RTX PRO 4500 Blackwell is validated only for Alerts with a remote LLM.
       # Keep this policy outside SKIP_HARDWARE_CHECK: that escape hatch skips
       # host probing in CI, not unsupported profile/model combinations.
-      if [[ "${hardware_profile}" == "RTXPRO4500BW" ]]; then
-        if [[ "${profile}" != "alerts" ]]; then
-          echo "[ERROR] Hardware profile 'RTXPRO4500BW' is only valid for profile alerts, not '${profile}'"
-          ((_all_good++))
-        fi
-        if ! contains_element "use-remote-llm" "${options_provided[@]}"; then
-          echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires --use-remote-llm with LLM_ENDPOINT_URL"
-          ((_all_good++))
-        fi
-      fi
+      case "${hardware_profile}" in
+        RTXPRO4500BW)
+          if [[ "${profile}" != "alerts" ]]; then
+            echo "[ERROR] Hardware profile 'RTXPRO4500BW' is only valid for profile alerts, not '${profile}'"
+            ((_all_good++))
+          fi
+          if ! contains_element "use-remote-llm" "${options_provided[@]}"; then
+            echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires --use-remote-llm with LLM_ENDPOINT_URL"
+            ((_all_good++))
+          fi
+          ;;
+      esac
 
       # FIRST pass over the remote predicates. Computed here because GB300
       # placement below needs them, and that must happen before the edge search
@@ -1156,23 +1158,25 @@ function process_args() {
           ((_all_good++))
         fi
 
-        if [[ "${hardware_profile}" == "RTXPRO4500BW" ]]; then
-          local _gpu_count
-          _gpu_count="$(get_nvidia_smi_gpu_count)"
-          if [[ "${_gpu_count}" -lt 2 ]]; then
-            echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires at least 2 NVIDIA GPUs; detected ${_gpu_count}."
-            ((_all_good++))
-          fi
+        case "${hardware_profile}" in
+          RTXPRO4500BW)
+            local _gpu_count
+            _gpu_count="$(get_nvidia_smi_gpu_count)"
+            if [[ "${_gpu_count}" -lt 2 ]]; then
+              echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires at least 2 NVIDIA GPUs; detected ${_gpu_count}."
+              ((_all_good++))
+            fi
 
-          local _minimum_driver_version="595.58.03"
-          local _driver_version
-          _driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1)"
-          _driver_version="${_driver_version//[[:space:]]/}"
-          if ! version_is_at_least "${_driver_version}" "${_minimum_driver_version}"; then
-            echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires NVIDIA driver ${_minimum_driver_version} or newer; detected ${_driver_version:-unknown}."
-            ((_all_good++))
-          fi
-        fi
+            local _minimum_driver_version="595.58.03"
+            local _driver_version
+            _driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1)"
+            _driver_version="${_driver_version//[[:space:]]/}"
+            if ! version_is_at_least "${_driver_version}" "${_minimum_driver_version}"; then
+              echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires NVIDIA driver ${_minimum_driver_version} or newer; detected ${_driver_version:-unknown}."
+              ((_all_good++))
+            fi
+            ;;
+        esac
       fi
 
       # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base and alerts,
