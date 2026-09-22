@@ -22,6 +22,7 @@ import logging
 import re
 
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from nat.builder.workflow_builder import WorkflowBuilder
 from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.config import Config
@@ -63,14 +64,6 @@ class LegacyChatTerminalMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if (
-            scope["type"] != "http"
-            or scope.get("method") != "POST"
-            or scope.get("path") not in _LEGACY_CHAT_STREAM_PATHS
-        ):
-            await self.app(scope, receive, send)
-            return
-
         workflow_completed = False
         done_sent = False
         done_event_tail = b""
@@ -125,10 +118,7 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
         # Add standard NAT routes
         await super().add_routes(app, builder)
 
-        # NAT 1.8's interactive chat runner omits the OpenAI terminal frames.
-        # Keep the repair server-side so every legacy HTTP client sees a valid
-        # stream and the UI can continue treating an unconfirmed EOF as an error.
-        app.add_middleware(LegacyChatTerminalMiddleware)
+        self._register_legacy_chat_terminal_wrappers(app)
 
         # Remove NAT's default health endpoint and add our custom one
         # We need to override it to return the expected format for integration tests
@@ -143,6 +133,24 @@ class CustomFastApiFrontEndWorker(FastApiFrontEndPluginWorker):
 
         # Register custom streaming routes per capability flags in streaming_ingest
         self._register_streaming_routes(app)
+
+    @staticmethod
+    def _register_legacy_chat_terminal_wrappers(app: FastAPI) -> None:
+        """Wrap NAT's legacy chat routes without mutating FastAPI middleware state.
+
+        NAT calls ``add_routes`` from its lifespan startup, after FastAPI has
+        frozen the application middleware stack. Route-level ASGI wrappers are
+        safe to install at that point and keep the repair scoped to the two
+        affected POST endpoints.
+        """
+        for route in app.routes:
+            if (
+                isinstance(route, APIRoute)
+                and route.path in _LEGACY_CHAT_STREAM_PATHS
+                and route.methods is not None
+                and "POST" in route.methods
+            ):
+                route.app = LegacyChatTerminalMiddleware(route.app)
 
     def _register_streaming_routes(self, app: FastAPI) -> None:
         """Register the custom video / RTSP / delete routes.

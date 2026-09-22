@@ -29,6 +29,8 @@ from typing import cast
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+from fastapi import FastAPI
+from fastapi.routing import APIRoute
 import pytest
 from starlette.types import Message
 from starlette.types import Receive
@@ -42,7 +44,7 @@ from vss_agents.api.front_end_config import StreamingIngestConfig
 _MISSING = object()
 
 
-async def _run_terminal_middleware(chunks: list[bytes], path: str = "/v1/chat/stream") -> list[Message]:
+async def _run_terminal_middleware(chunks: list[bytes]) -> list[Message]:
     async def app(_scope: Scope, _receive: Receive, send: Send) -> None:
         await send({"type": "http.response.start", "status": 200, "headers": []})
         for chunk in chunks:
@@ -57,12 +59,37 @@ async def _run_terminal_middleware(chunks: list[bytes], path: str = "/v1/chat/st
     async def send(message: Message) -> None:
         messages.append(message)
 
-    scope = cast("Scope", {"type": "http", "method": "POST", "path": path})
+    scope = cast("Scope", {"type": "http", "method": "POST", "path": "/v1/chat/stream"})
     await LegacyChatTerminalMiddleware(app)(scope, receive, send)
     return messages
 
 
 class TestLegacyChatTerminalMiddleware:
+    def test_registers_route_level_wrappers_only_on_legacy_chat_post_routes(self) -> None:
+        app = FastAPI()
+
+        @app.post("/v1/chat/stream")
+        async def chat_stream() -> None:
+            return None
+
+        @app.get("/v1/chat/stream")
+        async def chat_stream_get() -> None:
+            return None
+
+        @app.post("/health")
+        async def health() -> None:
+            return None
+
+        CustomFastApiFrontEndWorker._register_legacy_chat_terminal_wrappers(app)
+
+        routes = [route for route in app.routes if isinstance(route, APIRoute)]
+        chat_post = next(route for route in routes if route.path == "/v1/chat/stream" and "POST" in route.methods)
+        chat_get = next(route for route in routes if route.path == "/v1/chat/stream" and "GET" in route.methods)
+        health_post = next(route for route in routes if route.path == "/health" and "POST" in route.methods)
+        assert isinstance(chat_post.app, LegacyChatTerminalMiddleware)
+        assert not isinstance(chat_get.app, LegacyChatTerminalMiddleware)
+        assert not isinstance(health_post.app, LegacyChatTerminalMiddleware)
+
     @pytest.mark.asyncio
     async def test_appends_openai_terminal_frames_after_confirmed_workflow_completion(self) -> None:
         messages = await _run_terminal_middleware(
