@@ -302,6 +302,9 @@ If the user specified an `alert_type` tag, add it as a query parameter:
 curl -s "$AB/api/v1/realtime?alert_type=<TAG>" | jq .
 ```
 
+The response is an envelope: `{ "status", "rules": [...], "count", "total" }`.
+Iterate rule records with `.rules[]`, not `.[]`.
+
 **Client-side filtering on the response:**
 - If **sensor filter** is active: compare each rule's `live_stream_url` against the RTSP URL(s) resolved in Step 2. Remove rules that do not match.
 - If **alert_type filter** is active and was not already applied via query parameter: compare each rule's `alert_type` against the filter value. Remove rules that do not match.
@@ -376,6 +379,7 @@ curl -s "$AB/api/v1/realtime" | jq .
 ```
 
 Resolve the user's `sensor_name` to RTSP URL(s) via the VST API (same as Create Step 2), then apply both filters client-side on the response:
+- Iterate `.rules[]`; the response itself is an object, not an array.
 - **Sensor filter:** compare each rule's `live_stream_url` against the resolved RTSP URL(s). Remove rules that do not match.
 - **Alert type filter:** compare each rule's `alert_type` against the tag from the message. Remove rules that do not match. Use substring/prefix matching (e.g. user says "PPE" -> matches `ppe_vest_violation`).
 
