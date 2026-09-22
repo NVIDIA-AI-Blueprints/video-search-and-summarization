@@ -12,7 +12,7 @@ description: >
   2D tracking routes to the 2D tracking or DeepStream skills. Not for full
   warehouse blueprint deployment, single-camera 2D tracking, camera calibration
   itself, or VSS summarization, Q&A, and RAG workflows.
-license: CC-BY-4.0
+license: Apache-2.0
 metadata:
   author: NVIDIA
   version: "3.3.0"

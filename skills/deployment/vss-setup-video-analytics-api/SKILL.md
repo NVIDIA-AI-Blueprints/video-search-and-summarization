@@ -1,7 +1,7 @@
 ---
 name: vss-setup-video-analytics-api
 description: Use to deploy the vss-video-analytics-api REST service standalone with its Elasticsearch ingest-pipeline, selectable Kafka/Redis stream type, and Kafka-topic readiness gates when Kafka is selected. Not for full warehouse deploy.
-license: CC-BY-4.0
+license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
   version: "3.3.0"

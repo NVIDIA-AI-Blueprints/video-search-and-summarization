@@ -1,13 +1,6 @@
 Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-This repository contains material under the following licenses:
-  - Apache-2.0 applies to repository code except the original code under the
-    services/ui/ directory and the separately licensed configuration files
-    described below.
-  - CC-BY-4.0 applies to documentation-only skill packages whose SKILL.md
-    frontmatter identifies that license. See LICENSE-CC-BY-4.0 for the full text.
-  - MIT applies to the original code under the services/ui/ directory, which is
-    derived from upstream projects (see MIT appendix below).
+This project is licensed under Apache-2.0.
 
 This project also contains Elasticsearch, Kibana and Redis configuration files, which are dual-licensed and may be used under your choice of either:
    - Server Side Public License v1 (SSPLv1)

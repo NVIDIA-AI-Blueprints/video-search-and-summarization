@@ -1,7 +1,7 @@
 ---
 name: vss-ask-video
 description: Use this skill when answering a question about previously analyzed or freshly scoped VSS video, or when reading a stored VSS memory job or record by id, or whenever a question should be answered by running the `vss memory introspect` command. Route through hot context, agent Markdown notes, `vss memory get` or `vss memory query`, `vss memory introspect`, or an exact-window `vss vlm run`. Not for video retrieval or metadata-answerable questions.
-license: CC-BY-4.0
+license: Apache-2.0
 metadata:
   version: "3.3.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"

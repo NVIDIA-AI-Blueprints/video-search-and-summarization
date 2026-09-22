@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-CC-BY-4.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers managing VSS video input/output through the VIOS REST API for sensor management, stream configuration, video uploads, clip extraction, and snapshot operations. <br>
 

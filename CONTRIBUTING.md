@@ -20,16 +20,11 @@ If you are interested in contributing to Video Search and Summarization (VSS), y
 
 ## Licensing
 
-This project uses a content-based licensing model:
+This project is licensed under **Apache-2.0**. Elasticsearch, Kibana, and Redis configuration files are separately dual-licensed under SSPLv1 or AGPLv3 as described in [LICENSE](LICENSE).
 
-- **Apache-2.0** — applies to repository code except the original code under `services/ui/` and the separately licensed configuration files described below.
-- **CC-BY-4.0** — applies to documentation-only skill packages whose `SKILL.md` frontmatter identifies that license.
-- **MIT** — applies to the original code under the `services/ui/` directory, which is derived from [NVIDIA NeMo Agent Toolkit UI](https://github.com/NVIDIA/NeMo-Agent-Toolkit-UI/).
-- **SSPLv1 or AGPLv3** — applies, at your choice, to the Elasticsearch, Kibana, and Redis configuration files identified in [LICENSE](LICENSE).
+**All contributions to this repository are accepted under the Apache-2.0 license.**
 
-Contributions to documentation-only skills are accepted under CC-BY-4.0. All other contributions are accepted under Apache-2.0. Even if you are contributing changes to the `services/ui/` directory, your contribution will be licensed under Apache-2.0. The original `services/ui/` code retains its MIT license, but additions and modifications contributed through this repository are Apache-2.0.
-
-See [LICENSE](LICENSE) for the Apache-2.0, MIT, SSPLv1, and AGPLv3 terms and [LICENSE-CC-BY-4.0](LICENSE-CC-BY-4.0) for the CC-BY-4.0 terms.
+See the [LICENSE](LICENSE) file for the full license texts.
 
 ## File-level license headers
 
@@ -37,11 +32,9 @@ If your contribution adds or modifies a source file, please:
 
 - Add or update the SPDX file header so that it reflects the correct copyright
   holders and license identifier.
-- For new source files authored by you (or your employer) on behalf of this
-  project, use the SPDX identifier `Apache-2.0` and add the appropriate
-  copyright notice.
-- For documentation-only skills, use `license: CC-BY-4.0` in `SKILL.md` and in
-  any other Markdown frontmatter that declares a license.
+- For new files authored by you (or your employer) on behalf of this project,
+  use the SPDX identifier `Apache-2.0` and add the appropriate copyright
+  notice.
 - For changes to files derived from third-party sources:
   - Preserve the existing third-party copyright and license notices. 
   - List the file(s) you modified in your change description.

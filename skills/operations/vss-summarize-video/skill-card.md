@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-CC-BY-4.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers who need to produce narrative summaries with timestamped events from recorded video using NVIDIA Video Search and Summarization services. <br>
 

@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-CC-BY-4.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers deploying the standalone RT-VLM dense-captioning microservice and exercising its REST API for video upload, dense caption generation, RTSP stream management, chat completions, and Kafka-based alerting. <br>
 

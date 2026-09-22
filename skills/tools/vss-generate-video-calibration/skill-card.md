@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-CC-BY-4.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers use this skill to run automated camera calibration (AutoMagicCalib) on video streams or files, deploying and driving the AMC microservice for the NVIDIA Video Search and Summarization blueprint. <br>
 

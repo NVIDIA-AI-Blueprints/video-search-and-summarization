@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-CC-BY-4.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers deploying the NVIDIA VSS behavior-analytics service as a standalone container with a chosen entrypoint, configuration source, and optional calibration. <br>
 

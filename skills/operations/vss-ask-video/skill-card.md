@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-CC-BY-4.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and operators answering ad-hoc questions about current or previously analyzed VSS video while preserving provenance and avoiding unnecessary fresh inference. <br>
 

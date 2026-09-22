@@ -7,7 +7,7 @@ This skill is ready for commercial/non-commercial use. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-CC-BY-4.0 <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers deploying, operating, integrating, or customizing the VSS Video Embedding (RT-Embed) microservice to generate text and video embeddings using Cosmos-Embed1-448p or a BYOM custom backend such as VideoPrism for video search and summarization workflows. <br>
 

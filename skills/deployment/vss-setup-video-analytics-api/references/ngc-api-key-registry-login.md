@@ -1,7 +1,7 @@
 ---
 name: ngc-api-key-registry-login
 description: Obtain an NGC API key and log in to nvcr.io so Docker can pull the vss-video-analytics-api image. Use when the image pull fails with 401/403 or NGC_CLI_API_KEY is unset.
-license: CC-BY-4.0
+license: Apache-2.0
 ---
 
 # NGC Access — API Key + Registry Login

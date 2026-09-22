@@ -1,7 +1,7 @@
 ---
 name: vss-setup-behavior-analytics
 description: Use this skill to deploy the vss-behavior-analytics service standalone (entrypoint, config-source, optional calibration). Not for the full warehouse deploy.
-license: CC-BY-4.0
+license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
   version: "3.3.0"

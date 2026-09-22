@@ -2,11 +2,6 @@
 
 Skills for working with the **NVIDIA Blueprint for Video Search & Summarization (VSS)** — a suite of GPU-accelerated microservices for building vision agents and video-analytics applications. Skills are grouped by what they do — `deployment/` stands a stack up, `operations/` drives a running one, `tools/` and `benchmarking/` hold standalone utilities, and `vss-build-vision-ai` sits at the top level as the entry point that composes the rest. Each skill directory is self-contained and follows the [agentskills.io](https://agentskills.io/specification) specification, with `name`, `description`, `version`, and `license` declared in its `SKILL.md` frontmatter. A skill's name is its directory's leaf name; the category is repository organisation and does not appear in the installed path.
 
-Licensing follows the skill's content: documentation-only skill packages use
-`CC-BY-4.0`, while skill packages containing executable scripts use
-`Apache-2.0`. The applicable license is declared in each `SKILL.md`; full terms
-are in the repository's `LICENSE` and `LICENSE-CC-BY-4.0` files.
-
 > **New here? Read [Orientation](#orientation-how-vss-fits-together) first, then [Which skill do I need?](#which-skill-do-i-need).** Those two sections are the fastest path from a user request to the right skill.
 
 These skills are a **developer-side tool**: a coding agent (Claude Code, Codex, NemoClaw, or any agentskills.io host) loads them to *deploy and operate* a VSS deployment from natural language. They are distinct from the in-product **VSS Agent**, which runs *inside* a deployed VSS workflow and orchestrates microservices to answer end-user questions. The skills here drive VSS; the VSS Agent is one of the things they can drive.
