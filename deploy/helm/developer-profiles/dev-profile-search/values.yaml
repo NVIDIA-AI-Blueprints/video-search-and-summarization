@@ -30,13 +30,15 @@ global:
   vios:
     useSdrc: true
     # Compose equivalent: developer-profiles/dev-profile-search/vios/configs/notification_config.json.
-    # The Search chart loads that file (Helm placeholders) into ConfigMap
-    # notificationConfigMapName (release-prefixed when useReleaseNamePrefix is
-    # true); VIOS sensor and streamprocessing project it over the subchart
-    # default (webhooks off). global.vios.notificationConfig, if set, replaces
-    # the file. A per-subchart notificationConfig skips the overlay on that pod.
+    # The Search chart loads that file (Helm placeholders) into one ConfigMap
+    # per VIOS service. Separate rendering preserves each service's broker and
+    # endpoint overrides. Names are release-prefixed when
+    # useReleaseNamePrefix is true. global.vios.notificationConfig, if set,
+    # replaces the file. A per-subchart notificationConfig skips the overlay
+    # on that pod.
     notificationConfigFile: configs/vios/notification_config.json
-    notificationConfigMapName: vios-notification-config
+    sensorNotificationConfigMapName: vios-sensor-notification-config
+    streamprocessingNotificationConfigMapName: vios-streamprocessing-notification-config
 
   ngcApiSecret:
     name: ngc-api-key-secret

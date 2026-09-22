@@ -76,15 +76,18 @@
 {{- end }}
 {{/*
 Parent overlay ConfigMap for notification_config.json. global.vios.notificationConfigMapName
-(or .Values.notificationConfigMapName) is the unprefixed logical name; prefixed the same
-way as peer services when useReleaseNamePrefix is true. Empty when this subchart sets
-notificationConfig so that inline override is not replaced by the parent overlay.
+(or the streamprocessing-specific
+global.vios.streamprocessingNotificationConfigMapName, or
+.Values.notificationConfigMapName) is the unprefixed logical name; prefixed
+the same way as peer services when useReleaseNamePrefix is true. Empty when
+this subchart sets notificationConfig so that inline override is not replaced
+by the parent overlay.
 */}}
 {{- define "vss-vios-streamprocessing.notificationConfigMapName" -}}
 {{- if not .Values.notificationConfig -}}
 {{- $g := .Values.global | default dict -}}
 {{- $viosGlobal := index $g "vios" | default dict -}}
-{{- $cm := .Values.notificationConfigMapName | default (index $viosGlobal "notificationConfigMapName" | default "") -}}
+{{- $cm := .Values.notificationConfigMapName | default (index $viosGlobal "streamprocessingNotificationConfigMapName" | default (index $viosGlobal "notificationConfigMapName" | default "")) -}}
 {{- if $cm -}}
 {{- $pfx := default false (coalesce .Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) -}}
 {{- if $pfx -}}{{ printf "%s-%s" .Release.Name $cm | trunc 63 | trimSuffix "-" }}{{- else -}}{{ $cm }}{{- end -}}

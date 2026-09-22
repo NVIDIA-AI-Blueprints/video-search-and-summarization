@@ -58,7 +58,8 @@ rtviVlmServerAddress: ""
 elasticsearchServerAddress: ""
 # Optional complete notification_config.json. Empty uses the chart default;
 # global.vios.notificationConfig provides one shared inline config to sensor and streamprocessing.
-# global.vios.notificationConfigMapName overlays a parent-chart ConfigMap key
+# global.vios.sensorNotificationConfigMapName (falling back to
+# global.vios.notificationConfigMapName) overlays a parent-chart ConfigMap key
 # notification_config.json (Search loads configs/vios/notification_config.json this way).
 # Logical name only; when useReleaseNamePrefix is true the release is prepended.
 # Set notificationConfig on this subchart to skip the overlay and use this JSON instead.

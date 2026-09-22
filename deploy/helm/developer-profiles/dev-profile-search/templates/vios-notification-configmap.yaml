@@ -3,18 +3,43 @@
 
 {{- $g := .Values.global | default dict }}
 {{- $vios := index $g "vios" | default dict }}
-{{- $cm := include "dev-profile-search.viosNotificationConfigMapName" . }}
+{{- $viosRoot := index .Values "vios" | default dict }}
+{{- $sensor := index $viosRoot "vss-vios-sensor" | default dict }}
+{{- $streamprocessing := index $viosRoot "vss-vios-streamprocessing" | default dict }}
+{{- $sensorCmLogical := index $vios "sensorNotificationConfigMapName" | default "" }}
+{{- $streamprocessingCmLogical := index $vios "streamprocessingNotificationConfigMapName" | default "" }}
+{{- $sensorCm := include "dev-profile-search.viosNotificationConfigMapName" (dict "root" . "name" $sensorCmLogical) }}
+{{- $streamprocessingCm := include "dev-profile-search.viosNotificationConfigMapName" (dict "root" . "name" $streamprocessingCmLogical) }}
 {{- $file := index $vios "notificationConfigFile" | default "" }}
 {{- $inline := index $vios "notificationConfig" | default "" }}
-{{- if and $cm (or $inline $file) }}
+{{- if and (or $sensorCm $streamprocessingCm) (or $inline $file) }}
+{{- if $sensorCm }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ $cm }}
+  name: {{ $sensorCm }}
   labels:
     app.kubernetes.io/name: vios-notification
     app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: sensor
 data:
   notification_config.json: |
-{{ include "dev-profile-search.viosNotificationConfig" . | nindent 4 }}
+{{ include "dev-profile-search.viosNotificationConfig" (dict "root" . "service" $sensor) | nindent 4 }}
+{{- end }}
+{{- if and $sensorCm $streamprocessingCm }}
+---
+{{- end }}
+{{- if $streamprocessingCm }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $streamprocessingCm }}
+  labels:
+    app.kubernetes.io/name: vios-notification
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: streamprocessing
+data:
+  notification_config.json: |
+{{ include "dev-profile-search.viosNotificationConfig" (dict "root" . "service" $streamprocessing) | nindent 4 }}
+{{- end }}
 {{- end }}
