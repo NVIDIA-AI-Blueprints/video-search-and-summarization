@@ -610,6 +610,7 @@ class VlmQuery(CommonBaseModel):
         description="Enable reasoning for VLM captions generation",
         examples=[True, False],
     )
+    prompt_driven_reasoning: bool = Field(default=False, exclude=True)
     preserve_reasoning_tags: bool = Field(
         default=False,
         description=(

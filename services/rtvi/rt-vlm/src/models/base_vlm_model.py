@@ -35,6 +35,7 @@ class VlmGenerationConfig:
     seed: int = 1
     system_prompt: Optional[str] = None
     enable_reasoning: bool = False
+    prompt_driven_reasoning: bool = False
     ignore_eos: bool = False
     min_tokens: Optional[int] = None
     mm_processor_kwargs: Optional[dict] = None

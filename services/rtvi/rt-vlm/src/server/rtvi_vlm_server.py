@@ -162,6 +162,29 @@ RESOURCE_IN_USE_RESPONSE = {
 
 # Compile regex patterns at module level for performance
 _FILE_NAME_REGEX = re.compile(FILE_NAME_PATTERN)
+_PROMPT_REASONING_FORMAT_REGEX = re.compile(
+    r"\b(?:answer|respond|response)\b.*?\bformat\b.*?<think>.*?</think>",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+
+
+def _prompt_requests_reasoning(request_body) -> bool:
+    """Detect the active CR3 output contract only when the API flag is omitted."""
+    if "enable_reasoning" in request_body.model_fields_set:
+        return False
+
+    active_messages = [
+        next(
+            (message for message in reversed(request_body.messages) if message.role == role),
+            None,
+        )
+        for role in ("system", "user")
+    ]
+    return any(
+        message is not None
+        and _PROMPT_REASONING_FORMAT_REGEX.search(message.get_text_content()) is not None
+        for message in active_messages
+    )
 
 
 def _create_vlm_query(query_data: dict) -> VlmQuery:
@@ -566,6 +589,7 @@ class RTVIServer:
             "chunk_duration": 0,
             "chunk_overlap_duration": 0,
             "preserve_reasoning_tags": True,
+            "prompt_driven_reasoning": _prompt_requests_reasoning(request_body),
         }
         if request_body.max_completion_tokens is not None:
             vlm_query_dict["max_tokens"] = request_body.max_completion_tokens
@@ -3319,6 +3343,7 @@ class RTVIServer:
                 "chunk_overlap_duration": request_body.chunk_overlap_duration or 0,
                 "enable_audio": request_body.enable_audio or False,
                 "enable_reasoning": request_body.enable_reasoning or False,
+                "prompt_driven_reasoning": _prompt_requests_reasoning(request_body),
                 "preserve_reasoning_tags": True,
                 "num_frames_per_second_or_fixed_frames_chunk": (
                     request_body.num_frames_per_second_or_fixed_frames_chunk or 0

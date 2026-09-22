@@ -1778,35 +1778,19 @@ class VllmCompatible(BaseVlmModel):
         return self._conv.copy()
 
     def _resolve_prompt_reasoning_config(
-        self, messages: list[dict], config: VlmGenerationConfig
+        self, config: VlmGenerationConfig
     ) -> VlmGenerationConfig:
         """Honor Cosmos Reason 3's prompt-driven ``<think>`` contract."""
-        if getattr(self, "_vlm_model_type", None) != "cosmos-reason3" or config.enable_reasoning:
+        if (
+            getattr(self, "_vlm_model_type", None) != "cosmos-reason3"
+            or config.enable_reasoning
+            or not config.prompt_driven_reasoning
+        ):
             return config
 
-        active_messages = [
-            next(
-                (message for message in reversed(messages) if message.get("role") == role),
-                None,
-            )
-            for role in ("system", "user")
-        ]
-        for message in filter(None, active_messages):
-            content = message.get("content")
-            text_items = [content] if isinstance(content, str) else content or []
-            prompt_text = " ".join(
-                item if isinstance(item, str) else str(item.get("text", ""))
-                for item in text_items
-                if isinstance(item, (str, dict))
-            )
-            if all(
-                tag in prompt_text
-                for tag in ("<think>", "</think>", "<answer>", "</answer>")
-            ):
-                effective_config = copy.copy(config)
-                effective_config.enable_reasoning = True
-                return effective_config
-        return config
+        effective_config = copy.copy(config)
+        effective_config.enable_reasoning = True
+        return effective_config
 
     def _get_apply_chat_template_kwargs(self, config: VlmGenerationConfig) -> dict:
         # Reasoning-capable chat templates open a <think> block by default. Keep the RTVI
@@ -3634,11 +3618,7 @@ class VllmCompatible(BaseVlmModel):
 
         # Get generation config with defaults
         config = generation_config or VlmGenerationConfig()
-        prompt_messages = [{"role": "user", "content": query_text}]
-        configured_system_prompt = self._resolve_system_prompt(config)
-        if configured_system_prompt:
-            prompt_messages.insert(0, {"role": "system", "content": configured_system_prompt})
-        config = self._resolve_prompt_reasoning_config(prompt_messages, config)
+        config = self._resolve_prompt_reasoning_config(config)
 
         # Route to EVS session mode if configured. EVS owns its own prompt
         # construction / mm-data path and returns a concurrent.futures.Future
@@ -4067,7 +4047,7 @@ class VllmCompatible(BaseVlmModel):
     ):
         """Text-only generation using the vLLM engine (no multimodal data)."""
         config = generation_config or VlmGenerationConfig()
-        config = self._resolve_prompt_reasoning_config(messages, config)
+        config = self._resolve_prompt_reasoning_config(config)
 
         prompt = self._apply_chat_template(messages, config)
         prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)
@@ -4171,7 +4151,7 @@ class VllmCompatible(BaseVlmModel):
     ):
         """Async generator yielding text deltas for token-level streaming."""
         config = generation_config or VlmGenerationConfig()
-        config = self._resolve_prompt_reasoning_config(messages, config)
+        config = self._resolve_prompt_reasoning_config(config)
 
         prompt = self._apply_chat_template(messages, config)
         prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)

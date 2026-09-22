@@ -145,6 +145,13 @@ class TestVlmQueryValidation:
 
         assert params.vlm_generation_config.preserve_reasoning_tags is True
 
+    def test_prompt_driven_reasoning_reaches_generation_config(self):
+        query = _vlm_query(prompt_driven_reasoning=True)
+
+        params = VlmRequestParams.from_vlm_query(query)
+
+        assert params.vlm_generation_config.prompt_driven_reasoning is True
+
     def test_json_schema_response_format_reaches_generation_config(self):
         schema = {
             "type": "object",

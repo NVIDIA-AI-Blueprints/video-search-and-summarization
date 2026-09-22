@@ -265,73 +265,29 @@ def test_qwen3vl_reasoning_prompt_is_not_modified():
 
 
 @pytest.mark.parametrize(
-    ("model_type", "messages", "expected_reasoning"),
+    ("model_type", "prompt_driven_reasoning", "enable_reasoning", "expected_reasoning"),
     [
-        (
-            "cosmos-reason3",
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Respond as <think>reasoning</think><answer>yes/no</answer>.",
-                        }
-                    ],
-                }
-            ],
-            True,
-        ),
-        (
-            "cosmos-reason3",
-            [
-                {
-                    "role": "system",
-                    "content": "Respond as <think>reasoning</think><answer>yes/no</answer>.",
-                },
-                {"role": "user", "content": "Classify the video."},
-            ],
-            True,
-        ),
-        (
-            "cosmos-reason3",
-            [{"role": "user", "content": "Explain the `<think>` tag."}],
-            False,
-        ),
-        (
-            "cosmos-reason3",
-            [
-                {
-                    "role": "user",
-                    "content": "Respond as <think>reasoning</think><answer>yes/no</answer>.",
-                },
-                {"role": "assistant", "content": "Earlier response."},
-                {"role": "user", "content": "Answer yes or no."},
-            ],
-            False,
-        ),
-        (
-            "qwen3-vl",
-            [
-                {
-                    "role": "user",
-                    "content": "Respond as <think>reasoning</think><answer>yes/no</answer>.",
-                }
-            ],
-            False,
-        ),
+        ("cosmos-reason3", True, False, True),
+        ("cosmos-reason3", False, False, False),
+        ("cosmos-reason3", True, True, True),
+        ("qwen3-vl", True, False, False),
     ],
 )
-def test_prompt_reasoning_config(model_type, messages, expected_reasoning):
+def test_prompt_reasoning_config(
+    model_type, prompt_driven_reasoning, enable_reasoning, expected_reasoning
+):
     model = VllmCompatible.__new__(VllmCompatible)
     model._vlm_model_type = model_type
-    config = VlmGenerationConfig(enable_reasoning=False)
+    config = VlmGenerationConfig(
+        enable_reasoning=enable_reasoning,
+        prompt_driven_reasoning=prompt_driven_reasoning,
+    )
 
-    effective_config = model._resolve_prompt_reasoning_config(messages, config)
+    effective_config = model._resolve_prompt_reasoning_config(config)
 
     assert effective_config.enable_reasoning is expected_reasoning
-    assert (effective_config is not config) is expected_reasoning
-    assert config.enable_reasoning is False
+    assert (effective_config is not config) is (expected_reasoning and not enable_reasoning)
+    assert config.enable_reasoning is enable_reasoning
 
 
 def test_qwen3vl_non_reasoning_keeps_fixed_work_generation_with_ignore_eos():
