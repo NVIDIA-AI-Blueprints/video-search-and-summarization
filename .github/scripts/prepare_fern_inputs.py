@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +31,17 @@ class PreparationError(RuntimeError):
 def escape_substitutions(
     text: str,
     allowed_substitutions: Collection[str] = check.ALLOWED_SUBSTITUTIONS,
+    environment: Mapping[str, str] = os.environ,
 ) -> str:
-    """Escape literal placeholders while preserving allowlisted substitutions."""
+    """Prepare placeholders while keeping authored shell defaults runnable."""
+
+    def replace_defaulted(match: Any) -> str:
+        name = match.group("name")
+        if name not in allowed_substitutions:
+            return match.group(0)
+        if environment.get(name):
+            return f"${{{name}}}"
+        return match.group("default")
 
     def replace(match: Any) -> str:
         name = match.group("name")
@@ -39,21 +49,26 @@ def escape_substitutions(
             return match.group(0)
         return r"\$\{" + name + r"\}"
 
-    return check.SUBSTITUTION_PATTERN.sub(replace, text)
+    defaulted = check.DEFAULTED_SUBSTITUTION_PATTERN.sub(replace_defaulted, text)
+    return check.SUBSTITUTION_PATTERN.sub(replace, defaulted)
 
 
 def transform_json_value(
     value: Any,
     allowed_substitutions: Collection[str],
+    environment: Mapping[str, str],
 ) -> Any:
     """Escape placeholders recursively in decoded JSON string values."""
     if isinstance(value, str):
-        return escape_substitutions(value, allowed_substitutions)
+        return escape_substitutions(value, allowed_substitutions, environment)
     if isinstance(value, list):
-        return [transform_json_value(item, allowed_substitutions) for item in value]
+        return [
+            transform_json_value(item, allowed_substitutions, environment)
+            for item in value
+        ]
     if isinstance(value, dict):
         return {
-            key: transform_json_value(item, allowed_substitutions)
+            key: transform_json_value(item, allowed_substitutions, environment)
             for key, item in value.items()
         }
     return value
@@ -105,6 +120,7 @@ def copy_inputs(source_root: Path, output_root: Path) -> None:
 def transform_inputs(
     output_root: Path,
     allowed_substitutions: Collection[str],
+    environment: Mapping[str, str],
 ) -> int:
     """Transform copied Markdown and JSON inputs in place."""
     changed = 0
@@ -112,11 +128,15 @@ def transform_inputs(
         suffix = path.suffix.lower()
         if suffix in MARKDOWN_SUFFIXES:
             original = path.read_text(encoding="utf-8")
-            prepared = escape_substitutions(original, allowed_substitutions)
+            prepared = escape_substitutions(
+                original, allowed_substitutions, environment
+            )
         elif suffix == ".json":
             original = path.read_text(encoding="utf-8")
             value = json.loads(original)
-            transformed = transform_json_value(value, allowed_substitutions)
+            transformed = transform_json_value(
+                value, allowed_substitutions, environment
+            )
             if transformed == value:
                 continue
             prepared = json.dumps(transformed, indent=2, ensure_ascii=False) + "\n"
@@ -154,6 +174,7 @@ def prepare_tree(
     source_root: Path,
     output_root: Path,
     allowed_substitutions: Collection[str] = check.ALLOWED_SUBSTITUTIONS,
+    environment: Mapping[str, str] = os.environ,
 ) -> int:
     """Create and validate an isolated, repository-shaped Fern input tree."""
     source_root = source_root.resolve()
@@ -169,7 +190,7 @@ def prepare_tree(
         raise PreparationError("\n".join(source_issues))
 
     copy_inputs(source_root, output_root)
-    changed = transform_inputs(output_root, allowed_substitutions)
+    changed = transform_inputs(output_root, allowed_substitutions, environment)
     prepared_issues = find_prepared_issues(output_root, allowed_substitutions)
     if prepared_issues:
         raise PreparationError("\n".join(prepared_issues))

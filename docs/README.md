@@ -39,10 +39,30 @@ ${VSS_DATA_DIR}
 `.github/scripts/prepare_fern_inputs.py` copies Fern's inputs to a temporary tree
 and escapes literals there immediately before validation or publication. Never
 commit Fern's backslash-escaped literal syntax to `docs/`; commands copied from authored
-MDX must remain runnable. Actual build-time documentation variables remain
-unescaped in the temporary tree, must use the `VSS_DOCS_` prefix, and must be
-explicitly added to `.github/scripts/check_fern_substitutions.py`. There are no
-build-time documentation variables currently.
+MDX must remain runnable.
+
+Build-time documentation variables use a shell default in authored MDX:
+
+```mdx
+git checkout "${VSS_DOCS_GIT_REF:-develop}"
+```
+
+When the variable is unset, preparation writes the default into the temporary
+tree. When it is set, preparation converts the expression to Fern's
+<code>&#36;{VSS_DOCS_GIT_REF}</code> form and Fern interpolates the supplied value. This keeps
+raw commands executable and makes local, staging, and release builds
+configurable. The allowlisted variables and defaults are:
+
+| Variable | Default |
+|----------|---------|
+| `VSS_DOCS_GIT_REF` | `develop` |
+| `VSS_DOCS_IMAGE_TAG` | `develop-latest` |
+| `VSS_DOCS_SBSA_IMAGE_TAG` | `develop-latest-sbsa` |
+
+All build-time variables must use the `VSS_DOCS_` prefix and be explicitly
+added to `.github/scripts/check_fern_substitutions.py`. Export overrides before
+running `prepare_fern_inputs.py`. GitHub Actions reads the same names from
+repository Actions variables.
 
 ## Stage
 

@@ -65,7 +65,7 @@ VSS Agent Skills are used in two complementary ways:
 ## Available Skills
 
 The official VSS Agent Skills are published in the `skills/` folder of the
-[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/skills)
+[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/skills)
 on GitHub, and mirrored to the public NVIDIA Skills catalog at
 [github.com/nvidia/skills](https://github.com/nvidia/skills).
 
@@ -171,7 +171,7 @@ register each Skill into the host's skills directory. Symlinks are used so that 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout develop
+git checkout "${VSS_DOCS_GIT_REF:-develop}"
 ```
 
 ### Step 2: Ask the coding agent to install the Skills
