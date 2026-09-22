@@ -311,6 +311,8 @@ class VlmRequestParams:
             config_kwargs["seed"] = vlm_query.seed
         if vlm_query.enable_reasoning:
             config_kwargs["enable_reasoning"] = vlm_query.enable_reasoning
+        if vlm_query._prompt_driven_reasoning:
+            config_kwargs["prompt_driven_reasoning"] = True
         if getattr(vlm_query, "preserve_reasoning_tags", False):
             config_kwargs["preserve_reasoning_tags"] = True
         if vlm_query.system_prompt:

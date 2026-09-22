@@ -1777,6 +1777,21 @@ class VllmCompatible(BaseVlmModel):
             self._conv = []
         return self._conv.copy()
 
+    def _resolve_prompt_reasoning_config(
+        self, config: VlmGenerationConfig
+    ) -> VlmGenerationConfig:
+        """Honor Cosmos Reason 3's prompt-driven ``<think>`` contract."""
+        if (
+            getattr(self, "_vlm_model_type", None) != "cosmos-reason3"
+            or config.enable_reasoning
+            or not config.prompt_driven_reasoning
+        ):
+            return config
+
+        effective_config = copy.copy(config)
+        effective_config.enable_reasoning = True
+        return effective_config
+
     def _get_apply_chat_template_kwargs(self, config: VlmGenerationConfig) -> dict:
         # Reasoning-capable chat templates open a <think> block by default. Keep the RTVI
         # default non-reasoning unless the request explicitly enables reasoning.
@@ -1789,12 +1804,17 @@ class VllmCompatible(BaseVlmModel):
             return {"enable_thinking": bool(config.enable_reasoning)}
         return {}
 
+    def _uses_qwen3vl_non_reasoning_fallback(self, config: VlmGenerationConfig) -> bool:
+        return (
+            self._model_architecture in _QWEN3VL_ARCHS
+            and getattr(self, "_vlm_model_type", None) != "cosmos-reason3"
+            and not config.enable_reasoning
+        )
+
     def _apply_chat_template(self, messages: list[dict], config: VlmGenerationConfig) -> str:
         """Apply the model template with a Qwen3-VL non-reasoning fallback."""
         template_messages = messages
-        suppress_qwen_reasoning = (
-            self._model_architecture in _QWEN3VL_ARCHS and not config.enable_reasoning
-        )
+        suppress_qwen_reasoning = self._uses_qwen3vl_non_reasoning_fallback(config)
         if suppress_qwen_reasoning:
             template_messages = copy.deepcopy(messages)
             for message in reversed(template_messages):
@@ -1824,7 +1844,7 @@ class VllmCompatible(BaseVlmModel):
         self, sampling_kwargs: dict, config: VlmGenerationConfig
     ) -> None:
         """Block reasoning tags without changing fixed-work generation length."""
-        if self._model_architecture in _QWEN3VL_ARCHS and not config.enable_reasoning:
+        if self._uses_qwen3vl_non_reasoning_fallback(config):
             sampling_kwargs["bad_words"] = ["<think>", "</think>"]
 
     def _qwen3vl_answer_boundary_token_ids(self) -> set[int]:
@@ -3603,6 +3623,7 @@ class VllmCompatible(BaseVlmModel):
 
         # Get generation config with defaults
         config = generation_config or VlmGenerationConfig()
+        config = self._resolve_prompt_reasoning_config(config)
 
         # Route to EVS session mode if configured. EVS owns its own prompt
         # construction / mm-data path and returns a concurrent.futures.Future
@@ -4031,6 +4052,7 @@ class VllmCompatible(BaseVlmModel):
     ):
         """Text-only generation using the vLLM engine (no multimodal data)."""
         config = generation_config or VlmGenerationConfig()
+        config = self._resolve_prompt_reasoning_config(config)
 
         prompt = self._apply_chat_template(messages, config)
         prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)
@@ -4134,6 +4156,7 @@ class VllmCompatible(BaseVlmModel):
     ):
         """Async generator yielding text deltas for token-level streaming."""
         config = generation_config or VlmGenerationConfig()
+        config = self._resolve_prompt_reasoning_config(config)
 
         prompt = self._apply_chat_template(messages, config)
         prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)
