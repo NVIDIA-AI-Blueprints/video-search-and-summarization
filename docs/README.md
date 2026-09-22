@@ -61,8 +61,10 @@ configurable. The allowlisted variables and defaults are:
 
 All build-time variables must use the `VSS_DOCS_` prefix and be explicitly
 added to `.github/scripts/check_fern_substitutions.py`. Export overrides before
-running `prepare_fern_inputs.py`. GitHub Actions reads the same names from
-repository Actions variables.
+running `prepare_fern_inputs.py` locally. The Fern GitHub Actions workflows set
+these values statically in their top-level `env` blocks. Release branches must
+update those workflow values to the checkout reference and image tags published
+for that branch.
 
 ## Stage
 
