@@ -593,7 +593,7 @@ If alignment data already exists and you want to recreate it:
 
 Verify project requirements and run calibration. AMC and VGGT are **independent** calibration choices: each can be launched or relaunched on its own. Multi-camera projects finish raw calibration first, then run **shared layout post-processing** for overlays, evaluation, MV3DT, and virtual-GT imagery.
 
-![Execute Step](/assets/images/vss-autocalib-ui/execute_step_v330.png)
+![Execute Step](/assets/images/vss-autocalib-ui/execute_step.png)
 
 ### Project State Overview
 
@@ -606,7 +606,7 @@ At the top of the page, you'll see the current project state:
 
 When RUNNING, an elapsed time counter and progress bar are displayed.
 
-![Project State](/assets/images/vss-autocalib-ui/project_state.jpg)
+![Project State](/assets/images/vss-autocalib-ui/project_state.png)
 
 ### Requirements Checklist
 
@@ -672,7 +672,7 @@ AMC (Auto Magic Calib) is the geometry-based / tracklet-based calibration method
   when ResNet produces too few or unreliable person tracks. It generally
   provides stronger detection at the cost of longer runtime.
 
-![AMC Calibration controls](/assets/images/vss-autocalib-ui/amc_after_verification_v330.png)
+![AMC Calibration controls](/assets/images/vss-autocalib-ui/amc_after_verification.png)
 
 **During Calibration**
 - **Elapsed Time**: Updates every second
@@ -682,7 +682,7 @@ AMC (Auto Magic Calib) is the geometry-based / tracklet-based calibration method
 - **AMC Live Logs**: Real-time calibration logs displayed during execution
 - **Auto-refresh**: Status updates every 3 seconds
 
-![AMC Calibration Running](/assets/images/vss-autocalib-ui/amc_calib_running_v330.png)
+![AMC Calibration Running](/assets/images/vss-autocalib-ui/amc_calib_running.png)
 
 **Stopping Calibration**
 
@@ -700,7 +700,7 @@ When AMC finishes successfully:
 - **AMC State**: Shows "COMPLETED"
 - AMC produces **raw** calibration outputs; layout overlays / GT eval / MV3DT for multi-camera come from shared post-processing
 
-![AMC Calibration Completed](/assets/images/vss-autocalib-ui/amc_completed_v330.png)
+![AMC Calibration Completed](/assets/images/vss-autocalib-ui/amc_completed.png)
 
 ### Calibration Failure
 
@@ -727,7 +727,7 @@ VGGT does **not** require a successful AMC run. After verify + completed rectifi
 2. Project state returns to "INIT"
 3. Go back to previous steps, fix inputs, re-rectify if needed, then verify again
 
-![Project Reset](/assets/images/vss-autocalib-ui/project_reset.jpg)
+![Project Reset](/assets/images/vss-autocalib-ui/project_reset.png)
 
 ### VGGT Calibration
 
@@ -754,7 +754,7 @@ VGGT (Vision-Geometry Graph Transformer) is a **multi-camera** calibration metho
 - **Duration**: Typically a few minutes
 - Produces **raw** calibration outputs; shared post-processing builds layout-derived artifacts
 
-![VGGT Calibration](/assets/images/vss-autocalib-ui/vggt_calib_v330.png)
+![VGGT Calibration](/assets/images/vss-autocalib-ui/vggt_calib.png)
 
 **VGGT Completion**
 
