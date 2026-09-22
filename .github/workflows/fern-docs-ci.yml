@@ -26,6 +26,11 @@
 
 name: Fern Docs CI
 
+env:
+  VSS_DOCS_GIT_REF: ${{ vars.VSS_DOCS_GIT_REF }}
+  VSS_DOCS_IMAGE_TAG: ${{ vars.VSS_DOCS_IMAGE_TAG }}
+  VSS_DOCS_SBSA_IMAGE_TAG: ${{ vars.VSS_DOCS_SBSA_IMAGE_TAG }}
+
 on:
   push:
     branches:

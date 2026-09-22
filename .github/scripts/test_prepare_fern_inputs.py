@@ -62,6 +62,44 @@ def test_prepares_literals_and_preserves_allowlisted_substitutions() -> None:
         assert (output / "fern/assets").is_symlink()
 
 
+def test_defaulted_docs_substitution_uses_authored_default_when_unset() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        temporary = Path(directory)
+        source = temporary / "source"
+        output = temporary / "prepared"
+        make_repo(
+            source,
+            "git checkout ${VSS_DOCS_GIT_REF:-develop}\n",
+        )
+
+        PREPARE.prepare_tree(source, output, environment={})
+
+        assert (output / "docs/example.mdx").read_text(encoding="utf-8") == (
+            "git checkout develop\n"
+        )
+
+
+def test_defaulted_docs_substitution_is_preserved_for_fern_when_set() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        temporary = Path(directory)
+        source = temporary / "source"
+        output = temporary / "prepared"
+        make_repo(
+            source,
+            "git checkout ${VSS_DOCS_GIT_REF:-develop}\n",
+        )
+
+        PREPARE.prepare_tree(
+            source,
+            output,
+            environment={"VSS_DOCS_GIT_REF": "v3.3.0"},
+        )
+
+        assert (output / "docs/example.mdx").read_text(encoding="utf-8") == (
+            "git checkout ${VSS_DOCS_GIT_REF}\n"
+        )
+
+
 def test_rejects_generated_escapes_in_authored_sources() -> None:
     with tempfile.TemporaryDirectory() as directory:
         temporary = Path(directory)
@@ -130,6 +168,8 @@ def test_rejects_existing_output_path() -> None:
 
 if __name__ == "__main__":
     test_prepares_literals_and_preserves_allowlisted_substitutions()
+    test_defaulted_docs_substitution_uses_authored_default_when_unset()
+    test_defaulted_docs_substitution_is_preserved_for_fern_when_set()
     test_rejects_generated_escapes_in_authored_sources()
     test_rejects_allowlist_names_outside_docs_namespace()
     test_rejects_non_allowlisted_yaml_substitution()
