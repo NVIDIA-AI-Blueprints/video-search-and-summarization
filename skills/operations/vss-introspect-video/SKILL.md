@@ -42,15 +42,10 @@ Before starting, read:
 - `references/inspection-result.schema.json`;
 - `scripts/evidence_ledger.py`.
 
-Do not copy the numeric budgets into prompts, scripts, or other configuration.
-Load them from `config/ledger-budgets.json`. The utility enforces them when
-initializing, expanding, creating tasks, validating results, and merging.
-Never exceed any maximum loaded from that file.
-
-The ledger contains the original evidence plan, one small runtime state per
-claim, append-only accepted observations, the completed round count, and the
-global VLM-call count. Runtime state never edits the claim objects. Unknown
-fields are rejected.
+Load all limits from `config/ledger-budgets.json`; do not copy them into
+prompts, scripts, or other configuration. Never exceed any maximum loaded from
+that file. The utility rejects unknown fields and enforces immutable plan
+claims, append-only observations, budgets, revisions, and rounds.
 
 Use the utility for canonical state transitions:
 
@@ -101,18 +96,17 @@ ${VSS_WORKSPACE:-$HOME/.vss}/runs/vss-introspection/<question-id>/
     └── round-2/
 ```
 
-Create `base-ledger.json` from the frozen canonical revision before dispatch.
-Use atomic replacement for `ledger.json` and `final-result.json`. Do not write
-the ledger to `MEMORY.md`, VSS memory, or Elasticsearch. Runtime artifacts must
-not be added to Git.
+Freeze `base-ledger.json` before dispatch. Atomically replace `ledger.json` and
+`final-result.json`. Never write the ledger to `MEMORY.md`, VSS memory,
+Elasticsearch, or Git.
 
 ## Workflow
 
 ### 1. Freeze the question and grounded media scope
 
-Retain the verbatim question, a stable question ID, optional asset ID, allowed
-visual modalities, and grounded media selectors. Keep answer choices separate
-for final synthesis only.
+Retain the verbatim question, stable question ID, optional asset ID, allowed
+visual modalities, and grounded media selectors. Keep answer choices only for
+final synthesis.
 
 Do not invent timestamps from “recently”, “this morning”, or similar relative
 phrases. A named sensor remains a sensor. For a local file, resolve the
@@ -165,7 +159,8 @@ Only after planning, search:
 1. OpenClaw or harness-native Markdown memory, when available;
 2. structured VSS memory, when configured and needed.
 
-Use exact identity for a known record:
+Use exact identity for a known record and the complete project-local CLI
+invocation:
 
 ```bash
 VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
@@ -194,8 +189,7 @@ gate passes, skip visual inspection.
 
 ### 4. Select bounded inspection work
 
-For each selected unresolved claim, create one task through the utility. Every
-task:
+Create one utility-generated task per selected unresolved claim. Every task:
 
 - targets one existing claim;
 - carries the complete PR #2322 claim unchanged;
@@ -213,27 +207,23 @@ not an orchestration service.
 
 ### 5. Dispatch bounded parallel subagents
 
-Spawn no more subagents than the loaded parallelism limit. Each subagent gets
-one task containing one claim ID, immutable media selectors, a result path, and
-this instruction:
+Spawn no more subagents than the loaded parallelism limit. Give each one task
+containing one claim ID, immutable media selectors, and a result path. Instruct
+it to:
 
-> Read only the assigned claim, gap, existing observations, asset ID, and
-> coverage requirement. Inspect only the missing visible fact. Use existing
-> memory timestamps, VIOS timeline information, or question context to choose
-> useful assigned media. Issue targeted `vss vlm run` queries; do not broadly
-> summarize the video and do not include answer choices. Describe observations
-> only as visible facts and compare them to the support and falsification
-> tests. Missing visibility, ambiguity, occlusion, tool failure, and incomplete
-> coverage remain unresolved. Return exactly one schema-valid inspection
-> result. Do not create or modify claims, spawn agents, edit the canonical
-> ledger, or answer the user.
-
-The subagent may use only its assigned VLM-call allocation. It must not search
-memory. Capture the returned VSS job ID, sensor, and exact ISO-8601 window in
-every accepted VLM observation. A tool failure goes in `error`, never in
-`observations`. Exit 6 may retain usable evidence while recording its
-persistence limitation; other nonzero exits produce an error and no invented
-observation.
+- read only its claim, gap, existing observations, asset ID, and coverage;
+- inspect only the missing visible fact, using supplied memory timestamps,
+  VIOS timeline information, or question context to select assigned media;
+- use targeted `vss vlm run` calls within its allocation; never search memory,
+  summarize broadly, include answer choices, or spawn agents;
+- report visible facts against the support and falsification tests, leaving
+  missing visibility, ambiguity, occlusion, failure, and incomplete coverage
+  unresolved;
+- preserve VSS job ID, sensor, and exact ISO-8601 window in every observation;
+- put tool failures in `error`, never in `observations`; exit 6 may retain
+  usable evidence while recording the persistence limitation;
+- return exactly one schema-valid result without changing claims, canonical
+  state, or the final answer.
 
 Example command shape:
 
@@ -256,12 +246,11 @@ return, write a result for its assigned task with no observations, retained
 coverage/gap, zero consumed calls when known, and a timeout error. Preserve
 successful sibling results.
 
-Validate every result against its task. To batch-merge safely, merge the complete result set
-once. The utility rejects stale, unknown, duplicated, cross-claim, over-budget,
-or malformed results; deduplicates observations by claim, relation, normalized
-text, source type and identifiers, and window; updates only assigned claim
-states; preserves supporting and contradicting evidence; increments the global
-call count; and increments `round` and `revision` exactly once.
+Validate every result against its task, then batch-merge the complete result
+set once. The utility rejects stale, unknown, duplicate, cross-claim,
+over-budget, or malformed results; deterministically deduplicates observations;
+updates only assigned claim states; preserves support and contradiction; and
+increments the call count, `round`, and `revision` exactly once.
 
 Never merge arbitrary ledger copies from subagents and never merge results in
 completion order.
@@ -311,7 +300,6 @@ job, record, sensor, and time provenance.
 
 ## POC boundary
 
-This POC has no probability score, confidence threshold, semantic-threshold
-sufficiency, historical learning, long-term ledger persistence, NeMo Fabric,
-NeMo Relay, NAT, LangGraph, new runtime service, or new VSS job type. Do not
-describe any of these as implemented.
+This skill does not implement probability or semantic-threshold scoring,
+historical learning, long-term ledger persistence, NeMo Fabric, NeMo Relay,
+NAT, LangGraph, new services, or new VSS job types.
