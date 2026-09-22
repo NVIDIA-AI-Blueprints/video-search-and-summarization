@@ -176,7 +176,7 @@ def test_05_rejects_unknown_coverage_requirement() -> None:
         initialized(claim(coverage_requirement="entire_video"))
 
 
-def test_06_preserves_pr_2322_plan_unchanged() -> None:
+def test_06_preserves_evidence_plan_unchanged() -> None:
     source = plan(claim(), claim("claim-count", "count", "whole_video"))
     before = copy.deepcopy(source)
     ledger = ledger_mod.initialize_ledger(source)
