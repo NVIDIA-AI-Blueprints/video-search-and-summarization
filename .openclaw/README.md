@@ -96,11 +96,12 @@ deployment bootstrap for operation requests. `OPENCLAW_CHILD_OOM_SCORE_ADJ=0`
 disables OpenClaw's optional write to the sandbox's read-only `/proc`.
 
 ```
-docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
+git archive HEAD:.openclaw | docker build -t <registry>/vss-harness-openclaw:<tag> -
 ```
 
-To include a skill or CLI change, publish it and build from a clean context
-with `--build-arg VSS_REF=<commit-sha>`. Skills and CLI then come from that same
+The archive includes only committed files, so local build inputs cannot override
+the source pin. To include a skill or CLI change, publish it and add
+`--build-arg VSS_REF=<commit-sha>` to the archived-context build above. Skills and CLI then come from that same
 revision; using the resulting image requires no source checkout.
 
 Run the instruction regressions from the repository root. Supplying a locally

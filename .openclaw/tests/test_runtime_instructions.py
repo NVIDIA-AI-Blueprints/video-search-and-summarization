@@ -5,15 +5,14 @@
 VSS_TEST_IMAGE=<cached image> python3 -m unittest discover -s .openclaw/tests
 """
 
-import os
 import json
-from pathlib import Path
+import os
 import re
 import shlex
 import subprocess
 import textwrap
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(os.environ.get("VSS_TEST_SOURCE_ROOT", Path(__file__).resolve().parents[2]))
 IMAGE = os.environ.get("VSS_TEST_IMAGE")
@@ -23,7 +22,7 @@ SKILL = ROOT / "skills/operations/vss-ask-video/SKILL.md"
 
 def bash_block(path, heading):
     section = path.read_text().split(heading, 1)[1]
-    return re.search(r"```bash\n(.*?)\n```", section, re.S).group(1)
+    return re.search(r"```bash\n(.*?)\n```", section, re.DOTALL).group(1)
 
 
 class EnvironmentInstructions(unittest.TestCase):
@@ -90,6 +89,41 @@ class EnvironmentInstructions(unittest.TestCase):
             ["", ""],
         )
 
+    def test_direct_url_does_not_require_memory_configuration(self):
+        script = (
+            bash_block(SKILL, "## Prerequisites")
+            + "\n"
+            + bash_block(SKILL, "For a trusted bounded URL")
+        )
+        result = subprocess.run(
+            [
+                "bash",
+                "--noprofile",
+                "--norc",
+                "-ec",
+                """
+            vss() {
+              case "$*" in
+                'configure check') return 0 ;;
+                'vlm run '*) printf 'direct-url-answer' ;;
+                *) echo 'memory is not configured' >&2; return 2 ;;
+              esac
+            }
+            """
+                + script,
+            ],
+            env={
+                "PATH": "/usr/bin:/bin",
+                "VIDEO_URL": "https://media.example/video.mp4",
+                "USER_QUESTION": "What happened?",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("direct-url-answer", result.stdout)
+
     def notebook_script(self, origin, hitl):
         path = ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb"
         cells = json.loads(path.read_text())["cells"]
@@ -108,8 +142,8 @@ class EnvironmentInstructions(unittest.TestCase):
             "re": re,
             "shlex": shlex,
         }
-        exec(compile(textwrap.dedent(source[start:end]), str(path), "exec"), scope)
-        return re.search(r"```bash\n(.*?)\n```", scope["_rendered"], re.S).group(1)
+        exec(compile(textwrap.dedent(source[start:end]), str(path), "exec"), scope)  # noqa: S102 — test the actual renderer
+        return re.search(r"```bash\n(.*?)\n```", scope["_rendered"], re.DOTALL).group(1)
 
     def test_actual_notebook_renderer_preserves_supplied_and_empty_values(self):
         origin = "https://notebook.example:8443"
@@ -175,10 +209,11 @@ class InstalledCliInstructions(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
 
     def skill_selectors(self):
-        blocks = re.findall(r"```bash\n(.*?)\n```", SKILL.read_text(), re.S)
+        blocks = re.findall(r"```bash\n(.*?)\n```", SKILL.read_text(), re.DOTALL)
         selectors = [
             block.split("\n\n", 1)[0].split("\nVLM_FPS", 1)[0]
             for block in blocks
@@ -187,8 +222,7 @@ class InstalledCliInstructions(unittest.TestCase):
         self.assertEqual(len(selectors), 8)
         return selectors
 
-    def test_all_skill_selectors_and_shared_bootstrap_use_baked_cli(self):
-        repo_bootstrap = bash_block(ROOT / "AGENTS.md", "### Setup")
+    def test_all_skill_selectors_use_baked_cli(self):
         selected_commands = "\n".join(
             selector + '\n"${VSS[@]}" --version\n'
             for selector in self.skill_selectors()
@@ -200,8 +234,6 @@ class InstalledCliInstructions(unittest.TestCase):
             'test "$(command -v vss)" = /usr/local/bin/vss\n'
             'git() { echo "unexpected git" >&2; exit 97; }\n'
             'uv() { echo "unexpected uv" >&2; exit 98; }\n'
-            + repo_bootstrap
-            + "\n"
             + selected_commands
             + '\n"${VSS[@]}" vlm run --help\n'
             + '\n"${VSS[@]}" vios --help\n'
@@ -211,7 +243,7 @@ class InstalledCliInstructions(unittest.TestCase):
         self.assertNotIn("unexpected", result.stderr)
 
     def test_missing_baked_cli_stops_before_development_fallback(self):
-        blocks = [bash_block(ROOT / "AGENTS.md", "### Setup"), *self.skill_selectors()]
+        blocks = self.skill_selectors()
         for index, block in enumerate(blocks):
             with self.subTest(selector=index):
                 result = self.run_image(
@@ -228,8 +260,12 @@ class InstalledCliInstructions(unittest.TestCase):
     def test_oom_default_disables_installed_runtime_proc_write(self):
         dockerfile = (ROOT / ".openclaw/Dockerfile").read_text()
         self.assertRegex(dockerfile, r"(?m)^ENV OPENCLAW_CHILD_OOM_SCORE_ADJ=0$")
-        result = self.run_image("""node --input-type=module <<'JS'
-import { t as prepare } from '/usr/local/lib/node_modules/openclaw/dist/linux-oom-score-eO5nXmjv.js';
+        result = self.run_image(r"""node --input-type=module <<'JS'
+import { readdirSync } from 'node:fs';
+const dist = '/usr/local/lib/node_modules/openclaw/dist/';
+const chunks = readdirSync(dist).filter(name => /^linux-oom-score-.*\.js$/.test(name));
+if (chunks.length !== 1) throw new Error(`Expected one OOM helper, found ${chunks}`);
+const { t: prepare } = await import(dist + chunks[0]);
 const options = { platform: 'linux', shellAvailable: () => true };
 const baseline = prepare('/bin/bash', ['-c', 'true'], { ...options, env: {} });
 const configured = prepare('/bin/bash', ['-c', 'true'], { ...options, env: process.env });

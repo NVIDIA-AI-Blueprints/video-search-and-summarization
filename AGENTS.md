@@ -16,33 +16,23 @@ Human contributor guidance — licensing, DCO, file headers — is in
 ### Setup
 
 ```bash
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
-fi
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 vss --version
 ```
 
-The OpenClaw harness image already installs the pinned CLI at
-`/usr/local/bin/vss` and exposes it through the `vss_cli` tool. Use that tool
-or executable. Do not clone a repository or install dependencies in the sandbox.
-If the baked executable is unavailable, report an image problem and stop.
-
-The fallback function is for a development checkout without an installed CLI.
-No extras and no `--no-dev`: `libs/vss` is the library's own workspace
+A function rather than an alias — aliases are not expanded in non-interactive
+shells. No extras and no `--no-dev`: `libs/vss` is the library's own workspace
 and the agent stack is not in it, so the environment is NAT-free by
 construction rather than by remembering a flag.
 
-Do not invoke it through `docker exec` or `kubectl exec`.
+Use that checkout's `vss` — not one from `PATH`, and not through `docker exec`
+or `kubectl exec`.
 
 ### No deployment yet?
 
 The CLI talks to a **running** stack; it does not stand one up. If there is
-nothing to configure against, report the missing deployment. An operation or
-video question does not authorize deploying services. When deployment is requested:
+nothing to configure against:
 
 [`/vss-build-vision-ai`](skills/vss-build-vision-ai/SKILL.md) takes the
 capabilities you name — dense captioning, detection, search, alerting,

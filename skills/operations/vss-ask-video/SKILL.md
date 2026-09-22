@@ -53,6 +53,9 @@ Direct VLM requires:
 - Reachable RT-VLM.
 - VIOS when using sensor-based media.
 
+Directly scoped URL, file, and sensor requests go straight to `vss vlm run`.
+The checks below are for requested readiness diagnostics, not mandatory preflight.
+
 Introspection requires:
 - Memory enabled and Elasticsearch reachable.
 - Existing VSS memory records.
@@ -73,8 +76,6 @@ if ! command -v vss >/dev/null; then
 fi
 
 "${VSS[@]}" configure check
-"${VSS[@]}" configure memory show
-"${VSS[@]}" configure memory check
 ```
 
 These checks show endpoint names and credential environment-variable names, not
@@ -285,6 +286,9 @@ if ! command -v vss >/dev/null; then
   VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
 fi
 VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
+
+"${VSS[@]}" configure memory show
+"${VSS[@]}" configure memory check
 
 RC=0
 RESULT=$("${VSS[@]}" memory introspect \

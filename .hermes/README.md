@@ -57,7 +57,7 @@ release.
 ## Building
 
 ```
-docker build -t <registry>/vss-harness-hermes:<tag> .hermes
+git archive HEAD:.hermes | docker build -t <registry>/vss-harness-hermes:<tag> -
 ```
 
 `deploy_nemoclaw.ipynb` does this through `nemohermes onboard --from
@@ -68,8 +68,9 @@ From a clean build context, the build packages skills and CLI wheels from the
 pinned VSS revision (`VSS_REF`). Only the installed CLI, skills, workspace instructions, and
 runtime helpers enter the final image; its build-stage source checkout does
 not. At runtime, use `/usr/local/bin/vss` and the installed Hermes skills.
-To include a skill or CLI change, publish it and build from a clean context
-with `--build-arg VSS_REF=<commit-sha>`.
+The archive includes only committed files, so local build inputs cannot override
+the source pin. To include a skill or CLI change, publish it and add
+`--build-arg VSS_REF=<commit-sha>` to the archived-context build above.
 
 | Build arg | Default | What it pins |
 |---|---|---|
