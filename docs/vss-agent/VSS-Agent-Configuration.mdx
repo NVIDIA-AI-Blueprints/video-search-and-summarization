@@ -351,12 +351,10 @@ supply values to the Agent container. Choose the file as described in
 | `HF_TOKEN` | Optional credential for gated Hugging Face model weights. |
 
 The checked-in profile files already define the service URLs and stable
-defaults. For a direct Docker Compose deployment, a `user-overrides.env` file
-should contain only values you need to change. The `dev-profile.sh` helper does
-not read that file; it recreates and consumes `generated.env` from its flags and
-supported environment inputs. See
-[Configuration](/vss/system-components/configuration) before choosing a path.
-For example, a direct Compose override can contain:
+defaults. For a Docker Compose deployment, a `user-overrides.env` file should
+contain only values you need to change. See
+[Configuration](/vss/system-components/configuration) for file precedence.
+For example, an override can contain:
 
 ```bash
 VLM_MODE=local_shared

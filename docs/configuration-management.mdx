@@ -15,19 +15,9 @@ additional modes, datasets, brokers, and calibration requirements.
 
 ## Configuration files and precedence
 
-There are two supported manual paths, and their final environment files are not
-interchangeable:
-
-- **Developer-profile helper:** `dev-profile.sh` copies the checked-in
-  `overrides.env` template to `generated.env`, updates it from the helper's
-  flags and supported environment inputs, and passes `containers.env`, `.env`,
-  and `generated.env` to Compose. It recreates `generated.env` on each `up` and
-  does not read `user-overrides.env`.
-- **Direct Docker Compose:** copy `overrides.env` to `user-overrides.env`, edit
-  that local file, and pass `containers.env`, `.env`, and
-  `user-overrides.env` to Compose in that order.
-
-For the direct Compose path, run commands from `deploy/docker` and supply files in this order:
+Developer-profile deployments use native Docker Compose with a local override
+file copied from the checked-in template. Run commands from `deploy/docker`
+and supply files in this order:
 
 1. `containers.env` selects the shared image registry and tag.
 2. `developer-profiles/dev-profile-<profile>/.env` supplies stable defaults.
@@ -48,10 +38,6 @@ in the file, so keep those definitions before the derived value.
 
 Files matching `*-overrides.env` are ignored by Git. Do not put credentials
 in the checked-in `.env` or `overrides.env` files.
-
-Do not edit `generated.env`; it is ignored by Git and owned by the helper. To
-change a helper-managed deployment, rerun `dev-profile.sh up` with the
-appropriate option shown by `dev-profile.sh --help`.
 
 <Note>
 `VSS_CONTAINER_TAG_SUFFIX` is an exception to the file-based workflow. On

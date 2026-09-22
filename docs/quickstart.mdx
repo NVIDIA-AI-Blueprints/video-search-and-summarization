@@ -472,59 +472,10 @@ Tear down the VSS deployment.
 Use this section when you want to run the deployment yourself instead of asking
 the Build Vision AI Skill to do it.
 
-### Developer-profile helper
+### Docker Compose deployment
 
-The supported manual entry point for the `base`, `lvs`, `search`, and `alerts`
-developer profiles is `dev-profile.sh`. It creates `generated.env`, derives the
-profile-specific service set, applies host paths and model placement, and starts
-the matching Compose project.
-
-<Warning>
-Both `up` and `down` perform destructive cleanup. `up` runs the cleanup first,
-before starting a fresh deployment. The cleanup stops the helper-managed Compose
-project with `down -v`, deletes the helper-managed `deploy/docker/data-dir`, and
-removes all dangling Docker volumes on the host. Back up any data you need and
-do not use the helper when those volumes or that data directory must be
-preserved.
-</Warning>
-
-The helper always recreates the selected profile's `generated.env` from the
-checked-in `overrides.env` template, its flags, and supported environment
-inputs, then passes `.env` and `generated.env` to Compose. It does not read
-`user-overrides.env`. Use the helper's documented flags and environment inputs;
-use the advanced direct Compose path below only for settings the helper does
-not expose.
-
-From the repository root:
-
-```bash
-export NGC_CLI_API_KEY='<your-ngc-personal-api-key>'
-
-./deploy/docker/scripts/dev-profile.sh up \
-  --profile base \
-  --hardware-profile H100
-```
-
-Replace `H100` with the supported hardware profile for the host. Remote model
-endpoints and the alerts mode use additional flags; list the complete,
-authoritative options with:
-
-```bash
-./deploy/docker/scripts/dev-profile.sh --help
-```
-
-To stop the helper-managed deployment:
-
-```bash
-./deploy/docker/scripts/dev-profile.sh down
-```
-
-### Direct Docker Compose deployment (advanced)
-
-Use the direct Compose path only when you need to customize values that the
-helper does not expose. The commands below are one advanced path, not a second
-recommended bring-up method; keep the selected profile's `.env` and override
-files together throughout the procedure.
+Use the selected developer profile with its checked-in `.env` file and a local
+`user-overrides.env` file throughout the native Docker Compose procedure below.
 
 <Note>
 - Set the NGC CLI API key, then run the deploy commands for your GPU type. Set `HF_TOKEN` only when the selected model downloads gated or rate-limited weights from Hugging Face. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc--hugging-face-api-keys).
@@ -554,7 +505,7 @@ Select a hardware tab, then a deployment mode. **Shared GPU** runs the local
 LLM and integrated RT-VLM on the same GPU. **Dedicated GPU** assigns them to
 separate GPUs with `LLM_DEVICE_ID` and `RT_VLM_DEVICE_ID`. Keep
 `VLM_DEVICE_ID` aligned with `RT_VLM_DEVICE_ID` for local integrated RT-VLM:
-the deployment helper uses `VLM_DEVICE_ID` when deriving RT-VLM placement,
+the profile configuration uses `VLM_DEVICE_ID` when deriving RT-VLM placement,
 while the RT-VLM container binds the GPU named by `RT_VLM_DEVICE_ID`.
 
 `overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
@@ -1101,7 +1052,7 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 </Note>
 
 <Note>
-**Switch Agent Workflows:** If you run `docker compose` directly, use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env`. Later `--env-file` values win. `generated.env` is helper-owned output; do not treat it as a persistent direct-Compose override file.
+**Switch Agent Workflows:** Use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env`. Later `--env-file` values win.
 
 Switch profiles by changing the `dev-profile-<profile>` directory, not by setting `MODE` to `base`/`lvs`/`search`/`alerts`. Those names are profile directories. For the **alerts** profile only, `MODE` is:
 

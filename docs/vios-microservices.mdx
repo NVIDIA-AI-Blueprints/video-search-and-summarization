@@ -1014,7 +1014,9 @@ The `disableAudio` query parameter is required in VST video download REST API ca
    - Default (`ENABLE_AUDIO=false` in the VSS profile `.env`): expect `disable_audio: true`.
    - Nemotron Omni / audio-aware agent (`ENABLE_AUDIO=true`): expect `disable_audio: false`.
 
-4. If the value does not match your profile, confirm `ENABLE_AUDIO` in `generated.env` and that you uploaded video **after** enabling audio; then retry the operation.
+4. If the value does not match your profile, confirm `ENABLE_AUDIO` in the
+   `user-overrides.env` file passed last to Docker Compose and that you uploaded
+   video **after** enabling audio; then retry the operation.
 
 ##### VST services are up but common functionalities do not work
 
