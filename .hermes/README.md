@@ -57,18 +57,20 @@ release.
 ## Building
 
 ```
-docker build -t <registry>/vss-harness-hermes:<tag> .hermes
+git archive HEAD:.hermes | docker build -t <registry>/vss-harness-hermes:<tag> -
 ```
 
 `deploy_nemoclaw.ipynb` does this through `nemohermes onboard --from
 .hermes/Dockerfile` when `AGENT_RUNTIME=hermes`. The eval harness's
 Provision panel lists this Dockerfile next to the OpenClaw one.
 
-**Dev loop:** `python3 skills/vss-build-vision-ai/scripts/stage_vss_src.py`
-snapshots the working tree (skills, workspace docs, `vss` CLI source) into
-`.hermes/.vss-src/`, which the next build uses instead of fetching `VSS_REF`;
-`--clean` returns builds to the pin. Same mechanism and provenance marker as
-the OpenClaw image (see `.openclaw/README.md`).
+From a clean build context, the build packages skills and CLI wheels from the
+pinned VSS revision (`VSS_REF`). Only the installed CLI, skills, workspace instructions, and
+runtime helpers enter the final image; its build-stage source checkout does
+not. At runtime, use `/usr/local/bin/vss` and the installed Hermes skills.
+The archive includes only committed files, so local build inputs cannot override
+the source pin. To include a skill or CLI change, publish it and add
+`--build-arg VSS_REF=<commit-sha>` to the archived-context build above.
 
 | Build arg | Default | What it pins |
 |---|---|---|

@@ -36,7 +36,7 @@
     "ground_truth": "Use introspection with valid sensor scope.",
     "expected_behavior": [
       "Calls vss memory introspect with dock_cam.",
-      "Uses the complete project-local CLI invocation."
+      "Uses the installed vss CLI when available; the project-local fallback applies only to development checkouts without it."
     ]
   },
   {
@@ -124,7 +124,7 @@
     "id": "direct-file-vlm",
     "question": "Confirm the configured VSS deployment, then freshly inspect warehouse_safety_0001.mp4: is the worker wearing PPE?",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Use one project-local vss vlm run --file after configuration is confirmed.",
+    "ground_truth": "Use one vss vlm run --file through the provided CLI after configuration is confirmed.",
     "expected_behavior": [
       "Confirms VSS configuration before the live inspection.",
       "Uses vss vlm run --file and does not search Markdown, introspect, or call backends directly."
@@ -134,9 +134,9 @@
     "id": "separate-shell-cli",
     "question": "Show the command for querying structured VSS memory in a fresh OpenClaw shell.",
     "expected_skill": "vss-ask-video",
-    "ground_truth": "Define and invoke the full project-local VSS array in one shell call.",
+    "ground_truth": "Select and invoke the provided VSS CLI in one shell call.",
     "expected_behavior": [
-      "Uses uv run --project against libs/vss.",
+      "Uses the installed vss CLI when available; only a development checkout without it may use uv run --project against libs/vss.",
       "Does not depend on a shell function or array from an earlier call."
     ]
   },

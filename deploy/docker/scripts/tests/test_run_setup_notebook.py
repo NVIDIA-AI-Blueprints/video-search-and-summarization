@@ -356,7 +356,7 @@ class HitlLaunchContractTests(unittest.TestCase):
         instructions = (
             repo / ".openclaw" / "workspace" / "_nemoclaw" / "AGENTS.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("export HITL_ENABLED=false", environment)
+        self.assertIn('export HITL_ENABLED="${HITL_ENABLED-false}"', environment)
         self.assertIn("never invoke `AskUserQuestion`", instructions)
         self.assertIn("ordinary assistant text", instructions)
 
