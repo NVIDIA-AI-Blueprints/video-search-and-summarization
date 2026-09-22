@@ -121,7 +121,15 @@ class SearchResult(BaseModel):
     screenshot_url: str
     similarity: float
     object_ids: list[str] = Field(default_factory=list)
+    # default_factory (not a shared default instance) so each result owns its
+    # own SearchVerification and serialization stays robust alongside the
+    # excluded sensor_id_raw field below.
     verification: SearchVerification = Field(default_factory=SearchVerification)
+    # Indexed sensor identity (the behavior document's sensor.id) carried from
+    # the embed adapter for fusion's per-hit attribute lookup when VST is absent.
+    # Internal routing hint: excluded from serialization so client-facing result
+    # payloads (and exact-equality E2E assertions) are unchanged.
+    sensor_id_raw: str = Field(default="", exclude=True)
 
 
 class SearchOutput(BaseModel):

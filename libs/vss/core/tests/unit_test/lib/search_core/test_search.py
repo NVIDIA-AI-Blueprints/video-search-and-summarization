@@ -112,6 +112,7 @@ def _embed_item(
     similarity: float = 0.8,
     start: str = "2025-01-01T00:00:00Z",
     end: str = "2025-01-01T00:00:05Z",
+    sensor_id_raw: str = "",
 ) -> EmbedSearchResultItem:
     return EmbedSearchResultItem(
         video_name=video_name,
@@ -119,6 +120,7 @@ def _embed_item(
         start_time=start,
         end_time=end,
         sensor_id=sensor_id,
+        sensor_id_raw=sensor_id_raw,
         screenshot_url="",
         similarity_score=similarity,
     )
@@ -154,7 +156,7 @@ def _config(**overrides: Any) -> SimpleNamespace:
         "attribute_search_tool": "attribute_search",
         "embed_confidence_threshold": 0.1,
         "default_max_results": 5,
-        "fusion_method": "rrf",
+        "fusion_method": "weighted_rrf",
         "w_attribute": 0.55,
         "w_embed": 0.35,
         "w_tag": 0.45,
@@ -722,6 +724,33 @@ def _build_stream_search(embed_run: Any, **config_overrides: Any) -> Search:
     )
 
 
+def test_direct_search_defaults_disable_tag_and_use_legacy_rrf() -> None:
+    async def embed_run(_inp: Any) -> EmbedSearchOutput:
+        return _embed_output([])
+
+    search = _build_stream_search(embed_run)
+
+    assert search._config.w_tag == 0.0
+    assert search._config.fusion_method == "rrf"
+
+
+def test_direct_search_tag_weight_auto_selects_weighted_rrf() -> None:
+    async def embed_run(_inp: Any) -> EmbedSearchOutput:
+        return _embed_output([])
+
+    search = _build_stream_search(embed_run, w_tag=0.2)
+
+    assert search._config.fusion_method == "weighted_rrf"
+
+
+def test_direct_search_rejects_explicit_rrf_with_tag_weight() -> None:
+    async def embed_run(_inp: Any) -> EmbedSearchOutput:
+        return _embed_output([])
+
+    with pytest.raises(ConfigurationError, match="has no VLM tag leg"):
+        _build_stream_search(embed_run, fusion_method="rrf", w_tag=0.2)
+
+
 class TestStreamContract:
     @pytest.mark.asyncio
     async def test_stream_success_yields_single_final_event(self):
@@ -933,3 +962,202 @@ class TestTagOnlyDeploymentAndFusionWeights:
                 tag_search=tag,
                 config=_config(fusion_method="weighted_rrf", w_tag=0, w_embed=0, w_attribute=1),
             )
+
+    @pytest.mark.asyncio
+    async def test_weighted_rrf_preserves_failure_from_only_positive_weight_provider(self):
+        """A failed tag-only configuration is a backend outage, not bad weights."""
+        failure = BackendUnreachableError("tag", "service unavailable")
+
+        with pytest.raises(BackendUnreachableError, match="service unavailable") as caught:
+            await _run(
+                SearchInput(query="red", source_type="video_file", search_mode="fusion"),
+                embed_search=_FakeEmbed([_embed_output([_embed_item()])]),
+                tag_search=_FakeTag(error=failure),
+                config=_config(fusion_method="weighted_rrf", w_tag=1, w_embed=0, w_attribute=0),
+            )
+
+        assert caught.value is failure
+
+    @pytest.mark.asyncio
+    async def test_legacy_rrf_fusion_uses_old_pipeline_no_tag(self) -> None:
+        # The default fusion_method is now the legacy `rrf` (embed + optional
+        # attribute, no VLM tag leg). With no --attribute and no tag, it
+        # ranks embed hits by the RRF formula 1/(rank + rrf_k) and does NOT
+        # require a tag provider (the weighted_rrf path does).
+        embed = _FakeEmbed(
+            [
+                _embed_output(
+                    [
+                        _embed_item(
+                            video_name="e1",
+                            sensor_id="camE",
+                            similarity=0.9,
+                            start="2025-01-01T00:00:00Z",
+                            end="2025-01-01T00:00:05Z",
+                        ),
+                        _embed_item(
+                            video_name="e2",
+                            sensor_id="camE",
+                            similarity=0.8,
+                            start="2025-01-01T00:10:00Z",
+                            end="2025-01-01T00:10:05Z",
+                        ),
+                    ]
+                )
+            ]
+        )
+        out = await _run(
+            SearchInput(query="red", source_type="video_file", search_mode="fusion"),
+            embed_search=embed,
+            config=_config(fusion_method="rrf"),
+        )
+        assert [r.video_name for r in out.data] == ["e1", "e2"]
+        assert out.data[0].similarity == pytest.approx(1.0 / 61)
+
+    @pytest.mark.asyncio
+    async def test_tag_mode_applies_top_percent_filter(self) -> None:
+        # The tag-only early return must apply `apply_top_percent_filter` like
+        # the embed/attribute path; otherwise `--top-percent-filter` is a no-op for tag.
+        # tag similarity == lexical_score, so a 0.5 threshold keeps >= 0.5*max.
+        tag = _FakeTag(
+            TagSearchOutput(
+                results=[
+                    TagSearchResultItem(
+                        video_name="keep",
+                        sensor_id="camT",
+                        start_time="2025-01-01T00:00:00Z",
+                        end_time="2025-01-01T00:00:05Z",
+                        lexical_score=1.0,
+                        tags=["red"],
+                    ),
+                    TagSearchResultItem(
+                        video_name="drop",
+                        sensor_id="camT",
+                        start_time="2025-01-01T00:10:00Z",
+                        end_time="2025-01-01T00:10:05Z",
+                        lexical_score=0.1,
+                        tags=["red"],
+                    ),
+                ]
+            )
+        )
+        out = await _run(
+            SearchInput(query="red", source_type="video_file", top_k=2, search_mode="tag"),
+            embed_search=_FakeEmbed([_embed_output([])]),
+            tag_search=tag,
+            config=_config(top_percent_filter=0.5),
+        )
+        assert [r.video_name for r in out.data] == ["keep"]
+
+    @pytest.mark.asyncio
+    async def test_fusion_applies_top_percent_filter(self) -> None:
+        # The fusion early return must apply `apply_top_percent_filter` before
+        # merging/slicing; otherwise `--top-percent-filter` is a no-op for fusion.
+        # Four same-sensor, non-overlapping embed hits with rrf_k=1 (rrf weights
+        # are 1.0) produce fused scores 1/(1+rank) = 0.5/0.333/0.25/0.2;
+        # a 0.5 threshold (>= 0.25) drops the 4th (e4).
+        embed = _FakeEmbed(
+            [
+                _embed_output(
+                    [
+                        _embed_item(
+                            video_name="e1",
+                            sensor_id="camE",
+                            similarity=1.0,
+                            start="2025-01-01T00:00:00Z",
+                            end="2025-01-01T00:00:05Z",
+                        ),
+                        _embed_item(
+                            video_name="e2",
+                            sensor_id="camE",
+                            similarity=0.8,
+                            start="2025-01-01T00:10:00Z",
+                            end="2025-01-01T00:10:05Z",
+                        ),
+                        _embed_item(
+                            video_name="e3",
+                            sensor_id="camE",
+                            similarity=0.6,
+                            start="2025-01-01T00:20:00Z",
+                            end="2025-01-01T00:20:05Z",
+                        ),
+                        _embed_item(
+                            video_name="e4",
+                            sensor_id="camE",
+                            similarity=0.4,
+                            start="2025-01-01T00:30:00Z",
+                            end="2025-01-01T00:30:05Z",
+                        ),
+                    ]
+                )
+            ]
+        )
+        out = await _run(
+            SearchInput(query="red", source_type="video_file", top_k=4, search_mode="fusion"),
+            embed_search=embed,
+            tag_search=_FakeTag(),
+            config=_config(fusion_method="rrf", rrf_k=1, top_percent_filter=0.5),
+        )
+        assert {r.video_name for r in out.data} == {"e1", "e2", "e3"}
+        assert "e4" not in {r.video_name for r in out.data}
+
+    @pytest.mark.asyncio
+    async def test_rrf_fusion_without_vst_carries_indexed_sensor_identity_for_attributes(self) -> None:
+        # Regression (PR #2263 review): the legacy rrf fusion path runs an
+        # attribute lookup per embed hit scoped to that hit's source. With VST
+        # absent it must filter by the indexed sensor identity (sensor.id), not
+        # the display filename (video_name). A behavior document keyed by
+        # sensor.id="warehouse_clip" with no path/url would otherwise be missed
+        # when the embed hit's video_name is the display filename
+        # "warehouse_clip.mp4" and its sensor_id is the stream UUID.
+        stream_id = "11111111-2222-3333-4444-555555555555"
+        embed = _FakeEmbed(
+            [
+                _embed_output(
+                    [
+                        _embed_item(
+                            video_name="warehouse_clip.mp4",
+                            sensor_id=stream_id,
+                            sensor_id_raw="warehouse_clip",
+                            similarity=0.9,
+                            start="2025-01-01T00:00:00Z",
+                            end="2025-01-01T00:00:05Z",
+                        ),
+                    ]
+                )
+            ]
+        )
+
+        class _AttrByIndexedSensorId:
+            def __init__(self) -> None:
+                self.calls: list[Any] = []
+
+            async def ainvoke(self, payload: Any) -> list[AttributeSearchResult]:
+                self.calls.append(payload)
+                sources = payload.get("video_sources") or []
+                # Only the indexed sensor.id matches the behavior document; the
+                # display filename and the stream UUID must not.
+                if "warehouse_clip" in sources:
+                    return [_attr_result(object_id="42", sensor_id="warehouse_clip")]
+                return []
+
+        attr = _AttrByIndexedSensorId()
+        out = await _run(
+            SearchInput(
+                query="person in white jacket",
+                source_type="video_file",
+                attributes=["white jacket"],
+                search_mode="fusion",
+            ),
+            embed_search=embed,
+            config=_config(fusion_method="rrf", vst_internal_url=""),
+            attribute_search_fn=attr,
+        )
+        # The per-hit attribute lookup was scoped to the indexed sensor identity
+        # ("warehouse_clip"), not the display filename ("warehouse_clip.mp4").
+        assert attr.calls
+        assert attr.calls[0]["video_sources"] == ["warehouse_clip"]
+        # The attribute hit (object 42) is retained through rrf fusion instead
+        # of silently dropping the attribute boost.
+        assert out.data
+        assert any("42" in r.object_ids for r in out.data)
