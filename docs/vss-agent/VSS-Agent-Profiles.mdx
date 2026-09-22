@@ -56,7 +56,7 @@ Basic video upload and analysis without VA-MCP or incident database.
 Video Summarization and stream analysis with interactive Human-in-the-Loop (HITL) prompts.
 
 - **Config:** `deploy/docker/developer-profiles/dev-profile-lvs/vss-agent/configs/config.yml`
-- **Use Case:** Summarize uploaded videos, generate reports, configure stream captioning, and answer questions over stored stream captions.
+- **Use Case:** Summarize uploaded videos, generate reports, and configure stream captioning.
 
 **Capabilities:**
 
@@ -67,7 +67,6 @@ All dev-profile-base capabilities, plus:
 - Stream caption generation with configurable scenario, events, and objects of interest (experimental).
 - Stream summarization over a requested timestamp range (experimental).
 - Report generation for a live stream over a requested time range (experimental).
-- Stored-caption retrieval for questions about configured live streams (experimental).
 - RTVI-VLM as the VLM path used by the Video Summarization profile.
 
 **Additional Tools:**
@@ -75,7 +74,6 @@ All dev-profile-base capabilities, plus:
 - `lvs_video_understanding`: Summarize uploaded videos with configurable Video Summarization parameters.
 - `lvs_config_media`: Start caption generation for a live stream after collecting HITL parameters (experimental).
 - `lvs_stream_understanding`: Summarize a live stream over a requested timestamp range (experimental).
-- `lvs_caption_retrieval`: Retrieve stored captions and events from Elasticsearch for stream Q&A (experimental).
 - `video_report_gen`: Generate downloadable reports for uploaded videos or live streams.
 
 **HITL Prompts:**
@@ -109,7 +107,7 @@ When using the Video Summarization profile, the agent prompts for:
 
 **Stream Caption Limitations:**
 
-- Stream summarization and stored-caption Q&A require captions in Elasticsearch for the requested timestamp range.
+- Stream summarization and report generation require captions in Elasticsearch for the requested timestamp range.
 - If multiple agent sessions or instances connect to the same backend, the caption generation prompt is overwritten by the latest query.
 - The agent cannot see caption prompts set by other agent instances.
 
