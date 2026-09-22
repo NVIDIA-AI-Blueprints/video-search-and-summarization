@@ -41,7 +41,8 @@ from vss_agents.api.video_search_ingest import register_video_search_ingest_rout
 
 logger = logging.getLogger(__name__)
 
-_DONE_SENTINEL = b"data: [DONE]"
+_DONE_EVENT = re.compile(rb"(?:^|\r?\n)data:[\t ]*\[DONE\]\r?\n\r?\n")
+_DONE_EVENT_TAIL_BYTES = 64
 _WORKFLOW_COMPLETE = re.compile(rb'"name"\s*:\s*"Function Complete: <workflow>"')
 _ROOT_PARENT = re.compile(rb'"parent_id"\s*:\s*"root"')
 _LEGACY_CHAT_STREAM_PATHS = frozenset({"/chat/stream", "/v1/chat/stream"})
@@ -72,9 +73,10 @@ class LegacyChatTerminalMiddleware:
 
         workflow_completed = False
         done_sent = False
+        done_event_tail = b""
 
         async def send_with_terminal(message: Message) -> None:
-            nonlocal workflow_completed, done_sent
+            nonlocal workflow_completed, done_sent, done_event_tail
 
             if message["type"] != "http.response.body":
                 await send(message)
@@ -84,7 +86,9 @@ class LegacyChatTerminalMiddleware:
             workflow_completed = workflow_completed or bool(
                 _WORKFLOW_COMPLETE.search(body) and _ROOT_PARENT.search(body)
             )
-            done_sent = done_sent or _DONE_SENTINEL in body
+            done_event_window = done_event_tail + body
+            done_sent = done_sent or bool(_DONE_EVENT.search(done_event_window))
+            done_event_tail = done_event_window[-_DONE_EVENT_TAIL_BYTES:]
 
             if not message.get("more_body", False) and workflow_completed and not done_sent:
                 if body:

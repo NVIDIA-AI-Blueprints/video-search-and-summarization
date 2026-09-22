@@ -82,16 +82,30 @@ class TestLegacyChatTerminalMiddleware:
         assert all(b"[DONE]" not in body for body in bodies)
 
     @pytest.mark.asyncio
-    async def test_does_not_duplicate_existing_done_sentinel(self) -> None:
+    async def test_answer_text_containing_done_sentinel_does_not_suppress_terminal_event(self) -> None:
         messages = await _run_terminal_middleware(
             [
+                b'data: {"choices":[{"delta":{"content":"The terminal marker is data: [DONE]"}}]}\n\n',
                 b'intermediate_data: {"parent_id":"root","name":"Function Complete: <workflow>"}\n',
-                b"data: [DONE]\n\n",
             ]
         )
 
         bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
-        assert sum(body.count(b"data: [DONE]") for body in bodies) == 1
+        assert bodies[-1].endswith(b"data: [DONE]\n\n")
+
+    @pytest.mark.asyncio
+    async def test_does_not_duplicate_existing_split_done_event(self) -> None:
+        messages = await _run_terminal_middleware(
+            [
+                b'intermediate_data: {"parent_id":"root","name":"Function Complete: <workflow>"}\n',
+                b"data: [DO",
+                b"NE]\n",
+                b"\n",
+            ]
+        )
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert b"".join(bodies).count(b"data: [DONE]") == 1
 
 
 def _make_worker(streaming_ingest):
