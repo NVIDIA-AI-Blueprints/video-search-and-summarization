@@ -91,7 +91,8 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Deploy the warehouse blueprint on Kubernetes via Helm (not Docker Compose) | [`vss-deploy-warehouse-helm`](deployment/vss-deploy-warehouse-helm/SKILL.md) |
 | Search archived video with natural language ("find the red truck") | [`vss-search-archive`](operations/vss-search-archive/SKILL.md) |
 | Summarize a long recording | [`vss-summarize-video`](operations/vss-summarize-video/SKILL.md) |
-| Ask a one-off visual question about a clip | [`vss-ask-video`](operations/vss-ask-video/SKILL.md) |
+| Ask or answer a question about video | [`vss-ask-video`](operations/vss-ask-video/SKILL.md) |
+| Run a claim-level evidence loop for a delegated video question | [`vss-introspect-video`](operations/vss-introspect-video/SKILL.md) |
 | Plan the minimum evidence needed to answer a video question | [`vss-generate-evidence-plan`](operations/vss-generate-evidence-plan/SKILL.md) |
 | Produce a formatted analysis report | [`vss-generate-video-report`](operations/vss-generate-video-report/SKILL.md) |
 | Produce a report using the frag / Enterprise-RAG pipeline | [`vss-generate-video-report-rag`](operations/vss-generate-video-report-rag/SKILL.md) |
@@ -114,7 +115,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 **Easy to confuse:**
 
 - `vss-ask-video` (one-off VLM question on a clip) vs. `vss-search-archive` (retrieval across an archive) vs. `vss-query-analytics` (read already-computed metrics/incidents — no live inference).
-- `vss-generate-evidence-plan` (option-blind claim planning only) vs. `vss-ask-video` (bind evidence, inspect video when needed, and answer the question).
+- `vss-generate-evidence-plan` (option-blind claim planning only) vs. `vss-introspect-video` (delegated evidence loop) vs. `vss-ask-video` (the entry point that answers or delegates).
 - `vss-generate-video-report` (formatted report from per-clip VLM or an incident range) vs. `vss-generate-video-report-rag` (the frag/RAG pipeline with HITL parameter collection).
 - `vss-build-vision-ai` (a whole workflow stack) vs. the `vss-deploy-*` / `vss-setup-*` skills (a single microservice).
 
@@ -156,7 +157,8 @@ repository organisation only and never appears in the installed path or in the
 |---|---|---|
 | [vss-search-archive](operations/vss-search-archive/SKILL.md) | 3 | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; also ingests files/RTSP for search. |
 | [vss-summarize-video](operations/vss-summarize-video/SKILL.md) | 3 | Summarize a recorded video via chunking, dense captioning, and aggregation using the Long Video Summarization (LVS) microservice (HITL-gated, VLM fallback). |
-| [vss-ask-video](operations/vss-ask-video/SKILL.md) | 3 | Route video questions through hot conversation context, agent Markdown memory, structured VSS memory, bounded memory introspection, or a direct `vss vlm run` for an explicitly scoped fresh inspection. |
+| [vss-ask-video](operations/vss-ask-video/SKILL.md) | 3 | Entry point for direct video questions. Preserves hot-context, exact stored-read, and explicit one-scope VLM routes; delegates evidence-intensive and answer-choice questions once to `vss-introspect-video`. |
+| [vss-introspect-video](operations/vss-introspect-video/SKILL.md) | 3 | Own the delegated option-blind plan → memory binding → bounded parallel inspection → deterministic reassessment loop, returning a grounded answer or unresolved gaps with provenance and run artifacts. |
 | [vss-generate-evidence-plan](operations/vss-generate-evidence-plan/SKILL.md) | 3 | Generate a minimal, option-blind evidence plan with one claim by default, at most two initial claims, and one-claim expansion only after a demonstrated sufficiency gap. |
 | [vss-generate-video-report](operations/vss-generate-video-report/SKILL.md) | 3 | Produce a formatted markdown report through one of three backends — per-clip VLM, delegating to `vss-summarize-video` when LVS is ready or the clip is 120 seconds or longer (Mode A), incident-range via `vss-query-analytics` (Mode B), or SOP compliance via the SOP tools (Mode C). Never via the VSS agent's `/generate`. |
 | [vss-generate-video-report-rag](operations/vss-generate-video-report-rag/SKILL.md) | 3 | Generate video summary reports with Enterprise RAG context using the VSS frag/RAG pipeline and HITL parameter collection. |
