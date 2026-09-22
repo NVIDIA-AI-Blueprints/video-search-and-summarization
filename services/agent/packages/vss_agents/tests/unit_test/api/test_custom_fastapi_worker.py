@@ -102,8 +102,21 @@ class TestLegacyChatTerminalMiddleware:
         assert messages[-1]["more_body"] is False
 
     @pytest.mark.asyncio
-    async def test_appends_openai_terminal_frames_after_clean_eof(self) -> None:
+    async def test_leaves_unconfirmed_eof_incomplete(self) -> None:
         messages = await _run_terminal_middleware([b'data: {"value":"partial"}\n\n'])
+
+        bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
+        assert all(b"[DONE]" not in body for body in bodies)
+
+    @pytest.mark.asyncio
+    async def test_detects_root_workflow_completion_split_across_chunks(self) -> None:
+        messages = await _run_terminal_middleware(
+            [
+                b'intermediate_data: {"id":"workflow","parent_id":"ro',
+                b'ot","name":"Function Complete: <work',
+                b'flow>"}\n\n',
+            ]
+        )
 
         bodies = [message.get("body", b"") for message in messages if message["type"] == "http.response.body"]
         assert bodies[-1].endswith(b"data: [DONE]\n\n")

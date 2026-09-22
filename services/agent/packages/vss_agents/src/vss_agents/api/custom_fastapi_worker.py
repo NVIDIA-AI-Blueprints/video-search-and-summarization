@@ -45,7 +45,11 @@ logger = logging.getLogger(__name__)
 _DONE_EVENT = re.compile(rb"(?:^|\r?\n)data:[\t ]*\[DONE\]\r?\n\r?\n")
 _ERROR_EVENT = re.compile(rb"(?:^|\r?\n)event:[\t ]*error[\t ]*\r?\n")
 _WORKFLOW_ERROR = re.compile(rb'"code"\s*:\s*"workflow_error"')
-_STREAM_EVENT_TAIL_BYTES = 256
+_ROOT_WORKFLOW_COMPLETE = re.compile(
+    rb'(?:^|\r?\n)intermediate_data:[\t ]*\{[^\r\n]{0,256}"parent_id"\s*:\s*"root"'
+    rb'[^\r\n]{0,256}"name"\s*:\s*"Function Complete: <workflow>"'
+)
+_STREAM_EVENT_TAIL_BYTES = 1024
 _LEGACY_CHAT_STREAM_PATHS = frozenset({"/chat/stream", "/v1/chat/stream"})
 
 
@@ -55,8 +59,9 @@ class LegacyChatTerminalMiddleware:
     NAT 1.8 routes interactive ``*/chat/stream`` requests through its interactive
     runner, which omits the final ``finish_reason=stop`` chunk and ``[DONE]``
     sentinel emitted by its non-interactive response helper. Repair cleanly
-    ended streams, but preserve incomplete termination after either NAT error
-    format so clients do not mistake a partial answer for success.
+    ended streams after explicit root workflow completion, but preserve
+    incomplete termination after either NAT error format so clients do not
+    mistake a partial answer for success.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -64,12 +69,13 @@ class LegacyChatTerminalMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         response_successful = False
+        workflow_completed = False
         stream_failed = False
         done_sent = False
         stream_event_tail = b""
 
         async def send_with_terminal(message: Message) -> None:
-            nonlocal response_successful, stream_failed, done_sent, stream_event_tail
+            nonlocal response_successful, workflow_completed, stream_failed, done_sent, stream_event_tail
 
             if message["type"] == "http.response.start":
                 response_successful = 200 <= message["status"] < 300
@@ -82,13 +88,20 @@ class LegacyChatTerminalMiddleware:
 
             body = message.get("body", b"")
             stream_event_window = stream_event_tail + body
+            workflow_completed = workflow_completed or bool(_ROOT_WORKFLOW_COMPLETE.search(stream_event_window))
             stream_failed = stream_failed or bool(
                 _ERROR_EVENT.search(stream_event_window) or _WORKFLOW_ERROR.search(stream_event_window)
             )
             done_sent = done_sent or bool(_DONE_EVENT.search(stream_event_window))
             stream_event_tail = stream_event_window[-_STREAM_EVENT_TAIL_BYTES:]
 
-            if not message.get("more_body", False) and response_successful and not stream_failed and not done_sent:
+            if (
+                not message.get("more_body", False)
+                and response_successful
+                and workflow_completed
+                and not stream_failed
+                and not done_sent
+            ):
                 if body:
                     await send({**message, "more_body": True})
                 terminal = (
