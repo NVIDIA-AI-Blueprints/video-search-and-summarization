@@ -465,15 +465,14 @@ class CommandGroup(ABC):
             # and costs the caller the same nothing. RuntimeError covers an
             # adapter that refuses a bundle it cannot build.
             unpersistable: tuple[type[BaseException], ...] = (ValueError, RuntimeError, *memory_mod.write_failures())
+            # One `try` around the whole persistence tail, not just the write.
+            # The reconciling read below is part of handling a failed write, so
+            # leaving it outside meant a transient read error escaped *after*
+            # the expensive work had already succeeded -- costing the caller the
+            # result, the marker, and leaving the record on `submitted`. That is
+            # the one outcome this whole path exists to prevent.
             try:
                 outcome = lifecycle.complete(self.build_bundle(job, output))
-            except unpersistable as error:
-                # Never lose the result the caller already paid for: degrade to
-                # partial so only the write is retried, not the whole job.
-                persist = {"status": "failed", "index": memory.index, "group": token, "error": str(error)}
-                record = close("partial", str(error))
-                status, code = "partial", Exit.PARTIAL
-            else:
                 persist = {
                     "status": "complete" if outcome.ok else "failed",
                     "index": memory.index,
@@ -495,6 +494,13 @@ class CommandGroup(ABC):
                         else "closed"
                     )
                     status, code = "partial", Exit.PARTIAL
+            except unpersistable as error:
+                # Never lose the result the caller already paid for: degrade to
+                # partial so only the write is retried, not the whole job.
+                persist = {"status": "failed", "index": memory.index, "group": token, "error": str(error)}
+                record = close("partial", str(error))
+                status, code = "partial", Exit.PARTIAL
+                click.echo(f"vss: {self.name} succeeded but memory persistence failed ({error})", err=True)
         elif persist_error is not None:
             # Retrieval succeeded and only the write did not: exit 6 tells the
             # harness to keep this answer instead of re-running the job.
@@ -714,8 +720,11 @@ _READ_REPLACEMENTS = {
 def _warn_deprecated_read(group: str, verb: str) -> None:
     """Name the replacement on stderr, once per invocation.
 
-    stdout stays exactly what it was, so a caller that only reads the payload
-    is unaffected for this release.
+    The verb still answers, but its payload is not frozen: `get` now returns
+    `results` keyed by record type where it used to return a flat `children`
+    list, because a group may write several kinds of result row and one list
+    ordered them by nothing. A caller that only checked the exit code is
+    unaffected; one that read `children` must move to `results`.
     """
     replacement = _READ_REPLACEMENTS[verb].replace("<group>", memory_mod.group_token(group))
     click.echo(

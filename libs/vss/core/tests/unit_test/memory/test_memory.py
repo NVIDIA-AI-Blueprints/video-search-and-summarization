@@ -466,7 +466,7 @@ def test_future_adapter_uses_store_without_changes() -> None:
     )
     child = child_record(
         job_id="tripwire-1",
-        group="vlm",
+        group="tripwire",
         record_id="note-1",
         record_type="event",
         created_at="2026-07-22T12:00:00Z",

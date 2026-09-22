@@ -257,10 +257,15 @@ def get_record(
         raise click.UsageError("--record-type and --record-id must be supplied together")
     try:
         handle = _memory()
+        # One fetch, whichever path: the lifecycle row answers both "which group
+        # owns this job" and "does it match the one the caller named".
+        owner = _owning_group(handle, job_id, group)
         if record_type is not None and record_id is not None:
+            # --group is checked here too. Accepting it and then ignoring it
+            # promised a refusal the command never performed.
             payload = handle.service.get_record(job_id, record_type, record_id).model_dump_memory()
         else:
-            payload = handle.get(group or _group_of(handle, job_id), job_id)
+            payload = handle.get(owner, job_id)
     except Exception as error:
         _read_failure(error)
         raise AssertionError("unreachable") from error
@@ -280,21 +285,26 @@ def status_record(job_id: str, group: str | None, pretty: bool) -> None:
     """
     try:
         handle = _memory()
-        payload = handle.status(group or _group_of(handle, job_id), job_id)
+        payload = handle.status(_owning_group(handle, job_id, group), job_id)
     except Exception as error:
         _read_failure(error)
         raise AssertionError("unreachable") from error
     _emit(payload, pretty=pretty)
 
 
-def _group_of(handle: Memory, job_id: str) -> str:
-    """The group a job already belongs to, when the caller did not name one.
+def _owning_group(handle: Memory, job_id: str, requested: str | None) -> str:
+    """The group this job belongs to, refusing one the caller wrongly named.
 
-    ``vss memory`` is the cross-group surface, so its reads are not scoped by
+    ``vss memory`` is the cross-group surface, so reads are unscoped by
     default; passing ``--group`` opts into the same refusal a group's own verb
-    performs.
+    performs. Resolved from a single fetch either way.
     """
-    return str(handle.service.get(job_id, reconcile=False).job.group)
+    from vss_core.memory import MemoryNotFoundError
+
+    owner = str(handle.service.get(job_id, reconcile=False).job.group)
+    if requested is not None and memory_mod.group_token(requested) != owner:
+        raise MemoryNotFoundError(f"job {job_id} is a {owner!r} job, not a {memory_mod.group_token(requested)!r} job")
+    return owner
 
 
 @memory.command("query")

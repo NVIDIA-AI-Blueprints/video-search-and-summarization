@@ -135,6 +135,7 @@ class ElasticsearchEmbeddingStore:
                 "record_type": {"type": "keyword"},
                 "group": {"type": "keyword"},
                 "status": {"type": "keyword"},
+                "is_child": {"type": "boolean"},
                 "created_at": {"type": "date"},
                 "updated_at": {"type": "date"},
                 "sensor_ids": {"type": "keyword"},
@@ -474,6 +475,11 @@ class ElasticsearchEmbeddingStore:
             "job_id": record.job.job_id,
             "group": record.job.group,
             "status": record.job.status,
+            # Still written, though nothing here reads it: a process running an
+            # older `vss_core` filters on `is_child` and would otherwise miss
+            # every lifecycle row this writer produces. Drop it once no such
+            # reader is deployed.
+            "is_child": record.job.record_id is not None,
             "created_at": datetime_to_iso8601(record.job.created_at),
             "sensor_ids": sensor_ids,
         }

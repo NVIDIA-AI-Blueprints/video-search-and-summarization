@@ -668,7 +668,7 @@ def test_vios_resolution_failure_writes_terminal_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When VIOS clip resolution fails on a persist-enabled call, a terminal record must
-    be written so vss vlm get/list can report the failure. The exception still propagates
+    be written so `vss memory get` can report the failure. The exception still propagates
     (guarded() maps it to the right exit code), but persistence must not be skipped."""
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
@@ -1126,7 +1126,7 @@ def test_vios_failure_with_malformed_timestamp_still_persists_record(
 ) -> None:
     """A malformed --start-time makes build_input raise on the requested bounds. The
     terminal record must still be written (retried without the window) so the failed
-    job stays retrievable through vss vlm get/list."""
+    job stays retrievable through `vss memory get`."""
     from vss_cli.group import Context
     from vss_cli.vlm import group as vlm_group_mod
     from vss_cli.vlm import memory_adapter as mem_adapter_mod
@@ -1219,7 +1219,7 @@ def test_sensor_without_vst_service_persists_terminal_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A deployment exposing rt_vlm but not vst mints a job id, so the failure must be
-    written to memory. Returning without persisting leaves `vss vlm get/list` unable to
+    written to memory. Returning without persisting leaves `vss memory get` unable to
     retrieve an invocation the CLI just reported as a failed job."""
     from vss_cli.group import Context
     from vss_cli.vlm.group import VlmGroup

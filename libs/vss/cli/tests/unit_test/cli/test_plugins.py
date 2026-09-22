@@ -362,7 +362,8 @@ def test_a_malformed_manifest_does_not_break_discovery(plugin_root: Path) -> Non
     """One bad drop must not stop `vss --help` listing everything else."""
     _drop_plugin(plugin_root, "acme", manifest="this is not toml {{{\n")
     ref = next(ref for ref in plugins.discover() if ref.name == "acme")
-    assert "unreadable" in ref.value
+    assert ref.unavailable is not None
+    assert "will not parse" in ref.unavailable
     with pytest.raises(plugins.PluginLoadError):
         plugins.load("acme")
 
@@ -405,3 +406,80 @@ def test_a_dropped_group_reaches_the_root_dispatcher(plugin_root: Path) -> None:
     ran = CliRunner().invoke(root, ["rootacme"])
     assert ran.exit_code == 0, ran.output
     assert "rootacme ran" in ran.output
+
+
+def test_two_directories_may_not_declare_the_same_name(plugin_root: Path) -> None:
+    """A manifest `name` need not match its directory, so this is possible.
+
+    Picking a winner in silence is the exact failure the installed-name check
+    exists to prevent; both directories are named instead.
+    """
+    _drop_plugin(
+        plugin_root,
+        "first",
+        manifest='name = "acme"\nsummary = "one"\ngroup = "first_plugin:GROUP"\n',
+        module=_WORKING_PLUGIN.format(name="acme", version=plugins.API_VERSION),
+    )
+    _drop_plugin(
+        plugin_root,
+        "second",
+        manifest='name = "acme"\nsummary = "two"\ngroup = "second_plugin:GROUP"\n',
+        module=_WORKING_PLUGIN.format(name="acme", version=plugins.API_VERSION),
+    )
+    with pytest.raises(plugins.PluginLoadError) as excinfo:
+        plugins.load("acme")
+    message = str(excinfo.value)
+    assert str(plugin_root / "first") in message
+    assert str(plugin_root / "second") in message
+
+
+def test_a_plugin_module_does_not_shadow_an_installed_one(plugin_root: Path) -> None:
+    """Loading by path keeps a plugin out of the ordinary module namespace.
+
+    Going through `sys.path` would let a plugin file named `json.py` win over
+    the stdlib for the rest of the process, and would cache the plugin under a
+    name the next plugin could collide with.
+    """
+    import json as stdlib_json
+
+    _drop_plugin(
+        plugin_root,
+        "shadow",
+        manifest='name = "shadow"\nsummary = "shadowy"\ngroup = "json:GROUP"\n',
+        module=_WORKING_PLUGIN.format(name="shadow", version=plugins.API_VERSION),
+    )
+    (plugin_root / "shadow" / "json.py").write_text(
+        _WORKING_PLUGIN.format(name="shadow", version=plugins.API_VERSION), encoding="utf-8"
+    )
+    spec = plugins.load("shadow")
+    assert spec.name == "shadow"
+    # The real json module is untouched, and nothing was added under its name.
+    assert sys.modules["json"] is stdlib_json
+    assert hasattr(stdlib_json, "loads")
+
+
+def test_two_plugins_sharing_a_module_basename_stay_separate(plugin_root: Path) -> None:
+    """Same file name in two directories must not serve the same GROUP twice.
+
+    A fresh process per call hides this, but one pytest process -- or any
+    embedding host -- would get plugin A's command under plugin B's name.
+    """
+    for name in ("alpha", "beta"):
+        directory = plugin_root / name
+        directory.mkdir(parents=True)
+        (directory / plugins.MANIFEST_NAME).write_text(
+            f'name = "{name}"\nsummary = "{name} ops"\ngroup = "shared:GROUP"\n', encoding="utf-8"
+        )
+        (directory / "shared.py").write_text(
+            _WORKING_PLUGIN.format(name=name, version=plugins.API_VERSION), encoding="utf-8"
+        )
+
+    assert plugins.load("alpha").name == "alpha"
+    assert plugins.load("beta").name == "beta", "the second plugin must not be served the first's GROUP"
+
+
+def test_a_manifest_naming_a_missing_module_says_so(plugin_root: Path) -> None:
+    _drop_plugin(plugin_root, "absent", manifest='name = "absent"\nsummary = "x"\ngroup = "nope:GROUP"\n')
+    with pytest.raises(plugins.PluginLoadError) as excinfo:
+        plugins.load("absent")
+    assert "not in" in str(excinfo.value)

@@ -909,3 +909,76 @@ def test_a_group_may_write_several_record_types() -> None:
     # And each type stays independently queryable across the whole index.
     assert len(service.query(MemoryQuery(job_id="summarize-1", record_type="event"))) == 2
     assert len(service.query(MemoryQuery(job_id="summarize-1", record_type="chapter"))) == 1
+
+
+def test_get_refuses_a_job_belonging_to_another_group() -> None:
+    """--group promised a refusal; it has to perform one on both paths.
+
+    It was accepted and ignored whenever --record-type/--record-id were given,
+    so a caller scoping a read got no scoping at all.
+    """
+    service = MemoryService(InMemoryStore())
+    handle = Memory(service, index="vss-memory-test")
+    service.upsert(
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": "nv.vss.memory/1.0",
+                "job": {
+                    "job_id": "search-1",
+                    "group": "search",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                },
+            }
+        )
+    )
+    set_test_memory(handle)
+    try:
+        assert _invoke("get", "--job-id", "search-1", "--group", "search").exit_code == 0
+        assert _invoke("get", "--job-id", "search-1", "--group", "summarize").exit_code == int(Exit.NOT_FOUND)
+        assert _invoke("status", "--job-id", "search-1", "--group", "summarize").exit_code == int(Exit.NOT_FOUND)
+    finally:
+        set_test_memory(None)
+
+
+def test_a_truncated_partition_says_so() -> None:
+    """A short read that stays silent is indistinguishable from a short job."""
+    service = MemoryService(InMemoryStore())
+    handle = Memory(service, index="vss-memory-test")
+    service.upsert(
+        UnifiedMemoryRecord.model_validate(
+            {
+                "schema": "nv.vss.memory/1.0",
+                "job": {
+                    "job_id": "search-2",
+                    "group": "search",
+                    "operation": "run",
+                    "status": "completed",
+                    "created_at": "2026-07-22T12:00:00Z",
+                },
+                # Advertises far fewer rows than it wrote.
+                "output": {"answer": "many", "ext": {"result_count": 1}},
+            }
+        )
+    )
+    for index in range(150):
+        service.upsert(
+            UnifiedMemoryRecord.model_validate(
+                {
+                    "schema": "nv.vss.memory/1.0",
+                    "job": {
+                        "job_id": "search-2",
+                        "group": "search",
+                        "record_type": "search_hit",
+                        "record_id": f"hit-{index:03d}",
+                        "operation": "run",
+                        "status": "completed",
+                        "created_at": "2026-07-22T12:00:00Z",
+                    },
+                }
+            )
+        )
+    payload = handle.get("search", "search-2")
+    assert payload["results_truncated"] is True
+    assert len(payload["results"]["search_hit"]) == 100

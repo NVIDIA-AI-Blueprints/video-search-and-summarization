@@ -206,6 +206,9 @@ def test_exact_strict_mapping_meta_and_complete_filter_document() -> None:
     assert document["record_type"] == "event"
     assert document["group"] == "summary"
     assert document["status"] == "completed"
+    # Still written for a reader on an older vss_core that filters on it,
+    # even though nothing in this package reads it any more.
+    assert document["is_child"] is True
     assert document["schema"] == EMBEDDING_SCHEMA
     assert document["provider"] == PROVIDER_NAME
     assert document["canonical_text_version"] == CANONICAL_SEARCHABLE_TEXT_VERSION
