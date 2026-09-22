@@ -18,8 +18,8 @@ Unit tests for the CA-RAG aggregation empty-result guard.
 
 The aggregation LLM intermittently samples an unparseable response, which used to
 surface to the caller as HTTP 200 with total_events=0, events=[] and
-video_summary="". These tests cover the empty-result detection and the bounded
-retry that re-runs aggregation before such a sample reaches the caller.
+video_summary="". These tests cover structured-result repair, bounded retries,
+and the actionable failure returned when every attempt remains empty.
 """
 
 import json
@@ -74,6 +74,7 @@ class TestIsEmptyAggregationResult:
             _summary(),
             _summary(video_summary="   "),
             {"events": [], "total_events": 0, "video_summary": ""},
+            "[]",
         ],
         ids=[
             "none",
@@ -82,6 +83,7 @@ class TestIsEmptyAggregationResult:
             "no-events-no-summary",
             "whitespace-summary",
             "dict-result",
+            "empty-json-array",
         ],
     )
     def test_empty_results(self, result):
@@ -94,9 +96,8 @@ class TestIsEmptyAggregationResult:
             _summary(video_summary="A forklift crossed the aisle."),
             _summary(events=[{"type": "forklift"}]),
             "A forklift crossed the aisle.",
-            "[]",
         ],
-        ids=["summary-only", "events-only", "free-text", "non-dict-json"],
+        ids=["summary-only", "events-only", "free-text"],
     )
     def test_non_empty_results(self, result):
         handler = _make_handler()
@@ -130,30 +131,64 @@ class TestCallAggregationWithEmptyGuard:
         assert response is good
         assert len(ctx_mgr.calls) == 2
 
-    def test_retries_are_bounded_and_last_response_returned(self):
+    def test_210_second_sample_fails_actionably_after_bounded_retries(self):
+        from via_exception import ViaException
+
         handler = _make_handler(retries=2)
-        last = _response("summarization", _summary())
         ctx_mgr = _FakeCtxMgr(
-            [_response("summarization", _summary()), _response("summarization", _summary()), last]
+            [_response("summarization", _summary()) for _ in range(3)]
         )
 
-        response = handler._call_aggregation_with_empty_guard(
-            ctx_mgr, "summarization", {"start_index": 0, "end_index": 1}, "test-id"
-        )
+        with pytest.raises(ViaException) as exc_info:
+            handler._call_aggregation_with_empty_guard(
+                ctx_mgr,
+                "summarization",
+                # The documented 210-second sample produces 21 ten-second chunks.
+                {"start_index": 0, "end_index": 21},
+                "warehouse-sample",
+                "job-210-second-regression",
+            )
 
-        assert response is last
         assert len(ctx_mgr.calls) == 3
+        assert exc_info.value.status_code == 502
+        assert exc_info.value.code == "AggregationFailed"
+        assert exc_info.value.job_id == "job-210-second-regression"
+        assert exc_info.value.failed_stage == "aggregation"
 
-    def test_retries_disabled_makes_a_single_call(self):
+    def test_retries_disabled_fails_after_a_single_call(self):
+        from via_exception import ViaException
+
         handler = _make_handler(retries=0)
         only = _response("summarization", _summary())
         ctx_mgr = _FakeCtxMgr([only])
 
-        response = handler._call_aggregation_with_empty_guard(
-            ctx_mgr, "summarization", {"start_index": 0, "end_index": 1}, "test-id"
+        with pytest.raises(ViaException):
+            handler._call_aggregation_with_empty_guard(
+                ctx_mgr, "summarization", {"start_index": 0, "end_index": 1}, "test-id"
+            )
+
+        assert len(ctx_mgr.calls) == 1
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            '```json\n{"events": [{"type": "forklift"}], "video_summary": ""}\n```',
+            '{"events": [{"type": "forklift",}], "video_summary": "",}',
+            '{"events": "[{\\"type\\": \\"forklift\\"}]", "video_summary": ""}',
+        ],
+        ids=["markdown-fence", "repairable-json", "serialized-events"],
+    )
+    def test_event_json_is_repaired_and_normalized(self, raw):
+        handler = _make_handler(retries=2)
+        response = _response("summarization", raw)
+        ctx_mgr = _FakeCtxMgr([response])
+
+        result = handler._call_aggregation_with_empty_guard(
+            ctx_mgr, "summarization", {"start_index": 0, "end_index": 21}, "test-id"
         )
 
-        assert response is only
+        parsed = json.loads(result["summarization"]["result"])
+        assert parsed["events"] == [{"type": "forklift"}]
         assert len(ctx_mgr.calls) == 1
 
     def test_error_response_is_not_retried(self):

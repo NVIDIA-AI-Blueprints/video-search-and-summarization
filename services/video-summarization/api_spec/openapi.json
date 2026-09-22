@@ -610,6 +610,16 @@
               }
             }
           },
+          "502": {
+            "description": "A summarization stage returned an unusable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Server is busy. Client may try again later.",
             "content": {
@@ -784,6 +794,16 @@
               }
             }
           },
+          "502": {
+            "description": "A summarization stage returned an unusable result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Server is busy processing another file. Client may try again in some time.",
             "content": {
@@ -868,6 +888,16 @@
           },
           "429": {
             "description": "Rate limiting exceeded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LvsError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "A summarization stage returned an unusable result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1898,6 +1928,32 @@
             "examples": [
               "Detailed error message"
             ]
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id",
+            "description": "Request identifier for a failure that occurred after the job was created."
+          },
+          "failed_stage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Stage",
+            "description": "Pipeline stage that failed."
           }
         },
         "additionalProperties": false,

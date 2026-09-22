@@ -196,6 +196,9 @@ class RequestInfo:
         self.custom_metadata = None
         self.delete_external_collection = False
         self.error_message = ""
+        self.error_code = None
+        self.error_status_code = None
+        self.failed_stage = None
         self.schema = None
         self.batch_response_method = None
         self.scenario = None
@@ -653,6 +656,13 @@ class ViaStreamHandler:
                 logger.error("".join(traceback.format_exception(ex)))
                 if not req_info.is_live:
                     req_info.status = RequestInfo.Status.FAILED
+                    if isinstance(ex, ViaException):
+                        req_info.error_message = ex.message
+                        req_info.error_code = ex.code
+                        req_info.error_status_code = ex.status_code
+                        req_info.failed_stage = ex.failed_stage
+                    else:
+                        req_info.error_message = str(ex)
                 else:
                     req_info.response += [
                         RequestInfo.Response(
@@ -2050,7 +2060,11 @@ class ViaStreamHandler:
             )
 
             agg_response = self._call_aggregation_with_empty_guard(
-                ctx_mgr, "summarization_online", sub_state, req_info.source_id
+                ctx_mgr,
+                "summarization_online",
+                sub_state,
+                req_info.source_id,
+                req_info.request_id,
             )
 
             if agg_response.get("error"):
@@ -2143,7 +2157,13 @@ class ViaStreamHandler:
                 ex,
             )
             req_info.status = RequestInfo.Status.FAILED
-            req_info.error_message = str(ex)
+            if isinstance(ex, ViaException):
+                req_info.error_message = ex.message
+                req_info.error_code = ex.code
+                req_info.error_status_code = ex.status_code
+                req_info.failed_stage = ex.failed_stage
+            else:
+                req_info.error_message = str(ex)
         finally:
             if ctx_mgr is not None:
                 with self._lock:
@@ -3278,7 +3298,49 @@ This is very important and you must follow this strictly.
         return retries
 
     @staticmethod
-    def _is_empty_aggregation_result(result) -> bool:
+    def _parse_aggregation_result(result):
+        """Recover a structured aggregation result from common model output forms."""
+        if isinstance(result, dict):
+            parsed = deepcopy(result)
+        elif not isinstance(result, str) or not result.strip():
+            return None
+        else:
+            candidate, _ = ViaStreamHandler._remove_think_tags(result.strip())
+            candidate = re.sub(
+                r"^```(?:json)?\s*|\s*```$",
+                "",
+                candidate.strip(),
+                flags=re.IGNORECASE,
+            ).strip()
+            if not candidate.startswith("{"):
+                json_start = candidate.find("{")
+                if json_start < 0:
+                    return None
+                candidate = candidate[json_start:]
+
+            try:
+                parsed = json_repair.loads(candidate)
+            except (TypeError, ValueError):
+                return None
+            if not isinstance(parsed, dict):
+                return None
+
+        events = parsed.get("events")
+        if isinstance(events, str):
+            try:
+                decoded_events = json_repair.loads(events)
+            except (TypeError, ValueError):
+                decoded_events = None
+            if isinstance(decoded_events, list):
+                parsed["events"] = decoded_events
+            elif isinstance(decoded_events, dict):
+                parsed["events"] = [decoded_events]
+        elif isinstance(events, dict):
+            parsed["events"] = [events]
+        return parsed
+
+    @classmethod
+    def _is_empty_aggregation_result(cls, result) -> bool:
         """True when an aggregation result carries neither events nor a summary.
 
         A result with an empty ``events`` list but a non-empty ``video_summary``
@@ -3286,45 +3348,46 @@ This is very important and you must follow this strictly.
         empty before the result is treated as a failed sample. Free-form text
         that does not parse as JSON is a usable summary as long as it is not blank.
         """
-        if result is None:
+        if result is None or (isinstance(result, str) and not result.strip()):
             return True
-        if isinstance(result, str):
-            if not result.strip():
-                return True
-            try:
-                parsed = json.loads(result)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                return False
-        elif isinstance(result, dict):
-            parsed = result
-        else:
-            return False
-
-        if not isinstance(parsed, dict):
-            return False
+        parsed = cls._parse_aggregation_result(result)
+        if parsed is None:
+            # Plain text is a usable narrative. JSON arrays and scalars are not
+            # the documented aggregation shape and contain no usable result.
+            if isinstance(result, str):
+                try:
+                    json.loads(result)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    return False
+            return True
         events = parsed.get("events") or []
         video_summary = parsed.get("video_summary") or ""
         return not events and not str(video_summary).strip()
 
     def _call_aggregation_with_empty_guard(
-        self, ctx_mgr, function_name: str, state: dict, source_id
+        self,
+        ctx_mgr,
+        function_name: str,
+        state: dict,
+        source_id,
+        job_id: str | None = None,
     ):
-        """Run a CA-RAG aggregation function, retrying while the result is empty.
+        """Run aggregation, repairing structured output and rejecting emptiness.
 
         Aggregation reads already-persisted captions and runs an LLM over them,
-        so it holds no state of its own and re-running it is safe. When every
-        attempt comes back empty the last response is returned unchanged, so a
-        genuinely empty aggregation still reaches the caller instead of becoming
-        a new error path.
+        so it holds no state of its own and re-running it is safe. An exhausted
+        retry budget fails the request rather than returning an empty success.
         """
         attempts = self._aggregation_empty_retries + 1
-        response = None
         for attempt in range(1, attempts + 1):
             response = ctx_mgr.call({function_name: state})
             if response.get("error"):
                 return response
             result = (response.get(function_name, {}) or {}).get("result", "")
             if not self._is_empty_aggregation_result(result):
+                parsed = self._parse_aggregation_result(result)
+                if parsed is not None:
+                    response[function_name]["result"] = json.dumps(parsed)
                 return response
             if attempt < attempts:
                 logger.warning(
@@ -3336,14 +3399,21 @@ This is very important and you must follow this strictly.
                     attempts,
                 )
             else:
-                logger.warning(
+                logger.error(
                     "%s returned no events and no summary for %s after %d attempt(s); "
-                    "returning the empty aggregation",
+                    "failing the aggregation stage",
                     function_name,
                     source_id,
                     attempts,
                 )
-        return response
+
+        raise ViaException(
+            f"Aggregation returned neither events nor a video summary after {attempts} attempt(s)",
+            "AggregationFailed",
+            502,
+            job_id=job_id,
+            failed_stage="aggregation",
+        )
 
     def _get_aggregated_summary(
         self, req_info: RequestInfo, chunk_responses: list[VlmChunkResponse]
@@ -3541,6 +3611,7 @@ This is very important and you must follow this strictly.
                                     "summarization",
                                     sum_state,
                                     req_info.source_id,
+                                    req_info.request_id,
                                 )
                         if agg_response.get("error"):
                             logger.error(

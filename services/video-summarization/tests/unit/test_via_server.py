@@ -462,7 +462,9 @@ class TestSummarizeRoute:
         assert data["object"] == "summarization.completion"
         assert len(data["choices"]) == 1
 
-    def test_summarize_non_streaming_failed_returns_500(self, test_client, mock_via_server):
+    def test_summarize_empty_aggregation_returns_actionable_502(
+        self, test_client, mock_via_server
+    ):
         from via_stream_handler import RequestInfo
 
         mock_via_server._stream_handler.get_models_info.return_value = self._model_info()
@@ -473,6 +475,11 @@ class TestSummarizeRoute:
         req_info.error_message = "VLM error"
         req_info.rtvi_status_code = None
         req_info.rtvi_error_code = None
+        req_info.dependency_http_status = None
+        req_info.dependency_error_code = None
+        req_info.error_status_code = 502
+        req_info.error_code = "AggregationFailed"
+        req_info.failed_stage = "aggregation"
         mock_via_server._stream_handler.get_response.return_value = (req_info, [])
         mock_via_server._stream_handler.wait_for_request_done.return_value = None
         mock_via_server._stream_handler.check_status_remove_req_id.return_value = None
@@ -487,7 +494,13 @@ class TestSummarizeRoute:
                 "stream": False,
             },
         )
-        assert resp.status_code == 500
+        assert resp.status_code == 502
+        assert resp.json() == {
+            "code": "AggregationFailed",
+            "message": "VLM error",
+            "job_id": "req-123",
+            "failed_stage": "aggregation",
+        }
 
     def test_summarize_url_s3(self, test_client, mock_via_server):
         from via_stream_handler import RequestInfo
@@ -640,6 +653,17 @@ class TestOpenAPISchema:
         schema1 = mock_via_server._app.openapi()
         schema2 = mock_via_server._app.openapi()
         assert schema1 is schema2
+
+    def test_summarization_documents_actionable_aggregation_failure(self, mock_via_server):
+        schema = mock_via_server._app.openapi()
+        for path in ("/summarize", "/v1/summarize", "/v1/stream_summarize"):
+            assert schema["paths"][path]["post"]["responses"]["502"]["content"][
+                "application/json"
+            ]["schema"] == {"$ref": "#/components/schemas/LvsError"}
+
+        error_properties = schema["components"]["schemas"]["LvsError"]["properties"]
+        assert "job_id" in error_properties
+        assert "failed_stage" in error_properties
 
 
 # ---------------------------------------------------------------------------
