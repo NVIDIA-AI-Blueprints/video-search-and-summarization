@@ -77,6 +77,12 @@ printf '%s' "${VST_SENSOR_LIST}" | jq -e \
     echo "VIOS did not register ${CANONICAL_SOURCE}" >&2
     exit 1
   }
+# Resolve the registered source's sensor ID from the listing and preserve it;
+# the readiness wait keys embed documents on this ID (sensor.id.keyword).
+SENSOR=$(printf '%s' "${VST_SENSOR_LIST}" | jq -er \
+  --arg name "${CANONICAL_SOURCE}" \
+  '.sensors[] | select(.name == $name) | .sensor_id | select(type == "string" and length > 0)') || exit 1
+export SENSOR
 ```
 
 Run the block again, in full, for each further file — a fresh `vss vios add` per
@@ -84,7 +90,10 @@ file, every time. The failure mode is reusing one registration for the next
 file: the second file is never registered and its index documents never appear,
 which surfaces much later as an empty search rather than an upload error. There
 is no one-step shortcut and no Agent three-step: `vss vios add` is the supported
-registration, and the deployment's webhooks own the fan-out.
+registration, and the deployment's webhooks own the fan-out. Preserve each
+registered source's `SENSOR` (sensor ID) across registrations — the eval's
+two-fixture case stores them as `WAREHOUSE_SAMPLE_SENSOR` and
+`WAREHOUSE_LADDER_SENSOR`, which the readiness wait below uses by those names.
 
 ## RTSP source
 
@@ -108,7 +117,9 @@ After registering all intended sources, run one bounded readiness wait (at most
 20 minutes) until the Elasticsearch indexes contain the required documents per
 the tuple table in [source setup](source_setup.md). Resolve each registered
 source's `sensor_id` and `name` from `vss vios list` and use those exact values
-— never a hardcoded name:
+— never a hardcoded name. Use the sensor IDs preserved at
+registration (`WAREHOUSE_SAMPLE_SENSOR`/`WAREHOUSE_LADDER_SENSOR` for the eval's
+two fixtures) and the registered names:
 
 ```bash
 : "${SEARCH_READINESS_DEADLINE:?initialize once when source setup begins}"
