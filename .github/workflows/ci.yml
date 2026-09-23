@@ -1442,6 +1442,9 @@ jobs:
           python3 .github/scripts/test_detect_sonarqube_projects.py
           python3 .github/scripts/test_container_build_plan.py
 
+      - name: Unit-test the version stamp (skills, compose edge, helm edge)
+        run: python3 .github/scripts/test_stamp_versions.py
+
       - name: Unit-test the downstream GHCR candidate reporter
         run: |
           python3 .github/scripts/test_github_build_run.py

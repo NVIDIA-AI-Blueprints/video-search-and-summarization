@@ -1,0 +1,148 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Keeps every hand-readable version field equal to the repository's one
+# version -- the nearest v* tag rendered as SemVer (3.3.0-rc0 off v3.3.0rc0,
+# 3.3.0 off v3.3.0), the same source hatch-vcs versions the agent and the CLI
+# from: SKILL.md metadata.version, the VSS_VERSION line in containers.env the
+# Compose edge answers GET /api/v1/version with, and vssVersion in the values
+# of every chart whose HAProxy ingress answers it. One commit, one version.
+#
+# Runs when a v* tag is pushed and after every merge to develop. The stamp is
+# the release line alone, so on an ordinary merge nothing differs and the run
+# is a no-op; when a tag moves the line, the new number is committed straight
+# to develop. Direct push, not a PR: the value is derived, not authored, and a
+# bump that waits on review is a window where the deployment lies about itself.
+#
+# develop is protected (ruleset "Protect develop": pull request + review +
+# DCO status check, bypass only for one team), so the push cannot use the
+# workflow's GITHUB_TOKEN. It uses SKILLS_VERSION_PUSH_TOKEN: a fine-grained
+# PAT (Contents: read/write on this repository) of a member of the bypass
+# team. The commit is signed off in that member's name (SKILLS_VERSION_GIT_NAME
+# / SKILLS_VERSION_GIT_EMAIL repository variables), because a sign-off is a
+# person's statement, not a bot's. Without the secret the run stops with a
+# clear error instead of opening anything.
+#
+# What this cannot do: rewrite the tagged commit. If `v3.3.0` is pushed onto a
+# commit whose stamped fields still say 3.3.0-rc0, that tree disagrees with
+# hatch-vcs forever, and the tag-triggered run says so as a warning. Release
+# tags are cut by maintainers, so the order is: stamp first, tag second --
+#
+#   python3 .github/scripts/stamp_versions.py --version 3.3.0
+#   git commit -s -am "chore(version): stamp 3.3.0 for the release"
+#   <merge or push to develop>; git tag -a v3.3.0 <that commit>; git push origin v3.3.0
+#
+# -- and then the tagged commit already agrees, this run finds nothing to do,
+# and no warning fires. Pre-release tags (v3.3.0rc0) can go either way: the
+# next develop commit is stamped automatically.
+name: Version Stamp
+
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - "v[0-9]*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skills-version
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  stamp:
+    name: Stamp versions from the release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Always develop: a tag push arrives on the tag ref, but the stamp lands
+      # where the skills live. fetch-depth 0 so the tags are reachable. The
+      # push token is injected here so `git push` inherits it.
+      - name: Checkout develop
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ secrets.SKILLS_VERSION_PUSH_TOKEN || github.token }}
+
+      - name: Require the bypass token
+        env:
+          HAVE_TOKEN: ${{ secrets.SKILLS_VERSION_PUSH_TOKEN != '' }}
+        run: |
+          if [ "$HAVE_TOKEN" != "true" ]; then
+            echo "::error::SKILLS_VERSION_PUSH_TOKEN is not set. develop rejects pushes from GITHUB_TOKEN (ruleset 'Protect develop'); add a fine-grained PAT of a bypass-team member as that repository secret."
+            exit 1
+          fi
+
+      # On a tag push, report whether the tagged commit itself agrees with the
+      # tag. It cannot be fixed -- tags are immutable -- but a release whose
+      # skills and edges say 3.3.0-rc0 must be a known fact, not a surprise.
+      - name: Check the tagged commit
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG_SHA: ${{ github.sha }}
+          TAG_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git worktree add -q --detach "${RUNNER_TEMP}/tagged" "$TAG_SHA"
+          if python3 .github/scripts/stamp_versions.py --repo-root "${RUNNER_TEMP}/tagged" --check >/dev/null 2>&1; then
+            echo "tagged commit ${TAG_SHA:0:12} already carries the ${TAG_REF} version in every stamped field"
+            echo "### ${TAG_REF}: tagged commit ${TAG_SHA:0:12} already carries the ${TAG_REF} version" >> "$GITHUB_STEP_SUMMARY"
+          else
+            # Visible in three places: the run's annotation (Actions run page and
+            # the commit's checks), the run's step summary, and the log.
+            msg="the commit ${TAG_REF} points at (${TAG_SHA:0:12}) carries the previous release line in its stamped fields (SKILL.md, containers.env VSS_VERSION, chart vssVersion); develop is being stamped now, but the tagged tree is immutable. Deploy and build release harness images from the develop commit this run pushes, and next time stamp before tagging (see the header of this workflow)."
+            echo "::warning title=${TAG_REF} tags the previous version::${msg}"
+            {
+              echo "### :warning: ${TAG_REF} tags the previous version"
+              echo
+              echo "$msg"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          git worktree remove --force "${RUNNER_TEMP}/tagged"
+
+      - name: Stamp develop
+        id: stamp
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/stamp_versions.py
+          tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*')"
+          semver="$(python3 -c 'import sys; sys.path.insert(0, "libs/vss/core/src"); from vss_core.version import pep440_to_semver; print(pep440_to_semver(sys.argv[1]))' "${tag#v}")"
+          echo "semver=${semver}" >> "$GITHUB_OUTPUT"
+          if git diff --quiet -- skills deploy; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "every stamped field already carries ${semver} (from ${tag}); nothing to do"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff --stat -- skills deploy
+          fi
+
+      - name: Commit and push to develop
+        if: steps.stamp.outputs.changed == 'true'
+        env:
+          SEMVER: ${{ steps.stamp.outputs.semver }}
+          GIT_NAME: ${{ vars.SKILLS_VERSION_GIT_NAME }}
+          GIT_EMAIL: ${{ vars.SKILLS_VERSION_GIT_EMAIL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
+            echo "::error::set the SKILLS_VERSION_GIT_NAME and SKILLS_VERSION_GIT_EMAIL repository variables to the token owner's name and email; the sign-off must name a person."
+            exit 1
+          fi
+          git config user.name "$GIT_NAME"
+          git config user.email "$GIT_EMAIL"
+          git add -- skills deploy
+          git commit -s -m "chore(version): stamp ${SEMVER} from the release tag" \
+            -m "Every SKILL.md metadata.version, the containers.env VSS_VERSION line and every ingress chart's vssVersion now carry ${SEMVER}, the SemVer rendering of the nearest v* tag, so the skills and the edges' GET /api/v1/version agree with vss --version for this line. Generated by .github/scripts/stamp_versions.py (version-stamp.yml); this number is never edited by hand."
+          # Linear history is required on develop and this run may have raced
+          # a merge: rebase onto the current tip, then push without force.
+          git pull --rebase --quiet origin develop
+          git push origin HEAD:develop
+          echo "pushed $(git rev-parse --short HEAD) to develop"

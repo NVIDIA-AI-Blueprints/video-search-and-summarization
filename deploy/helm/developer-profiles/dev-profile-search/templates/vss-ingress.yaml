@@ -155,10 +155,14 @@ metadata:
   {{- if and (include "vss.ingress.hasPathRewrites" (dict "backends" $b)) (not (hasKey $annotations "haproxy.org/path-rewrite")) }}
   {{- $_ := set $annotations "haproxy.org/path-rewrite" (printf "%s\n" (include "vss.ingress.pathRewrites" (dict "backends" $b))) }}
   {{- end }}
-  {{- if $annotations }}
+  {{- /* The deployment's version, answered by the ingress itself so every profile
+         -- with or without the agent -- reports one. .Values.vssVersion is stamped
+         from the nearest v* git tag by version-stamp.yml (.github/version-convention.md).
+         Prepended to any caller-supplied frontend snippet, never replaced by it. */}}
+  {{- $versionRule := printf "http-request return status 200 content-type application/json lf-string '{\"service\":\"vss\",\"version\":\"%s\"}' if { path /api/v1/version } { req.hdr(host),field(1,:) -i %s }\n" .Values.vssVersion $mainHost }}
+  {{- $_ := set $annotations "haproxy.org/frontend-config-snippet" (printf "%s%s" $versionRule (index $annotations "haproxy.org/frontend-config-snippet" | default "")) }}
   annotations:
     {{- toYaml $annotations | nindent 4 }}
-  {{- end }}
 spec:
   {{- $class := coalesce ($legacy.className | default "") $vi.ingressClassName $vi.className }}
   {{- if $class }}

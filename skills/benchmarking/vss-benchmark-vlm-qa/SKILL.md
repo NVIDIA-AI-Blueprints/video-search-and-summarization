@@ -3,7 +3,7 @@ name: vss-benchmark-vlm-qa
 description: Benchmark video Q&A accuracy and latency of a deployed RT-VLM (Cosmos Reason 3) via vss vlm run, using questions and videos from the DSS vss-devx-base dataset. Replaces the deprecated nat eval / vss-agent QA path. Not for tool-calling or trajectory evaluation, and not for LVS summarization throughput.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   # Deployment versions this skill supports. Floor is 3.3.0 because that is the
   # Cosmos Reason 3 RT-VLM stack the published baselines were measured on, and
   # this skill replaces the deprecated `nat eval` / vss-agent QA path. Not a CLI

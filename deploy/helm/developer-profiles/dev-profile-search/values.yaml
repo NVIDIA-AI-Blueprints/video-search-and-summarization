@@ -95,6 +95,12 @@ global:
 # className, hosts.*, annotations, tls — each wins over its counterpart below.
 # Its removed cliRoutes.* keys are ignored; Elasticsearch and the RTVI mounts
 # are no longer toggled. Set one block or the other, not both.
+#
+# vssVersion (top-level, below) is the version this deployment reports at
+# GET /api/v1/version, answered by the HAProxy ingress. Stamped by
+# .github/scripts/stamp_versions.py from the nearest v* git tag, never by hand.
+# See .github/version-convention.md.
+vssVersion: "3.3.0-rc0"
 vssIngress:
   enabled: true
   ingressClassName: haproxy

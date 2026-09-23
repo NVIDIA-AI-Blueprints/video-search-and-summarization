@@ -211,9 +211,20 @@ $ curl -sS http://localhost:8000/api/v1/version
 metadata (for example, `3.3.0-rc.1+build.42`). The official SemVer grammar is
 enforced, so `03.3.0`, `3.3.0-01`, `3.3.0-.` and `v1.0.0` are all rejected.
 
-**Where it comes from.** One version, one source: what a deployment reports is
-the version of the `nvidia-vss-core` library the running process imported, read
-from its installed metadata by
+**Who answers.** On a deployed stack, the **HAProxy edge** answers
+`GET /api/v1/version` itself, on every profile — with or without this agent —
+from the version stamped into the deployment files by CI
+(`VSS_VERSION` in `deploy/docker/containers.env` on Compose, `vssVersion` in
+the profile chart's `values.yaml` on Helm; see
+[`.github/version-convention.md`](../../.github/version-convention.md)). The
+route below is the agent's own copy of the same contract: it is what you get at
+the agent's origin directly (`:8000`), and what `nat serve` from a checkout
+answers. Both derive from the same git tag, so they agree on the release line;
+the agent's carries `+tree.<sha>` build metadata, the edge's does not.
+
+**Where the agent's comes from.** One version, one source: what this process
+reports is the version of the `nvidia-vss-core` library it imported, read from
+its installed metadata by
 [`vss_core.version`](../../libs/vss/core/src/vss_core/version.py). Nothing
 outranks it and nothing stands in for it — no environment variable, no
 `git describe` at runtime. A version that can be edited at deploy time is one
