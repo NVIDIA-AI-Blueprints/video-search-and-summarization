@@ -89,7 +89,7 @@ template <typename Fn>
 void runOnDefaultStack(Fn&& fn)
 {
     std::exception_ptr failure;
-    std::thread worker([&]() {
+    std::thread worker([&failure, &fn]() {
         try
         {
             fn();
@@ -342,7 +342,20 @@ DashSessionManager::DashSessionManager()
 
 DashSessionManager::~DashSessionManager()
 {
-    shutdown();
+    /* shutdown() tears down sessions and may throw; an escaping exception here
+     * would call std::terminate, so contain it. */
+    try
+    {
+        shutdown();
+    }
+    catch (const std::exception& e)
+    {
+        LOG(error) << "Exception during DashSessionManager shutdown: " << e.what() << endl;
+    }
+    catch (...)
+    {
+        LOG(error) << "Unknown exception during DashSessionManager shutdown" << endl;
+    }
 }
 
 void DashSessionManager::setDeviceManager(std::shared_ptr<nv_vms::DeviceManager> deviceManager)
@@ -766,7 +779,7 @@ DashStartResult DashSessionManager::start(const std::string& streamId, const Jso
          * session, not the process. */
         try
         {
-            runOnDefaultStack([&]() {
+            runOnDefaultStack([&session, &opts, &compositeRequested, &compositeUrls, &mediaUrl]() {
                 session->source = std::make_shared<CommonVideoSource>(
                     compositeRequested ? compositeUrls : mediaUrl, opts, session->packager);
                 session->source->createConsumerPipeline();
@@ -1042,7 +1055,7 @@ DashStartResult DashSessionManager::startReplay(const std::string& streamId,
      * a failed start for this session alone. */
     try
     {
-        runOnDefaultStack([&]() {
+        runOnDefaultStack([&session, &uri, &opts]() {
             session->source = std::make_shared<CommonVideoSource>(uri, opts, session->packager);
             session->source->createConsumerPipeline();
             session->source->setConsumerReady();

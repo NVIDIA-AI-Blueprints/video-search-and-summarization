@@ -76,7 +76,7 @@ void fillReplayDashResponse(const DashStartResult& result, Json::Value& response
 
 
 
-#define REPLAY_API "/api/v1/replay/stream/*"
+constexpr const char* REPLAY_API = "/api/v1/replay/stream/*";
 
 extern "C" void* createPeerConnectionReplayManagerObject()
 {

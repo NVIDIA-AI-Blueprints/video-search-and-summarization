@@ -35,7 +35,7 @@ using namespace nv_vms;
 
 constexpr const char* ENCODING = "utf-8";
 
-unsigned int max_n_threads = 100;
+static const unsigned int max_n_threads = 100;
 
 namespace
 {

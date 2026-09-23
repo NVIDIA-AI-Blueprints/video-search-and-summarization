@@ -29,7 +29,7 @@
 using namespace std;
 using namespace nv_vms;
 
-#define LIVE_API "/api/v1/live/stream/*"
+constexpr const char* LIVE_API = "/api/v1/live/stream/*";
 
 namespace {
 

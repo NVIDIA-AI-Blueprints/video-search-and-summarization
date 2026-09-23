@@ -110,7 +110,7 @@ class GstNvVideoDecoder : public IMediaDataConsumer, public GstNvDecoder, public
                     m_decStats.printTotalStats();
                     m_decStats.clearQueue();
                 }
-                destroy(true);
+                GstNvVideoDecoder::destroy(true);
                 LOG(info) << "Decoder instance is deleted "<< m_peerid << endl;
             } catch (const std::exception& e) {
                 try { LOG(error) << "Exception in ~GstNvVideoDecoder: " << e.what() << endl; } catch (...) { (void)std::current_exception(); }

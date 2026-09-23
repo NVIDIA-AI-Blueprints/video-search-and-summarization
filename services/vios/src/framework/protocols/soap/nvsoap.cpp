@@ -5136,7 +5136,9 @@ int NvSoap::sendProbe(map<string, SensorInfo>& deviceList)
             string match (buffer);
             LOG(verbose) << "probe Match: " << getCurrentTime() << endl << match << endl;
 
-            g_probeMatchMutex.lock();
+            /* The guard covers the rest of the loop body, which is exactly the
+             * span the explicit lock/unlock pairs covered, including the break. */
+            std::lock_guard<std::mutex> probeMatchGuard(g_probeMatchMutex);
             SensorInfo sensor;
             if (getProbeResponse(match, sensor))
             {
@@ -5144,10 +5146,8 @@ int NvSoap::sendProbe(map<string, SensorInfo>& deviceList)
             }
             else
             {
-                g_probeMatchMutex.unlock();
                 break;
             }
-            g_probeMatchMutex.unlock();
         }
     }
 cleanup:

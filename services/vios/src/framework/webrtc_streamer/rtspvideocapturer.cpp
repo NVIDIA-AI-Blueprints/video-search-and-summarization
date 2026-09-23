@@ -36,9 +36,7 @@ RTSPVideoCapturer::RTSPVideoCapturer(const std::string & uri, const std::map<std
 	LOG(verbose) << "RTSPVideoCapturer " << uri ;
 }
 
-RTSPVideoCapturer::~RTSPVideoCapturer()
-{
-}
+RTSPVideoCapturer::~RTSPVideoCapturer() = default;
 
 void RTSPVideoCapturer::getDecoderStats(LatencyStats& stats)
 {

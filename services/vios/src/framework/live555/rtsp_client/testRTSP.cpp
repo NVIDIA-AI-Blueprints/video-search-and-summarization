@@ -21,7 +21,7 @@
 #include "testRTSP.h"
 #include "network_utils.h"
 
-#define MAX_OUT_PACKET_BUFFER_SIZE_IN_MB 2 * 1024 * 1024
+constexpr int MAX_OUT_PACKET_BUFFER_SIZE_IN_MB = 2 * 1024 * 1024;
 
 // Forward function definitions:
 
@@ -740,7 +740,7 @@ StreamClientState::~StreamClientState() {
 
 // Even though we're not going to be doing anything with the incoming data, we still need to receive it.
 // Define the size of the buffer that we'll use:
-#define DUMMY_SINK_RECEIVE_BUFFER_SIZE 1000000
+constexpr int DUMMY_SINK_RECEIVE_BUFFER_SIZE = 1000000;
 
 DummySink* DummySink::createNew(UsageEnvironment& env, MediaSubsession& subsession, ourRTSPClient* dataArrival, char const* streamId) {
   return new DummySink(env, subsession, dataArrival, streamId);

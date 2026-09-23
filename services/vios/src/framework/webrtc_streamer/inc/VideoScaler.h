@@ -94,9 +94,7 @@ public:
         }
     }
 
-    virtual ~VideoScaler()
-    {
-    }
+    virtual ~VideoScaler() = default;
 
     void OnFrame(const webrtc::VideoFrame &frame) override
     {
