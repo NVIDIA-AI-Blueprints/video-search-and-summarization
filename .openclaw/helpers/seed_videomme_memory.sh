@@ -43,6 +43,39 @@ vss configure memory introspection \
   --clear-judge-backend-model \
   --judge-api-key-env "${VSS_MEMORY_JUDGE_API_KEY_ENV:-ANTHROPIC_API_KEY}"
 
+elasticsearch_url="$(
+  vss configure show |
+    jq -er '.services.elasticsearch.url'
+)"
+index_response="${log_dir}/setup-elasticsearch-index.json"
+index_status="$(
+  curl --silent --show-error \
+    --output "${index_response}" \
+    --write-out '%{http_code}' \
+    --request PUT \
+    --header 'Content-Type: application/json' \
+    --data '{}' \
+    "${elasticsearch_url%/}/${memory_index}"
+)"
+
+case "${index_status}" in
+  200 | 201)
+    ;;
+  400)
+    if ! jq -e \
+      '.error.type == "resource_already_exists_exception"' \
+      "${index_response}" >/dev/null; then
+      cat "${index_response}" >&2
+      exit 5
+    fi
+    ;;
+  *)
+    cat "${index_response}" >&2
+    echo "failed to create Elasticsearch index ${memory_index}: HTTP ${index_status}" >&2
+    exit 5
+    ;;
+esac
+
 vss configure memory check
 
 vss vios timeline --sensor "${sensor_id}" --raw \

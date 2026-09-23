@@ -20,7 +20,6 @@ from datetime import datetime
 import logging
 from typing import Any
 
-from elasticsearch import ApiError as ESApiError
 from elasticsearch import Elasticsearch
 from elasticsearch import NotFoundError as ESNotFoundError
 from elasticsearch.exceptions import ConnectionError as ESConnectionError
@@ -68,7 +67,6 @@ class ElasticsearchMemoryStore:
         self._index = index
         self._owned = client is None
         self._client = client or Elasticsearch(endpoint, request_timeout=request_timeout)
-        self._index_ready = False
 
     @property
     def index(self) -> str:
@@ -79,7 +77,6 @@ class ElasticsearchMemoryStore:
             self._client.close()
 
     def upsert(self, record: UnifiedMemoryRecord) -> UnifiedMemoryRecord:
-        self._ensure_index()
         doc_id = storage_id_for(record)
         existing = self._get_by_storage_id(doc_id)
         if existing is not None:
@@ -91,27 +88,6 @@ class ElasticsearchMemoryStore:
         except (ESConnectionError, ESTransportError) as error:
             raise BackendUnreachableError("elasticsearch", f"upsert failed for {doc_id}", cause=error) from error
         return record
-
-    def _ensure_index(self) -> None:
-        """Create the configured index before its first read-modify-write."""
-        if self._index_ready:
-            return
-        try:
-            if self._client.indices.exists(index=self._index):
-                self._index_ready = True
-                return
-            self._client.indices.create(index=self._index)
-        except ESApiError as error:
-            error_type = error.body.get("error", {}).get("type") if isinstance(error.body, dict) else None
-            if error_type != "resource_already_exists_exception":
-                raise BackendUnreachableError(
-                    "elasticsearch", f"could not create index {self._index}", cause=error
-                ) from error
-        except (ESConnectionError, ESTransportError) as error:
-            raise BackendUnreachableError(
-                "elasticsearch", f"could not create index {self._index}", cause=error
-            ) from error
-        self._index_ready = True
 
     def get(self, job_id: str) -> UnifiedMemoryRecord | None:
         return self._get_by_storage_id(make_storage_id(job_id=job_id))

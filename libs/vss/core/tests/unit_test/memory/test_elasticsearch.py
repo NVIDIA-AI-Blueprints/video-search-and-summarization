@@ -69,7 +69,6 @@ class _FakeES:
     def __init__(self) -> None:
         self.docs: dict[str, dict[str, Any]] = {}
         self.indexed: list[str] = []
-        self.indices = _FakeIndices()
         self.last_body: dict[str, Any] | None = None
         self.last_mget_ids: list[str] | None = None
 
@@ -107,18 +106,6 @@ class _FakeES:
         return None
 
 
-class _FakeIndices:
-    def __init__(self) -> None:
-        self.created: list[str] = []
-
-    def exists(self, *, index: str) -> bool:
-        return False
-
-    def create(self, *, index: str) -> dict[str, Any]:
-        self.created.append(index)
-        return {"acknowledged": True}
-
-
 def test_elasticsearch_parent_lifecycle_same_storage_id() -> None:
     client = _FakeES()
     store = ElasticsearchMemoryStore(endpoint="http://unused", client=client, index="vss-memory")
@@ -140,55 +127,10 @@ def test_elasticsearch_parent_lifecycle_same_storage_id() -> None:
     store.upsert(_parent(status="completed"))
 
     assert client.indexed == ["summary-1", "summary-1", "summary-1"]
-    assert client.indices.created == ["vss-memory"]
     got = store.get("summary-1")
     assert got is not None
     assert got.job.status == "completed"
     assert got.job.created_at == iso8601_to_datetime("2026-07-22T12:00:00Z")
-
-
-def test_elasticsearch_upsert_accepts_an_index_created_by_another_writer() -> None:
-    from elastic_transport import ApiResponseMeta
-    from elastic_transport import NodeConfig
-    from elasticsearch import ApiError as ESApiError
-
-    class _ExistingIndices(_FakeIndices):
-        def create(self, *, index: str) -> dict[str, Any]:
-            self.created.append(index)
-            meta = ApiResponseMeta(
-                status=400,
-                http_version="1.1",
-                headers={},
-                duration=0,
-                node=NodeConfig("http", "localhost", 9200),
-            )
-            raise ESApiError(
-                "already exists",
-                meta,
-                {"error": {"type": "resource_already_exists_exception"}},
-            )
-
-    client = _FakeES()
-    client.indices = _ExistingIndices()
-    store = ElasticsearchMemoryStore(endpoint="http://unused", client=client)
-
-    assert store.upsert(_parent()).job.job_id == "summary-1"
-    assert client.indexed == ["summary-1"]
-
-
-def test_elasticsearch_upsert_does_not_recreate_an_existing_index() -> None:
-    class _ExistingIndices(_FakeIndices):
-        def exists(self, *, index: str) -> bool:
-            return True
-
-    client = _FakeES()
-    client.indices = _ExistingIndices()
-    store = ElasticsearchMemoryStore(endpoint="http://unused", client=client)
-
-    store.upsert(_parent())
-
-    assert client.indices.created == []
-    assert client.indexed == ["summary-1"]
 
 
 def test_elasticsearch_child_has_compound_id() -> None:
