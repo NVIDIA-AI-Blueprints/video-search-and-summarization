@@ -38,6 +38,30 @@ FILE_TARGET_SUFFIXES = {
 }
 GENERATED_BIND_NAMES = {".wdm-env"}
 DEFAULT_CONTAINER_TAG = "develop-latest"
+# Repositories whose tag containers.env derives from VSS_CONTAINER_TAG; matched
+# by last path segment so a registry override stays covered.
+MANAGED_IMAGE_NAMES = frozenset(
+    {
+        "sdr-mw-l",
+        "vss-agent",
+        "vss-agent-ui",
+        "vss-alert-ms",
+        "vss-behavior-analytics",
+        "vss-configurator",
+        "vss-rt-config-adaptor",
+        "vss-rt-cv",
+        "vss-rt-cv-mv3dt-bev-fusion",
+        "vss-rt-cv-mv3dt-config-init",
+        "vss-rt-embed",
+        "vss-rt-vlm",
+        "vss-video-analytics-api",
+        "vss-video-summarization",
+        "vss-vios-ingress",
+        "vss-vios-nvstreamer",
+        "vss-vios-sensor",
+        "vss-vios-streamprocessing",
+    }
+)
 NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
 NGC_MODEL_REF = re.compile(r"(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
@@ -139,11 +163,12 @@ def image_tag(image: str) -> str | None:
 def container_tag_errors(
     document: dict[str, Any], expected_tag: str | None
 ) -> list[str]:
-    """Report images left on the `containers.env` fallback tag.
+    """Report managed images left on the `containers.env` fallback tag.
 
     Only the fallback is an error: an explicit `VSS_*_TAG` pin and an SBSA
-    suffix are both meant to supersede the common tag, and `develop-latest` is
-    a VSS default no third-party image carries.
+    suffix are both meant to supersede the common tag. Images outside
+    `MANAGED_IMAGE_NAMES` are not governed by `VSS_CONTAINER_TAG`, so their
+    tags are never checked.
     """
     if not expected_tag or expected_tag == DEFAULT_CONTAINER_TAG:
         return []
@@ -157,6 +182,9 @@ def container_tag_errors(
             continue
         tag = image_tag(image)
         if tag is None:
+            continue
+        name = image.rpartition(":")[0].rsplit("/", 1)[-1]
+        if name not in MANAGED_IMAGE_NAMES:
             continue
         if tag == DEFAULT_CONTAINER_TAG or tag.startswith(f"{DEFAULT_CONTAINER_TAG}-"):
             errors.append(
@@ -232,7 +260,7 @@ def parse_args() -> argparse.Namespace:
         "--expect-container-tag",
         metavar="TAG",
         help=(
-            "common VSS_CONTAINER_TAG the build selected; fail when any image "
+            "common VSS_CONTAINER_TAG the build selected; fail when any managed image "
             f"stayed on the {DEFAULT_CONTAINER_TAG!r} default"
         ),
     )
