@@ -192,7 +192,16 @@ def unpack_dataset(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict
     decompositions: dict[str, dict[str, Any]] = {}
 
     for query, value in queries.items():
-        if isinstance(value, dict):
+        if isinstance(value, dict) and "relevant_clips" in value:
+            # Clip task (schema_version 3): GT is whole-clip relevance (stems),
+            # not time-bounded segments. Must precede the segments/annotations
+            # chain below or a clip dict falls through to `or []` and silently
+            # zeros every query. [F6]
+            annotations[query] = value["relevant_clips"]
+            decomposition = value.get("decomposition")
+            if isinstance(decomposition, dict):
+                decompositions[query] = decomposition
+        elif isinstance(value, dict):
             annotations[query] = value.get("segments") or value.get("annotations") or []
             decomposition = value.get("decomposition")
             if isinstance(decomposition, dict):
