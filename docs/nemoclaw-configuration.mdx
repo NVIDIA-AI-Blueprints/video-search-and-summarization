@@ -48,7 +48,7 @@ The agent model provider is seeded in Section 1.1 and set by one of the provider
 | Variable | Default | Description |
 | --- | --- | --- |
 | `NVIDIA_API_KEY` | *(blank)* | Required for the build.nvidia.com agent provider (Section 1.2, option c). |
-| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` (option a) | OpenAI-compatible base URL for a cloud or local custom agent provider (Section 1.2, options a/b). When non-empty, the notebook selects `NEMOCLAW_PROVIDER=custom`. Leave blank to select `NEMOCLAW_PROVIDER=build`. |
+| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` (option a; NVIDIA-internal) | OpenAI-compatible base URL for a cloud or local custom agent provider (Section 1.2, options a/b). External users must replace the prefilled internal endpoint with one they can access, or leave this blank and select the `build.nvidia.com` provider. When non-empty, the notebook selects `NEMOCLAW_PROVIDER=custom`. |
 | `NEMOCLAW_MODEL` | `aws/anthropic/bedrock-claude-opus-5` (option a) | Model ID for the agent chat model, as the chosen endpoint serves it. |
 | `COMPATIBLE_API_KEY` | *(blank)* | Bearer token for the custom OpenAI-compatible provider, issued by whoever runs the endpoint. Must be non-empty for custom provider mode, even when a local server ignores it. |
 

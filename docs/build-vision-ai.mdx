@@ -37,8 +37,7 @@ Use `vss-build-vision-ai` when you want to:
 - Deploy a warehouse industry blueprint, including 2D, 3D, MV3DT, and
   auto-calibration variants.
 - Build a custom stack from capabilities such as dense captioning, object
-  detection and tracking, semantic search, alerting, video summarization, or SOP
-  compliance monitoring.
+  detection and tracking, semantic search, alerting, or video summarization.
 - Rebuild a running deployment with additional vision capabilities in one
   resolved stack.
 - Tear down a stack that was created by the Skill.
@@ -74,18 +73,15 @@ report.
 
 ### Developer workflows
 
-The table summarizes each stock Compose profile. Build Vision AI resolves the
-service graph for the requested capabilities and selected harness, so its final
-graph can be smaller. In the default Skill-generated `base` deployment, it
-keeps the UI, Redis, VIOS, and RT-VLM and removes the in-stack `vss-agent`,
-local LLM, and Phoenix. It retains those services only when the request or
-another selected capability requires them.
+The table summarizes the default Skill-generated deployment for each developer
+workflow. Build Vision AI resolves the service graph for the requested
+capabilities and selected harness, so the exact graph can vary.
 
-| Profile | Best for | Stock Compose profile capabilities |
+| Profile | Best for | Default Skill-generated capabilities |
 | --- | --- | --- |
-| `base` | First run, video Q&A, and report generation on short clips | VSS Agent, UI, VIOS, LLM, and RT-VLM. |
+| `base` | First run, video Q&A, and report generation on short clips | UI, Redis, VIOS, and RT-VLM. |
 | `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, VA-MCP, RT-VLM, and optionally RT-CV with behavior analytics. |
-| `lvs` (Video Summarization) | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI/agent surfaces for summarization workflows. |
+| `lvs` (Video Summarization) | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI. |
 | `search` | Natural-language video search | RT-CV detection and tracking, RT-Embed embeddings, Elasticsearch, Video Analytics API, and search services. |
 
 For `alerts`, the Skill asks which mode you want:
@@ -125,8 +121,8 @@ The credential gate is determined by those answers:
 | Choice | Credential |
 | --- | --- |
 | Any standard VSS deployment | `NGC_CLI_API_KEY`; authenticate Docker to `nvcr.io` separately before running the Skill. |
-| Default NemoClaw remote endpoint, or another public OpenAI-compatible harness endpoint | `COMPATIBLE_API_KEY` (no default value). Create a key for the default endpoint at [NVIDIA Inference Hub key management](https://inference.nvidia.com/key-management?action=new-key). |
-| `build.nvidia.com` model endpoint | `NVIDIA_API_KEY`. |
+| Public OpenAI-compatible harness endpoint | `COMPATIBLE_API_KEY` issued by the endpoint provider. |
+| `build.nvidia.com` model endpoint | `NVIDIA_API_KEY`. Create one from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
 | Gated or rate-limited Hugging Face model download | `HF_TOKEN`. |
 | Self-hosted harness endpoint or no harness | No harness key. Stack-level NGC/model credentials still apply. |
 
@@ -150,35 +146,6 @@ The Skill includes VIOS as the video input and storage layer for guided custom
 builds. It retains ingress only when the requested capability or harness needs a
 single public origin, and adds ELK/Kafka only for capabilities that publish to
 Kafka or index into Elasticsearch.
-
-### SOP compliance monitoring
-
-SOP compliance monitoring is a custom capability build, not a stock developer
-profile. The Skill composes the DS-SOP perception service with Kafka and
-Elasticsearch storage, VIOS for live sources, and the SOP reporting tools on
-VA-MCP. DS-SOP occupies the perception slot, so the resolved build uses it in
-place of RT-VLM.
-
-Ask the Skill to build and deploy the complete capability:
-
-```text title="SOP compliance deployment prompt"
-Use the vss-build-vision-ai skill to build and deploy an SOP compliance
-monitoring stack. Show the resolved services, GPU placement, source wiring, and
-teardown impact before deploying.
-```
-
-After the build is ready and a source is producing SOP results, use
-`vss-generate-video-report` Mode C with a sensor and time range:
-
-```text title="SOP compliance report prompt"
-Generate an SOP compliance report for <sensor> from <start-time> to <end-time>.
-```
-
-Mode C is read-only. It verifies that VA-MCP exposes
-`video_analytics__get_sop_report`, reads the indexed SOP results for the
-requested range, and renders the SOP compliance report. See the
-[Agent Skills catalog](/vss/vision-agent/agent-skills#operations) for the
-report Skill and its other modes.
 
 ### Combine real-time alerting and video summarization
 
@@ -237,14 +204,12 @@ and `KAFKA_STRUCTURED_SUMMARY_TOPIC` is non-empty. Review the
 not replace it with a static list from this page because harness and capability
 choices can change the resolved graph.
 
-This combination uses one LLM for `lvs-server` and one shared RT-VLM; it adds no
-second model process of either type. Use the real-time alerts GPU row as the
-starting model-placement cost: on H100 or RTX PRO 6000 Blackwell, plan for two
-GPUs in the shared layout or three with dedicated model placement.
-LVS work and continuous alert inference contend for the same RT-VLM, so the
-Skill must still validate measured memory headroom and stream/request capacity
-on the target host. A stock sizing row is not a throughput guarantee for the
-combined workload.
+The default combined workflow uses one GPU. Alerts and Video Summarization share
+one RT-VLM process; Video Summarization does not add a second VLM. Alternative
+local or dedicated model choices can require additional GPU placement, so
+review the resolved plan before deployment. LVS work and continuous alert
+inference contend for the shared RT-VLM, and the Skill must still validate
+measured memory headroom and stream/request capacity on the target host.
 
 <Warning>
 Developer profiles default to the same Compose project name, `vss`, and also use

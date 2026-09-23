@@ -302,18 +302,17 @@ NemoClaw harness.
 | Credential | Required when |
 | --- | --- |
 | `NGC_CLI_API_KEY` | Pulling gated NIM, model, sample-data, and other artifacts from NGC. This is required for the standard deployment paths. Use the same Personal API Key for `docker login nvcr.io`. Managed VSS images on public GHCR require no registry login. |
-| `COMPATIBLE_API_KEY` | The NemoClaw harness uses its default remote OpenAI-compatible endpoint, or another public OpenAI-compatible endpoint that requires a bearer token. The default has no built-in key. |
-| `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com` or `integrate.api.nvidia.com`. |
+| `COMPATIBLE_API_KEY` | The NemoClaw harness uses a public OpenAI-compatible endpoint that requires a bearer token. Obtain the key from the endpoint provider. |
+| `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com` or `integrate.api.nvidia.com`. Create a key from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
 | `HF_TOKEN` | A selected model or helper downloads gated or rate-limited weights from Hugging Face. |
 
-A key for the default NemoClaw Inference Hub endpoint can be created at
-[NVIDIA Inference Hub key management](https://inference.nvidia.com/key-management?action=new-key).
-Keep it out of chat transcripts and generated build artifacts. Either put the
-following assignment in the checkout-root, gitignored `nemoclaw.env` file, or
-export it in the shell that starts the coding-agent session:
+Keep provider credentials out of chat transcripts and generated build
+artifacts. For a custom OpenAI-compatible endpoint, put the provider-issued key
+in the checkout-root, gitignored `nemoclaw.env` file, or export it in the shell
+that starts the coding-agent session:
 
 ```bash
-COMPATIBLE_API_KEY='your-inference-hub-key'
+COMPATIBLE_API_KEY='your-provider-api-key'
 ```
 
 The Skill loads `nemoclaw.env` before harness setup. If you export the variable

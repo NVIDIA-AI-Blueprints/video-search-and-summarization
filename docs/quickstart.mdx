@@ -186,8 +186,8 @@ Before deployment, have the credentials required by your choices available:
 | Credential | When the Skill asks for it |
 | --- | --- |
 | `NGC_CLI_API_KEY` | Standard VSS image, model, and sample-data access. |
-| `COMPATIBLE_API_KEY` | The default NemoClaw remote endpoint, or another token-protected OpenAI-compatible endpoint. There is no default key. |
-| `NVIDIA_API_KEY` | A model served from `build.nvidia.com` or `integrate.api.nvidia.com`. |
+| `COMPATIBLE_API_KEY` | A token-protected OpenAI-compatible endpoint. Obtain the key from the endpoint provider. |
+| `NVIDIA_API_KEY` | A model served from `build.nvidia.com` or `integrate.api.nvidia.com`. Create a key from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
 | `HF_TOKEN` | Gated or rate-limited model downloads from Hugging Face. |
 
 Authenticate Docker to `nvcr.io` before asking the Skill to deploy. Use the
@@ -199,13 +199,12 @@ printf '%s' "$NGC_CLI_API_KEY" | \
   docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
-A key for the default NemoClaw endpoint is available from
-[NVIDIA Inference Hub key management](https://inference.nvidia.com/key-management?action=new-key).
-Do not paste the key into chat. Store it in the checkout-root, gitignored
-`nemoclaw.env` file:
+For a custom OpenAI-compatible NemoClaw endpoint, obtain the key from the
+endpoint provider. Do not paste the key into chat. Store it in the
+checkout-root, gitignored `nemoclaw.env` file:
 
 ```bash
-COMPATIBLE_API_KEY='your-inference-hub-key'
+COMPATIBLE_API_KEY='your-provider-api-key'
 ```
 
 Alternatively, export `COMPATIBLE_API_KEY` in the shell that starts the
@@ -213,8 +212,9 @@ coding-agent session. The session must inherit the variable; exporting it later
 in another terminal does not update the running agent.
 
 For developer-profile deployments, the Skill asks whether to add a host-side
-agent harness. The default answer is yes and the default harness is NemoClaw;
-accepting that default requires `COMPATIBLE_API_KEY`. Select **no harness** to
+agent harness. If you select NemoClaw, choose a model provider that is available
+from your host. The `build.nvidia.com` provider uses `NVIDIA_API_KEY`; a custom
+OpenAI-compatible provider uses `COMPATIBLE_API_KEY`. Select **no harness** to
 operate the deployment with the project-local `vss` CLI instead.
 
 A self-hosted endpoint or **no harness** needs no harness key, although the VSS
