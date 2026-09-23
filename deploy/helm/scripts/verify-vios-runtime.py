@@ -69,6 +69,14 @@ assert env['VST_INGRESS_ENDPOINT'] == 'http://review-vss-vios-ingress:30888/vst'
 assert_peers_rendered(documents, env, ('STREAM_PROCESSOR_MODULE_ENDPOINT', 'RTSP_SERVER_MODULE_ENDPOINT',
                                        'VST_INGRESS_ENDPOINT'))
 
+# The same install WITHOUT the peer value must be refused, naming the value to set, rather
+# than rendering a sensor that calls a Service that does not exist.
+result = render(base, {'ngc': {'createSecrets': False}, 'global': {'useReleaseNamePrefix': True},
+                       'vios': {'vss-vios-sensor': {'useReleaseNamePrefix': False},
+                                'vss-vios-streamprocessing': {'useReleaseNamePrefix': False}}})
+assert result.returncode != 0, 'mixed prefix without peerUseReleaseNamePrefix rendered'
+assert 'peerUseReleaseNamePrefix.streamprocessing: false' in result.stderr, result.stderr
+
 # The sensor's OWN local flag names the sensor, not its peers. Alerts routes the sensor
 # through SDRC (VST_USE_SDRC=true); SDRC is rendered by infra's sdrc chart and follows the
 # global prefix, so a sensor-local false must not strip the prefix from the SDRC address.
@@ -88,6 +96,10 @@ for sdrc_local, expected_host in ((None, 'review-sdrc-controller'), (False, 'sdr
     assert env['STREAM_PROCESSOR_MODULE_ENDPOINT'] == env['RTSP_SERVER_MODULE_ENDPOINT'] == \
         f'http://{expected_host}:10000', (sdrc_local, env['STREAM_PROCESSOR_MODULE_ENDPOINT'])
     assert_peers_rendered(documents, env, ('STREAM_PROCESSOR_MODULE_ENDPOINT', 'RTSP_SERVER_MODULE_ENDPOINT'))
+# SDRC's local flag set without telling the sensor is refused the same way.
+result = render(alerts, {'ngc': {'createSecrets': False}, 'global': {'useReleaseNamePrefix': True},
+                         'infra': {'sdrc': {'useReleaseNamePrefix': False}}})
+assert result.returncode != 0 and 'peerUseReleaseNamePrefix.sdrc: false' in result.stderr, result.stderr
 for annotations in ({}, {'traefik.ingress.kubernetes.io/router.middlewares': 'example-routes@kubernetescrd'},
                     {'haproxy.org/path-rewrite': '/custom /(.*)'}):
     result = render(base, {'ngc': {'createSecrets': False},

@@ -128,7 +128,7 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`vios.enabled`** | `true` | Master switch for the **`vios`** umbrella (all bundled **`vss-vios-*`** subcharts). Set **`false`** to omit the entire VST microservice stack from the release. |
 | **`vios.vss-vios-postgres.enabled`** | `true` | Set **`false`** to disable centralized DB. Storage sizing/class: subchart **`values.yaml`** or overrides under **`vios.vss-vios-postgres`**. |
 | **`vios.vss-vios-sensor.streamProcessorEndpoint`** | **`""`** (empty) | Sensor registers streams against streamprocessing directly (not **:10000**). Left empty, the sensor subchart derives the address itself: **`http://vss-vios-streamprocessing:30001`**, or **`http://<release>-vss-vios-streamprocessing:30001`** when **`global.useReleaseNamePrefix`** is **`true`**. Set a value only to point the sensor at an endpoint this chart does not render. |
-| **`vios.vss-vios-sensor.peerUseReleaseNamePrefix`** | **`{}`** | Release-name prefix of the sensor's derived peers (**`streamprocessing`**, **`sdrc`**) when it differs from **`global.useReleaseNamePrefix`**. The sensor cannot read another subchart's local **`useReleaseNamePrefix`**, and its own local flag names only the sensor. So a mixed-prefix install states the peer's naming here, for example **`{ streamprocessing: false }`** for **`global.useReleaseNamePrefix: true`** with **`vss-vios-streamprocessing.useReleaseNamePrefix: false`**. Unset keys follow the global value, and an explicit **`false`** is honoured. |
+| **`vios.vss-vios-sensor.peerUseReleaseNamePrefix`** | **`{}`** | How the sensor names its derived peers (**`streamprocessing`**, **`sdrc`**) when that differs from **`global.useReleaseNamePrefix`**. A subchart cannot read another subchart's local **`useReleaseNamePrefix`**, and the sensor's own flag names only the sensor, so a peer's local override alone is **not** enough. See *Mixed release-name prefixes* below. Unset keys follow the global value, and an explicit **`false`** is honoured. |
 | **`vios.vss-vios-sensor.enabled`** | `true` | **`false`** to disable **vss-vios-sensor**. |
 | **`vios.vss-vios-sensor.persistence`** | Each of **`vstData`** and **`vstVideo`**: mount on, **`create: false`**, **`existingClaim`** empty by default | Controls whether **sensor** mounts two shared folders (**data** and **video**). **Typical setup:** leave **`existingClaim`** blank—Helm wires the pods to the PVCs created when **`vios.vstStorage.createSharedPvcs`** is **`true`**. **Custom PVCs:** set **`existingClaim`** to your claim name for that volume. **Disable a mount:** set that volume’s **`enabled`** to **`false`** (that path is not mounted). |
 | **`vios.vss-vios-streamprocessing.enabled`** | `true` | **`false`** to disable **vss-vios-streamprocessing**. |
@@ -175,6 +175,31 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`nims.enabled`** | `true` | Master switch for the **`nims`** umbrella (**`helm/services/nims`**). When **`false`**, no **NIM** **`NIMService`** / **`NIMCache`** objects are installed. Use **`false`** with **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`** and **`global.vlmName`** for remote-only LLM/VLM. |
 | **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for **`nemotron`** / **`cosmos3`** **`nim-env`** ConfigMaps (**`H100`**, **`L40S`**, **`RTXPRO6000BW`**). |
 | **`nims.nemotron` / `nims.cosmos3`** | see **`values.yaml`** | Per-model **`enabled`**, images, resources, storage, and **`env`**. Default base enables **`nemotron`** only; **`cosmos3`** stays off because RT-VLM serves the VLM. |
+
+### Mixed release-name prefixes
+
+The sensor derives its stream-processing peer's Service name itself, but it cannot see that
+chart's local `useReleaseNamePrefix`. When a peer's naming differs from the global value, set
+**both** the peer chart's local flag and the sensor's matching `peerUseReleaseNamePrefix` entry.
+For example, prefixed names globally, with stream processing (and the sensor) unprefixed:
+
+```yaml
+global:
+  useReleaseNamePrefix: true
+vios:
+  vss-vios-streamprocessing:
+    useReleaseNamePrefix: false        # names the Service vss-vios-streamprocessing
+  vss-vios-sensor:
+    useReleaseNamePrefix: false        # names the sensor only
+    peerUseReleaseNamePrefix:
+      streamprocessing: false          # tells the sensor how its peer is named
+```
+
+Setting only `vss-vios-streamprocessing.useReleaseNamePrefix: false` is not enough, because the
+sensor would still call `<release>-vss-vios-streamprocessing`. The chart refuses that
+render and names the missing value. The same applies to `sdrc`
+(`infra.sdrc.useReleaseNamePrefix` with `peerUseReleaseNamePrefix.sdrc`) in profiles that set
+`global.vios.useSdrc`. An explicit `vss-vios-sensor.streamProcessorEndpoint` bypasses both.
 
 ### Remote LLM and VLM
 
