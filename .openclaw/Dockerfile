@@ -55,6 +55,34 @@ ARG NGC_CLI_VERSION=4.10.0
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
 ARG VSS_REF=01ecaf705c676123aadc77177143aa963338026f
 
+# The session values `onboard --from` rewrites. Declared before the first FROM
+# because the patcher only rewrites the first `ARG <name>=` line in the file
+# (src/lib/onboard/dockerfile-patch.ts, /m without /g), and read in a stage that
+# does not descend from BASE_IMAGE because OpenShell builds through the Docker
+# Engine API, i.e. the legacy builder, where an ENV inherited from the base
+# image wins over a same-named ARG in RUN and in ENV substitution alike. The
+# base exports all five, so declaring them in the final stage reads back the
+# base image's model however faithfully onboard patched this file.
+ARG NEMOCLAW_PRIMARY_MODEL_REF=
+ARG NEMOCLAW_MODEL=
+ARG NEMOCLAW_CONTEXT_WINDOW=
+ARG NEMOCLAW_MAX_TOKENS=
+ARG CHAT_UI_URL=
+
+# ── onboard's session values, out of the base image's ENV shadow ──────────────
+FROM ${BUILDER_IMAGE} AS onboard-args
+ARG NEMOCLAW_PRIMARY_MODEL_REF
+ARG NEMOCLAW_MODEL
+ARG NEMOCLAW_CONTEXT_WINDOW
+ARG NEMOCLAW_MAX_TOKENS
+ARG CHAT_UI_URL
+RUN mkdir -p /onboard \
+    && printf '%s' "$NEMOCLAW_PRIMARY_MODEL_REF" > /onboard/NEMOCLAW_PRIMARY_MODEL_REF \
+    && printf '%s' "$NEMOCLAW_MODEL" > /onboard/NEMOCLAW_MODEL \
+    && printf '%s' "$NEMOCLAW_CONTEXT_WINDOW" > /onboard/NEMOCLAW_CONTEXT_WINDOW \
+    && printf '%s' "$NEMOCLAW_MAX_TOKENS" > /onboard/NEMOCLAW_MAX_TOKENS \
+    && printf '%s' "$CHAT_UI_URL" > /onboard/CHAT_UI_URL
+
 # ── uv, for wheel builds and the vss CLI venv ──────────────────────────────────
 FROM ${UV_IMAGE} AS uv
 
@@ -196,20 +224,6 @@ FROM nemoclaw-runtime AS vss-runtime
 # Re-declared here because build args are stage-scoped and this is the final stage.
 ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
 ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
-# `onboard --from` rewrites these ARGs in this file with the session's values
-# (src/lib/onboard/dockerfile-patch.ts) and expects NemoClaw's config generator
-# to run again at build. A custom image cannot re-run that generator, so it
-# inherits the base image's openclaw.json -- and every ARG this file does not
-# declare is dropped by a regex String.replace that matches nothing and warns
-# nothing. Declaring them is what makes the session values reach the build;
-# apply-onboard-config.py below is what writes them into the inherited config.
-# Only NEMOCLAW_TOOL_DISCLOSURE has a contract NemoClaw verifies; the rest fail
-# silently, which is how the model and the UI origins were being lost.
-ARG NEMOCLAW_PRIMARY_MODEL_REF=
-ARG NEMOCLAW_MODEL=
-ARG NEMOCLAW_CONTEXT_WINDOW=
-ARG NEMOCLAW_MAX_TOKENS=
-ARG CHAT_UI_URL=
 COPY --from=vss-plugin-builder --chown=sandbox:sandbox \
     /opt/vss-plugin/package.json \
     /opt/vss-plugin/package-lock.json \
@@ -256,9 +270,25 @@ RUN printf '%s\n' '#!/bin/sh' 'exec python3 /sandbox/.openclaw/extensions/vss/sy
 # its skills and workspace files load under Harbor's config too. The hash below
 # is left unlocked (mutable default) for the same reason: two writers, one file.
 USER root
+# `onboard --from` rewrites the session's values into this file
+# (src/lib/onboard/dockerfile-patch.ts) and expects NemoClaw's config generator
+# to run again at build. A custom image cannot re-run that generator, so it
+# inherits the base image's openclaw.json -- and every ARG this file does not
+# declare is dropped by a regex String.replace that matches nothing and warns
+# nothing. Only NEMOCLAW_TOOL_DISCLOSURE has a contract NemoClaw verifies; the
+# rest fail silently, which is how the model and the UI origins were being lost.
+# The values arrive as files, not build args -- see the onboard-args stage --
+# and are read back below. Copied here rather than with the plugin above so a
+# new session's values do not invalidate the plugin install.
+COPY --from=onboard-args /onboard/ /etc/vss-onboard-args/
 COPY apply-onboard-config.py /usr/local/bin/vss-apply-onboard-config
 RUN chmod 755 /usr/local/bin/vss-apply-onboard-config \
-    && python3 /usr/local/bin/vss-apply-onboard-config \
+    && NEMOCLAW_PRIMARY_MODEL_REF="$(cat /etc/vss-onboard-args/NEMOCLAW_PRIMARY_MODEL_REF)" \
+       NEMOCLAW_MODEL="$(cat /etc/vss-onboard-args/NEMOCLAW_MODEL)" \
+       NEMOCLAW_CONTEXT_WINDOW="$(cat /etc/vss-onboard-args/NEMOCLAW_CONTEXT_WINDOW)" \
+       NEMOCLAW_MAX_TOKENS="$(cat /etc/vss-onboard-args/NEMOCLAW_MAX_TOKENS)" \
+       CHAT_UI_URL="$(cat /etc/vss-onboard-args/CHAT_UI_URL)" \
+       python3 /usr/local/bin/vss-apply-onboard-config \
     && chown sandbox:sandbox /sandbox/.openclaw/openclaw.json \
     && chmod 660 /sandbox/.openclaw/openclaw.json \
     && sha256sum /sandbox/.openclaw/openclaw.json > /sandbox/.openclaw/.config-hash \
