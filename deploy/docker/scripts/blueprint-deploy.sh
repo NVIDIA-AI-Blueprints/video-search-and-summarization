@@ -1693,6 +1693,7 @@ function state_down() {
     VSS_DATA_DIR="${deployment_directory}/data-dir" \
     HOST_IP="127.0.0.1" \
     EXTERNAL_IP="127.0.0.1" \
+    VSS_PUBLIC_HOST="127.0.0.1" \
       docker compose -p "${_compose_project_name}" down -v --remove-orphans
   fi
 

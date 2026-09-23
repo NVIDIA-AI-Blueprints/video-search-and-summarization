@@ -42,11 +42,11 @@ Set stable service defaults such as container ports in [`deploy/docker/industry-
 ## Deployment flow
 
 Standard compose-centric workflow: initialize `generated.env` from
-`overrides.env` → set non-empty `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and
-`EXTERNAL_IP` → run `docker compose config` with the warehouse `.env` plus
-`generated.env` → review → run `docker compose up` with the same env-file pair.
-Every invocation of the top-level `deploy/docker/compose.yml` requires all four
-values.
+`overrides.env` → set non-empty `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
+`EXTERNAL_IP`, and `VSS_PUBLIC_HOST` → run `docker compose config` with the
+warehouse `.env` plus `generated.env` → review → run `docker compose up` with
+the same env-file pair. Every invocation of the top-level
+`deploy/docker/compose.yml` requires all five values.
 
 ### Step 0 — Platform Preflight
 
@@ -235,7 +235,7 @@ set -a
 set +a
 
 # Root compose.yml rejects any unset or empty deployment root/public address.
-for _key in VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP; do
+for _key in VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP VSS_PUBLIC_HOST; do
   if ! _value="$(printenv "$_key")" || [ -z "$_value" ]; then
     echo "Set $_key to a non-empty value in $GEN before invoking root Compose." >&2
     exit 1

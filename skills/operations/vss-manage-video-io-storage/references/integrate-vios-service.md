@@ -445,6 +445,7 @@ VSS_APPS_DIR=/opt/vss/deploy/docker
 VSS_DATA_DIR=/var/lib/vss
 HOST_IP=192.0.2.10
 EXTERNAL_IP=192.0.2.10
+VSS_PUBLIC_HOST=192.0.2.10
 
 STREAM_TYPE=kafka
 COMPOSE_PROFILES=<existing-profile-list>,kafka,kafka-topic-init-container,broker-health-check,nvstreamer-alerts
@@ -454,7 +455,7 @@ NVSTREAMER_ALERTS_VIDEO_DIR=${VSS_DATA_DIR}/videos/<profile-name>
 Put these values in the deployment's final generated/override env layer and pass
 that layer together with the Foundation `.env` on every root Compose command.
 Root Compose `${VAR:?}` checks reject an unset or empty `VSS_APPS_DIR`,
-`VSS_DATA_DIR`, `HOST_IP`, or `EXTERNAL_IP`:
+`VSS_DATA_DIR`, `HOST_IP`, or `VSS_PUBLIC_HOST`:
 
 ```bash
 cd deploy/docker || {

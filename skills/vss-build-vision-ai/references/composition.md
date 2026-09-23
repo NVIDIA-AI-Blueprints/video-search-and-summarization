@@ -202,8 +202,8 @@ This closure is unconditional, not only for values you change: the Foundation
 ships `VSS_APPS_DIR`, `VSS_DATA_DIR` and `HOST_IP` empty so Compose names them
 rather than interpolating a placeholder, which means every dependent value
 expanded from them in the Foundation layer is empty until `override.env`
-supplies it. `HOST_IP` and `EXTERNAL_IP` are guarded and fail at interpolation;
-a path derived from an empty `VSS_APPS_DIR` is not, so it reaches
+supplies it. `HOST_IP` and `VSS_PUBLIC_HOST` are guarded and fail at
+interpolation; a path derived from an empty `VSS_APPS_DIR` is not, so it reaches
 `resolved.yml` as an absolute path outside the repository — which
 `validate_resolved_yml.py` skips, since its bind-source check only inspects
 sources under the repo root.
@@ -448,8 +448,8 @@ Then verify:
   `credentials.md` Artifact Entitlement Probes against the exact baked `nvcr.io/`
   images and `ngc:` paths. A `401`/`403`/missing-repo result is a blocker — a
   Validate gate on every build, deploy or not.
-- `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `EXTERNAL_IP` are non-empty in
-  the build override. Root Compose `${VAR:?}` checks reject an unset or empty
+- `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `VSS_PUBLIC_HOST` are non-empty
+  in the build override. Root Compose `${VAR:?}` checks reject an unset or empty
   value before resolution. `resolved.yml` must also contain no legacy sentinel
   supplied by a custom input, such as `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a

@@ -294,10 +294,11 @@ reaches `TURN_PUBLIC_HOST` only through two hops, so a single-level scan for
 | `VSS_APPS_DIR` | `SDR_CONTROLLER_CONFIG_PATH`, `SENSOR_FILE_PATH`, `NVSTREAMER_CONFIG_DIR`, `VLM_AS_VERIFIER_CONFIG_FILE`, `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`, `VLM_AS_VERIFIER_ALERT_TYPE_CONFIG_FILE` |
 
 `overrides.env` ships `VSS_APPS_DIR`, `VSS_DATA_DIR`, and `HOST_IP` blank;
-`EXTERNAL_IP` derives from `HOST_IP` in that same layer. Always materialize all
-four values in the build override because a later `HOST_IP` does not recompute
-the earlier derived `EXTERNAL_IP`. Root Compose `${VAR:?}` checks reject an
-unset or empty value. Materialize the dependent-value closure above as well,
+`EXTERNAL_IP` and `VSS_PUBLIC_HOST` derive from `HOST_IP` in that same layer.
+Always materialize all five values in the build override because a later
+`HOST_IP` does not recompute the earlier derived ones. Root Compose `${VAR:?}`
+checks reject an unset or empty `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, or
+`VSS_PUBLIC_HOST`. Materialize the dependent-value closure above as well,
 then inspect and validate `resolved.yml` so a value expanded by an earlier env
 layer cannot remain empty or stale.
 

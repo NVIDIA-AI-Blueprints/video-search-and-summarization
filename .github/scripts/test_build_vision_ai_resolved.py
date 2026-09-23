@@ -31,7 +31,7 @@ class ValidateResolvedYmlTest(unittest.TestCase):
     def test_root_compose_requires_deployment_roots(self) -> None:
         compose = (REPOSITORY / "deploy/docker/compose.yml").read_text()
 
-        for key in ("VSS_APPS_DIR", "VSS_DATA_DIR", "HOST_IP", "EXTERNAL_IP"):
+        for key in ("VSS_APPS_DIR", "VSS_DATA_DIR", "HOST_IP", "VSS_PUBLIC_HOST"):
             self.assertIn(f"${{{key}:?", compose)
 
     def test_base_profile_keeps_documented_override_anchor(self) -> None:
@@ -193,7 +193,7 @@ class ValidateResolvedYmlTest(unittest.TestCase):
             rtsp,
         )
         self.assertIn(
-            "for _key in VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP",
+            "for _key in VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP VSS_PUBLIC_HOST",
             auto_calibration,
         )
         self.assertIn(
