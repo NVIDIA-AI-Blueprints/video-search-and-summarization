@@ -196,10 +196,11 @@ def test_openshell_matrix_routes_a16_a40_and_rtx_without_duplicates() -> None:
         else:
             os.environ["OPENSHELL_GPU_FLEET"] = old
 
+    # RTX PRO 6000 is no longer registered, so this RTX-only spec blocks.
     assert len(lvs) == 1
-    assert lvs[0]["platform"] == "RTXPRO6000BW"
-    assert lvs[0]["cohort"] == "rtxpro6000-2g"
-    assert "gpus-2" in lvs[0]["runs_on"]
+    assert lvs[0]["kind"] == "not_run_infra_acquisition"
+    assert lvs[0]["cohort"] == "blocked"
+    assert "BLOCKED_NO_COMPATIBLE_COHORT" in lvs[0]["skip_reason"]
     assert len({leg["slug"] for leg in lvs}) == len(lvs)
 
     assert len(compatible) == 1

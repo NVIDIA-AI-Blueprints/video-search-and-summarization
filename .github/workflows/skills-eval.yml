@@ -79,11 +79,11 @@ env:
   # run_leg.py, and Harbor's isolated uvx environment. Do not fall back to the
   # self-hosted runner's system python3 (currently 3.10).
   SKILL_EVAL_PYTHON_VERSION: "3.12"
-  # Capability-route one leg per spec across 8× A16 1-GPU runners,
-  # 4× A40 1-GPU runners, 2× A40 2-GPU runners, and 4× RTX PRO 6000
-  # 2-GPU runners. Exact A16/A40 hardware profiles and explicit per-spec
-  # metadata are prerequisites; missing compatibility emits a visible
-  # BLOCKED leg. Skip other GPU SKUs for this path. These VMs are registered from
+  # Capability-route one leg per spec across 3× A40 2-GPU runners
+  # (const-dvt-04-hil) and 3× H200 NVL 2-GPU runners (4u8g-tur-0040).
+  # Exact A40/H200 hardware profiles and explicit per-spec metadata are
+  # prerequisites; missing compatibility emits a visible BLOCKED leg.
+  # Skip other GPU SKUs for this path. These VMs are registered from
   # the GitLab fleet repo (brev-openshell-gpu-runners); they are GitHub
   # Actions runners, not GitLab CI runners. After each job the host-side
   # OpenShell VM orchestrator recreates that one VM and restores its listener.
@@ -171,10 +171,10 @@ jobs:
     strategy:
       # One slow/failed spec must not cancel its siblings.
       fail-fast: false
-      # Total runner capacity is 26. Cohort-specific active + GPU-count labels
-      # cap each pool independently (8 A16-1g, 4 A40-1g, 2 A40-2g, 8 H200-1g,
-      # 4 RTX-2g), so one cohort cannot consume another cohort's runners.
-      max-parallel: 26
+      # Total runner capacity is 6. Cohort-specific active + GPU-count labels
+      # cap each pool independently (3 A40-2g, 3 H200-2g), so one cohort
+      # cannot consume another cohort's runners.
+      max-parallel: 6
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     # Per-leg cap. One spec, but a multi-step spec runs step-1..N as
     # sequential harbor invocations, each up to the 1 h agent ceiling

@@ -191,6 +191,11 @@ OPENSHELL_H200_LABELS: tuple[str, ...] = (
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
 
+# A spec may legitimately name a SKU this fleet does not register. That is a
+# placement decision (select_openshell_cohort), not stale metadata, so keep
+# profile validation independent of OPENSHELL_COHORTS.
+KNOWN_HARDWARE_PROFILES = frozenset({"A16", "A40", "H200", "RTXPRO6000BW"})
+
 # `resources.platforms` key -> GPU-type label. `ANY` is GPU-independent
 # and contributes no `gpu-*` label. Keys mirror the PLATFORMS tables in
 # .github/skill-eval/adapters/*/generate.py.
@@ -220,32 +225,21 @@ class OpenShellCohort(NamedTuple):
 
 
 # Order is the placement preference: use the smallest explicitly-supported
-# cohort that satisfies every per-GPU capability. Capacity is runner capacity,
-# not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, 8 one-GPU
-# H200 VMs, and 4 two-GPU RTX PRO 6000 VMs. H200 has no NVENC; do not give it
-# RTX PRO 6000 labels.
+# cohort that satisfies every per-GPU capability. Capacity is runner
+# capacity, not GPU count. Registered fleet today: 3× A40 2-GPU guests on
+# const-dvt-04-hil and 3× H200 NVL 2-GPU guests on 4u8g-tur-0040. A 2-GPU
+# VM may serve a 1-GPU demand (demand <= cohort.gpu_count). H200 has no
+# NVENC; do not give it RTX PRO 6000 labels. A16, 1-GPU-only A40/H200, and
+# RTX PRO 6000 are not registered — specs needing them fail closed.
 OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     OpenShellCohort(
-        "a16-1g", "A16", "A16", 1, 15, 8,
-        (*OPENSHELL_A16_LABELS, "gpus-1"),
-    ),
-    OpenShellCohort(
-        "a40-1g", "A40", "A40", 1, 46, 4,
-        (*OPENSHELL_A40_LABELS, "gpus-1"),
-    ),
-    OpenShellCohort(
-        "a40-2g", "A40", "A40", 2, 46, 2,
+        "a40-2g", "A40", "A40", 2, 46, 3,
         (*OPENSHELL_A40_LABELS, "gpus-2"),
     ),
     OpenShellCohort(
-        "h200-1g", "H200", "H200", 1, 141, 8,
-        (*OPENSHELL_H200_LABELS, "gpus-1"),
+        "h200-2g", "H200", "H200", 2, 141, 3,
+        (*OPENSHELL_H200_LABELS, "gpus-2"),
         video_codec=False,
-    ),
-    OpenShellCohort(
-        "rtxpro6000-2g", "RTXPRO6000BW", "RTXPRO6000BW", 2, 96, 4,
-        (*OPENSHELL_RTXPRO6000_LABELS, "gpus-2"),
-        blackwell=True,
     ),
 )
 
@@ -324,9 +318,9 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
                 return list(SKIP_RUNNER)
             return [*OPENSHELL_A40_LABELS, f"gpus-{count}"]
         if platform == "H200":
-            if count != 1:
+            if count not in (1, 2):
                 return list(SKIP_RUNNER)
-            return [*OPENSHELL_H200_LABELS, "gpus-1"]
+            return [*OPENSHELL_H200_LABELS, f"gpus-{count}"]
         return list(SKIP_RUNNER)
     labels = list(BASE_LABELS)
     if count <= 0:
@@ -501,8 +495,7 @@ def openshell_requirements(spec_path: str) -> tuple[dict | None, str | None]:
         isinstance(value, str) and value for value in profiles
     ):
         return None, "openshell.supported_hardware_profiles must be non-empty strings"
-    known = {cohort.hardware_profile for cohort in OPENSHELL_COHORTS}
-    unknown = sorted(set(profiles) - known)
+    unknown = sorted(set(profiles) - KNOWN_HARDWARE_PROFILES)
     if unknown:
         return None, "unsupported hardware profile metadata: " + ", ".join(unknown)
     platforms = (data.get("resources") or {}).get("platforms")
@@ -667,7 +660,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "name": f"{skill} · missing-adapter",
                 # Commits an adapter; runs no trial and needs no GPU.
                 "runs_on": (
-                    [*OPENSHELL_RTXPRO6000_LABELS, "gpus-1"]
+                    [*OPENSHELL_A40_LABELS, "gpus-2"]
                     if os.environ.get("OPENSHELL_GPU_FLEET")
                     else list(BASE_LABELS)
                 ),

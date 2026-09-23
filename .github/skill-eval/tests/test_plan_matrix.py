@@ -212,7 +212,7 @@ class RealSpecCorpus(unittest.TestCase):
         self.assertNotIn(
             "openshell-rtxpro6000-active", plan_matrix.OPENSHELL_H200_LABELS
         )
-        self.assertIn("max-parallel: 26", workflow)
+        self.assertIn("max-parallel: 6", workflow)
 
     def test_openshell_matrix_routes_each_demand_once(self):
         os.environ["OPENSHELL_GPU_FLEET"] = "1"
@@ -234,11 +234,9 @@ class RealSpecCorpus(unittest.TestCase):
         self.assertEqual(
             counts,
             {
-                "blocked": 19,
-                "a40-1g": 12,
-                "a40-2g": 5,
-                "h200-1g": 2,
-                "rtxpro6000-2g": 12,
+                "blocked": 31,
+                "a40-2g": 17,
+                "h200-2g": 2,
             },
         )
         for leg in include:
@@ -249,18 +247,15 @@ class RealSpecCorpus(unittest.TestCase):
                 continue
             self.assertEqual(leg["kind"], "eval")
             self.assertTrue(leg["local_gpu"])
-            if leg["cohort"].startswith("a16"):
-                self.assertIn("openshell-a16-active", leg["runs_on"])
-            elif leg["cohort"].startswith("a40"):
+            self.assertIn("gpus-2", leg["runs_on"])
+            if leg["cohort"] == "a40-2g":
                 self.assertIn("openshell-a40-active", leg["runs_on"])
-            elif leg["cohort"] == "h200-1g":
+            else:
+                self.assertEqual(leg["cohort"], "h200-2g")
                 self.assertIn("openshell-h200-active", leg["runs_on"])
                 self.assertIn("gpu-h200", leg["runs_on"])
                 self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
                 self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
-            else:
-                self.assertEqual(leg["cohort"], "rtxpro6000-2g")
-                self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
 
 
 class BuildMatrix(unittest.TestCase):
@@ -625,36 +620,35 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertIn("gpu-nvidia-h200", h200)
         self.assertIn("gpus-1", h200)
         self.assertNotIn("gpu-rtxpro6000bw", h200)
-        self.assertEqual(
-            plan_matrix.runs_on_labels("H200", {"gpu_count": 2}),
-            list(plan_matrix.SKIP_RUNNER),
-        )
+        h200_2g = plan_matrix.runs_on_labels("H200", {"gpu_count": 2})
+        self.assertIn("openshell-h200-active", h200_2g)
+        self.assertIn("gpus-2", h200_2g)
+        self.assertNotIn("gpus-1", h200_2g)
 
     def test_capacity_accounting_matches_replacement_topology(self):
         self.assertEqual(
             {cohort.name: cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS},
             {
-                "a16-1g": 8,
-                "a40-1g": 4,
-                "a40-2g": 2,
-                "h200-1g": 8,
-                "rtxpro6000-2g": 4,
+                "a40-2g": 3,
+                "h200-2g": 3,
             },
         )
         self.assertEqual(
             sum(cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS),
-            26,
+            6,
         )
 
     def test_capability_and_per_gpu_vram_boundaries(self):
         original = plan_matrix.hardware_profile_files
         plan_matrix.hardware_profile_files = lambda _profile: [Path("profile")]
         try:
+            # A16 is not registered, so an A16-only spec has nowhere to land
+            # whatever its VRAM demand.
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(min_vram=15, codec=True)
             )
-            self.assertIsNone(error)
-            self.assertEqual(cohort.name, "a16-1g")
+            self.assertIsNone(cohort)
+            self.assertIn("no compatible", error)
 
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(min_vram=16, codec=True)
@@ -668,7 +662,7 @@ class OpenshellGpuFleet(unittest.TestCase):
                 )
             )
             self.assertIsNone(error)
-            self.assertEqual(cohort.name, "a40-1g")
+            self.assertEqual(cohort.name, "a40-2g")
 
             cohort, error = plan_matrix.select_openshell_cohort(
                 self._requirements(
@@ -708,7 +702,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertIsNone(cohort)
         self.assertIn("no compatible", error)
 
-    def test_large_and_blackwell_work_stays_on_rtx(self):
+    def test_blackwell_work_fails_closed_without_an_rtx_cohort(self):
         cohort, error = plan_matrix.select_openshell_cohort(
             self._requirements(
                 min_vram=96,
@@ -716,8 +710,8 @@ class OpenshellGpuFleet(unittest.TestCase):
                 profiles=("RTXPRO6000BW",),
             )
         )
-        self.assertIsNone(error)
-        self.assertEqual(cohort.name, "rtxpro6000-2g")
+        self.assertIsNone(cohort)
+        self.assertIn("no compatible", error)
 
     def test_absent_exact_profile_fails_closed(self):
         original = plan_matrix.hardware_profile_files
@@ -768,11 +762,9 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(
             counts,
             {
-                "blocked": 19,
-                "a40-1g": 12,
-                "a40-2g": 5,
-                "h200-1g": 2,
-                "rtxpro6000-2g": 12,
+                "blocked": 31,
+                "a40-2g": 17,
+                "h200-2g": 2,
             },
         )
 
@@ -785,7 +777,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertLessEqual(requirements["min_vram_gb_per_gpu"], 16)
         self.assertEqual(requirements["supported_hardware_profiles"], ["A16"])
 
-    def test_over_48gb_falls_back_to_explicitly_supported_rtx(self):
+    def test_over_48gb_needs_h200_now_that_rtx_is_unregistered(self):
         original = plan_matrix.hardware_profile_files
         plan_matrix.hardware_profile_files = lambda profile: [Path(profile)]
         try:
@@ -795,10 +787,19 @@ class OpenshellGpuFleet(unittest.TestCase):
                     profiles=("A40", "RTXPRO6000BW"),
                 )
             )
+            self.assertIsNone(cohort)
+            self.assertIn("no compatible", error)
+
+            cohort, error = plan_matrix.select_openshell_cohort(
+                self._requirements(
+                    min_vram=49,
+                    profiles=("A40", "H200"),
+                )
+            )
+            self.assertIsNone(error)
+            self.assertEqual(cohort.name, "h200-2g")
         finally:
             plan_matrix.hardware_profile_files = original
-        self.assertIsNone(error)
-        self.assertEqual(cohort.name, "rtxpro6000-2g")
 
     def test_hardware_profile_identity_is_never_substituted(self):
         for profile in ("A16", "A40", "H200", "RTXPRO6000BW"):
@@ -810,7 +811,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(inc[0]["skill"], "vss-deploy-profile")
         self.assertEqual(inc[0]["spec_stem"], "base")
         self.assertEqual(inc[0]["platform"], "H200")
-        self.assertEqual(inc[0]["cohort"], "h200-1g")
+        self.assertEqual(inc[0]["cohort"], "h200-2g")
         self.assertIn("openshell-h200-active", inc[0]["runs_on"])
         self.assertNotIn("gpu-rtxpro6000bw", inc[0]["runs_on"])
         self.assertEqual(inc[0]["kind"], "eval")
