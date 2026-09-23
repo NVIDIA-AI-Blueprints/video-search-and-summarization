@@ -573,6 +573,14 @@ class NemoClawForwardContractTests(unittest.TestCase):
         hooks_start = verify_source.index("if AGENT_HOOKS_ENABLED:\n")
         hooks_end = verify_source.index("\nif gateway_container:\n", hooks_start)
         cls.hooks_source = verify_source[hooks_start:hooks_end]
+        # The real generator, loaded the way the notebook loads it: the origin the
+        # cell registers has to be the one NemoClaw would have produced.
+        spec = importlib.util.spec_from_file_location(
+            "apply_onboard_config", SCRIPTS_DIR.parents[2] / ".openclaw" / "apply-onboard-config.py"
+        )
+        onboard_config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(onboard_config)
+        cls.control_ui = staticmethod(onboard_config.control_ui)
 
     def _run_ui_cell(
         self,
@@ -584,12 +592,18 @@ class NemoClawForwardContractTests(unittest.TestCase):
         gateway_lookup_fails: bool = False,
         relay_running_for: list[str] | None = None,
         relay_dead: bool = False,
+        runtime: str = "openclaw",
     ) -> tuple[dict[str, object], list[tuple[int, str]], list[tuple[str, ...]], list[list[str]]]:
         """Run 3.5 against a fake host. `relay_running_for` is the --listen list of a
         relay already on the relay port (this checkout's script, this sandbox);
         `relay_dead` makes that relay hold the port without answering through it."""
 
-        state = {"forward": forward_up, "relay": relay_running_for, "relay_dead": relay_dead}
+        state = {
+            "forward": forward_up,
+            "relay": relay_running_for,
+            "relay_dead": relay_dead,
+            "config": {"gateway": {"port": self.PORT}},
+        }
         starts: list[tuple[int, str]] = []
         calls: list[tuple[str, ...]] = []
         relays: list[list[str]] = []
@@ -604,7 +618,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 f"--upstream 127.0.0.1:{self.PORT}"
             )
 
-        def run(command, **_kwargs):
+        def run(command, **kwargs):
             calls.append(tuple(command))
             if command[:3] == ["docker", "inspect", "--format"]:
                 return completed(command, stdout="sha256:gateway-image\n")
@@ -626,6 +640,13 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
             if command[:3] == ["openshell", "sandbox", "get"]:
                 return completed(command, stdout="Id: sandbox-id\n")
+            if command[:3] == ["openshell", "sandbox", "exec"]:
+                if command[6] == "cat":
+                    return completed(command, stdout=json.dumps(state["config"]))
+                # The cell re-reads the config to check the write landed, so store
+                # what was piped in rather than acknowledging it blindly.
+                state["config"] = json.loads(kwargs["input"])
+                return completed(command)
             if command[0] == "curl":
                 url = command[-1]
                 host, port = url.split("://", 1)[1].rsplit("/", 1)[0].rsplit(":", 1)
@@ -661,6 +682,9 @@ class NemoClawForwardContractTests(unittest.TestCase):
             starts.append((port, sandbox))
             state["forward"] = True
 
+        def restart_agent_gateway(context: str, recover: bool = True) -> None:
+            calls.append(("restart_agent_gateway", context))
+
         namespace: dict[str, object] = {
             "AGENT_CONNECT_CMD": "",
             "AGENT_DASHBOARD_PORT": self.PORT,
@@ -668,16 +692,20 @@ class NemoClawForwardContractTests(unittest.TestCase):
             "AGENT_DASHBOARD_URL_CMD": "",
             "AGENT_GATEWAY_TOKEN_CMD": "",
             "AGENT_LABEL": "OpenClaw",
+            "AGENT_RUNTIME": runtime,
             "AGENT_UI_USES_GATEWAY_TOKEN": False,
             "BREV_ENVIRONMENT_CONTEXT_PATH": "",
             "DASHBOARD_RELAY_PATH": self.RELAY_SCRIPT,
             "NEMOCLAW_SANDBOX_NAME": self.SANDBOX,
             "Path": lambda p: Path(self._tmp) / Path(p).name,
+            "SANDBOX_CONFIG_PATH": "/sandbox/.openclaw/openclaw.json",
             "VSS_AGENT_ADAPTER_ENABLED": adapter_enabled,
             "_start_forward": start_forward,
             "brev_environment_id": lambda: brev_env_id,
             "brev_secure_link_fqdn": lambda _port: chat_fqdn,
+            "control_ui": self.control_ui,
             "resolve_openshell_gateway_container": lambda _sandbox: "gateway",
+            "restart_agent_gateway": restart_agent_gateway,
         }
         with (
             tempfile.TemporaryDirectory() as tmp,
@@ -724,6 +752,29 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertTrue(namespace["_relay_up"])
         self.assertEqual(namespace["origin"], "https://agent.example.test")
         self.assertFalse(any(command[0] == "docker" for command in calls))
+
+    def test_the_brev_ui_origin_is_registered_before_the_forward(self) -> None:
+        # The image carries loopback-only allowedOrigins, so the UI answers "Browser
+        # origin not allowed" over the secure link until the origin is written and
+        # the gateway restarted. The cell's own re-read proves the write landed.
+        namespace, _, calls, _ = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn="agent.example.test"
+        )
+        write = next(c for c in calls if c[:3] == ("openshell", "sandbox", "exec") and c[6] == "sh")
+        self.assertIn("sha256sum openclaw.json > .config-hash", write[-1])
+        self.assertIn(("restart_agent_gateway", "registering the UI origin"), calls)
+        self.assertIn(
+            "https://agent.example.test",
+            namespace["_cfg"]["gateway"]["controlUi"]["allowedOrigins"],
+        )
+
+    def test_hermes_registers_no_ui_origin(self) -> None:
+        # Hermes has no controlUi block, so the secure link must not send it a write.
+        _, _, calls, relays = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn="agent.example.test", runtime="hermes"
+        )
+        self.assertFalse(any(c[:3] == ("openshell", "sandbox", "exec") for c in calls))
+        self.assertEqual(len(relays), 1)
 
     def test_unreadable_brev_context_still_relays_on_the_wildcard(self) -> None:
         namespace, _, calls, relays = self._run_ui_cell(
