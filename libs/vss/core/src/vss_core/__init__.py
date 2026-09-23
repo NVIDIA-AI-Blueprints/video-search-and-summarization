@@ -14,8 +14,9 @@
 # limitations under the License.
 """VSS libraries.
 
-The base ``nvidia-vss`` distribution (no extras) supports ``lib.search_core``,
-``lib.critic``, ``lib.vlm``, ``lib.vst``, and the ``vss`` console script
+The base ``nvidia-vss`` distribution (no extras) supports ``lib.search_core``
+(whose ``critic`` verifier ships as a submodule), ``lib.vlm``, ``lib.vst``, and the
+``vss`` console script
 with explicit runtime configuration. ``lib.knowledge`` belongs to the full
 agent application, may read deployment environment variables, and requires
 the dependencies installed by the ``agent`` extra (``nvidia-vss[agent]``).

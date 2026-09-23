@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 
     import click
 
-    from vss_core.critic import CriticAgent
+    from vss_core.search_core.critic import CriticAgent
     from vss_core.vlm import OpenAIVLMAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -372,7 +372,7 @@ async def _critic_from(
         logger.warning("Search critic disabled: %s", reason)
         return None, None, reason
 
-    from vss_core.critic import CriticAgent
+    from vss_core.search_core.critic import CriticAgent
     from vss_core.vios import VSTClient
     from vss_core.vlm import OpenAIVLMAnalyzer
 

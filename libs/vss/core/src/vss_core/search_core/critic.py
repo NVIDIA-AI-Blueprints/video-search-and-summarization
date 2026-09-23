@@ -12,7 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""CriticAgent — VLM-backed result verifier. EXPERIMENTAL in v1.
+"""CriticAgent -- VLM-backed result verifier. EXPERIMENTAL in v1.
+
+This module is the inlined critic: it used to ship as the standalone
+``vss_core.critic`` package and now lives as a submodule of
+``vss_core.search_core``. The input/output models (``VideoInfo``,
+``CriticAgentInput``/``CriticAgentOutput``/``CriticAgentResult``,
+``VideoResult``, ``TimeFormat``) are defined here alongside the agent logic
+rather than in a separate models module.
 
 The VLM caller comes from an injected ``VLMAnalyzer`` protocol; callers must
 supply a ``vlm_analyzer`` (the library cannot construct a default). The
@@ -20,40 +27,106 @@ supply a ``vlm_analyzer`` (the library cannot construct a default). The
 ``get_timeline`` to convert ISO timestamps to seconds-since-stream-start.
 
 The critic ships EXPERIMENTAL: the constructor signature, the ``VLMAnalyzer``
-protocol, and the wire format of ``CriticAgentOutput`` may all change before v1
-stable.
+protocol, and the wire format of ``CriticAgentOutput`` may all change before
+v1 stable.
 """
 
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from enum import StrEnum
 import json
 import logging
 from typing import TYPE_CHECKING
+from typing import Literal
+
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
+from pydantic import model_validator
 
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
 from vss_core._foundation.time import datetime_to_iso8601
 from vss_core.vios.client import map_interval_to_timeline
 
-from .models import CriticAgentInput
-from .models import CriticAgentOutput
-from .models import CriticAgentResult
-from .models import TimeFormat
-from .models import VideoResult
-
 if TYPE_CHECKING:
     from vss_core.vios.protocols import VSTSnapshot
     from vss_core.vlm.protocols import VLMAnalyzer
 
-    from .models import VideoInfo
-
 logger = logging.getLogger(__name__)
 
 
-# Subject-anchored decision rule shared with the legacy critic so CLI
-# verification produces the same verdicts.
+TimeFormat = Literal["iso", "offset"]
+
+
+class VideoInfo(BaseModel):
+    """A hashable video segment identified by sensor and time bounds."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    sensor_id: str
+    start_timestamp: datetime
+    end_timestamp: datetime
+    #: Ingest kind of the source these bounds came from. Only ``"video_file"``
+    #: is indexed on the synthetic midnight-anchored epoch that has to be
+    #: rebased onto VST's real replay timeline. Left unset the bounds are taken
+    #: literally, which is the safe default: rebasing wall-clock bounds that
+    #: merely fall outside the current timeline would verify a *different*
+    #: clip and return a confident verdict about footage the caller never
+    #: retrieved.
+    source_type: str | None = None
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> VideoInfo:
+        if self.end_timestamp <= self.start_timestamp:
+            raise ValueError("end_timestamp must be after start_timestamp")
+        return self
+
+
+class CriticAgentResult(StrEnum):
+    """Verdict produced by the critic agent for a single video clip."""
+
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+    UNVERIFIED = "unverified"
+
+
+class CriticAgentInput(BaseModel):
+    """Input for CriticAgent.run(): a query plus the candidate videos to verify."""
+
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(min_length=1)
+    videos: list[VideoInfo]
+    evaluation_count: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional cap on how many videos to evaluate (saves VLM calls).",
+    )
+
+    @model_validator(mode="after")
+    def validate_query(self) -> CriticAgentInput:
+        if not self.query.strip():
+            raise ValueError("query must be non-empty")
+        return self
+
+
+class VideoResult(BaseModel):
+    """Result for a single video evaluation."""
+
+    model_config = ConfigDict(extra="forbid")
+    video_info: VideoInfo
+    result: CriticAgentResult
+    criteria_met: dict[str, bool] | None = None  # None = critic produced no per-criterion verdict
+
+
+class CriticAgentOutput(BaseModel):
+    """Bulk result envelope from CriticAgent.run()."""
+
+    model_config = ConfigDict(extra="forbid")
+    video_results: list[VideoResult] = Field(default_factory=list)
+
+
 DEFAULT_CRITIC_PROMPT = """
 You are a helpful assistant that will evaluate a video against the original prompt
 and determine whether the requested parameters are met, using subject-anchored evaluation.

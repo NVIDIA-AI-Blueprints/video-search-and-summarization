@@ -45,8 +45,7 @@ from .primitives.tag_search import TagSearch
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from vss_core.critic import CriticAgent
-
+    from .critic import CriticAgent
     from .events import SearchEvent
     from .runtime import SearchRuntime
 
@@ -160,10 +159,9 @@ class VSSSearch:
 
         from pydantic import ValidationError
 
-        from vss_core.critic import CriticAgentInput
-        from vss_core.critic import CriticAgentResult
-        from vss_core.critic import VideoInfo
-
+        from .critic import CriticAgentInput
+        from .critic import CriticAgentResult
+        from .critic import VideoInfo
         from .models.search import SearchVerification
 
         candidate_indices: list[int] = []

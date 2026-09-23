@@ -110,7 +110,7 @@ JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 | 5 | not found: a searched index that is not the uploads anchor is missing (an absent anchor returns exit 0 with empty results) |
 
 Search automatically attempts bounded visual verification through
-`vss_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
+`vss_core.search_core.critic` when `vss configure` discovered both VST and an RT-VLM model.
 When those services are available, the critic attempts every returned hit.
 Every hit contains `verification.result`: `confirmed`, `rejected`, or
 `unverified`. Verification is fail-open: a missing VLM, inaccessible clip, or
