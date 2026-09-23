@@ -42,7 +42,7 @@
       ]
     },
     {
-      "query": "Show me all active realtime rules",
+      "query": "Show me all active realtime rules as a human-readable list. Identify each rule by the camera/sensor name (for example warehouse_sample), not by pasting the raw RTSP stream URL.",
       "checks": [
         "The trajectory calls Alert Bridge `GET /api/v1/realtime` to fetch the rule list.",
         "The agent's response includes at least one rule matching the warehouse_sample sensor and PPE-related tag (created in the previous step).",
