@@ -14,8 +14,6 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-import pytest
-
 if TYPE_CHECKING:
     from types import ModuleType
 
@@ -446,6 +444,7 @@ DEADLINE=$(($(date +%s) - 1))
 """
     subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
 
+
 def test_ingest_uses_vss_vios_add_not_agent_three_step() -> None:
     """Mutations are `vss vios add` / `vss vios delete`; the Agent three-step
     upload and its handshake URL re-anchor are retired -- the CLI owns the
@@ -462,6 +461,7 @@ def test_ingest_uses_vss_vios_add_not_agent_three_step() -> None:
     assert "nvstreamer" not in ingest
     assert "Post the bytes to the re-anchored" not in ingest
 
+
 def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
     setup = (SEARCH_SKILL / "references/source_setup.md").read_text(encoding="utf-8")
     ingest = (SEARCH_SKILL / "references/ingest.md").read_text(encoding="utf-8")
@@ -473,6 +473,7 @@ def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
     assert not re.search(r"(?m)^(?:DEADLINE|READINESS_DEADLINE|CLEANUP_DEADLINE)=", shell)
     assert re.findall(r"\$\(date \+%s\) \+ (\d+)", shell) == ["2400"]
     assert not re.search(r"--max-time\s+[0-9]+(?:\s|$)", shell)
+
 
 def test_delete_recipe_is_bounded_and_checks_all_cleanup_tuples() -> None:
     setup = (SEARCH_SKILL / "references/source_setup.md").read_text(encoding="utf-8")
@@ -525,6 +526,7 @@ RAW_INDEX=mdx-raw-2025-01-01
 """
     completed = subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
     assert "delete_status=success vst_present=false counts=0,0,0" in completed.stdout
+
 
 def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> None:
     subprocess.run(
