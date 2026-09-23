@@ -136,6 +136,13 @@ haproxyingress:
         http: 80
         https: 443
 
+# The version this deployment reports at GET /api/v1/version, answered by the
+# HAProxy ingress for every profile. Written by .github/scripts/stamp_versions.py
+# (version-stamp.yml) from the nearest v* git tag, never by hand; the chart
+# `version:` is the chart's own and is not what the deployment reports.
+# See .github/version-convention.md.
+vssVersion: "3.3.0-rc0"
+
 # Optional: base-profile Ingress (ingressClassName: haproxy).
 vssIngress:
   enabled: false

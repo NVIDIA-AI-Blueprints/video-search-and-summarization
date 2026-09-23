@@ -30,6 +30,11 @@ services:
         soft: 131072
         hard: 262144
     environment:
+      # The version /api/v1/version reports: the VSS_VERSION line in
+      # containers.env, stamped from the nearest v* git tag. No default here on
+      # purpose -- a missing value must show up as an empty version, not as a
+      # number somebody typed.
+      VSS_VERSION: ${VSS_VERSION}
       ELASTICSEARCH_SERVICE_HOST: ${ELASTICSEARCH_SERVICE_HOST:-elasticsearch}
       ELASTICSEARCH_SERVICE_PORT: ${ELASTICSEARCH_SERVICE_PORT:-9200}
       RTVI_EMBED_SERVICE_HOST: ${RTVI_EMBED_SERVICE_HOST:-rtvi-embed}

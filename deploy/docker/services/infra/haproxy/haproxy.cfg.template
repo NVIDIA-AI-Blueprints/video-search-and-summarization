@@ -214,6 +214,16 @@ frontend fe_http
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_storage
     http-request return status 204 hdr Access-Control-Allow-Methods "GET,HEAD,OPTIONS" hdr Access-Control-Allow-Headers "Range,Content-Type" if h_main m_options p_vst_prefixed_storage
+    # The deployment's version, answered by the edge itself so every profile --
+    # with or without the agent -- reports one. VSS_VERSION is the line in
+    # containers.env that version-stamp.yml writes from the nearest v* git tag
+    # (see .github/version-convention.md); nothing else sets it. Same payload
+    # the agent's own /api/v1/version serves, so `vss configure check` and the
+    # benchmark preflight read it unchanged. An http-request rule runs before
+    # any use_backend, so this wins over the /api -> agent route below (and
+    # over the 503 that route gives when there is no agent).
+    acl p_api_version path /api/v1/version
+    http-request return status 200 content-type application/json lf-string '{"service":"vss","version":"%[env(VSS_VERSION)]"}' if h_main p_api_version
     use_backend bk_vst_storage_compat if h_main p_storage
 
     acl p_video_analytics path /video-analytics-api

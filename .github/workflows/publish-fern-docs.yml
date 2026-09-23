@@ -33,15 +33,25 @@
 
 name: Publish Fern Docs
 
-env:
-  VSS_DOCS_GIT_REF: develop
-  VSS_DOCS_IMAGE_TAG: develop-latest
-  VSS_DOCS_SBSA_IMAGE_TAG: develop-latest-sbsa
+# The docs substitute three values into every `git checkout` and image-tag line
+# (VSS_DOCS_GIT_REF, VSS_DOCS_IMAGE_TAG, VSS_DOCS_SBSA_IMAGE_TAG; see
+# .github/scripts/check_fern_substitutions.py). They are derived from the ref
+# that triggered the publish, never written down here: a release publishes the
+# docs for its tag (`git checkout v3.3.0`, image tag `3.3.0`), and only a manual
+# run with no tag publishes the develop docs (`develop`, `develop-latest`).
+# Hard-coding develop here once made the 3.2.1 release docs tell readers to
+# check out develop and pull develop-latest.
 
 on:
   release:
     types: [published]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish the docs for this release tag (vX.Y.Z). Leave empty to publish the develop docs."
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -59,7 +69,40 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # A release event checks out its tag by default; a manual run naming a
+          # tag publishes that tag's docs, not whatever branch the button was
+          # pressed on.
+          ref: ${{ inputs.release_tag || github.ref }}
           persist-credentials: false
+
+      # Release image tags are the bare version (`3.3.0`, `3.3.0-sbsa`), so only
+      # a release tag of that shape can be published: a pre-release tag such as
+      # v3.3.0rc0 names no published image and is refused rather than pointing
+      # readers at a tag that does not exist.
+      - name: Derive the docs substitutions from the release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG:-${INPUT_RELEASE_TAG:-}}"
+          if [ -z "$tag" ]; then
+            ref=develop
+            image=develop-latest
+          else
+            if ! printf '%s' "$tag" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::'${tag}' is not a release tag (vX.Y.Z); release docs name the images published under that version"
+              exit 1
+            fi
+            ref="$tag"
+            image="${tag#v}"
+          fi
+          echo "docs will substitute: VSS_DOCS_GIT_REF=${ref} VSS_DOCS_IMAGE_TAG=${image} VSS_DOCS_SBSA_IMAGE_TAG=${image}-sbsa"
+          {
+            echo "VSS_DOCS_GIT_REF=${ref}"
+            echo "VSS_DOCS_IMAGE_TAG=${image}"
+            echo "VSS_DOCS_SBSA_IMAGE_TAG=${image}-sbsa"
+          } >> "$GITHUB_ENV"
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0

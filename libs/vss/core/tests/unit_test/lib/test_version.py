@@ -12,25 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for the reported-version contract and its derivation from git."""
+"""Tests for the reported-version contract: installed metadata, rendered as SemVer."""
 
 import importlib.metadata
-from pathlib import Path
-import subprocess
 
 import pytest
 
-from vss_core import version as version_module
 from vss_core.version import SEMVER_PATTERN
-from vss_core.version import describe_version
 from vss_core.version import library_version
 from vss_core.version import pep440_to_semver
 from vss_core.version import resolve_deployment_version
-
-
-@pytest.fixture(autouse=True)
-def _no_deployment_env(monkeypatch) -> None:
-    monkeypatch.delenv(version_module.DEPLOYMENT_VERSION_ENV_VAR, raising=False)
 
 
 def _installed(value: str | None, monkeypatch) -> None:
@@ -50,29 +41,23 @@ def _installed(value: str | None, monkeypatch) -> None:
     monkeypatch.setattr(importlib.metadata, "version", _version)
 
 
-def _git(repo: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
-
-
-@pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    """A real repository: the derivation reads `git describe`, so drive git."""
-    _git(tmp_path, "init", "--initial-branch=main")
-    _git(tmp_path, "config", "user.email", "test@example.invalid")
-    _git(tmp_path, "config", "user.name", "Test")
-    _git(tmp_path, "commit", "--allow-empty", "--no-gpg-sign", "-m", "initial")
-    return tmp_path
-
-
 @pytest.mark.parametrize(
     ("pep440", "expected"),
     [
-        # hatch-vcs `no-guess-dev` off a release tag, which is what a develop
-        # checkout of this repo produces.
+        # hatch-vcs `no-guess-dev` off a release tag: what a develop checkout
+        # produced before the first pre-release tag of the next line.
         ("3.2.1.post1.dev1519+gc85c4a4e8", "3.2.1-dev.1519+gc85c4a4e8"),
         ("3.2.1.post1.dev1519+gc85c4a4e8.dirty", "3.2.1-dev.1519+gc85c4a4e8.dirty"),
         # Sitting on the tag: already SemVer, returned untouched.
         ("3.2.1", "3.2.1"),
+        # hatch-vcs off a pre-release tag (v3.3.0rc0): on it, and past it.
+        ("3.3.0rc0", "3.3.0-rc0"),
+        ("3.3.0rc0.post1.dev20+g73f724482", "3.3.0-rc0.dev.20+g73f724482"),
+        ("3.3.0a1.post1.dev2+gabcdef0.dirty", "3.3.0-a1.dev.2+gabcdef0.dirty"),
+        ("3.3.0b2", "3.3.0-b2"),
+        # The image stamp: <release line>+tree.<sha>, release or pre-release.
+        ("3.3.0+tree.c85c4a4e8", "3.3.0+tree.c85c4a4e8"),
+        ("3.3.0rc0+tree.c85c4a4e8", "3.3.0-rc0+tree.c85c4a4e8"),
         # Already-SemVer input is never re-derived, prerelease and all.
         ("3.3.0-rc.1+build.42", "3.3.0-rc.1+build.42"),
     ],
@@ -82,86 +67,62 @@ def test_pep440_becomes_semver(pep440: str, expected: str) -> None:
     assert SEMVER_PATTERN.fullmatch(expected)
 
 
-@pytest.mark.parametrize("value", ["", "3.2", "v3.2.1", "not-a-version", "3.2.1.dev", "1!3.2.1"])
+def test_semver_precedence_orders_the_rendered_forms() -> None:
+    """dev builds < the pre-release < the release, by the SemVer rules alone.
+
+    Pre-release identifiers compare left to right, numerically when numeric,
+    and a longer set of identifiers ranks higher than its prefix; a version
+    with no pre-release ranks above every pre-release. ``rc0`` beats
+    ``rc0.dev.20`` under the *first* of those, so the check is done on the
+    identifier lists rather than by string comparison.
+    """
+
+    def identifiers(version: str) -> list[str]:
+        pre = version.split("+", 1)[0].split("-", 1)
+        return pre[1].split(".") if len(pre) == 2 else []
+
+    assert identifiers("3.3.0-rc0.dev.20+g73f724482") == ["rc0", "dev", "20"]
+    assert identifiers("3.3.0-rc0") == ["rc0"]
+    assert identifiers("3.3.0") == []
+    # rc0.dev.20 is rc0 with extra identifiers -> ranks below rc0 (prefix rule).
+    assert identifiers("3.3.0-rc0.dev.20")[:1] == identifiers("3.3.0-rc0")
+    assert len(identifiers("3.3.0-rc0.dev.20")) > len(identifiers("3.3.0-rc0"))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "3.2",
+        "v3.2.1",
+        "not-a-version",
+        "3.2.1.dev",
+        "1!3.2.1",
+        # Unnormalised pre-release spellings hatch-vcs never emits.
+        "3.3.0alpha1",
+        "3.3.0-rc0",  # SemVer, not PEP 440 -- accepted, but via the SemVer path
+    ],
+)
 def test_unconvertible_versions_are_rejected(value: str) -> None:
     """Returning ``None`` beats guessing: the caller reports no version instead."""
+    if value == "3.3.0-rc0":
+        assert pep440_to_semver(value) == value
+        return
     assert pep440_to_semver(value) is None
-
-
-def test_describe_on_a_release_tag_is_the_bare_release(repo: Path) -> None:
-    _git(repo, "tag", "v3.2.1")
-
-    assert describe_version(repo) == "3.2.1"
-
-
-def test_describe_off_a_tag_carries_distance_and_sha(repo: Path) -> None:
-    _git(repo, "tag", "v3.2.1")
-    _git(repo, "commit", "--allow-empty", "--no-gpg-sign", "-m", "later")
-
-    derived = describe_version(repo)
-
-    assert derived is not None
-    assert SEMVER_PATTERN.fullmatch(derived)
-    assert derived.startswith("3.2.1-dev.1+g")
-
-
-def test_describe_marks_a_dirty_tree(repo: Path) -> None:
-    """Build metadata says the tree had uncommitted changes, so results are unpinnable."""
-    _git(repo, "tag", "v3.2.1")
-    (repo / "changed.txt").write_text("edited", encoding="utf-8")
-    _git(repo, "add", "changed.txt")
-
-    derived = describe_version(repo)
-
-    assert derived is not None
-    assert derived.endswith(".dirty")
-    assert SEMVER_PATTERN.fullmatch(derived)
-
-
-def test_describe_uses_the_last_tag_reached_not_the_next_release(repo: Path) -> None:
-    """A commit heading for 3.3.0 derives 3.2.1-dev.N, because 3.3.0 is not a fact yet."""
-    _git(repo, "tag", "v3.2.1")
-    _git(repo, "commit", "--allow-empty", "--no-gpg-sign", "-m", "heading for 3.3.0")
-
-    derived = describe_version(repo)
-
-    assert derived is not None
-    assert derived.startswith("3.2.1-")
-
-
-def test_describe_ignores_non_release_tags(repo: Path) -> None:
-    """The `v[0-9]*` match is the one the hatch-vcs configs use."""
-    _git(repo, "tag", "v3.2.1")
-    _git(repo, "commit", "--allow-empty", "--no-gpg-sign", "-m", "later")
-    _git(repo, "tag", "some-feature-tag")
-
-    derived = describe_version(repo)
-
-    assert derived is not None
-    assert derived.startswith("3.2.1-dev.1+g")
-
-
-def test_describe_returns_none_without_a_release_tag(repo: Path) -> None:
-    assert describe_version(repo) is None
-
-
-def test_describe_returns_none_outside_a_repository(tmp_path: Path) -> None:
-    """The container case: sources are copied in, ``.git`` is not."""
-    assert describe_version(tmp_path) is None
 
 
 def test_installed_metadata_is_normalised_to_semver(monkeypatch) -> None:
     """Installed metadata is PEP 440, and the endpoint's contract is SemVer."""
-    _installed("3.3.0.post1.dev12+gc85c4a4e8", monkeypatch)
+    _installed("3.3.0rc0.post1.dev12+gc85c4a4e8", monkeypatch)
 
-    assert library_version() == "3.3.0-dev.12+gc85c4a4e8"
+    assert library_version() == "3.3.0-rc0.dev.12+gc85c4a4e8"
 
 
 def test_installed_build_stamp_keeps_its_release_line(monkeypatch) -> None:
     """The build stamps `<release line>+tree.<sha>`; precedence ignores the metadata."""
-    _installed("3.3.0+tree.c85c4a4e8", monkeypatch)
+    _installed("3.3.0rc0+tree.c85c4a4e8", monkeypatch)
 
-    assert library_version() == "3.3.0+tree.c85c4a4e8"
+    assert library_version() == "3.3.0-rc0+tree.c85c4a4e8"
 
 
 def test_library_version_is_none_when_not_installed(monkeypatch) -> None:
@@ -178,38 +139,22 @@ def test_unnormalisable_metadata_is_none(monkeypatch) -> None:
     assert library_version() is None
 
 
-def test_override_wins_over_the_installed_version(repo: Path, monkeypatch) -> None:
-    """The override exists to correct a wrong stamp, so it has to outrank it."""
-    _installed("3.3.0", monkeypatch)
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "3.4.0")
+def test_local_build_stamp_is_reported_as_what_it_is(monkeypatch) -> None:
+    """A bare `docker build` stamps 0.0.0+local: valid, and unable to satisfy any range."""
+    _installed("0.0.0+local", monkeypatch)
 
-    assert resolve_deployment_version(repo) == "3.4.0"
-
-
-def test_unconfigured_deployment_reports_the_installed_version(repo: Path, monkeypatch) -> None:
-    _git(repo, "tag", "v3.2.1")
-    _installed("3.3.0+tree.c85c4a4e8", monkeypatch)
-
-    assert resolve_deployment_version(repo) == "3.3.0+tree.c85c4a4e8"
+    assert library_version() == "0.0.0+local"
 
 
-def test_invalid_override_does_not_fall_through(repo: Path, monkeypatch) -> None:
-    """An operator correcting a stamp wrongly sees that, not the stamp they replaced."""
-    _git(repo, "tag", "v3.2.1")
-    _installed("3.3.0", monkeypatch)
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "develop-latest")
+def test_deployment_version_is_the_installed_version(monkeypatch) -> None:
+    """Nothing outranks the installed library and nothing stands in for it."""
+    _installed("3.3.0rc0+tree.c85c4a4e8", monkeypatch)
+    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "9.9.9")
 
-    assert resolve_deployment_version(repo) is None
+    assert resolve_deployment_version() == "3.3.0-rc0+tree.c85c4a4e8"
 
 
-def test_git_is_reached_only_without_an_installed_version(repo: Path, monkeypatch) -> None:
-    _git(repo, "tag", "v3.2.1")
+def test_nothing_installed_resolves_to_none(monkeypatch) -> None:
     _installed(None, monkeypatch)
 
-    assert resolve_deployment_version(repo) == "3.2.1"
-
-
-def test_nothing_anywhere_resolves_to_none(tmp_path: Path, monkeypatch) -> None:
-    _installed(None, monkeypatch)
-
-    assert resolve_deployment_version(tmp_path) is None
+    assert resolve_deployment_version() is None

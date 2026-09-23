@@ -31,7 +31,7 @@ _UNAVAILABLE_DETAIL = "The deployed VSS version is unavailable or is not valid S
 
 # Every value the endpoint and the ci-vss-oss eval preflight
 # (eval/scripts/tests/vss_version.py) must agree on.
-ACCEPTED_VERSIONS = ["3.3.0", "3.3.0-65576357eb80", "3.3.0-rc.1+build.42"]
+ACCEPTED_VERSIONS = ["3.3.0", "3.3.0-65576357eb80", "3.3.0-rc.1+build.42", "3.3.0-rc0+tree.4d9b2c1"]
 REJECTED_VERSIONS = ["03.3.0", "3.3.0-.", "3.3.0-01", "v1.0.0", "3.3", "develop-latest", ""]
 
 
@@ -43,23 +43,24 @@ def client() -> TestClient:
 
 
 @pytest.fixture(autouse=True)
-def _clear_version_env(monkeypatch) -> None:
-    """Start every test from a deployment that resolves no version at all.
+def _no_installed_library(monkeypatch) -> None:
+    """Start every test from a deployment whose library reports no version.
 
-    The installed-library and git-tag sources are neutralised too: these tests
-    are about what the endpoint does with what it is given, and the test
-    process both imports an installed ``nvidia-vss-core`` and sits inside a
-    checkout that ``git describe`` would happily answer for. Each source has
-    its own tests below, and :mod:`vss_core.version` covers the derivations.
+    The test process imports an installed ``nvidia-vss-core`` of its own; what
+    that says must not decide these tests. Each test states what the library
+    reports, and :mod:`vss_core.version`'s own tests cover the derivation.
     """
-    monkeypatch.delenv("VSS_DEPLOYMENT_VERSION", raising=False)
     monkeypatch.setattr(vss_core.version, "library_version", lambda: None)
-    monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: None)
 
 
 @pytest.mark.parametrize("version", ACCEPTED_VERSIONS)
-def test_version_endpoint_returns_configured_semver(client: TestClient, monkeypatch, version: str) -> None:
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", version)
+def test_version_endpoint_reports_the_library_version(client: TestClient, monkeypatch, version: str) -> None:
+    """A deployment reports the version of the VSS library it imported.
+
+    In an image the build stamped it from the release tag and the source tree
+    (``3.3.0-rc0+tree.<sha>``); in a checkout ``hatch-vcs`` derived it.
+    """
+    monkeypatch.setattr(vss_core.version, "library_version", lambda: version)
 
     response = client.get("/api/v1/version")
 
@@ -67,82 +68,38 @@ def test_version_endpoint_returns_configured_semver(client: TestClient, monkeypa
     assert response.json() == {"service": "vss", "version": version}
 
 
+def test_version_endpoint_503s_when_the_library_reports_nothing(client: TestClient) -> None:
+    """No installed version that normalises to SemVer: nothing to answer with."""
+    response = client.get("/api/v1/version")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": _UNAVAILABLE_DETAIL}
+
+
+def test_environment_does_not_override_the_library_version(client: TestClient, monkeypatch) -> None:
+    """There is no deploy-time override: a version anyone can edit is one nobody can trust."""
+    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "9.9.9")
+    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0-rc0+tree.4d9b2c1")
+
+    response = client.get("/api/v1/version")
+
+    assert response.json() == {"service": "vss", "version": "3.3.0-rc0+tree.4d9b2c1"}
+
+
+def test_local_build_stamp_is_served_as_is(client: TestClient, monkeypatch) -> None:
+    """A bare `docker build` stamps 0.0.0+local: served, and unable to satisfy any skill's range."""
+    monkeypatch.setattr(vss_core.version, "library_version", lambda: "0.0.0+local")
+
+    response = client.get("/api/v1/version")
+
+    assert response.status_code == 200
+    assert response.json() == {"service": "vss", "version": "0.0.0+local"}
+
+
 @pytest.mark.parametrize("version", REJECTED_VERSIONS)
-def test_version_endpoint_rejects_invalid_semver(client: TestClient, monkeypatch, version: str) -> None:
+def test_contract_rejects_what_the_eval_preflight_rejects(version: str) -> None:
     """``03.3.0``, ``3.3.0-.`` and ``3.3.0-01`` are what the relaxed pattern let through."""
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", version)
-
-    response = client.get("/api/v1/version")
-
-    assert response.status_code == 503
-    assert response.json() == {"detail": _UNAVAILABLE_DETAIL}
-
-
-def test_version_endpoint_503s_when_nothing_can_be_resolved(client: TestClient) -> None:
-    """No override, no install metadata and no git tags: nothing to answer with."""
-    response = client.get("/api/v1/version")
-
-    assert response.status_code == 503
-    assert response.json() == {"detail": _UNAVAILABLE_DETAIL}
-
-
-def test_unconfigured_deployment_reports_the_library_version(client: TestClient, monkeypatch) -> None:
-    """Nothing sets the override any more, so this is the ordinary path.
-
-    A deployment reports the version of the VSS library it imported, which the
-    build stamps with the release line and the source tree that produced it.
-    """
-    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0+tree.c85c4a4e8")
-
-    response = client.get("/api/v1/version")
-
-    assert response.status_code == 200
-    assert response.json() == {"service": "vss", "version": "3.3.0+tree.c85c4a4e8"}
-
-
-def test_unconfigured_checkout_reports_its_derived_version(client: TestClient, monkeypatch) -> None:
-    """A bare ``nat serve`` from a clone answers with the source it is running.
-
-    Without this it answered 503, which a benchmark reads as indeterminate and
-    stops on — even though the version was sitting right there in git.
-    """
-    monkeypatch.setattr(vss_core.version, "describe_version", lambda *_: "3.2.1-dev.1519+gc85c4a4e8")
-
-    response = client.get("/api/v1/version")
-
-    assert response.status_code == 200
-    assert response.json() == {"service": "vss", "version": "3.2.1-dev.1519+gc85c4a4e8"}
-
-
-def test_override_outranks_the_library_version(client: TestClient, monkeypatch) -> None:
-    """The override exists to correct a wrong stamp, so it has to outrank it."""
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "3.4.0")
-    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0+tree.c85c4a4e8")
-
-    response = client.get("/api/v1/version")
-
-    assert response.json() == {"service": "vss", "version": "3.4.0"}
-
-
-def test_empty_override_falls_through_to_the_library_version(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "  ")
-    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0")
-
-    response = client.get("/api/v1/version")
-
-    assert response.status_code == 200
-    assert response.json() == {"service": "vss", "version": "3.3.0"}
-
-
-def test_invalid_override_does_not_fall_through(client: TestClient, monkeypatch) -> None:
-    """A set-but-wrong override is reported as a problem, not masked by the stamp."""
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "develop-latest")
-    monkeypatch.setattr(vss_core.version, "library_version", lambda: "3.3.0")
-
-    response = client.get("/api/v1/version")
-
-    assert response.status_code == 503
-    assert response.json() == {"detail": _UNAVAILABLE_DETAIL}
+    assert SEMVER_PATTERN.fullmatch(version) is None
 
 
 def _load_checker_script() -> ModuleType:

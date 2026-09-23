@@ -12,10 +12,12 @@ preflight
 verify
     Run AFTER pushing: read the image's config labels back from the registry
     (the same read path check_container_tag_source.py uses) and require that
-    ``com.nvidia.vss.source_tree_sha`` equals the TREE hash of the source
-    folder — ``git rev-parse HEAD:<source_path>`` — not the commit SHA. This
-    proves at build time that the container-source gate will accept the
-    candidate, instead of discovering a contract mismatch at promotion time.
+    ``com.nvidia.vss.source_tree_sha`` equals the TREE hash of the image's
+    source paths (``check_container_tag_source.source_tree_sha``: ``git
+    rev-parse HEAD:<source_path>`` for one path, one mktree over several) —
+    not the commit SHA. This proves at build time that the container-source
+    gate will accept the candidate, instead of discovering a contract mismatch
+    at promotion time.
 """
 
 from __future__ import annotations

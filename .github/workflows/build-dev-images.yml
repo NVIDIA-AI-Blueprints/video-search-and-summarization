@@ -16,9 +16,10 @@
 #   * NO NGC credentials live in GitHub. The nightly GitHub controller selects
 #     a green release set, then GitLab copies those same digests to NGC.
 #   * The com.nvidia.vss.source_tree_sha label carries the git TREE hash of
-#     the source folder (git rev-parse HEAD:<source_path>) — the exact value
-#     the check-*-container-source gate compares. A post-push verification
-#     reads it back through the same code path as the gate.
+#     the image's source paths (`release_set.py tree-sha`: rev-parse for one
+#     path, one mktree over all of them otherwise) — the exact value the
+#     check-*-container-source gate compares. A post-push verification reads
+#     it back through the same code path as the gate.
 #   * Candidate tags are immutable: the preflight guard refuses to overwrite
 #     an existing tag with different content and no-ops on idempotent re-runs.
 #   * Trust boundary: this workflow runs on `push` to develop and to the
@@ -68,25 +69,31 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # The agent chart's top-level `version:` is the repository's one declared
-      # release line -- Helm reads that exact field -- and it is now baked into
-      # the built packages, so it is what GET /api/v1/version reports. Read once
-      # here rather than per build job: it is a property of the commit, not of a
-      # matrix entry. An unreadable or malformed value must stop the run: an
-      # empty string would publish an immutable image claiming no release, and
-      # a chart version already carrying `+build` metadata would collide with
-      # the `+tree.<sha>` segment the build jobs append.
-      - name: Read the declared release line
+      # The release line is the nearest `v*` tag reachable from this commit --
+      # the same `git describe --match 'v[0-9]*'` every pyproject's hatch-vcs
+      # runs, so an image and a checkout install of one commit agree on their
+      # version. It is baked into the built packages and is what
+      # GET /api/v1/version reports. Read once here rather than per build job:
+      # it is a property of the commit, not of a matrix entry (the checkout
+      # above is fetch-depth 0, so the tags are present). No reachable tag must
+      # stop the run: an image stamped with no release would be published
+      # immutably. The tag must be a bare PEP 440 release or pre-release
+      # (v3.3.0, v3.3.0rc0): anything with its own `+local` segment would
+      # collide with the `+tree.<sha>` the build jobs append.
+      - name: Derive the release line from the nearest v* tag
         id: release
         run: |
           set -euo pipefail
-          chart=deploy/helm/services/agent/Chart.yaml
-          line="$(grep -m1 -E '^version:' "$chart" | cut -d: -f2- | tr -d "\"' \r")"
-          if ! printf '%s' "$line" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error file=${chart}::no usable top-level 'version:' (read '${line}')"
+          if ! tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)"; then
+            echo "::error::no v* tag is reachable from ${GITHUB_SHA}; push one (e.g. v3.3.0rc0) before building images"
             exit 1
           fi
-          echo "release line: ${line}"
+          line="${tag#v}"
+          if ! printf '%s' "$line" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$'; then
+            echo "::error::tag '${tag}' is not a bare release or pre-release (X.Y.Z, X.Y.ZrcN)"
+            exit 1
+          fi
+          echo "release line: ${line} (from tag ${tag})"
           echo "line=${line}" >> "$GITHUB_OUTPUT"
 
       # detect_changed_images.py owns the range semantics (event.before for
@@ -168,7 +175,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -375,7 +382,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -567,7 +574,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 

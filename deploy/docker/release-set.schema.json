@@ -59,12 +59,12 @@
           },
           "source_path": {
             "type": ["string", "null"],
-            "description": "Repo-relative source folder (build strategy only)."
+            "description": "Repo-relative source paths the image is built from (build strategy only); several are joined with commas, in the inventory's declared order."
           },
           "source_tree_sha": {
             "type": ["string", "null"],
             "pattern": "^[0-9a-f]{40}$",
-            "description": "git rev-parse <commit>:<source_path> — the TREE hash the container-source gate compares, not the commit SHA."
+            "description": "The TREE hash the container-source gate compares, not the commit SHA: git rev-parse <commit>:<source_path> for one path, one git mktree over all of them otherwise (check_container_tag_source.source_tree_sha)."
           },
           "upstream_digest": {
             "type": ["string", "null"],
