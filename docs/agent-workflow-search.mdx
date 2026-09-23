@@ -695,6 +695,52 @@ You can now access the agent UI at `http://<HOST_IP>:7777/`.
 When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
 </Note>
 
+<Note>
+The default deployed model is Cosmos3 Nano Reasoner with FP8 precision.
+You can change this model by selecting an option from the following table and
+setting `VLM_NAME` to the Name value and `RTVI_VLM_MODEL_PATH` to the Path value
+in `user-overrides.env`.
+</Note>
+
+<a id="search-available-vlm-models"></a>
+
+**Available VLM Models**
+
+| Model | Name | Path |
+| --- | --- | --- |
+| CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
+| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_modelopt-bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-bf16-final` |
+| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+
+<Note>
+The search profile deploys two GPUs by default, and RT-VLM shares GPU 0 with
+RTVI-CV. On that shared GPU, use an FP8 checkpoint: **Cosmos3 Super Reasoner FP8
+is the option to use for Super**. This is a validated shared-GPU placement, not
+just a recommendation — on a 95 GiB H100 NVL, RTVI-CV and RT-VLM both reach
+ready with ~31 GiB still free at `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55`. The
+BF16 checkpoints are roughly twice the size and leave RTVI-CV too little memory
+to initialize its detection engine, so BF16 fits only a layout that gives the
+VLM its own GPU — never co-locate Super BF16 with RTVI-CV.
+
+Super models have only been tested on RTX PRO 6000 and H100.
+
+NVFP4 models only work on Blackwell platforms. NVFP4 is the lightest of the three
+precisions, but it has not been tested on the shared-GPU search layout.
+</Note>
+
+Super's weights are roughly three times larger than Nano's, so raise the VLM's
+share of the GPU when you select the FP8 checkpoint:
+
+```ini
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55
+```
+
+`VLM_NAME` must match the id RT-VLM advertises at `/v1/models` for the selected
+checkpoint; a mismatch fails with `400 BadParameters: No such model`.
+
 **Embedding Models**
 
 The search profile deploys with `Cosmos-Embed1-448p-anomaly-detection` for RT-Embed and `SigLIP2` for RTVI-CV by default.

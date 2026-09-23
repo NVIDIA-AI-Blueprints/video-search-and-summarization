@@ -38,6 +38,14 @@ direct `VLM_NAME` value. Use the FP8 selection for the smaller-footprint
 checkpoint, including the Search profile default.
 </Note>
 
+<Note>
+The selection names above cover the Cosmos3 Nano checkpoints only. Cosmos3 Super
+has no selection name: set `VLM_NAME` and `RTVI_VLM_MODEL_PATH` directly to a
+matching pair instead. For the Search profile, see
+[Available VLM Models](/vss/vision-agent/agent-workflows/search#search-available-vlm-models),
+which also covers which precision to use when RT-VLM shares a GPU with RTVI-CV.
+</Note>
+
 - **Compatibility:** The profile defaults are the shipped local configurations. For another model, ensure GPU memory meets its requirements and refer to [VLM NIM documentation](https://docs.nvidia.com/nim/vision-language-models/1.7.0/support-matrix.html).
 
 - **Custom VLM weights:** Set `VLM_CUSTOM_WEIGHTS` to the path of a directory containing custom VLM weights. See [VLM Custom Weights](/vss/getting-started/prerequisites#vlm-custom-weights) in Prerequisites for download instructions.
