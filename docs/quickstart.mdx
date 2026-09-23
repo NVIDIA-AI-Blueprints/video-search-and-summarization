@@ -61,7 +61,7 @@ supported options.
 
 | Harness | What it is | Pros | Cons |
 | --- | --- | --- | --- |
-| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The [NemoClaw setup](/vss/vision-agent/agent-harnesses/nemoclaw) provides a separate, notebook-driven route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
+| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that can drive VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The [NemoClaw setup](/vss/vision-agent/agent-harnesses/nemoclaw) provides a separate, notebook-driven route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; deployment status and log inspection; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents. The orchestrator MCP server is required when deploying or managing VSS from NemoClaw chat, but not when using installed operation Skills against an existing deployment. |
 | **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/vss/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
 | **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
@@ -232,7 +232,7 @@ Use a coding agent with the [Build Vision AI Skill](/vss/vision-agent/build-visi
 the validated `base` developer profile. This is the default quickstart path.
 
 ```text title="Example prompt"
-Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
+Deploy the VSS base profile on this machine.
 ```
 
 The agent will:
@@ -256,8 +256,8 @@ On edge platforms (DGX Spark, IGX Thor, AGX Thor), a checked-in local
 LLM/VLM sharing configuration is available but has not yet been measured on
 the target hardware. A remote LLM is recommended for better response time. Add
 "with a remote LLM" to the prompt, for example:
-*"Use the vss-build-vision-ai skill to deploy the VSS base profile on this
-DGX-SPARK machine with a remote LLM."* See
+*"Deploy the VSS base profile on this DGX-SPARK machine with a remote LLM."*
+See
 [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
 </Note>
 
@@ -333,8 +333,8 @@ The base profile journey exercises four skills:
 **Example prompts**
 
 ```text title="Example prompts"
-Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
-Use the vss-build-vision-ai skill to deploy VSS base with a remote LLM at https://integrate.api.nvidia.com.
+Deploy the VSS base profile on this machine.
+Deploy a vision agent with a remote LLM at https://integrate.api.nvidia.com.
 ```
 
 <Note>

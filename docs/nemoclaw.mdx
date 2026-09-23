@@ -12,7 +12,9 @@ Running VSS through NemoClaw turns a multi-service Docker Compose deployment int
 * **Natural-language operations.** Prompts like *"Deploy the VSS alerts profile in verification mode"* or *"Show me the logs from vss-alert-bridge"* are mapped to the right orchestrator tools in the right order, without manual `.env` editing or compose flag juggling.
 * **Guided host setup.** Two bundled Jupyter notebooks walk through the Brev/host prerequisites: credentials, Docker version pinning, `nvcr.io` login, the VSS agent Python environment, and the host-side MCP server.
 * **Policy-controlled skills.** The setup applies NemoClaw's VSS policy specified in a yaml file. The sandbox image is built from the repository's harness Dockerfile: `.openclaw/Dockerfile` extends NemoClaw's managed OpenClaw runtime with the VSS OpenClaw plugin (the `vss` CLI as an agent tool, the operation skills activated per deployment from what `vss configure` records, and the workspace bootstrap docs); `.hermes/Dockerfile` extends the managed Hermes runtime with the same skills (activated per deployment by `vss-hermes-sync`), docs and `vss` CLI.
-* **Safe operations.** The agent asks before destructive actions such as `docker_down` and streams progress, logs, and errors back into chat so you can remediate without leaving the UI.
+* **Operational visibility.** The VSS Orchestrator MCP exposes deployment
+  status and container logs to the agent so it can inspect and remediate a
+  deployment from chat.
 
 ## How to run NemoClaw with VSS
 
@@ -29,7 +31,13 @@ There are two host-side pieces working together:
 
 1. **Two setup notebooks** that run in order on the Brev instance:
 
-   * `deploy_nemoclaw.ipynb` chooses the agent chat model provider, pins Docker to the tested package versions, installs or reuses the pinned NemoClaw release, applies the VSS policy, installs the VSS skills and workspace docs, registers the VSS Orchestrator MCP, and opens the Agent UI.
+   * `deploy_nemoclaw.ipynb` chooses the agent chat model provider, pins Docker
+     to the tested package versions, installs the pinned NemoClaw release,
+     creates the sandbox from the repository's harness Dockerfile, applies the
+     VSS policy and deployment origin, optionally registers an HTTPS VSS
+     Orchestrator MCP path, configures optional webhooks, and opens the Agent
+     UI. The harness image already contains the VSS skills, workspace docs, and
+     `vss` CLI.
    * `deploy_vss_orchestrator.ipynb` prepares the host for local NIM-backed profiles, starts the MCP server, deploys and manages VSS from the Agent UI, and optionally verifies sandbox-to-host reachability.
 
    See [Setup VSS and Skills](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills).
@@ -41,5 +49,14 @@ There are two host-side pieces working together:
    * Fetch logs.
 
    See [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp).
+
+<Note>
+To route NemoClaw's agent model through Switchyard, set
+`ROUTE_NEMOCLAW = "true"` in `deploy_vss_switchyard.ipynb`, run that notebook
+through Section 6, and leave the router running. Then run
+`deploy_nemoclaw.ipynb`, select option (a), and use the router URL and route ID
+as the model, followed by
+`deploy_vss_orchestrator.ipynb`.
+</Note>
 
 For per-variable details, provider choices, and optional verification steps, see [Additional Configuration](/vss/vision-agent/agent-harnesses/nemoclaw/additional-configuration).

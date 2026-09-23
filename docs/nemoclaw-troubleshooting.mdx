@@ -9,8 +9,10 @@ Recovery steps for common NemoClaw / OpenClaw / VSS orchestrator issues. Substit
 If the Build Vision AI Skill provisioned NemoClaw, use the sandbox name returned
 by the Skill. Ask your coding agent to resume the Skill for the existing build
 and rerun the harness setup; the Skill executes `deploy_nemoclaw.ipynb`
-non-interactively and preserves the existing sandbox unless you request a
-rebuild. Do not manually rerun individual notebook cells for this flow. The
+non-interactively and recreates an existing sandbox so the selected provider,
+endpoint, model, and credentials are applied. Recreation discards that
+sandbox's agent sessions. Do not manually rerun individual notebook cells for
+this flow. The
 numbered-section recovery steps below apply when you ran the notebook manually.
 </Note>
 
@@ -170,7 +172,11 @@ nemoclaw <sandbox> destroy
 nemoclaw gc
 ```
 
-Then re-run Section 3 of `deploy_nemoclaw.ipynb`. This recreates the sandbox, reapplies the VSS policy, reinstalls the VSS skills, re-uploads the workspace docs, and re-registers the `vss_orchestrator` MCP. Run Section 3.5 to generate a fresh Agent UI link.
+Then re-run Section 3 of `deploy_nemoclaw.ipynb`. This recreates the sandbox
+from the harness image that contains the VSS skills and workspace docs, then
+reapplies the VSS policy and deployment origin. It also configures optional
+webhooks and, when HTTPS is enabled, registers the orchestrator MCP path. Run
+Section 3.5 to generate a fresh Agent UI link.
 
 ## Clean Reinstall
 
@@ -194,4 +200,6 @@ Then re-run Section 3 of `deploy_nemoclaw.ipynb`. This recreates the sandbox, re
 
    Docker, Node.js, npm, and Ollama are preserved.
 
-2. Reinstall by re-running Section 3 of `deploy_nemoclaw.ipynb`. Section 3 fetches the pinned `NEMOCLAW_INSTALL_REF`, recreates the sandbox, reapplies the VSS policy, and reinstalls the VSS skills and workspace docs.
+2. Reinstall by re-running Section 3 of `deploy_nemoclaw.ipynb`. Section 3
+   fetches the pinned `NEMOCLAW_INSTALL_REF`, recreates the sandbox from the
+   harness image, and reapplies the VSS policy and deployment origin.
