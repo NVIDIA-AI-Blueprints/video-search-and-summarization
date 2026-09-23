@@ -411,10 +411,10 @@ All four rules use the `cosmos3-nano-reasoner` model with
 frame/second, and no chunk overlap. Per-rule deviations are documented in
 the sub-sections below.
 
-The four rules below are reproduced verbatim from the live
+The four rules below reproduce the rule definitions from the live
 `realtime-config.yml` file. Each rule is a self-contained entry under
-`always_on_rules:`; the full file simply concatenates them with the
-header comment shown next.
+`always_on_rules:`. The following header excerpt documents how the service
+receives that file.
 
 **realtime-config.yml — file header**
 
@@ -427,14 +427,17 @@ header comment shown next.
 #   - `live_stream_url` is populated automatically from the incoming event's
 #     `camera_url` field — do NOT set it here.
 #
-# Resolution order for this file (first match wins):
-#   1. $ALWAYS_ON_RULES_CONFIG             (env var, explicit path)
-#   2. ./realtime-config.yaml              (project root, recommended)
-#   3. ./realtime-config-sample.yaml       (this file, for dev only)
+# The service reads only the file named by $ALWAYS_ON_RULES_CONFIG.
+# There is no implicit fallback lookup.
 
 always_on_rules:
   # ...rules below...
 ```
+
+In the Warehouse Compose profile,
+`VLM_AS_VERIFIER_CONFIG_FILE_REALTIME` selects the host rules file. Compose
+mounts and processes it into `/app/runtime/realtime-config.yml`, then sets
+`ALWAYS_ON_RULES_CONFIG` to that container path.
 
 ### Damaged / Unstable / Falling Boxes
 

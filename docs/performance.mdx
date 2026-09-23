@@ -4,17 +4,18 @@ description: ""
 position: 2
 ---
 
-This section documents benchmark results for the VSS Real-Time Video Intelligence microservices.
-All benchmarks were measured on VSS 3.2 with validated NVIDIA GPU platforms. Use these numbers
-to size GPU infrastructure for your deployment and to understand the performance trade-offs
-between models, use cases, and GPU platforms.
+This section documents benchmark results for VSS agent workflows and Real-Time Video
+Intelligence microservices. The results include measurements from VSS 3.2 and
+3.3; each linked page identifies its own tested release, model, precision, and
+hardware. Use those page-specific test configurations when sizing GPU
+infrastructure or comparing use cases.
 
 ## Agent Workflows
 
 | Agent Workflow | Page | What Is Measured |  |  |
 | --- | --- | --- | --- | --- |
 | Alert Verification | [performance-alert-verification](/vss/appendix/performance/agent-workflows/alert-verification-performance) | - End-to-end latency and verified alert throughput for live RTSP alert verification | RT-DETR and GDINO with CR3 across RTX PRO 4500, RTX PRO 6000, DGX H100 SXM, DGX Spark, and AGX Thor | VLM precision (BF16, FP8, NVFP4) and stream-concurrency scaling characteristics |
-| Video Summarization | [performance-lvs](/vss/appendix/performance/agent-workflows/video-summarization-performance) | - E2E latency vs. video length (1 min–12 hr) | Burst max concurrency at target avg latency (1, 5, 10 min videos) | CR2-8B FP8 across H100, RTX Pro 6000 SE, and L40S |
+| Video Summarization | [performance-lvs](/vss/appendix/performance/agent-workflows/video-summarization-performance) | - E2E latency vs. video length (1 min–12 hr) | Burst max concurrency at target avg latency (1, 5, 10 min videos) | Cosmos3 Nano Reasoner FP8 across H100, RTX Pro 6000 SE, and L40S |
 | Search | [performance-search](/vss/appendix/performance/agent-workflows/search-performance) | - E2E mean and P90 latency vs. concurrent query load (1–50) | Per-stage latency breakdown on H100 and RTX Pro 6000 SE | Video ingestion latency |
 
 ## Microservices

@@ -48,6 +48,20 @@ The following software must be installed on your system:
 - **Docker:** 28.3.3+ and earlier than 29.5.0
 - **Docker Compose:** v2.39.1+
 - **NGC CLI:** 4.10.0+
+- **Python runner for Build Vision AI:** `uv` is required for the Skill's
+  mandatory service-graph checks and helper scripts.
+
+Install `uv` before starting the coding agent:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Build Vision AI runs the NemoClaw setup notebook non-interactively with a
+Python 3.12 environment and notebook packages supplied by `uv`. The pinned
+NemoClaw installer installs a compatible Node.js and npm runtime. A Jupyter
+kernel with Python 3.11 or later is required only when you follow the
+[interactive NemoClaw notebook guide](/vss/vision-agent/agent-harnesses/nemoclaw/setup-vss-and-skills).
 
 <Note>
 For detailed installation instructions for the software requirements listed above, see the [Appendix](/vss/getting-started/prerequisites#appendix-software-prerequisites-installation-guide):
@@ -164,17 +178,29 @@ If a default-deny firewall is enabled on the host, allow inbound traffic from th
 - 128 GB RAM
 - 1 TB SSD
 - 1 x 1 Gbps network interface
-- 1 or 2 recommended NVIDIA GPUs based on the development profile
+- NVIDIA GPU capacity required by the selected development profile. Use the
+  [Development Profile GPU Requirements](#development-profile-gpu-requirements)
+  tables below; validated layouts range from one to four GPUs depending on the
+  profile, hardware, and model placement.
 
 ## Network and Browser Access
 
-The machine running the web browser must be able to reach TCP port `7777` on the deployment host. The VSS Agent UI, Kibana UI, and Phoenix UI are accessed from the browser using this port.
+The machine running the web browser must be able to reach TCP port `7777` on
+the deployment host. This port serves the VSS UI and routes optional web
+applications included in the selected service graph, such as Kibana and
+Phoenix. The default Build Vision AI deployment does not include Phoenix or
+the in-stack VSS Agent; the manual base-profile deployment includes both.
 
 For cloud deployments, configure the instance firewall or security group to allow inbound TCP traffic on port `7777` from the browser client. For local deployments, ensure `http://localhost:7777/` is reachable from the deployment host.
 
 ## NGC + Hugging Face API Keys
 
-To deploy the VSS Blueprint, you need an NGC API key with access to the required resources and a Hugging Face access token for VA-MCP model downloads.
+The credentials you need depend on the images, models, and optional agent
+harness selected for the deployment. Standard VSS deployment paths require an
+NGC Personal API Key. A Hugging Face token is required only when a selected
+model or helper downloads gated or rate-limited weights from Hugging Face. See
+the [credential decision table](#credentials-used-by-the-build-vision-ai-skill)
+before deploying.
 
 ### Create an NVIDIA NGC Account
 
@@ -202,7 +228,10 @@ Keep your NGC API key secure and never commit it to version control systems.
 <Info>
 The Cosmos3 Reasoner NIM (1.7.0+) requires a **Personal API Key**. Legacy NGC API keys
 are not supported and will fail authentication when pulling or running this container.
-This applies to all profiles that deploy the VLM NIM locally (base, search).
+This applies when you explicitly deploy the standalone Cosmos3 Reasoner NIM.
+The default `base` and `search` profiles serve the Cosmos3 model through
+RT-VLM and do not start the standalone VLM NIM container. Other NGC images and
+model artifacts still require an authorized NGC credential.
 </Info>
 
 ### Verify Your NGC Access
@@ -212,6 +241,12 @@ To verify your NGC key has the correct permissions:
 ```bash
 # Set your NGC API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
+
+# Authenticate Docker for gated NIM and other nvcr.io images. The username is
+# the literal string $oauthtoken; the password is your NGC Personal API Key.
+# Managed VSS images on ghcr.io are public and require no registry login.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
 
 # Test access to the required resources
 ngc registry resource list "nvidia/vss-developer/*"
@@ -226,9 +261,21 @@ ngc registry model list "nvidia/tao/*"
 
 If you encounter permission errors, contact NVIDIA support for assistance.
 
+The `Login Succeeded` response verifies NGC Docker registry authentication.
+Run this step before the Build Vision AI Skill or any manual
+`docker compose up` command that pulls gated NIM or other `nvcr.io` images. A
+later `docker compose config --quiet` validates that Compose can render the
+model, but a successful exit does not prove that every operationally required
+environment value is set. Review its unset-variable warnings against the
+selected profile. The command does not contact the registry or validate image
+entitlements.
+
 ### Hugging Face Access Token
 
-The VA-MCP server downloads a model from [Hugging Face](https://huggingface.co/). Without a token, initialization is slow and logs may show HTTP 429 rate-limit errors.
+Some optional model selections download weights from
+[Hugging Face](https://huggingface.co/). Create a token only when the selected
+deployment path identifies `HF_TOKEN` as required. Public downloads can also
+be rate limited without a token.
 
 1. Log in to [Hugging Face](https://huggingface.co/)
 2. Go to [Access Tokens](https://huggingface.co/settings/tokens) and create a token with **Read** permission
@@ -243,8 +290,40 @@ The token must have **READ** permission only. Do not commit it to version contro
 </Warning>
 
 <Note>
-`HF_TOKEN` is also used for gated **Nemotron Omni** model weights and some remote vLLM deploy flows. For **audio-in-video** on the base agent profile, set `ENABLE_AUDIO=true` in the profile `.env` (see inline comments in `dev-profile-base/.env`) and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
+`HF_TOKEN` is also used for gated **Nemotron Omni** model weights and some remote vLLM deploy flows. For **audio-in-video** on the base agent profile, set `ENABLE_AUDIO=true` in the local `user-overrides.env` file and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 </Note>
+
+### Credentials used by the Build Vision AI Skill
+
+The `vss-build-vision-ai` Skill asks for credentials before it deploys. Which
+keys are required depends on model placement and whether you choose the optional
+NemoClaw harness.
+
+| Credential | Required when |
+| --- | --- |
+| `NGC_CLI_API_KEY` | Pulling gated NIM, model, sample-data, and other artifacts from NGC. This is required for the standard deployment paths. Use the same Personal API Key for `docker login nvcr.io`. Managed VSS images on public GHCR require no registry login. |
+| `COMPATIBLE_API_KEY` | The NemoClaw harness uses a public OpenAI-compatible endpoint that requires a bearer token. Obtain the key from the endpoint provider. |
+| `NVIDIA_API_KEY` | A selected LLM or VLM is served from `build.nvidia.com` or `integrate.api.nvidia.com`. Create a key from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
+| `HF_TOKEN` | A selected model or helper downloads gated or rate-limited weights from Hugging Face. |
+
+Keep provider credentials out of chat transcripts and generated build
+artifacts. For a custom OpenAI-compatible endpoint, put the provider-issued key
+in the checkout-root, gitignored `nemoclaw.env` file, or export it in the shell
+that starts the coding-agent session:
+
+```bash
+COMPATIBLE_API_KEY='your-provider-api-key'
+```
+
+The Skill loads `nemoclaw.env` before harness setup. If you export the variable
+instead, restart the coding-agent session from that shell so it inherits the
+credential.
+
+A self-hosted OpenAI-compatible harness endpoint that does not require a real
+token can use the documented placeholder. Selecting **no harness** requires no
+harness credential. These choices do not remove the NGC or model-download
+credentials required by the VSS stack itself. The Skill stops before deployment
+and identifies any missing credential; it does not silently switch providers.
 
 ## Development Profile GPU Requirements
 
@@ -255,8 +334,8 @@ The following tables show the number of GPUs needed for each development profile
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 1 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 1 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
 | [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 2 | 4 | 2 | 2 | 2 |
@@ -281,8 +360,8 @@ does not remove the GPU required by the profile services.
 
 | **Profile** | **Shared GPU** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 2 | 1 | 1 | 1 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 1 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
 | [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 2 | 4 | 2 | 2 | 2 |
@@ -303,10 +382,13 @@ does not identify the GPU; the alerts quickstarts recommend NVIDIA driver
 </Tab>
 <Tab title="L40S">
 
+Shared local LLM/VLM placement is not supported on L40S. Use the dedicated-GPU
+layout or one of the remote-model layouts below.
+
 | **Profile** | **Dedicated GPU** | **Remote LLM** | **Remote VLM** | **Remote LLM + VLM** |
 | --- | --- | --- | --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 2 | 1 | 1 | 0 |
-| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 2 | 1 | 1 | 0 |
+| [dev-profile-base](/vss/getting-started/quickstart) | 2 | 1 | 1 | 1 |
+| [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 2 | 1 | 1 | 1 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 3 | 2 | — | — |
 | [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 4 | 3 | 3 | 2 |
@@ -314,35 +396,41 @@ does not identify the GPU; the alerts quickstarts recommend NVIDIA driver
 </Tab>
 <Tab title="DGX-SPARK">
 
-| **Profile** | **Remote LLM** |
-| --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** |
+| --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
 
 </Tab>
 <Tab title="IGX-THOR">
 
-| **Profile** | **Remote LLM** |
-| --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** |
+| --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
 
 </Tab>
 <Tab title="AGX-THOR">
 
-| **Profile** | **Remote LLM** |
-| --- | --- |
-| [dev-profile-base](/vss/getting-started/quickstart) | 1 |
-| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 |
-| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 |
+| **Profile** | **Local LLM + RT-VLM** | **Remote LLM + local RT-VLM** |
+| --- | --- | --- |
+| [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
+| [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
+| [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
 
 </Tab>
 </Tabs>
 
 <Note>
-AGX/IGX Thor and DGX Spark platforms currently support the listed remote-LLM configurations. Fully local deployment for all agent workflows (base, summarization, alerts, and search) is planned for a future release.
+The checked-in base and alerts configurations provide a co-located local LLM and
+RT-VLM on DGX Spark, IGX Thor, and AGX Thor. These local layouts have not yet
+been measured on the target hardware, so a remote LLM is recommended for
+latency and as the fallback if local model loading fails. Search is supported
+on DGX Spark and AGX Thor only and requires both the LLM and VLM to be remote;
+IGX Thor does not support the search profile. The LVS profile is not supported
+on these edge platforms.
 </Note>
 
 ### References
@@ -504,7 +592,10 @@ Fabric Manager must match the installed driver version.
 
 ### Install Docker
 
-Docker version 28.3.3 or later and earlier than 29.5.0 is required. Follow the guide here for installing Docker: https://docs.docker.com/engine/install/ubuntu/
+Docker version 28.3.3 or later and earlier than 29.5.0 is required. If Docker is
+not installed, first install Docker Engine from the
+[official Ubuntu apt repository](https://docs.docker.com/engine/install/ubuntu/).
+The latest package is not necessarily in the VSS-tested range.
 
 <Note>
 Do not install Docker via `snap`. The snap-packaged Docker runs inside a confined sandbox with restricted filesystem access, which can perform differently in the deployment process. Install Docker using the official Docker apt repository as linked above.
@@ -514,39 +605,29 @@ Do not install Docker via `snap`. The snap-packaged Docker runs inside a confine
 
 After installation, complete the Linux post-installation steps so that Docker can run without sudo. See [Linux post-installation steps for Docker Engine](https://docs.docker.com/engine/install/linux-postinstall/).
 
-### Configure Docker
+### Pin and configure Docker
 
-After installing Docker, you must configure it to use the cgroupfs cgroup driver.
-
-**Edit the Docker daemon configuration file:**
-
-Add or verify the following entry in `/etc/docker/daemon.json`:
-
-```json
-"exec-opts": ["native.cgroupdriver=cgroupfs"]
-```
-
-This configuration must be included within the JSON object. For example:
-
-```json
-{
-    "exec-opts": ["native.cgroupdriver=cgroupfs"]
-}
-```
-
-If your `/etc/docker/daemon.json` already contains other settings, ensure this entry is added to the existing configuration.
-
-**Apply the configuration:**
-
-After editing the daemon configuration, restart Docker to apply the changes:
+From the VSS repository root, run the checked-in setup script before starting
+any containers:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl restart docker
+bash deploy/docker/scripts/pin_docker_version.sh
+docker version --format '{{.Server.Version}}'
+docker info --format '{{.CgroupDriver}}'
 ```
 
+The script installs the repository's known-good Docker Engine, Compose,
+Buildx, and containerd package versions when the installed engine is outside
+the tested range. It holds the applicable packages and safely merges the
+required `native.cgroupdriver=cgroupfs` setting into `/etc/docker/daemon.json`.
+It is idempotent and skips the package change when Docker is already in range.
+
 <Note>
-Restarting Docker will temporarily stop all running containers. Plan accordingly if you have containers running.
+The script uses `sudo`, supports Ubuntu hosts with `apt`, and can restart
+Docker. Run it before other containers are started. If the host cannot install
+the pinned packages, see the script's error and the
+[Docker troubleshooting guidance](/vss/appendix/faq) before changing
+`daemon.json` manually.
 </Note>
 
 ### Install Docker Compose
@@ -560,11 +641,18 @@ docker compose version
 ```
 
 The default `docker-compose-plugin` package in Ubuntu repositories may provide a version older than v2.39.1.
-If the version is missing or too old, install the required version manually:
+If the version is missing or too old, select the binary for the host
+architecture and install the required version manually:
 
 ```bash
+case "$(uname -m)" in
+  x86_64) COMPOSE_ARCH=x86_64 ;;
+  aarch64|arm64) COMPOSE_ARCH=aarch64 ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
 sudo mkdir -p /usr/local/lib/docker/cli-plugins
-sudo curl -SL https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-x86_64 \
+sudo curl -fSL "https://github.com/docker/compose/releases/download/v2.39.1/docker-compose-linux-${COMPOSE_ARCH}" \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 ```
@@ -622,7 +710,7 @@ ngc --version
 ngc config set
 ```
 
-When prompted, enter your NGC API key. For information on obtaining API keys, see [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
+When prompted, enter your NGC API key. For information on obtaining API keys, see [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc--hugging-face-api-keys).
 
 <Note>
 NGC CLI downloads page: https://ngc.nvidia.com/setup/installers/cli

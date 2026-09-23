@@ -111,8 +111,7 @@ documents the developer profiles.
 - Updated the Video Summarization developer profile to integrate the current Video Summarization microservice and API flow (renamed from Long Video Summarization microservice).
 - Updated Video Summarization to use RTVI-VLM as the default VLM path for video understanding and summarization.
 - Added support for generating one report across multiple uploaded videos.
-- *Early Access (EA)* Feature: Video Summarization live-stream caption generation, stream summary, stream report
-  generation, and Q&A based on captions in Elasticsearch.
+- *Early Access (EA)* Feature: Video Summarization live-stream caption generation, stream summary, and stream report generation.
 
 - Requests for an RTSP stream summary return empty results if no captions are available in Elasticsearch for the requested time period. This can happen if:
 
@@ -191,9 +190,10 @@ documents the developer profiles.
   (OpenAI-compatible VLM endpoint) that the Alerts microservice calls for
   inference.
 * `CONFIG_PATH` — Path to the service configuration file (`config.yml`).
-* `ALWAYS_ON_RULES_CONFIG` — Explicit path to the always-on (real-time)
-  alert rules YAML file; takes precedence over the default
-  `realtime-config.yaml` lookup.
+* `ALWAYS_ON_RULES_CONFIG` — Required container path to the always-on
+  (real-time) alert rules YAML file. There is no implicit fallback lookup.
+  Docker Compose sets it to `/app/runtime/realtime-config.yml` after processing
+  the host file selected by `VLM_AS_VERIFIER_CONFIG_FILE_REALTIME`.
 
 * Docker Compose x86 default: `nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0`.
 * Helm chart default: `nvcr.io/nvidia/vss-core/vss-alert-verification:3.2.0`.

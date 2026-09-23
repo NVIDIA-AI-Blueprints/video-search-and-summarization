@@ -8,9 +8,13 @@ This page provides API reference for the Real-Time VLM Microservice.
 
 ## Base URL
 
-The API is available at:
+For a VSS developer-profile deployment, the API is available at:
 
-* **REST API**: `http://<host>:8000`
+* **REST API**: `http://<host>:${RTVI_VLM_PORT:-8018}`
+
+The profile maps that host port to port `8000` in the RTVI-VLM container. A
+standalone RTVI-VLM Compose deployment instead publishes the required
+`BACKEND_PORT` value; the standalone setup example sets it to `8000`.
 
 All endpoints are prefixed with `/v1`.
 

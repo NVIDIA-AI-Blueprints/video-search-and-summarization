@@ -30,12 +30,13 @@ harness comparison in the [Quickstart](/vss/getting-started/quickstart).
 Regardless of which harness you choose, the model is the same:
 
 1. **Install the Skills.** Each Skill folder from the `skills/` directory of the
-   [VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.2.1/skills)
+   [VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/skills)
    is registered into the harness's standard skills directory (typically by symlink, so
    a `git pull` keeps every Skill current). See [Agent Skills](/vss/vision-agent/agent-skills) for
    the full install flow.
 2. **Load the Skills.** On startup the harness reads each `SKILL.md` frontmatter and
-   adds the Skill to its tool list. New Skills are picked up without a restart.
+   adds the Skill to its tool list. Start a new session before invoking a newly
+   installed Skill.
 3. **Match and invoke.** The harness matches a natural-language request against the
    Skills' descriptions and invokes the matching Skill - chaining several Skills when a
    task needs multiple steps or a missing prerequisite.
