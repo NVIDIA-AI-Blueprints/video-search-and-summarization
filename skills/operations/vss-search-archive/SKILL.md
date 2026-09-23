@@ -43,6 +43,14 @@ defer the hand-driven legs to `vss-manage-video-io-storage`
   confirmation. If any result is `confirmed` or `rejected`, do not hand off
   any result to another verifier. Never hand off a partially verified result set.
 
+## When not to use
+
+- A fresh visual question about a supplied local clip ("watch this clip and tell me
+  whether…") is `vss-ask-video`, not an archive search.
+- Long-form summarization of a recording ("summarize the full
+  hour-long recording…") is `vss-summarize-video`.
+- Deploying or changing a profile is `/vss-build-vision-ai`, not this skill.
+
 ## Prerequisites
 
 - A running VSS `search` profile and its host-reachable Compose or Ingress
