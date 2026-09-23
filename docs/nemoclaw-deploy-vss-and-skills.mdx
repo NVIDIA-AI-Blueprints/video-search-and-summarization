@@ -29,7 +29,7 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 
 * **Common to both notebooks**
 
-  * Access to the [VSS repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0).
+  * Access to the [VSS repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}).
   * Docker, `curl`, `python3`, and `uv` on the host that runs the notebook.
   * A Jupyter kernel with Python 3.11 or newer.
 
@@ -58,12 +58,12 @@ and the [NemoClaw OpenClaw user guide](https://docs.nvidia.com/nemoclaw/latest/u
 ## Part 1 - Set up NemoClaw
 
 1. Clone the VSS repository at `~/video-search-and-summarization` and check out
-   the `v3.3.0` tag:
+   the repository reference selected for this documentation build:
 
    ```bash
    git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
    cd video-search-and-summarization
-   git checkout tags/v3.3.0
+   git checkout "${VSS_DOCS_GIT_REF:-develop}"
    ```
 
    If your checkout is elsewhere or the host has multiple clones, set `VSS_REPO_DIR` before launching Jupyter.

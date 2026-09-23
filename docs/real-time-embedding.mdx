@@ -164,13 +164,13 @@ echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 ### Quick Start
 
 To deploy the RTVI-Embed microservice, clone the
-[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0)
+[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop})
 repository and change into the Docker directory:
 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.3.0
+git checkout "${VSS_DOCS_GIT_REF:-develop}"
 cd services/rtvi/rt-embed/docker
 ```
 
@@ -221,7 +221,7 @@ ERROR_MESSAGE_TOPIC=mdx-embed-errors        # Kafka error topic (or Redis channe
 ### Sample docker-compose.yml file
 
 For the current deployment stack, use the checked-in compose file directly:
-[services/rtvi/rt-embed/docker/compose.yaml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/services/rtvi/rt-embed/docker/compose.yaml).
+[services/rtvi/rt-embed/docker/compose.yaml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-embed/docker/compose.yaml).
 It defines the single-image `rtvi-server` service together with the Kafka and
 Redis services used by the default message and error buses.
 
@@ -273,7 +273,7 @@ chart is in `deploy/helm/services/rtvi/charts/rtvi-embed` in the
    ```bash
    git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
    cd video-search-and-summarization
-   git checkout tags/v3.3.0
+   git checkout "${VSS_DOCS_GIT_REF:-develop}"
    cd deploy/helm/services/rtvi/charts/rtvi-embed
    ```
 
@@ -1032,7 +1032,7 @@ To run a model that is not a Cosmos-Embed1 variant, provide your own model
 implementation and point `MODEL_IMPLEMENTATION_PATH` at it. Use the
 Cosmos-Embed1 reference implementation as a template for your own model. The
 source is available in the
-[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/v3.3.0)
+[video-search-and-summarization](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop})
 repository at
 `services/rtvi/rt-embed/src/models/custom/samples/cosmos-embed1` (the base
 class it subclasses is at
