@@ -1,6 +1,6 @@
 ---
 name: vss-ask-video
-description: Ask one visual question about a user-supplied local video file or pre-resolved video URL by sending the video and question to the configured vLLM backend through `vss vlm run`. Use when the exact video and question are already available. Not for archive search, stored-memory lookup, sensor discovery, summarization, or reports.
+description: Answer a visual question when the task supplies an exact local video file or video URL. Send the complete supplied video and the question directly to the configured vLLM backend with `vss vlm run`. Use for benchmark and multiple-choice video questions, including prompts that also provide a time reference.
 license: Apache-2.0
 metadata:
   version: "3.3.0"
@@ -16,37 +16,62 @@ Take two logical inputs:
 - `VIDEO`: one local video file or one pre-resolved HTTP/HTTPS video URL.
 - `QUESTION`: the user's visual question.
 
-Send them to the configured vLLM backend with one `vss vlm run`, then return
-the model's answer. Preserve the question verbatim. Do not add instructions,
-turn it into a checklist, combine it with another question, or answer from
-conversation context instead of inspecting the supplied video.
+Send them to the configured vLLM backend with exactly one `vss vlm run`, then
+return the model's answer. Preserve the question verbatim, including answer
+choices. A time reference is metadata: do not append it to the question and do
+not use it to clip or seek the video.
+
+Do not inspect, download, decode, transcode, segment, or extract frames from the
+video. Do not call a generic image/video tool, use `ffmpeg`, issue an exploratory
+VLM prompt, search the web, or answer from context. The supplied complete video
+and the supplied question are the only inputs to inference.
 
 ## Requirements
 
-This skill requires a configured VSS CLI whose VLM policy uses the `vllm`
-backend. Configuration is an operator task performed before the question:
+This skill requires `VSS_GATEWAY_ORIGIN` and `VSS_VLM_BACKEND=vllm`. In the
+OpenClaw harness, initialize the VSS CLI once when its configuration file is
+missing:
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-
-"${VSS[@]}" configure vlm
+test -n "${VSS_GATEWAY_ORIGIN:?}"
+test "${VSS_VLM_BACKEND:?}" = "vllm"
+test -f "${HOME}/.vss/config.json" || \
+  vss configure --base-url "${VSS_GATEWAY_ORIGIN}"
 ```
 
-The displayed policy must report `"backend": "vllm"`. If it does not, report
-the configuration mismatch. Do not silently change the deployment or VLM
-policy while answering a video question.
+This initialization only records the operator-provided origin. Do not probe
+ports, discover another endpoint, or deploy or modify a backend. If either
+required environment value is absent or different, report the configuration
+mismatch and stop.
 
-When the OpenClaw harness exposes the `vss_cli` tool, use it instead of a shell
-command. Pass the arguments after `vss` as its `args` array. In a source
-checkout, use the project-local invocation shown above. Bootstrap and exit-code
-rules are defined in [AGENTS.md](../../../AGENTS.md).
+When the OpenClaw harness exposes `vss_cli`, use it for both initialization and
+the request. Pass the arguments after `vss` as its `args` array. Do not use a
+shell command when `vss_cli` is available. In a source checkout, use the
+project-local invocation defined in [AGENTS.md](../../../AGENTS.md).
 
 ## Run the request
 
-Use only the video path or URL supplied by the user or by an explicit bounded
-handoff. Do not search for a replacement video. Resolve a relative file path
-against the current working directory and require a readable regular file.
+Use only the exact video path or URL supplied by the task. Do not search for a
+replacement video. Resolve a relative file path against the current working
+directory and require a readable regular file.
+
+For an OpenClaw URL request, make this single inference call after the one-time
+initialization above:
+
+```json
+{
+  "args": [
+    "vlm", "run",
+    "--media-url", "<supplied-video-url>",
+    "--prompt", "<verbatim-question-and-choices>",
+    "--fps", "2",
+    "--no-persist"
+  ]
+}
+```
+
+Do not add `--num-frames`, `--max-tokens`, a time range, or any other inference
+override. The deployed vLLM policy controls those settings.
 
 For a local file:
 
@@ -69,8 +94,7 @@ exit "${RC}"
 ```
 
 `--file` streams the complete video file to vLLM as a base64 video payload.
-vLLM performs decoding and samples it at 2 FPS. Do not decode the video or
-extract frames in the agent.
+vLLM performs decoding and samples it at 2 FPS.
 
 For a pre-resolved URL:
 
@@ -91,8 +115,8 @@ printf 'vss_exit_code=%s\n' "${RC}" >&2
 exit "${RC}"
 ```
 
-`--media-url` sends the URL as the video input and vLLM fetches it. The URL
-must already identify the exact video or bounded clip to inspect.
+`--media-url` sends the supplied URL unchanged and vLLM fetches the complete
+video.
 
 Use `--no-persist` because this skill performs direct visual Q&A and does not
 depend on unified memory. Do not run `vss memory get`, `vss memory query`, or
@@ -101,16 +125,16 @@ resolved a clip and handed this skill its URL.
 
 ## Multiple questions
 
-Run one `vss vlm run` per question, in the user's order. Pass the same video to
-each call and preserve each question verbatim. Never combine multiple questions
-into one prompt.
+Run one `vss vlm run` per question, in the user's order. Pass the same complete
+video to each call and preserve each question verbatim. Never combine multiple
+questions into one prompt.
 
 ## Return the result
 
 On exit code 0, return the answer from the command output. On a nonzero exit,
 report the exit code and diagnostic and stop for that question. Do not retry,
-switch videos, inspect frames yourself, query memory, or call an
-OpenAI-compatible endpoint with raw HTTP.
+fall back to another tool, change the prompt, switch videos, inspect frames,
+query memory, or call an OpenAI-compatible endpoint with raw HTTP.
 
 ## Boundaries
 
