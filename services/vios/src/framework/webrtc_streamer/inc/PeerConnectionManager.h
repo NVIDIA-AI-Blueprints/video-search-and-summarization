@@ -44,13 +44,13 @@
 #include "vstmodule.h"
 
 // #define ASYNC_API
-#define PEER_CONNECTION_TIMEOUT_THREAD_COUNT 1
-#define WEBRTC_PREFIX "webrtc_"
+constexpr int PEER_CONNECTION_TIMEOUT_THREAD_COUNT = 1;
+constexpr const char* WEBRTC_PREFIX = "webrtc_";
 #define WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL  12s
 constexpr int WEBRTC_INPUT_FPS_CAPTURE_INTERVAL_SEC = 2;
 constexpr int WEBRTC_INPUT_FPS_PUBLISH_INTERVAL_SEC = 20;
 constexpr int STANDARD_BITRATE_720P_KBPS = 3000;
-#define PASS_THROUGH_QUALITY "pass_through"
+constexpr const char* PASS_THROUGH_QUALITY = "pass_through";
 
 typedef std::pair< webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface>, webrtc::scoped_refptr<webrtc::AudioSourceInterface>> AudioVideoPair;
 

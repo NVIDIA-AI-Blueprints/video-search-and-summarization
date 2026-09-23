@@ -19,7 +19,7 @@
 #include "PeerConnection.h"
 #include <unordered_map>
 
-#define CSV_DELIMITER ", "
+constexpr const char* CSV_DELIMITER = ", ";
 
 WebrtcStreamStats::WebrtcStreamStats(std::string peerId) : m_peerId(peerId)
 {}

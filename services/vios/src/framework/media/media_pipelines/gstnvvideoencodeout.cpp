@@ -32,9 +32,7 @@ NvVideoEncodeOut::NvVideoEncodeOut() :
 {
 }
 
-NvVideoEncodeOut::~NvVideoEncodeOut()
-{
-}
+NvVideoEncodeOut::~NvVideoEncodeOut() = default;
 
 GstElement* NvVideoEncodeOut::create(const string& file_name)
 {

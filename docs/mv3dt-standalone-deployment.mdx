@@ -18,7 +18,7 @@ Perception uses the same `vss-rt-cv` image as [Object Detection and Tracking](/v
 
 ## Standalone deployment
 
-Unless noted otherwise, run every command below from `services/rtvi/rt-cv-3d/rt-cv-mv3dt` in a checkout of the blueprint repository. This deployment ships sample configs, utility scripts, and a minimal Docker Compose file that runs both components together. For container image tags and how to build them locally, see the [RT-CV-3D README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/README.md#docker-images).
+Unless noted otherwise, run every command below from `services/rtvi/rt-cv-3d/rt-cv-mv3dt` in a checkout of the blueprint repository. This deployment ships sample configs, utility scripts, and a minimal Docker Compose file that runs both components together. For container image tags and how to build them locally, see the [RT-CV-3D README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/README.md#docker-images).
 
 **Assumptions**
 
@@ -42,7 +42,7 @@ ngc registry resource download-version "<WAREHOUSE_APP_DATA_NGC>"
 ( cd <WAREHOUSE_APP_DATA_DIR> && tar -xvf *.tar.gz )
 ```
 
-Then point **`MODELS_DIR`** in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) at the extracted `vss-warehouse-app-data/models` directory. The stack uses:
+Then point **`MODELS_DIR`** in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) at the extracted `vss-warehouse-app-data/models` directory. The stack uses:
 
 ```text
 $MODELS_DIR/mtmc/                  RT-DETR onnx (+ TensorRT engines, built on first run)
@@ -58,24 +58,24 @@ $MODELS_DIR/reid/                  CLIP-ReID onnx + TensorRT engine (optional Re
       Camera.mp4  Camera_01.mp4  Camera_02.mp4  Camera_03.mp4
   ```
 - **`calibration.json`** and the **BEV map `Top.png`** (in this repo, under `deploy/.../warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/`):
-- [`calibration.json`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json)
-- [`images/Top.png`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png)
+- [`calibration.json`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/calibration.json)
+- [`images/Top.png`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/warehouse-4cams-20mx20m-synthetic/images/Top.png)
 
-To test with the sample dataset, set **`VIDEO_DIR`** to the absolute path of the sample videos directory and **`NUM_CAMS=4`** in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env), then continue with [§2.2](#22-generate-caminfo-and-mqtt-pubsub-configs) using its `calibration.json`, and [§2.3](#23-stage-the-deepstream-configs) with `INPUT_MODE=file`.
+To test with the sample dataset, set **`VIDEO_DIR`** to the absolute path of the sample videos directory and **`NUM_CAMS=4`** in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env), then continue with [§2.2](#22-generate-caminfo-and-mqtt-pubsub-configs) using its `calibration.json`, and [§2.3](#23-stage-the-deepstream-configs) with `INPUT_MODE=file`.
 
 ### 1.2 Optional: use a different RT-DETR model
 
 For example a smart-city variant:
 
 - place the onnx under `$MODELS_DIR/mtmc/`
-- update the `onnx-file` and `model-engine-file` names in [configs/ds-pgie-config.yml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/configs/ds-pgie-config.yml)
-- if the class set differs: update `configs/ds-detector-labels.txt` and the `CLASS_SPECS` height/radius priors when generating configs ([§2](#2-update-configs-for-your-dataset)) — `CLASS_SPECS` is an env override to [`generate-configs.sh`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/scripts/generate-configs.sh), whose header documents its format
+- update the `onnx-file` and `model-engine-file` names in [configs/ds-pgie-config.yml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/configs/ds-pgie-config.yml)
+- if the class set differs: update `configs/ds-detector-labels.txt` and the `CLASS_SPECS` height/radius priors when generating configs ([§2](#2-update-configs-for-your-dataset)) — `CLASS_SPECS` is an env override to [`generate-configs.sh`](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/scripts/generate-configs.sh), whose header documents its format
 
 ## 2. Update configs for your dataset
 
 ### 2.1 Set environment variables
 
-Settings live in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env), in two kinds:
+Settings live in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env), in two kinds:
 
 | Set in | Variables | Read by |
 |---|---|---|
@@ -123,14 +123,14 @@ TRACKER_CONFIG=/path/to/tracker.yml ./scripts/stage-configs.sh   # use your own 
 
 ### 2.4 Optional: use your own DeepStream / tracker configs
 
-The samples live in [configs/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/configs/) (RT-DETR pgie, MV3DT tracker, main config, Kafka/MQTT adaptors). To replace them:
+The samples live in [configs/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/configs/) (RT-DETR pgie, MV3DT tracker, main config, Kafka/MQTT adaptors). To replace them:
 
 - **Tracker**: a tracker config tuned for your specific dataset usually tracks more accurately than the sample config — such a config is typically obtained by manual tuning or with [PipeTuner](https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/Pipetuner-guide.html), which is why the `TRACKER_CONFIG` override is supported. Pass your own tracker config when staging — `TRACKER_CONFIG=/path/to/my-tracker-config.yml ./scripts/stage-configs.sh` (its `cameraModelFilepath` map will still be overwritten properly to your generated camInfo files).
-- **Other DeepStream configs** (pgie, main config, adaptors): edit the files in [configs/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/configs/) before running `stage-configs.sh` or re-running it.
+- **Other DeepStream configs** (pgie, main config, adaptors): edit the files in [configs/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/configs/) before running `stage-configs.sh` or re-running it.
 
 ## 3. Launch
 
-The default images are the NGC release images — run `docker login nvcr.io` first to be able to pull them (or build them locally instead, see the [RT-CV-3D README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/README.md#docker-images)).
+The default images are the NGC release images — run `docker login nvcr.io` first to be able to pull them (or build them locally instead, see the [RT-CV-3D README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/README.md#docker-images)).
 
 ### 3.1 Option A — bundled brokers
 
@@ -148,7 +148,7 @@ COMPOSE_PROFILES=mosquitto,kafka docker compose up -d
 
 > **The two brokers propagate differently.** `MQTT_HOST`/`MQTT_PORT` are read by the container at every start, so editing `docker/.env` is enough for MQTT. The Kafka endpoint is written into `generated/configs/ds-main-config-mv3dt.txt` by `stage-configs.sh` and the configs are mounted read-only, so changing `KAFKA_BOOTSTRAP` without restaging leaves the old endpoint in place. Perception then retries a broker that is not there and aborts. The container checks the two against each other at startup and refuses with this remedy rather than failing that way, but restaging is what fixes it.
 
-If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env), **restage**, then launch without `COMPOSE_PROFILES`:
+If you want to use your own mosquitto and kafka brokers, set `MQTT_HOST`/`MQTT_PORT` and `KAFKA_BOOTSTRAP` in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env), **restage**, then launch without `COMPOSE_PROFILES`:
 
 ```bash
 ./scripts/stage-configs.sh     # required: the Kafka endpoint is written into the staged config
@@ -164,7 +164,7 @@ docker compose up -d
 
 The `reid` Compose profile adds the embedding service and its private Milvus, etcd, and MinIO dependencies. The tracker emits 1280-D CLIP-ReID features in `mdx-raw` and queries the service at `127.0.0.1:8088`; the service consumes the same `mdx-raw` topic. Compression and the secondary SigLIP embedding are off by default because neither is needed for tracker reassociation.
 
-For an isolated, finite evaluation, edit [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env):
+For an isolated, finite evaluation, edit [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env):
 
 ```dotenv
 INPUT_MODE=file
@@ -204,7 +204,7 @@ For strict isolation between repeated finite runs, consume/convert the Kafka res
 
 ### 3.4 On screen, display, and GPU selection
 
-`GPU_DEVICE` in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) picks the GPU the pipeline computes on. With `OSD=1` the container also has to reach the GPU that drives the X display, which is often a different one on a multi-GPU host.
+`GPU_DEVICE` in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) picks the GPU the pipeline computes on. With `OSD=1` the container also has to reach the GPU that drives the X display, which is often a different one on a multi-GPU host.
 
 `stage-configs.sh` resolves this: it adds the display GPU to `GPU_DEVICE` when it is missing, and writes `gpu-id` into the staged config as the compute GPU's ordinal within that set. The two are not the same number, because the container runtime orders the visible devices by PCI address rather than by the order you list them.
 
@@ -214,7 +214,7 @@ GPU_DEVICE=7   OSD=1   ->   GPU_DEVICE=3,7   gpu-id=1     # compute on 7, displa
 
 When the display GPU cannot be determined, staging says so and changes nothing. The on-screen display may then fail with `Failed to set pipeline to PAUSED`; add the GPU driving the display to `GPU_DEVICE` and restage.
 
-On a laptop or any host whose display is rendered by Mesa rather than by an NVIDIA GPU, this is a different problem with a different fix: uncomment the `devices` block in [docker/compose.yml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml). The preflight names whichever of the two it sees.
+On a laptop or any host whose display is rendered by Mesa rather than by an NVIDIA GPU, this is a different problem with a different fix: uncomment the `devices` block in [docker/compose.yml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml). The preflight names whichever of the two it sees.
 
 ### 3.5 Verify startup
 
@@ -352,7 +352,7 @@ Work through the following checks in order:
    ```bash
    docker logs vss-rtvi-cv-mv3dt
    ```
-If it shows this line: `libEGL warning: egl: failed to create dri2 screen`, it often indicates the container cannot access the host DRI device (`/dev/dri`). In most cases the fix is to pass the host DRI device into the container by adding the following to the `perception` service in [docker/compose.yml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml):
+If it shows this line: `libEGL warning: egl: failed to create dri2 screen`, it often indicates the container cannot access the host DRI device (`/dev/dri`). In most cases the fix is to pass the host DRI device into the container by adding the following to the `perception` service in [docker/compose.yml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml):
    ```yaml
    services:
      perception:
@@ -365,7 +365,7 @@ Then relaunch the container.
 
 ### 6.2 Perception camera view — save as video
 
-Save the perception app's own annotated camera view (the same 3D-box view as the OSD) to an encoded video, useful on a headless machine with no display. Enable it with `SAVE_VIDEO=1`, either set in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) or passed inline to the staging command ([§2.3](#23-stage-the-deepstream-configs)), then launch. It writes `video-output/grid-view.mkv`: all cameras tiled into one video, with the 3D boxes and the class/ID labels overlaid.
+Save the perception app's own annotated camera view (the same 3D-box view as the OSD) to an encoded video, useful on a headless machine with no display. Enable it with `SAVE_VIDEO=1`, either set in [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) or passed inline to the staging command ([§2.3](#23-stage-the-deepstream-configs)), then launch. It writes `video-output/grid-view.mkv`: all cameras tiled into one video, with the 3D boxes and the class/ID labels overlaid.
 
 - **Recorded files** ([§2.3](#23-stage-the-deepstream-configs)) — the clips play once and the file finalizes automatically at end-of-stream (the container then exits):
   ```bash
@@ -430,7 +430,7 @@ BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/bev-visualizer.sh
 ```
 
-In the live window: press `q` to quit. See [scripts/bev-visualizer.sh](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/scripts/bev-visualizer.sh) for tuning knobs (ID labels, timestamp bucketing).
+In the live window: press `q` to quit. See [scripts/bev-visualizer.sh](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/scripts/bev-visualizer.sh) for tuning knobs (ID labels, timestamp bucketing).
 
 ### 6.4 BEV visualizer — save as video
 
@@ -449,12 +449,12 @@ BEV_SAVE_VIDEO=1 BEV_SOURCE=fused BEV_DATASET_PATH=/path/to/dataset ./scripts/be
 
 | Path | Purpose |
 |---|---|
-| [docker/compose.yml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml) | perception + bev-fusion (+ optional `mosquitto`, `kafka`, and `reid` Compose profiles) |
-| [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) | images/tags, `MODELS_DIR`, `NUM_CAMS`, ports, GPU, broker/ReID settings, `INPUT_MODE`/`VIDEO_DIR`, `SAVE_VIDEO` |
-| [docker/init-scripts/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/init-scripts/) | `ds-start-mv3dt.sh` — the in-container launch script (mounted into perception) |
-| [configs/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/configs/) | sample DeepStream configs + `mosquitto.conf` |
-| [scripts/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/scripts/) | shell utilities (config generation, staging, stream add/remove, visualizer/dump launchers) |
-| [utils/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/) | Python consumers (`kafka_bev_visualizer.py`, `kafka_fused_bev_visualizer.py`, `kafka-dump.py`, `schema_pb2.py`) + their `requirements.txt` |
+| [docker/compose.yml](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml) | perception + bev-fusion (+ optional `mosquitto`, `kafka`, and `reid` Compose profiles) |
+| [docker/.env](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/.env) | images/tags, `MODELS_DIR`, `NUM_CAMS`, ports, GPU, broker/ReID settings, `INPUT_MODE`/`VIDEO_DIR`, `SAVE_VIDEO` |
+| [docker/init-scripts/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/init-scripts/) | `ds-start-mv3dt.sh` — the in-container launch script (mounted into perception) |
+| [configs/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/configs/) | sample DeepStream configs + `mosquitto.conf` |
+| [scripts/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/scripts/) | shell utilities (config generation, staging, stream add/remove, visualizer/dump launchers) |
+| [utils/](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/services/rtvi/rt-cv-3d/rt-cv-mv3dt/utils/) | Python consumers (`kafka_bev_visualizer.py`, `kafka_fused_bev_visualizer.py`, `kafka-dump.py`, `schema_pb2.py`) + their `requirements.txt` |
 | `generated/` | generated + staged per-run files: `camInfo/`, `pub_sub_info_config.yml`, `configs/` (the staged dir the container mounts, incl. the rewritten tracker config) |
 | `video-output/` | saved perception video from `SAVE_VIDEO=1` (`grid-view.mkv`, the tiled camera grid) |
 | `bev-output/` | saved BEV visualizer videos from `BEV_SAVE_VIDEO=1` ([§6.4](#64-bev-visualizer--save-as-video)) — top-down `trajectory_video_*.mp4` |

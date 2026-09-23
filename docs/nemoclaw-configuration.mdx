@@ -48,29 +48,39 @@ The agent model provider is seeded in Section 1.1 and set by one of the provider
 | Variable | Default | Description |
 | --- | --- | --- |
 | `NVIDIA_API_KEY` | *(blank)* | Required for the build.nvidia.com agent provider (Section 1.2, option c). |
-| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` (option a) | OpenAI-compatible base URL for a cloud or local custom agent provider (Section 1.2, options a/b). When non-empty, the notebook selects `NEMOCLAW_PROVIDER=custom`. Leave blank to select `NEMOCLAW_PROVIDER=build`. |
-| `NEMOCLAW_MODEL` | `aws/anthropic/bedrock-claude-opus-5` (option a) | Model ID for the agent chat model, as the chosen endpoint serves it. |
-| `COMPATIBLE_API_KEY` | *(blank)* | Bearer token for the custom OpenAI-compatible provider, issued by whoever runs the endpoint. Must be non-empty for custom provider mode, even when a local server ignores it. |
+| `NEMOCLAW_PROVIDER` | `custom` for option a; selected provider for options b/c | NemoClaw provider passed during onboarding. Supported notebook paths are `custom`, a NemoClaw-managed provider such as `install-vllm`, `ollama`, or `nim-local`, and `build`. |
+| `NEMOCLAW_ENDPOINT_URL` | `https://inference-api.nvidia.com/v1` (option a; NVIDIA-internal) | OpenAI-compatible base URL for a custom agent provider. External users must replace the prefilled internal endpoint with one they can access, or select another provider. |
+| `NEMOCLAW_MODEL` | `aws/anthropic/bedrock-claude-opus-5` (option a) | Model or serving-catalog ID for the selected agent provider. |
+| `COMPATIBLE_API_KEY` | *(blank)* | Bearer token for the custom OpenAI-compatible provider, issued by whoever runs the endpoint. A self-hosted endpoint that ignores authentication uses `EMPTY`. |
 
 Advanced values are set in Section 1.3 or derived from the environment.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `NEMOCLAW_INSTALL_REF` | `v0.0.80` | NemoClaw installer pin. Section 3.1 reinstalls if the installed `nemoclaw` version does not match this semver tag. |
-| `NEMOCLAW_INFERENCE_PROXY` | `True` | When `NEMOCLAW_ENDPOINT_URL` resolves to a non-public address, Section 3.1 starts the bundled host proxy and points NemoClaw at it to avoid NemoClaw's SSRF rejection. The proxy reaches its upstream as `https://<host>` on port 443, so disable it for an endpoint served over plain HTTP or on another port — such as this deployment's own LLM NIM — and set `COMPATIBLE_API_KEY=EMPTY` yourself. Set to `False` in Section 1.3 or export `NEMOCLAW_INFERENCE_PROXY=0`. |
-| `NEMOCLAW_TOOL_DISCLOSURE` | *(NemoClaw default; `direct` for Nemotron 3.5 Lightning)* | OpenClaw tool exposure mode: `direct` or `progressive`. The notebook defaults Nemotron 3.5 Lightning to direct structured tools because its progressive search/describe/call trajectory is not reliable. Changing this on an existing sandbox requires a rebuild or fresh onboard. |
-| `AGENT_RUNTIME` | `openclaw` | Sandbox agent runtime used at onboard. Supported values are `openclaw` and `hermes`. Override via the `AGENT_RUNTIME` environment variable. |
+| `NEMOCLAW_INSTALL_REF` | `v0.0.114` | NemoClaw installer pin. Section 3.1 reinstalls if the installed `nemoclaw` version does not match this semver tag. |
+| `NEMOCLAW_INFERENCE_PROXY` | `True` | Enables SSRF detection and the bundled host proxy for non-public custom endpoints. Disable it for plain HTTP or non-443 endpoints. |
+| `INFERENCE_API_PROXY_PORT` | `18080` | Host port for the inference proxy when `NEMOCLAW_INFERENCE_PROXY` is active. |
+| `NEMOCLAW_TOOL_DISCLOSURE` | *(NemoClaw default; `direct` for Nemotron 3.5 Lightning)* | OpenClaw tool exposure mode: `direct` or `progressive`. Changing it requires a fresh onboard. |
+| `AGENT_RUNTIME` | `openclaw` | Sandbox agent runtime. Supported values are `openclaw` and `hermes`. |
+| `AGENT_IMAGE_DOCKERFILE` | `.openclaw/Dockerfile` or `.hermes/Dockerfile` | Harness image passed to onboarding with `--from`. It contains the VSS skills, workspace docs, and `vss` CLI. |
 | `AGENT_HOOKS_ENABLED` | `True` | Enables agent webhooks and generates a random `AGENT_HOOKS_TOKEN`. |
-| `AGENT_HOOKS_PATH` | `/hooks` | Webhook path under the agent dashboard forward. |
-| `INFERENCE_API_PROXY_PORT` | `18080` | Port for the bundled inference API proxy when `NEMOCLAW_INFERENCE_PROXY` is active. |
-| `AGENT_DASHBOARD_PORT` | `18789` | Agent dashboard forward port used by the UI link and webhook checks. Override via `NEMOCLAW_DASHBOARD_PORT`. |
-| `AGENT_PLUGIN_VARIANT` | `nemoclaw` | Workspace variant overlay. The `nemoclaw` overlay uploads the `_nemoclaw` workspace docs into the sandbox workspace. Read into `WORKSPACE_VARIANT`. |
-| `NEMOCLAW_SANDBOX_NAME` | `demo` | Sandbox name to create or reuse. Use the same value in `deploy_vss_orchestrator.ipynb`. |
-| `VSS_ORCHESTRATOR_MCP_HOST` | `0.0.0.0` | Host used to build the MCP URL that Section 3.3 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
-| `VSS_ORCHESTRATOR_MCP_PORT` | `9988` | Port used to build the MCP URL that Section 3.3 registers in the sandbox. Must match the value used in `deploy_vss_orchestrator.ipynb`. |
+| `AGENT_HOOKS_PATH` | `/hooks` | OpenClaw webhook path; ignored for Hermes. |
+| `AGENT_WEBHOOK_PORT` | `8644` | Hermes webhook adapter port; ignored for OpenClaw. |
+| `AGENT_DASHBOARD_PORT` | `18789` | Loopback-only agent dashboard forward. Override with `NEMOCLAW_DASHBOARD_PORT`. |
+| `AGENT_DASHBOARD_RELAY_PORT` | `18790` | Relay used by off-loopback clients, including the VSS UI container and Brev secure link. Override with `NEMOCLAW_DASHBOARD_RELAY_PORT`. |
+| `VSS_AGENT_ADAPTER_ENABLED` | `False` | Enables the relay for a containerized VSS UI outside Brev; Brev starts the relay for its secure link regardless. |
+| `HITL_ENABLED` | `False` | When false, the harness asks follow-up questions as ordinary chat messages. |
+| `NEMOCLAW_VLLM_PORT` | `18000` | Host port for a NemoClaw-managed vLLM server. |
+| `NEMOCLAW_VLLM_GPU_DEVICE` | `0` | GPU index or full GPU/MIG UUID passed to `install-vllm`; changing it requires a fresh onboard. |
+| `AGENT_PLUGIN_VARIANT` | `nemoclaw` | Workspace variant overlay read into `WORKSPACE_VARIANT`. |
+| `NEMOCLAW_SANDBOX_NAME` | `demo` | Sandbox name. The notebook replaces an existing sandbox of this name by default. Use the same value in `deploy_vss_orchestrator.ipynb`. |
+| `NEMOCLAW_RECREATE_SANDBOX` | `True` | Recreates an existing sandbox during onboarding, discarding its agent sessions. Set false only for an intentional manual reuse. Build Vision AI always recreates the sandbox so provider and model settings are applied. |
+| `VSS_PUBLIC_URL` | *(blank)* | Deployment origin recorded by `vss configure`. Blank selects this host's Compose ingress; set a Kubernetes Ingress origin explicitly. |
+| `ORCHESTRATOR_ENABLE_HTTPS` | `False` | The default HTTP orchestrator requires no registration. Set true in both notebooks to register and serve an HTTPS MCP endpoint. |
+| `VSS_ORCHESTRATOR_MCP_PORT` | `9988` | Orchestrator port. Section 3.3 uses it only when HTTPS registration is enabled. |
 | `VSS_REPO_DIR` | `~/video-search-and-summarization` | VSS checkout used by the notebook. |
-| `NEMOCLAW_REPO_DIR` | `~/NemoClaw` | Fallback NemoClaw source checkout used only when the `nemoclaw` CLI is not already available. The curl installer normally clones the installed source under `~/.nemoclaw/source`. |
-| `BREV_ENVIRONMENT_CONTEXT_PATH` | `/etc/brev/environment-context.json` | Brev context JSON with secure-link FQDNs and environment id. Override via that env var only if the context file lives elsewhere. |
+| `NEMOCLAW_REPO_DIR` | `~/NemoClaw` | Fallback NemoClaw source checkout used only when the `nemoclaw` CLI is unavailable. |
+| `BREV_ENVIRONMENT_CONTEXT_PATH` | `/etc/brev/environment-context.json` | Brev context JSON with secure-link FQDNs and environment ID. |
 
 ## deploy_vss_orchestrator.ipynb variables
 
@@ -78,9 +88,9 @@ Required values every VSS deployment needs are set in Section 1.1.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `NGC_CLI_API_KEY` | *(blank)* | NVIDIA legacy API key. Required for `docker login nvcr.io` and for the model weights the containers download from NGC. |
+| `NGC_CLI_API_KEY` | *(blank)* | NGC Personal API Key. Required for `docker login nvcr.io` and for the model weights the containers download from NGC. |
 | `NVIDIA_API_KEY` | *(blank)* | Required for NVIDIA-hosted VSS LLM/VLM endpoints and propagated to the MCP server. |
-| `HARDWARE_PROFILE` | `RTXPRO6000BW` | Hardware profile applied by the orchestrator. Supported values are `H100`, `L40S`, `RTXPRO6000BW`, `DGX-SPARK`, `IGX-THOR`, `AGX-THOR`, and `OTHER`. Edge profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`) are valid only for `base` and `alerts`. |
+| `HARDWARE_PROFILE` | `RTXPRO6000BW` | Hardware profile applied by the orchestrator. Supported values are `H100`, `GB300`, `L40S`, `RTXPRO4500BW`, `RTXPRO6000BW`, `DGX-SPARK`, `IGX-THOR`, `AGX-THOR`, and `OTHER`. For `GB300`, the orchestrator applies `VSS_CONTAINER_TAG_SUFFIX=-sbsa` and `RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN`. Edge profiles (`DGX-SPARK`, `IGX-THOR`, `AGX-THOR`) are valid only for `base` and `alerts`. |
 | `NEMOCLAW_SANDBOX_NAME` | `demo` | Sandbox created in `deploy_nemoclaw.ipynb`; the Agent UI you deploy VSS from lives here. |
 
 Advanced values are set in Section 1.2 or derived from the environment.

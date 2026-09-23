@@ -9,9 +9,16 @@ This guide describes how to autoscale NVIDIA NIM for VLM using Kubernetes Horizo
 
 This setup enables autoscaling of NVIDIA NIM for VLM workloads based on custom latency metrics. The system scales up when request latency degrades and scales down during low utilization optimizing resource usage while maintaining performance SLAs.
 
+The manifests in this guide are a worked example for the
+`cosmos-reason1-7b` NIM. If you use another VLM NIM, replace the NIM image,
+model profile, Kubernetes resource names, and the `service` selectors in the
+Prometheus queries together so that they continue to refer to the same
+deployed service.
+
 **Prerequisites:**
 
 - **StorageClass**: Kubernetes cluster must be provisioned with a StorageClass that supports "ReadWriteMany"
+- **Prometheus**: An existing Prometheus service that scrapes the NIM metrics
 - **Prometheus Adapter**: Exposes custom Prometheus metrics to Kubernetes HPA. Installation instructions provided below
 - **HPA**: Natively supported by Kubernetes and automatically scales NIM service pods based on custom metrics
 - **NIM Operator**: Deploys the NVIDIA NIM for VLM microsrvice. Follow instructions to install [NIM operator cluster wide](https://github.com/NVIDIA/k8s-nim-operator)
@@ -161,7 +168,7 @@ spec:
 Apply the NIMCache resource:
 
 ```bash
-kubectl apply -f nim_cache_lustre.yaml
+kubectl apply -f nim_cache.yaml
 ```
 
 Monitor the cache creation progress:
@@ -194,7 +201,9 @@ The Prometheus Adapter exposes custom Prometheus metrics to Kubernetes, enabling
 
 ### 2.1 Install Prometheus Adapter
 
-If not already installed, deploy Prometheus Adapter using Helm:
+If not already installed, deploy Prometheus Adapter using Helm. First identify
+the namespace, service name, and port of the Prometheus instance that scrapes
+the NIM metrics:
 
 ```bash
 # Add Prometheus Community Helm repo
@@ -204,11 +213,17 @@ helm repo update
 # Create namespace for monitoring if it doesn't exist
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
 
+# List Prometheus services, then set these values to the service that scrapes NIM.
+kubectl get service --all-namespaces -l app.kubernetes.io/name=prometheus
+export PROMETHEUS_NAMESPACE='<prometheus-namespace>'
+export PROMETHEUS_SERVICE='<prometheus-service-name>'
+export PROMETHEUS_PORT='<prometheus-service-port>'
+
 # Install Prometheus Adapter
 helm install prom-adapter prometheus-community/prometheus-adapter \
   --namespace monitoring \
-  --set prometheus.url=http://kratos-metrics-prometheus-server.monitoring.svc.cluster.local \
-  --set prometheus.port=80
+  --set-string prometheus.url="http://${PROMETHEUS_SERVICE}.${PROMETHEUS_NAMESPACE}.svc.cluster.local" \
+  --set-string prometheus.port="${PROMETHEUS_PORT}"
 ```
 
 Verify installation:
@@ -238,7 +253,7 @@ metadata:
   name: prom-adapter-prometheus-adapter
   namespace: monitoring
 data:
-  config.yaml: |\
+  config.yaml: |
     rules:
     - seriesQuery: 'e2e_request_latency_seconds_count{namespace="vlm"}'
       resources:

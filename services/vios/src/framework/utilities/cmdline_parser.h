@@ -45,7 +45,7 @@ class CmdLineParser
                          , m_rtspStreamsFilePath(RTSP_STREAMS_FILE)
         {
         }
-        ~CmdLineParser () {}
+        ~CmdLineParser () = default;
 
     public:
         int parseCommandLine (int argc, char *argv[]);

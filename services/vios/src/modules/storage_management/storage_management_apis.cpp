@@ -134,7 +134,7 @@ string StorageManagement::computeConfigHash(const string& enableOverlay,
     return vst_common::computeStableHash(serialized);
 }
 
-static string gStorageManagementApiList = R"([
+static const string gStorageManagementApiList = R"([
         {"method": "GET - To get total used storage size and used storage size for each recorded streams", "endpoint": "/api/v1/storage/size"},
         {"method": "GET - To get total used storage size by the specified stream", "endpoint": "/api/v1/storage/{streamId}"},
         {"method": "GET - To get storage management configurations", "endpoint": "/api/v1/storage/configuration"},

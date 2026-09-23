@@ -42,7 +42,7 @@
 #define GET_LOG nv_logger::Logger::getInstance
 #endif 
 #define ENABLE_LOG
-#define VA_ARG_MAX_BUFFER_LENGTH 1024*4
+constexpr int VA_ARG_MAX_BUFFER_LENGTH = 1024*4;
 
 const std::string red("\033[0;31m");
 const std::string yellow("\033[0;33m");

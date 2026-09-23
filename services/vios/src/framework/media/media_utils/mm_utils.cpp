@@ -51,8 +51,8 @@ static constexpr int DEFAULT_FRAMERATE_NUM = 30;
 static constexpr int DEFAULT_FRAMERATE_DENOM = 1;
 
 const uint8_t kNaluTypeMask = 0x1F;
-static uint8_t H26X_marker_1[] = { 0, 0, 0, 1};
-static uint8_t H26X_marker_2[] = { 0, 0, 1};
+static const uint8_t H26X_marker_1[] = { 0, 0, 0, 1};
+static const uint8_t H26X_marker_2[] = { 0, 0, 1};
 
 // Helper function to check if string is a remote URL (http/https)
 static inline bool isRemoteUrl(const std::string& path)

@@ -45,6 +45,13 @@ The following diagram illustrates the alert verification workflow architecture:
 - **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
 - **Phoenix:** Observability and telemetry service for agent workflow monitoring
 
+This list describes the stock profile used by the manual Compose deployment.
+Build Vision AI customizes that profile for the requested capabilities. With
+the default NemoClaw harness, or with no harness, it does not deploy the
+in-stack VSS Agent or Phoenix. It also omits the Agent's local LLM unless
+another selected service needs it. Ask for the in-stack VSS Agent if you plan
+to use the Agent REST API or the manual Agent UI workflow below.
+
 ## Prerequisites
 
 Before you begin, ensure all of the prerequisites are met. See [Prerequisites](/vss/getting-started/prerequisites) for more details.
@@ -60,7 +67,7 @@ If you have already completed those steps for another agent workflow, skip to [S
 ### Step 1: Deploy the Agent
 
 <Note>
-- Set the NGC CLI API key, then run the deploy commands for your GPU type.
+- Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/vss/getting-started/prerequisites#verify-your-ngc-access).
 - Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
   For RTVI-VLM configuration options, see [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm).
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
@@ -70,9 +77,12 @@ If you have already completed those steps for another agent workflow, skip to [S
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
-# View all available options
-# See developer-profiles/dev-profile-alerts/overrides.env for supported settings.
 ```
+
+See [Configuration](/vss/system-components/configuration) for common variables,
+valid values, defaults, and env-file precedence. The complete profile-specific
+template is
+`deploy/docker/developer-profiles/dev-profile-alerts/overrides.env`.
 
 `overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
@@ -103,7 +113,7 @@ layout below in `deploy/docker/developer-profiles/dev-profile-alerts/user-overri
 The default deployed model is Cosmos3 Nano Reasoner with BF16 precision.
 You can change this model by selecting an option from the following table and
 setting `VLM_NAME` to the Name value and `RTVI_VLM_MODEL_PATH` to the Path value
-in `overrides.env`.
+in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`.
 </Note>
 
 <a id="alert-verification-available-vlm-models"></a>
@@ -113,11 +123,11 @@ in `overrides.env`.
 | Model | Name | Path |
 | --- | --- | --- |
 | CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
-| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_hf` |
-| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 | CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final` |
-| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_hf` |
-| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
+| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
 
 <Note>
 Super models have only been tested on RTX PRO 6000 and H100 with a single GPU dedicated to the VLM.
@@ -157,28 +167,57 @@ VSS_DATA_DIR=/absolute/path/to/vss-apps-data
 HOST_IP=<reachable-host-ip-or-name>
 ```
 
-**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+**Prepare host data directories before starting Compose.** Export
+`VSS_DATA_DIR` and `VSS_APPS_DIR` with the same absolute paths set above, then
+run this block. The guards stop before `mkdir` or `chmod` if either value is
+absent or is not absolute:
 
 ```bash
-VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+: "${VSS_APPS_DIR:?Export VSS_APPS_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
+case "$VSS_APPS_DIR" in
+  /*) ;;
+  *) echo "VSS_APPS_DIR must be an absolute path" >&2; exit 1 ;;
+esac
 mkdir -p \
   "$VSS_DATA_DIR/data_log/analytics_cache" \
   "$VSS_DATA_DIR/data_log/calibration_toolkit" \
   "$VSS_DATA_DIR/data_log/elastic/data" \
   "$VSS_DATA_DIR/data_log/elastic/logs" \
   "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
   "$VSS_DATA_DIR/data_log/redis/data" \
   "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/data_log/vst/clip_storage" \
   "$VSS_DATA_DIR/agent_eval/dataset" \
   "$VSS_DATA_DIR/agent_eval/results" \
-  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/models" \
   "$VSS_DATA_DIR/videos/dev-profile-alerts"
-VSS_APPS_DIR=/absolute/path/to/video-search-and-summarization/deploy/docker
 mkdir -p "$VSS_APPS_DIR/engines/gdino" "$VSS_APPS_DIR/engines/rtdetr-its"
-chmod -R 777 "$VSS_APPS_DIR/engines"
-chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+chmod -R a+rwx "$VSS_APPS_DIR/engines"
+chmod -R a+rwx \
+  "$VSS_DATA_DIR/data_log" \
+  "$VSS_DATA_DIR/agent_eval" \
+  "$VSS_DATA_DIR/models" \
+  "$VSS_DATA_DIR/videos"
 ```
 
+#### Direct Docker Compose Overrides
+
+Add this common alert-verification block to
+`developer-profiles/dev-profile-alerts/user-overrides.env` before adding the
+hardware-specific values from the tabs below:
+
+```ini
+MODE=2d_cv
+ALERT_AGENT_ALWAYS_ON=false
+COMPOSE_PROFILES=${COMPOSE_PROFILES_CV}
+```
 
 **Default container image tag**
 
@@ -471,6 +510,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_cv
+LLM_MODE=local
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -677,8 +717,14 @@ docker compose -f compose.yml \
   up -d
 ```
 
-Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
-your network speed, this may take a few minutes.
+On the first bring-up, Docker Compose pulls the required containers from the
+configured GHCR and NGC registries and builds five support images locally:
+Elasticsearch, its initializer, the Kafka topic
+initializer, the broker health checker, and the alerts Kibana initializer.
+Those builds pull base images from Docker Hub and `docker.elastic.co`; the
+Kafka support-image builds also download `jq` from GitHub. Allow outbound access
+and disk space for both pulls and local builds. Depending on your network
+speed, this may take a few minutes.
 
 **This deployment uses the following defaults:**
 
@@ -711,8 +757,19 @@ Refer to the requirements table for valid platform and mode combinations compati
 
 **Deploy prompt structure**
 
+The remaining steps on this page use the in-stack Agent UI, so request the
+in-stack VSS Agent explicitly when you deploy with Build Vision AI.
+
 ```text title="Deploy prompt structure"
-Deploy the VSS alerts verification profile.
+Deploy the VSS alerts verification profile with the in-stack VSS Agent so I can use the Agent UI workflow.
+```
+
+Name an image tag in the prompt to run a release's images instead of the
+`containers.env` default. See
+[Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+
+```text title="Deploy prompt with a release image tag"
+Deploy the VSS alerts verification profile with the in-stack VSS Agent and image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
 ```
 
 For edge platforms, ask the `vss-build-vision-ai` skill to use a remote LLM when possible.
@@ -722,9 +779,9 @@ See [VSS Agent Customization - Configure LLM](/vss/vision-agent/vss-agents/agent
 **Recommended edge deployment prompts**
 
 ```text title="Recommended edge deployment prompts"
-Deploy the VSS alerts verification profile on this DGX-SPARK machine with a remote LLM.
-Deploy the VSS alerts verification profile on this IGX-THOR machine with a remote LLM.
-Deploy the VSS alerts verification profile on this AGX-THOR machine with a remote LLM.
+Deploy the VSS alerts verification profile on this DGX-SPARK machine with a remote LLM and the in-stack VSS Agent.
+Deploy the VSS alerts verification profile on this IGX-THOR machine with a remote LLM and the in-stack VSS Agent.
+Deploy the VSS alerts verification profile on this AGX-THOR machine with a remote LLM and the in-stack VSS Agent.
 ```
 
 The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
@@ -733,11 +790,12 @@ directly in your deployment prompt:
 
 ```text title="VLM model prompts"
 Which VLM models are available for the alerts profile?
-Deploy the VSS alerts verification profile with the Cosmos3 Super Reasoner FP8 VLM.
+Deploy the VSS alerts verification profile with the Cosmos3 Super Reasoner FP8 VLM and the in-stack VSS Agent.
 ```
 
-The agent sets `VLM_NAME` and `RTVI_VLM_MODEL_PATH` in `overrides.env` to the model
-you request. The same options and hardware constraints listed in
+The agent sets `VLM_NAME` and `RTVI_VLM_MODEL_PATH` in the generated
+`_builds/<name>/override.env` to the model you request. The same options and
+hardware constraints listed in
 [Available VLM Models](#alert-verification-available-vlm-models) apply.
 
 If you would like to modify the workflow to work with other videos or usecases, you can update the following files:
@@ -754,9 +812,9 @@ If you would like to modify the workflow to work with other videos or usecases, 
 
   * Update the "value" field under `"name": "fovCountViolationIncidentObjectType"` to change the objects that Behavior Analytics creates alerts for.
 
-* `deploy/docker/developer-profiles/dev-profile-alerts/vlm-as-verifier/parsers/` *(optional)*
+* Custom response-parser directory *(optional; user-created)*
 
-  * Drop a Python module exposing a parser class with a `parse(self, raw_response: str) -> dict` method, then set `vlm.response_parser` in `config.yml` to its dotted path. Use this to replace the built-in YES/NO verification parsing with classification, analytics, or enrichment outputs. See [Pluggable Response Parser](/vss/system-components/analytics-microservices/alerts-microservice#pluggable-response-parser) for the full contract, examples, and error handling.
+  * The repository does not ship or mount a parser directory. Create a host directory, add the read-only `/app/parsers` volume described in [Pluggable Response Parser](/vss/system-components/analytics-microservices/alerts-microservice#pluggable-response-parser), and place a Python module exposing a parser class with a `parse(self, raw_response: str) -> dict` method in it. Then set `vlm.response_parser` in `config.yml` to its dotted path and recreate Alert Bridge. Use this to replace the built-in YES/NO verification parsing with classification, analytics, or enrichment outputs.
 
 #### Scale Alert processing across CPU cores
 
@@ -809,7 +867,10 @@ For this profile, use the `sample-warehouse-ladder.mp4` stream.
 <Note>
 By default, this profile only supports up to one stream being processed at a time.
 
-This can be increased by modifying the `NUM_SENSORS` environment variable in the `deploy/docker/developer-profiles/dev-profile-alerts/.env` file before deployment. On RTX PRO 6000, up to 4 streams at 30 FPS have been tested to work.
+This can be increased by setting `NUM_SENSORS` in
+`deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env` before
+deployment. On RTX PRO 6000, up to 4 streams at 30 FPS have been tested to
+work.
 
 On edge platforms like DGX Spark, IGX Thor, and AGX Thor, up to 1 stream at 30 FPS has been tested to work due to GPU requirements.
 
@@ -883,14 +944,22 @@ To tear down the agent, run the following command:
 
 ```bash
 cd deploy/docker
-docker compose -p vss down -v --remove-orphans
+PROFILE=alerts
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  down -v --remove-orphans
 ```
 
-This command will stop and remove the agent containers.
+This command stops the manually deployed alert-verification containers and
+removes their Compose volumes.
 
 ## Service Endpoints
 
-Once deployed, the following services are available:
+The following endpoints apply to the stock manual Compose deployment. Build
+Vision AI reports the endpoints available in the deployment it creates; use
+that deployment summary instead of assuming every endpoint below is present.
 
 | Service | URL |
 | --- | --- |
