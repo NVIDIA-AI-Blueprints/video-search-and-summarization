@@ -2,5 +2,6 @@
 
 pipeline.workers: 1
 pipeline.ordered: true
+pipeline.batch.size: 1000
 pipeline.ecs_compatibility: disabled
 api.http.host: "0.0.0.0"

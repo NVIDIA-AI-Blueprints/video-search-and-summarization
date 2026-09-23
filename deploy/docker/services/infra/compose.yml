@@ -289,7 +289,7 @@ services:
       - $VSS_APPS_DIR/services/infra/elk/logstash/pipelines/${STREAM_TYPE}/:/usr/share/logstash/pipelines/:ro
       - $VSS_APPS_DIR/services/infra/elk/logstash/gems/logstash-input-redis_stream-3.3.0-java.gem:/usr/share/logstash/gems/logstash-input-redis_stream-java.gem
     environment:
-      LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
+      LS_JAVA_OPTS: "-Xmx4g -Xms4g"
       STREAM_TYPE: ${STREAM_TYPE}
     container_name: logstash
     restart: always
