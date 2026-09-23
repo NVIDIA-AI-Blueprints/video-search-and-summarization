@@ -55,10 +55,10 @@ export TURN_EXTERNAL_IP=<public-ip-or-dns>
 export TURN_PUBLIC_HOST=<public-ip-or-dns>
 export TURN_PORT=3478
 export TURN_HOST_PORT=3478
-export TURN_MIN_RELAY_PORT=49160
-export TURN_MAX_RELAY_PORT=49200
-export TURN_MIN_RELAY_HOST_PORT=49160
-export TURN_MAX_RELAY_HOST_PORT=49200
+export TURN_MIN_RELAY_PORT=20000
+export TURN_MAX_RELAY_PORT=20040
+export TURN_MIN_RELAY_HOST_PORT=20000
+export TURN_MAX_RELAY_HOST_PORT=20040
 
 docker compose -f services/infra/compose.yml \
   --profile turnserver-init --profile turnserver up -d
@@ -69,7 +69,7 @@ What this needs beyond the Compose defaults for a real (non-localhost) deploymen
 - **A real public/reachable host.** `TURN_EXTERNAL_IP`/`TURN_PUBLIC_HOST` is what coturn
   advertises in its relay candidates; browsers on other networks connect to this address.
 - **Firewall / security-group rules** opening the TURN listener (`3478` UDP+TCP) and the
-  full relay port range (`49160-49200` UDP+TCP by default) to whatever clients need
+  full relay port range (`20000-20040` UDP+TCP by default) to whatever clients need
   playback access.
 - **The generated password.** `turnserver-init` generates the TURN password once into the
   `vss-turn-password` Docker volume; it is not printed to logs. Read it back out to build
