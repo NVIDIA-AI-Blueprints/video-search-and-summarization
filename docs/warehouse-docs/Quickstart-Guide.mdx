@@ -41,7 +41,7 @@ The Warehouse Blueprint offers flexible deployment options with the following pr
 | 2D Vision AI Profile | 2D single-camera detection, tracking, and analytics | Model trained on real-world data |
 | 2D Vision AI with Agents Profile | 2D single-camera detection, tracking, analytics, and VSS agent integration | Model trained on real and synthetic data |
 | 3D Vision AI Profile | 3D multi-camera detection, tracking, and analytics | Model trained on synthetic data, recommended for simulated environments |
-| MV3DT Vision AI Profile | 3D multi-camera detection, tracking, and analytics using RT-DETR + MV3DT | RT-DETR model trained on real-world data, MV3DT distributed 3D tracking via camera projection matrices |
+| MV3DT Vision AI Profile | 3D multi-camera detection, tracking, and analytics using RT-DETR + MV3DT | RT-DETR model trained on real-world data, MV3DT distributed 3D tracking via camera projection matrices, appearance ReID re-association on by default |
 
 ## Supported GPU Hardware
 
@@ -81,7 +81,7 @@ cd deploy/docker
 
 ### Warehouse App Data
 
-Warehouse App Data contains sample video datasets, pre-trained TensorRT models (RT-DETR for 2D and MV3DT, Sparse4D for 3D, NvDCF tracker, BodyPose3DNet for MV3DT), camera calibration data, and configuration templates for deploying 2D, 3D, and MV3DT warehouse profiles.
+Warehouse App Data contains sample video datasets, pre-trained TensorRT models (RT-DETR for 2D and MV3DT, Sparse4D for 3D, NvDCF tracker, BodyPose3DNet for MV3DT), camera calibration data, and configuration templates for deploying 2D, 3D, and MV3DT warehouse profiles. MV3DT Compose also stages CLIP-ReID (`reid_model.onnx`, 1280-D) and SigLIP 2 (`siglip_v2_vdeployable_v1.1`) under `$VSS_DATA_DIR/models/reid` on first boot.
 
 The package includes the following MP4 datasets at 1920x1080 and 30 FPS:
 
@@ -885,6 +885,15 @@ docker logs -f vss-rtvi-cv
 # For MV3DT Vision AI Profile
 docker logs -f vss-rtvi-cv-mv3dt
 ```
+
+On first MV3DT boot, wait for appearance ReID before expecting perception FPS. The one-shot `vss-reid-embed-init-mv3dt` container should exit `0`, then:
+
+```bash
+docker logs -f vss-reid-embed-mv3dt
+curl -sf http://localhost:8088/health/ready
+```
+
+`GET /health/ready` can take up to 300s on the first engine build. Perception does not start until that probe succeeds.
 
 4. Check Kibana for indexed analytics data and alerts. Go to the endpoint listed below and navigate to the dashboard.
 
