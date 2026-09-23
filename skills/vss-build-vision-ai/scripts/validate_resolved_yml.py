@@ -37,6 +37,7 @@ FILE_TARGET_SUFFIXES = {
     ".yml",
 }
 GENERATED_BIND_NAMES = {".wdm-env"}
+DEFAULT_CONTAINER_TAG = "develop-latest"
 NGC_TRIGGER = re.compile(r"nvcr\.io/|(?<![\w.-])ngc:")
 NGC_MODEL_REF = re.compile(r"(?<![\w.-])ngc:")
 NGC_SECRET_KEYS = ("NGC_API_KEY", "NGC_CLI_API_KEY")
@@ -128,10 +129,51 @@ def secret_errors(document: dict[str, Any], extra_required: set[str]) -> list[st
     return errors
 
 
+def image_tag(image: str) -> str | None:
+    repository, separator, tag = image.rpartition(":")
+    if not separator or not repository or "/" in tag:
+        return None
+    return tag
+
+
+def container_tag_errors(
+    document: dict[str, Any], expected_tag: str | None
+) -> list[str]:
+    """Report images left on the `containers.env` fallback tag.
+
+    Only the fallback is an error: an explicit `VSS_*_TAG` pin and an SBSA
+    suffix are both meant to supersede the common tag, and `develop-latest` is
+    a VSS default no third-party image carries.
+    """
+    if not expected_tag or expected_tag == DEFAULT_CONTAINER_TAG:
+        return []
+
+    errors: list[str] = []
+    for service_name, service in sorted((document.get("services") or {}).items()):
+        if not isinstance(service, dict):
+            continue
+        image = service.get("image")
+        if not isinstance(image, str):
+            continue
+        tag = image_tag(image)
+        if tag is None:
+            continue
+        if tag == DEFAULT_CONTAINER_TAG or tag.startswith(f"{DEFAULT_CONTAINER_TAG}-"):
+            errors.append(
+                f"service {service_name!r} image {image} kept the "
+                f"{DEFAULT_CONTAINER_TAG!r} default instead of the requested tag "
+                f"{expected_tag!r}; export VSS_CONTAINER_TAG before "
+                "docker compose config and regenerate"
+            )
+
+    return errors
+
+
 def validate_document(
     document: dict[str, Any],
     repo_root: Path,
     extra_required: set[str] | None = None,
+    expected_container_tag: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     services = document.get("services")
@@ -170,6 +212,7 @@ def validate_document(
             )
 
     errors.extend(secret_errors(document, extra_required or set()))
+    errors.extend(container_tag_errors(document, expected_container_tag))
 
     return errors
 
@@ -185,7 +228,20 @@ def parse_args() -> argparse.Namespace:
         metavar="KEY",
         help="env key that must resolve to a non-empty literal (repeatable)",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--expect-container-tag",
+        metavar="TAG",
+        help=(
+            "common VSS_CONTAINER_TAG the build selected; fail when any image "
+            f"stayed on the {DEFAULT_CONTAINER_TAG!r} default"
+        ),
+    )
+    args = parser.parse_args()
+    if args.expect_container_tag is not None:
+        args.expect_container_tag = args.expect_container_tag.strip()
+        if not args.expect_container_tag:
+            parser.error("--expect-container-tag requires a non-empty tag")
+    return args
 
 
 def main() -> None:
@@ -204,7 +260,10 @@ def main() -> None:
         raise SystemExit(1)
 
     errors = validate_document(
-        document, args.repo_root, set(args.required_secret)
+        document,
+        args.repo_root,
+        set(args.required_secret),
+        args.expect_container_tag,
     )
     if errors:
         print(
@@ -219,6 +278,11 @@ def main() -> None:
         f"Validated {args.resolved_yml}: no stale placeholders, invalid "
         "checked-in bind sources, or empty mode-required credentials"
     )
+    if args.expect_container_tag:
+        print(
+            f"Container image tag {args.expect_container_tag}: no image stayed "
+            f"on the {DEFAULT_CONTAINER_TAG} default"
+        )
 
 
 if __name__ == "__main__":
