@@ -630,81 +630,49 @@ Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
 `NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent
 sessions, and nothing else in the run tells the user that happened.
 
-### Troubleshooting: onboarding stops with "did not receive the required baseline scopes"
+### Troubleshooting: "did not receive the required baseline scopes"
 
-Symptom, verbatim from `nemoclaw onboard`, right after `[8/8] Policy presets`:
+`nemoclaw onboard` stops after `[8/8] Policy presets` with:
 
 > OpenClaw onboarding for '<name>' is incomplete because its canonical CLI
-> device did not receive the required baseline scopes. Resume or rerun onboarding.
+> device did not receive the required baseline scopes.
 
-The sandbox is left created but unregistered (`openshell sandbox list` shows it
-`Ready` or `Provisioning`, `nemoclaw <name> status` knows nothing useful), and
-the notebook's retries — refreshed base image, then `--fresh` — reproduce it
-exactly, because neither touches the cause. The VSS stack and the inference
-route are irrelevant to it; do not debug those.
+The sandbox is left created but unregistered, and the notebook's retries
+(`--fresh`, base-image refresh) reproduce it. The VSS stack and the inference
+route have nothing to do with it.
 
-**Cause.** A fresh onboard pairs the sandbox's CLI device with
-`operator.pairing` only, then runs a "warm-up" inside the sandbox — one
-`openclaw gateway call sessions.create` — purely so the gateway publishes the
-`operator.write` upgrade request that finalization then approves. That warm-up
-(`auto-pair-warmup.ts`, NemoClaw v0.0.114 and still on `main`) unsets
-`OPENCLAW_GATEWAY_PORT` first, so the CLI dials the port baked in
-`openclaw.json` (`18789`) — but the sandbox's gateway listens on the port
-NemoClaw **allocated** for this sandbox. The two agree only for the first
-sandbox on a host with `NEMOCLAW_DASHBOARD_PORT` unset. They diverge whenever:
+**Cause.** NemoClaw (v0.0.114) pairs the sandbox's CLI device during onboard by
+calling the sandbox gateway on the port in `openclaw.json` (`18789`). The
+gateway actually listens on the port NemoClaw allocated for the sandbox, which
+is `18789` only for the first sandbox on the host with `NEMOCLAW_DASHBOARD_PORT`
+unset. A second sandbox on the host — last night's, or a personal one — or a
+custom port makes the pairing call miss, and onboarding times out with the
+message above.
 
-- another sandbox (or anything else) already holds host port `18789` — a
-  previous night's sandbox, a personal one, a stale forward — and the
-  allocator moves this one up the range (`18789` → `18790` → … → `18794`); or
-- `NEMOCLAW_DASHBOARD_PORT` is set to anything but `18789`.
-
-Then the warm-up's call goes nowhere, NemoClaw swallows the error by design,
-no request is ever pending, and the 60 s observer times out into that message.
-Proof in the sandbox's gateway log: `device pairing auto-approved` appears, and
-no `device access upgrade requested` line follows.
-
-**Fix — the one the harness needs: make this sandbox the one on `18789`.**
-Clear cached sandboxes and free the port before rerunning, and leave
-`NEMOCLAW_DASHBOARD_PORT` unset:
+**Fix.** Clear cached sandboxes so this one gets `18789`, then rerun:
 
 ```bash
-openshell sandbox list                         # every sandbox on this host
-nemoclaw <stale-name> destroy                  # each one this build does not own
-lsof -nP -iTCP:18789 -sTCP:LISTEN              # must print nothing
-nemoclaw <name> destroy                        # the half-onboarded sandbox itself
+openshell sandbox list            # every sandbox on this host
+nemoclaw <name> destroy           # the failed one and any stale one
+lsof -nP -iTCP:18789 -sTCP:LISTEN # must print nothing
 ```
 
-Then rerun the notebook. Destroying the failed sandbox first matters twice
-over: NemoClaw's `--recreate-sandbox` refuses to delete a custom-image sandbox
-whose onboarding never published its plugin provenance ("Custom-image OpenClaw
-plugin provenance is missing; aborting recreate before delete"), and a
-half-onboarded sandbox never did. `NEMOCLAW_RECREATE_WITHOUT_BACKUP=1` is the
-documented bypass for that guard when there is nothing to preserve — a nightly
-never has — but a destroyed sandbox does not need it.
+Leave `NEMOCLAW_DASHBOARD_PORT` unset. Destroying rather than recreating also
+avoids NemoClaw's recreate guard, which refuses to delete a sandbox whose
+onboarding never finished (`NEMOCLAW_RECREATE_WITHOUT_BACKUP=1` is its bypass).
 
-**Fix — when the sandbox must be kept** (it holds sessions, or the port is taken
-by design): finish the pairing by hand, then resume. Inside the sandbox the
-gateway env is intact, so these dial the right port:
+If the sandbox must be kept, finish the pairing by hand — inside the sandbox
+the calls reach the right port — then resume with the same `--from`:
 
 ```bash
-openshell sandbox exec -n <name> -- openclaw gateway call sessions.create \
-  --params '{"agentId":"main"}' --json          # publishes the write-scope request; fails with "pending approval" - that is the point
-openshell sandbox exec -n <name> -- sh -c 'openclaw devices list --json'   # copy the pending requestId
+openshell sandbox exec -n <name> -- openclaw gateway call sessions.create --params '{"agentId":"main"}' --json
+openshell sandbox exec -n <name> -- openclaw devices list --json        # copy the pending requestId
 openshell sandbox exec -n <name> -- openclaw devices approve <requestId> --json
-nemoclaw onboard --resume --name <name> --non-interactive --agent openclaw \
-  --from "$REPO/.openclaw/Dockerfile"           # the same --from the session started with, or resume refuses
+nemoclaw onboard --resume --name <name> --non-interactive --agent openclaw --from "$REPO/.openclaw/Dockerfile"
 ```
 
-`nemoclaw <name> connect --probe-only` runs the approval pass too, but on a
-sandbox that never finished onboarding it stops at "launch-readiness evidence
-could not be verified or published" without approving; the explicit approve
-above is what works.
-
-**Related gotcha.** The relay port (`NEMOCLAW_DASHBOARD_RELAY_PORT`, `18790`)
-sits inside that allocator range, so a second sandbox on the host can be
-handed `18790` and then collide with the relay section 3.5 starts. One sandbox
-per host is the supported shape; a host that must run two needs the relay port
-moved out of `18789`–`18794`.
+One sandbox per host is the supported shape: the relay port `18790` is also in
+NemoClaw's allocation range, so a second sandbox can collide with it.
 
 ## Teardown
 
