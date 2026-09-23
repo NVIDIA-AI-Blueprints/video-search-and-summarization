@@ -179,6 +179,21 @@ PROJECTS: list[dict[str, Any]] = [
         "python_version": "3.13",
         "paths": ["services/configurators/vss-rt-config-adaptor"],
     },
+    {
+        "name": "rt-cv",
+        "project_key": (
+            "TEGRASW_metropolis_video-search-and-summarization-rt-cv"
+            "_video-search-and-summarization"
+        ),
+        "project_name": "video-search-and-summarization-rt-cv",
+        "sources": (
+            "services/rtvi/rt-cv/src,"
+            "services/rtvi/rt-cv/TritonGdino,"
+            "services/rtvi/rt-cv/TritonMaskGdino"
+        ),
+        "tests": "",
+        "paths": ["services/rtvi/rt-cv"],
+    },
 ]
 
 
