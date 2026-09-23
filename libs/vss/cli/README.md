@@ -493,10 +493,14 @@ group   = "tripwire_plugin:GROUP"     # module:attr, same shape as an entry poin
 The **directory name is the group name** — there is no `name` key, so two
 directories cannot claim one mount point.
 
-The directory goes on `sys.path` when — and only when — that group is invoked.
-`name` and `summary` are read as data on every startup, so `vss --help` lists
-the group without importing it; a module that fails to import reports the
-failure when the group is run, and the rest of the CLI is unaffected.
+The module is loaded straight from its file when — and only when — that group
+is invoked, under a private per-plugin name. It never goes on `sys.path`: that
+would let an installed module of the same basename win, and would cache this
+one under a name the next plugin could collide with.
+
+`summary` is read as data on every startup, so `vss --help` lists the group
+without importing it; a module that fails to import reports the failure when
+the group is run, and the rest of the CLI is unaffected.
 
 ```bash
 vss --help                    # tripwire is listed, nothing imported
