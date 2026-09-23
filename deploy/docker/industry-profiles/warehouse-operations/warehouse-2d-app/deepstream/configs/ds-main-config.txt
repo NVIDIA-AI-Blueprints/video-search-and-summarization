@@ -56,7 +56,6 @@ latency=100
 rtsp-reconnect-interval-sec=10
 rtsp-reconnect-attempts=-1
 udp-buffer-size=2000000
-drop-on-latency=0
 
 [sink0]
 enable=0

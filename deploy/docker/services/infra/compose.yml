@@ -289,8 +289,22 @@ services:
       - $VSS_APPS_DIR/services/infra/elk/logstash/pipelines/${STREAM_TYPE}/:/usr/share/logstash/pipelines/:ro
       - $VSS_APPS_DIR/services/infra/elk/logstash/gems/logstash-input-redis_stream-3.3.0-java.gem:/usr/share/logstash/gems/logstash-input-redis_stream-java.gem
     environment:
-      LS_JAVA_OPTS: "-Xmx1024m -Xms256m"
+      LS_JAVA_OPTS: "-Xmx4g -Xms4g"
       STREAM_TYPE: ${STREAM_TYPE}
+      # Pre-seed $LOAD_PATH with the protobuf definitions directory.
+      # logstash-codec-protobuf does `$LOAD_PATH.unshift(@protobuf_root_directory)`
+      # (protobuf.rb:187) OUTSIDE the DescriptorPool lock that guards the
+      # subsequent `require`. With the mdx-kafka{,-1,-2,-3} pipelines registering
+      # protobuf codecs in parallel, that concurrent mutation of the global
+      # $LOAD_PATH array trips JRuby's "ConcurrencyError: Detected invalid array
+      # contents due to unsynchronized modifications with concurrent users" and
+      # Logstash exits 1 before any pipeline starts.
+      # Seeding the identical string here makes the plugin's `$LOAD_PATH.include?`
+      # guard short-circuit, so nothing mutates the array. Must match
+      # protobuf_root_directory in the pipeline .conf files EXACTLY, trailing
+      # slash included -- the guard is a string compare and JRuby keeps RUBYLIB
+      # entries verbatim. Mirrors the Helm logstash chart.
+      RUBYLIB: "/opt/logstash-data-libs/logstash/pb_definitions/"
     container_name: logstash
     restart: always
     depends_on:

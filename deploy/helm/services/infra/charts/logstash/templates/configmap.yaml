@@ -23,10 +23,17 @@ data:
   logstash.yml: |
     pipeline.workers: 1
     pipeline.ordered: true
+    pipeline.batch.size: 1000
     pipeline.ecs_compatibility: disabled
     api.http.host: "0.0.0.0"
   pipelines.yml: |
     - pipeline.id: mdx-kafka
+      path.config: "/usr/share/logstash/pipeline/mdx-kafka-logstash.conf"
+    - pipeline.id: mdx-kafka-1
+      path.config: "/usr/share/logstash/pipeline/mdx-kafka-logstash.conf"
+    - pipeline.id: mdx-kafka-2
+      path.config: "/usr/share/logstash/pipeline/mdx-kafka-logstash.conf"
+    - pipeline.id: mdx-kafka-3
       path.config: "/usr/share/logstash/pipeline/mdx-kafka-logstash.conf"
 {{- if .Values.lvsPipeline.enabled }}
     - pipeline.id: mdx-lvs
@@ -36,11 +43,11 @@ data:
     input {
       kafka {
         type => "mdx-raw"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-raw"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-raw"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -53,11 +60,11 @@ data:
       }
       kafka {
         type => "mdx-bev"
-        consumer_threads => 4
+        consumer_threads => 2
         topics_pattern => "^mdx-bev.*"
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-bev"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -70,11 +77,11 @@ data:
       }
       kafka {
         type => "mdx-behavior"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-behavior", "mdx-behavior-plus"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-behavior"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -87,11 +94,11 @@ data:
       }
       kafka {
         type => "mdx-alerts"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-alerts"]
         auto_offset_reset => "latest"
         decorate_events => true
-        group_id => "logstash"
+        group_id => "logstash-alerts"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -104,11 +111,11 @@ data:
       }
       kafka {
         type => "mdx-events"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-events"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-events"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -121,11 +128,11 @@ data:
       }
       kafka {
         type => "mdx-incidents"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-incidents"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-incidents"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -138,11 +145,11 @@ data:
       }
       kafka {
         type => "mdx-vlm-incidents"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-vlm-incidents"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-vlm-incidents"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -155,11 +162,11 @@ data:
       }
       kafka {
         type => "mdx-frames"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-frames"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-frames"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -172,22 +179,22 @@ data:
       }
       kafka {
         type => "mdx-mtmc"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-mtmc"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-mtmc"
         codec => "plain"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         bootstrap_servers => "{{ include "logstash.kafkaBootstrap" . }}"
       }
       kafka {
         type => "mdx-rtls"
-        consumer_threads => 4
+        consumer_threads => 2
         topics_pattern => "^mdx-rtls.*"
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-rtls"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -200,11 +207,11 @@ data:
       }
       kafka {
         type => "mdx-space-utilization"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-space-utilization"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-space-utilization"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -217,22 +224,22 @@ data:
       }
       kafka {
         type => "mdx-amr"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-amr"]
         decorate_events => "extended"
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-amr"
         codec => "plain"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         bootstrap_servers => "{{ include "logstash.kafkaBootstrap" . }}"
       }
       kafka {
         type => "mdx-vlm-alerts"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-vlm-alerts"]
         auto_offset_reset => "latest"
         decorate_events => true
-        group_id => "logstash"
+        group_id => "logstash-vlm-alerts"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -245,11 +252,11 @@ data:
       }
       kafka {
         type => "mdx-embed-filtered"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-embed-filtered"]
         auto_offset_reset => "latest"
         decorate_events => true
-        group_id => "logstash"
+        group_id => "logstash-embed-filtered"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
@@ -264,11 +271,11 @@ data:
       # nv.Frame with the per-object embedding vectors compressed.
       kafka {
         type => "mdx-compressed-embeddings"
-        consumer_threads => 4
+        consumer_threads => 2
         topics => ["mdx-compressed-embeddings"]
         decorate_events => true
         auto_offset_reset => "latest"
-        group_id => "logstash"
+        group_id => "logstash-compressed-embeddings"
         key_deserializer_class => "org.apache.kafka.common.serialization.StringDeserializer"
         value_deserializer_class => "org.apache.kafka.common.serialization.ByteArrayDeserializer"
         codec => protobuf {
