@@ -49,6 +49,10 @@ gets built. Set `ghcr_build: true` and make sure `source_path`, `platforms` and
 `ci-vss-oss` reads it. Keep it accurate if an entry already has one, but a new
 entry does not need it and nothing depends on it.
 
+How the image's *version* (as opposed to its identity) is derived — the release
+line from the nearest `v*` tag, the `+tree.<sha>` stamp, and how the agent, CLI
+and skills stay in step — is in [`version-convention.md`](version-convention.md).
+
 `source_path` is load-bearing beyond the build: it is what the content hash
 covers (`release_set.py tree-sha` — `git rev-parse <commit>:<source_path>` for
 one path) to produce the `tree-<sha>` content tag, and what the change detector
