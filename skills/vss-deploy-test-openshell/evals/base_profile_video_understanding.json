@@ -69,7 +69,7 @@
       ]
     },
     {
-      "query": "The preceding vss memory introspect result is no_memory. No exact sensor or UTC window is available. Continue safely.",
+      "query": "Treat this as a mocked result: the preceding `vss memory introspect` returned no_memory, and no exact sensor or UTC bounds were grounded before that call. The dock_cam window used earlier in this conversation does not carry over and must not be reused as scope here. Continue safely.",
       "checks": [
         "The response explains that no matching memory/window is available and requests an exact recorded sensor and UTC window.",
         "It does not invoke vss vlm run and does not switch to local-file/base64 inference."
