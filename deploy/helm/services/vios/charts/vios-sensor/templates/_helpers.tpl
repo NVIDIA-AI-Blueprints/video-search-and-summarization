@@ -45,15 +45,26 @@
 {{- printf "%s:%s" $repository $tag -}}
 {{- end -}}
 {{/*
-  Resolve useReleaseNamePrefix with the same precedence as vss-vios-sensor.fullname:
-  an explicit chart-level boolean wins, then an explicit global boolean, else false.
-  coalesce must not be used here — it treats an explicit false as empty, which would
-  silently re-apply the release prefix and point peers at a Service that is not rendered.
+  Whether a PEER's Service name carries the release prefix, resolved for that
+  peer alone. A peer is rendered by another subchart (vss-vios-streamprocessing,
+  or infra's sdrc) whose own local useReleaseNamePrefix this chart cannot see,
+  so the sensor's OWN flag says nothing about it. Precedence:
+    1. an explicit boolean in .Values.peerUseReleaseNamePrefix.<peer>, the way
+       to describe a mixed-prefix install (e.g. global true while the peer's
+       chart sets its local flag false);
+    2. an explicit boolean global.useReleaseNamePrefix;
+    3. false.
+  hasKey/kindIs, never coalesce: coalesce reads an explicit false as unset and
+  would re-apply the prefix, naming a Service that is never rendered.
+  Pass: dict "root" . "peer" "<key>"  -> "true" or "".
 */}}
-{{- define "vss-vios-sensor.useReleaseNamePrefix" -}}
-{{- $g := .Values.global | default dict -}}
-{{- if and (hasKey .Values "useReleaseNamePrefix") (kindIs "bool" .Values.useReleaseNamePrefix) -}}
-{{- ternary "true" "" .Values.useReleaseNamePrefix -}}
+{{- define "vss-vios-sensor.peerUsesReleasePrefix" -}}
+{{- $root := index . "root" -}}
+{{- $peers := $root.Values.peerUseReleaseNamePrefix | default dict -}}
+{{- $g := $root.Values.global | default dict -}}
+{{- $peer := index . "peer" -}}
+{{- if and (hasKey $peers $peer) (kindIs "bool" (index $peers $peer)) -}}
+{{- ternary "true" "" (index $peers $peer) -}}
 {{- else if and (hasKey $g "useReleaseNamePrefix") (kindIs "bool" (index $g "useReleaseNamePrefix")) -}}
 {{- ternary "true" "" (index $g "useReleaseNamePrefix") -}}
 {{- end -}}
@@ -95,7 +106,7 @@ by the parent overlay.
 {{- define "vss-vios-sensor.peerHost" -}}
 {{- $root := index . "root" -}}
 {{- $short := index . "short" -}}
-{{- $pfx := eq (include "vss-vios-sensor.useReleaseNamePrefix" $root) "true" }}
+{{- $pfx := eq (include "vss-vios-sensor.peerUsesReleasePrefix" (dict "root" $root "peer" (index . "peer"))) "true" }}
 {{- if $pfx }}{{ printf "%s-%s" $root.Release.Name $short }}{{- else -}}{{ $short }}{{- end }}
 {{- end }}
 {{/*

@@ -36,24 +36,58 @@ for prefixed in (False, True):
     env = {e['name']: e.get('value') for e in sensor['spec']['template']['spec']['containers'][0]['env']}
     expected = 'http://' + ('review-' if prefixed else '') + 'vss-vios-streamprocessing:30001'
     assert env['STREAM_PROCESSOR_MODULE_ENDPOINT'] == env['RTSP_SERVER_MODULE_ENDPOINT'] == expected
-# An explicit local false must survive a global true: coalesce treats false as empty, which
-# would point the sensor at a Service that is never rendered. Every peer address the sensor
-# is given must name a Service this same render creates.
+
+
+def sensor_env(documents):
+    sensor = next(d for d in documents
+                  if d['kind'] == 'Deployment' and d['metadata']['name'].endswith('vss-vios-sensor'))
+    return {e['name']: e.get('value') for e in sensor['spec']['template']['spec']['containers'][0]['env']}
+
+
+def assert_peers_rendered(documents, env, names):
+    """Every peer address the sensor is given names a Service this same render creates."""
+    service_names = {d['metadata']['name'] for d in documents if d['kind'] == 'Service'}
+    for name in names:
+        assert urlsplit(env[name]).hostname in service_names, (name, env[name], sorted(service_names))
+
+
+# A mixed-prefix install: global true, stream processing (and the sensor) local false. The
+# sensor cannot read the stream-processing chart's local flag, so the install states it in
+# peerUseReleaseNamePrefix; an explicit false must survive the global true (coalesce would
+# read it as unset and name a Service that is never rendered).
 result = render(base, {'ngc': {'createSecrets': False}, 'global': {'useReleaseNamePrefix': True},
-                       'vios': {'vss-vios-sensor': {'useReleaseNamePrefix': False},
+                       'vios': {'vss-vios-sensor': {'useReleaseNamePrefix': False,
+                                                    'peerUseReleaseNamePrefix': {'streamprocessing': False}},
                                 'vss-vios-streamprocessing': {'useReleaseNamePrefix': False}}})
 assert result.returncode == 0, result.stderr
 documents = [d for d in yaml.safe_load_all(result.stdout) if d]
-service_names = {d['metadata']['name'] for d in documents if d['kind'] == 'Service'}
-sensor = next(d for d in documents
-              if d['kind'] == 'Deployment' and d['metadata']['name'].endswith('vss-vios-sensor'))
-env = {e['name']: e.get('value') for e in sensor['spec']['template']['spec']['containers'][0]['env']}
+env = sensor_env(documents)
 assert env['STREAM_PROCESSOR_MODULE_ENDPOINT'] == env['RTSP_SERVER_MODULE_ENDPOINT'] == \
     'http://vss-vios-streamprocessing:30001', env['STREAM_PROCESSOR_MODULE_ENDPOINT']
 # The ingress keeps the global prefix, so the sensor must still address it by its real name.
 assert env['VST_INGRESS_ENDPOINT'] == 'http://review-vss-vios-ingress:30888/vst', env['VST_INGRESS_ENDPOINT']
-for name in ('STREAM_PROCESSOR_MODULE_ENDPOINT', 'RTSP_SERVER_MODULE_ENDPOINT', 'VST_INGRESS_ENDPOINT'):
-    assert urlsplit(env[name]).hostname in service_names, (name, env[name], sorted(service_names))
+assert_peers_rendered(documents, env, ('STREAM_PROCESSOR_MODULE_ENDPOINT', 'RTSP_SERVER_MODULE_ENDPOINT',
+                                       'VST_INGRESS_ENDPOINT'))
+
+# The sensor's OWN local flag names the sensor, not its peers. Alerts routes the sensor
+# through SDRC (VST_USE_SDRC=true); SDRC is rendered by infra's sdrc chart and follows the
+# global prefix, so a sensor-local false must not strip the prefix from the SDRC address.
+alerts = root / 'developer-profiles/dev-profile-alerts'
+for sdrc_local, expected_host in ((None, 'review-sdrc-controller'), (False, 'sdrc-controller')):
+    values = {'ngc': {'createSecrets': False}, 'global': {'useReleaseNamePrefix': True},
+              'vios': {'vss-vios-sensor': {'useReleaseNamePrefix': False}}}
+    if sdrc_local is not None:
+        # SDRC's own local flag is out of the sensor's sight: state it for the peer too.
+        values['infra'] = {'sdrc': {'useReleaseNamePrefix': sdrc_local}}
+        values['vios']['vss-vios-sensor']['peerUseReleaseNamePrefix'] = {'sdrc': sdrc_local}
+    result = render(alerts, values)
+    assert result.returncode == 0, result.stderr
+    documents = [d for d in yaml.safe_load_all(result.stdout) if d]
+    env = sensor_env(documents)
+    assert env.get('VST_USE_SDRC') == 'true', env.get('VST_USE_SDRC')
+    assert env['STREAM_PROCESSOR_MODULE_ENDPOINT'] == env['RTSP_SERVER_MODULE_ENDPOINT'] == \
+        f'http://{expected_host}:10000', (sdrc_local, env['STREAM_PROCESSOR_MODULE_ENDPOINT'])
+    assert_peers_rendered(documents, env, ('STREAM_PROCESSOR_MODULE_ENDPOINT', 'RTSP_SERVER_MODULE_ENDPOINT'))
 for annotations in ({}, {'traefik.ingress.kubernetes.io/router.middlewares': 'example-routes@kubernetescrd'},
                     {'haproxy.org/path-rewrite': '/custom /(.*)'}):
     result = render(base, {'ngc': {'createSecrets': False},
@@ -77,4 +111,4 @@ for annotations in ({}, {'traefik.ingress.kubernetes.io/router.middlewares': 'ex
                 for p in ingress['spec']['rules'][0]['http']['paths']}
     assert services['/vst'] == 'review-vss-vios-ingress'
     assert services['/rtvi-vlm'] == 'review-vss-rtvi-vlm'
-print('VIOS timeout, direct/prefixed endpoints, and ingress annotation render checks passed')
+print('VIOS timeout, direct/SDRC/mixed-prefix peer endpoints, and ingress annotation render checks passed')
