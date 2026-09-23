@@ -130,7 +130,7 @@ source-type selection is independent of the index inventory.
    fixed uploads anchor (not a discovered index), independently of the
    identifier, so it is correct regardless of ingestion order.
 
-2. Decompose the request before choosing a path; do not pick by surface form.
+1. Decompose the request before choosing a path; do not pick by surface form.
    Before changing or splitting it, preserve the user's exact sentence as
    `ORIGINAL_QUERY`. Retrieval may use the decomposed query, attributes, or
    object IDs, but critic verification must receive this original wording.
@@ -154,44 +154,44 @@ source-type selection is independent of the index inventory.
    intent — matching indexed VLM tag keywords by BM25 — not semantic similarity;
    reserve it for keyword/tag queries that name no detectable property.
 
-3. Construct the invocation as a Bash array and validate only its exact
+1. Construct the invocation as a Bash array and validate only its exact
    stdout. Read [CLI usage](references/cli_usage.md) only when tuning retrieval
    weights; the contract below is the whole invocation.
 
-```bash
-: "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
-: "${SOURCE_TYPE:?set video_file or rtsp}"
-: "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"
-TOP_K="${TOP_K:-3}"
-VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object/tag
-: "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
-if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
-  echo "Resolved source scope is empty; refusing an unrestricted search" >&2
-  exit 1
-fi
-SEARCH_COMMAND=(
-  vss search run "${SEARCH_PATH}"
-  --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}"
-  --original-query "${ORIGINAL_QUERY}" --raw
-)
-for source in "${VIDEO_SOURCES[@]}"; do
-  SEARCH_COMMAND+=(--video-source "${source}")
-done
-# Append --query, repeatable --attribute, --object-id, and time bounds as needed.
-if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
-  echo "Search command failed" >&2
-  exit 1
-fi
-printf '%s' "${SEARCH_JSON}" |
-  jq -e 'type == "object" and (.data | type == "array")' >/dev/null || {
-    echo "Search did not return a SearchOutput object with a data array" >&2
-    exit 1
-  }
-```
+   ```bash
+   : "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
+   : "${SOURCE_TYPE:?set video_file or rtsp}"
+   : "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"
+   TOP_K="${TOP_K:-3}"
+   VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object/tag
+   : "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
+   if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
+     echo "Resolved source scope is empty; refusing an unrestricted search" >&2
+     exit 1
+   fi
+   SEARCH_COMMAND=(
+     vss search run "${SEARCH_PATH}"
+     --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}"
+     --original-query "${ORIGINAL_QUERY}" --raw
+   )
+   for source in "${VIDEO_SOURCES[@]}"; do
+     SEARCH_COMMAND+=(--video-source "${source}")
+   done
+   # Append --query, repeatable --attribute, --object-id, and time bounds as needed.
+   if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
+     echo "Search command failed" >&2
+     exit 1
+   fi
+   printf '%s' "${SEARCH_JSON}" |
+     jq -e 'type == "object" and (.data | type == "array")' >/dev/null || {
+       echo "Search did not return a SearchOutput object with a data array" >&2
+       exit 1
+     }
+   ```
 
-Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
-`search run`; `vss configure` owns those values. Do not replace a failed CLI
-call with `/api/v1/search` or private backend access.
+   Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
+   `search run`; `vss configure` owns those values. Do not replace a failed CLI
+   call with `/api/v1/search` or private backend access.
 
 1. Each nonempty hit's `screenshot_url` always carries the scheme, host, and
    effective port of the origin `vss configure` recorded, because the CLI
@@ -218,17 +218,17 @@ call with `/api/v1/search` or private backend access.
 
 3. Format nonempty results without raw JSON:
 
-```text
-## Video Search Results
-<each hit's exact source, start/end, similarity, complete media URL,
-verification result, and criteria when present>
+   ```text
+   ## Video Search Results
+   <each hit's exact source, start/end, similarity, complete media URL,
+   verification result, and criteria when present>
 
-Similarity scores are retrieval evidence; the separate verification result
-records whether the bounded clip satisfied the visual request.
+   Similarity scores are retrieval evidence; the separate verification result
+   records whether the bounded clip satisfied the visual request.
 
-## Verification Step
-Would you like me to verify the unverified search results?
-```
+   ## Verification Step
+   Would you like me to verify the unverified search results?
+   ```
 
    Include `## Verification Step` only when every displayed result is
    `unverified` — the complete nonempty set, not a subset. If any displayed
@@ -236,13 +236,13 @@ Would you like me to verify the unverified search results?
    unverified. Never deploy a VLM or call `vss-ask-video` automatically during
    this results turn.
 
-1. If the user explicitly confirms, read
+4. If the user explicitly confirms, read
    [search-result verification](references/result_verification.md) completely and
    delegate the displayed hits only after confirming again that every one is
    still `unverified`. Preserve their exact bounded intervals and the complete
    original visual intent. Keep at most three delegations in flight.
 
-2. If `.data` is empty, report zero candidates faithfully — a fact about
+5. If `.data` is empty, report zero candidates faithfully — a fact about
    retrieval, not about the video. Do not claim the object is absent, describe
    what the footage contains, or argue it is not something you would expect
    there: a threshold or embedding gap yields the same empty result as a genuine
