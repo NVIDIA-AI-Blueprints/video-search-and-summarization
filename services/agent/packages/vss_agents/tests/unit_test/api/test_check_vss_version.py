@@ -188,8 +188,8 @@ def test_both_defaults_satisfy_a_ge_330_range() -> None:
 # ── Reading the range out of a SKILL.md ──────────────────────────────────────
 
 SHIPPED_SKILLS = [
-    ("benchmark-video-summarization", ">=3.2.0,<4.0.0"),
-    ("benchmark-vlm-qa", ">=3.3.0,<4.0.0"),
+    ("vss-benchmark-video-summarization", ">=3.2.0,<4.0.0"),
+    ("vss-benchmark-vlm-qa", ">=3.3.0,<4.0.0"),
     ("vss-evaluate-caption-accuracy", ">=3.2.0,<4.0.0"),
 ]
 
