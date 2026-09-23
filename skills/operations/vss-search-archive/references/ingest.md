@@ -40,6 +40,11 @@ while :; do
               .name == "sample-warehouse-ladder")' >/dev/null; then
     break
   fi
+  CURRENT_EPOCH=$(date +%s)
+  (( CURRENT_EPOCH < SEARCH_READINESS_DEADLINE )) || {
+    echo "cleanup did not finish before the source-setup deadline" >&2
+    exit 1
+  }
   sleep 10
 done
 ```

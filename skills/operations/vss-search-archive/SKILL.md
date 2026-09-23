@@ -50,6 +50,7 @@ defer the hand-driven legs to `vss-manage-video-io-storage`
 - The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
 - `curl` and `jq`.
 - `vss vios list` for source listing and inspection (same CLI, same recorded origin).
+- Bash 4+ on `PATH`; the recipes use arrays, `mapfile`, and `[[ ]]`, not POSIX sh.
 
 Check the CLI once:
 
@@ -86,8 +87,9 @@ one exits 4.
 For deployment readiness, ingestion, fixture cleanup, index checks, RTSP, or
 deletion, read [source setup](references/source_setup.md) first; it owns the
 origin, the one `SEARCH_READINESS_DEADLINE`, the `index_count` helper, and the
-readiness tuple table. Ingestion is [ingest](references/ingest.md); deletion is
-[delete](references/delete.md). Re-run `vss configure` after the first
+readiness tuple table. Ingestion is [ingest](references/ingest.md); read
+[delete](references/delete.md) only when the user explicitly requests deletion
+of a registered source. Re-run `vss configure` after the first
 ingestion: the recorded raw family is what enables frame-level lookups (it gates
 `frames_index`, which attribute and fusion need for frame enrichment). Only
 source-type selection is independent of the index inventory.
@@ -156,7 +158,8 @@ source-type selection is independent of the index inventory.
 
 1. Construct the invocation as a Bash array and validate only its exact
    stdout. Read [CLI usage](references/cli_usage.md) only when tuning retrieval
-   weights; the contract below is the whole invocation.
+   weights (--fusion-method, `--w-tag`, etc.); do not open it for a standard
+   search invocation — the contract below is the whole invocation.
 
    ```bash
    : "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"

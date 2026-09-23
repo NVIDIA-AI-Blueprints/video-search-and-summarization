@@ -101,7 +101,7 @@ index_count() {
   timeout=$(source_timeout "${deadline}" 15) || return 1
   query=$(jq -cn --arg field "${field}" --arg value "${value}" \
     '{query:{term:{($field):$value}}}') || return 1
-  curl -fsS --max-time "${timeout}" -H 'Content-Type: application/json' \
+  curl -fsS --connect-timeout 5 --max-time "${timeout}" -H 'Content-Type: application/json' \
     "${ES_URL%/}/${index}/_count" -d "${query}" | jq -er '.count | numbers'
 }
 ```
