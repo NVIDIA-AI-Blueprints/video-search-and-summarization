@@ -297,25 +297,49 @@ vssIngress:
 
 Without an equivalent rewrite, **`/rtvi-vlm/v1/models`** reaches RT-VLM as **`/rtvi-vlm/v1/models`** and returns 404. Supply your controller’s own rewrite through **`vssIngress.annotations`**.
 
-**Traefik** — create a [`StripPrefix` middleware](https://doc.traefik.io/traefik/middlewares/http/stripprefix/) in the release namespace, then reference it:
+These annotations are applied to the **whole** **`Ingress`**, so whatever you supply must
+select the paths it rewrites and leave the other routes (**`/`**, **`/api`**, **`/vst`**,
+**`/openapi.json`**, …) untouched.
+
+**Traefik** — three of the four prefixes are stripped to the root and **`/storage`** is
+replaced, so it takes two middlewares chained in order. Create them in the release namespace:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: vss-strip-prefix
+spec:
+  stripPrefix:
+    prefixes: ["/rtvi-vlm", "/phoenix", "/llm"]   # only these paths are altered
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: vss-storage-path
+spec:
+  replacePathRegex:
+    regex: "^/storage(.*)"
+    replacement: "/vst/storage$1"
+```
+
+Then reference both, in order, replacing **`<NAMESPACE>`** with the release namespace:
 
 ```yaml
 vssIngress:
   enabled: true
   ingressClassName: traefik
   annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: "<NAMESPACE>-vss-strip-prefix@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.middlewares: "<NAMESPACE>-vss-strip-prefix@kubernetescrd,<NAMESPACE>-vss-storage-path@kubernetescrd"
 ```
 
-**NGINX** — use a rewrite target with a capture group:
-
-```yaml
-vssIngress:
-  enabled: true
-  ingressClassName: nginx
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
-```
+**NGINX** — **`nginx.ingress.kubernetes.io/rewrite-target`** cannot express this table on this
+**`Ingress`**. It applies one target to every path, while **`/storage`** needs a different target
+from the other three and most routes must not be rewritten at all; a capture-group target such as
+**`/$2`** additionally requires **`use-regex`** paths, which this chart does not emit (every path
+is **`Prefix`** or **`Exact`**). Route NGINX to the prefixes that need no rewriting and create a
+separate **`Ingress`** per rewrite group, each with its own **`rewrite-target`**, or use a
+controller whose middleware can be scoped per path.
 
 Setting **`haproxy.org/path-rewrite`** in **`vssIngress.annotations`** replaces the generated table for **every** backend, not just the one you meant to change; omit that key unless you intend to define all of the rules above yourself.
 
