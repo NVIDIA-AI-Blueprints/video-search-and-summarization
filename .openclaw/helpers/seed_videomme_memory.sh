@@ -11,20 +11,41 @@ fi
 
 sensor_id="$1"
 video_id="${VSS_VIDEO_ID:-${sensor_id}}"
+run_id="${VSS_EVAL_RUN_ID:-}"
 : "${VSS_GATEWAY_ORIGIN:?missing VSS_GATEWAY_ORIGIN}"
-: "${VSS_EVAL_RUN_ID:?missing VSS_EVAL_RUN_ID}"
 : "${VSS_EVAL_TASK_ID:?missing VSS_EVAL_TASK_ID}"
 
 workspace="${HOME:-/sandbox}/.openclaw/workspace"
 log_dir="/logs/agent"
-memory_index="$(
-  printf 'video-mme-%s' "${VSS_EVAL_RUN_ID}" |
-    tr '[:upper:]_/' '[:lower:]---' |
-    tr -cd 'a-z0-9._-'
-)"
-memory_index="${memory_index:0:220}"
+identity_file="${HOME:-/sandbox}/.vss/videomme-trial.json"
 
-mkdir -p "${workspace}/memory" "${log_dir}"
+mkdir -p "${workspace}/memory" "${log_dir}" "$(dirname "${identity_file}")"
+
+if [[ -s "${identity_file}" ]]; then
+  trial_uuid="$(jq -er '.trial_uuid' "${identity_file}")"
+  memory_index="$(jq -er '.memory_index' "${identity_file}")"
+else
+  trial_uuid="$(cat /proc/sys/kernel/random/uuid)"
+  memory_index="video-mme-${trial_uuid}"
+  identity_tmp="${identity_file}.tmp.$$"
+  trap 'rm -f "${identity_tmp:-}"' EXIT
+  jq -n \
+    --arg trial_uuid "${trial_uuid}" \
+    --arg memory_index "${memory_index}" \
+    '{
+      trial_uuid: $trial_uuid,
+      memory_index: $memory_index
+    }' > "${identity_tmp}"
+  chmod 600 "${identity_tmp}"
+  mv "${identity_tmp}" "${identity_file}"
+  identity_tmp=""
+fi
+
+if [[ ! "${trial_uuid}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
+    [[ "${memory_index}" != "video-mme-${trial_uuid}" ]]; then
+  echo "invalid VideoMME trial identity in ${identity_file}" >&2
+  exit 4
+fi
 
 vss configure --base-url "${VSS_GATEWAY_ORIGIN}"
 vss configure memory \
@@ -156,6 +177,8 @@ jq -e --arg job_id "${job_id}" \
 grep -R -F "<!-- vss-job:${job_id} -->" "${workspace}/memory" >/dev/null
 
 jq -n \
+  --arg trial_uuid "${trial_uuid}" \
+  --arg run_id "${run_id}" \
   --arg video_id "${video_id}" \
   --arg sensor_id "${sensor_id}" \
   --arg task_id "${VSS_EVAL_TASK_ID}" \
@@ -164,6 +187,8 @@ jq -n \
   --arg creation_time "${creation_time}" \
   '{
     state: "succeeded",
+    trial_uuid: $trial_uuid,
+    run_id: $run_id,
     video_id: $video_id,
     sensor_id: $sensor_id,
     task_id: $task_id,
