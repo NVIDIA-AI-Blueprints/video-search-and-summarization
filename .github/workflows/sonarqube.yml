@@ -114,6 +114,10 @@ jobs:
             exclusions="${exclusions},services/agent/docker/**,services/agent/packages/*/tests/**,libs/vss/*/tests/**"
           fi
 
+          if [ "$SONAR_PROJECT_NAME" = "video-search-and-summarization-rt-cv" ]; then
+            exclusions="${exclusions},**/prebuilts/**,**/*.so,**/*.a"
+          fi
+
           {
             echo "sonar.projectKey=${SONAR_PROJECT_KEY}"
             echo "sonar.projectName=${SONAR_PROJECT_NAME}"

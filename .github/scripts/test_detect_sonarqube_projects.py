@@ -76,6 +76,14 @@ class SelectProjectsTest(unittest.TestCase):
         selected, _ = dsp.select_projects(["libs/vss/cli/src/x.py"])
         self.assertEqual([project["name"] for project in selected], ["agent"])
 
+    def test_rt_cv_change_scans_only_rt_cv(self):
+        selected, _ = dsp.select_projects(["services/rtvi/rt-cv/src/metropolis_perception_app.c"])
+        self.assertEqual([project["name"] for project in selected], ["rt-cv"])
+
+    def test_rt_cv_3d_does_not_match_rt_cv(self):
+        selected, _ = dsp.select_projects(["services/rtvi/rt-cv-3d/README.md"])
+        self.assertEqual(selected, [])
+
     def test_sibling_directory_does_not_match(self):
         selected, _ = dsp.select_projects(["services/agent-old/app.py"])
         self.assertEqual(selected, [])
