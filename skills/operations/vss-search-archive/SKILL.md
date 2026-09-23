@@ -104,161 +104,161 @@ source-type selection is independent of the index inventory.
 
 ## Mandatory search workflow
 
-1. Confirm the selected deployment is the `search` profile. If required routes
-   are unavailable, ask whether to reconnect or deploy it with
-   the `/vss-build-vision-ai` stock Search workflow; do not target another profile.
+**1.** Confirm the selected deployment is the `search` profile. If required routes
+are unavailable, ask whether to reconnect or deploy it with
+the `/vss-build-vision-ai` stock Search workflow; do not target another profile.
 
-1. When the user names a file, camera, or sensor, list registered sources with
-   `vss vios list` before invoking the search CLI — it reads the origin
-   `vss configure` recorded, so it takes no endpoint. Accept only an exact
-   source, stream ID, or one unambiguous normalized substring match.
+**2.** When the user names a file, camera, or sensor, list registered sources with
+`vss vios list` before invoking the search CLI — it reads the origin
+`vss configure` recorded, so it takes no endpoint. Accept only an exact
+source, stream ID, or one unambiguous normalized substring match.
 
-   - No match: report the missing source, list available names, and ask the
-     user to clarify or explicitly request ingestion. Stop without probing the
-     search CLI, deploying, or ingesting. **Never continue with a different
-     source.** Answering about `warehouse_sample` when the request named
-     `warehouse-ladder` returns a confident answer about the wrong video, and
-     nothing downstream can tell it was substituted.
-   - Several matches: ask the user to choose and stop.
-   - Never substitute another video or run an unrestricted search as a probe.
+- No match: report the missing source, list available names, and ask the
+  user to clarify or explicitly request ingestion. Stop without probing the
+  search CLI, deploying, or ingesting. **Never continue with a different
+  source.** Answering about `warehouse_sample` when the request named
+  `warehouse-ladder` returns a confident answer about the wrong video, and
+  nothing downstream can tell it was substituted.
+- Several matches: ask the user to choose and stop.
+- Never substitute another video or run an unrestricted search as a probe.
 
-   Preserve both the matched source's `.sensor_id` and `.name` (the CLI emits
-   snake_case). The `--video-source` value depends on the search path, not the
-   source type (optional for every path):
+Preserve both the matched source's `.sensor_id` and `.name` (the CLI emits
+snake_case). The `--video-source` value depends on the search path, not the
+source type (optional for every path):
 
-   | path | `--video-source` takes | resolution |
-   | --- | --- | --- |
-   | `embed` | sensor ID, literal | none — pass the preserved `.sensor_id` |
-   | `attribute` | source name, literal | none — pass the preserved `.name` |
-   | `object` | source name, literal | none — pass the preserved `.name` |
-   | `tag` | source name → sensor ID | the CLI resolves a name to its VST sensor ID; an already-id passes through |
-   | `fusion` | sensor ID, literal | hand it the preserved `.sensor_id`; the tag leg accepts IDs too |
+| path | `--video-source` takes | resolution |
+| --- | --- | --- |
+| `embed` | sensor ID, literal | none — pass the preserved `.sensor_id` |
+| `attribute` | source name, literal | none — pass the preserved `.name` |
+| `object` | source name, literal | none — pass the preserved `.name` |
+| `tag` | source name → sensor ID | the CLI resolves a name to its VST sensor ID; an already-id passes through |
+| `fusion` | sensor ID, literal | hand it the preserved `.sensor_id`; the tag leg accepts IDs too |
 
-   For every path an unknown source yields an empty, narrowed result, not an
-   error. Set `--source-type video_file` for uploads or `--source-type rtsp`
-   for live streams. This selects the index partition for that media kind from a
-   fixed uploads anchor (not a discovered index), independently of the
-   identifier, so it is correct regardless of ingestion order.
+For every path an unknown source yields an empty, narrowed result, not an
+error. Set `--source-type video_file` for uploads or `--source-type rtsp`
+for live streams. This selects the index partition for that media kind from a
+fixed uploads anchor (not a discovered index), independently of the
+identifier, so it is correct regardless of ingestion order.
 
-1. Decompose the request before choosing a path; do not pick by surface form.
-   Before changing or splitting it, preserve the user's exact sentence as
-   `ORIGINAL_QUERY`. Retrieval may use the decomposed query, attributes, or
-   object IDs, but critic verification must receive this original wording.
-   `run embed` accepts any sentence, so being one sentence is not evidence for
-   embed. Separate each specific detectable property (`white jacket`, `red hard
-   hat`) from the actions/relations only embeddings capture, then choose:
+**3.** Decompose the request before choosing a path; do not pick by surface form.
+Before changing or splitting it, preserve the user's exact sentence as
+`ORIGINAL_QUERY`. Retrieval may use the decomposed query, attributes, or
+object IDs, but critic verification must receive this original wording.
+`run embed` accepts any sentence, so being one sentence is not evidence for
+embed. Separate each specific detectable property (`white jacket`, `red hard
+hat`) from the actions/relations only embeddings capture, then choose:
 
-   - a detectable property plus an action or relation is present → `run fusion` (even within one sentence)
-   - free-text intent with no detectable property → `run embed`
-   - detectable properties only, no action or relation → `run attribute`
-   - explicit tracked object IDs → `run object`
-   - explicit keyword or tag intent — lexical (BM25) match against indexed VLM tags, with no detectable property and no semantic free-text → `run tag`
+- a detectable property plus an action or relation is present → `run fusion` (even within one sentence)
+- free-text intent with no detectable property → `run embed`
+- detectable properties only, no action or relation → `run attribute`
+- explicit tracked object IDs → `run object`
+- explicit keyword or tag intent — lexical (BM25) match against indexed VLM tags, with no detectable property and no semantic free-text → `run tag`
 
-   `--attribute` is for specific detectable properties, not generic nouns or
-   actions. A property counts only when RT-CV detects it on the subject (attire,
-   PPE, color-on-person), not object identity or an object's own color; keep
-   `red forklift` wholly in `--query`. `worker in a hard hat carrying a cone` has
-   a property (`hard hat`) and an action (`carrying a cone`): `run fusion --query
-   "worker in a hard hat carrying a cone" --attribute "hard hat"`. Reserve embed
-   for genuinely attribute-free intent. `run tag` is for explicit lexical
-   intent — matching indexed VLM tag keywords by BM25 — not semantic similarity;
-   reserve it for keyword/tag queries that name no detectable property.
+`--attribute` is for specific detectable properties, not generic nouns or
+actions. A property counts only when RT-CV detects it on the subject (attire,
+PPE, color-on-person), not object identity or an object's own color; keep
+`red forklift` wholly in `--query`. `worker in a hard hat carrying a cone` has
+a property (`hard hat`) and an action (`carrying a cone`): `run fusion --query
+"worker in a hard hat carrying a cone" --attribute "hard hat"`. Reserve embed
+for genuinely attribute-free intent. `run tag` is for explicit lexical
+intent — matching indexed VLM tag keywords by BM25 — not semantic similarity;
+reserve it for keyword/tag queries that name no detectable property.
 
-1. Construct the invocation as a Bash array and validate only its exact
-   stdout. Read [CLI usage](references/cli_usage.md) only when tuning retrieval
-   weights (--fusion-method, `--w-tag`, etc.); do not open it for a standard
-   search invocation — the contract below is the whole invocation.
+**4.** Construct the invocation as a Bash array and validate only its exact
+stdout. Read [CLI usage](references/cli_usage.md) only when tuning retrieval
+weights (--fusion-method, `--w-tag`, etc.); do not open it for a standard
+search invocation — the contract below is the whole invocation.
 
-   ```bash
-   : "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
-   : "${SOURCE_TYPE:?set video_file or rtsp}"
-   : "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"
-   TOP_K="${TOP_K:-3}"
-   VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object/tag
-   : "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
-   if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
-     echo "Resolved source scope is empty; refusing an unrestricted search" >&2
-     exit 1
-   fi
-   SEARCH_COMMAND=(
-     vss search run "${SEARCH_PATH}"
-     --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}"
-     --original-query "${ORIGINAL_QUERY}" --raw
-   )
-   for source in "${VIDEO_SOURCES[@]}"; do
-     SEARCH_COMMAND+=(--video-source "${source}")
-   done
-   # Append --query, repeatable --attribute, --object-id, and time bounds as needed.
-   if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
-     echo "Search command failed" >&2
-     exit 1
-   fi
-   printf '%s' "${SEARCH_JSON}" |
-     jq -e 'type == "object" and (.data | type == "array")' >/dev/null || {
-       echo "Search did not return a SearchOutput object with a data array" >&2
-       exit 1
-     }
-   ```
+```bash
+: "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
+: "${SOURCE_TYPE:?set video_file or rtsp}"
+: "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"
+TOP_K="${TOP_K:-3}"
+VIDEO_SOURCES=() # sensor IDs for embed/fusion; names for attribute/object/tag
+: "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
+if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
+  echo "Resolved source scope is empty; refusing an unrestricted search" >&2
+  exit 1
+fi
+SEARCH_COMMAND=(
+  vss search run "${SEARCH_PATH}"
+  --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}"
+  --original-query "${ORIGINAL_QUERY}" --raw
+)
+for source in "${VIDEO_SOURCES[@]}"; do
+  SEARCH_COMMAND+=(--video-source "${source}")
+done
+# Append --query, repeatable --attribute, --object-id, and time bounds as needed.
+if ! SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
+  echo "Search command failed" >&2
+  exit 1
+fi
+printf '%s' "${SEARCH_JSON}" |
+  jq -e 'type == "object" and (.data | type == "array")' >/dev/null || {
+    echo "Search did not return a SearchOutput object with a data array" >&2
+    exit 1
+  }
+```
 
-   Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
-   `search run`; `vss configure` owns those values. Do not replace a failed CLI
-   call with `/api/v1/search` or private backend access.
+Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
+`search run`; `vss configure` owns those values. Do not replace a failed CLI
+call with `/api/v1/search` or private backend access.
 
-1. Each nonempty hit's `screenshot_url` always carries the scheme, host, and
-   effective port of the origin `vss configure` recorded, because the CLI
-   stamps that origin into every hit — a localhost media URL means the
-   deployment was configured against a localhost origin, not that the URL is
-   malformed. A bounded GET may report availability, but it is optional and not
-   visual evidence: never rewrite the URL, add a `streamId` routing header, or
-   accept credentials in it. On Brev, prefer the public HTTPS secure-link
-   origin; if setup used the documented host-reachable fallback after its one
-   bounded public probe failed, label those media URLs host-local and do not
-   restart routing diagnosis.
+**5.** Each nonempty hit's `screenshot_url` always carries the scheme, host, and
+effective port of the origin `vss configure` recorded, because the CLI
+stamps that origin into every hit — a localhost media URL means the
+deployment was configured against a localhost origin, not that the URL is
+malformed. A bounded GET may report availability, but it is optional and not
+visual evidence: never rewrite the URL, add a `streamId` routing header, or
+accept credentials in it. On Brev, prefer the public HTTPS secure-link
+origin; if setup used the documented host-reachable fallback after its one
+bounded public probe failed, label those media URLs host-local and do not
+restart routing diagnosis.
 
-2. Read every hit's `verification` object:
+**6.** Read every hit's `verification` object:
 
-   - `confirmed`: the critic found all requested visual criteria in that clip.
-   - `rejected`: the critic found a visual criterion was not met.
-   - `unverified`: no usable critic verdict was produced. This includes a
-     missing VLM, inaccessible media, and malformed or inconclusive output.
+- `confirmed`: the critic found all requested visual criteria in that clip.
+- `rejected`: the critic found a visual criterion was not met.
+- `unverified`: no usable critic verdict was produced. This includes a
+  missing VLM, inaccessible media, and malformed or inconclusive output.
 
-   The CLI is fail-open: verification failure must not discard or fail
-   retrieval. Never derive a verdict from similarity, filenames, object IDs, or
-   screenshot availability. Treat boolean `criteria_met` values as critic
-   evidence only.
+The CLI is fail-open: verification failure must not discard or fail
+retrieval. Never derive a verdict from similarity, filenames, object IDs, or
+screenshot availability. Treat boolean `criteria_met` values as critic
+evidence only.
 
-3. Format nonempty results without raw JSON:
+**7.** Format nonempty results without raw JSON:
 
-   ```text
-   ## Video Search Results
-   <each hit's exact source, start/end, similarity, complete media URL,
-   verification result, and criteria when present>
+```text
+## Video Search Results
+<each hit's exact source, start/end, similarity, complete media URL,
+verification result, and criteria when present>
 
-   Similarity scores are retrieval evidence; the separate verification result
-   records whether the bounded clip satisfied the visual request.
+Similarity scores are retrieval evidence; the separate verification result
+records whether the bounded clip satisfied the visual request.
 
-   ## Verification Step
-   Would you like me to verify the unverified search results?
-   ```
+## Verification Step
+Would you like me to verify the unverified search results?
+```
 
-   Include `## Verification Step` only when every displayed result is
-   `unverified` — the complete nonempty set, not a subset. If any displayed
-   result is `confirmed` or `rejected`, omit it even when other hits are
-   unverified. Never deploy a VLM or call `vss-ask-video` automatically during
-   this results turn.
+Include `## Verification Step` only when every displayed result is
+`unverified` — the complete nonempty set, not a subset. If any displayed
+result is `confirmed` or `rejected`, omit it even when other hits are
+unverified. Never deploy a VLM or call `vss-ask-video` automatically during
+this results turn.
 
-4. If the user explicitly confirms, read
-   [search-result verification](references/result_verification.md) completely and
-   delegate the displayed hits only after confirming again that every one is
-   still `unverified`. Preserve their exact bounded intervals and the complete
-   original visual intent. Keep at most three delegations in flight.
+**8.** If the user explicitly confirms, read
+[search-result verification](references/result_verification.md) completely and
+delegate the displayed hits only after confirming again that every one is
+still `unverified`. Preserve their exact bounded intervals and the complete
+original visual intent. Keep at most three delegations in flight.
 
-5. If `.data` is empty, report zero candidates faithfully — a fact about
-   retrieval, not about the video. Do not claim the object is absent, describe
-   what the footage contains, or argue it is not something you would expect
-   there: a threshold or embedding gap yields the same empty result as a genuine
-   absence. Offer a specific query or similarity-threshold refinement while
-   preserving the source. Never broaden the search silently.
+**9.** If `.data` is empty, report zero candidates faithfully — a fact about
+retrieval, not about the video. Do not claim the object is absent, describe
+what the footage contains, or argue it is not something you would expect
+there: a threshold or embedding gap yields the same empty result as a genuine
+absence. Offer a specific query or similarity-threshold refinement while
+preserving the source. Never broaden the search silently.
 
 ## Natural-language Agent responses
 

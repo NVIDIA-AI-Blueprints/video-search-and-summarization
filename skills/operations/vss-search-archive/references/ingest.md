@@ -156,6 +156,13 @@ resolve_upload_indexes || {
   echo "search indexes never appeared before the deadline (embedding index missing)" >&2
   exit 1
 }
+printf 'indexes=%s,%s,%s sensors=%s,%s counts=%s,%s,%s,%s\n' \
+  "${EMBED_INDEX}" "${BEHAVIOR_INDEX}" "${RAW_INDEX}" \
+  "${WAREHOUSE_SAMPLE_SENSOR}" "${WAREHOUSE_LADDER_SENSOR}" \
+  "${SAMPLE_EMBED_COUNT}" "${LADDER_EMBED_COUNT}" \
+  "${LADDER_BEHAVIOR_COUNT}" "${LADDER_RAW_COUNT}"
+(( SAMPLE_EMBED_COUNT > 0 && LADDER_EMBED_COUNT > 0 &&
+   LADDER_BEHAVIOR_COUNT > 0 && LADDER_RAW_COUNT > 0 )) || exit 1
 ```
 
 A timeout or partial registration is an error, not permission to query another
