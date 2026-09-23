@@ -188,22 +188,22 @@ Elasticsearch being unable to open `gc.log`.
 
 ### TURN / WebRTC relay
 
-The warehouse VST UI uses WebRTC for live playback. When VST containers run on the Compose bridge network, browsers cannot reach Docker-only media candidates directly, so `services/infra/compose.yml` includes a coturn-based `turnserver` service for warehouse profiles. It exposes the TURN listener and relay range on the host. Developer profiles do not start this TURN service.
+The warehouse VST UI uses WebRTC for live playback. When VST containers run on the Compose bridge network, browsers cannot reach Docker-only media candidates directly, so `services/infra/compose.yml` includes a coturn-based `turnserver` service for warehouse profiles. It runs on the host network, so the TURN listener and relay range are bound directly on the host rather than published by Docker. Developer profiles do not start this TURN service.
 
 Default ports:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `TURN_HOST_PORT` / `TURN_PORT` | `3478` | TURN UDP/TCP listener |
-| `TURN_MIN_RELAY_HOST_PORT` / `TURN_MAX_RELAY_HOST_PORT` | `49160` / `49200` | Host relay port range |
-| `TURN_MIN_RELAY_PORT` / `TURN_MAX_RELAY_PORT` | `49160` / `49200` | Container relay port range |
+| `TURN_PORT` | `3478` | TURN UDP/TCP listener |
+| `TURN_MIN_RELAY_PORT` / `TURN_MAX_RELAY_PORT` | `49160` / `49200` | Relay port range |
 
-Set `TURN_PUBLIC_HOST` to the DNS name or IP address that browser clients use to reach the deployment, and set `TURN_EXTERNAL_IP` to the host IP coturn should advertise. The warehouse profile uses a non-secret default `TURN_USERNAME` and starts a `turnserver-init` job that generates a random password once in the `vss-turn-password` Docker volume. Coturn and VST mount that same generated file; the VST startup helper derives the static TURN URL in the format `user:password@host:port` from `TURN_USERNAME`, the generated password file, `TURN_PUBLIC_HOST`, and `TURN_HOST_PORT`.
+Because these ports are not Docker-published, a host firewall such as `ufw` applies to them. Allow the listener and the relay range (UDP and TCP) for clients that need playback.
+
+Set `TURN_PUBLIC_HOST` to the DNS name or IP address that browser clients use to reach the deployment, and set `TURN_EXTERNAL_IP` to the host IP coturn should advertise. The warehouse profile uses a non-secret default `TURN_USERNAME` and starts a `turnserver-init` job that generates a random password once in the `vss-turn-password` Docker volume. Coturn and VST mount that same generated file; the VST startup helper derives the static TURN URL in the format `user:password@host:port` from `TURN_USERNAME`, the generated password file, `TURN_PUBLIC_HOST`, and `TURN_PORT`.
 
 For the bundled turnserver, leave `VST_STATIC_TURNURL_LIST` empty:
 
 ```env
-TURN_HOST_PORT=3478
 TURN_PORT=3478
 TURN_USERNAME=vss
 TURN_PASSWORD_BYTES=32

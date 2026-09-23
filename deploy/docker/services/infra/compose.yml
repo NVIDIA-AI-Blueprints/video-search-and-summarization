@@ -44,16 +44,10 @@ services:
     container_name: vss-turnserver
     user: "65534:65534"
     restart: unless-stopped
-    ports:
-      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/udp
-      - ${TURN_HOST_PORT:-3478}:${TURN_PORT:-3478}/tcp
-      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/udp
-      - ${TURN_MIN_RELAY_HOST_PORT:-49160}-${TURN_MAX_RELAY_HOST_PORT:-49200}:${TURN_MIN_RELAY_PORT:-49160}-${TURN_MAX_RELAY_PORT:-49200}/tcp
-    networks:
-      default:
-        aliases:
-          - turnserver
-          - vss-turnserver
+    # Publishing the relay range makes Docker bind every port in it before start,
+    # and one port held by a transient host socket fails the container. On the
+    # host network coturn binds relay ports per allocation and skips busy ones.
+    network_mode: host
     environment:
       TURN_PORT: ${TURN_PORT:-3478}
       TURN_MIN_RELAY_PORT: ${TURN_MIN_RELAY_PORT:-49160}

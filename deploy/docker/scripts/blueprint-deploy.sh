@@ -1474,9 +1474,8 @@ function state_up() {
   echo "[INFO] Setting permissions on data_log directory..."
   chmod -R 777 "${data_directory}/data_log" 2>/dev/null || true
 
-  local _compose_file_args=(-f compose.yml -f services/infra/compose-no-turn-tcp-relay.yml)
+  local _compose_file_args=(-f compose.yml)
   local _compose_file_args_text=" ${_compose_file_args[*]}"
-  echo "[INFO] TURN TCP relay host-port publishing disabled for blueprint-deploy.sh"
 
   if [[ "${hardware_profile}" == "DGX-SPARK" || "${hardware_profile}" == "GB300" || "${use_sbsa_images}" == "true" ]]; then
     export VSS_CONTAINER_TAG_SUFFIX="-sbsa"

@@ -54,11 +54,8 @@ export TURN_PASSWORD_BYTES=32
 export TURN_EXTERNAL_IP=<public-ip-or-dns>
 export TURN_PUBLIC_HOST=<public-ip-or-dns>
 export TURN_PORT=3478
-export TURN_HOST_PORT=3478
 export TURN_MIN_RELAY_PORT=49160
 export TURN_MAX_RELAY_PORT=49200
-export TURN_MIN_RELAY_HOST_PORT=49160
-export TURN_MAX_RELAY_HOST_PORT=49200
 
 docker compose -f services/infra/compose.yml \
   --profile turnserver-init --profile turnserver up -d

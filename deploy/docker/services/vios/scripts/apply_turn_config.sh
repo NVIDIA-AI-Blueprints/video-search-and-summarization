@@ -66,7 +66,7 @@ else
   turn_username="$(trim "${TURN_USERNAME:-}")"
   turn_password_file="$(trim "${TURN_PASSWORD_FILE:-}")"
   turn_public_host="$(trim "${TURN_PUBLIC_HOST:-}")"
-  turn_host_port="$(trim "${TURN_HOST_PORT:-${TURN_PORT:-3478}}")"
+  turn_host_port="$(trim "${TURN_PORT:-3478}")"
 
   if [[ -z "${turn_username}" ]]; then
     echo "[apply-turn-config] TURN_USERNAME is empty; set it to configure VST TURN" >&2

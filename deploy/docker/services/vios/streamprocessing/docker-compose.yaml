@@ -137,7 +137,7 @@ services:
       - TURN_USERNAME=${TURN_USERNAME:-}
       - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
       - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
-      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
+      - TURN_PORT=${TURN_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-2d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
@@ -209,7 +209,7 @@ services:
       - TURN_USERNAME=${TURN_USERNAME:-}
       - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
       - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
-      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
+      - TURN_PORT=${TURN_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-3d-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json
@@ -283,7 +283,7 @@ services:
       - TURN_USERNAME=${TURN_USERNAME:-}
       - TURN_PASSWORD_FILE=/run/secrets/vss-turn/turn-password
       - TURN_PUBLIC_HOST=${TURN_PUBLIC_HOST:-}
-      - TURN_HOST_PORT=${TURN_HOST_PORT:-3478}
+      - TURN_PORT=${TURN_PORT:-3478}
     volumes:
       - ${VST_CONFIG_PATH:-${VSS_APPS_DIR}/services/vios/configs}:/home/vst/vst_release/configs
       - ${VSS_APPS_DIR}/industry-profiles/warehouse-operations/warehouse-mv3dt-app/vst/configs/vst_config.json:/home/vst/vst_release/configs/vst_config.json

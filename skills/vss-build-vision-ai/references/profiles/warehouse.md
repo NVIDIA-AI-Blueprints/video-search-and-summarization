@@ -251,15 +251,12 @@ COMPOSE_PROFILES_WH_* name>`, the expanded literal `COMPOSE_PROFILES` (never a
 dependent-value closure below. `FOUNDATION_VARIANT` must be the variant `MODE` +
 `BP_PROFILE` select; `scripts/validate_warehouse_env.py` enforces that pairing.
 
-`compose.yml` appends the shared TURN relay overlay that every warehouse
-deployment needs. It is an in-tree shared file, not a build-local patch, so it
-belongs in the include path list:
+`compose.yml` includes the shared deploy tree:
 
 ```yaml
 include:
   - path:
       - ../../deploy/docker/compose.yml
-      - ../../deploy/docker/services/infra/compose-no-turn-tcp-relay.yml
 ```
 
 `configurator.env` exists because `bp-configurator-<mode>` does **not** read its
@@ -482,5 +479,4 @@ return **404** on this image.
 - `deploy/docker/industry-profiles/warehouse-operations/compose.yml`
 - `deploy/docker/industry-profiles/warehouse-operations/warehouse-{2d,3d}-app/`
 - `deploy/docker/industry-profiles/warehouse-operations/blueprint-configurator/blueprint_config.yml`
-- `deploy/docker/services/infra/compose-no-turn-tcp-relay.yml`
 - `deploy/docker/services/infra/haproxy/haproxy.cfg.template`
