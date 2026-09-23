@@ -20,6 +20,8 @@ MV3DT is implemented as an additional module in the `NvMultiObjectTracker` low-l
 
 Tracking outputs include 3D foot location, visibility, velocity, class labels, and globally consistent instance IDs, enabling sophisticated multi-camera fusion and analytics capabilities.
 
+Warehouse MV3DT also runs **appearance-based re-association** by default. The tracker extracts [CLIP-ReID](https://github.com/Syliz517/CLIP-ReID) features and streams them over kafka. These are saved by `reid-embed` microservice in it's gallery. Tracker queries the `reid-embed` gallery to re-associate **Person** tracks that geometry and MQTT handoff would otherwise lose e.g. when there are camera coverage gaps or when a person is occluded for a long time.
+
 For detailed information on all components, APIs, and customization options, refer to the [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
 To deploy the standalone MV3DT stack from natural-language prompts, see the
 [MV3DT Agent Skills walkthrough](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough).
@@ -45,12 +47,11 @@ For docker compose deployment, the `vss-rtvi-cv-mv3dt` service in `deploy/docker
 volumes:
   - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/
   - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/:/tmp/camInfo/
-  - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
-  - $VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/
+  - $VSS_DATA_DIR/models/:/opt/storage/
   - $VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh
 ```
 
-The `$VSS_DATA_DIR/models/mtmc/` host directory is mounted at `/opt/storage/`, which persists ONNX models and TensorRT engine files across container restarts. DeepStream pipeline configs (`ds-main-config-mv3dt.txt`, `ds-pgie-config.yml`, `ds-mv3dt-tracker-config.yml`, and related files) live on the host under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/` and appear in the container under `metropolis_perception_app/configs/`. Per-camera `camInfo/<sensor_id>.yml` files live under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/` on the host and appear in the container at `/tmp/camInfo/`.
+The `$VSS_DATA_DIR/models/` host directory is mounted at `/opt/storage/`, which persists ONNX models and TensorRT engine files across container restarts. Inside that tree, RT-DETR sits at `/opt/storage/` (`rtdetr_warehouse_*.onnx`), pose at `/opt/storage/BodyPose3DNet/`, and CLIP-ReID at `/opt/storage/reid/` (`reid_model.onnx` and its engine). DeepStream pipeline configs (`ds-main-config-mv3dt.txt`, `ds-pgie-config.yml`, `ds-mv3dt-tracker-config.yml`, and related files) live on the host under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/configs/` and appear in the container under `metropolis_perception_app/configs/`. Per-camera `camInfo/<sensor_id>.yml` files live under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-mv3dt-app/calibration/sample-data/$SAMPLE_VIDEO_DATASET/camInfo/` on the host and appear in the container at `/tmp/camInfo/`.
 
 ### Inference Configuration File
 
@@ -138,7 +139,7 @@ RT-DETR performs detection per frame, and the `NvMultiObjectTracker` low-level l
 
 **Low-Level Tracker Configuration (ds-mv3dt-tracker-config.yml)**
 
-The MV3DT tracker configuration extends the standard 2D `NvMultiObjectTracker` configuration with two Single-View 3D Tracking (SV3DT) sections, `ObjectModelProjection` and `PoseEstimator`, and two Multi-View 3D Tracking (MV3DT) sections, `MultiViewAssociator` and `Communicator`. The file is organized as follows:
+The MV3DT tracker configuration extends the standard 2D `NvMultiObjectTracker` configuration with two Single-View 3D Tracking (SV3DT) sections, `ObjectModelProjection` and `PoseEstimator`; two Multi-View 3D Tracking (MV3DT) sections, `MultiViewAssociator` and `Communicator`; and two appearance ReID sections, `ReID` and `ReIDService`. The file is organized as follows:
 
 - `BaseConfig`: Top-level tracker settings shared across all modules.
 - `TargetManagement`: Settings for target lifecycle management.
@@ -148,6 +149,8 @@ The MV3DT tracker configuration extends the standard 2D `NvMultiObjectTracker` c
 - `VisualTracker`: Settings for visual feature extraction used when the detector misses or partially captures a target.
 - `ObjectModelProjection`: Settings for SV3DT back-projection of 2D bounding boxes into the world ground plane using each camera's calibration matrix and 3D object model.
 - `PoseEstimator`: Settings for the optional pose-estimation network that refines the SV3DT 3D foot location from body keypoints.
+- `ReID`: Settings for the CLIP-ReID model that extracts appearance features from tracked objects.
+- `ReIDService`: Settings for the HTTP client that queries the external appearance gallery to re-associate tracks that geometry and MQTT handoff lose.
 - `MultiViewAssociator`: Settings for MV3DT cross-camera ID propagation and multi-view measurement fusion.
 - `Communicator`: Settings for the MQTT-based transport module that lets each camera share and receive tracklets with its vision neighbors.
 
