@@ -13,8 +13,8 @@ It runs against a **full-remote-model VSS search profile** (deploy mode
 = `remote-all`; LLM and underlying VLM inference use remote endpoints, while
 the RT-VLM media proxy, Cosmos Embed1, and Elasticsearch remain local on the
 GPU host). The first generated step deploys and validates that profile. The
-second persisted step uses the agent-backed upload and completion handshake to
-seed the two named sample videos and their search indexes. Later steps reuse
+second persisted step uses ``vss vios add`` to register the two named
+sample videos; the deployment's mounted notification config fans them out and seeds their search indexes. Later steps reuse
 that prepared state.
 
 Mirrors the vss-manage-video-io-storage adapter's shape — single-task-per-platform, step-chained
@@ -85,7 +85,7 @@ DEPLOYMENT_PREAMBLE = (
     "media. Work from the validated project checkout and use the `/vss-build-vision-ai` stock "
     "Search workflow in remote-all mode. Compose commands executed by that deployment workflow are expected. Once it "
     "returns, require local Agent and VST health, the project-local `vss search run --help`, the "
-    "running `vss-rtvi-vlm` proxy, and a nonempty bounded `/v1/models` response. On Brev, let the "
+    "running `vss-rtvi-vlm` proxy, and `vss configure check` reporting a nonempty served-model list for rt_vlm. On Brev, let the "
     "deployment workflow mint the public secure-link origin from environment-provided values. Use "
     "the bundled `scripts/select_brev_origin.sh` to make the single public-origin decision and do not issue "
     "a public-origin curl yourself. Let that request, with redirects disabled, select the documented "
@@ -101,11 +101,11 @@ INGESTION_PREAMBLE = (
     "that state. Read the origin from `vss configure show`; do not invoke `/vss-build-vision-ai`, "
     "`docker compose up`, restart or recreate containers, edit routing, or repeat public-origin "
     "selection. If the prepared deployment is unavailable, report the prerequisite failure and stop "
-    "instead of repairing it. Initialize the source-lifecycle deadline once at the start of this "
-    "ingestion step. Make fixture setup idempotent through Agent-backed deletion, download the exact "
+    "instead of repairing it. Initialize the source-setup deadline once at the start of this "
+    "ingestion step. Make fixture setup idempotent by listing sources and removing remnants via `vss vios delete`, download the exact "
     "pinned NGC bundle into a fresh directory, derive both upload paths only from that extraction rather "
-    "than a cached host file, and ingest only the two named files through the "
-    "three-step Agent workflow. Reconfigure once after ingestion so lazy indexes are discovered, "
+    "than a cached host file, and register each file via `vss vios add` (the deployment's "
+    "notification config fans it out). Reconfigure once after ingestion so lazy indexes are discovered, "
     "then require both canonical VST sources and the exact embedding, behavior, and raw index tuples. "
     "Logs are diagnostics only. If bounded readiness expires, print diagnostics and fail; do not "
     "reset the deadline, redeploy, restart, or re-ingest."
@@ -117,9 +117,9 @@ OPERATION_PREAMBLE = (
     "and evaluation fixtures were prepared by the preceding deployment and ingestion steps. Do not redeploy "
     "the profile and do not ingest or re-ingest any source during this step. Use the `vss` CLI; "
     "if `vss` is not on PATH, install it from the host checkout with `uv tool install \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss/cli\"`. "
-    "List registered sources through the prepared deployment's discovered VST/VIOS "
-    "connectivity: read the origin from `vss configure show` and "
-    "GET its `/vst/api/v1/sensor/list`; do not assume a fixed port. If "
+    "List registered sources with `vss vios list` (it reads the origin "
+    "`vss configure` recorded, so it takes no endpoint); do not hand-build "
+    "`/vst/api/v1/sensor/list` or assume a fixed port. If "
     "the requested source is not registered, follow the skill's missing-source rule: list "
     "registered sources, report the missing source, and stop without silently substituting "
     "another source. Do not test or invoke the search CLI for a missing source. When it is "
@@ -165,9 +165,9 @@ OPERATION_PREAMBLE = (
     "is not visual evidence. If every displayed hit was unverified "
     "and the user later confirms delegated verification, hand those bounded hits to vss-ask-video and use screenshot inspection "
     "only after that workflow reports a technical failure. For a deletion request, do "
-    "not run search; use the skill's agent-backed cleanup workflow. Resolve the agent endpoint and "
-    "the distinct embedding, behavior, and raw indexes from `vss configure show` as during setup, "
-    "save the source UUID and canonical name before DELETE, require status `success`, "
+    "not run search; use `vss vios delete` (the deployment's `camera_remove` "
+    "webhooks withdraw consumers and clean the anchor indexes). Resolve the "
+    "distinct embedding, behavior, and raw indexes from `vss configure show` as during setup, save the source UUID and canonical name before `vss vios delete`, "
     "and poll the exact three index/field/value tuples to zero. Never use the embedding index for "
     "behavior or raw cleanup validation. Do not look for a global executable. If the host command "
     "fails, report its error and stop instead of substituting another search interface."

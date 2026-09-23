@@ -4,7 +4,7 @@ description: Use this skill when a user wants to search archived VSS video or in
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.3.0"
+  version: "3.4.0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   # What a live deployment must expose for this skill to be usable, as the vss CLI
@@ -18,21 +18,22 @@ metadata:
 
 Operate archive search from the caller's host. Compose and Kubernetes use the
 same `vss configure` and `vss search run` commands; only the deployment origin
-differs. Source ingestion and deletion are Agent-backed **when the deployment has
-an agent `/api` route**; on a build without one, they belong to
-`vss-manage-video-io-storage` `references/provision-vios-source.md`.
+differs. Source ingestion and deletion use `vss vios add` / `vss vios delete`;
+the deployment's mounted notification config owns the fan-out to RT-CV,
+RT-Embed, and RT-VLM tagging. Builds whose config projects those receivers off
+defer the hand-driven legs to `vss-manage-video-io-storage`
+`references/provision-vios-source.md`.
 
 ## Hard boundaries
 
 - Run the project-local CLI on the host. Never use `docker exec`, `kubectl
   exec`, a pod shell, or a globally installed `vss` as a substitute.
 - Never improvise a mutation against Elasticsearch, RTVI-CV, RTVI-Embed,
-  storage-ms, or VST. Two paths are sanctioned, and the deployment picks which:
-  the Agent upload/delete lifecycle where an agent `/api` route answers, and
-  `vss-manage-video-io-storage` `references/provision-vios-source.md` where none
-  does. That recipe owns VIOS registration and the hand-driven RT-VLM legs;
-  nothing sanctions a direct call to RTVI-CV or RTVI-Embed, which receive every
-  source from VIOS.
+  storage-ms, or VST. One path is sanctioned: `vss vios add` / `vss vios
+  delete`, with the deployment's notification config owning the fan-out.
+  `vss-manage-video-io-storage` `references/provision-vios-source.md` covers
+  builds whose config lacks the receivers; nothing sanctions a direct call to
+  RTVI-CV or RTVI-Embed, which receive every source from VIOS.
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
 - The CLI attempts critic verification by default. Do not separately inspect
@@ -40,7 +41,7 @@ an agent `/api` route**; on a build without one, they belong to
 - Offer delegated verification only when every displayed result is
   `unverified`, and only after displaying them and receiving explicit user
   confirmation. If any result is `confirmed` or `rejected`, do not hand off
-  any result to another verifier.
+  any result to another verifier. Never hand off a partially verified result set.
 
 ## Prerequisites
 
@@ -83,19 +84,21 @@ exposed through the Ingress are recorded as absent and a search path needing
 one exits 4.
 
 For deployment readiness, ingestion, fixture cleanup, index checks, RTSP, or
-deletion, read [source lifecycle](references/source_lifecycle.md) completely
-before acting. Re-run `vss configure` after the first ingestion: the recorded
-raw family is what enables frame-level lookups (it gates `frames_index`, which
-attribute and fusion need for frame enrichment). Only source-type selection is
-independent of the index inventory.
+deletion, read [source setup](references/source_setup.md) first; it owns the
+origin, the one `SEARCH_READINESS_DEADLINE`, the `index_count` helper, and the
+readiness tuple table. Ingestion is [ingest](references/ingest.md); deletion is
+[delete](references/delete.md). Re-run `vss configure` after the first
+ingestion: the recorded raw family is what enables frame-level lookups (it gates
+`frames_index`, which attribute and fusion need for frame enrichment). Only
+source-type selection is independent of the index inventory.
 
 ## Mandatory search workflow
 
 1. Confirm the selected deployment is the `search` profile. If required routes
    are unavailable, ask whether to reconnect or deploy it with
-   `the`/vss-build-vision-ai`stock Search workflow`; do not target another profile.
+   the `/vss-build-vision-ai` stock Search workflow; do not target another profile.
 
-2. When the user names a file, camera, or sensor, list registered sources with
+1. When the user names a file, camera, or sensor, list registered sources with
    `vss vios list` before invoking the search CLI — it reads the origin
    `vss configure` recorded, so it takes no endpoint. Accept only an exact
    source, stream ID, or one unambiguous normalized substring match.
@@ -109,16 +112,25 @@ independent of the index inventory.
    - Several matches: ask the user to choose and stop.
    - Never substitute another video or run an unrestricted search as a probe.
 
-   Preserve both the matched source's `.sensorId` and `.name`. The
-   `--video-source` value depends on the search path, not the source type (optional for every path):
-   `embed` matches the sensor ID literally; `attribute` and `object` match the
-   name literally; only `tag` resolves a source name to its VST sensor ID (passing an already-id through). `fusion` does **not** resolve — its embedding leg filters by sensor ID literally — so hand fusion the preserved sensor ID (the tag leg accepts IDs too). For every path an unknown source yields an empty, narrowed result, not an error.
-   Set `--source-type video_file` for uploads or `--source-type rtsp` for live
-   streams. This selects the index partition for that media kind from a fixed
-   uploads anchor (not a discovered index), independently of the identifier, so
-   it is correct regardless of ingestion order.
+   Preserve both the matched source's `.sensor_id` and `.name` (the CLI emits
+   snake_case). The `--video-source` value depends on the search path, not the
+   source type (optional for every path):
 
-3. Decompose the request before choosing a path; do not pick by surface form.
+   | path | `--video-source` takes | resolution |
+   | --- | --- | --- |
+   | `embed` | sensor ID, literal | none — pass the preserved `.sensor_id` |
+   | `attribute` | source name, literal | none — pass the preserved `.name` |
+   | `object` | source name, literal | none — pass the preserved `.name` |
+   | `tag` | source name → sensor ID | the CLI resolves a name to its VST sensor ID; an already-id passes through |
+   | `fusion` | sensor ID, literal | hand it the preserved `.sensor_id`; the tag leg accepts IDs too |
+
+   For every path an unknown source yields an empty, narrowed result, not an
+   error. Set `--source-type video_file` for uploads or `--source-type rtsp`
+   for live streams. This selects the index partition for that media kind from a
+   fixed uploads anchor (not a discovered index), independently of the
+   identifier, so it is correct regardless of ingestion order.
+
+2. Decompose the request before choosing a path; do not pick by surface form.
    Before changing or splitting it, preserve the user's exact sentence as
    `ORIGINAL_QUERY`. Retrieval may use the decomposed query, attributes, or
    object IDs, but critic verification must receive this original wording.
@@ -142,8 +154,9 @@ independent of the index inventory.
    intent — matching indexed VLM tag keywords by BM25 — not semantic similarity;
    reserve it for keyword/tag queries that name no detectable property.
 
-4. Construct the invocation as a Bash array and validate only its exact
-   stdout. Read [CLI usage](references/cli_usage.md) for every supported flag.
+3. Construct the invocation as a Bash array and validate only its exact
+   stdout. Read [CLI usage](references/cli_usage.md) only when tuning retrieval
+   weights; the contract below is the whole invocation.
 
 ```bash
 : "${SEARCH_PATH:?set embed|attribute|fusion|object|tag}"
@@ -180,17 +193,16 @@ Do not pass endpoint, index, model, deployment, profile, or base-URL flags to
 `search run`; `vss configure` owns those values. Do not replace a failed CLI
 call with `/api/v1/search` or private backend access.
 
-1. Validate each nonempty hit's exact returned `screenshot_url` with a bounded
-GET for availability only. Its normalized scheme, host, and effective port
-always match the origin recorded by `vss configure`, because the CLI stamps
-that origin into every hit — a localhost media URL means the deployment was
-configured against a localhost origin, not that the URL is malformed. On Brev,
-prefer the public HTTPS secure-link origin. If setup used the documented
-host-reachable fallback after its one bounded public probe failed, accept only
-that exact recorded origin and label its media URLs host-local; do not restart
-routing diagnosis. Reject credentials in the URL and never rewrite the URL or
-add a `streamId` routing header. Discard the response body; availability is not
-visual evidence.
+1. Each nonempty hit's `screenshot_url` always carries the scheme, host, and
+   effective port of the origin `vss configure` recorded, because the CLI
+   stamps that origin into every hit — a localhost media URL means the
+   deployment was configured against a localhost origin, not that the URL is
+   malformed. A bounded GET may report availability, but it is optional and not
+   visual evidence: never rewrite the URL, add a `streamId` routing header, or
+   accept credentials in it. On Brev, prefer the public HTTPS secure-link
+   origin; if setup used the documented host-reachable fallback after its one
+   bounded public probe failed, label those media URLs host-local and do not
+   restart routing diagnosis.
 
 2. Read every hit's `verification` object:
 
@@ -199,11 +211,12 @@ visual evidence.
    - `unverified`: no usable critic verdict was produced. This includes a
      missing VLM, inaccessible media, and malformed or inconclusive output.
 
-The CLI is fail-open: verification failure must not discard or fail retrieval.
-Never derive a verdict from similarity, filenames, object IDs, or screenshot
-availability. Treat boolean `criteria_met` values as critic evidence only.
+   The CLI is fail-open: verification failure must not discard or fail
+   retrieval. Never derive a verdict from similarity, filenames, object IDs, or
+   screenshot availability. Treat boolean `criteria_met` values as critic
+   evidence only.
 
-1. Format nonempty results without raw JSON:
+3. Format nonempty results without raw JSON:
 
 ```text
 ## Video Search Results
@@ -217,24 +230,24 @@ records whether the bounded clip satisfied the visual request.
 Would you like me to verify the unverified search results?
 ```
 
-Include `## Verification Step` only when the nonempty displayed result set is
-entirely `unverified`. If any displayed result is `confirmed` or `rejected`,
-omit it even when other hits are unverified. Never deploy a VLM or call
-`vss-ask-video` automatically during this results turn.
+   Include `## Verification Step` only when every displayed result is
+   `unverified` — the complete nonempty set, not a subset. If any displayed
+   result is `confirmed` or `rejected`, omit it even when other hits are
+   unverified. Never deploy a VLM or call `vss-ask-video` automatically during
+   this results turn.
 
 1. If the user explicitly confirms, read
-[search-result verification](references/result_verification.md) completely and
-delegate the displayed hits only after confirming again that every one is
-still `unverified`. Preserve their exact bounded intervals and the complete
-original visual intent. Keep at most three delegations in flight. Never hand
-off a partially verified result set.
+   [search-result verification](references/result_verification.md) completely and
+   delegate the displayed hits only after confirming again that every one is
+   still `unverified`. Preserve their exact bounded intervals and the complete
+   original visual intent. Keep at most three delegations in flight.
 
 2. If `.data` is empty, report zero candidates faithfully — a fact about
-retrieval, not about the video. Do not claim the object is absent, describe
-what the footage contains, or argue it is not something you would expect
-there: a threshold or embedding gap yields the same empty result as a genuine
-absence. Offer a specific query or similarity-threshold refinement while
-preserving the source. Never broaden the search silently.
+   retrieval, not about the video. Do not claim the object is absent, describe
+   what the footage contains, or argue it is not something you would expect
+   there: a threshold or embedding gap yields the same empty result as a genuine
+   absence. Offer a specific query or similarity-threshold refinement while
+   preserving the source. Never broaden the search silently.
 
 ## Natural-language Agent responses
 
@@ -252,6 +265,8 @@ or verification parsing against that response or invent structured hit rows.
 - Exit 4: run `vss configure --base-url <origin>` or choose a path whose
   required services are actually routed.
 - Exit 5: ingest the source, wait for readiness, and re-run `vss configure`.
+- Exit 7: `vss vios add` registered the source but VIOS never indexed its
+  timeline within its wait; report it and do not re-add.
 - Missing/ambiguous source: stop for clarification; never substitute.
 - Missing RT-VLM: retrieval remains valid and results remain `unverified`.
 - Authentication: use the operator-approved route. Never place secrets in
