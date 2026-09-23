@@ -26,7 +26,10 @@ if [[ -s "${identity_file}" ]]; then
   memory_index="$(jq -er '.memory_index' "${identity_file}")"
 else
   trial_uuid="$(cat /proc/sys/kernel/random/uuid)"
-  memory_index="video-mme-${trial_uuid}"
+  # The public Elasticsearch edge admits unified-memory document writes only
+  # for `vss-memory` and its suffixed variants. The first real summary record
+  # creates this per-sandbox index through Elasticsearch auto-creation.
+  memory_index="vss-memory-video-mme-${trial_uuid}"
   identity_tmp="${identity_file}.tmp.$$"
   trap 'rm -f "${identity_tmp:-}"' EXIT
   jq -n \
@@ -42,7 +45,7 @@ else
 fi
 
 if [[ ! "${trial_uuid}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
-    [[ "${memory_index}" != "video-mme-${trial_uuid}" ]]; then
+    [[ "${memory_index}" != "vss-memory-video-mme-${trial_uuid}" ]]; then
   echo "invalid VideoMME trial identity in ${identity_file}" >&2
   exit 4
 fi
@@ -63,39 +66,6 @@ vss configure memory introspection \
   --judge-model "${VSS_MEMORY_JUDGE_MODEL:-anthropic/claude-opus-5}" \
   --clear-judge-backend-model \
   --judge-api-key-env "${VSS_MEMORY_JUDGE_API_KEY_ENV:-ANTHROPIC_API_KEY}"
-
-elasticsearch_url="$(
-  vss configure show |
-    jq -er '.services.elasticsearch.url'
-)"
-index_response="${log_dir}/setup-elasticsearch-index.json"
-index_status="$(
-  curl --silent --show-error \
-    --output "${index_response}" \
-    --write-out '%{http_code}' \
-    --request PUT \
-    --header 'Content-Type: application/json' \
-    --data '{}' \
-    "${elasticsearch_url%/}/${memory_index}"
-)"
-
-case "${index_status}" in
-  200 | 201)
-    ;;
-  400)
-    if ! jq -e \
-      '.error.type == "resource_already_exists_exception"' \
-      "${index_response}" >/dev/null; then
-      cat "${index_response}" >&2
-      exit 5
-    fi
-    ;;
-  *)
-    cat "${index_response}" >&2
-    echo "failed to create Elasticsearch index ${memory_index}: HTTP ${index_status}" >&2
-    exit 5
-    ;;
-esac
 
 vss configure memory check
 
