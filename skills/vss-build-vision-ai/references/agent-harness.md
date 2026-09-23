@@ -642,12 +642,15 @@ NemoClaw pairs the new sandbox's CLI device on the default dashboard port
 misses and onboarding times out. Retrying with `--fresh` reproduces it. The
 VSS stack and the inference route have nothing to do with it.
 
-A deploy recreates the sandbox, so its state is expendable: destroy every
-sandbox on the host, confirm `18789` is free, and rerun the notebook.
+A deploy recreates the sandbox, so its state is expendable: destroy the
+sandboxes this deploy owns - the failed one and any left by earlier runs -
+confirm `18789` is free, and rerun the notebook. A sandbox someone else owns
+holding `18789` is not yours to destroy; it means this host cannot run the
+deploy until they release it.
 
 ```bash
 openshell sandbox list
-nemoclaw <name> destroy             # each one listed
+nemoclaw <name> destroy             # each sandbox of this deploy
 lsof -nP -iTCP:18789 -sTCP:LISTEN   # must print nothing
 ```
 
