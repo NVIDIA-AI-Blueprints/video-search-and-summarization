@@ -298,7 +298,7 @@ services:
       start_period: 90s
 
   reid-embed:
-    image: ${REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${REID_EMBED_TAG:-3.3.0-26.08.2}
+    image: ${REID_EMBED_IMAGE:-nvcr.io/nvstaging/vss-core/reid-embed}:${REID_EMBED_TAG:-3.3.0-26.09.2}
     container_name: vss-reid-embed-rtcv
     profiles: ["reid"]
     network_mode: host
