@@ -87,6 +87,24 @@ spec:
               value: {{ .Values.javaOpts | quote }}
             - name: STREAM_TYPE
               value: {{ .Values.streamType | quote }}
+            # Pre-seed $LOAD_PATH with the protobuf definitions directory.
+            # logstash-codec-protobuf does `$LOAD_PATH.unshift(@protobuf_root_directory)`
+            # (protobuf.rb:187) OUTSIDE the DescriptorPool lock that guards the
+            # subsequent `require`. With several pipelines registering protobuf
+            # codecs in parallel, that concurrent mutation of the global
+            # $LOAD_PATH array trips JRuby's "ConcurrencyError: Detected invalid
+            # array contents due to unsynchronized modifications with concurrent
+            # users" and Logstash exits 1 before any pipeline starts.
+            # Seeding the identical string here makes the plugin's
+            # `$LOAD_PATH.include?` guard short-circuit, so nothing mutates it.
+            # Hardcoded on purpose, matching the class_file entries in
+            # configmap.yaml and the pb_definitions volumeMounts below: those
+            # mounts fix where the files actually live, so a value here would be
+            # a knob that cannot be turned. Must match protobuf_root_directory in
+            # configmap.yaml EXACTLY, trailing slash included -- the guard is a
+            # string compare and JRuby keeps RUBYLIB entries verbatim.
+            - name: RUBYLIB
+              value: "/opt/logstash-data-libs/logstash/pb_definitions/"
           ports:
             - name: beats
               containerPort: 5044
