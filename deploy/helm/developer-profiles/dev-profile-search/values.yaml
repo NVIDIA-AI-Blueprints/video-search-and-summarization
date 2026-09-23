@@ -29,6 +29,16 @@ global:
   # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
   vios:
     useSdrc: true
+    # Compose equivalent: developer-profiles/dev-profile-search/vios/configs/notification_config.json.
+    # The Search chart loads that file (Helm placeholders) into one ConfigMap
+    # per VIOS service. Separate rendering preserves each service's broker and
+    # endpoint overrides. Names are release-prefixed when
+    # useReleaseNamePrefix is true. global.vios.notificationConfig, if set,
+    # replaces the file. A per-subchart notificationConfig skips the overlay
+    # on that pod.
+    notificationConfigFile: configs/vios/notification_config.json
+    sensorNotificationConfigMapName: vios-sensor-notification-config
+    streamprocessingNotificationConfigMapName: vios-streamprocessing-notification-config
 
   ngcApiSecret:
     name: ngc-api-key-secret
