@@ -115,6 +115,7 @@ describe('ChatPanel', () => {
     await act(async () => typeAndSend('first question'));
     await waitFor(() => expect(screen.getByText('first answer')).toBeInTheDocument());
 
+    fireEvent.click(screen.getByRole('button', { name: 'Show conversation history' }));
     fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
 
     expect(screen.queryByText('first answer')).not.toBeInTheDocument();
@@ -133,6 +134,10 @@ describe('ChatPanel', () => {
       </div>,
     );
 
+    expect(screen.queryByRole('complementary', { name: 'Conversation history' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-textarea')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show conversation history' }));
     const history = screen.getByRole('complementary', { name: 'Conversation history' });
     expect(history).toHaveClass('absolute', 'max-w-[calc(100%-3rem)]');
     expect(history).not.toHaveClass('flex-shrink-0');
