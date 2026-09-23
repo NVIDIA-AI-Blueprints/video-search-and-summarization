@@ -295,6 +295,17 @@ env_args=(
   --env-file "$BUILD_DIR/override.env"
 )
 
+# containers.env derives every managed image tag from VSS_CONTAINER_TAG and is
+# expanded before override.env, so only an exported value reaches those tags.
+VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-$(
+  sed -n 's/^VSS_CONTAINER_TAG=//p' "$BUILD_DIR/override.env"
+)}"
+tag_args=()
+if [ -n "$VSS_CONTAINER_TAG" ]; then
+  export VSS_CONTAINER_TAG
+  tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
+fi
+
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"
@@ -303,7 +314,7 @@ docker compose "${env_args[@]}" \
   "$BUILD_DIR/resolved.yml"
 
 "${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/validate_resolved_yml.py" \
-  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO" "${tag_args[@]}"
 ```
 
 `docker compose config` writes the resolved model to stdout and its warnings and
@@ -332,6 +343,17 @@ deploy the raw output. Add only the missing concrete value or derived value to
 rerun normalization and validation. Escaped container-shell variables such as
 `$${HOST_IP}`, `$${NUM_STREAMS}`, or `$${VAR:-default}` are valid in
 `resolved.yml` and must not be counted as unresolved Compose interpolation.
+
+That layer ordering is why the common container image tag is exported rather
+than left to `override.env`: `containers.env` has already derived every
+`VSS_*_TAG` from `VSS_CONTAINER_TAG` by the time the build layer is read, and
+the shell environment outranks every `--env-file`. A build that records the tag
+but resolves without the export gets `vss-agent-ui` — the one image whose
+Compose default reads the common knob directly — on the requested tag and every
+other image on `develop-latest`; `--expect-container-tag` fails on exactly that
+mixture. Service-specific `VSS_*_TAG` pins and `VSS_CONTAINER_TAG_SUFFIX` still
+supersede or augment the common tag; see the SBSA rules in
+[`sizing.md`](sizing.md).
 
 ## Validate
 

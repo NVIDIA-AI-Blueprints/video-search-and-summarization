@@ -320,6 +320,17 @@ fi
 "${VSS_SKILL_PY[@]}" "$SCRIPTS/render_warehouse_configurator_env.py" \
   "$BUILD_DIR" --repo-root "$REPO"
 
+# containers.env derives every managed image tag from VSS_CONTAINER_TAG and is
+# expanded before override.env, so only an exported value reaches those tags.
+VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-$(
+  sed -n 's/^VSS_CONTAINER_TAG=//p' "$BUILD_DIR/override.env"
+)}"
+tag_args=()
+if [ -n "$VSS_CONTAINER_TAG" ]; then
+  export VSS_CONTAINER_TAG
+  tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
+fi
+
 docker compose \
   --env-file "$REPO/deploy/docker/containers.env" \
   --env-file "$FOUNDATION_DIR/.env" \
@@ -330,7 +341,7 @@ docker compose \
 
 "${VSS_SKILL_PY[@]}" "$SCRIPTS/normalize_resolved_yml.py" "$BUILD_DIR/resolved.yml"
 "${VSS_SKILL_PY[@]}" "$SCRIPTS/validate_resolved_yml.py" \
-  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO" "${tag_args[@]}"
 "${VSS_SKILL_PY[@]}" "$SCRIPTS/validate_warehouse_env.py" \
   "$BUILD_DIR" --repo-root "$REPO"
 ```
