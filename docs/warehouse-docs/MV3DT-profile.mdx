@@ -32,49 +32,56 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
    - DeepStream processes RTSP streams for 3D multi-camera detection and tracking, combining the RT-DETR detector ([RT-DETR (2D warehouse detection)](/vss/system-components/models/rt-detr-2d-warehouse-detection)) with the MV3DT distributed tracking module.
    - RT-DETR generates 2D bounding boxes for warehouse-relevant object classes. The MV3DT module back-projects these 2D detections into 3D world coordinates using each camera's projection matrix and 3D object models, and fuses measurements across cameras with overlapping fields of view.
    - Cameras exchange 3D tracklets with their vision neighbors through an **MQTT Broker** for decentralized ID negotiation, cross-camera ID propagation, and multi-view measurement fusion.
-   - It sends per-camera frame data, including detected and tracked object IDs with 3D foot locations, in Protobuf format to the message broker via the `mdx-raw` topic.
+   - It sends per-camera frame data, including detected and tracked object IDs with 3D foot locations, in Protobuf format to the message broker via the `mdx-raw` topic. When appearance ReID is on, those payloads also carry CLIP-ReID embeddings.
+   - The tracker queries the ReID service over HTTP (`reid-embed:8088`) so Person tracks can be re-associated from the appearance gallery.
 
-4. **MQTT Broker (Mosquitto)**
+4. **Appearance ReID (`reid-embed` + Milvus)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
+
+   - `reid-embed` consumes `mdx-raw`, stores CLIP-ReID (1280-D) features in a Milvus gallery (etcd + MinIO), and answers HTTP queries from the tracker. Re-association is **Person only**.
+   - Warehouse deployments also run a secondary SigLIP 2 encoder (`siglip_v2_vdeployable_v1.1`) and publish `mdx-compressed-embeddings` on the same Kafka or Redis broker. BEV Fusion still consumes only `mdx-raw`.
+   - Gallery backends are ephemeral. CLIP-ReID and SigLIP 2 weights persist under `$VSS_DATA_DIR/models/reid` (Compose) or the RT-CV models PVC (Helm). Perception waits on `GET /health/ready` (first boot can take up to 300s while engines initialize).
+
+5. **MQTT Broker (Mosquitto)**
 
    - An [Eclipse Mosquitto](https://mosquitto.org/) MQTT message broker used exclusively for inter-camera MV3DT communication.
    - Each camera publishes its 3D tracklets to a dedicated MQTT topic and subscribes to topics from its vision neighbors (cameras with overlapping fields of view).
    - This enables decentralized, globally unique ID assignment and cross-camera handover without a central coordinator.
 
-5. **BEV Fusion** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
+6. **BEV Fusion** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
 
    - This microservice consumes per-camera `mdx-raw` data (Protobuf) from the message broker.
    - It fuses 3D measurements from multiple cameras into unified Bird's Eye View (BEV) frames.
    - The resulting fused BEV data is published to the message broker via the `mdx-bev` topic for downstream consumption.
 
-6. **Message Broker (Kafka or Redis)**
+7. **Message Broker (Kafka or Redis)**
 
    - The message broker serves as the central hub for data distribution, using Protobuf for all data exchanges.
    - **Kafka** ([Kafka](/vss/system-components/middleware/message-broker/kafka)): High-throughput message broker optimized for datacenter deployments with robust persistence and scalability.
    - **Redis Streams**: Lightweight message broker ideal for edge deployments with minimal memory footprint and low-latency requirements.
    - It also functions as a control bus, managing notifications (in JSON, via `mdx-notification`) for calibration updates, such as new ROI or tripwire definitions.
 
-7. **Behavior Analytics** ([Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics))
+8. **Behavior Analytics** ([Behavior Analytics](/vss/system-components/analytics-microservices/behavior-analytics))
 
    - This microservice consumes `mdx-bev` data (Protobuf) from the message broker.
    - It processes the data to generate behavior analytics, safety insights, and metrics.
    - The resulting data, in Protobuf format, is sent back to the message broker for indexing into Elasticsearch.
 
-8. **Storage**
+9. **Storage**
 
-   - **ELK (Elasticsearch, Logstash, Kibana)** ([ELK](/vss/system-components/middleware/database/elk)): Logstash retrieves BEV outputs and safety violation frames from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
+   - **ELK (Elasticsearch, Logstash, Kibana)** ([ELK](/vss/system-components/middleware/database/elk)): Logstash retrieves BEV outputs, safety violation frames, and (when ReID secondary embedding is on) compressed appearance embeddings from the message broker, converts Protobuf to JSON, stores the data in Elasticsearch, and supports querying and visualization.
 
-9. **Visualization**
+10. **Visualization**
 
    - **Kibana UI** ([Kibana UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#kibana-ui)): A user interface for visualizing analytics data stored in Elasticsearch.
    - **VIOS UI** ([VIOS UI](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#vios-ui)): A separate interface for interacting with the VIOS system, receiving JSON notifications from the message broker.
 
-10. **External Interfaces**
+11. **External Interfaces**
 
     - **API Gateway and MCP** ([API Gateway / MCP](/vss/system-components/middleware/api-gateway-mcp)): Enables external systems to interact with the events data through API calls.
 
 ### Key Technologies
 
-- **Microservices**: Components like NvStreamer, VIOS, DeepStream, BEV Fusion, and Behavior Analytics are modular microservices.
+- **Microservices**: Components like NvStreamer, VIOS, DeepStream, Reid Embed, BEV Fusion, and Behavior Analytics are modular microservices.
 - **RT-DETR**: Real-Time Detection Transformer for 2D object detection, pretrained on warehouse datasets.
 - **MV3DT**: Multi-View 3D Tracking framework for distributed cross-camera 3D tracking using camera projection matrices and object models.
 - **MQTT**: Lightweight publish/subscribe protocol for inter-camera tracklet exchange.
@@ -235,7 +242,7 @@ parameters, ROI/tripwire definitions, or MV3DT `group` / `region` metadata.
 
 **What the agent does:**
 
-1. Checks container health for perception, BEV Fusion, mosquitto, Kafka or
+1. Checks container health for perception, ReID Embed, BEV Fusion, mosquitto, Kafka or
    Redis, VST, configurator, behavior analytics, and the extended overlay
    services when enabled.
 2. Reads `vss-rtvi-cv-mv3dt` logs for TensorRT engine build status, active
@@ -281,7 +288,7 @@ Check for BEV, Frames and Behavior Data Views in Kibana:
   1. Launch Chrome browser
   2. In the address bar enter `http://<IP_address>:7777/kibana`
 
-In the user interface, navigate to the **Management -> Stack Management** section and select **Data Views** under **Kibana**. If the data views are not visible, create new data view (via "Create data view" button on the top right corner) for `mdx-bev`, `mdx-frames` and `mdx-behavior`.
+In the user interface, navigate to the **Management -> Stack Management** section and select **Data Views** under **Kibana**. If the data views are not visible, create new data view (via "Create data view" button on the top right corner) for `mdx-bev`, `mdx-frames`, `mdx-behavior`, and `mdx-compressed-embeddings-*`.
 
 Browse the Kibana UI, discover the data views and visualize the data.
 
@@ -853,6 +860,7 @@ The following ports are used during deployment, and users can leverage them for 
 | NvStreamer | 31000 |
 | VIOS | 30888/vst |
 | VSS Video Analytics API | 8081 |
+| ReID embed  | 8088  |
 
 ### Analytics Microservices Customization (Advanced)
 

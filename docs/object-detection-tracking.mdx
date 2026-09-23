@@ -59,21 +59,22 @@ Open the compose file that matches your deployment profile and inspect the servi
 
 ### MV3DT Compose Architecture
 
-The MV3DT pipeline does not extend the default `perception` service in `compose.yaml`. Instead, it has its own base file and an additional BEV measurement fusion service, and the warehouse profile mounts MV3DT-specific models, calibration, and DeepStream configs on top.
+The MV3DT pipeline does not extend the default `perception` service in `compose.yaml`. Instead, it has its own base file and an additional BEV measurement fusion service, and the warehouse profile mounts MV3DT-specific models, calibration, and DeepStream configs on top. Warehouse Compose also starts appearance ReID (`vss-reid-embed-mv3dt`, plus etcd, MinIO, and Milvus).
 
 **MV3DT base file:** `deploy/docker/services/rtvi/rtvi-cv/rtvi-cv-mv3dt/compose.yaml` defines two services:
 
-* `perception` — uses the same `vss-rt-cv` image as the default base, with default container name `vss-rtvi-cv-mv3dt`. The MV3DT base file leaves the container's startup command unset; the warehouse profile fills it in when it extends `perception`. For the startup script itself, please refer to `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/init-scripts/ds-start-mv3dt.sh`. Because the MV3DT base file alone has no startup command, running `docker compose -f compose.yaml up` from this directory does not start the perception container. To run MV3DT outside the warehouse blueprint, use the standalone deployment in `services/rtvi/rt-cv-3d/rt-cv-mv3dt/`, which ships its own compose file, config-generation scripts, and sample dataset. See [MV3DT Standalone Deployment](/vss/system-components/vision-microservices/object-detection-and-tracking/mv3dt-standalone-deployment).
-* `measurement-fusion` — companion `vss-rt-cv-mv3dt-bev-fusion` service that consumes raw 3D measurements from the `perception` service via the broker (on the `mdx-raw` topic), fuses them across camera views, and republishes fused tracks on the `mdx-bev` topic.
+* `perception` — uses the same `vss-rt-cv` image as the default base, with default container name `vss-rtvi-cv-mv3dt`. The MV3DT base file leaves the container's startup command unset; the warehouse profile fills it in when it extends `perception`. For the startup script itself, please refer to `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/deepstream/init-scripts/ds-start-mv3dt.sh`. When appearance ReID is on (warehouse default), that command includes `--tracker-reid`. Because the MV3DT base file alone has no startup command, running `docker compose -f compose.yaml up` from this directory does not start the perception container. To run MV3DT outside the warehouse blueprint, use the standalone deployment in `services/rtvi/rt-cv-3d/rt-cv-mv3dt/`, which ships its own compose file, config-generation scripts, and sample dataset. See [MV3DT Standalone Deployment](/vss/system-components/vision-microservices/object-detection-and-tracking/mv3dt-standalone-deployment).
+* `measurement-fusion` — companion `vss-rt-cv-mv3dt-bev-fusion` service that consumes raw 3D measurements from the `perception` service via the broker (on the `mdx-raw` topic), fuses them across camera views, and republishes fused tracks on the `mdx-bev` topic. BEV fusion does not consume `mdx-compressed-embeddings`.
 
 **MV3DT profile extension:** `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` adds two RTVI-CV services on top of the MV3DT base, following the same pattern as the *Profile-specific extensions* table above:
 
 | Service name | Compose file | Customization (summary) |
 | --- | --- | --- |
-| `vss-rtvi-cv-mv3dt` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | Warehouse MV3DT (RT-DETR + MV3DT): extends `perception` from the MV3DT base; mounts MV3DT-specific models, per-camera calibration, and DeepStream configs into the container; uses MQTT for vision-neighbor tracklet exchange. See [3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt). |
+| `vss-rtvi-cv-mv3dt` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | Warehouse MV3DT (RT-DETR + MV3DT): extends `perception` from the MV3DT base; mounts MV3DT-specific models, per-camera calibration, and DeepStream configs into the container; uses MQTT for vision-neighbor tracklet exchange; starts `--tracker-reid` and depends on `reid-embed` health. See [3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt). |
 | `vss-rtvi-cv-bev-fusion` | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | Warehouse MV3DT BEV fusion: extends `measurement-fusion` from the MV3DT base. `vss-rtvi-cv-mv3dt` emits per-sensor 3D measurements that are already in BEV coordinates and share a globally consistent ID across sensors; this service merges the per-sensor measurements that share the same object ID into a single fused 3D measurement per object. |
+| `vss-reid-embed-mv3dt` (plus init, etcd, MinIO, Milvus) | `deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/warehouse-mv3dt-app.yml` | Appearance ReID gallery. Consumes `mdx-raw`, serves HTTP on `8088`, and (warehouse default) publishes `mdx-compressed-embeddings`. On by default for warehouse Compose; optional `reid` profile on standalone. |
 
-Open `warehouse-mv3dt-app.yml` directly to see the full volume list, `profiles` activation, and service dependencies — note that, unlike the other perception extensions, the MV3DT perception service additionally depends on `mosquitto` (the MQTT broker used for vision-neighbor tracklet exchange between cameras). Compose file layout and image tags can change between VSS releases—use the files from the same tag or branch as your deployment package.
+Open `warehouse-mv3dt-app.yml` directly to see the full volume list, `profiles` activation, and service dependencies — unlike the other perception extensions, the MV3DT perception service depends on `mosquitto` (vision-neighbor MQTT) and, when ReID is on, on `reid-embed` health. Compose file layout and image tags can change between VSS releases—use the files from the same tag or branch as your deployment package.
 
 ### Core Components
 
@@ -82,6 +83,7 @@ Open `warehouse-mv3dt-app.yml` directly to see the full volume list, `profiles` 
 * **Preprocessor**: Hardware-accelerated image transformation, normalization, and augmentation using nvdspreprocess plugin
 * **Inference Engine**: Supports both TensorRT (nvinfer) and Triton Inference Server (nvinferserver) backends for model execution
 * **Tracker**: Multi-object tracker for maintaining object identities across frames
+* **Appearance ReID**: Warehouse MV3DT gallery lookup that re-associates Person tracks geometry and MQTT handoff would otherwise lose.
 * **Metadata Generator**: Converts detection outputs to standardized protobuf format
 * **Message Broker**: Kafka producer for streaming metadata to downstream microservices
 
@@ -169,6 +171,10 @@ RTVI-CV exposes its REST API under the `/api/v1` prefix on port `9000`, which di
 </Note>
 
 ## ReID and Embeddings (REST API and Config Reference)
+
+<Note>
+This section documents RT-CV **vision-encoder and text-embedding plugins** (SigLIP / RADIO-CLIP) used for search and 2D object embeddings. Warehouse and standalone **MV3DT appearance ReID** is a separate stack: the tracker extracts CLIP-ReID features and queries `reid-embed` (Milvus gallery on port `8088`). Do not configure that gallery through the plugin INI keys below. See [3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt).
+</Note>
 
 For an end-to-end guide to fine-tuning **RADIO-CLIP** (and SigLIP 2) with TAO and swapping ONNX or TensorRT artifacts into this microservice, see [Model customization overview](/vss/system-components/models/model-customization-overview) and [RADIO-CLIP object embeddings](/vss/system-components/models/siglip-2-object-embeddings).
 
@@ -554,7 +560,7 @@ docker compose logs -f <rtvi-cv-service-name>
 
 **4. TensorRT Engine File Creation and Reuse**
 
-On the first run, TensorRT automatically builds optimized engine files (`.engine`) from the ONNX models. This engine generation can take significant time depending on the model size and GPU. Warehouse blueprints store engines at `/opt/storage/` inside the container (2D: host directory `$VSS_DATA_DIR/models/mtmc/`; 3D: `perception-3d` named Docker volume; MV3DT: host directories `$VSS_DATA_DIR/models/mtmc/` for RT-DETR and `$VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/` for the pose-estimation model).
+On the first run, TensorRT automatically builds optimized engine files (`.engine`) from the ONNX models. This engine generation can take significant time depending on the model size and GPU. Warehouse blueprints store engines at `/opt/storage/` inside the container (2D: host directory `$VSS_DATA_DIR/models/mtmc/`; 3D: `perception-3d` named Docker volume; MV3DT: host directory `$VSS_DATA_DIR/models/` covering `mtmc/` for RT-DETR, `mv3dt/BodyPose3DNet/` for pose, and `reid/` for CLIP-ReID plus SigLIP 2).
 
 The engine files are automatically retained across container restarts via these default volume mounts, so subsequent restarts reuse the previously built engines without rebuilding.
 
@@ -591,11 +597,10 @@ The `perception-3d` named Docker volume persists engine files at `/opt/storage/`
 ```yaml
 volumes:
   # ... existing volume mounts ...
-  - $VSS_DATA_DIR/models/mtmc/:/opt/storage/
-  - $VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/:/opt/storage/BodyPose3DNet/
+  - $VSS_DATA_DIR/models/:/opt/storage/
 ```
 
-ONNX models and generated `.engine` files live under `$VSS_DATA_DIR/models/mtmc/` (RT-DETR detector) and `$VSS_DATA_DIR/models/mv3dt/BodyPose3DNet/` (MV3DT pose-estimation model) on the host. Point `onnx-file` and `model-engine-file` in `ds-pgie-config.yml` and `onnxFile` and `modelEngineFile` in the `PoseEstimator` block of `ds-mv3dt-tracker-config.yml` to paths under `/opt/storage/`. See [3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt) for details.
+ONNX models and generated `.engine` files live under `$VSS_DATA_DIR/models/` on the host (mounted at `/opt/storage/`). RT-DETR is at the root of that tree, pose under `BodyPose3DNet/`, and CLIP-ReID under `reid/`. Point `onnx-file` and `model-engine-file` in `ds-pgie-config.yml` and `onnxFile` / `modelEngineFile` in the `PoseEstimator` and `ReID` blocks of `ds-mv3dt-tracker-config.yml` to paths under `/opt/storage/`. See [3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt) for details.
 
 **Custom models and pre-built engines:**
 
@@ -1089,7 +1094,7 @@ You can deploy and test RTVI-CV outside a full Metropolis blueprint in two ways:
 
 | Method | When to use |
 | --- | --- |
-| [Docker deployment](/vss/system-components/vision-microservices/object-detection-and-tracking#docker-deployment) | Run the RTVI-CV container on a GPU host. Reference configs are packaged inside the image, and a persistent `/opt/storage` directory holds models and TensorRT engines. Use for local development, custom ONNX models, and step-by-step config changes. **MV3DT is supported in this mode only in the current release.** |
+| [Docker deployment](/vss/system-components/vision-microservices/object-detection-and-tracking#docker-deployment) | Run the RTVI-CV container on a GPU host. Reference configs are packaged inside the image, and a persistent `/opt/storage` directory holds models and TensorRT engines. Use for local development, custom ONNX models, and step-by-step config changes. |
 | [Standalone Helm chart deployment](/vss/system-components/vision-microservices/object-detection-and-tracking#standalone-helm-chart-deployment-warehouse) | Install the `vss-rtvi-cv` Helm subchart on Kubernetes with `standalone-2d` or `standalone-3d` profile modes. Use for warehouse 2D/3D perception with file sources from the NGC `vss-warehouse-app-data` bundle on a PVC (no Kafka or Redis). |
 
 ### Docker deployment
