@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,7 +27,7 @@ PROBE_PROFILES = ("vss-ui", "vss-video-analytics-api", "rtvi-vlm")
 PROBE_IMAGES = ("vss-agent-ui", "vss-video-analytics-api", "vss-rt-vlm")
 
 sys.path.insert(0, str(SCRIPTS))
-from validate_resolved_yml import container_tag_errors
+from validate_resolved_yml import MANAGED_IMAGE_NAMES, container_tag_errors
 
 
 def _docker_compose_available() -> bool:
@@ -204,6 +205,35 @@ def test_container_tag_check_accepts_pins_suffixes_and_third_parties() -> None:
     )
 
     assert container_tag_errors(document, RELEASE_TAG) == []
+
+
+def test_container_tag_check_ignores_unmanaged_develop_latest_images() -> None:
+    document = _document(
+        **{
+            "custom": f"ghcr.io/example/custom-service:{DEFAULT_TAG}",
+            "custom-arm": f"ghcr.io/example/custom-service:{DEFAULT_TAG}-sbsa",
+            "rtvi-vlm": f"registry/vss-rt-vlm:{DEFAULT_TAG}-sbsa",
+        }
+    )
+
+    errors = container_tag_errors(document, RELEASE_TAG)
+    assert len(errors) == 1
+    assert "'rtvi-vlm'" in errors[0]
+
+
+def test_managed_image_names_cover_containers_env() -> None:
+    text = (REPOSITORY / "deploy/docker/containers.env").read_text()
+    assignments = dict(re.findall(r'^(\w+)="(.*)"$', text, re.MULTILINE))
+    governed = set()
+    for key, value in assignments.items():
+        if not key.endswith("_IMAGE"):
+            continue
+        tag = assignments.get(f"{key[: -len('_IMAGE')]}_TAG", "")
+        if "${VSS_CONTAINER_TAG" in value or "${VSS_CONTAINER_TAG" in tag:
+            governed.add(re.search(r"}/([\w.-]+)", value)[1])
+
+    assert governed
+    assert governed <= MANAGED_IMAGE_NAMES
 
 
 def test_empty_expect_container_tag_is_rejected(tmp_path: Path) -> None:
