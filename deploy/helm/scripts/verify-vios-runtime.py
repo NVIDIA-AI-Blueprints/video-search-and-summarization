@@ -100,6 +100,26 @@ for sdrc_local, expected_host in ((None, 'review-sdrc-controller'), (False, 'sdr
 result = render(alerts, {'ngc': {'createSecrets': False}, 'global': {'useReleaseNamePrefix': True},
                          'infra': {'sdrc': {'useReleaseNamePrefix': False}}})
 assert result.returncode != 0 and 'peerUseReleaseNamePrefix.sdrc: false' in result.stderr, result.stderr
+# A notification overlay (the Search profile's webhook ConfigMaps) must be the only
+# source of notification_config.json: a projected configs volume must never list the
+# same path twice, and without an overlay the chart's own ConfigMap still carries it.
+search = root / 'developer-profiles/dev-profile-search'
+for chart, has_overlay in ((search, True), (base, False)):
+    result = render(chart, {'ngc': {'createSecrets': False}})
+    assert result.returncode == 0, result.stderr
+    documents = [d for d in yaml.safe_load_all(result.stdout) if d]
+    config_maps = {d['metadata']['name']: set((d.get('data') or {}).keys())
+                   for d in documents if d['kind'] == 'ConfigMap'}
+    for workload in (d for d in documents if d['kind'] in ('Deployment', 'StatefulSet')
+                     and d['metadata']['name'].endswith(('vss-vios-sensor', 'vss-vios-streamprocessing'))):
+        name = workload['metadata']['name']
+        volume = next(v for v in workload['spec']['template']['spec']['volumes'] if v['name'] == 'configs')
+        sources = [s['configMap']['name'] for s in (volume.get('projected') or {}).get('sources', [])
+                   if 'configMap' in s] or [volume.get('configMap', {}).get('name')]
+        seen = [key for source in sources for key in config_maps.get(source, set())]
+        assert len(seen) == len(set(seen)), (chart.name, name, sorted(seen))
+        assert 'notification_config.json' in seen, (chart.name, name, sources)
+        assert (len(sources) > 1) == has_overlay, (chart.name, name, sources)
 for annotations in ({}, {'traefik.ingress.kubernetes.io/router.middlewares': 'example-routes@kubernetescrd'},
                     {'haproxy.org/path-rewrite': '/custom /(.*)'}):
     result = render(base, {'ngc': {'createSecrets': False},

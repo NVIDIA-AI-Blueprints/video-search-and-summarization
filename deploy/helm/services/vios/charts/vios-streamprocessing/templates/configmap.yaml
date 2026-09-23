@@ -69,8 +69,14 @@ data:
 {{- end }}
 {{- $downloadTimeout := int64 .Values.downloadFilesTimeoutSecs }}
 {{ .Files.Get "configs/vst_config.json" | replace "__VIDEO_METADATA_SERVER__" $videoMeta | replace "__CLOUD_STORAGE_ENDPOINT__" $cloudStorage | replace "__ANALYTICS_SERVER_ADDRESS__" $analyticsAddr | replace "__CALIBRATION_FILE_ENDPOINT__" $calibEp | replace "__FLOORMAP_IMAGE_ENDPOINT__" $floorEp | replace "\"__USE_SOFTWARE_PATH__\"" ($softwarePath | toString) | replace "\"__STATIC_TURNURL_LIST__\"" ($turnUrls | toJson) | replace "__3D_OVERLAY_SENSOR_NAME__" $overlaySensorName | replace "\"__DOWNLOAD_FILES_TIMEOUT_SECS__\"" ($downloadTimeout | toString) | indent 4 }}
+{{- /* With an overlay ConfigMap (e.g. the Search profile's webhook config) the
+       overlay is the ONLY source of notification_config.json: listing it here as
+       well would put the same path in the pod's projected configs volume twice
+       and leave the result to source order. */}}
+{{- if not (include "vss-vios-streamprocessing.notificationConfigMapName" .) }}
   notification_config.json: |
 {{ $notificationConfig | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_CV_ADDRESS__" $rtviCvAddr | replace "__RTVI_EMBED_ADDRESS__" $rtviEmbedAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | replace "__ELASTICSEARCH_ADDRESS__" $elasticsearchAddr | replace "__USE_MESSAGE_BROKER_CONSUMER__" $messageBrokerConsumer | replace "__MESSAGE_BROKER_TOPIC_CONSUMER__" $messageBrokerTopicConsumer | replace "__MESSAGE_BROKER_METADATA_TOPIC__" $messageBrokerMetadataTopic | indent 4 }}
+{{- end }}
   adaptor_config.json: |
 {{ .Files.Get "configs/adaptor_config.json" | indent 4 }}
   vst_storage.json: |
