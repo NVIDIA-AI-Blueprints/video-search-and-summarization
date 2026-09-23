@@ -58,6 +58,10 @@ metadata:
       http-request replace-path ^//vst(/.*)?$ /vst\1
       http-request set-var(txn.path) path
       http-request set-var(txn.path_match) var(txn.host_match),concat(,txn.path,),map_beg(/etc/haproxy/maps/path-prefix.map) if !{ var(txn.path_match) -m found }
+      {{- /* The deployment's version, answered by the ingress itself: this profile has
+             no agent behind /api. .Values.vssVersion is stamped from the nearest v* git
+             tag by version-stamp.yml (.github/version-convention.md). */}}
+      http-request return status 200 content-type application/json lf-string '{"service":"vss","version":"{{ .Values.vssVersion }}"}' if { path /api/v1/version }{{ if $host }} { req.hdr(host),field(1,:) -i {{ $host }} }{{ end }}
 spec:
   ingressClassName: {{ index $vi "ingressClassName" | default "haproxy" | quote }}
   rules:

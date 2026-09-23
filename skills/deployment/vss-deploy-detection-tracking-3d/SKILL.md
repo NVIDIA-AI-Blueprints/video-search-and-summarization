@@ -15,7 +15,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: NVIDIA
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia vss rtvi-cv-3d mv3dt multi-camera tracking bev-fusion standalone"
 ---
