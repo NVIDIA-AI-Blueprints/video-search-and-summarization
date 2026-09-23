@@ -45,7 +45,7 @@ Perform this on the machine where you intend to deploy the blueprint.
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout tags/v3.3.0
+git checkout "${VSS_DOCS_GIT_REF:-develop}"
 git lfs install
 git lfs pull
 ```
@@ -62,9 +62,9 @@ Open the chart README for the profile you are deploying and follow its installat
 
 | Profile | Chart Documentation |
 | --- | --- |
-| 2D Vision AI Profile | [warehouse-2d-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/README.md) |
-| 3D Vision AI Profile | [warehouse-3d-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/README.md) |
-| MV3DT Vision AI Profile | [warehouse-mv3dt-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/README.md) |
+| 2D Vision AI Profile | [warehouse-2d-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/README.md) |
+| 3D Vision AI Profile | [warehouse-3d-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/README.md) |
+| MV3DT Vision AI Profile | [warehouse-mv3dt-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/README.md) |
 
 Each README covers, in order, prerequisites and GPU requirements, required secrets, web UI and ingress configuration, the full `values.yaml` reference, installation and post-install validation, the alerts stack (2D only), monitoring, stream scaling by GPU, and upgrade and uninstall instructions.
 
@@ -90,4 +90,4 @@ Each profile chart ships with a fixed default `NUM_STREAMS` and does not cap it 
 
 ### Alerts
 
-The alerts stack is only available on the 2D Vision AI Profile, and is disabled by default there. Enabling it requires four components to be turned on together: the alert bridge, the agent, the agent UI, and either the in-cluster real-time VLM or an external VLM endpoint. See the ["Alerts" section of the `warehouse-2d-app` README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/README.md#alerts) for the values needed to enable it.
+The alerts stack is only available on the 2D Vision AI Profile, and is disabled by default there. Enabling it requires four components to be turned on together: the alert bridge, the agent, the agent UI, and either the in-cluster real-time VLM or an external VLM endpoint. See the ["Alerts" section of the `warehouse-2d-app` README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/${VSS_DOCS_GIT_REF:-develop}/deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/README.md#alerts) for the values needed to enable it.
