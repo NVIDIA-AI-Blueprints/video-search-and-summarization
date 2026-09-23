@@ -714,6 +714,27 @@ describe('ChatPanel', () => {
     );
   });
 
+  it('accepts the native vss-agent workflow completion without DONE', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      sseResponse([
+        'intermediate_data: {"id":"workflow","name":"Function Start: <workflow>","parent_id":"root"}\n',
+        'data: {"choices":[{"delta":{"content":"warehouse_safety_0002_stream"}}]}\n\n',
+        'intermediate_data: {"id":"workflow","name":"Function Complete: <workflow>","parent_id":"root"}\n',
+      ]),
+    ) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('List available sensors.'));
+
+    await waitFor(() =>
+      expect(screen.getByText('warehouse_safety_0002_stream')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/backend event stream ended before the response completed/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('log')).toHaveAttribute('aria-busy', 'false');
+  });
+
   it('keeps workflow children visible when a start frame is replaced by completion', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       sseResponse([

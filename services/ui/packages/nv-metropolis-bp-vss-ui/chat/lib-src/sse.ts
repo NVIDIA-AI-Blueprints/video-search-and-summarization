@@ -133,6 +133,7 @@ export class SseParser {
   private stepIndex = 0;
   private eventType = '';
   private dataLines: string[] = [];
+  private terminalEmitted = false;
 
   /**
    * @param mediaProxyUrl Rebases `*_url` fields in artifact payloads, so hits
@@ -185,7 +186,19 @@ export class SseParser {
 
     if (line.startsWith(PREFIXES.step)) {
       const step = this.parseStep(line.slice(PREFIXES.step.length));
-      if (step) events.push({ kind: 'step', step });
+      if (step) {
+        events.push({ kind: 'step', step });
+        // Native vss-agent streams close with the root workflow completion
+        // frame instead of an OpenAI `data: [DONE]` frame. Treat only that
+        // outermost completion as terminal; nested function completions are
+        // ordinary intermediate steps.
+        if (
+          step.parentId === 'root' &&
+          /^Function Complete:\s*<workflow>$/i.test(step.name)
+        ) {
+          this.emitDone(events);
+        }
+      }
       return;
     }
 
@@ -222,7 +235,7 @@ export class SseParser {
       return;
     }
     if (payload === '[DONE]') {
-      events.push({ kind: 'done' });
+      this.emitDone(events);
       return;
     }
     let text = '';
@@ -233,6 +246,12 @@ export class SseParser {
       text = payload;
     }
     if (text) events.push({ kind: 'token', text });
+  }
+
+  private emitDone(events: SseEvent[]): void {
+    if (this.terminalEmitted) return;
+    this.terminalEmitted = true;
+    events.push({ kind: 'done' });
   }
 
   private parseStep(payload: string): ChatStep | null {
