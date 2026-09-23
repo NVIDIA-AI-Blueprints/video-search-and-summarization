@@ -22,10 +22,11 @@
 # notebook's NEMOCLAW_INSTALL_REF: NemoClaw requires CLI and images to be one release.
 #
 # Build context is this directory (.hermes); skills, workspace docs
-# and the vss CLI all come from one pinned commit of this repo (VSS_REF) — or,
-# dev loop, from a `.vss-src/` working-tree snapshot placed here by
-# skills/vss-build-vision-ai/scripts/stage_vss_src.py, which wins over the pin
-# when present.
+# and the vss CLI all come from one ref of this repo (VSS_REF: `develop` by
+# default, a `v*` release tag for a published image, a commit sha for a
+# reproducible rebuild) — or, dev loop, from a `.vss-src/` working-tree
+# snapshot placed here by skills/vss-build-vision-ai/scripts/stage_vss_src.py,
+# which wins over the ref when present.
 #
 #   docker build -t <registry>/vss-harness-hermes:<tag> .hermes
 
@@ -35,7 +36,8 @@ ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbe
 # (the runtime uses the uv the base image ships).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=01ecaf705c676123aadc77177143aa963338026f
+# Keep in lockstep with ../.openclaw/Dockerfile, which explains the choice.
+ARG VSS_REF=develop
 
 # ── uv, for the vss-src wheel builds ───────────────────────────────────────────
 FROM ${UV_IMAGE} AS uv
@@ -60,7 +62,8 @@ RUN rm -f /opt/vss-src/Dockerfile \
          echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
        else \
          git init -q /opt/vss-src \
-         && git -C /opt/vss-src fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
+         && git -C /opt/vss-src remote add origin "$VSS_REPO" \
+         && git -C /opt/vss-src fetch -q --filter=tree:0 --tags origin "$VSS_REF" \
          && git -C /opt/vss-src checkout -q FETCH_HEAD; \
        fi
 # Operation skills: every skill whose SKILL.md frontmatter declares vss-requires

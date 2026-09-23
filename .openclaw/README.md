@@ -84,8 +84,11 @@ dozen places in the NemoClaw tree and cannot live here, so this image starts
 from the image that Dockerfile produces, which NemoClaw publishes to
 `ghcr.io/nvidia/nemoclaw/openclaw-sandbox`.
 
-From a clean build context, the build uses the pinned VSS revision (`VSS_REF`)
-to package the operational skills and build the CLI wheels. The plugin is compiled in a separate builder
+From a clean build context, the build fetches one ref of this repo (`VSS_REF`:
+`develop` by default, a `v*` release tag for a published image) to package the
+operational skills and build the CLI wheels — versioned by `hatch-vcs` from the
+nearest `v*` tag, so `vss --version` in the sandbox matches the agent's
+`GET /api/v1/version` for that commit. The plugin is compiled in a separate builder
 stage. The final image contains the installed plugin, skills, workspace
 instructions, and `/usr/local/bin/vss`; the build-stage source checkout is not
 copied into the runtime image.
@@ -100,8 +103,9 @@ git archive HEAD:.openclaw | docker build -t <registry>/vss-harness-openclaw:<ta
 ```
 
 The archive includes only committed files, so local build inputs cannot override
-the source pin. To include a skill or CLI change, publish it and add
-`--build-arg VSS_REF=<commit-sha>` to the archived-context build above. Skills and CLI then come from that same
+the source ref. A plain build tracks `develop`; to build a published image or a
+reproducible one, add `--build-arg VSS_REF=<v* tag or commit sha>` to the
+archived-context build above. Skills and CLI then come from that same
 revision; using the resulting image requires no source checkout.
 
 Run the regressions from the repository root; a cached image enables the
@@ -122,7 +126,7 @@ Pins are build args:
 |---|---|---|
 | `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:25f4…` (v0.0.114, the release `deploy_nemoclaw.ipynb` installs) | the managed runtime |
 | `OPENCLAW_VERSION` | `2026.7.1` | the OpenClaw the base carries; the build fails if the plugin lockfile pins a different one |
-| `VSS_REPO`, `VSS_REF` | this repo, a commit sha | the skills and the `vss` CLI |
+| `VSS_REPO`, `VSS_REF` | this repo, `develop` (a `v*` tag for a published image; a commit sha still works) | the skills and the `vss` CLI |
 | `BUILDER_IMAGE` | `node:22-trixie-slim@sha256:db8a…` | the plugin build stage (same as NemoClaw's) |
 | `UV_IMAGE` | `ghcr.io/astral-sh/uv@sha256:2bb3…` (0.12.10) | uv, for the `vss` venv |
 | `NEMOCLAW_TOOL_DISCLOSURE` | `progressive` | NemoClaw tool disclosure mode |

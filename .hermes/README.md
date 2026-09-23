@@ -64,18 +64,21 @@ git archive HEAD:.hermes | docker build -t <registry>/vss-harness-hermes:<tag> -
 .hermes/Dockerfile` when `AGENT_RUNTIME=hermes`. The eval harness's
 Provision panel lists this Dockerfile next to the OpenClaw one.
 
-From a clean build context, the build packages skills and CLI wheels from the
-pinned VSS revision (`VSS_REF`). Only the installed CLI, skills, workspace instructions, and
+From a clean build context, the build packages skills and CLI wheels from one
+ref of this repo (`VSS_REF`: `develop` by default, a `v*` release tag for a
+published image). The wheels are versioned by `hatch-vcs` from the nearest `v*`
+tag, so `vss --version` in the sandbox matches the agent's `GET /api/v1/version`
+for that commit. Only the installed CLI, skills, workspace instructions, and
 runtime helpers enter the final image; its build-stage source checkout does
 not. At runtime, use `/usr/local/bin/vss` and the installed Hermes skills.
 The archive includes only committed files, so local build inputs cannot override
-the source pin. To include a skill or CLI change, publish it and add
-`--build-arg VSS_REF=<commit-sha>` to the archived-context build above.
+the source ref. To build a published or reproducible image, add
+`--build-arg VSS_REF=<v* tag or commit sha>` to the archived-context build above.
 
 | Build arg | Default | What it pins |
 |---|---|---|
 | `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7…` (v0.0.114 cohort) | the managed runtime |
-| `VSS_REPO`, `VSS_REF` | this repo, a commit sha | skills, workspace docs and the `vss` CLI |
+| `VSS_REPO`, `VSS_REF` | this repo, `develop` (a `v*` tag for a published image; a commit sha still works) | skills, workspace docs and the `vss` CLI |
 | `BUILDER_IMAGE` | `node:22-trixie-slim@sha256:db8a…` | the checkout stage |
 
 ## Trial paths and sandbox contract
