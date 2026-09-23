@@ -79,11 +79,13 @@ services:
       HOST_IP: ${HOST_IP}
       EXTERNAL_IP: ${EXTERNAL_IP:-${HOST_IP}}
       INTERNAL_IP: ${INTERNAL_IP:-${VST_INTERNAL_IP:-vst-ingress:${VST_PORT:-30888}}}
-      # Version reported by GET /api/v1/version. Defaulted here (and in
-      # containers.env) so a stock Compose deployment answers 200 with no
-      # operator action. Kept separate from VSS_AGENT_VERSION, which also feeds
-      # the image: tag above and therefore cannot carry a default safely.
-      VSS_DEPLOYMENT_VERSION: ${VSS_DEPLOYMENT_VERSION:-3.3.0}
+      # Operator override for the version GET /api/v1/version reports; no
+      # default, because the image already carries its own stamped
+      # nvidia-vss-core version. Written with no value on purpose: a bare key
+      # passes the variable through only when it is actually set, where
+      # `${VSS_DEPLOYMENT_VERSION:-}` would inject an empty string into the
+      # container and shadow whatever the image sets.
+      VSS_DEPLOYMENT_VERSION:
       VSS_AGENT_VERSION: ${VSS_AGENT_VERSION}
       VSS_AGENT_CONFIG_FILE: ${VSS_AGENT_CONFIG_FILE}
       VSS_AGENT_HOST: ${VSS_AGENT_HOST}

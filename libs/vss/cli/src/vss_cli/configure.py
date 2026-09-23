@@ -57,6 +57,48 @@ def _probe(base_url: str, probe_path: str, timeout: float) -> tuple[bool, str]:
     return routed, f"HTTP {response.status_code}"
 
 
+#: Where a deployment reports its version. Served by the agent; see
+#: services/agent/README.md for the contract and vss_core.version for how the
+#: value is resolved deployment-side.
+_VERSION_PATH = "/api/v1/version"
+
+
+def _deployment_version(base_url: str, timeout: float) -> tuple[str | None, str]:
+    """Return (version, detail) for the deployment's reported version.
+
+    Probed on every ``check`` rather than recorded by ``configure``: a redeploy
+    changes the version without changing the config, so a recorded value would
+    be the one thing in the file guaranteed to go stale.
+
+    A deployment that cannot report one is not an error here -- a lean stack
+    without the agent, or an origin whose ingress does not route ``/api``, is a
+    legitimate deployment. It is worth saying out loud, though, because the
+    benchmark skills stop on exactly this and an operator should learn it from
+    the prober rather than from an aborted benchmark.
+    """
+    import httpx
+
+    try:
+        response = httpx.get(f"{base_url.rstrip('/')}{_VERSION_PATH}", timeout=timeout, follow_redirects=True)
+    except httpx.HTTPError as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+    if response.status_code == 404:
+        return None, "HTTP 404 — no agent behind /api here, or a deployment predating the endpoint"
+    if response.status_code == 503:
+        return None, "HTTP 503 — the deployment is configured with no usable version"
+    if response.status_code != 200:
+        return None, f"HTTP {response.status_code}"
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return None, "the endpoint did not return JSON"
+    if not isinstance(payload, dict) or not isinstance(payload.get("version"), str):
+        return None, "the endpoint returned an unexpected payload"
+    return str(payload["version"]), ""
+
+
 def _describe(base_url: str, route: config_mod.ServiceRoute, timeout: float) -> list[str]:
     """Ask a service what it holds. Empty when it offers no introspection.
 
@@ -830,6 +872,10 @@ def check() -> None:
         ok, detail = _probe(deployment.base_url, route.probe, _PROBE_TIMEOUT_SECONDS)
         click.echo(f"  {name:<14} {'ok' if ok else 'UNREACHABLE':<12} {service.url}  {detail}")
         stale = stale or not ok
+
+    version, version_detail = _deployment_version(deployment.base_url, _PROBE_TIMEOUT_SECONDS)
+    click.echo(f"  {'version':<14} {version if version else 'not reported':<12}  {version_detail}".rstrip())
+
     rows = _command_availability(deployment)
     if rows:
         click.echo("", err=True)

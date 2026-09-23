@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for the reported-version contract and its derivation from git."""
 
+import importlib.metadata
 from pathlib import Path
 import subprocess
 
@@ -22,14 +23,31 @@ import pytest
 from vss_core import version as version_module
 from vss_core.version import SEMVER_PATTERN
 from vss_core.version import describe_version
+from vss_core.version import library_version
 from vss_core.version import pep440_to_semver
 from vss_core.version import resolve_deployment_version
 
 
 @pytest.fixture(autouse=True)
 def _no_deployment_env(monkeypatch) -> None:
-    for name in version_module.DEPLOYMENT_VERSION_ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv(version_module.DEPLOYMENT_VERSION_ENV_VAR, raising=False)
+
+
+def _installed(value: str | None, monkeypatch) -> None:
+    """Pin what ``nvidia-vss-core`` metadata says, or that there is none.
+
+    Never read the real metadata: whether this test process happens to run
+    against an installed package or a source tree on ``PYTHONPATH`` would
+    otherwise decide the result.
+    """
+
+    def _version(name: str) -> str:
+        assert name == "nvidia-vss-core"
+        if value is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return value
+
+    monkeypatch.setattr(importlib.metadata, "version", _version)
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -132,33 +150,66 @@ def test_describe_returns_none_outside_a_repository(tmp_path: Path) -> None:
     assert describe_version(tmp_path) is None
 
 
-def test_configured_version_wins_over_the_derived_one(repo: Path, monkeypatch) -> None:
+def test_installed_metadata_is_normalised_to_semver(monkeypatch) -> None:
+    """Installed metadata is PEP 440, and the endpoint's contract is SemVer."""
+    _installed("3.3.0.post1.dev12+gc85c4a4e8", monkeypatch)
+
+    assert library_version() == "3.3.0-dev.12+gc85c4a4e8"
+
+
+def test_installed_build_stamp_keeps_its_release_line(monkeypatch) -> None:
+    """The build stamps `<release line>+tree.<sha>`; precedence ignores the metadata."""
+    _installed("3.3.0+tree.c85c4a4e8", monkeypatch)
+
+    assert library_version() == "3.3.0+tree.c85c4a4e8"
+
+
+def test_library_version_is_none_when_not_installed(monkeypatch) -> None:
+    """A source tree on ``PYTHONPATH`` has no metadata to read."""
+    _installed(None, monkeypatch)
+
+    assert library_version() is None
+
+
+def test_unnormalisable_metadata_is_none(monkeypatch) -> None:
+    """An unusable stamp reports nothing rather than a version nobody can match."""
+    _installed("not-a-version", monkeypatch)
+
+    assert library_version() is None
+
+
+def test_override_wins_over_the_installed_version(repo: Path, monkeypatch) -> None:
+    """The override exists to correct a wrong stamp, so it has to outrank it."""
+    _installed("3.3.0", monkeypatch)
+    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "3.4.0")
+
+    assert resolve_deployment_version(repo) == "3.4.0"
+
+
+def test_unconfigured_deployment_reports_the_installed_version(repo: Path, monkeypatch) -> None:
     _git(repo, "tag", "v3.2.1")
-    monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "3.3.0")
+    _installed("3.3.0+tree.c85c4a4e8", monkeypatch)
 
-    assert resolve_deployment_version(repo) == "3.3.0"
+    assert resolve_deployment_version(repo) == "3.3.0+tree.c85c4a4e8"
 
 
-def test_legacy_variable_is_consulted_before_git(repo: Path, monkeypatch) -> None:
+def test_invalid_override_does_not_fall_through(repo: Path, monkeypatch) -> None:
+    """An operator correcting a stamp wrongly sees that, not the stamp they replaced."""
     _git(repo, "tag", "v3.2.1")
-    monkeypatch.setenv("VSS_AGENT_VERSION", "3.3.0-65576357eb80")
-
-    assert resolve_deployment_version(repo) == "3.3.0-65576357eb80"
-
-
-def test_invalid_configured_version_does_not_fall_back_to_git(repo: Path, monkeypatch) -> None:
-    """A deployment that states a version wrongly gets that reported, not hidden."""
-    _git(repo, "tag", "v3.2.1")
+    _installed("3.3.0", monkeypatch)
     monkeypatch.setenv("VSS_DEPLOYMENT_VERSION", "develop-latest")
 
     assert resolve_deployment_version(repo) is None
 
 
-def test_unconfigured_deployment_falls_back_to_git(repo: Path) -> None:
+def test_git_is_reached_only_without_an_installed_version(repo: Path, monkeypatch) -> None:
     _git(repo, "tag", "v3.2.1")
+    _installed(None, monkeypatch)
 
     assert resolve_deployment_version(repo) == "3.2.1"
 
 
-def test_nothing_anywhere_resolves_to_none(tmp_path: Path) -> None:
+def test_nothing_anywhere_resolves_to_none(tmp_path: Path, monkeypatch) -> None:
+    _installed(None, monkeypatch)
+
     assert resolve_deployment_version(tmp_path) is None
