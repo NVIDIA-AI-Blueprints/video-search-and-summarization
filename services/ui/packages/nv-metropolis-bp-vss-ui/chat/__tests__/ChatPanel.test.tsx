@@ -147,6 +147,24 @@ describe('ChatPanel', () => {
     expect(screen.getByRole('button', { name: 'Show conversation history' })).toBeInTheDocument();
   });
 
+  it('shows one New chat action with the header menu and history panel open or closed', async () => {
+    render(<ChatPanel endpoint={endpoint} features={{ uploadFile: false }} />);
+    await act(async () => {});
+
+    expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand chat menu' }));
+    expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show conversation history' }));
+    const history = screen.getByRole('complementary', { name: 'Conversation history' });
+    expect(within(history).getByRole('button', { name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide conversation history' }));
+    expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
+  });
+
   it('renders and answers interaction prompts', async () => {
     const interaction = {
       event_type: 'interaction_required',

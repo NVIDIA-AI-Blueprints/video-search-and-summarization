@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-import { IconMenu2 } from '@tabler/icons-react';
+import { IconMenu2, IconPlus } from '@tabler/icons-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ChatHeader } from './ChatHeader';
@@ -87,6 +87,18 @@ const InternalConversationHistory: React.FC<InternalConversationHistoryProps> = 
       >
         <IconMenu2 size={18} />
       </button>
+      {!visible ? (
+        <button
+          type="button"
+          aria-label="New chat"
+          title={controls.busy ? 'Wait for the current answer to finish' : 'New chat'}
+          disabled={controls.busy}
+          onClick={controls.onNewConversation}
+          className="absolute left-11 top-2 z-50 flex h-8 w-8 items-center justify-center rounded-md border border-black/20 bg-white text-neutral-900 shadow-sm transition-colors hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/20 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
+        >
+          <IconPlus size={18} />
+        </button>
+      ) : null}
     </>
   );
 };
@@ -419,7 +431,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             onThemeChange={onThemeChange}
             chatHistory={chatHistory}
             onChatHistoryChange={setChatHistory}
-            onNewConversation={() => createConversation()}
             busy={busy}
             uploadUrlBase={endpoint.uploadUrlBase}
             uploadConfigTemplateJson={uploadConfigTemplateJson}
