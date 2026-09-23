@@ -70,7 +70,7 @@ Perform this on the machine where you intend to deploy the blueprint.
 </Note>
 
 ```bash
-git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+git clone --branch "${VSS_DOCS_GIT_REF:-develop}" https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
 git lfs install
 git lfs pull
@@ -1005,7 +1005,7 @@ Follow these steps to install and deploy the Warehouse Blueprint using the Skill
 1. Clone the VSS Blueprint repository and open it in your coding agent.
 
    ```bash
-   git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+   git clone --branch "${VSS_DOCS_GIT_REF:-develop}" https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
    cd video-search-and-summarization
    ```
 
