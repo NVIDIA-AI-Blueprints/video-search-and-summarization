@@ -728,6 +728,10 @@ jobs:
           ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
           CI_NGC_CLI_API_KEY: ${{ secrets.NGC_CLI_API_KEY }}
           CI_HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          CI_LLM_REMOTE_URL: ${{ secrets.LLM_REMOTE_URL }}
+          CI_LLM_REMOTE_MODEL: ${{ secrets.LLM_REMOTE_MODEL }}
+          CI_VLM_REMOTE_URL: ${{ secrets.VLM_REMOTE_URL }}
+          CI_VLM_REMOTE_MODEL: ${{ secrets.VLM_REMOTE_MODEL }}
           EVAL_AGENT: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'claude-code' }}
           # gh checks ~/.config/gh/hosts.yml BEFORE GH_TOKEN; point it at a
           # per-leg scratch dir with no hosts.yml so a stored OAuth on the
@@ -782,6 +786,18 @@ jobs:
           if [ -n "${CI_HF_TOKEN:-}" ]; then
             export HF_TOKEN="$CI_HF_TOKEN"
           fi
+          # Remote LLM/VLM placement for OpenShell guests. Repo secrets win;
+          # the guest's optional ~/.eval_env stays as the fallback. The
+          # standalone non-VSS fallback exam runs BEFORE any deploy, so with no
+          # endpoint configured the agent has no VLM to authenticate against
+          # and its request comes back 401.
+          for _key in LLM_REMOTE_URL LLM_REMOTE_MODEL VLM_REMOTE_URL VLM_REMOTE_MODEL; do
+            eval "_val=\${CI_${_key}:-}"
+            if [ -n "${_val}" ]; then
+              export "${_key}=${_val}"
+            fi
+          done
+          unset _key _val
           # The repo secret is the NVIDIA inference-api key (same as helm-sync).
           # Hitting api.anthropic.com with it returns 401. Default the gateway
           # when the secret/base is unset so OpenShell jobs use the same path.
