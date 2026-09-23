@@ -576,6 +576,8 @@ def run_evaluation(
     decomposer: Any = None,
     decompose_fallback: dict[str, Any] | None = None,
     tolerate_unanswered: int = 0,
+    task: str = "segment",
+    hit_ks: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     """Score every dataset query through ``query_backend``.
 
@@ -624,7 +626,12 @@ def run_evaluation(
     # The prompt asks which sources exist so it can fill `video_sources`; the
     # dataset already knows, which beats asking VST for an inventory that may
     # include unrelated uploads.
-    video_names = {s["video_name"] for segs in annotations.values() for s in segs if s.get("video_name")}
+    # Clip annotations are lists of stems, not segment dicts; the decomposer
+    # needs the gallery (clip stems) for `video_sources` either way.
+    if task == "clip":
+        video_names = {stem for clips in annotations.values() for stem in clips}
+    else:
+        video_names = {s["video_name"] for segs in annotations.values() for s in segs if s.get("video_name")}
     all_results: list[dict[str, Any] | None] = [None] * len(queries)
     print_lock = threading.Lock()
     completed = [0]
@@ -634,6 +641,14 @@ def run_evaluation(
 
     def _run_single_query(qi: int, query: str) -> None:
         expected = annotations[query]
+        if not expected:
+            # Zero ground truth cannot score recall and would drag the aggregate
+            # down. It is not "unanswered" -- the backend answered, there is just
+            # nothing to score against -- so exclude it from the scored set. [P0 #2]
+            with print_lock:
+                completed[0] += 1
+                print(f'[{completed[0]}/{len(queries)}] "{query}" (0 ground truth -- skipped)')
+            return
 
         # Decompose first, then search. The backend already routes from its
         # `decompositions` map, so writing this query's entry is the whole
@@ -656,7 +671,13 @@ def run_evaluation(
             for verdict, count in flows.verdict_counts(normalized).items():
                 verdicts[verdict] = verdicts.get(verdict, 0) + count
 
-        result = flows.evaluate_query(query, flows.for_scoring(normalized), expected, latency_s)
+        had_verification = flows.has_verification(normalized)
+        scored = flows.for_scoring(normalized)
+        if task == "clip":
+            result = flows.evaluate_clip_query(query, scored, expected, latency_s, hit_ks=hit_ks or (1, 5, 10))
+        else:
+            result = flows.evaluate_query(query, scored, expected, latency_s)
+        result["_had_verification"] = had_verification
         if decomposer is not None:
             # Kept apart from latency_s: one is the LLM deciding what to search
             # for, the other is the search. Summing them silently would hide
@@ -673,8 +694,10 @@ def run_evaluation(
 
         kept, num_rejected = flows.filter_rejected(normalized)
         result["num_rejected"] = num_rejected
-        result["critic_filtered"] = flows.evaluate_query(
-            query, flows.for_scoring(kept), expected, latency_s
+        result["critic_filtered"] = (
+            flows.evaluate_clip_query(query, flows.for_scoring(kept), expected, latency_s, hit_ks=hit_ks or (1, 5, 10))
+            if task == "clip"
+            else flows.evaluate_query(query, flows.for_scoring(kept), expected, latency_s)
         )
         all_results[qi] = result
 
@@ -797,6 +820,8 @@ def run_evaluation(
     out_path = Path(output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    for r in results:
+        r.pop("_had_verification", None)  # internal flag, not for the result file
     output: dict[str, Any] = {
         "summary": summary,
         "config": {
@@ -854,6 +879,10 @@ def _summarize(
     baselines from either script line up field for field.
     """
     n = len(results)
+    # HIT@k set is task-aware: clip rows carry the clip k-set (no segment
+    # expansion), segment rows carry [1,3,5,10]. Derive from the rows so
+    # the summary reports exactly the k each task was scored at. [F5]
+    hit_ks = sorted(results[0]["hit_at_k"]) if results else list(flows.HIT_K_VALUES)
     unanswered = unanswered or []
     def avg(key):
         return sum(r[key] for r in results) / n
@@ -874,7 +903,7 @@ def _summarize(
         "avg_recall": round(avg("recall"), 4),
         "avg_f1": round(avg("f1"), 4),
     }
-    for k in flows.HIT_K_VALUES:
+    for k in hit_ks:
         summary[f"HIT@{k}"] = round(avg_hit(k), 4)
 
     # Absent, not zero, when every query was answered -- so its presence in a
@@ -922,10 +951,16 @@ def _summarize(
     elif real_sources:
         summary["critic"] = {"verdicts": dict(verdicts), "status": "ok"}
     if real_sources:
+        # Restrict the critic-filtered aggregate to queries whose result actually
+        # carried a verification block. A mixed/object run where some queries are
+        # VERIFICATION_ABSENT (no critic) would otherwise average their *raw*
+        # numbers under the "critic-filtered" label. [P1 #7]
+        verified_results = [r for r in results if r.get("_had_verification")]
+        n_verified = len(verified_results) or 1
         def favg(key):
-            return sum(r["critic_filtered"][key] for r in results) / n
+            return sum(r["critic_filtered"][key] for r in verified_results) / n_verified
         def favg_hit(k):
-            return sum(r["critic_filtered"]["hit_at_k"][k] for r in results) / n
+            return sum(r["critic_filtered"]["hit_at_k"][k] for r in verified_results) / n_verified
         critic_filtered: dict[str, Any] = {
             "mAP": round(favg("average_precision"), 4),
             "MRR": round(favg("reciprocal_rank"), 4),
@@ -933,7 +968,7 @@ def _summarize(
             "avg_recall": round(favg("recall"), 4),
             "avg_f1": round(favg("f1"), 4),
         }
-        for k in flows.HIT_K_VALUES:
+        for k in hit_ks:
             critic_filtered[f"HIT@{k}"] = round(favg_hit(k), 4)
         summary["critic_filtered"] = critic_filtered
         summary["total_rejected"] = sum(r.get("num_rejected", 0) for r in results)
@@ -1262,7 +1297,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
 
     query = p.add_argument_group("query parameters")
-    query.add_argument("--top-k", type=int, default=5)
+    query.add_argument("--top-k", type=int, default=10)
+    query.add_argument(
+        "--hit-ks",
+        default=None,
+        help=(
+            "Comma-separated HIT@k values (default: per-dataset, e.g. 1,5,10 for clip). "
+            "Capped at --top-k for clip retrieval, which has no segment expansion "
+            "so k > top-k is unmeasurable. "
+        ),
+    )
     query.add_argument("--min-cosine-similarity", type=float, default=0.0)
     query.add_argument("--source-type", default="video_file", choices=["video_file", "rtsp"])
     query.add_argument("--concurrency", type=int, default=1)
@@ -1436,6 +1480,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+
+    # Per-dataset wiring (DSS source, retrieval task, the HIT@k set). The clip
+    # path scores whole-clip relevance; segment scores time-overlap. [F5/F8]
+    meta = flows.dataset_meta(args.dataset)
+    task = meta.task
+    if args.hit_ks:
+        parsed_hit_ks = tuple(int(k) for k in args.hit_ks.split(",") if k.strip())
+    else:
+        parsed_hit_ks = meta.hit_ks
+    # Clip retrieval has no 5s segment expansion, so hit@k / recall@k for k > top-k
+    # are unmeasurable -- cap the set the clip scorer is given. [F3]
+    effective_hit_ks = tuple(k for k in parsed_hit_ks if k <= args.top_k)
 
     # Decomposition is the default, not an opt-in. The deployed agent decomposes
     # every query and that choice picks the retrieval path, so an eval that
@@ -1627,7 +1683,7 @@ def main() -> None:
             (r.get("sensor_id") for r in upload_stats.get("per_file", []) if r.get("sensor_id")),
             None,
         )
-        if anchor_check and first_sensor and not args.skip_index_probe:
+        if anchor_check and first_sensor and not args.skip_index_probe and task == "segment":
             anchor = anchor_check(first_sensor)
             if anchor.get("found") and not anchor.get("matches_expected_anchor"):
                 raise SystemExit(
@@ -1695,6 +1751,8 @@ def main() -> None:
         index_probe=index_probe,
         cleared=cleared,
         vst_url=vst_url,
+        task=task,
+        hit_ks=effective_hit_ks,
     )
 
 
