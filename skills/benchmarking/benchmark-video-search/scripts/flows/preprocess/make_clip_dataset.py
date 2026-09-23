@@ -233,7 +233,7 @@ def make_clip_dataset(dataset_dir: Path, dataset_name: str) -> None:
     raw = json.loads(queries_gt.read_text())
     raw_queries = raw.get("queries") or []
     if not isinstance(raw_queries, list):
-        raise ValueError(f"{queries_gt}: expected 'queries' to be a list; got {type(raw_queries).__name__}")
+        raise TypeError(f"{queries_gt}: expected 'queries' to be a list; got {type(raw_queries).__name__}")
 
     all_q, all_counts = _build_queries(raw_queries, chunk_index, None)
     event_q, event_counts = _build_queries(raw_queries, chunk_index, "event")
