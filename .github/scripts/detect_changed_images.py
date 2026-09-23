@@ -34,14 +34,22 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from check_container_tag_source import (  # noqa: E402
+    source_path_label,
+    source_paths_of,
+    source_tree_sha,
+)
 from release_set import load_inventory  # noqa: E402
 
 ZERO_SHA = "0" * 40
 
 # A change to any of these rebuilds every image: they define how images are
 # built and recorded, so a stale image could otherwise carry stale metadata.
+# check_container_tag_source.py holds the tree-SHA definition every label,
+# guard and gate compares, so a change to it must relabel every image too.
 BUILD_CONTRACT_PATHS = (
     ".github/workflows/build-dev-images.yml",
+    ".github/scripts/check_container_tag_source.py",
     ".github/scripts/detect_changed_images.py",
     ".github/scripts/ghcr_image_guard.py",
     ".github/scripts/release_set.py",
@@ -160,10 +168,15 @@ def select_images(inventory: dict, changed: list[str] | None) -> tuple[list[dict
         for contract in BUILD_CONTRACT_PATHS
     ):
         return buildable, "build contract changed; building all GHCR images"
+    # Every path the image is built from counts, not just the service folder:
+    # a Dockerfile that COPYs libs/vss must rebuild when libs/vss changes.
     changed_images = [
         entry
         for entry in buildable
-        if paths_changed_under(changed, entry["source_path"])
+        if any(
+            paths_changed_under(changed, path)
+            for path in source_paths_of(entry["source_path"])
+        )
     ]
     if changed_images:
         selected_names = {entry["name"] for entry in changed_images}
@@ -248,13 +261,12 @@ def content_tag_missing(
     spurious rebuild costs minutes, a spurious skip costs a missing tag that
     surfaces somewhere else hours later.
     """
-    source_path = entry.get("source_path")
-    if not source_path:
+    paths = source_paths_of(entry.get("source_path"))
+    if not paths:
         return False
-    result = run_git(repo, "rev-parse", f"{commit}:{source_path}")
-    if result.returncode != 0:
+    tree_sha = source_tree_sha(repo, commit, paths)
+    if tree_sha is None:
         return True
-    tree_sha = result.stdout.strip()
     repository = entry.get("repository", entry["name"])
     tag_suffix = entry.get("tag_suffix", "")
     reference = (
@@ -282,7 +294,10 @@ def matrix_entry(entry: dict) -> dict:
         "dockerfile": entry["dockerfile"],
         "lfs_include": entry.get("lfs_include", ""),
         "platforms": ",".join(entry["platforms"]),
-        "source_path": entry["source_path"],
+        # The com.nvidia.vss.source_path label value: one path, or the list
+        # joined with commas. The tree SHA itself is not carried here -- the
+        # build job asks `release_set.py tree-sha` at its own checkout.
+        "source_path": source_path_label(source_paths_of(entry["source_path"])),
         "build_args": _format_build_args(entry.get("build_args")),
     }
     return matrix
