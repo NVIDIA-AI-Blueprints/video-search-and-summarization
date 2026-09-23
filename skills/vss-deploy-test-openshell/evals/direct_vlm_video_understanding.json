@@ -1,0 +1,65 @@
+{
+  "skills": [
+    "vss-deploy-test-openshell",
+    "vss-ask-video"
+  ],
+  "profile": "base",
+  "resources": {
+    "platforms": {
+      "H200": {
+        "gpu_count": 1
+      },
+      "L40S": {
+        "gpu_count": 1
+      },
+      "RTXPRO6000BW": {
+        "gpu_count": 1
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "There is no VSS deployment or VIOS sensor in scope. Explicitly use the standalone non-VSS fallback to answer 'Is the worker wearing PPE?' from local file warehouse_safety_0001.mp4. Send the complete MP4 bytes as one native data:video/mp4;base64 video_url input to the caller-provided OpenAI-compatible VLM; do not extract or send JPEG/PNG frames.",
+      "checks": [
+        "The response clearly labels this as the explicit non-VSS local-file fallback.",
+        "The complete local MP4 is base64-encoded and sent as one video_url content part whose URI starts with data:video/mp4;base64,. No ffmpeg, OpenCV, frame extraction, image/jpeg, image/png, or image_url inputs are used.",
+        "The trajectory does not run vss memory introspect, vss memory query, vss memory get, vss vlm run, or access VIOS.",
+        "The answer is derived from the standalone VLM response."
+      ]
+    },
+    {
+      "query": "Deploy the VSS **base** profile on {{platform}}, using the `/vss-deploy-test-openshell` skill end-to-end and autonomously. After the stack is healthy, follow `/vss-ask-video`: set `VSS_REPO_ROOT=\"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\"`, validate `services/agent/pyproject.toml`, run `cd \"${VSS_REPO_ROOT}\" && uv run --project \"${VSS_REPO_ROOT}/services/agent\" --no-dev --extra cli vss vlm run --help`, and record the deployment with `vss configure --base-url http://localhost:7777`. Do not POST to the agent `/generate` endpoint and do not hand-roll `/v1/chat/completions`.",
+      "checks": [
+        "`curl -sf --max-time 15 http://localhost:8000/health` returns exit 0 (Agent REST API responsive)",
+        "`curl -sf --max-time 15 http://localhost:3000/` returns exit 0 (Agent UI responsive)",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-agent-ui` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx redis` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx vss-vios-postgres` returns exit 0",
+        "`docker ps --format '{{.Names}}' | grep -qx phoenix` returns exit 0",
+        "The project-local CLI is usable from the validated checkout: `cd \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}\" && uv run --project \"${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/services/agent\" --no-dev --extra cli vss vlm run --help` returns exit 0. The `--extra cli` flag is required; a globally installed `vss` is not an acceptable substitute",
+        "The agent recorded the deployment against the ingress origin `http://localhost:7777` with `vss configure --base-url`",
+        "The agent does not POST to the VSS agent `/generate` endpoint and does not hand-roll an OpenAI-compatible `/v1/chat/completions` request"
+      ]
+    },
+    {
+      "query": "Answer this question about the local video file warehouse_safety_0001.mp4 using a configured VSS deployment and vss-ask-video Path A --file - do NOT use VST/VIOS and do NOT call the agent's summarize pipeline: Is the worker wearing PPE?",
+      "checks": [
+        "The run used `vss vlm run --file` to send the local video to RT-VLM. The command exited 0 and the output JSON contains a non-empty answer.",
+        "The run did NOT POST to http://<host>:8000/generate."
+      ]
+    }
+  ],
+  "openshell": {
+    "gpu_count": 1,
+    "min_vram_gb_per_gpu": 96,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false,
+    "supported_hardware_profiles": [
+      "H200",
+      "L40S",
+      "RTXPRO6000BW"
+    ]
+  }
+}
