@@ -27,9 +27,9 @@
 name: Fern Docs CI
 
 env:
-  VSS_DOCS_GIT_REF: develop
-  VSS_DOCS_IMAGE_TAG: develop-latest
-  VSS_DOCS_SBSA_IMAGE_TAG: develop-latest-sbsa
+  VSS_DOCS_GIT_REF: dev-26.09.4
+  VSS_DOCS_IMAGE_TAG: nightly-20260922-1
+  VSS_DOCS_SBSA_IMAGE_TAG: nightly-20260922-1-sbsa
 
 on:
   push:
