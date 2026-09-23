@@ -39,7 +39,9 @@ from urllib.parse import urlparse
 #: ground truth every metric is scored against, so poisoning it is not a
 #: hypothetical inconvenience but a way to make the eval report whatever the
 #: attacker chose. Under the user's own cache dir the OS enforces ownership.
-DEFAULT_DATA_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "vss-devx-search"
+DEFAULT_DATA_DIR = (
+    Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "vss-devx-search"
+)
 
 #: The DSS dataset holding every eval fixture.
 DSS_DATASET_NAME = "vss-devx-search"
@@ -198,7 +200,13 @@ def download_from_dss(data_dir: Path, dataset: str | None = None) -> None:
     downloaded = 0
     skipped = 0
     for remote_path in all_files:
-        local_path = data_dir / remote_path
+        # Standalone DSS datasets ship files at their own root (clips/, gt/,
+        # manifest.json) with no <dataset>/ prefix, so they would land at data_dir/ root
+        # instead of under data_dir/<dataset>/ where the benchmark + adapter look.
+        if meta.prefix_filter:
+            local_path = data_dir / remote_path
+        else:
+            local_path = data_dir / dataset / remote_path
         if local_path.exists():
             skipped += 1
             continue
@@ -292,7 +300,9 @@ def aggregate_upload_stats(per_file: list[dict[str, Any]]) -> dict[str, Any]:
         stats["throughput"] = {
             "total_size_mb": round(total_size_mb, 2),
             "avg_upload_speed_mbps": (
-                round((total_size_mb * 8) / sum(latencies_s), 2) if sum(latencies_s) > 0 else None
+                round((total_size_mb * 8) / sum(latencies_s), 2)
+                if sum(latencies_s) > 0
+                else None
             ),
         }
         if total_chunks > 0:

@@ -39,8 +39,11 @@ def test_clip_scorer_matches_stem_not_filename() -> None:
     """A retrieved `<stem>_<timestamp>.mp4` prefix-matches the GT stem; a GT
     string with ``.mp4`` would never match. [F1]"""
     res = flows.evaluate_clip_query(
-        "q", [{"video_name": "CHAD_1_086_1_0_20250921_000000_abcd.mp4"}],
-        ["CHAD_1_086_1_0"], 0.1, hit_ks=(1, 5, 10),
+        "q",
+        [{"video_name": "CHAD_1_086_1_0_20250921_000000_abcd.mp4"}],
+        ["CHAD_1_086_1_0"],
+        0.1,
+        hit_ks=(1, 5, 10),
     )
     assert res["true_positives"] == 1
     assert res["recall"] == 1.0
@@ -52,10 +55,20 @@ def test_clip_scorer_dedupes_segments_per_clip() -> None:
     res = flows.evaluate_clip_query(
         "q",
         [
-            {"video_name": "CHAD_1_086_1_0_2025.mp4", "start_time": "2025-01-01T00:00:00Z", "end_time": "2025-01-01T00:00:02Z"},
-            {"video_name": "CHAD_1_086_1_0_2025.mp4", "start_time": "2025-01-01T00:00:02Z", "end_time": "2025-01-01T00:00:04Z"},
+            {
+                "video_name": "CHAD_1_086_1_0_2025.mp4",
+                "start_time": "2025-01-01T00:00:00Z",
+                "end_time": "2025-01-01T00:00:02Z",
+            },
+            {
+                "video_name": "CHAD_1_086_1_0_2025.mp4",
+                "start_time": "2025-01-01T00:00:02Z",
+                "end_time": "2025-01-01T00:00:04Z",
+            },
         ],
-        ["CHAD_1_086_1_0"], 0.1, hit_ks=(1, 5, 10),
+        ["CHAD_1_086_1_0"],
+        0.1,
+        hit_ks=(1, 5, 10),
     )
     assert res["total_retrieved"] == 1  # deduped to one clip
     assert res["true_positives"] == 1
@@ -71,7 +84,9 @@ def test_clip_scorer_claims_each_relevant_clip_once() -> None:
             {"video_name": "CHAD_1_086_1_0_2025.mp4"},
             {"video_name": "CHAD_1_086_1_0_2026.mp4"},  # same clip, renamed
         ],
-        ["CHAD_1_086_1_0"], 0.1, hit_ks=(1, 5, 10),
+        ["CHAD_1_086_1_0"],
+        0.1,
+        hit_ks=(1, 5, 10),
     )
     assert res["true_positives"] == 1
     assert res["false_positives"] == 1
@@ -91,9 +106,13 @@ def test_unpack_clip_dict_does_not_zero_out() -> None:
     """A schema_version 3 clip dict must load as clip annotations, not fall
     through ``or []`` and silently zero every query. [F6]"""
     data = {
-        "schema_version": 3, "task": "clip",
+        "schema_version": 3,
+        "task": "clip",
         "queries": {
-            "q1": {"relevant_clips": ["CHAD_1_086_1_0"], "decomposition": {"query": "q1", "attributes": [], "has_action": True}},
+            "q1": {
+                "relevant_clips": ["CHAD_1_086_1_0"],
+                "decomposition": {"query": "q1", "attributes": [], "has_action": True},
+            },
             "q2": {"relevant_clips": ["CHAD_2_064_1_0", "CHAD_2_064_1_1"]},
         },
     }
@@ -107,7 +126,13 @@ def test_unpack_clip_dict_does_not_zero_out() -> None:
 def test_unpack_segment_shapes_are_unchanged() -> None:
     """Legacy (bare list) and extended (segments + decomposition) still load
     as segment annotations -- regression guard for the new clip arm."""
-    seg = [{"video_name": "v", "start_time": "2025-01-01T00:00:00Z", "end_time": "2025-01-01T00:00:05Z"}]
+    seg = [
+        {
+            "video_name": "v",
+            "start_time": "2025-01-01T00:00:00Z",
+            "end_time": "2025-01-01T00:00:05Z",
+        }
+    ]
     legacy, _ = flows.unpack_dataset({"queries": {"q1": seg}})
     extended, _ = flows.unpack_dataset({"queries": {"q1": {"segments": seg}}})
     assert legacy["q1"] == seg
@@ -135,9 +160,16 @@ def test_datasets_registry_keeps_subset_map_shape() -> None:
     """DATASETS stays dict[str, dict[str,str]] for run_eval.py parity; the new
     dataset has the expected subsets."""
     assert isinstance(flows.DATASETS["physicalAI-event-videos-test"], dict)
-    assert flows.DATASETS["physicalAI-event-videos-test"][""] == "physicalAI-event-videos-test/dataset.json"
-    assert flows.DATASETS["physicalAI-event-videos-test"]["event"].endswith("dataset_event.json")
-    assert flows.DATASETS["physicalAI-event-videos-test"]["pas"].endswith("dataset_pas.json")
+    assert (
+        flows.DATASETS["physicalAI-event-videos-test"][""]
+        == "physicalAI-event-videos-test/dataset.json"
+    )
+    assert flows.DATASETS["physicalAI-event-videos-test"]["event"].endswith(
+        "dataset_event.json"
+    )
+    assert flows.DATASETS["physicalAI-event-videos-test"]["pas"].endswith(
+        "dataset_pas.json"
+    )
 
 
 # -- _summarize task-aware k-set (F5) + favg ABSENT exclusion (P1 #7) ---------
@@ -145,18 +177,28 @@ def test_datasets_registry_keeps_subset_map_shape() -> None:
 
 def _clip_result(query: str, hits: list[dict], relevant: list[str], had: bool) -> dict:
     r = flows.evaluate_clip_query(query, hits, relevant, 0.1, hit_ks=(1, 5, 10))
-    r["critic_filtered"] = flows.evaluate_clip_query(query, hits, relevant, 0.1, hit_ks=(1, 5, 10))
+    r["critic_filtered"] = flows.evaluate_clip_query(
+        query, hits, relevant, 0.1, hit_ks=(1, 5, 10)
+    )
     r["_had_verification"] = had
     return r
 
 
 def test_summarize_uses_clip_k_set() -> None:
     """A clip run's summary reports HIT@{1,5,10}, not the segment [1,3,5,10]. [F5]"""
-    res = _clip_result("q", [{"video_name": "CHAD_1_086_1_0_2025.mp4"}], ["CHAD_1_086_1_0"], had=True)
+    res = _clip_result(
+        "q", [{"video_name": "CHAD_1_086_1_0_2025.mp4"}], ["CHAD_1_086_1_0"], had=True
+    )
     summ = rf._summarize(
-        [res], dataset="physicalAI-event-videos-test", subset="", wall_clock_s=0.1,
-        concurrency=1, sources_seen={"verification"}, upload_stats=None,
-        verdicts={"confirmed": 1}, path_counts={"embed": 1},
+        [res],
+        dataset="physicalAI-event-videos-test",
+        subset="",
+        wall_clock_s=0.1,
+        concurrency=1,
+        sources_seen={"verification"},
+        upload_stats=None,
+        verdicts={"confirmed": 1},
+        path_counts={"embed": 1},
     )
     assert [k for k in summ if k.startswith("HIT@")] == ["HIT@1", "HIT@5", "HIT@10"]
 
@@ -164,12 +206,22 @@ def test_summarize_uses_clip_k_set() -> None:
 def test_summarize_critic_filtered_excludes_absent_queries() -> None:
     """A mixed run where one query is VERIFICATION_ABSENT must not average
     its raw numbers under the critic-filtered label. [P1 #7]"""
-    hit = _clip_result("hit", [{"video_name": "CHAD_1_086_1_0_2025.mp4"}], ["CHAD_1_086_1_0"], had=True)
-    miss = _clip_result("miss", [{"video_name": "OTHER.mp4"}], ["CHAD_1_086_1_0"], had=False)
+    hit = _clip_result(
+        "hit", [{"video_name": "CHAD_1_086_1_0_2025.mp4"}], ["CHAD_1_086_1_0"], had=True
+    )
+    miss = _clip_result(
+        "miss", [{"video_name": "OTHER.mp4"}], ["CHAD_1_086_1_0"], had=False
+    )
     summ = rf._summarize(
-        [hit, miss], dataset="physicalAI-event-videos-test", subset="", wall_clock_s=0.2,
-        concurrency=1, sources_seen={"verification"}, upload_stats=None,
-        verdicts={"confirmed": 1}, path_counts={"embed": 2},
+        [hit, miss],
+        dataset="physicalAI-event-videos-test",
+        subset="",
+        wall_clock_s=0.2,
+        concurrency=1,
+        sources_seen={"verification"},
+        upload_stats=None,
+        verdicts={"confirmed": 1},
+        path_counts={"embed": 2},
     )
     # critic_filtered aggregates over the 1 verified query only (hit recall 1.0),
     # not the 2-query n (which would drag it to 0.5).
@@ -185,32 +237,61 @@ def _write_raw_layout(root: Path) -> Path:
     (root / "gt").mkdir(parents=True)
     for name in ("CHAD_1_086_1_0.mp4", "CHAD_2_064_1_0.mp4", "CHAD_2_064_1_1.mp4"):
         (root / "clips" / name).write_bytes(b"")
-    (root / "manifest.json").write_text(json.dumps({
-        "schema_version": 1, "dataset": "physicalAI-event-videos-test",
-        "clips": [
-            {"chunk_id": "CHAD/1_086_1#0", "path": "clips/CHAD_1_086_1_0.mp4"},
-            {"chunk_id": "CHAD/2_064_1#0", "path": "clips/CHAD_2_064_1_0.mp4"},
-            {"chunk_id": "CHAD/2_064_1#1", "path": "clips/CHAD_2_064_1_1.mp4"},
-        ],
-    }))
-    (root / "gt" / "queries_gt.json").write_text(json.dumps({
-        "meta": {"n_queries": 3, "n_gallery": 3},
-        "queries": [
-            {"query": "a forklift moves left", "query_id": "event_0000", "query_domain": "event",
-             "slice": "specific", "near_universal": False,
-             "relevant_clip_ids": ["CHAD/1_086_1#0"], "n_relevant": 1},
-            {"query": "a person in a red jacket", "query_id": "pas_0000", "query_domain": "pas",
-             "slice": "easy", "near_universal": False,
-             "relevant_clip_ids": ["CHAD/2_064_1#0", "CHAD/2_064_1#1"], "n_relevant": 2},
-            {"query": "a nearly universal scene", "query_id": "event_0001", "query_domain": "event",
-             "slice": "scene", "near_universal": True,
-             "relevant_clip_ids": ["CHAD/1_086_1#0"], "n_relevant": 1},
-        ],
-    }))
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "dataset": "physicalAI-event-videos-test",
+                "clips": [
+                    {"chunk_id": "CHAD/1_086_1#0", "path": "clips/CHAD_1_086_1_0.mp4"},
+                    {"chunk_id": "CHAD/2_064_1#0", "path": "clips/CHAD_2_064_1_0.mp4"},
+                    {"chunk_id": "CHAD/2_064_1#1", "path": "clips/CHAD_2_064_1_1.mp4"},
+                ],
+            }
+        )
+    )
+    (root / "gt" / "queries_gt.json").write_text(
+        json.dumps(
+            {
+                "meta": {"n_queries": 3, "n_gallery": 3},
+                "queries": [
+                    {
+                        "query": "a forklift moves left",
+                        "query_id": "event_0000",
+                        "query_domain": "event",
+                        "slice": "specific",
+                        "near_universal": False,
+                        "relevant_clip_ids": ["CHAD/1_086_1#0"],
+                        "n_relevant": 1,
+                    },
+                    {
+                        "query": "a person in a red jacket",
+                        "query_id": "pas_0000",
+                        "query_domain": "pas",
+                        "slice": "easy",
+                        "near_universal": False,
+                        "relevant_clip_ids": ["CHAD/2_064_1#0", "CHAD/2_064_1#1"],
+                        "n_relevant": 2,
+                    },
+                    {
+                        "query": "a nearly universal scene",
+                        "query_id": "event_0001",
+                        "query_domain": "event",
+                        "slice": "scene",
+                        "near_universal": True,
+                        "relevant_clip_ids": ["CHAD/1_086_1#0"],
+                        "n_relevant": 1,
+                    },
+                ],
+            }
+        )
+    )
     return root
 
 
-def test_make_clip_dataset_writes_stems_and_excludes_near_universal(tmp_path: Path) -> None:
+def test_make_clip_dataset_writes_stems_and_excludes_near_universal(
+    tmp_path: Path,
+) -> None:
     """The adapter resolves chunk_id -> stems (no .mp4) [F1], drops
     near_universal queries [F4], writes event/pas subsets, and links
     videos/ -> clips/."""
@@ -223,9 +304,15 @@ def test_make_clip_dataset_writes_stems_and_excludes_near_universal(tmp_path: Pa
     assert data["task"] == "clip"
     q = data["queries"]
     assert "a forklift moves left" in q
-    assert q["a forklift moves left"]["relevant_clips"] == ["CHAD_1_086_1_0"]  # stem, not .mp4 [F1]
-    assert q["a forklift moves left"]["decomposition"]["has_action"] is True  # event -> fusion [F9]
-    assert q["a person in a red jacket"]["decomposition"]["has_action"] is False  # pas -> attribute [F9]
+    assert q["a forklift moves left"]["relevant_clips"] == [
+        "CHAD_1_086_1_0"
+    ]  # stem, not .mp4 [F1]
+    assert (
+        q["a forklift moves left"]["decomposition"]["has_action"] is True
+    )  # event -> fusion [F9]
+    assert (
+        q["a person in a red jacket"]["decomposition"]["has_action"] is False
+    )  # pas -> attribute [F9]
     assert "a nearly universal scene" not in q  # near_universal excluded [F4]
 
     event = json.loads((root / "dataset_event.json").read_text())["queries"]
@@ -248,3 +335,52 @@ def test_make_clip_dataset_is_idempotent(tmp_path: Path) -> None:
     before = out.read_text()
     make_clip_dataset(root, "physicalAI-event-videos-test")  # idempotent
     assert out.read_text() == before
+
+
+# -- _print_summary P0 pin + effective_hit_ks cap + F1 negative ----------------
+
+
+def test_print_summary_does_not_keyerror_on_clip_k_set(capsys) -> None:
+    """_print_summary must derive the HIT@k set from the summary (task-aware),
+    not the hardcoded segment [1,3,5,10], or a clip run (HIT@1,5,10) KeyErrors at HIT@3
+    before the result file is written. P0 from adversarial review."""
+    import contextlib
+    import io
+
+    res = _clip_result("q", [{"video_name": "CHAD_1_086_1_0_2025.mp4"}], ["CHAD_1_086_1_0"], had=True)
+    summ = rf._summarize(
+        [res], dataset="physicalAI-event-videos-test", subset="", wall_clock_s=0.1,
+        concurrency=1, sources_seen={"verification"}, upload_stats=None,
+        verdicts={"confirmed": 1}, path_counts={"embed": 1},
+    )
+    # Must not raise; must print exactly the clip k-set, not HIT@3.
+    with contextlib.redirect_stdout(io.StringIO()) as buf:
+        rf._print_summary(summ)
+    out = buf.getvalue()
+    assert "HIT@1" in out and "HIT@5" in out and "HIT@10" in out
+    assert "HIT@3" not in out
+
+
+def test_effective_hit_ks_capped_at_top_k() -> None:
+    """`--top-k 5` must cap the clip hit@k set to (1,5); 10 is unmeasurable
+    without segment expansion. Pins run_eval_flows.py:1494 (F3) -- the line the suite did not cover."""
+    args = rf.parse_args([
+        "--endpoint", "http://h:8000", "--dataset", "physicalAI-event-videos-test",
+        "--top-k", "5", "--skip-download", "--dry-run",
+    ])
+    meta = flows.dataset_meta(args.dataset)
+    parsed = tuple(int(k) for k in args.hit_ks.split(",")) if args.hit_ks else meta.hit_ks
+    effective = tuple(k for k in parsed if k <= args.top_k)
+    assert effective == (1, 5)  # 10 capped out
+
+
+def test_clip_scorer_gt_with_extension_never_matches() -> None:
+    """A GT string with ``.mp4`` never matches: ``video_name_matches`` strips
+    ``.mp4`` from the retrieved name only and prefix-matches, so the adapter
+    must store stems. Negative case for F1."""
+    res = flows.evaluate_clip_query(
+        "q", [{"video_name": "CHAD_1_086_1_0_2025.mp4"}],
+        ["CHAD_1_086_1_0.mp4"], 0.1, hit_ks=(1, 5, 10),  # wrong: extension on GT
+    )
+    assert res["true_positives"] == 0
+    assert res["recall"] == 0.0

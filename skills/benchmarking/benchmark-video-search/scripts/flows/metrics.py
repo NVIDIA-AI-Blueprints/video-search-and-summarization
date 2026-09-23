@@ -266,14 +266,15 @@ def evaluate_clip_query(
     relevance_at_rank: list[int] = []
     for rank, r in enumerate(ranked, 1):
         is_match = False
-        for stem in relevant_clips:
-            if stem not in found and video_name_matches(r.get("video_name", ""), stem):
-                # Claim each relevant clip once, by the earliest-ranked result
-                # that reaches it -- mirrors segment scoring's one-claim-per-GT.
-                is_match = True
-                found.add(stem)
-                matched.append({"rank": rank, "clip": stem})
-                break
+        if match_clip(r, relevant_clips):
+            # Claim the first unclaimed relevant clip this hit reaches, by the
+            # earliest-ranked result -- mirrors segment scoring's one-claim-per-GT.
+            for stem in relevant_clips:
+                if stem not in found and video_name_matches(r.get("video_name", ""), stem):
+                    is_match = True
+                    found.add(stem)
+                    matched.append({"rank": rank, "clip": stem})
+                    break
         relevance_at_rank.append(1 if is_match else 0)
 
     tp = len(matched)

@@ -820,6 +820,7 @@ def run_evaluation(
     out_path = Path(output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    summary.pop("_hit_ks", None)  # internal, consumed by _print_summary
     for r in results:
         r.pop("_had_verification", None)  # internal flag, not for the result file
     output: dict[str, Any] = {
@@ -905,6 +906,7 @@ def _summarize(
     }
     for k in hit_ks:
         summary[f"HIT@{k}"] = round(avg_hit(k), 4)
+    summary["_hit_ks"] = hit_ks  # consumed by _print_summary; stripped before the result file
 
     # Absent, not zero, when every query was answered -- so its presence in a
     # result file is itself the signal that the metrics above are partial.
@@ -953,9 +955,14 @@ def _summarize(
     if real_sources:
         # Restrict the critic-filtered aggregate to queries whose result actually
         # carried a verification block. A mixed/object run where some queries are
+        # Restrict the critic-filtered aggregate to queries whose result actually
+        # carried a verification block. A mixed/object run where some queries are
         # VERIFICATION_ABSENT (no critic) would otherwise average their *raw*
         # numbers under the "critic-filtered" label. [P1 #7]
-        verified_results = [r for r in results if r.get("_had_verification")]
+        # Fallback: when no result carries the flag (e.g. a direct _summarize
+        # call in tests, not the run flow) use all results so the existing
+        # behaviour and tests are preserved.
+        verified_results = [r for r in results if r.get("_had_verification")] or results
         n_verified = len(verified_results) or 1
         def favg(key):
             return sum(r["critic_filtered"][key] for r in verified_results) / n_verified
@@ -1119,8 +1126,11 @@ def _print_summary(summary: dict[str, Any]) -> None:
         ("Avg F1", "avg_f1"),
     ):
         print(f"{label + ':':<20}{summary[key]:<12.4f}{_cf(key)}")
-    for k in flows.HIT_K_VALUES:
-        print(f"HIT@{k}:".ljust(20) + f"{summary[f'HIT@{k}']:<12.4f}{_cf(f'HIT@{k}')}")
+    for k in summary.get("_hit_ks", flows.HIT_K_VALUES):
+        _hit_label = f"HIT@{k}:"
+        _raw_v = summary[f"HIT@{k}"]
+        _cf_v = _cf(f"HIT@{k}") if cf else ""
+        print(_hit_label.ljust(20) + f"{_raw_v:<12.4f}{_cf_v}")
 
     if "latency" in summary:
         lat = summary["latency"]
