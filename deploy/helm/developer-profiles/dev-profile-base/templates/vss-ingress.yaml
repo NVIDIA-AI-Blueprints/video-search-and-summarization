@@ -87,7 +87,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- $annotations := deepCopy ($vi.annotations | default dict) }}
   {{- if and (include "vss.ingress.hasPathRewrites" (dict "backends" $b)) (not (hasKey $annotations "haproxy.org/path-rewrite")) }}
-  {{- $_ := set $annotations "haproxy.org/path-rewrite" (include "vss.ingress.pathRewrites" (dict "backends" $b)) }}
+  {{- $_ := set $annotations "haproxy.org/path-rewrite" (printf "%s\n" (include "vss.ingress.pathRewrites" (dict "backends" $b))) }}
   {{- end }}
   {{- if $annotations }}
   annotations:

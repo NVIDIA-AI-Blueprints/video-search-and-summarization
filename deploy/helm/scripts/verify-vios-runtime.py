@@ -5,6 +5,7 @@
 import json
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -35,6 +36,24 @@ for prefixed in (False, True):
     env = {e['name']: e.get('value') for e in sensor['spec']['template']['spec']['containers'][0]['env']}
     expected = 'http://' + ('review-' if prefixed else '') + 'vss-vios-streamprocessing:30001'
     assert env['STREAM_PROCESSOR_MODULE_ENDPOINT'] == env['RTSP_SERVER_MODULE_ENDPOINT'] == expected
+# An explicit local false must survive a global true: coalesce treats false as empty, which
+# would point the sensor at a Service that is never rendered. Every peer address the sensor
+# is given must name a Service this same render creates.
+result = render(base, {'ngc': {'createSecrets': False}, 'global': {'useReleaseNamePrefix': True},
+                       'vios': {'vss-vios-sensor': {'useReleaseNamePrefix': False},
+                                'vss-vios-streamprocessing': {'useReleaseNamePrefix': False}}})
+assert result.returncode == 0, result.stderr
+documents = [d for d in yaml.safe_load_all(result.stdout) if d]
+service_names = {d['metadata']['name'] for d in documents if d['kind'] == 'Service'}
+sensor = next(d for d in documents
+              if d['kind'] == 'Deployment' and d['metadata']['name'].endswith('vss-vios-sensor'))
+env = {e['name']: e.get('value') for e in sensor['spec']['template']['spec']['containers'][0]['env']}
+assert env['STREAM_PROCESSOR_MODULE_ENDPOINT'] == env['RTSP_SERVER_MODULE_ENDPOINT'] == \
+    'http://vss-vios-streamprocessing:30001', env['STREAM_PROCESSOR_MODULE_ENDPOINT']
+# The ingress keeps the global prefix, so the sensor must still address it by its real name.
+assert env['VST_INGRESS_ENDPOINT'] == 'http://review-vss-vios-ingress:30888/vst', env['VST_INGRESS_ENDPOINT']
+for name in ('STREAM_PROCESSOR_MODULE_ENDPOINT', 'RTSP_SERVER_MODULE_ENDPOINT', 'VST_INGRESS_ENDPOINT'):
+    assert urlsplit(env[name]).hostname in service_names, (name, env[name], sorted(service_names))
 for annotations in ({}, {'traefik.ingress.kubernetes.io/router.middlewares': 'example-routes@kubernetescrd'},
                     {'haproxy.org/path-rewrite': '/custom /(.*)'}):
     result = render(base, {'ngc': {'createSecrets': False},
@@ -46,7 +65,14 @@ for annotations in ({}, {'traefik.ingress.kubernetes.io/router.middlewares': 'ex
     assert ingress['spec']['ingressClassName'] == 'traefik'
     actual = ingress['metadata']['annotations']
     assert all(actual.get(k) == v for k, v in annotations.items())
-    assert 'haproxy.org/path-rewrite' in actual
+    rewrites = actual['haproxy.org/path-rewrite']
+    if 'haproxy.org/path-rewrite' in annotations:
+        # An explicit rewrite replaces the generated table rather than merging into it.
+        assert rewrites == annotations['haproxy.org/path-rewrite'], rewrites
+    else:
+        # Keep the literal-block trailing newline so existing HAProxy Ingresses see no diff.
+        assert rewrites.endswith('\n'), repr(rewrites[-20:])
+        assert '/rtvi-vlm/(.*) /\\1' in rewrites and '^/storage /vst/storage' in rewrites, rewrites
     services = {p['path']: p['backend']['service']['name']
                 for p in ingress['spec']['rules'][0]['http']['paths']}
     assert services['/vst'] == 'review-vss-vios-ingress'

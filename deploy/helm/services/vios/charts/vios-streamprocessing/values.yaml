@@ -165,7 +165,11 @@ securityContext:
 # Must be paired with resources: null so the pod is not scheduled requiring a GPU.
 useSoftwarePath: false
 
-# Download budget in seconds; transcoding uses max(this value, 600).
+# Base download timeout in seconds, rendered into download_files_timeout_secs.
+# Paths that consume it directly (video_download.cpp -> waitForCompletion) time out at
+# exactly this value, so 120 still yields a 120-second timeout there. A pipeline that
+# keeps reporting progress (GstNvElements::pollBusMessages) may extend its own budget
+# incrementally, up to a ceiling of at least 600 seconds.
 # Increase for long videos when using the software encoding path.
 downloadFilesTimeoutSecs: 120
 

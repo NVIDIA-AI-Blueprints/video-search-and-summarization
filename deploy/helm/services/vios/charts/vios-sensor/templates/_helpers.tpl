@@ -44,6 +44,20 @@
 {{- $tag := index $global "container_tag" | default .Values.image.tag -}}
 {{- printf "%s:%s" $repository $tag -}}
 {{- end -}}
+{{/*
+  Resolve useReleaseNamePrefix with the same precedence as vss-vios-sensor.fullname:
+  an explicit chart-level boolean wins, then an explicit global boolean, else false.
+  coalesce must not be used here — it treats an explicit false as empty, which would
+  silently re-apply the release prefix and point peers at a Service that is not rendered.
+*/}}
+{{- define "vss-vios-sensor.useReleaseNamePrefix" -}}
+{{- $g := .Values.global | default dict -}}
+{{- if and (hasKey .Values "useReleaseNamePrefix") (kindIs "bool" .Values.useReleaseNamePrefix) -}}
+{{- ternary "true" "" .Values.useReleaseNamePrefix -}}
+{{- else if and (hasKey $g "useReleaseNamePrefix") (kindIs "bool" (index $g "useReleaseNamePrefix")) -}}
+{{- ternary "true" "" (index $g "useReleaseNamePrefix") -}}
+{{- end -}}
+{{- end }}
 {{/* Matches charts/vios/charts/vios-postgres vss-vios-postgres.fullname (sibling subchart). */}}
 {{- define "vss-vios-sensor.postgresFullname" -}}
 {{- $g := .Values.global | default dict }}
@@ -81,8 +95,7 @@ by the parent overlay.
 {{- define "vss-vios-sensor.peerHost" -}}
 {{- $root := index . "root" -}}
 {{- $short := index . "short" -}}
-{{- $g := $root.Values.global | default dict }}
-{{- $pfx := default false (coalesce $root.Values.useReleaseNamePrefix (index $g "useReleaseNamePrefix")) }}
+{{- $pfx := eq (include "vss-vios-sensor.useReleaseNamePrefix" $root) "true" }}
 {{- if $pfx }}{{ printf "%s-%s" $root.Release.Name $short }}{{- else -}}{{ $short }}{{- end }}
 {{- end }}
 {{/*

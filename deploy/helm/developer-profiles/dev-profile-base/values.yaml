@@ -144,6 +144,9 @@ vssIngress:
   # Ingress class on the cluster (e.g. haproxy, nginx).
   ingressClassName: haproxy
   # Additional controller annotations, for example a Traefik routing middleware.
+  # Non-HAProxy controllers ignore the generated haproxy.org/path-rewrite annotation and
+  # need their own rewrite here; see the README. Setting haproxy.org/path-rewrite in this
+  # map replaces the generated rewrite table for every backend instead of merging into it.
   annotations: {}
   # If empty, uses global.externalHost (set in values-base.yaml for external installs).
   host: ""
