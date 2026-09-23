@@ -22,13 +22,19 @@ class ReportTest(unittest.TestCase):
                 "smoke": [
                     "unexpected",
                     {"name": "image|prompt", "status": True, "sample": "car|truck"},
+                    {"name": "empty", "status": True, "sample": ""},
                 ],
                 "caveats": "single caveat",
+                "integration": {"path": "plugin", "eager_mode": False},
+                "performance": {"latency": "42 ms"},
             }
         )
 
         self.assertIn("unknown model", report)
         self.assertIn("| image\\|prompt | PASS | car\\|truck |", report)
+        self.assertIn("| empty | UNKNOWN | - |", report)
+        self.assertIn("- Integration path: plugin", report)
+        self.assertIn("- Latency: 42 ms", report)
         self.assertIn("- single caveat", report)
 
 

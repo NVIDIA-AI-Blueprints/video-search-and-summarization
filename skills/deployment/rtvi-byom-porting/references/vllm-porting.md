@@ -10,6 +10,51 @@
    mapping.
 4. Patch vLLM only for behavior unavailable through those boundaries.
 
+## Reproducible Private Hugging Face Baseline
+
+The develop downloader does not pass a Hugging Face revision and its cache key
+uses only the repository basename. Do not use `MODEL_PATH=git:...` as immutable
+evidence. Stage an exact snapshot outside the service, then mount it with the
+standalone Compose path:
+
+```bash
+read -rsp "Hugging Face token: " HF_TOKEN && export HF_TOKEN
+hf download ORG/MODEL --revision COMMIT_SHA --local-dir /absolute/model/snapshot
+unset HF_TOKEN
+
+cd services/rtvi/rt-vlm/docker
+BACKEND_PORT=8000 \
+MODEL_ROOT_DIR=/absolute/model/snapshot \
+MODEL_PATH=/absolute/model/snapshot \
+VLM_MODEL_TO_USE=vllm-compatible \
+VLLM_ENFORCE_EAGER=false \
+docker compose up -d
+```
+
+If reviewed remote code is required, set `VLM_TRUST_REMOTE_CODE=true` and set
+`RTVI_MODEL_PATH_ALLOWLIST` to the exact mounted path in standalone Compose. In
+the full VSS profile, use `RTVI_VLM_MODEL_PATH_ALLOWLIST`; use
+`RTVI_VLM_ALLOW_UNSAFE_MODEL_CONFIG` only after reviewing blocked config hooks.
+The full profile does not mount `MODEL_ROOT_DIR` on develop, so promote the
+tested snapshot and any plugin/custom implementation into a pinned derived
+image, or add an explicit reviewed bind-mount override.
+
+For any source, adapter, plugin, or custom-backend change, build and test the
+actual runtime image:
+
+```bash
+cd services/rtvi/rt-vlm
+docker build -f docker/Dockerfile -t vss-rt-vlm:byom .
+cd docker
+RTVI_IMAGE=vss-rt-vlm:byom docker compose up -d
+docker image inspect vss-rt-vlm:byom --format '{{.Id}}'
+```
+
+After standalone validation, select that same image in the VSS profile with
+`VSS_RT_VLM_IMAGE=vss-rt-vlm` and `VSS_RT_VLM_TAG=byom`. Verify the
+implementation/plugin imports inside the running container before accepting
+readiness.
+
 The VSS profile maps the corresponding values through
 `RTVI_VLM_MODEL_TO_USE`, `RTVI_VLM_MODEL_PATH`, and
 `RTVI_VLM_MODEL_IMPLEMENTATION_PATH` in

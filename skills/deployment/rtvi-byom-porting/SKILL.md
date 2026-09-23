@@ -33,16 +33,21 @@ For a private Hugging Face source, use `HF_TOKEN` only during authenticated
 download/cache population. Never print it, embed it in `MODEL_PATH`, or bake it
 into an image. Prove the cached model starts after the temporary credential is
 removed. If remote model code is required, review it first and pair
-`VLM_TRUST_REMOTE_CODE=true` with an exact `RTVI_MODEL_PATH_ALLOWLIST` entry;
-do not enable `RTVI_ALLOW_UNSAFE_MODEL_CONFIG` without reviewing the blocked
-config hooks.
+`VLM_TRUST_REMOTE_CODE=true` with an exact allowlist entry. For the VSS profile,
+set `RTVI_VLM_MODEL_PATH_ALLOWLIST`; inside the service container this becomes
+`RTVI_MODEL_PATH_ALLOWLIST`. Likewise, the profile input
+`RTVI_VLM_ALLOW_UNSAFE_MODEL_CONFIG` becomes
+`RTVI_ALLOW_UNSAFE_MODEL_CONFIG`; do not enable it without reviewing the
+blocked config hooks.
 
 ## Integration Decision
 
 Stop at the first path that works:
 
 1. **Configuration only:** use `VLM_MODEL_TO_USE=vllm-compatible` and
-   `MODEL_PATH=<git:, ngc:, or mounted path>`.
+   `MODEL_PATH=<ngc: or mounted path>`. A `git:` source is acceptable only for
+   exploration because the develop downloader does not pin Hugging Face
+   revisions; use a revision-pinned mounted snapshot for reproducible evidence.
 2. **RTVI adapter:** normalize config, processor, request or response behavior
    inside `services/rtvi/rt-vlm/` while preserving existing model behavior.
 3. **Plugin or shim:** register architecture and deterministic weight mappings
@@ -54,6 +59,13 @@ Use `VLM_MODEL_TO_USE=custom` with `MODEL_IMPLEMENTATION_PATH` only for a custom
 RTVI model implementation. In the VSS Compose profile these are exposed as
 `RTVI_VLM_MODEL_TO_USE`, `RTVI_VLM_MODEL_PATH`, and
 `RTVI_VLM_MODEL_IMPLEMENTATION_PATH`.
+
+For source, adapter, plugin, or custom-backend changes, build the RT-VLM image
+from `services/rtvi/rt-vlm/`, test it with standalone Compose via `RTVI_IMAGE`,
+then select the same repository and tag in the VSS profile via
+`VSS_RT_VLM_IMAGE` and `VSS_RT_VLM_TAG`. Record the tested image digest. A host
+`MODEL_IMPLEMENTATION_PATH` alone is insufficient: the implementation must
+exist at that path inside the selected image or an explicit Compose bind mount.
 
 Read [references/vllm-porting.md](references/vllm-porting.md) before changing
 model loading, registration, weight mapping, kernels, cache behavior or vLLM.
@@ -74,7 +86,9 @@ Run the smallest relevant checks in this order:
 
 1. Static checks and focused tests for changed Python, shell and configuration.
 2. Start RT-VLM through the canonical VSS Compose/profile path and verify
-   `/v1/health/ready` and `/v1/models`.
+   `/v1/health/ready` and `/v1/models`. First use standalone Compose when a
+   revision-pinned host model snapshot must be mounted; the VSS profile does not
+   expose `MODEL_ROOT_DIR` on develop.
 3. Smoke-test text, image and video inputs for every claimed modality. Set the
    explicit media type when testing images rather than relying on video routing.
 4. Read [references/quality-gates.md](references/quality-gates.md), retain raw
