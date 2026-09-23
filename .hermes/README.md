@@ -97,8 +97,9 @@ from `$HERMES_HOME/skills` only, and seeds it from its bundled library
 `.bundled_manifest`. The image fills `/opt/hermes/skills/vss/` from the
 shipped set, so no caller has to run anything first, whichever `HERMES_HOME`
 it picks. `vss-hermes-sync` passes `$HERMES_HOME/skills/vss` as
-`--active-dir` (`/sandbox/.hermes` when `HERMES_HOME` is unset), so it never
-touches Hermes' own skills, and Hermes does not re-add a skill it removed. Stdlib-only python; the same file
+`--active-dir` (`/sandbox/.hermes/skills/vss` when `HERMES_HOME` is unset), so
+it never touches Hermes' own skills, and Hermes does not re-add a skill that
+`vss-hermes-sync` deselected. Stdlib-only python; the same file
 serves the OpenClaw plugin and host tooling, with its behavior pinned by unit
 tests beside it.
 
