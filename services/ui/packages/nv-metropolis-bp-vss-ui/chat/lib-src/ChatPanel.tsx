@@ -52,16 +52,17 @@ interface PendingInteraction {
 interface InternalConversationHistoryProps {
   controls: ChatSidebarControlHandlers;
   enabled: boolean;
+  visible: boolean;
+  onVisibleChange: (visible: boolean) => void;
 }
 
 /** Conversation controls for hosts that do not provide their own placement. */
 const InternalConversationHistory: React.FC<InternalConversationHistoryProps> = ({
   controls,
   enabled,
+  visible,
+  onVisibleChange,
 }) => {
-  // Keep chat controls reachable until someone explicitly opens history.
-  const [visible, setVisible] = useState(false);
-
   if (!enabled) return null;
 
   const toggleLabel = visible ? 'Hide conversation history' : 'Show conversation history';
@@ -71,7 +72,7 @@ const InternalConversationHistory: React.FC<InternalConversationHistoryProps> = 
       {visible ? (
         <aside
           aria-label="Conversation history"
-          className="absolute inset-y-0 left-0 z-40 w-64 max-w-[calc(100%-3rem)] border-r border-gray-200 bg-white pt-12 shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
+          className="h-full w-64 max-w-[calc(100%-3rem)] shrink-0 border-r border-gray-200 bg-white pt-12 dark:border-neutral-700 dark:bg-neutral-900"
         >
           <ConversationList {...controls} />
         </aside>
@@ -81,7 +82,7 @@ const InternalConversationHistory: React.FC<InternalConversationHistoryProps> = 
         type="button"
         aria-label={toggleLabel}
         aria-expanded={visible}
-        onClick={() => setVisible((current) => !current)}
+        onClick={() => onVisibleChange(!visible)}
         className="absolute left-2 top-2 z-50 flex h-8 w-8 items-center justify-center rounded-md border border-black/20 bg-white text-neutral-900 shadow-sm transition-colors hover:bg-neutral-100 dark:border-white/20 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
         title={toggleLabel}
       >
@@ -158,6 +159,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const conversationId = endpoint.conversationId ?? selected?.id ?? fallbackId;
 
   const [chatHistory, setChatHistory] = useState(features.chatHistory);
+  const [internalHistoryVisible, setInternalHistoryVisible] = useState(false);
   const [contextItems, setContextItems] = useState<QueryDataContext[]>([]);
   const [uploadFlowActive, setUploadFlowActive] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -321,8 +323,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   // streamed token, and handing the host a new object each time would push a
   // setState (and a re-render of the whole app shell) per token.
   const listSignature = useMemo(
-    () => conversations.filtered.map((c) => `${c.id}:${c.name}`).join('|'),
+    () => conversations.filtered.map((c) => `${c.id}:${c.name}:${c.folderId ?? ''}`).join('|'),
     [conversations.filtered],
+  );
+  const folderSignature = useMemo(
+    () => conversations.folders.map((folder) => `${folder.id}:${folder.name}`).join('|'),
+    [conversations.folders],
   );
 
   const controlsRef = useRef(conversations);
@@ -332,12 +338,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     () => ({
       conversations: controlsRef.current.conversations,
       filteredConversations: controlsRef.current.filtered,
+      folders: controlsRef.current.folders,
       selectedConversationId: selected?.id ?? null,
       searchTerm: controlsRef.current.searchTerm,
       onSearchTermChange: (term: string) => controlsRef.current.setSearchTerm(term),
       onSelectConversation: (id: string) => controlsRef.current.select(id),
-      onNewConversation: () => {
-        createConversation();
+      onNewConversation: (folderId?: string | null) => {
+        createConversation(folderId);
       },
       onRenameConversation: (id: string, name: string) =>
         controlsRef.current.rename(id, name),
@@ -345,6 +352,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         declineInteractionFor(id);
         controlsRef.current.remove(id);
       },
+      onMoveConversation: (id: string, folderId: string | null) =>
+        controlsRef.current.moveToFolder(id, folderId),
+      onCreateFolder: () => controlsRef.current.createFolder(),
+      onRenameFolder: (id: string, name: string) =>
+        controlsRef.current.renameFolder(id, name),
+      onDeleteFolder: (id: string) => controlsRef.current.removeFolder(id),
       onClearConversations: () => {
         declineInteractionFor();
         controlsRef.current.clearAll();
@@ -356,6 +369,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       listSignature,
+      folderSignature,
       conversations.searchTerm,
       selected?.id,
       busy,
@@ -407,7 +421,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     >
       {/* The full-page Chat tab owns the controls it requests; standalone and
           docked panels keep an internal selector so old chats remain reachable. */}
-      <InternalConversationHistory controls={controls} enabled={!onControlsReady} />
+      <InternalConversationHistory
+        controls={controls}
+        enabled={!onControlsReady}
+        visible={internalHistoryVisible}
+        onVisibleChange={setInternalHistoryVisible}
+      />
 
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {features.headerMenu ? (
@@ -420,6 +439,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             chatHistory={chatHistory}
             onChatHistoryChange={setChatHistory}
             onNewConversation={() => createConversation()}
+            showNewConversation={!onControlsReady && !internalHistoryVisible}
             busy={busy}
             uploadUrlBase={endpoint.uploadUrlBase}
             uploadConfigTemplateJson={uploadConfigTemplateJson}

@@ -22,6 +22,7 @@ export interface ChatHeaderProps {
   chatHistory: boolean;
   onChatHistoryChange: (value: boolean) => void;
   onNewConversation: () => void;
+  showNewConversation?: boolean;
   busy: boolean;
   /** Upload wiring for the welcome drop zone. */
   uploadUrlBase?: string;
@@ -71,6 +72,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   chatHistory,
   onChatHistoryChange,
   onNewConversation,
+  showNewConversation = true,
   busy,
   uploadUrlBase,
   uploadConfigTemplateJson,
@@ -169,16 +171,18 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               isExpanded ? 'w-auto opacity-100' : 'w-0 opacity-0'
             }`}
           >
-            <button
-              type="button"
-              onClick={onNewConversation}
-              disabled={busy}
-              title="New chat"
-              aria-label="New chat"
-              className="flex items-center gap-1 whitespace-nowrap text-sm font-medium text-black disabled:opacity-40 dark:text-white"
-            >
-              <IconPlus size={16} /> New chat
-            </button>
+            {showNewConversation ? (
+              <button
+                type="button"
+                onClick={onNewConversation}
+                disabled={busy}
+                title="New chat"
+                aria-label="New chat"
+                className="flex items-center gap-1 whitespace-nowrap text-sm font-medium text-black disabled:opacity-40 dark:text-white"
+              >
+                <IconPlus size={16} /> New chat
+              </button>
+            ) : null}
 
             <Toggle
               label="Chat History"
