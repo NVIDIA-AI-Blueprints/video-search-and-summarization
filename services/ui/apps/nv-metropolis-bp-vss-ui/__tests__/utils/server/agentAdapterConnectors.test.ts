@@ -18,7 +18,6 @@ const config = (
   backendPath: "/v1/responses",
   backendToken: "backend-secret",
   backendModel: "agent",
-  backendOpenClawAgentId: "main",
   backendSessionField: "user",
   backendSessionHeader: "X-Agent-Session",
   backendHeaders: {},
@@ -127,7 +126,7 @@ class FakeOpenClawSocket extends EventTarget implements WebSocketLike {
                     args: {
                       id: "openclaw:core:read",
                       args: {
-                        path: "/sandbox/.openclaw/workspace/warehouse_safety_0002_12.5s.jpg",
+                        path: "/sandbox/.openclaw/workspace-vss-ui/warehouse_safety_0002_12.5s.jpg",
                       },
                     },
                   }
@@ -348,7 +347,6 @@ describe("embedded adapter connectors", () => {
         backendProtocol: "openclaw-ws",
         backendUrl: "ws://agent.local",
         backendPath: "/",
-        backendOpenClawAgentId: "vss-ui",
         backendSessionField: undefined,
         backendSessionHeader: undefined,
       }),
@@ -437,7 +435,7 @@ describe("embedded adapter connectors", () => {
     );
     expect(metadataUrl.pathname).toBe("/gateway/__openclaw__/assistant-media");
     expect(metadataUrl.searchParams.get("source")).toBe(
-      "/sandbox/.openclaw/workspace/warehouse_safety_0002_12.5s.jpg"
+      "/sandbox/.openclaw/workspace-vss-ui/warehouse_safety_0002_12.5s.jpg"
     );
     expect(
       ((global.fetch as jest.Mock).mock.calls[0][1].headers as Headers).get(

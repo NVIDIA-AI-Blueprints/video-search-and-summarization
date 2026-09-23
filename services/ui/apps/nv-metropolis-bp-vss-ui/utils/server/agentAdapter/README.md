@@ -37,6 +37,8 @@ The principal settings are:
 
 The adapter connects to an already-configured harness. It does not install
 Skills, provision a CLI, or modify the harness's identity, memory, or history.
+An OpenClaw harness must provide the isolated `vss-ui` agent because the
+adapter routes every UI thread there and never falls back to `main`.
 
 Never place a backend credential in a `NEXT_PUBLIC_*` variable. In Docker, the
 harness forward binds to Docker's private bridge address and the UI connects to

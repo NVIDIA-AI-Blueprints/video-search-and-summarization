@@ -308,23 +308,6 @@ describe("embedded agent adapter", () => {
     ).toThrow("unsupported with openclaw-ws");
   });
 
-  it("limits OpenClaw agents to known workspace mappings", () => {
-    expect(
-      loadAgentAdapterConfig({
-        AGENT_BACKEND_PROTOCOL: "openclaw-ws",
-        AGENT_BACKEND_URL: "ws://backend",
-        AGENT_BACKEND_OPENCLAW_AGENT_ID: "vss-ui",
-      })?.backendOpenClawAgentId
-    ).toBe("vss-ui");
-    expect(() =>
-      loadAgentAdapterConfig({
-        AGENT_BACKEND_PROTOCOL: "openclaw-ws",
-        AGENT_BACKEND_URL: "ws://backend",
-        AGENT_BACKEND_OPENCLAW_AGENT_ID: "custom-agent",
-      })
-    ).toThrow("must be main or vss-ui");
-  });
-
   it("uses the explicit adapter switch for profile deployments", () => {
     expect(
       loadAgentAdapterConfig({

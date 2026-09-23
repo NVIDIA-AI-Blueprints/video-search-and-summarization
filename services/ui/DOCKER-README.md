@@ -34,7 +34,9 @@ export HITL_ENABLED=false
 For direct Compose, copy the selected profile's `overrides.env` to the ignored
 `user-overrides.env` and set the same values there. OpenClaw uses
 `VSS_AGENT_BACKEND_PROTOCOL=openclaw-ws`, a `ws://` or `wss://` URL, and path
-`/`. Never commit a real harness token. The Compose service maps these
+`/`. The OpenClaw deployment must define the isolated `vss-ui` agent; the
+adapter never falls back to its durable `main` agent. Never commit a real
+harness token. The Compose service maps these
 host-side settings to the server-only `AGENT_*` variables shown below. Keep
 `HITL_ENABLED=false` for OpenClaw so follow-up questions complete as ordinary
 chat turns. Structured HITL defaults to `false` for `vss-agent` too. Set

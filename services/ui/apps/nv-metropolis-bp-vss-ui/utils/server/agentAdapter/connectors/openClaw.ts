@@ -14,6 +14,8 @@ import {
 import { createHmac, randomUUID } from "node:crypto";
 
 const PROTOCOL_VERSION = 4;
+const VSS_UI_AGENT_ID = "vss-ui";
+const VSS_UI_WORKSPACE = "/sandbox/.openclaw/workspace-vss-ui";
 const REQUESTED_SCOPES = ["operator.read", "operator.write"];
 const CLIENT_CAPABILITIES = ["tool-events", "session-scoped-events"];
 // Keep base64 plus the artifact envelope below the adapter's 1 MB event limit.
@@ -340,13 +342,11 @@ export class OpenClawConnector implements Connector {
       .update(`vss-ui:${threadId}`)
       .digest("hex")
       .slice(0, 40);
-    return `agent:${this.config.backendOpenClawAgentId}:vss-ui-${digest}`;
+    return `agent:${VSS_UI_AGENT_ID}:vss-ui-${digest}`;
   }
 
   private workspaceRoot(): string {
-    return this.config.backendOpenClawAgentId === "vss-ui"
-      ? "/sandbox/.openclaw/workspace-vss-ui"
-      : "/sandbox/.openclaw/workspace";
+    return VSS_UI_WORKSPACE;
   }
 
   private message(request: CreateRunRequest): string {
@@ -895,7 +895,7 @@ export class OpenClawConnector implements Connector {
       } catch (error) {
         if (error instanceof HandshakeRejected) {
           throw new ConnectorError(
-            "OpenClaw rejected the chat request",
+            "OpenClaw rejected the chat request; verify that its dedicated vss-ui agent is configured",
             "backend_request_rejected"
           );
         }

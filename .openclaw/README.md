@@ -62,10 +62,9 @@ the typed `vss_cli` tool. Each UI conversation still gets a distinct OpenClaw
 session key, so a new chat has neither transcript nor durable user context from
 an earlier chat.
 
-Set `VSS_AGENT_BACKEND_OPENCLAW_AGENT_ID=vss-ui` on the VSS UI service when it
-connects to this image. Use `main` only when intentionally connecting the UI to
-an older or general-purpose OpenClaw deployment that does not define the
-dedicated agent.
+The VSS UI adapter always routes OpenClaw traffic to this `vss-ui` agent. An
+OpenClaw deployment connected to the VSS UI must therefore define that agent;
+the adapter never falls back to the durable `main` agent.
 
 ### Working on it
 

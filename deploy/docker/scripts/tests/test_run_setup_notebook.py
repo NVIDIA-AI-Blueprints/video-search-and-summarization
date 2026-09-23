@@ -296,7 +296,6 @@ class HitlLaunchContractTests(unittest.TestCase):
         environment = {
             "VSS_AGENT_ADAPTER_ENABLED": "true",
             "VSS_AGENT_BACKEND_PROTOCOL": "responses",
-            "VSS_AGENT_BACKEND_OPENCLAW_AGENT_ID": "vss-ui-test",
             "VSS_AGENT_BACKEND_URL": "http://agent.local:8642",
             "VSS_AGENT_BACKEND_PATH": "/v1/responses",
             "VSS_AGENT_BACKEND_TOKEN": "test-token",
@@ -316,19 +315,11 @@ class HitlLaunchContractTests(unittest.TestCase):
                 )
 
         self.assertEqual(namespace["VSS_AGENT_BACKEND_PROTOCOL"], "responses")
-        self.assertEqual(
-            namespace["VSS_AGENT_BACKEND_OPENCLAW_AGENT_ID"], "vss-ui-test"
-        )
         self.assertEqual(namespace["VSS_AGENT_BACKEND_URL"], "http://agent.local:8642")
         self.assertEqual(namespace["VSS_AGENT_BACKEND_PATH"], "/v1/responses")
         self.assertEqual(namespace["VSS_AGENT_BACKEND_TOKEN"], "test-token")
         self.assertIn(
             'env["VSS_AGENT_BACKEND_PATH"] = VSS_AGENT_BACKEND_PATH',
-            sources["042eabd1"],
-        )
-        self.assertIn(
-            'env["VSS_AGENT_BACKEND_OPENCLAW_AGENT_ID"] = '
-            "VSS_AGENT_BACKEND_OPENCLAW_AGENT_ID",
             sources["042eabd1"],
         )
         self.assertNotIn('env["VSS_AGENT_BACKEND_PATH"] = "/"', sources["042eabd1"])
