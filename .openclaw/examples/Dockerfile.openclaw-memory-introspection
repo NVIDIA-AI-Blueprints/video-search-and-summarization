@@ -8,9 +8,12 @@
 # Copy-paste workflow:
 #
 # 1. In Provision, select the standard OpenClaw template.
-# 2. Set the VSS source revision to this PR's exact immutable head SHA. That
-#    makes .openclaw/helpers/seed_videomme_memory.sh part of the Docker build
-#    context and pins the VSS CLI and skills to the same revision.
+# 2. Set VSS_REF to this PR's exact immutable commit SHA. The existing
+#    `vss-src` stage checks out that revision, providing the matching VSS CLI,
+#    skills, and `.openclaw/helpers/seed_videomme_memory.sh`.
+#
+#    The helper is not part of the Provision build context. It must be copied
+#    from the checked-out `vss-src` stage.
 # 3. In the pre-filled Dockerfile, replace its existing VSS_REF declaration
 #    with the ARG line below. Replace REPLACE_WITH_PR_HEAD_SHA first.
 # 4. Paste the ENV block below immediately after the final runtime-stage line:
@@ -41,15 +44,17 @@ ENV VSS_VLM_BACKEND=rt_vlm \
     VSS_VLM_LOCKED=true
 
 # ── Fragment 3: add immediately before the final `USER sandbox` ──────────────
-# Provision stages the selected PR revision's `.openclaw/` directory as the
-# build context, so this relative source resolves to the helper stored in this
-# PR at `.openclaw/helpers/seed_videomme_memory.sh`.
+# The complete VSS revision is available in the existing `vss-src` stage.
+# Copy the helper from that stage; a relative COPY would incorrectly search
+# the Provision build context, where the helper is not present.
 USER root
 
 RUN mkdir -p /opt/vss-eval/helpers
 
-COPY --chown=root:root --chmod=0555 \
-    helpers/seed_videomme_memory.sh \
+COPY --from=vss-src --chown=root:root --chmod=0555 \
+    /opt/vss-src/.openclaw/helpers/seed_videomme_memory.sh \
     /opt/vss-eval/helpers/seed_videomme_memory.sh
+
+RUN test -x /opt/vss-eval/helpers/seed_videomme_memory.sh
 
 USER sandbox
