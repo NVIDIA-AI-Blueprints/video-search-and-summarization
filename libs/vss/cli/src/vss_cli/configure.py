@@ -26,6 +26,7 @@ import json
 from pathlib import Path
 from typing import Any
 from typing import NoReturn
+from typing import cast
 
 import click
 
@@ -140,6 +141,7 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
         base_url=base_url.rstrip("/"),
         services=services,
         memory=_configured_memory_or_none(),
+        vlm=_configured_vlm_or_none(),
         written_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     path = config_mod.save(deployment)
@@ -166,6 +168,14 @@ def _configured_memory_or_none() -> config_mod.MemoryConfig | None:
     """Preserve valid static memory policy when deployment routes are refreshed."""
     try:
         return config_mod.load().memory
+    except config_mod.ConfigError:
+        return None
+
+
+def _configured_vlm_or_none() -> config_mod.VlmConfig | None:
+    """Preserve valid VLM request policy when deployment routes are refreshed."""
+    try:
+        return config_mod.load().vlm
     except config_mod.ConfigError:
         return None
 
@@ -488,14 +498,7 @@ def configure_memory(
             )
             resolved_detail = f" (endpoint reported {resolved_model})" if resolved_model is not None else ""
             click.echo(f"discovered embedding dimensions: {dimensions}{resolved_detail}", err=True)
-        path = config_mod.save(
-            config_mod.Deployment(
-                base_url=deployment.base_url,
-                services=deployment.services,
-                memory=candidate,
-                written_at=deployment.written_at,
-            )
-        )
+        path = config_mod.save(replace(deployment, memory=candidate))
     except config_mod.ConfigError as error:
         _memory_config_error(str(error))
     click.echo(f"wrote memory configuration to {path}", err=True)
@@ -603,14 +606,7 @@ def configure_memory_introspection(
     )
     try:
         candidate.validate()
-        path = config_mod.save(
-            config_mod.Deployment(
-                base_url=deployment.base_url,
-                services=deployment.services,
-                memory=candidate,
-                written_at=deployment.written_at,
-            )
-        )
+        path = config_mod.save(replace(deployment, memory=candidate))
     except config_mod.ConfigError as error:
         _memory_config_error(str(error))
     click.echo(f"wrote introspection judge configuration to {path}", err=True)
@@ -657,6 +653,116 @@ def check_memory() -> None:
                 f"Markdown memory workspace is invalid; re-run `vss configure memory --workspace /absolute/path` ({error})"
             )
         click.echo(f"OpenClaw Markdown cache enabled at {memory_config.markdown.workspace}/memory/YYYY-MM-DD-vss.md")
+
+
+def _vlm_config_error(message: str) -> NoReturn:
+    """Report a VLM policy/config-file failure using the stable CLI contract."""
+    click.echo(f"vss configure vlm: configuration error: {message}", err=True)
+    raise SystemExit(int(Exit.CONFIGURATION))
+
+
+@configure.command("vlm")
+@click.option(
+    "--backend",
+    type=click.Choice(["rt-vlm", "vllm", "cosmos-reason-nim"]),
+    help="VLM request backend.",
+)
+@click.option("--timeout", type=click.IntRange(1, 3600), help="VLM HTTP timeout in seconds.")
+@click.option("--temperature", type=click.FloatRange(0, 1), help="VLM sampling temperature.")
+@click.option("--max-tokens", type=click.IntRange(1, 1_000_000), help="Maximum generated tokens.")
+@click.option("--seed", type=click.IntRange(1, 2**32 - 1), help="Sampling seed.")
+@click.option(
+    "--enable-reasoning/--disable-reasoning",
+    default=None,
+    help="Enable or disable VLM reasoning output.",
+)
+@click.option(
+    "--chunk-duration",
+    type=click.IntRange(0, 3600),
+    help="Video chunk duration in seconds; 0 disables chunking.",
+)
+@click.option("--fps", type=click.FloatRange(min=0, min_open=True, max=256), help="Frames sampled per second.")
+@click.option(
+    "--shortest-edge",
+    type=click.IntRange(1, 2**31 - 1),
+    help="Minimum processor pixel budget passed as mm_processor_kwargs.size.shortest_edge.",
+)
+@click.option(
+    "--longest-edge",
+    type=click.IntRange(1, 2**31 - 1),
+    help="Maximum processor pixel budget passed as mm_processor_kwargs.size.longest_edge.",
+)
+@click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
+@click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
+def configure_vlm(
+    backend: str | None,
+    timeout: int | None,
+    temperature: float | None,
+    max_tokens: int | None,
+    seed: int | None,
+    enable_reasoning: bool | None,
+    chunk_duration: int | None,
+    fps: float | None,
+    shortest_edge: int | None,
+    longest_edge: int | None,
+    locked: bool | None,
+    reset: bool,
+) -> None:
+    """Configure reusable defaults for ``vss vlm run``."""
+    try:
+        deployment = config_mod.load()
+    except config_mod.ConfigError as exc:
+        _vlm_config_error(str(exc))
+
+    supplied = any(
+        value is not None
+        for value in (
+            backend,
+            timeout,
+            temperature,
+            max_tokens,
+            seed,
+            enable_reasoning,
+            chunk_duration,
+            fps,
+            shortest_edge,
+            longest_edge,
+            locked,
+        )
+    )
+    if reset:
+        if supplied:
+            raise click.UsageError("cannot combine --reset with VLM policy options")
+        path = config_mod.save(replace(deployment, vlm=None))
+        click.echo(f"removed VLM request policy from {path}", err=True)
+        return
+
+    current = config_mod.effective_vlm_config(deployment.vlm) or config_mod.VlmConfig()
+    if not supplied:
+        click.echo(json.dumps(current.to_json(), indent=2))
+        return
+
+    try:
+        resolved_backend = (
+            current.backend if backend is None else cast("config_mod.VlmBackend", backend.replace("-", "_"))
+        )
+        policy = config_mod.VlmConfig(
+            backend=resolved_backend,
+            timeout=current.timeout if timeout is None else timeout,
+            temperature=current.temperature if temperature is None else temperature,
+            max_tokens=current.max_tokens if max_tokens is None else max_tokens,
+            seed=current.seed if seed is None else seed,
+            enable_reasoning=current.enable_reasoning if enable_reasoning is None else enable_reasoning,
+            chunk_duration=current.chunk_duration if chunk_duration is None else chunk_duration,
+            fps=current.fps if fps is None else fps,
+            shortest_edge=current.shortest_edge if shortest_edge is None else shortest_edge,
+            longest_edge=current.longest_edge if longest_edge is None else longest_edge,
+            locked=current.locked if locked is None else locked,
+        ).validate()
+    except config_mod.ConfigError as exc:
+        _vlm_config_error(str(exc))
+    path = config_mod.save(replace(deployment, vlm=policy))
+    click.echo(f"wrote VLM request policy to {path}", err=True)
 
 
 @configure.command("show")

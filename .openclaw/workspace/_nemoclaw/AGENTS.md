@@ -2,6 +2,28 @@
 
 This folder is home. Treat it that way.
 
+## VSS deployment origin
+
+Every VSS skill talks to one deployment through the installed `vss_cli` tool
+or `/usr/local/bin/vss`. No checkout or dependency installation is needed.
+Preserve the operator's origin from `ENV.md`. The CLI knows the deployment
+from its own recording: use `configure show` to inspect it, and record the
+selected origin only when it is missing or differs from that selection:
+
+```json
+{"args":["configure","--base-url","<VSS_PUBLIC_URL from ENV.md>"]}
+```
+
+through the `vss_cli` tool. `configure` probes the origin's routes and writes
+`~/.vss/config.json`; it configures the client, not the server. Use `configure
+check` when readiness is requested. Missing configuration is not authorization
+to deploy a stack. Follow `ENV.md` when the origin is missing; never guess one
+or probe for it. Report policy denials or unavailable services and stop.
+
+A user-supplied video URL is direct media for `vss-ask-video`; it does not need
+sensor registration or ingestion. The named-sensor and report rules below
+apply when the request names a sensor or asks for a report.
+
 ## VSS Base prompt routing
 
 For every named-video report, first resolve the exact timeline with `vss_cli`.
@@ -59,11 +81,12 @@ If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out w
 
 Before doing anything else:
 
-1. Run every `export` in `ENV.md` to set the sandbox environment. The sandbox's `/sandbox/.bashrc` is root-owned read-only, so these can't be persisted to a shell init file — re-run every session. `ENV.md` is the single source of truth for these values; do not hardcode them anywhere else.
-2. Read `SOUL.md` — this is who you are
-3. Read `USER.md` — this is who you're helping
-4. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-5. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+1. Read `ENV.md` and preserve the environment supplied by the operator or harness; its exports supply defaults only.
+2. Use the installed CLI and recorded deployment as described above. For an operation or video question, skip deployment bootstrap and orchestrator checks unless deployment was requested.
+3. Read `SOUL.md` — this is who you are
+4. Read `USER.md` — this is who you're helping
+5. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
+6. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
 
 Don't ask permission. Just do it.
 
@@ -199,7 +222,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
   5. Poll `vss_orchestrator__docker_status` with that ops id until `status` becomes terminal (`success`, `error`, or `cancelled`). Use the cadence the server returns in `recommended_poll_interval_s` (currently 60s for `up`, 10s for `down`) — wait the full interval between calls, do not poll faster.
   5a. **After every poll, print a 1-line chat update** summarizing the current state — e.g. `"[poll N] still running — pulling image X"` or `"[poll N] containers starting: A, B (elapsed Ms)"`. The user must see progress in plain chat without having to expand the tool-output panel in the UI.
   5b. **When `status` becomes terminal, in the same turn (do not end the turn before all the work below is done):**
-      - `success` → send a clear final message: `"✅ VSS <profile> deployment complete (elapsed Ms)"`, **then immediately call `vss_orchestrator__docker_list`** and report the running services to the user. **Also report the access URL** — read the deployed public origin from `vss_orchestrator__docker_read` (the resolved env's `VSS_AGENT_EXTERNAL_URL`, i.e. `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`) and give the UI as `<origin>/` (REST API `<origin>/api`). **Never synthesize a `<HOST_IP>:<port>` URL** — on Brev the orchestrator already sets that origin to the `https://7777-<id>.apps.run.brev.nvidia.com` secure link, and a raw host:port is an unreachable internal IP. Full mapping: `vss-build-vision-ai` skill, `references/base.md` (Endpoints) / `references/brev.md`.
+      - `success` → send a clear final message: `"✅ VSS <profile> deployment complete (elapsed Ms)"`, **then immediately call `vss_orchestrator__docker_list`** and report the running services to the user. **Also report the access URL** — read the deployed public origin from `vss_orchestrator__docker_read` (the resolved env's `VSS_AGENT_EXTERNAL_URL`, i.e. `${VSS_PUBLIC_HTTP_PROTOCOL}://${VSS_PUBLIC_HOST}:${VSS_PUBLIC_PORT}`) and give the UI as `<origin>/` (REST API `<origin>/api`). **Never synthesize a URL** — neither a `<HOST_IP>:<port>` one (a raw host:port is an unreachable internal IP) nor a `<port>-<id>.<domain>` one (the Brev secure-link domain varies per instance). On Brev the orchestrator already set that origin from the instance's own secure link in `/etc/brev/environment-context.json`, so report it verbatim. Full mapping: `vss-build-vision-ai` skill, `references/base.md` (Endpoints) / `references/brev.md`.
       - `error` → send `"❌ VSS <profile> deployment failed (exit_code=X)"`, then call `vss_orchestrator__docker_logs` for the failing service and surface a short log snippet plus a suggested next step.
       - `cancelled` → send `"⚠️ VSS <profile> deployment was cancelled (likely by a docker_down)."`
 
@@ -208,9 +231,10 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - For **teardown** ("tear down", "stop VSS"): call `vss_orchestrator__docker_down` with the recorded `docker_compose_id`, then poll `docker_status` using the cadence the server returns in `recommended_poll_interval_s` (currently 10s for `down`). Print the same 1-line chat update after every poll. **When `status` becomes terminal, in the same turn**, send a clear final message: `success` → `"✅ Teardown complete (elapsed Ms)."` | `error` → `"❌ Teardown failed (exit_code=X)"` plus a log snippet | `cancelled` → `"⚠️ Teardown was cancelled."` Do not end the turn before this message is sent.
 
 - When the user asks about **incidents, alerts, PPE violations, occupancy, object counts, speeds, or "what happened"** in video:
-  - Use the **`vss-va-mcp` skill** — query the VA-MCP server at **port 9901** directly.
-  - **Do NOT use the VSS agent on port 8000 or any `rtvi_vlm_alert` tool for this.**
-  - VA-MCP requires a 2-step session handshake — run the `initialize` curl first to get a session ID from the response header, then call the tool. See the `vss-va-mcp` skill for exact commands.
+  - Use the **`vss-query-analytics` skill**, which runs the project-local `vss analytics` CLI against the configured Video Analytics API.
+  - Use `vss analytics sensors` for sensors represented in analytics data and `vss vios list` for sensors registered in VIOS.
+  - **Do NOT initialize an MCP session, call port 9901 or `/va-mcp`, or use the VSS agent on port 8000 for read-only analytics.**
+  - VA-MCP remains only for requests that explicitly require its legacy MCP or SOP tool surface.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 

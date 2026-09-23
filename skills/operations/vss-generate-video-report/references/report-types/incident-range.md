@@ -20,35 +20,46 @@ Numbered steps for Mode B, loaded on demand from [`SKILL.md`](../../SKILL.md) (`
 
 ### Step 2 — Fetch incidents via `/vss-query-analytics`
 
-Hand off to `/vss-query-analytics` (initialize → `tools/call`) with the payload below. Its blocks are fresh shells too: paste the *Endpoint resolution* hand-off (`HOST_IP` / `VSS_PUBLIC_URL`, SKILL.md) at the top of each block you run there.
+Hand off to `/vss-query-analytics`, which configures and invokes the project-local
+VSS CLI. It uses `vss analytics incidents`; use this command shape after its
+bootstrap:
 
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "video_analytics__get_incidents",
-    "arguments": {
-      "source": "<sensor-id>",
-      "source_type": "sensor",
-      "start_time": "<ISO>",
-      "end_time": "<ISO>",
-      "max_count": 100,
-      "includes": ["objectIds", "info", "category", "place"]
-    }
-  },
-  "id": 1
-}
+```bash
+vss analytics incidents \
+  --source "<sensor-id>" --source-type sensor \
+  --start-time "<ISO>" --end-time "<ISO>" \
+  --vlm-verdict all \
+  --limit 100 \
+  --include objectIds --include info --include category --include place
 ```
 
-`source` and `source_type` go together: keep both for a sensor scope, omit BOTH for an all-sensors query (the tool rejects one without the other).
+`--source` and `--source-type` go together: keep both for a sensor scope, omit
+BOTH for an all-sensors query. Always keep `--vlm-verdict all`, including a
+latest-incident lookup: Alerts stores the incidents used by this report in the
+VLM-verified incident index, including both confirmed and rejected verdicts.
+Never omit `--vlm-verdict all` (that queries the raw incident index). Do not
+add unsupported sort flags; the API already returns newest-`end` first. For
+“last / latest / most recent incident”, omit the time bounds unless the user
+named a range, use `--limit 1`, and generate the report only from that returned
+incident. If the command exits 0 with `count` 0 / `incidents` `[]`, STOP and
+return the Mode B empty-range line; never invent an incident, safety concerns,
+severity, or corrective actions, and never fall back to raw Elasticsearch,
+VA-MCP, Mode A, or fabricated data.
 
 Read-only boundary (mandatory):
 - Mode B is strictly read-only analytics retrieval. Never write, seed, backfill, or mutate Elasticsearch/VA data.
 - Forbidden examples: indexing synthetic incidents, replaying fixture payloads into ES, calling write/update/delete APIs to "make data available" for the report.
 - If no incidents exist for the requested range/scope, handle as empty results (see below); do not fabricate data.
 
-For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`, `place.name` (both only present because `includes` asks for them — `get_incidents` projects `_source` to the base fields plus `includes`), `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL (`info.videoSource` — the VST storage URL the alert enrichment writes; fall back to any other clip-pointer field the response carries). **Apply the browser-playable rewrite (see *Clip URLs: VLM input vs browser report link* in SKILL.md — `VSS_PUBLIC_URL` on Kubernetes, or `$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` on Docker) to every clip URL before pasting it into the report** — the raw value is often a private `HOST_IP:30888` URL the user's browser cannot reach.
+For each incident keep: `id`, `sensorId`, `timestamp`, `end`, `category`,
+`place.name`, `info.verdict`, `info.reasoning`, `objectIds`, and the clip URL
+(`info.videoSource` — the VST storage URL the alert enrichment writes; fall back
+to any other clip-pointer field the response carries). **Apply the
+browser-playable rewrite (see *Clip URLs: VLM input vs browser report link* in
+SKILL.md — `VSS_PUBLIC_URL` on Kubernetes, or
+`$VSS_PUBLIC_HOST:$VSS_PUBLIC_PORT` on Docker) to every clip URL before pasting
+it into the report** — the raw value is often a private `HOST_IP:30888` URL the
+user's browser cannot reach.
 
 ### Step 3 — Fill the Incident Range Report template
 
@@ -59,7 +70,13 @@ For non-empty results, rendered output MUST start exactly with:
 - `## Basic Information`
 - a pipe table containing rows: `Report Identifier`, `Range`, `Scope`, `Total Incidents`, `Confirmed / Rejected / Unverified`
 
-The result also carries `has_more`: when it is `true` the range holds more than `max_count` incidents — re-issue the call with a larger `max_count` (still read-only) or render `Total Incidents` as `<max_count>+ (capped, has_more=true)` and say so; never present a capped count as the total. Zero results means the tool result text is an object whose `incidents` is `[]`. A JSON-RPC `error` envelope, `result.isError: true`, or text without an `incidents` key is a failure (SKILL.md § Error Handling), never an empty range. On zero results, STOP and return exactly this one-line sentence shape (single line only):
+The result contains `count`, `incidents`, and `has_more`. When `has_more` is
+true, `count` is a page size, not a total: say at least N (query capped) or
+rerun with a larger positive `--limit`. Zero results means `count` is `0`,
+`has_more` is false, and `incidents` is `[]`. A nonzero CLI exit or output
+without an `incidents` key is
+a failure (SKILL.md § Error Handling), never an empty range. On zero results,
+STOP and return exactly this one-line sentence shape (single line only):
 `No incidents found for scope <scope> in range <start_time> to <end_time>.`
 
 When zero results:

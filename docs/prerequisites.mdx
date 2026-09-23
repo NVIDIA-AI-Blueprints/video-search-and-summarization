@@ -259,7 +259,7 @@ The following tables show the number of GPUs needed for each development profile
 | [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
-| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 2 | 4 | 2 | 2 | 2 |
 
 </Tab>
 <Tab title="GB300">
@@ -285,7 +285,7 @@ does not remove the GPU required by the profile services.
 | [dev-profile-lvs](/vss/vision-agent/agent-workflows/video-summarization) | 1 | 2 | 1 | 1 | 0 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 2 | 3 | 2 | 2 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 2 | 3 | 2 | — | — |
-| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 3 | 4 | 3 | 2 | 2 |
+| [dev-profile-search](/vss/vision-agent/agent-workflows/search) <sup>2</sup> | 2 | 4 | 2 | 2 | 2 |
 
 </Tab>
 <Tab title="RTXPRO4500BW">
@@ -370,7 +370,7 @@ ngc registry model download-version <org>/<team>/<model>:<version>
 mv </downloaded/path/in/ngc/output> </path/to/custom/weights>
 ```
 
-The weights will be downloaded to a local directory. Note the path to this directory, then set `VLM_CUSTOM_WEIGHTS` to it in the selected profile's `user-overrides.env` before deploying.
+The weights will be downloaded to a local directory. Note the path to this directory, then set `VLM_CUSTOM_WEIGHTS` in the selected profile's `*-overrides.env` file before deploying (the deployment guides use `user-overrides.env` as an example).
 
 ### Download Custom Weights from Hugging Face
 
@@ -696,7 +696,7 @@ For each supported NIM and GPU, the deployment includes a corresponding env file
 
 #### Unsupported GPU hardware
 
-For GPU hardware outside the listed profiles, set `HARDWARE_PROFILE=OTHER` in the selected profile `user-overrides.env`. The deployment uses a default empty env file and the NIM falls back to its own defaults.
+For GPU hardware outside the listed profiles, set `HARDWARE_PROFILE=OTHER` in the selected profile's `*-overrides.env` file. The deployment uses a default empty env file and the NIM falls back to its own defaults.
 
 ```bash
 ./deploy/docker/services/nim/cosmos3-reasoner/hw-OTHER.env
@@ -704,7 +704,7 @@ For GPU hardware outside the listed profiles, set `HARDWARE_PROFILE=OTHER` in th
 
 #### Custom env files at install time
 
-You can define your own env variants for a NIM in the selected profile `user-overrides.env`. Set `LLM_ENV_FILE` and/or `VLM_ENV_FILE`; paths can be absolute or relative to `deploy/docker`.
+You can define your own env variants for a NIM in the selected profile's `*-overrides.env` file. Set `LLM_ENV_FILE` and/or `VLM_ENV_FILE`; paths can be absolute or relative to `deploy/docker`.
 
 ```ini
 LLM_ENV_FILE=/path/to/llm.env

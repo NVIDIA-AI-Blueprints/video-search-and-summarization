@@ -3,12 +3,10 @@
 /**
  * Standalone VSS chat UI.
  *
- * Renders both surfaces the toolkit UI currently provides — a full chat pane
- * and a docked sidebar — without the toolkit being involved at all.
- *
- * Both panels post to this app's own /api/chat route, which proxies to the
- * agent backend server-side. The adapter therefore stays on a host-private
- * port and its address never reaches the browser; see pages/api/chat.ts.
+ * Renders a full chat pane and a docked sidebar. Both panels post to this
+ * app's own /api/chat route, which proxies to the agent backend server-side.
+ * The adapter therefore stays on a host-private port and its address never
+ * reaches the browser; see pages/api/chat.ts.
  */
 import { useMemo, useState } from 'react';
 import Head from 'next/head';
@@ -34,9 +32,6 @@ export default function Home() {
       <div className="vss-shell">
         <header className="vss-shell-bar">
           <strong>VSS Chat</strong>
-          <span className="vss-shell-note">
-            no NeMo Agent Toolkit — UI or core
-          </span>
           <button type="button" onClick={() => setSidebarOpen((v) => !v)}>
             {sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
           </button>

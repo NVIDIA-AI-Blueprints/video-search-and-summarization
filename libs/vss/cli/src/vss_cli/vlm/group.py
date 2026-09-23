@@ -36,8 +36,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-from datetime import datetime
 import json as _json_mod
+import logging
 import os
 import secrets
 import tempfile
@@ -52,6 +52,7 @@ import click
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import ValidationError
 from pydantic import model_validator
 
 from vss_cli import config as config_mod
@@ -72,7 +73,7 @@ _JOB_DOMAIN = "vlm"
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _DEFAULT_FIXED_FRAME_BUDGET = 8
-_MAX_SAMPLED_FRAMES = 60
+_LOG = logging.getLogger(__name__)
 
 
 def _ulid() -> str:
@@ -109,9 +110,7 @@ def _is_loopback_url(url: str) -> bool:
         host = urllib.parse.urlparse(url).hostname or ""
     except Exception:
         return False
-    return host in ("localhost", "127.0.0.1", "::1", "host.openshell.internal") or host.startswith(
-        "127."
-    )
+    return host in ("localhost", "127.0.0.1", "::1", "host.openshell.internal") or host.startswith("127.")
 
 
 def _vios_exit_for(exc: Exception) -> tuple[Exit, str]:
@@ -191,6 +190,23 @@ class VlmInput(BaseModel):
     )
     max_tokens: int | None = Field(None, ge=1, le=1_000_000, description="Maximum tokens to generate.")
     temperature: float | None = Field(None, ge=0.0, le=1.0, description="Sampling temperature.")
+    seed: int | None = Field(
+        None,
+        ge=1,
+        le=2**32 - 1,
+        description="Sampling seed for reproducible generation.",
+    )
+    enable_reasoning: bool | None = Field(
+        None,
+        description="Enable or disable reasoning output from the VLM.",
+        json_schema_extra={params_mod.NEGATIVE_FLAG_KEY: "--disable-reasoning"},
+    )
+    chunk_duration: int | None = Field(
+        None,
+        ge=0,
+        le=3600,
+        description="Video chunk duration in seconds. Set 0 to disable chunking.",
+    )
     num_frames: int | None = Field(
         None,
         ge=1,
@@ -206,6 +222,18 @@ class VlmInput(BaseModel):
         le=256,
         description="Frames sampled per second across the clip. Mutually exclusive with --num-frames.",
     )
+    shortest_edge: int | None = Field(
+        None,
+        ge=1,
+        le=2**31 - 1,
+        description="Minimum processor pixel budget sent as mm_processor_kwargs.size.shortest_edge.",
+    )
+    longest_edge: int | None = Field(
+        None,
+        ge=1,
+        le=2**31 - 1,
+        description="Maximum processor pixel budget sent as mm_processor_kwargs.size.longest_edge.",
+    )
 
     @model_validator(mode="after")
     def _validate_media_source(self) -> VlmInput:
@@ -219,6 +247,8 @@ class VlmInput(BaseModel):
             raise ValueError("--start-time / --end-time require --sensor")
         if self.num_frames is not None and self.fps is not None:
             raise ValueError("--num-frames and --fps are mutually exclusive")
+        if self.shortest_edge is not None and self.longest_edge is not None and self.shortest_edge > self.longest_edge:
+            raise ValueError("--shortest-edge must be no greater than --longest-edge")
         return self
 
 
@@ -235,6 +265,53 @@ class VlmOptions(BaseModel):
             "Path A escape hatch when VIOS is not available."
         ),
     )
+
+
+_VLM_POLICY_FIELDS = (
+    "timeout",
+    "temperature",
+    "max_tokens",
+    "seed",
+    "enable_reasoning",
+    "chunk_duration",
+    "fps",
+    "shortest_edge",
+    "longest_edge",
+)
+
+
+def _apply_vlm_policy(inputs: VlmInput, policy: config_mod.VlmConfig | None) -> VlmInput:
+    """Apply configured defaults and reject overrides when the policy is locked."""
+    if policy is None:
+        return inputs
+
+    explicit = inputs.model_fields_set
+    if policy.locked and policy.fps is not None and "num_frames" in explicit:
+        raise InvalidInput(
+            f"--num-frames conflicts with the locked VLM fps policy ({policy.fps}); use the configured fps"
+        )
+
+    updates: dict[str, Any] = {}
+    for name in _VLM_POLICY_FIELDS:
+        configured = getattr(policy, name)
+        if configured is None:
+            continue
+        if name in explicit:
+            requested = getattr(inputs, name)
+            if policy.locked and requested != configured:
+                flag = name.replace("_", "-")
+                raise InvalidInput(f"--{flag} is locked to {configured!r}; received {requested!r}")
+            continue
+        if name == "fps" and "num_frames" in explicit:
+            continue
+        updates[name] = configured
+
+    merged = inputs.model_dump()
+    merged.update(updates)
+    try:
+        return VlmInput.model_validate(merged)
+    except ValidationError as exc:
+        raise InvalidInput(f"configured VLM policy and run arguments are incompatible: {exc}") from exc
 
 
 def _resolve_vios_clip(
@@ -270,42 +347,27 @@ def _resolve_vios_clip(
     return asyncio.run(_fetch())
 
 
-def _clip_duration_seconds(start: str | None, end: str | None) -> float | None:
-    if not start or not end:
-        return None
-    try:
-        begin = datetime.fromisoformat(start.replace("Z", "+00:00"))
-        finish = datetime.fromisoformat(end.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return max((finish - begin).total_seconds(), 0.0)
-
-
 def _rt_vlm_sampling(
     fps: float | None,
     num_frames: int | None,
-    duration_seconds: float | None,
 ) -> tuple[float | int, bool]:
     if fps is not None:
-        from vss_core.vlm import bound_rt_vlm_fps_sampling
-
-        return bound_rt_vlm_fps_sampling(fps, duration_seconds, max_frames=_MAX_SAMPLED_FRAMES)
+        # RT-VLM applies the deployment-wide
+        # VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES cap
+        # Preserve FPS here and let RT-VLM enforce the frame ceiling,
+        # converting it to a fixed count changes sampling semantics
+        return fps, True
     return num_frames or _DEFAULT_FIXED_FRAME_BUDGET, False
 
 
-def _build_vlm_request(
+def _base_request(
     *,
     prompt: str,
     media_url: str,
     model: str,
-    max_tokens: int | None,
-    temperature: float | None,
-    num_frames: int | None,
-    fps: float | None,
-    duration_seconds: float | None = None,
+    inputs: VlmInput,
 ) -> dict[str, Any]:
-    """Build an OpenAI-compatible /v1/chat/completions payload for a URL source."""
-    budget, use_fps = _rt_vlm_sampling(fps, num_frames, duration_seconds)
+    """Build the request fields shared by RT-VLM and standalone vLLM."""
     request: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -317,26 +379,137 @@ def _build_vlm_request(
                 ],
             }
         ],
-        "num_frames_per_second_or_fixed_frames_chunk": budget,
-        "use_fps_for_chunking": use_fps,
     }
-    if max_tokens is not None:
-        request["max_tokens"] = max_tokens
-    if temperature is not None:
-        request["temperature"] = temperature
+    if inputs.temperature is not None:
+        request["temperature"] = inputs.temperature
+    if inputs.max_tokens is not None:
+        request["max_tokens"] = inputs.max_tokens
+    if inputs.seed is not None:
+        request["seed"] = inputs.seed
     return request
+
+
+def _processor_size(inputs: VlmInput) -> dict[str, int]:
+    """Return configured Qwen processor size controls in request-schema form."""
+    size: dict[str, int] = {}
+    if inputs.shortest_edge is not None:
+        size["shortest_edge"] = inputs.shortest_edge
+    if inputs.longest_edge is not None:
+        size["longest_edge"] = inputs.longest_edge
+    return size
+
+
+def _build_rt_vlm_request(
+    *,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """Translate one request to RT-VLM's OpenAI-compatible extensions."""
+    request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    budget, use_fps = _rt_vlm_sampling(inputs.fps, inputs.num_frames)
+    request["num_frames_per_second_or_fixed_frames_chunk"] = budget
+    request["use_fps_for_chunking"] = use_fps
+    if inputs.enable_reasoning is not None:
+        request["enable_reasoning"] = inputs.enable_reasoning
+    if inputs.chunk_duration is not None:
+        request["chunk_duration"] = inputs.chunk_duration
+    size = _processor_size(inputs)
+    if size:
+        request["mm_processor_kwargs"] = {"size": size}
+    return request
+
+
+def _build_vllm_request(
+    *,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """Translate one request using a single, loader-owned sampling contract.
+
+    vLLM's video loader selects either the requested fixed frame count or the
+    FPS-derived frames. Qwen then consumes that selection unchanged instead of
+    sampling a second time from metadata describing the original video.
+    """
+    request = _base_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    if inputs.chunk_duration is not None and inputs.chunk_duration != 0:
+        raise InvalidInput("positive --chunk-duration is not supported by the standalone vLLM backend")
+    if inputs.enable_reasoning is not None:
+        request["chat_template_kwargs"] = {"enable_thinking": inputs.enable_reasoning}
+    mm_processor_kwargs: dict[str, Any] = {"do_sample_frames": False}
+    if inputs.fps is not None:
+        request["media_io_kwargs"] = {
+            "video": {
+                "num_frames": -1,
+                "fps": inputs.fps,
+            }
+        }
+    else:
+        request["media_io_kwargs"] = {
+            "video": {
+                "num_frames": inputs.num_frames or _DEFAULT_FIXED_FRAME_BUDGET,
+            }
+        }
+    size = _processor_size(inputs)
+    if size:
+        mm_processor_kwargs["size"] = size
+    request["mm_processor_kwargs"] = mm_processor_kwargs
+    return request
+
+
+def _build_cosmos_reason_nim_request(
+    *,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """Temporarily translate Cosmos Reason NIM calls with RT-VLM's schema."""
+    _LOG.warning(
+        "Cosmos Reason NIM backend support is alpha; request construction "
+        "currently uses the RT-VLM request schema and is pending refinement."
+    )
+    return _build_rt_vlm_request(
+        prompt=prompt,
+        media_url=media_url,
+        model=model,
+        inputs=inputs,
+    )
+
+
+def _build_vlm_request(
+    *,
+    backend: str,
+    prompt: str,
+    media_url: str,
+    model: str,
+    inputs: VlmInput,
+) -> dict[str, Any]:
+    """Build a backend-specific OpenAI-compatible request."""
+    if backend == "rt_vlm":
+        return _build_rt_vlm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    if backend == "vllm":
+        return _build_vllm_request(prompt=prompt, media_url=media_url, model=model, inputs=inputs)
+    if backend == "cosmos_reason_nim":
+        return _build_cosmos_reason_nim_request(
+            prompt=prompt,
+            media_url=media_url,
+            model=model,
+            inputs=inputs,
+        )
+    raise config_mod.ConfigError(f"unsupported VLM backend: {backend}")
 
 
 def _iter_base64_json(
     *,
+    backend: str,
     prompt: str,
     file_path: str,
     model: str,
-    max_tokens: int | None,
-    temperature: float | None,
-    num_frames: int | None,
-    fps: float | None,
-    duration_seconds: float | None = None,
+    inputs: VlmInput,
 ) -> Any:
     """Yield the VLM request body as a JSON byte stream, reading the file in 192 KB chunks.
 
@@ -345,26 +518,14 @@ def _iter_base64_json(
     memory simultaneously with the joined string, the data-URI f-string, and the
     json.dumps output -- typically 4-5x the encoded file size.
     """
-    budget, use_fps = _rt_vlm_sampling(fps, num_frames, duration_seconds)
     sentinel = f"__b64_{secrets.token_hex(8)}__"
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "video_url", "video_url": {"url": sentinel}},
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
-        "num_frames_per_second_or_fixed_frames_chunk": budget,
-        "use_fps_for_chunking": use_fps,
-    }
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
-    if temperature is not None:
-        payload["temperature"] = temperature
+    payload = _build_vlm_request(
+        backend=backend,
+        prompt=prompt,
+        media_url=sentinel,
+        model=model,
+        inputs=inputs,
+    )
 
     raw = _json_mod.dumps(payload)
     # json.dumps quotes the sentinel; partition on the quoted form.
@@ -398,6 +559,9 @@ class VlmGroup(CommandGroup):
             raise TypeError(f"expected VlmInput, got {type(inputs).__name__}")
 
         deployment = ctx.deployment or config_mod.load()
+        policy = config_mod.effective_vlm_config(deployment.vlm)
+        inputs = _apply_vlm_policy(inputs, policy)
+        backend = policy.backend if policy is not None else "rt_vlm"
         options = VlmOptions(**{k: v for k, v in ctx.extra.items() if k in VlmOptions.model_fields})
 
         if options.use_base64 and inputs.sensor:
@@ -422,6 +586,15 @@ class VlmGroup(CommandGroup):
             model_params["max_tokens"] = inputs.max_tokens
         if inputs.temperature is not None:
             model_params["temperature"] = inputs.temperature
+        if inputs.seed is not None:
+            model_params["seed"] = inputs.seed
+        if inputs.enable_reasoning is not None:
+            model_params["enable_reasoning"] = inputs.enable_reasoning
+        if inputs.chunk_duration is not None:
+            model_params["chunk_duration"] = inputs.chunk_duration
+        size = _processor_size(inputs)
+        if size:
+            model_params["mm_processor_kwargs"] = {"size": size}
 
         # Initialise memory before media resolution so any failure path (including
         # the loopback clip-fetch timeout below) can write a terminal record. A
@@ -618,18 +791,14 @@ class VlmGroup(CommandGroup):
                     open(file_to_read, "rb").close()
                 except OSError as exc:
                     raise InvalidInput(f"cannot read local file {file_to_read!r}: {exc}") from exc
-                clip_duration = _clip_duration_seconds(resolved_start, resolved_end)
                 response = httpx.post(
                     vlm_url,
                     content=_iter_base64_json(
+                        backend=backend,
                         prompt=inputs.prompt,
                         file_path=file_to_read,
                         model=model,
-                        max_tokens=inputs.max_tokens,
-                        temperature=inputs.temperature,
-                        num_frames=inputs.num_frames,
-                        fps=inputs.fps,
-                        duration_seconds=clip_duration,
+                        inputs=inputs,
                     ),
                     headers={"Content-Type": "application/json"},
                     timeout=float(inputs.timeout),
@@ -638,14 +807,11 @@ class VlmGroup(CommandGroup):
                 response = httpx.post(
                     vlm_url,
                     json=_build_vlm_request(
+                        backend=backend,
                         prompt=inputs.prompt,
                         media_url=media_url,
                         model=model,
-                        max_tokens=inputs.max_tokens,
-                        temperature=inputs.temperature,
-                        num_frames=inputs.num_frames,
-                        fps=inputs.fps,
-                        duration_seconds=_clip_duration_seconds(resolved_start, resolved_end),
+                        inputs=inputs,
                     ),
                     timeout=float(inputs.timeout),
                 )

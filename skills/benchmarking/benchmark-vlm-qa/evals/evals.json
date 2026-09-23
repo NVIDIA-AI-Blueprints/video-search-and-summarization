@@ -1,0 +1,22 @@
+[
+  {
+    "id": "benchmark-vlm-question-answering",
+    "question": "Benchmark video question-answering accuracy and latency on the vss-devx-base dataset.",
+    "expected_skill": "benchmark-vlm-qa",
+    "ground_truth": "Use the RT-VLM question-answering benchmark workflow.",
+    "expected_behavior": [
+      "Activates benchmark-vlm-qa.",
+      "Measures both answer accuracy and latency."
+    ]
+  },
+  {
+    "id": "ask-one-video-question",
+    "question": "Inspect this clip and tell me whether the worker is wearing a helmet.",
+    "expected_skill": null,
+    "ground_truth": "Route to one-off video question answering, not dataset benchmarking.",
+    "expected_behavior": [
+      "Does not activate benchmark-vlm-qa.",
+      "Routes the request to vss-ask-video."
+    ]
+  }
+]

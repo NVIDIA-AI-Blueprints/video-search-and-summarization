@@ -85,7 +85,7 @@ export function buildStepTree(steps: ChatStep[]): ChatStep[] {
 }
 
 /**
- * The NAT event stream wraps a turn in a synthetic workflow span. It is
+ * The event stream wraps a turn in a synthetic workflow span. It is
  * bookkeeping rather than an action the user asked the agent to take, and
  * nesting everything under it makes an "Intermediate steps (N)" disclosure
  * appear to contain only one item. Show its descendants as the visible list.

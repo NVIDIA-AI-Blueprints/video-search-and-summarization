@@ -154,9 +154,10 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
   - Report progress each poll. Done when all `mdx-*` containers show `Up`.
 
 - When the user asks about **incidents, alerts, PPE violations, occupancy, object counts, speeds, or "what happened"** in video:
-  - Use the **`vss-va-mcp` skill** — query the VA-MCP server at **port 9901** directly.
-  - **Do NOT use the VSS agent on port 8000 or any `rtvi_vlm_alert` tool for this.**
-  - The VA-MCP requires a 2-step session handshake — always run the `initialize` curl first to get a session ID from the response header, then call the tool. See the `vss-va-mcp` skill for the exact commands.
+  - Use the **`vss-query-analytics` skill**, which runs the project-local `vss analytics` CLI against the configured Video Analytics API.
+  - Use `vss analytics sensors` for sensors represented in analytics data and `vss vios list` for sensors registered in VIOS.
+  - **Do NOT initialize an MCP session, call port 9901 or `/va-mcp`, or use the VSS agent on port 8000 for read-only analytics.**
+  - VA-MCP remains only for requests that explicitly require its legacy MCP or SOP tool surface.
 
 - When the user says **"deploy VSS alerts"** or **"deploy VSS alerts profile"**:
   - Use the `vss-alerts` skill.
@@ -168,7 +169,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
   docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
   ```
   - Report what you see — do not ask the user to run docker ps.
-  - **Reporting the access URL:** never give a raw `<HOST_IP>:<port>` (e.g. `:3000`) — that's an internal port, unreachable from a browser on Brev. Read the deployed public origin from the running stack — `docker inspect vss-agent` → `VSS_AGENT_EXTERNAL_URL` (already `proto://host:port`) — and report the UI as `<origin>/`. On Brev this is the `https://7777-<id>.apps.run.brev.nvidia.com` secure link. Full mapping: `vss-build-vision-ai` skill `references/base.md` (Endpoints) / `references/brev.md`.
+  - **Reporting the access URL:** never give a raw `<HOST_IP>:<port>` (e.g. `:3000`) — that's an internal port, unreachable from a browser on Brev. Read the deployed public origin from the running stack — `docker inspect vss-agent` → `VSS_AGENT_EXTERNAL_URL` (already `proto://host:port`) — and report the UI as `<origin>/`. On Brev that origin is the instance's secure link, resolved from `/etc/brev/environment-context.json` when the stack was deployed — report it verbatim and never assemble one from `<port>-<id>.<domain>`, because the domain varies per instance. Full mapping: `vss-build-vision-ai` skill `references/base.md` (Endpoints) / `references/brev.md`.
 
 **🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
 

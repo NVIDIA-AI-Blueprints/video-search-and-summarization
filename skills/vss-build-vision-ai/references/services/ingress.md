@@ -50,27 +50,26 @@ deploys, the routes each consumer of the origin needs:
 | Consumer of the origin | Routes to retain (for deployed backends) |
 |---|---|
 | Human **browse** | `/kibana`, `/vst`, `/storage`, `/video-analytics-api`, and (combined only) `/alert-bridge` |
-| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm` (tagging builds only; see note below), and `/api` when an agent ships |
+| Host-CLI **operate** (`vss configure`) | `/vst`, `/elasticsearch` (read-only guard, verbatim), `/rtvi-embed`, `/rtvi-cv`, `/rtvi-vlm` (only where RT-VLM is driven from the host; see note below), and `/api` when an agent ships |
 
 The operate set is the read-path subset of what `vss configure` probes to resolve
 a deployment through one origin (`vss_cli/config.py:INGRESS_SERVICES`). A queryable
 headless build **must** carry it — post-#1469 `vss search run` takes no endpoints, so a build missing these routes is unqueryable (no ingress-less read path). But RT-Embed or Elasticsearch in the build does **not**
 make it queryable — an ingestion/indexing-only build that requests no read surface
-prunes the proxy regardless. `vss configure` also probes `/rtvi-vlm`. The canonical
-`haproxy.cfg.template` is the **single authored source** for this route — it already
+prunes the proxy regardless. For `/rtvi-vlm` the canonical
+`haproxy.cfg.template` is the **single authored source** — it already
 carries the `/rtvi-vlm` ACL and the `bk_rtvi_vlm_strip` prefix-rewrite backend, so a
-tagging build copies that route verbatim into any curated config and authors **no new
-backend rule**; tagging needs no new backend rule. For a build that resolves the VLM
-**tagging** capability, front RT-VLM at `/rtvi-vlm` so the controlled
-`generate_captions` tagging leg can be driven from any host that reaches the origin,
-not only the deploy host's loopback. This is a conscious tradeoff: it
-re-exposes RT-VLM's SSE-generation and stream/file-mutation endpoints through
-HAProxy, so the origin's host-allowlist is the only boundary — front RT-VLM only
-when the build needs remote-driven tagging, and never on an unauthenticated origin.
-A side effect is that `vss configure` then records `rt_vlm` present, which
-activates the search CLI's fail-open critic (retrieval is unaffected). A build
-that uses RT-VLM only for Critic verification (no tagging leg) keeps it
-loopback-only and records `absent`, as before.
+build that needs the route copies it verbatim into any curated config and authors
+**no new backend rule**. Front RT-VLM at `/rtvi-vlm` whenever the host drives it:
+for result critique and visual follow-up Q&A, because `vss configure` records
+`rt_vlm` from this probe alone and the CLI's critic is fail-open — no route, no
+critique, retrieval unaffected; and for a tagging leg driven by hand rather than
+by the webhook receiver. This is a conscious tradeoff: it re-exposes RT-VLM's
+SSE-generation and stream/file-mutation endpoints through HAProxy, so the
+origin's host-allowlist is the only boundary — never front it on an
+unauthenticated origin. Only a build where nothing outside the Compose network
+reaches RT-VLM — its tagging leg driven by VIOS webhooks, no host-side critique,
+no CLI operate surface asked for — keeps it loopback-only.
 
 - **Curated (patch).** Write the trimmed config to `patches/haproxy.cfg`, beside
   the `patches/vss-haproxy-ingress.yml` service-definition patch that overrides the

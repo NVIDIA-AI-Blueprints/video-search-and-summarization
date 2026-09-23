@@ -7,6 +7,8 @@
   developer foundation.
 - Prefer as the Foundation when the request needs VIOS + inference but no
   ELK-backed alerts, search, or long-video summarization.
+- RTX PRO 4500 Blackwell (`RTXPRO4500BW`) is not a valid hardware profile here;
+  route that SKU to Alerts with a remote LLM.
 - The Agent and UI layer is **optional in a delta** — see
   [Capability owners present](#capability-owners-present) before assuming a
   request for "Q&A" requires it.
@@ -33,10 +35,12 @@ phoenix,redis,vss-haproxy-ingress,vss-ui,vss-agent,centralizedb,vst-ingress,sens
 `redis` is a shared peer used by this profile graph (see `services/elk.md` for
 when it is retained).
 
-`vss-haproxy-ingress` is the optional single-origin front door: retain it only
-when the Agent/UI tier is present or the request explicitly asks to expose
-surfaces through one browse origin; otherwise prune it (headless clients reach
-each backend on its own port). See `services/ingress.md`. When it is ambiguous
+`vss-haproxy-ingress` is the optional single-origin front door in an explicit
+headless capability-pruning build: retain it only when the Agent/UI tier is
+present or the request explicitly asks to expose surfaces through one browse
+origin; otherwise prune it (headless clients reach each backend on its own
+port). This does not apply to a Q3-only harness delta, which keeps ingress and
+every unrelated Foundation key. See `services/ingress.md`. When it is ambiguous
 whether a browse origin is wanted, ask rather than silently retaining it.
 
 ## Profile-specific environment knobs
@@ -60,10 +64,12 @@ curl -sf "http://${HOST_IP}:${LLM_PORT:-30081}/v1/health/ready" # LLM NIM
 curl -sf "http://${HOST_IP}:3000/"                              # vss-ui
 ```
 
-In a delta that drops the Agent layer, skip the `:8000` and `:3000` probes and
-the LLM NIM probe — those services are absent by design, and probing them
-reports a false failure. `:8018` is the only readiness check that applies to
-every base-derived delta.
+In an explicit headless delta that drops the whole Agent/UI tier, skip the
+`:8000`, `:3000`, and LLM NIM probes because those services are absent by
+design. In a Q3-only harness delta, `vss-agent` leaves with its two private
+peers - the LLM NIM and `phoenix` - so skip `:8000` and the LLM NIM probe, and
+keep the UI and RT-VLM probes because those Foundation services remain. (An
+`lvs` build keeps the NIM for `lvs-server`; probe it there.)
 
 For remote LLM/VLM mode, probe the selected remote `/v1/models` endpoint
 instead of the absent local service.

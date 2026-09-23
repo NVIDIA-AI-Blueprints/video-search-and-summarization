@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Image download for agent-rendered media.
  *
@@ -7,8 +7,6 @@
  * attribute is ignored for cross-origin hrefs, so the browser navigates away
  * from the app instead of saving. VSS media comes from VST on another origin,
  * which is exactly that case.
- *
- * Ported from the toolkit's `utils/media/download.ts`.
  */
 /**
  * Save a Blob under a chosen filename.

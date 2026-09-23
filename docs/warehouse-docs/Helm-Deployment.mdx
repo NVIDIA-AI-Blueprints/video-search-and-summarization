@@ -1,0 +1,93 @@
+---
+title: "Helm Deployment"
+description: ""
+position: 5
+---
+The Warehouse Blueprint can also be deployed on Kubernetes using Helm, as an alternative to the Docker Compose method used in the [Quickstart Guide](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart). This guide provides an overview of the available Helm profiles and how to deploy them.
+
+## Overview
+
+Each Warehouse Blueprint profile that is available through Docker Compose is also packaged as a Helm chart under `deploy/helm/industry-profiles/warehouse-operations/` in the repository:
+
+| Profile Type | Chart | Detection Approach |
+| --- | --- | --- |
+| 2D Vision AI Profile | `warehouse-2d-app` | 2D single-camera detection and tracking, using the RT-DETR model |
+| 3D Vision AI Profile | `warehouse-3d-app` | 3D multi-camera detection and tracking, using the Sparse4D model |
+| MV3DT Vision AI Profile | `warehouse-mv3dt-app` | 3D multi-camera detection and tracking, using RT-DETR combined with MV3DT distributed tracking |
+
+Each of these charts wraps the shared microservice charts under `deploy/helm/services/` (VIOS, RTVI, analytics, infra, monitoring, and calibration-import) and configures them for its own detection approach, in the same way that the corresponding Docker Compose profile does. See [Deployment & Customization](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization) for a description of each profile's architecture.
+
+## Prerequisites
+
+Before you begin, ensure all of the prerequisites are met:
+
+* A Kubernetes cluster that you can reach with `kubectl`.
+* The [NVIDIA GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html), installed on the cluster so pods can request `nvidia.com/gpu`.
+* A StorageClass available for PVC provisioning. The charts create persistent volumes for VST, Elasticsearch, and related storage.
+* Helm 3.x and kubectl, installed on the machine you will deploy from.
+* An NGC API key, used for the image pull secret and the NGC model and app-data download job.
+* A TURN server, required for WebRTC playback in the VST/VIOS web UI whenever the browser is not on the same network as the cluster.
+
+GPU requirements vary by profile. See the GPU requirements section in the chart README for the profile you are deploying, referenced in [Chart Documentation](#chart-documentation) below.
+
+## Deploy a Profile
+
+This section guides you through the steps to deploy a Warehouse Blueprint profile on Kubernetes.
+
+### Download the Repository
+
+Perform this on the machine where you intend to deploy the blueprint.
+
+<Note>
+**Git LFS required:** The repository uses Git LFS for large files. Install it before cloning or pulling. For example, on Ubuntu/Debian: `sudo apt-get install git-lfs`. On other systems, see [Git LFS installation](https://git-lfs.com/).
+</Note>
+
+```bash
+git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
+cd video-search-and-summarization
+git checkout tags/v3.3.0
+git lfs install
+git lfs pull
+```
+
+### Stay at the Repository Root
+
+Run the chart README commands from the `video-search-and-summarization` repository root; their paths are relative to that directory.
+
+### Follow the Chart README
+
+Open the chart README for the profile you are deploying and follow its installation, validation, and uninstall instructions.
+
+## Chart Documentation
+
+| Profile | Chart Documentation |
+| --- | --- |
+| 2D Vision AI Profile | [warehouse-2d-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/README.md) |
+| 3D Vision AI Profile | [warehouse-3d-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-3d-app/README.md) |
+| MV3DT Vision AI Profile | [warehouse-mv3dt-app README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/README.md) |
+
+Each README covers, in order, prerequisites and GPU requirements, required secrets, web UI and ingress configuration, the full `values.yaml` reference, installation and post-install validation, the alerts stack (2D only), monitoring, stream scaling by GPU, and upgrade and uninstall instructions.
+
+<Note>
+After running `helm upgrade --install`, wait until service pods are **Running**/**Ready** and init Jobs (e.g. the NGC download job) show **Completed** (check with `kubectl get pods -n <NAMESPACE> -w`) before opening the UI.
+</Note>
+
+## Common Configuration
+
+Ingress, required secrets, and stream scaling are shared across all three profile charts. Alerts is available only on the 2D Vision AI Profile. See the chart README for a profile for the full detail on each.
+
+### Ingress
+
+Ingress is disabled by default on all three profiles. To expose the web UIs, either set `global.vssIngress.enabled=true` and install an ingress controller (see the "Install the ingress controller" section in the [chart README](#chart-documentation) for your profile), or install with the bundled `values-nodeport.yaml` file to expose the UIs on NodePorts instead.
+
+### Required Secrets
+
+Every profile requires an `ngc-api` secret containing the NGC API key and an `ngc-docker-reg-secret` image pull secret to be created in the release namespace before installing. See the "Required secrets" section in the [chart README](#chart-documentation) for your profile for the exact commands.
+
+### Stream Scaling
+
+Each profile chart ships with a fixed default `NUM_STREAMS` and does not cap it to the available GPU automatically, unlike Docker Compose, which caps it per `HARDWARE_PROFILE`. Before an initial install, or an upgrade where the stream count should match your hardware, generate a values override using `deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py`. See "Scaling: NUM_STREAMS by GPU" in the [chart README](#chart-documentation) for the profile you are deploying.
+
+### Alerts
+
+The alerts stack is only available on the 2D Vision AI Profile, and is disabled by default there. Enabling it requires four components to be turned on together: the alert bridge, the agent, the agent UI, and either the in-cluster real-time VLM or an external VLM endpoint. See the ["Alerts" section of the `warehouse-2d-app` README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/v3.3.0/deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/README.md#alerts) for the values needed to enable it.

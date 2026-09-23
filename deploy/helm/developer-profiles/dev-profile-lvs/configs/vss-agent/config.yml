@@ -97,8 +97,8 @@ functions:
     _type: lvs_video_understanding
     lvs_backend_url: ${LVS_BACKEND_URL}
     model: ${VLM_NAME}
-    # Explicit HITL opt-in collects LVS parameters; otherwise requests use these defaults.
-    hitl_enabled: ${HITL_ENABLED:-false}
+    # HITL is on by default and collects LVS parameters. Set HITL_ENABLED=false to skip confirmation and use these defaults directly.
+    hitl_enabled: ${HITL_ENABLED:-true}
     video_url_tool: vst_video_clip
     vst_internal_url: ${VST_INTERNAL_URL}
     # Connection and timeout configuration
@@ -111,7 +111,7 @@ functions:
     vlm_input_height: 720
     # Nemotron Nano Omni: set ENABLE_AUDIO=true so the agent forwards audio to the VLM.
     enable_audio: ${ENABLE_AUDIO:-false}
-    # HITL templates (shown only after explicit opt-in).
+    # HITL templates (shown by default; hidden when HITL_ENABLED=false).
     hitl_scenario_template: |
       Scenario (REQUIRED):
       Please provide a scenario description for the video analysis.
@@ -156,7 +156,7 @@ functions:
 
   lvs_config_media:
     _type: lvs_config_media
-    hitl_enabled: ${HITL_ENABLED:-false}
+    hitl_enabled: ${HITL_ENABLED:-true}
     lvs_backend_url: ${LVS_BACKEND_URL}
     vst_internal_url: ${VST_INTERNAL_URL}
     model: ${VLM_NAME}
@@ -230,8 +230,8 @@ functions:
       EXAMPLE:
       [0.0s-4.0s] <description of the first event>
       [4.0s-12.0s] <description of the second event>
-    # Explicit HITL opt-in confirms/edits the VLM prompt; otherwise use it directly.
-    hitl_enabled: ${HITL_ENABLED:-false}
+    # HITL is on by default and confirms/edits the VLM prompt. Set HITL_ENABLED=false to use it directly.
+    hitl_enabled: ${HITL_ENABLED:-true}
     hitl_prompt_llm: ${LLM_MODEL_TYPE:-nim}_llm  # LLM for AI-assisted prompt generation e.g. nim_llm, openai_llm
     hitl_vlm_prompt_template: |
       **VLM Prompt for Report Generation**
@@ -245,6 +245,8 @@ functions:
       • Type `/generate <description>` → AI creates a prompt based on your description
 
       • Type `/refine <instructions>` → AI modifies the current prompt
+
+      • Type `/default` → Restore the system default prompt
 
       • Type `/cancel` → Cancel report generation
 

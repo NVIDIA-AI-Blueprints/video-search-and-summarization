@@ -198,7 +198,12 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
 # See developer-profiles/dev-profile-lvs/overrides.env for supported settings.
 ```
 
-`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=lvs
@@ -206,22 +211,8 @@ cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
 ```
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-lvs/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
-
-```bash
-PROFILE=lvs
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  config --quiet
-
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
-```
+Before starting Compose, complete the host settings and select one hardware
+layout below in `deploy/docker/developer-profiles/dev-profile-lvs/user-overrides.env`.
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-lvs/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
@@ -257,6 +248,21 @@ mkdir -p \
   "$VSS_DATA_DIR/agent_eval/results"
 chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```
+
+
+**Default container image tag**
+
+`containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.
+Export the tag selected for this documentation branch before choosing a hardware
+layout:
+
+```bash
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
+```
+
+Any service-specific image tag or tag suffix shown inside a hardware tab
+supersedes or augments this common default. Use the SBSA settings shown in the
+GB300 and DGX Spark tabs when deploying on those platforms.
 
 
 <Tabs>
@@ -336,8 +342,8 @@ HARDWARE_PROFILE=GB300
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_VLM_TAG=develop-latest-sbsa
-VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_VIDEO_SUMMARIZATION_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
@@ -348,8 +354,8 @@ RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 HARDWARE_PROFILE=GB300
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_VLM_TAG=develop-latest-sbsa
-VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_VIDEO_SUMMARIZATION_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
@@ -365,8 +371,8 @@ LLM_MODEL_TYPE=<nim-or-openai>
 HARDWARE_PROFILE=GB300
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_VLM_TAG=develop-latest-sbsa
-VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_VIDEO_SUMMARIZATION_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -383,8 +389,8 @@ RTVI_VLM_MODEL_PATH=none
 ```ini
 HARDWARE_PROFILE=GB300
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_VLM_TAG=develop-latest-sbsa
-VSS_VIDEO_SUMMARIZATION_TAG=develop-latest-sbsa
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_VIDEO_SUMMARIZATION_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 LLM_MODE=remote
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -607,6 +613,24 @@ RTVI_VLM_MODEL_PATH=none
 </Tabs>
 </Tab>
 </Tabs>
+
+After replacing every placeholder in the selected layout, from `deploy/docker`
+validate the resolved configuration, then start the profile:
+
+```bash
+PROFILE=lvs
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  up -d
+```
 
 Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
 your network speed, this may take a few minutes.

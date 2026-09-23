@@ -473,8 +473,11 @@ jobs:
             .github/skill-eval/tests/test_vss_summarize_model_selection.py \
             deploy/docker/scripts/tests/test_orchestrator_mcp_helper.py \
             deploy/docker/scripts/tests/test_run_setup_notebook.py \
+            deploy/docker/scripts/tests/test_dashboard_relay.py \
+            .openclaw/tests/test_runtime_instructions.py \
             skills/vss-build-vision-ai/scripts/tests/test_sync_skills.py \
             skills/vss-build-vision-ai/scripts/tests/test_stage_vss_src.py \
+            skills/vss-build-vision-ai/scripts/tests/test_apply_onboard_config.py \
             -q
 
       - name: Skill eval harness contracts
@@ -943,6 +946,7 @@ jobs:
             -m test_in_ci \
             tests/model/vllm_compatible/test_input_error_handling.py \
             tests/rtvi_vlm/test_vlm_thor_runtime.py \
+            tests/test_sbsa_decoder_bridge.py \
             -v
 
       - name: Run rt-embed unit tests
@@ -1425,6 +1429,7 @@ jobs:
           python3 .github/scripts/test_agent_config_defaults.py
           python3 .github/scripts/test_compose_image_golden.py
           python3 .github/scripts/test_helm_release_channel_policy.py
+          python3 .github/scripts/test_rtvi_vlm_env_docs.py
           python3 .github/scripts/test_diagnose_sonarqube_failure.py
 
       - name: Unit-test the release-set tooling

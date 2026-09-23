@@ -202,7 +202,7 @@ jobs:
       - name: Reclaim disk space for standard image build
         if: steps.preflight.outputs.skip != 'true' && steps.reuse.outputs.reuse != 'true'
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
           sudo apt-get clean
           sudo docker system prune --all --force --volumes
           df -h /
@@ -401,7 +401,7 @@ jobs:
           steps.reuse.outputs.reuse != 'true' &&
           steps.platform-preflight.outputs.skip != 'true'
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
           sudo apt-get clean
           sudo docker system prune --all --force --volumes
           df -h /

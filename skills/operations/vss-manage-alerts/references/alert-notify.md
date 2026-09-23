@@ -90,8 +90,8 @@ scripts/alert-notify/
 | `OPENCLAW_GATEWAY_AUTH_TOKEN` | **Yes** (if Dashboard backend) | Gateway auth token from `openclaw.json`. |
 | `WEBHOOK_HOST` | No | Server bind address. Default: `0.0.0.0` |
 | `WEBHOOK_PORT` | No | Server port. Default: `9090` |
-| `VST_ENDPOINT` | **Yes** | VST `host:port` (e.g. `10.63.144.174:30888`). Resolved by the agent via `vss-manage-video-io-storage` when starting the webhook. Used to generate video clip URLs for incidents without `info.videoSource`. |
-| `VST_PUBLIC_URL_BASE` | No | Public base URL substituted for the VST host in playback video URLs (e.g. `https://7777-xbrxpi7ia.brevlab.com`). Set when clients reach VST through a Brev tunnel / reverse-proxy. If unset, URLs pass through unchanged. |
+| `VST_ENDPOINT` | **Yes** | VST `host:port` (e.g. `<vst-host>:30888`). Resolved by the agent via `vss-manage-video-io-storage` when starting the webhook. Used to generate video clip URLs for incidents without `info.videoSource`. |
+| `VST_PUBLIC_URL_BASE` | No | Public base URL substituted for the VST host in playback video URLs (e.g. `https://<your-public-vst-or-tunnel-base>`). Set when clients reach VST through a Brev tunnel / reverse-proxy. If unset, URLs pass through unchanged. |
 
 **Environment injection:** These variables can be provided in two ways (in order of precedence):
 

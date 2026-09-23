@@ -62,6 +62,7 @@ tune a discrete-GPU allocation above `0.85`.
 | H100 / A100 80 GB | 80 GB | 68 GB |
 | H200 | 141 GB | 119.85 GB |
 | B200 / GB200 | 192 GB | 163.2 GB |
+| DGX Station GB300 | 251 GB | 213.35 GB |
 | RTX PRO 6000 Blackwell | 96 GB | 81.6 GB |
 | L40S / L40 / RTX 6000 Ada / A40 | 48 GB | 40.8 GB |
 | RTX PRO 4500 Blackwell | 32 GB | 27.2 GB |
@@ -108,13 +109,65 @@ RT-VLM is `0.40 + 0.40`, leaving 20% unallocated.
 | LVS | One GPU: LLM + RT-VLM shared. Two GPUs: LLM on GPU 0 and RT-VLM on GPU 1. | When shared on H100/RTX PRO 6000, set `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.40` and cap the LLM at about `0.40`. |
 | Search | GPU 0: RT-CV + RT-VLM FP8 at `0.40`. GPU 1: RT-Embed + LLM. | The stock local profile uses two shared GPUs (`FIXED_SHARED_DEVICE_IDS=0,1`). |
 
+**DGX Station GB300 is one GPU.** Do not inherit the two-GPU device IDs above.
+Every GPU consumer in Base, LVS, Alerts (`2d_cv` and `2d_vlm`), and Search
+lands on one selected GB300. Resolve its index from the prerequisite GPU
+inventory: use the sole GB300 when exactly one is present; when multiple are
+present, ask which one to use. Do not inherit a Foundation device ID that does
+not identify the selected GB300.
+
+Write this complete placement closure directly to the build's
+`_builds/<name>/override.env`:
+
+```text
+HARDWARE_PROFILE=GB300
+LLM_MODE=local_shared
+VLM_MODE=local_shared
+LLM_DEVICE_ID=<gb300-id>
+VLM_DEVICE_ID=<gb300-id>
+SHARED_LLM_VLM_DEVICE_ID=<gb300-id>
+RT_CV_DEVICE_ID=<gb300-id>
+RT_EMBED_DEVICE_ID=<gb300-id>
+RT_VLM_DEVICE_ID=<gb300-id>
+RESERVED_DEVICE_IDS=
+FIXED_SHARED_DEVICE_IDS=<gb300-id>
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
+```
+
+`HARDWARE_PROFILE=GB300` plus `LLM_MODE=local_shared` selects
+`hw-GB300-shared.env`, whose LLM fraction is `NIM_GPU_MEM_FRACTION=0.3`
+(~75 GiB). RT-VLM `0.2` reserves ~50 GiB of ~251 GiB. Do not apply the H100
+`0.40 + 0.40` pair or the Search `(VRAM-10)/VRAM - 0.15` LLM formula; vLLM
+reserves `fraction × total` without subtracting co-residents.
+
+SBSA tags are also part of the build override. Because `containers.env` is
+expanded before `override.env`, setting only `VSS_CONTAINER_TAG_SUFFIX=-sbsa`
+in the build override is too late to recompute per-image tags. Read the
+effective `VSS_CONTAINER_TAG` and derive `<sbsa-tag>` idempotently: if the tag
+already ends in `-sbsa`, use it unchanged; otherwise append `-sbsa` exactly
+once. Write that concrete `<sbsa-tag>` for the services the Foundation uses:
+
+| Foundation | Additional `override.env` values |
+|---|---|
+| Base | `VSS_RT_VLM_TAG=<sbsa-tag>` |
+| LVS | `VSS_RT_VLM_TAG=<sbsa-tag>`, `VSS_VIDEO_SUMMARIZATION_TAG=<sbsa-tag>` |
+| Alerts `2d_cv` | `VSS_RT_CV_TAG=<sbsa-tag>`, `VSS_RT_VLM_TAG=<sbsa-tag>` |
+| Alerts `2d_vlm` | `VSS_RT_VLM_TAG=<sbsa-tag>` |
+| Search | `VSS_RT_CV_TAG=<sbsa-tag>`, `VSS_RT_EMBED_TAG=<sbsa-tag>`, `VSS_RT_VLM_TAG=<sbsa-tag>` |
+
+Verify these device IDs, modes, utilization values, and concrete `-sbsa` image
+tags in `resolved.yml` before deployment.
+
 RT-VLM placement and utilization starting values:
 
 | Placement | Example profile and hardware | `RTVI_VLLM_GPU_MEMORY_UTILIZATION` |
 |---|---|---:|
 | Shared with another GPU service | Search FP8 on H100 or RTX PRO 6000; Alerts/LVS BF16 on H100, RTX PRO 6000, or DGX Spark | 0.40 |
+| Shared on DGX Station GB300 | Base, LVS, Alerts, and Search on the single GB300 | 0.2 |
 | Dedicated | Alerts/LVS BF16 on H100, RTX PRO 6000, or supported discrete GPUs not listed below | 0.70 |
-| Dedicated | Alerts/LVS BF16 on L40S or RTX PRO 4500 | 0.80 |
+| Dedicated | Alerts/LVS BF16 on L40S | 0.80 |
+| Dedicated | Alerts BF16 on RTX PRO 4500 (remote LLM) | 0.80 |
 
 **Ask before co-locating.** When the Foundation puts RT-VLM on the same GPU as
 another model and the host has a free GPU, ask the user which layout they want
@@ -135,8 +188,8 @@ These values apply when `rtvi-vlm` is in the effective service set, including
 stock Alerts `2d_cv` and `2d_vlm`. The BF16 co-resident row is a stock-Foundation
 layout (Alerts/LVS share BF16 with the LLM); a generated build that must converge
 variants co-resides on FP8, per step 4 of the sizing flow. Do not share the
-Alerts LLM and RT-VLM on L40S or RTX PRO 4500. On RTX PRO 4500, use a remote LLM
-and start RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and
+Alerts LLM and RT-VLM on L40S. RTX PRO 4500 Blackwell is alerts-only: use a
+remote LLM, start RT-VLM with `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.80` and
 `RTVI_VLM_MAX_MODEL_LEN=18000`.
 
 ## Warehouse industry-profile layout
@@ -147,29 +200,28 @@ dataset (`profiles/warehouse.md`), so the question is not "how many streams fit"
 but "does this hardware support the count this dataset requires".
 
 `blueprint_config.yml` is authoritative for that ceiling. `HARDWARE_PROFILE`
-selects the section; `MODE` selects the row:
+selects the section; `MODE` selects the row. For the supported deployment
+targets covered here:
 
 | `HARDWARE_PROFILE` | `2d` | `3d` |
 |---|---:|---:|
-| H100 | 77 | 19 |
+| H100 | 61 | 19 |
+| L40S | 28 | 9 |
+| GB300 | 161 | 71 |
 | RTXPRO6000BW | 52 | 21 |
 | RTXPRO6000BW-SE | 47 | 20 |
-| L40S | 29 | 10 |
-| RTXA6000ADA | 28 | 8 |
 | RTXPRO4500BW | 20 | 9 |
-| RTXA6000 | 15 | **4** |
-| L4 | 9 | **3** |
 | IGX-THOR | 9 | 8 |
 | DGX-SPARK | 7 | 7 |
 
 Check the dataset's stream count against the cell before deploying:
 
-- `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile.
+- `nv-warehouse-4cams` (2D `bp_wh`) — 4 streams. Fits every profile listed
+  above.
 - `warehouse-loading-dock-3cams-synthetic` (2D kafka/redis) — 3 streams. Fits
-  every profile.
-- `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. **Exceeds `L4` (3).**
-  Exactly saturates `RTXA6000` (4), which leaves no margin for a second workload
-  on that GPU.
+  every profile listed above.
+- `warehouse-4cams-20mx20m-synthetic` (3D) — 4 streams. Fits every profile
+  listed above.
 
 `NUM_STREAMS` is an input and is never rewritten — the file-count prerequisite
 that would recompute it from the video directory is `enabled: false` in every
@@ -246,6 +298,7 @@ LLM fraction = (GPU_VRAM_GB - 10) / GPU_VRAM_GB - 0.15
 | H100 / A100 80 GB | 0.72 |
 | H200 | 0.78 |
 | RTX PRO 6000 Blackwell | 0.75 |
+| DGX Station GB300 | 0.3 (`hw-GB300-shared.env`); do not use the formula above |
 | L40S | 0.65; verify under load |
 
 Dedicated RT-Embed stream ceilings from its benchmark data:

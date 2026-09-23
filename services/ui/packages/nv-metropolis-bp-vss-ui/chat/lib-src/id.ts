@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-// SPDX-License-Identifier: MIT AND Apache-2.0
+// SPDX-License-Identifier: Apache-2.0
 
 /** Generate a browser-safe identifier without relying on a weak PRNG. */
 export function createRandomId(): string {

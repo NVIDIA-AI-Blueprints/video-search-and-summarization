@@ -3,31 +3,18 @@
 One CLI for Compose and Kubernetes. Endpoints come from the deployment recorded
 by `vss configure`; the command takes none.
 
-Run the `vss` console executable from the `vss` project in the checkout
-(`--no-dev` keeps the sync runtime-only — no NAT or dev tooling):
+Run the `vss` on `PATH` — shipped in the harness images, otherwise installed
+from this skill's checkout with `uv tool install <checkout>/libs/vss/cli`:
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
-  exit 1
-}
-cd "${VSS_REPO_ROOT}" &&
-uv run --project "${VSS_REPO_ROOT}/libs/vss" \
-  vss search run <path> [options]
+vss search run <path> [options]
 ```
 
-The executable is provided by that project and need not exist globally. Do not
-use `which vss`; verify the supported entry point directly:
+Verify the entry point directly:
 
 ```bash
-uv run --project "${VSS_REPO_ROOT}/libs/vss" \
-  vss search run --help
+vss search run --help
 ```
-
-`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
-needed: the agent stack is not in it and the environment is NAT-free by
-construction.
 
 If preflight fails, report its error and stop. Do not manually call
 Elasticsearch, embedding, or search endpoints.
@@ -142,9 +129,10 @@ Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.
 
 `vss search run` is read-only. For upload, registration, deletion, or
-repair, use the agent-backed mutation workflows in the parent skill. For **VLM
-tag ingestion**, use the headless direct-REST fan-out in
-`vss-manage-video-io-storage` `references/provision-vios-source.md` (the
-controlled JSON-tag `generate_captions` leg); on a build that fronts RT-VLM at
-`/rtvi-vlm` it is drivable from any host that reaches the origin, otherwise
-loopback-only on the deploy host.
+repair, use the agent-backed mutation workflows in the parent skill. **VLM tag
+ingestion** follows the build's notification config: where its tagging items are
+enabled, registering the source is enough; where they are not, a caller drives
+the controlled JSON-tag `generate_captions` leg — from any host that reaches the
+origin on a build that fronts RT-VLM at `/rtvi-vlm`, otherwise loopback-only on
+the deploy host. Both are in `vss-manage-video-io-storage`
+`references/provision-vios-source.md`.

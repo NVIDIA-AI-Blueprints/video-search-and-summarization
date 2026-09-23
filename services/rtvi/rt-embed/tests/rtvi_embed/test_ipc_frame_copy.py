@@ -1,5 +1,17 @@
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Tests for RTVI Embed decoded-frame IPC socket selection and wiring."""
 
 import ctypes
@@ -48,7 +60,29 @@ def test_resolve_ipc_socket_path_accepts_uuid_identity():
 def test_resolve_ipc_socket_path_ignores_socket_override_environment(monkeypatch):
     monkeypatch.setenv("RTVI_IPC_SOCKET_DIR", "/elsewhere")
     monkeypatch.setenv("RTVI_IPC_SOCKET_TEMPLATE", "other_{camera_id}.sock")
-    assert ipc_frame_source.resolve_ipc_socket_path("camera-1") == "/run/rtvi-ipc/nvds_ipc_camera-1.sock"
+    assert (
+        ipc_frame_source.resolve_ipc_socket_path("camera-1")
+        == "/run/rtvi-ipc/nvds_ipc_camera-1.sock"
+    )
+
+
+def test_resolve_ipc_socket_path_honors_explicit_overrides():
+    assert (
+        ipc_frame_source.resolve_ipc_socket_path(
+            "camera-1", socket_dir="/custom", socket_template="frame_{sensor_id}.sock"
+        )
+        == "/custom/frame_camera-1.sock"
+    )
+
+
+def test_validate_ipc_socket_template_rejects_path_separators():
+    with pytest.raises(ValueError, match="path separators"):
+        ipc_frame_source.resolve_ipc_socket_path("camera-1", socket_template="../{camera_id}.sock")
+
+
+def test_validate_ipc_socket_template_rejects_unsupported_placeholders():
+    with pytest.raises(ValueError, match="unsupported placeholder"):
+        ipc_frame_source.resolve_ipc_socket_path("camera-1", socket_template="{camera_id}_{bogus}.sock")
 
 
 def test_select_ipc_stream_identity_prefers_camera_then_sensor_then_asset():
@@ -150,3 +184,37 @@ def test_get_buffer_sei_data_reads_generic_gst_meta_layout(monkeypatch):
     sei_data, source = frame_getter._get_buffer_sei_data(Buffer())
     assert source == "gst_video_user_data_unregistered_meta"
     assert sei_data == {"timestamp": 3000, "sim_time": 3.5}
+
+
+def test_get_buffer_sei_data_falls_back_to_legacy_when_no_standard_meta(monkeypatch):
+    frame_getter = pytest.importorskip(
+        "vlm_pipeline.video_file_frame_getter",
+        reason="GStreamer frame-getter dependencies are not importable",
+    )
+    frame_getter._STANDARD_SEI_META_API_TYPE = None
+    monkeypatch.setattr(
+        frame_getter.GstVideo,
+        "video_sei_user_data_unregistered_meta_api_get_type",
+        lambda: "standard-sei-api",
+    )
+    monkeypatch.setattr(frame_getter, "HAVE_SEI_META_LIB", True)
+
+    legacy_meta = types.SimpleNamespace(sei_metadata_ptr=b'{"timestamp": 4000, "sim_time": 4.5}')
+
+    class FakeGstVideoSeiMeta:
+        @staticmethod
+        def gst_buffer_get_video_sei_meta(buffer_hash):
+            return legacy_meta
+
+    monkeypatch.setattr(frame_getter, "gst_video_sei_meta", FakeGstVideoSeiMeta)
+
+    class Buffer:
+        # Some decoder/platform combinations never attach the standard
+        # GstVideo SEI meta type at all, only the legacy nvds one.
+        def get_meta(self, api_type):
+            assert api_type == "standard-sei-api"
+            return None
+
+    sei_data, source = frame_getter._get_buffer_sei_data(Buffer())
+    assert source == "gst_video_sei_meta_legacy"
+    assert sei_data == {"timestamp": 4000, "sim_time": 4.5}

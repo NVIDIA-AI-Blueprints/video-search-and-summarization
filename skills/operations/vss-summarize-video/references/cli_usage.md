@@ -4,22 +4,14 @@ One CLI for Compose and Kubernetes. The LVS origin and the Elasticsearch
 holding unified memory come from the deployment recorded by `vss configure`;
 the command takes no endpoint flags.
 
-Run the `vss` console executable from the `vss` project in the checkout
-(`--no-dev` keeps the sync runtime-only):
+Run the `vss` on `PATH` — shipped in the harness images, otherwise installed
+from this skill's checkout with `uv tool install <checkout>/libs/vss/cli`:
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
-  exit 1
-}
-VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-cd "${VSS_REPO_ROOT}" && "${VSS[@]}" summarize run --help >/dev/null || exit 1
+vss summarize run --help >/dev/null || exit 1
 ```
 
-`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
-needed — the agent stack is not in it. Do not use `which vss`,
-and do not run it through `docker exec`, `kubectl exec`, or a pod shell.
+Do not run it through `docker exec`, `kubectl exec`, or a pod shell.
 
 ## Configure once
 

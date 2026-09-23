@@ -51,11 +51,11 @@ For instructions on downloading sample data and the deployment package, see [Dow
 #### Step 1: Deploy the Agent
 
 Use VSS Agent Skills from an agent such as Claude Code, Codex, or NemoClaw to deploy and manage the real-time alerts workflow.
-First, install the `deploy` skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
+First, install the [`vss-build-vision-ai`](/vss/vision-agent/build-vision-ai) skill as described in [Agent Skills](/vss/vision-agent/agent-skills) and make it
 accessible to your agent. The host must meet the same deployment requirements listed above (supported GPU/hardware for that profile)
 and must meet the [Prerequisites](/vss/getting-started/prerequisites).
 
-The deploy skill will choose the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+The `vss-build-vision-ai` skill composes the stack from the capabilities you name and selects the `<platform>` and `<mode>` to match your system, as detailed in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
 Refer to the requirements table for valid platform and mode combinations compatible with your hardware.
 
 <Note>
@@ -68,7 +68,7 @@ Optional: You can enable notifications by setting `webhook.openclaw.enabled` to 
 Deploy the VSS alerts profile in real-time mode.
 ```
 
-The deploy skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
+The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:
 
@@ -196,11 +196,11 @@ NOTIFY_BACKENDS=dashboard
 
 VST_ENDPOINT=host.openshell.internal:30888
 
-VST_PUBLIC_URL_BASE=https://7777-xbrxpi7ia.brevlab.com
+VST_PUBLIC_URL_BASE=https://<your-public-vst-or-tunnel-base>
 
 OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789
 
-Infer OPENCLAW_GATEWAY_URL based on the deployment.
+Infer OPENCLAW_GATEWAY_URL and VST_PUBLIC_URL_BASE based on the deployment.
 ```
 
 Be sure to replace the VST_PUBLIC_URL_BASE listed above with your own VST public URL.
@@ -225,7 +225,12 @@ export NGC_CLI_API_KEY='your_ngc_api_key'
 # See developer-profiles/dev-profile-alerts/overrides.env for supported settings.
 ```
 
-`overrides.env` is the checked-in template. From `deploy/docker`, create `user-overrides.env` once before selecting a layout; repeat this copy only when you want to discard prior layout changes:
+`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+filename matching `*-overrides.env` before selecting a layout. Files matching
+that pattern are ignored by Git so local settings and credentials are not
+committed. The commands below use `user-overrides.env` as a concrete example;
+if you choose another name, use it consistently in every `--env-file` argument.
+Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
 PROFILE=alerts
@@ -233,22 +238,8 @@ cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
 ```
 
-For each layout below, update the shown values in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`. Then, from `deploy/docker`, validate and start the selected profile:
-
-```bash
-PROFILE=alerts
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  config --quiet
-
-docker compose -f compose.yml \
-  --env-file containers.env \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
-  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
-  up -d
-```
+Before starting Compose, complete the host settings and select one hardware
+layout below in `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`.
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-alerts/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
@@ -275,7 +266,7 @@ in `overrides.env`.
 | CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
 | CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_hf` |
 | CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
-| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_modelopt-bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-bf16-final` |
+| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:bf16-final` |
 | CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_hf` |
 | CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_hf` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_hf` |
 
@@ -317,6 +308,21 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```
 
 
+**Default container image tag**
+
+`containers.env` uses `VSS_CONTAINER_TAG` as the default tag for all images.
+Export the tag selected for this documentation branch before choosing a hardware
+layout:
+
+```bash
+export VSS_CONTAINER_TAG="${VSS_DOCS_IMAGE_TAG:-develop-latest}"
+```
+
+Any service-specific image tag or tag suffix shown inside a hardware tab
+supersedes or augments this common default. Use the SBSA settings shown in the
+GB300 and DGX Spark tabs when deploying on those platforms.
+
+
 <Tabs>
 <Tab title="H100">
 <Tabs>
@@ -325,6 +331,7 @@ chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
@@ -335,6 +342,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -349,6 +357,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=H100
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -367,11 +376,12 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=GB300
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 ALERT_AGENT_ALWAYS_ON=true
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
@@ -383,10 +393,11 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=GB300
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the GB300 GPU ID reported by nvidia-smi.
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 ALERT_AGENT_ALWAYS_ON=true
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
 RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
@@ -407,6 +418,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.4
 ALERT_AGENT_ALWAYS_ON=true
 COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
@@ -417,6 +429,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -431,6 +444,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO6000BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -450,6 +464,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=RTXPRO4500BW
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -468,6 +483,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -482,6 +498,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=L40S
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -501,10 +518,11 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=DGX-SPARK
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0
 RT_VLM_DEVICE_ID=0
-VSS_RT_CV_TAG=develop-latest-sbsa
-VSS_RT_VLM_TAG=develop-latest-sbsa
+VSS_RT_CV_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
+VSS_RT_VLM_TAG=${VSS_DOCS_SBSA_IMAGE_TAG:-develop-latest-sbsa}
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.35
 ALERT_AGENT_ALWAYS_ON=true
@@ -526,6 +544,7 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=IGX-THOR
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
@@ -550,6 +569,7 @@ See [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customi
 ```ini
 HARDWARE_PROFILE=AGX-THOR
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 RT_VLM_DEVICE_ID=0 # Adjust to the Thor GPU ID reported by nvidia-smi.
 PERCEPTION_DOCKERFILE_PREFIX=EDGE-
@@ -577,6 +597,7 @@ for known limitations and configuration constraints.
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7
 ALERT_AGENT_ALWAYS_ON=true
 LLM_ENV_FILE=/path/to/llm.env
@@ -589,6 +610,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 LLM_DEVICE_ID=1
 VLM_DEVICE_ID=2 # Any non-shared GPU; differ from LLM_DEVICE_ID when the LLM is local
 RT_VLM_DEVICE_ID=2 # Must match VLM_DEVICE_ID
@@ -605,6 +627,7 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 ```ini
 HARDWARE_PROFILE=OTHER
 MODE=2d_vlm
+NEXT_PUBLIC_APP_SUBTITLE="Vision (Alerts - VLM)"
 ALERT_AGENT_ALWAYS_ON=true
 LLM_MODE=remote
 LLM_NAME_SLUG=none
@@ -618,6 +641,24 @@ COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
 </Tabs>
 </Tab>
 </Tabs>
+
+After replacing every placeholder in the selected layout, from `deploy/docker`
+validate the resolved configuration, then start the profile:
+
+```bash
+PROFILE=alerts
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  config --quiet
+
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  up -d
+```
 
 Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
 your network speed, this may take a few minutes.

@@ -31,17 +31,25 @@
 
 ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7ed6a6f1b682991818a2acaf5636d9fb066ae33265b011837b0ba601c0970
 ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
+# uv 0.12.10, by index digest (multi-arch) — for the wheel builds in vss-src
+# (the runtime uses the uv the base image ships).
+ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
+ARG VSS_REF=01ecaf705c676123aadc77177143aa963338026f
 
-# ── VSS source checkout: operation skills + workspace docs ─────────────────────
+# ── uv, for the vss-src wheel builds ───────────────────────────────────────────
+FROM ${UV_IMAGE} AS uv
+
+# ── VSS source checkout: skills + workspace docs + CLI wheels ──────────────────
 FROM ${BUILDER_IMAGE} AS vss-src
 ARG VSS_REPO
 ARG VSS_REF
 ARG NGC_CLI_VERSION=4.10.0
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl unzip \
+# python3 (3.13 on trixie) for the wheel builds below; curl/unzip for the NGC CLI.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 curl unzip \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=uv /uv /usr/local/bin/uv
 # Dev-loop override: a .vss-src/ snapshot in the build context (staged by
 # stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
 # reaches the image without a push. The Dockerfil[e] glob keeps this COPY
@@ -74,6 +82,23 @@ RUN mkdir -p /opt/vss-assets/workspace \
     && cp /opt/vss-src/.openclaw/workspace/*.md /opt/vss-assets/workspace/ \
     && cp /opt/vss-src/.openclaw/workspace/_nemoclaw/*.md /opt/vss-assets/workspace/ \
     && test -f /opt/vss-assets/workspace/AGENTS.md && test -f /opt/vss-assets/workspace/ENV.md
+# The vss CLI as wheels, riding the one /opt/vss-assets COPY the runtime's
+# layer budget allows — only the CLI library workspace (libs/vss: the
+# nvidia-vss-cli entry point and its nvidia-vss-core dependency). The agent
+# service package under services/agent is deliberately NOT built or shipped:
+# a sandbox operates a deployment through the CLI, it does not run the agent.
+# Building here (where the checkout and its .git live) keeps VSS source out of
+# the runtime image: the runtime installs the wheels by name. hatch-vcs reads
+# the version from .git on the pinned path; a pre-staged snapshot has no .git
+# and carries a PEP 440 pretend version in its STAGED marker instead.
+RUN set -eux; \
+    if [ -f /opt/vss-src/STAGED ]; then \
+      export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-src/STAGED)"; \
+      test -n "$SETUPTOOLS_SCM_PRETEND_VERSION"; \
+    fi; \
+    mkdir -p /opt/vss-assets/wheels \
+    && uv build --wheel --all-packages --project /opt/vss-src/libs/vss -o /opt/vss-assets/wheels \
+    && ls /opt/vss-assets/wheels
 # NGC CLI, unpacked into the staged assets so it rides the runtime stage's
 # single COPY and costs no extra layer. Fetched in this builder rather than the
 # managed base, which carries no guarantee of `curl` or `unzip`.
@@ -91,21 +116,6 @@ RUN set -eux; \
     # covers is undocumented. Drop it rather than ship it into the COPY layer.
     rm -f /opt/vss-assets/ngc-cli.md5; \
     test -f /opt/vss-assets/ngc-cli/ngc
-# CLI-source handoff for a pre-staged snapshot: it has no .git for the runtime
-# stage to re-fetch, so its CLI sources and STAGED marker ride the one
-# /opt/vss-assets COPY the runtime's layer budget allows (absent on the pinned
-# path, where the runtime fetches). The services/ + libs/ layout is preserved
-# because services/agent's editable sources point at ../../libs/vss (the CLI
-# library workspace; guarded — absent on trees from before that move).
-RUN if [ -f /opt/vss-src/STAGED ]; then \
-      mkdir -p /opt/vss-assets/vss-cli-src/services \
-      && cp -R /opt/vss-src/services/agent /opt/vss-assets/vss-cli-src/services/agent \
-      && cp /opt/vss-src/STAGED /opt/vss-assets/STAGED \
-      && if [ -d /opt/vss-src/libs/vss ]; then \
-           mkdir -p /opt/vss-assets/vss-cli-src/libs \
-           && cp -R /opt/vss-src/libs/vss /opt/vss-assets/vss-cli-src/libs/vss; \
-         fi; \
-    fi
 
 # ── Managed Hermes runtime + vss CLI + skills + docs ───────────────────────────
 # NemoClaw's Hermes image already has 124 filesystem layers, right under the
@@ -113,18 +123,14 @@ RUN if [ -f /opt/vss-src/STAGED ]; then \
 # assets and one RUN for everything else. Do not split the RUN.
 FROM ${BASE_IMAGE} AS nemoclaw-runtime
 USER root
-ARG VSS_REPO
-ARG VSS_REF
 COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 # In one layer:
 #  - Harbor trial paths, real world-writable directories (OpenShell chowns every
 #    read_write policy path at start and refuses symlinks). See ../openclaw/Dockerfile.
-#  - The vss CLI from the same pinned checkout as the skills: installed editable
-#    (uv workspace members) on the intact checkout (setuptools-scm versioning),
-#    then the tree stripped to what the editable links point at. uv and python
-#    3.13 ship in the base; the venv is its own, never /opt/hermes/.venv. A
-#    pre-staged snapshot (STAGED in /opt/vss-assets) supplies services/agent
-#    directly and a pretend version, since a snapshot has no .git to read.
+#  - The vss CLI from the wheels the vss-src stage built out of the same pinned
+#    checkout as the skills (or the pre-staged snapshot) — installed by name,
+#    so no VSS source ships in this image. uv and python 3.13 ship in the base;
+#    the venv is its own, never /opt/hermes/.venv.
 #  - Skills into Hermes' canonical writable skill root (sandbox-owned, like the
 #    ones `nemohermes <sb> skill install` places there); docs into /sandbox,
 #    where Hermes and the notebook's verification expect them.
@@ -136,44 +142,30 @@ COPY --from=vss-src /opt/vss-assets/ /opt/vss-assets/
 #    every root process on the node). Process limits are the cluster's job.
 RUN set -eux; \
     for d in task output logs tests solution; do mkdir -p "/$d" && chmod 777 "/$d"; done \
-    && if [ -f /opt/vss-assets/STAGED ]; then \
-         export SETUPTOOLS_SCM_PRETEND_VERSION="$(sed -n 's/^version=//p' /opt/vss-assets/STAGED)" \
-         && test -n "$SETUPTOOLS_SCM_PRETEND_VERSION" \
-         && mkdir -p /usr/local/src/vss \
-         && cp -R /opt/vss-assets/vss-cli-src/services /usr/local/src/vss/services \
-         && if [ -d /opt/vss-assets/vss-cli-src/libs ]; then cp -R /opt/vss-assets/vss-cli-src/libs /usr/local/src/vss/libs; fi; \
-       else \
-         git init -q /usr/local/src/vss \
-         && git -C /usr/local/src/vss fetch -q --depth 1 "$VSS_REPO" "$VSS_REF" \
-         && git -C /usr/local/src/vss checkout -q FETCH_HEAD; \
-       fi \
+    # Installed by wheel PATH, not by name: with --find-links a bare name
+    # still admits index candidates, so a future published nvidia-vss-cli
+    # could outrank the wheel built from VSS_REF and silently break the
+    # CLI==skills guarantee.
     && uv venv --python /opt/hermes/.venv/bin/python3 /usr/local/vss \
-    && VIRTUAL_ENV=/usr/local/vss uv pip install "nvidia-vss[cli] @ /usr/local/src/vss/services/agent" \
+    && VIRTUAL_ENV=/usr/local/vss uv pip install /opt/vss-assets/wheels/*.whl \
     && ln -sf /usr/local/vss/bin/vss /usr/local/bin/vss \
-    # Strip to what the editable install points at: services/agent, plus
-    # libs/vss when the source tree has it (the CLI library moved there; the
-    # pinned VSS_REF predates the move, so the pinned path is unchanged).
-    && mv /usr/local/src/vss/services/agent /usr/local/src/vss-agent \
-    && if [ -d /usr/local/src/vss/libs/vss ]; then mkdir -p /usr/local/src/vss-libs && mv /usr/local/src/vss/libs/vss /usr/local/src/vss-libs/vss; fi \
-    && rm -rf /usr/local/src/vss \
-    && mkdir -p /usr/local/src/vss/services \
-    && mv /usr/local/src/vss-agent /usr/local/src/vss/services/agent \
-    && if [ -d /usr/local/src/vss-libs ]; then mkdir -p /usr/local/src/vss/libs && mv /usr/local/src/vss-libs/vss /usr/local/src/vss/libs/vss && rmdir /usr/local/src/vss-libs; fi \
-    && chmod -R a+rX /usr/local/src/vss \
     && vss --version \
     && su -s /bin/sh sandbox -c "vss --version" \
     # Skill discovery, same machinery as the OpenClaw plugin, same python
     # tool: the shipped set stays read-only under /opt/vss-skills/skills, and
     # sync_skills.py fills the active set from what `vss configure` records.
-    # Hermes scans /sandbox/.hermes/skills natively, so that IS the active
-    # dir. --all at build activates everything; `vss-hermes-sync` re-selects
-    # after `vss configure`.
+    # Hermes loads skills from $HERMES_HOME/skills only, so that IS the
+    # active dir: /sandbox/.hermes/skills by default, seeded here with --all.
+    # A harness that relocates HERMES_HOME (Harbor's Hermes adapter uses
+    # /tmp/hermes, a fresh tmpfs under OpenShell) runs `vss-hermes-sync --all`
+    # with that HERMES_HOME before the agent; without it Hermes sees no VSS
+    # skills at all. `vss-hermes-sync` also re-selects after `vss configure`.
     && mkdir -p /opt/vss-skills \
     && cp -R /opt/vss-assets/skills /opt/vss-skills/skills \
     && cp /opt/vss-assets/sync_skills.py /opt/vss-skills/sync_skills.py \
     && mkdir -p /sandbox/.hermes/skills \
     && chmod -R a+rX /opt/vss-skills \
-    && printf '#!/bin/sh\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /sandbox/.hermes/skills "$@"\n' > /usr/local/bin/vss-hermes-sync \
+    && printf '#!/bin/sh\nactive="${HERMES_HOME:-/sandbox/.hermes}/skills"\nmkdir -p "$active"\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir "$active" "$@"\n' > /usr/local/bin/vss-hermes-sync \
     && chmod 0755 /usr/local/bin/vss-hermes-sync \
     && python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /sandbox/.hermes/skills --all \
     && chown -R sandbox:sandbox /sandbox/.hermes/skills \

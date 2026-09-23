@@ -14,6 +14,7 @@
 # limitations under the License.
 
 BaseConfig:
+  debugVerboseLevel: 1
   minDetectorConfidence: 0.266
   checkClassMatch: 1
   useBatchNumForFrameId: 1
@@ -24,8 +25,8 @@ TargetManagement:
   maxTargetsPerStream: 200
   minIouDiff4NewTarget: 0.33
   minTrackerConfidence: 0.6
-  probationAge: 17
-  maxShadowTrackingAge: 140
+  probationAge: 12
+  maxShadowTrackingAge: 175
   earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
   outputVisibility: 1
@@ -49,7 +50,7 @@ DataAssociator:
 
 StateEstimator:
   stateEstimatorType: 4
-  processNoiseVar4Loc: 56.3
+  processNoiseVar4Loc: 22.0
   processNoiseVar4Size: 96.1
   processNoiseVar4Vel: 84.6
   measurementNoiseVar4Detector: 78.4
@@ -82,25 +83,7 @@ ObjectModelProjection:
     Camera_03: /tmp/camInfo/Camera_03.yml
   objectModelType: 0
 
-MultiViewAssociator:
-  multiViewAssociatorType: 1
-  enableLatePeerReAssoc: 1
-  enableIDCorrection: 0
-  enableSeeThrough: 1
-  maxPeerTrackletSize: 30
-  recentlyActiveAge: 9000
-  minCommonFrames4MatchScore: 15
-  minPeerTrackletMatchScore: 0.25
-  minPeerVisibility4Fusion: 0.1
-  maxPeerToPredDistance4Fusion: 2.0
-  maxTrackletMatchingTimeSearchRange: 1
-  maxPeerFrameDiff4NoDet: 5
-
-Communicator:
-  communicatorType: 2
-  pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
-  mqttProtoAdaptorConfigPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_mqtt.txt
-
+# Set reidType:2 and reidServiceType:1 when ReID service is available here
 ReID:
   reidType: 2    # The type of reid among { DUMMY=0, NvDEEPSORT=1, Reid based reassoc=2, both NvDEEPSORT and reid based reassoc=3}
   debugVerboseLevel: 0
@@ -125,7 +108,7 @@ ReID:
   # [Output Postprocessing]
   addFeatureNormalization: 1       # If reid feature is not normalized in network, adding normalization on output so each reid feature has l2 norm equal to 1
   minVisibility4GalleryUpdate: 0.6 # Add ReID embedding to the gallery only if the visibility is not lower than this
-  minVisibility4ReidOutput: 0.1
+  minVisibility4ReidOutput: 0.4
 
   # [Paths and Names]
   onnxFile: "/opt/storage/reid/reid_model.onnx" # NVIDIA TAO model path
@@ -135,8 +118,30 @@ ReID:
 ReIDService:
   reidServiceType: 1
   debugVerboseLevel: 1
-  minVisibility4ReidServiceQuery: 0.2
+  minVisibility4ReidServiceQuery: 0.4
+  minSecondClusterConfidence: 0.5
+  minTopClusterConfidence: 0.8
   maxClusterVariance: 0.0003
   serviceAddress: "reid-embed"
   servicePort: 8088
   operateOnClassIds: [0]
+
+MultiViewAssociator:
+  multiViewAssociatorType: 1
+  enableLatePeerReAssoc: 1
+  enableIDCorrection: 0
+  enableSeeThrough: 1
+  maxPeerTrackletSize: 30
+  recentlyActiveAge: 550
+  minCommonFrames4MatchScore: 15
+  minPeerTrackletMatchScore: 0.25
+  minPeerVisibility4Fusion: 0.1
+  maxPeerToPredDistance4Fusion: 0.5
+  maxTrackletMatchingTimeSearchRange: 1
+  minReidServiceMatchConfidence: 0
+  maxPeerFrameDiff4NoDet: 5
+
+Communicator:
+  communicatorType: 2
+  pubSubInfoConfigPath: /tmp/generated/pub_sub_info_config.yml
+  mqttProtoAdaptorConfigPath: /opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs/config_mqtt.txt

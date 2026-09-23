@@ -59,6 +59,7 @@
 // Recorder utilities for timeline operations (shared with recorder tests)
 #include "utils/recorder_utils.h"
 #include "streamrecorder.h"
+#include "sensor_management.h"  // For GET_DEVICE_MANAGER
 
 using namespace std;
 using namespace nv_vms;
@@ -1791,6 +1792,71 @@ TEST_F(PutFileUpload, PutWithZeroTimestamp)
     // Zero timestamp should be accepted according to spec
     EXPECT_NE(result, VmsErrorCode::VMSNotSupportedError)
         << "PUT upload with timestamp=0 should be supported";
+}
+
+/**
+ * @brief Test PUT upload with a pre-1970 timestamp falls back to the current time
+ *
+ * A negative epoch must not reach addFile() and fail the timestamp check
+ * after the sensor was created. The upload succeeds and the sensor is kept.
+ *
+ * API: PUT /api/v1/storage/file/{filename}?timestamp=1969-12-31T00:00:00&sensorId=X
+ */
+TEST_F(PutFileUpload, PutWithPre1970TimestampFallsBackToCurrentTime)
+{
+    if (!m_storageMgmt) GTEST_SKIP() << "StorageManagement not available";
+
+    cout << "[TEST] PUT upload with pre-1970 timestamp (REAL file)" << endl;
+
+    // Skip if test file doesn't exist
+    ifstream testFile(TEST_VIDEO_FILE, ios::binary);
+    if (!testFile.good())
+    {
+        GTEST_SKIP() << "Test video file not found: " << TEST_VIDEO_FILE;
+    }
+    testFile.close();
+
+    const string uniqueFilename = createUniqueFilename("pre1970_fallback");
+    const string invalidTimestamp = "1969-12-31T00:00:00";
+    const string sensorId = "test-sensor-pre1970-fallback";
+    const string queryString = "timestamp=" + invalidTimestamp + "&sensorId=" + sensorId;
+    Json::Value req_info = createNewPutRequestInfo(uniqueFilename, queryString);
+    Json::Value input;
+    Json::Value response;
+
+    setupMockConnectionForPut(true); // Use real file
+
+    VmsErrorCode result = callPutUpload(req_info, input, response);
+    printResponseDiagnostics(result, response);
+
+    // Track for cleanup regardless of outcome
+    if (response.isMember("id"))
+    {
+        m_fileTracker->trackFile(response["id"].asString(),
+                                 response.get("streamId", "").asString(),
+                                 response.get("filePath", "").asString());
+    }
+
+    EXPECT_NE(result, VmsErrorCode::InvalidParameterError)
+        << "Pre-1970 timestamp must fall back to the current time, not be rejected: "
+        << response.get("error_message", "").asString();
+    EXPECT_EQ(response.get("error_message", "").asString().find("Invalid timestamp format"), string::npos)
+        << "No timestamp format error should be raised after sensor creation";
+
+    if (result == VmsErrorCode::NoError)
+    {
+        // The sensor created by the upload must still exist (no rollback).
+        shared_ptr<DeviceManager> deviceManager = GET_DEVICE_MANAGER();
+        if (deviceManager)
+        {
+            EXPECT_NE(deviceManager->getSensorInfo(sensorId, true), nullptr)
+                << "Successful upload must keep its sensor";
+        }
+        else
+        {
+            cout << "[TEST] Device manager not available, skipping sensor check" << endl;
+        }
+    }
 }
 
 /**

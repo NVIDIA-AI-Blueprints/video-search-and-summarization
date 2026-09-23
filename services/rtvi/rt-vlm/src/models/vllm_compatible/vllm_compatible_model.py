@@ -51,6 +51,7 @@ from models.vllm_compatible.adaptive_preprocess_limiter import (
     AdaptivePreprocessLimiter,
     PreprocessAdmissionTimeout,
 )
+from utils.env_validation import get_video_pruning_rate
 
 _RTVI_VLLM_ENV_ALIASES = {
     "VLLM_GPU_MEMORY_UTILIZATION": "RTVI_VLLM_GPU_MEMORY_UTILIZATION",
@@ -398,7 +399,7 @@ def _apply_attention_backend_override(
     if not attention_backend:
         if not _is_cosmos3_edge_arch(model_architecture):
             return False
-        attention_backend = "CUSTOM"
+        attention_backend = "TRITON_ATTN"
         logger.info("Defaulting Cosmos3 Edge attention backend to %s", attention_backend)
     if "attention_backend" not in supported_params:
         logger.warning(
@@ -534,7 +535,6 @@ _EVS_MM_PROCESSOR_DEFAULTS = {
 # clip is padded up to this many frames before it is handed to the session.
 _EVS_MIN_CLIP_FRAMES = 2
 
-
 _DEFAULT_MAX_VIDEO_FRAMES = "256"
 
 
@@ -666,6 +666,19 @@ _ABSOLUTE_TIMESTAMP_SOURCE_FPS = 1000.0
 
 def _is_evs_session_enabled() -> bool:
     return os.environ.get("VIA_EVS_SESSION", "").lower() in ("1", "true")
+
+
+def _get_evs_max_inflight_clips() -> int | None:
+    env_name = "VIA_EVS_MAX_INFLIGHT_CLIPS"
+    if not (_get_rtvi_vllm_env(env_name, "") or "").strip():
+        return None
+    max_inflight = _parse_int_env(env_name, 0)
+    if max_inflight < 1:
+        raise ValueError(
+            "Invalid value for VIA_EVS_MAX_INFLIGHT_CLIPS: "
+            f"'{max_inflight}' must be greater than or equal to 1"
+        )
+    return max_inflight
 
 
 def _build_evs_sampling_kwargs(max_tokens, generation_config):
@@ -1649,24 +1662,19 @@ class VllmCompatible(BaseVlmModel):
                     engine_args_kwargs["moe_backend"] = moe_backend
                     logger.info("Using vLLM MoE backend %s: %s", moe_backend_source, moe_backend)
 
-                # EVS (Efficient Video Sampling): prune redundant video tokens
-                # Set VLM_VIDEO_PRUNING_RATE=0.5 for 50% pruning. 0 or empty = disabled.
-                video_pruning_rate_str = os.environ.get("VLM_VIDEO_PRUNING_RATE", "")
-                if video_pruning_rate_str and "video_pruning_rate" in _engine_supported_params:
-                    try:
-                        rate = float(video_pruning_rate_str)
-                        if 0 < rate < 1:
-                            engine_args_kwargs["video_pruning_rate"] = rate
-                            logger.info("EVS enabled: video_pruning_rate=%.2f", rate)
-                        elif rate != 0:
-                            logger.warning(
-                                "VLM_VIDEO_PRUNING_RATE=%.2f out of range (0,1), EVS disabled",
-                                rate,
-                            )
-                    except ValueError:
+                # EVS (Efficient Video Sampling): prune redundant video tokens.
+                # Invalid configured values are fatal rather than silently disabling EVS.
+                video_pruning_rate = get_video_pruning_rate()
+                if video_pruning_rate is not None:
+                    if "video_pruning_rate" in _engine_supported_params:
+                        engine_args_kwargs["video_pruning_rate"] = video_pruning_rate
+                        logger.info(
+                            "EVS enabled: video_pruning_rate=%.2f", video_pruning_rate
+                        )
+                    else:
                         logger.warning(
-                            "Invalid VLM_VIDEO_PRUNING_RATE='%s', EVS disabled",
-                            video_pruning_rate_str,
+                            "VLM_VIDEO_PRUNING_RATE is set but the installed vLLM engine "
+                            "does not support video_pruning_rate"
                         )
 
                 # EVS extra engine args (similarity threshold, mm-embeds passthrough,
@@ -1769,6 +1777,21 @@ class VllmCompatible(BaseVlmModel):
             self._conv = []
         return self._conv.copy()
 
+    def _resolve_prompt_reasoning_config(
+        self, config: VlmGenerationConfig
+    ) -> VlmGenerationConfig:
+        """Honor Cosmos Reason 3's prompt-driven ``<think>`` contract."""
+        if (
+            getattr(self, "_vlm_model_type", None) != "cosmos-reason3"
+            or config.enable_reasoning
+            or not config.prompt_driven_reasoning
+        ):
+            return config
+
+        effective_config = copy.copy(config)
+        effective_config.enable_reasoning = True
+        return effective_config
+
     def _get_apply_chat_template_kwargs(self, config: VlmGenerationConfig) -> dict:
         # Reasoning-capable chat templates open a <think> block by default. Keep the RTVI
         # default non-reasoning unless the request explicitly enables reasoning.
@@ -1780,6 +1803,74 @@ class VllmCompatible(BaseVlmModel):
         ):
             return {"enable_thinking": bool(config.enable_reasoning)}
         return {}
+
+    def _uses_qwen3vl_non_reasoning_fallback(self, config: VlmGenerationConfig) -> bool:
+        return (
+            self._model_architecture in _QWEN3VL_ARCHS
+            and getattr(self, "_vlm_model_type", None) != "cosmos-reason3"
+            and not config.enable_reasoning
+        )
+
+    def _apply_chat_template(self, messages: list[dict], config: VlmGenerationConfig) -> str:
+        """Apply the model template with a Qwen3-VL non-reasoning fallback."""
+        template_messages = messages
+        suppress_qwen_reasoning = self._uses_qwen3vl_non_reasoning_fallback(config)
+        if suppress_qwen_reasoning:
+            template_messages = copy.deepcopy(messages)
+            for message in reversed(template_messages):
+                if message.get("role") != "user":
+                    continue
+                content = message.get("content")
+                if isinstance(content, str):
+                    message["content"] = f"{content} /no_think"
+                elif isinstance(content, list):
+                    for item in reversed(content):
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            item["text"] = f"{item.get('text', '')} /no_think"
+                            break
+                break
+
+        prompt = self._processor.apply_chat_template(
+            template_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            **self._get_apply_chat_template_kwargs(config),
+        )
+        if suppress_qwen_reasoning and not prompt.rstrip().endswith("</think>"):
+            prompt += "<think>\n\n</think>\n\n"
+        return prompt
+
+    def _apply_reasoning_suppression_sampling_params(
+        self, sampling_kwargs: dict, config: VlmGenerationConfig
+    ) -> None:
+        """Block reasoning tags without changing fixed-work generation length."""
+        if self._uses_qwen3vl_non_reasoning_fallback(config):
+            sampling_kwargs["bad_words"] = ["<think>", "</think>"]
+
+    def _qwen3vl_answer_boundary_token_ids(self) -> set[int]:
+        tokenizer = self._processor.tokenizer
+        boundary_ids = set()
+        eos_token_ids = getattr(tokenizer, "eos_token_id", None)
+        if isinstance(eos_token_ids, int):
+            boundary_ids.add(eos_token_ids)
+        elif eos_token_ids is not None:
+            boundary_ids.update(int(token_id) for token_id in eos_token_ids)
+
+        im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+        if isinstance(im_end_id, int) and im_end_id != getattr(tokenizer, "unk_token_id", None):
+            boundary_ids.add(im_end_id)
+        return boundary_ids
+
+    def _truncate_qwen3vl_non_reasoning_output(self, output) -> str:
+        generated = output.outputs[0]
+        token_ids = list(getattr(generated, "token_ids", ()))
+        boundary_ids = self._qwen3vl_answer_boundary_token_ids()
+        for index, token_id in enumerate(token_ids):
+            if token_id in boundary_ids:
+                return self._processor.tokenizer.decode(
+                    token_ids[:index], skip_special_tokens=True
+                ).rstrip()
+        return generated.text
 
     def _remove_orphan_think_tags(self, text: str, reasoning_description: str) -> tuple:
         # Handle orphan </think> (no opening <think> — start token was cut off or never generated).
@@ -1810,6 +1901,7 @@ class VllmCompatible(BaseVlmModel):
         chunk=None,
         ignore_eos=False,
         preserve_reasoning_tags=False,
+        enable_reasoning=True,
     ):
         with TimeMeasure("VLLM postprocess"):
             original_output = output
@@ -1834,12 +1926,18 @@ class VllmCompatible(BaseVlmModel):
                 ]
 
             generated_text = output[0].outputs[0].text
+            if (
+                self._model_architecture in _QWEN3VL_ARCHS
+                and not enable_reasoning
+                and ignore_eos
+            ):
+                generated_text = self._truncate_qwen3vl_non_reasoning_output(output[0])
             logger.debug("VLLM raw text output: %s", generated_text)
             if not generated_text:
                 logger.warning("Empty response from model")
                 return [VlmModelOutput(output="", input_tokens=0, output_tokens=0)]
 
-            if preserve_reasoning_tags:
+            if preserve_reasoning_tags and enable_reasoning:
                 final_response = generated_text.strip() if not ignore_eos else generated_text
                 reasoning_description = ""
             else:
@@ -1860,6 +1958,8 @@ class VllmCompatible(BaseVlmModel):
                     cleaned_text, reasoning_description = self._remove_orphan_think_tags(
                         cleaned_text, reasoning_description
                     )
+                if not enable_reasoning:
+                    reasoning_description = ""
                 logger.debug("VLLM reasoning description: %s", reasoning_description)
                 # Step 4: Remove <answer>, </answer>, <summary>, and </summary> tags, but keep their content
                 for tag in ["<answer>", "</answer>", "<summary>", "</summary>"]:
@@ -2316,6 +2416,7 @@ class VllmCompatible(BaseVlmModel):
         chunk=None,
         preserve_reasoning_tags=False,
         stream_id: Optional[str] = None,
+        generation_config: Optional[VlmGenerationConfig] = None,
     ):
         try:
             return await self._process_async_vllm(
@@ -2325,6 +2426,7 @@ class VllmCompatible(BaseVlmModel):
                 request_id,
                 chunk,
                 preserve_reasoning_tags,
+                generation_config,
             )
         finally:
             self._release_live_request(stream_id, request_id)
@@ -2337,6 +2439,7 @@ class VllmCompatible(BaseVlmModel):
         request_id,
         chunk=None,
         preserve_reasoning_tags=False,
+        generation_config: Optional[VlmGenerationConfig] = None,
     ):
         use_tensor_ipc = getattr(self, "_use_cuda_mm_tensor_ipc", False)
         if CPU_COPY_OTHER_THREAD:
@@ -2504,6 +2607,7 @@ class VllmCompatible(BaseVlmModel):
                 else False
             ),
             preserve_reasoning_tags,
+            generation_config.enable_reasoning if generation_config is not None else True,
         )
 
     @staticmethod
@@ -2594,7 +2698,12 @@ class VllmCompatible(BaseVlmModel):
                     >= _MAX_RESIDENT_CUDA_MM_2K_EQUIVALENT_UNITS
                 ):
                     return False
-        return len(self._inflight_req_ids) < self._max_batch_size
+        max_inflight = self._max_batch_size
+        if _is_evs_session_enabled():
+            evs_max_inflight = _get_evs_max_inflight_clips()
+            if evs_max_inflight is not None:
+                max_inflight = min(max_inflight, evs_max_inflight)
+        return len(self._inflight_req_ids) < max_inflight
 
     def release_idle_resources(self, wait_timeout_sec: float = 0.0):
         """Release allocator caches after the service becomes fully idle.
@@ -2652,6 +2761,19 @@ class VllmCompatible(BaseVlmModel):
             total_bytes // (1024 * 1024),
             worker_memory,
         )
+        return True
+
+    def is_healthy(self) -> bool:
+        """Return false after the independently-running vLLM engine dies."""
+        engine = getattr(self, "_llm", None)
+        if engine is None:
+            return False
+        errored = getattr(engine, "errored", None)
+        if errored is not None:
+            return not bool(errored() if callable(errored) else errored)
+        is_stopped = getattr(engine, "is_stopped", None)
+        if is_stopped is not None:
+            return not bool(is_stopped() if callable(is_stopped) else is_stopped)
         return True
 
     def warmup(self):
@@ -2716,7 +2838,7 @@ class VllmCompatible(BaseVlmModel):
             self._evs_handler = OpenAIServingVideoSessions(
                 engine_client=self._llm,
                 max_sessions=int(os.environ.get("VIA_EVS_MAX_SESSIONS") or "256"),
-                pruning_rate=float(os.environ.get("VLM_VIDEO_PRUNING_RATE") or "0.5"),
+                pruning_rate=get_video_pruning_rate() or 0.5,
                 similarity_threshold=_get_evs_similarity_threshold(),
                 pd_server_url=os.environ.get("VIA_PD_SERVER_URL") or None,
                 pd_server_timeout_s=float(os.environ.get("VIA_PD_SERVER_TIMEOUT_S") or "120.0"),
@@ -3167,12 +3289,11 @@ class VllmCompatible(BaseVlmModel):
         # blocked, so the copy starts at once. EVS's only other thread is an
         # _output_tpool worker, and those block for the whole add_clip_tensors
         # round trip (encode plus, when the detector fires, a full generation).
-        # Since the in-flight slot is released at encode-done, new clips are
-        # admitted while every worker is still blocked, so a deferred copy could
-        # queue behind them and pin this clip's CUDA frames (~49 MB for a
-        # 40-frame 640x640 chunk) for a whole generation cycle — to save ~14 ms
-        # on a dispatcher that is not the bottleneck. Copying now lets the
-        # pipeline free the frames as soon as generate() returns.
+        # A deferred copy could therefore queue behind every worker and pin this
+        # clip's CUDA frames (~49 MB for a 40-frame 640x640 chunk) for a whole
+        # generation cycle -- to save ~14 ms on a dispatcher that is not the
+        # bottleneck. Copying now lets the pipeline free the CUDA frames as soon
+        # as generate() returns.
         if self._vlm_model_type == "cosmos-reason1":
             images_cpu = images.cpu()
         else:
@@ -3183,14 +3304,6 @@ class VllmCompatible(BaseVlmModel):
         self._inflight_req_ids.append(request_id)
 
         def _run_evs_clip():
-            inflight_released = False
-
-            def _release_inflight():
-                nonlocal inflight_released
-                if not inflight_released and request_id in self._inflight_req_ids:
-                    self._inflight_req_ids.remove(request_id)
-                    inflight_released = True
-
             async def _add():
                 return await handler.add_clip_tensors(
                     session_id=session_id,
@@ -3200,7 +3313,6 @@ class VllmCompatible(BaseVlmModel):
                     timestamps=client_timestamps,
                     is_last=is_last,
                     chunk_id=ooo_chunk_id,
-                    on_encode_done=_release_inflight,
                 )
 
             try:
@@ -3238,7 +3350,14 @@ class VllmCompatible(BaseVlmModel):
                     500,
                 ) from e
             finally:
-                _release_inflight()
+                # Keep the admission slot for the complete EVS operation, not
+                # merely until its encoder finishes.  The worker closure owns
+                # images_cpu until add_clip_tensors returns after any triggered
+                # generation.  Releasing on_encode_done let a second full batch
+                # accumulate while the first batch still retained its frames,
+                # exhausting unified host/GPU memory on Thor (NVBug 6759865).
+                if request_id in self._inflight_req_ids:
+                    self._inflight_req_ids.remove(request_id)
 
             logger.debug(
                 "EVS clip: tokens=%d/%d, kept=%d, dropped=%d%s",
@@ -3504,6 +3623,7 @@ class VllmCompatible(BaseVlmModel):
 
         # Get generation config with defaults
         config = generation_config or VlmGenerationConfig()
+        config = self._resolve_prompt_reasoning_config(config)
 
         # Route to EVS session mode if configured. EVS owns its own prompt
         # construction / mm-data path and returns a concurrent.futures.Future
@@ -3724,12 +3844,7 @@ class VllmCompatible(BaseVlmModel):
         # default non-reasoning unless the request explicitly enables reasoning.
         apply_chat_template_kwargs = self._get_apply_chat_template_kwargs(config)
 
-        prompt = self._processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            **apply_chat_template_kwargs,
-        )
+        prompt = self._apply_chat_template(messages, config)
 
         # NemotronH_Nano_VL_V2/Omni_Reasoning_V3 chat template stringifies multimodal content
         # dicts rather than inserting placeholder tokens. Detect this and rebuild with explicit
@@ -3857,6 +3972,7 @@ class VllmCompatible(BaseVlmModel):
         from vllm import SamplingParams
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
+        self._apply_reasoning_suppression_sampling_params(sp_kwargs, config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
         _set_cosmos_no_repeat_ngram_size(vllm_sampling_params, self._vlm_model_type)
 
@@ -3890,9 +4006,10 @@ class VllmCompatible(BaseVlmModel):
                     vllm_sampling_params,
                     video_frames_times,
                     request_id,
-                    chunks[0],
-                    config.preserve_reasoning_tags,
-                    stream_id,
+                    chunk=chunks[0],
+                    preserve_reasoning_tags=config.preserve_reasoning_tags,
+                    stream_id=stream_id,
+                    generation_config=config,
                 ),
                 self._event_loop,
             )
@@ -3935,13 +4052,9 @@ class VllmCompatible(BaseVlmModel):
     ):
         """Text-only generation using the vLLM engine (no multimodal data)."""
         config = generation_config or VlmGenerationConfig()
+        config = self._resolve_prompt_reasoning_config(config)
 
-        prompt = self._processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            **self._get_apply_chat_template_kwargs(config),
-        )
+        prompt = self._apply_chat_template(messages, config)
         prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)
 
         llm_inputs = {"prompt_token_ids": prompt_token_ids}
@@ -3949,6 +4062,7 @@ class VllmCompatible(BaseVlmModel):
         from vllm import SamplingParams
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
+        self._apply_reasoning_suppression_sampling_params(sp_kwargs, config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
@@ -4042,13 +4156,9 @@ class VllmCompatible(BaseVlmModel):
     ):
         """Async generator yielding text deltas for token-level streaming."""
         config = generation_config or VlmGenerationConfig()
+        config = self._resolve_prompt_reasoning_config(config)
 
-        prompt = self._processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            **self._get_apply_chat_template_kwargs(config),
-        )
+        prompt = self._apply_chat_template(messages, config)
         prompt_token_ids = self._processor.tokenizer.encode(prompt, add_special_tokens=False)
 
         llm_inputs = {"prompt_token_ids": prompt_token_ids}
@@ -4056,17 +4166,36 @@ class VllmCompatible(BaseVlmModel):
         from vllm import SamplingParams
 
         sp_kwargs = _build_vllm_sampling_kwargs(config)
+        self._apply_reasoning_suppression_sampling_params(sp_kwargs, config)
         vllm_sampling_params = SamplingParams(**sp_kwargs)
         request_id = str(uuid.uuid4())
         self._inflight_req_ids.append(request_id)
 
         previous_text = ""
+        enforce_answer_boundary = (
+            self._model_architecture in _QWEN3VL_ARCHS
+            and not config.enable_reasoning
+            and bool(config.ignore_eos)
+        )
+        answer_boundary_seen = False
         try:
             async for output_item in self._llm.generate(
                 llm_inputs, sampling_params=vllm_sampling_params, request_id=request_id
             ):
                 if output_item.outputs:
+                    if answer_boundary_seen:
+                        # Keep consuming the fixed-work generation, but never expose
+                        # tokens produced after the logical answer boundary.
+                        continue
                     current_text = output_item.outputs[0].text
+                    if enforce_answer_boundary:
+                        token_ids = tuple(getattr(output_item.outputs[0], "token_ids", ()))
+                        boundary_ids = self._qwen3vl_answer_boundary_token_ids()
+                        answer_boundary_seen = any(
+                            token_id in boundary_ids for token_id in token_ids
+                        )
+                        if answer_boundary_seen:
+                            current_text = self._truncate_qwen3vl_non_reasoning_output(output_item)
                     delta = current_text[len(previous_text) :]
                     if delta:
                         previous_text = current_text

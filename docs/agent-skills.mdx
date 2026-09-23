@@ -65,7 +65,7 @@ VSS Agent Skills are used in two complementary ways:
 ## Available Skills
 
 The official VSS Agent Skills are published in the `skills/` folder of the
-[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/develop/skills)
+[VSS Blueprint repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/tree/${VSS_DOCS_GIT_REF:-develop}/skills)
 on GitHub, and mirrored to the public NVIDIA Skills catalog at
 [github.com/nvidia/skills](https://github.com/nvidia/skills).
 
@@ -86,7 +86,7 @@ the installed path or in the slash command.**
 
 | Skill | Description |
 | --- | --- |
-| `vss-deploy-warehouse-helm` | Deploy or upgrade the warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
+| [`vss-deploy-warehouse-helm`](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/helm-deployment) | Deploy or upgrade the warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm, with GPU-aware `NUM_STREAMS` capping so the request never exceeds what the perception pipeline can sustain. |
 | `vss-deploy-dense-captioning` | Deploy and call the RT-VLM dense captioning microservice on stored video files and live RTSP streams. Captions, alerts, stream management, or OpenAI-compatible completions. |
 | `vss-deploy-detection-tracking-2d` | Deploy, operate, debug, or tear down the RTVI-CV (Real Time Video Intelligence CV) perception microservice locally, and call its REST API to manage streams, health probes, and metrics. Supports the `warehouse-2d`, `warehouse-3d`, `smartcity-rtdetr`, and `smartcity-gdino` use cases. |
 | `vss-deploy-detection-tracking-3d` | Deploy and operate the RTVI-CV-3D stack (MV3DT / Multi-View 3D Tracking) — per-camera DeepStream perception plus BEV Fusion over multiple calibrated cameras — on sample, custom-video, or RTSP inputs. Auto-chains to `vss-generate-video-calibration` when calibration data is missing. For sample prompts and expected agent steps, see the [MV3DT Agent Skills walkthrough](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/development-workflow/deployment-customization/mv3dt-vision-ai-profile#agent-skills-walkthrough). |
@@ -117,8 +117,8 @@ the installed path or in the slash command.**
 
 | Skill | Description |
 | --- | --- |
-| `benchmark-vlm-qa` | End-to-end video Q&A accuracy and latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). |
-| `benchmark-video-summarization` | Long Video Summarization latency and burst throughput on a deployed summarization instance. |
+| `vss-benchmark-vlm-qa` | End-to-end video Q&A accuracy and latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). |
+| `vss-benchmark-video-summarization` | Long Video Summarization latency and burst throughput on a deployed summarization instance. |
 | `vss-evaluate-caption-accuracy` | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
 > `vss-deploy-profile` was removed in VSS 3.3.0. Use
@@ -171,7 +171,7 @@ register each Skill into the host's skills directory. Symlinks are used so that 
 ```bash
 git clone https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization.git
 cd video-search-and-summarization
-git checkout develop
+git checkout "${VSS_DOCS_GIT_REF:-develop}"
 ```
 
 ### Step 2: Ask the coding agent to install the Skills

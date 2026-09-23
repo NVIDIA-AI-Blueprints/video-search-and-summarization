@@ -1,13 +1,12 @@
 # ENV.md — Sandbox Environment
 
-Environment variables that must be set every session. Single source of
-truth — `AGENTS.md`, `BOOTSTRAP.md`, and `TOOLS.md` all reference this
-file rather than duplicating the values.
+The operator or evaluation harness supplies the deployment environment. Keep
+those values, including explicit empty values. This file supplies defaults for
+unset variables; `AGENTS.md`, `BOOTSTRAP.md`, and `TOOLS.md` reference it.
 
 `/sandbox/.bashrc` is root-owned (mode `444`) in the nemoclaw sandbox,
-so these cannot be persisted to a shell init file. `AGENTS.md` "Every
-Session" Step 1 runs the block below at session start; if any of them is
-ever empty (new shell, fresh connect, gateway restart), run it again.
+so do not write a shell init file. The VSS CLI is already installed at
+`/usr/local/bin/vss`; no PATH repair, checkout, or installation is needed.
 
 ## Exports
 
@@ -16,49 +15,39 @@ ever empty (new shell, fresh connect, gateway restart), run it again.
 # publish their services on host ports. Skills curl ${HOST_IP} for those
 # runtime calls (never localhost, never a literal IP) so the same skill
 # works in-sandbox and on bare metal.
-export HOST_IP=host.openshell.internal
+export HOST_IP="${HOST_IP-host.openshell.internal}"
 
-# Kubernetes deployments publish nothing on host ports: every HTTP
-# surface sits behind one path-based Ingress, so operate skills take the
-# Ingress origin as their single public endpoint. It differs per
-# deployment, so `deploy_nemoclaw.ipynb` fills this line in at upload time
-# from its own VSS_PUBLIC_URL setting. Empty is a valid state -- it means
-# Compose, or a Kubernetes deployment the notebook did not know about; see
-# "Empty VSS_PUBLIC_URL" below before running anything that needs it.
-export VSS_PUBLIC_URL=""
+# Origin of the VSS deployment you operate. Compose and Kubernetes follow
+# the same contract: `vss configure --base-url $VSS_PUBLIC_URL` probes the
+# path routes behind this one origin and records what answered, and every
+# VSS skill then uses the recording. They differ only in the value: the
+# haproxy origin http://host.openshell.internal:7777 for Compose, the
+# cluster's Ingress origin for Kubernetes. `deploy_nemoclaw.ipynb` 3.2
+# fills this line in at upload time. Preserve VSS_PUBLIC_URL, including an
+# explicit empty value; only when unset use the harness's VSS_GATEWAY_ORIGIN.
+export VSS_PUBLIC_URL="${VSS_PUBLIC_URL-${VSS_GATEWAY_ORIGIN-}}"
 
 # Whether this harness may pause a running turn for structured human input.
 # The launch configuration keeps this false: ask follow-up questions in the
 # ordinary chat response and let the user's next message start the next turn.
-export HITL_ENABLED=false
-
-# Skills that drive the VSS CLI (vss-search-archive, vss-summarize-video)
-# invoke it as `uv run --project <checkout>/libs/vss`, so uv has to
-# resolve. `pip install --user` puts it here, and this directory is not on
-# the default PATH. Harmless when uv is not installed; TOOLS.md "VSS CLI
-# checkout" sets it up.
-export PATH="/tmp/.local/bin:${HOME}/.local/bin:${PATH}"
+export HITL_ENABLED="${HITL_ENABLED-false}"
 ```
 
 ## Empty VSS_PUBLIC_URL
 
-A Kubernetes skill with no origin has nothing to talk to. Ask the user
-before running it — do not guess the hostname, and do not go looking for
-it in the cluster:
+First check `vss configure show`: an existing CLI configuration may already
+name the deployment. If neither the environment nor the CLI configuration names
+one, ask the user before a call that requires it. In a non-interactive evaluation,
+report the missing configuration and stop. Do not discover or deploy a stack:
 
-> I need the Ingress origin of the VSS deployment you want me to operate.
+> I need the origin of the VSS deployment you want me to operate
+> (for Compose on this host, `http://host.openshell.internal:7777`;
+> for Kubernetes, the Ingress origin).
 
 Then `export VSS_PUBLIC_URL=<answer>` for the session and write it to
 `memory/YYYY-MM-DD.md`, so the next session can offer it back instead of
 asking again. Keep the port in it: `vss configure` records the origin
 verbatim, and the Elasticsearch client rejects a URL without one.
 
-Expect the first call to fail anyway. The Ingress host must also be named
-in the `vss-k8s-ingress` egress policy, and that entry is filled from the
-same notebook setting that fills this file — so an empty export here means
-the policy is almost certainly carrying its unreachable placeholder host
-too. The policy lives on the host, out of your reach. On `CONNECT tunnel
-failed, response 403`, report this and stop:
-
-> Egress to that host is not allowed yet. Set `VSS_PUBLIC_URL` in section
-> 1.3 of `deploy_nemoclaw.ipynb` and re-run 3.2 to re-apply the policy.
+The selected origin must be allowed by the sandbox's policy. A policy denial is
+a configuration problem to report; do not change the policy or route around it.

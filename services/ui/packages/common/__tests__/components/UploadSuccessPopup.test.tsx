@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { UploadSuccessPopup } from '../../lib-src/components/UploadSuccessPopup';

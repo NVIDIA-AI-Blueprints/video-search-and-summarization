@@ -38,6 +38,14 @@ class _Input(BaseModel):
     internal: str = Field("", description="Not a flag", json_schema_extra={"cli_hide": True})
 
 
+class _CustomBooleanInput(BaseModel):
+    enable_reasoning: bool | None = Field(
+        None,
+        description="Custom negative flag",
+        json_schema_extra={params_mod.NEGATIVE_FLAG_KEY: "--disable-reasoning"},
+    )
+
+
 class _Group(CommandGroup):
     """Probe group."""
 
@@ -98,6 +106,12 @@ def test_numeric_constraints_become_ranges() -> None:
 def test_list_field_is_repeatable() -> None:
     opt = next(o for o in params_mod.options_from_model(_Input) if o.opts[0] == "--attribute")
     assert opt.multiple is True
+
+
+def test_boolean_field_can_define_clear_negative_flag() -> None:
+    option = params_mod.options_from_model(_CustomBooleanInput)[0]
+    assert option.opts == ["--enable-reasoning"]
+    assert option.secondary_opts == ["--disable-reasoning"]
 
 
 def test_unset_options_do_not_override_model_defaults() -> None:
@@ -492,7 +506,9 @@ def test_search_critic_is_optional_when_vlm_is_not_deployed() -> None:
         },
     )
 
-    assert asyncio.run(_critic_from(deployment)) == (None, None)
+    critic, vlm, reason = asyncio.run(_critic_from(deployment))
+    assert critic is None and vlm is None
+    assert reason == "no RT-VLM route is configured"
 
 
 def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -509,15 +525,22 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
         },
     )
 
-    async def available(_url: str, _model: str) -> bool:
-        return True
+    async def available(_url: str, _model: str) -> str | None:
+        return None
 
-    monkeypatch.setattr(search_group, "_rt_vlm_available", available)
-    critic, vlm = asyncio.run(search_group._critic_from(deployment))
+    monkeypatch.setattr(search_group, "_rt_vlm_probe", available)
+    critic, vlm, reason = asyncio.run(search_group._critic_from(deployment))
 
-    assert critic is not None and vlm is not None
-    assert critic._time_format == "offset"
+    assert critic is not None and vlm is not None and reason is None
+    # iso, not offset: the critic rebases file bounds itself (cached per sensor),
+    # so the analyzer's clip-URL request takes the ISO fast path and avoids the
+    # redundant per-candidate full-timelines-map fetch that offset forces.
+    assert critic._time_format == "iso"
     assert critic._default_eval_count is None
+
+    # --critic-eval-count threads through to the critic's eval cap.
+    capped, _, _ = asyncio.run(search_group._critic_from(deployment, eval_count=3))
+    assert capped is not None and capped._default_eval_count == 3
     assert vlm._base_url == "https://vss.example/rtvi-vlm/v1"
     assert vlm._model == "cosmos-reason3"
     assert vlm._media_mode == "video_url"
@@ -537,11 +560,113 @@ def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatc
     )
     probes: list[tuple[str, str]] = []
 
-    async def unavailable(url: str, model: str) -> bool:
+    async def unavailable(url: str, model: str) -> str | None:
         probes.append((url, model))
-        return False
+        return f"RT-VLM at {url} is not serving model {model!r}"
 
-    monkeypatch.setattr(search_group, "_rt_vlm_available", unavailable)
+    monkeypatch.setattr(search_group, "_rt_vlm_probe", unavailable)
 
-    assert asyncio.run(search_group._critic_from(deployment)) == (None, None)
+    critic, vlm, reason = asyncio.run(search_group._critic_from(deployment))
+    assert critic is None and vlm is None
+    assert reason == "RT-VLM at https://vss.example/rtvi-vlm is not serving model 'cosmos-reason3'"
     assert probes == [("https://vss.example/rtvi-vlm", "cosmos-reason3")]
+
+
+def test_search_run_surfaces_disabled_critic_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A disabled critic must leave a reason in search_messages, not silent unverified."""
+    from vss_cli.search.group import SEARCH
+    from vss_cli.search.group import EmbedInput
+    from vss_core.search_core import host as host_mod
+    from vss_core.search_core.models.search import SearchOutput
+    from vss_core.search_core.models.search import SearchResult
+
+    # VST present, RT-VLM absent -> _critic_from returns a "no RT-VLM route" reason
+    # without any network probe.
+    deployment = config_mod.Deployment(
+        base_url="https://vss.example",
+        services={
+            "elasticsearch": config_mod.Service(
+                url="https://vss.example/elasticsearch",
+                indices=["mdx-embed-filtered-2025-01-01"],
+            ),
+            "rt_embed": config_mod.Service(url="https://vss.example/rtvi-embed", models=["cosmos-embed"]),
+            "vst": config_mod.Service(url="https://vss.example/vst"),
+        },
+    )
+
+    hit = SearchResult(
+        video_name="cam01",
+        description="",
+        start_time="2025-01-01T00:00:10Z",
+        end_time="2025-01-01T00:00:20Z",
+        sensor_id="cam01",
+        screenshot_url="",
+        similarity=0.9,
+    )
+
+    class _FakeVSS:
+        @classmethod
+        def from_runtime(cls, runtime, *, critic=None):
+            _ = runtime, critic
+            return cls()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def search(self, **kw):
+            return SearchOutput(data=[hit])
+
+    monkeypatch.setattr(host_mod, "VSSSearch", _FakeVSS)
+
+    result = SEARCH.run("embed", EmbedInput(query="red forklift"), Context(deployment=deployment))
+
+    assert result.body["search_messages"] == ["Visual verification disabled: no RT-VLM route is configured."]
+
+
+def test_search_run_surfaces_disabled_critic_reason_on_zero_hits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The disabled-critic reason must surface even when the search returns no hits.
+
+    ``search_messages`` is independent of result count; gating the reason on a
+    non-empty ``data`` set would hide why visual verification is off exactly
+    when the caller most wants to know (nothing came back).
+    """
+    from vss_cli.search.group import SEARCH
+    from vss_cli.search.group import EmbedInput
+    from vss_core.search_core import host as host_mod
+    from vss_core.search_core.models.search import SearchOutput
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.example",
+        services={
+            "elasticsearch": config_mod.Service(
+                url="https://vss.example/elasticsearch",
+                indices=["mdx-embed-filtered-2025-01-01"],
+            ),
+            "rt_embed": config_mod.Service(url="https://vss.example/rtvi-embed", models=["cosmos-embed"]),
+            "vst": config_mod.Service(url="https://vss.example/vst"),
+        },
+    )
+
+    class _FakeVSS:
+        @classmethod
+        def from_runtime(cls, runtime, *, critic=None):
+            _ = runtime, critic
+            return cls()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def search(self, **kw):
+            return SearchOutput(data=[])
+
+    monkeypatch.setattr(host_mod, "VSSSearch", _FakeVSS)
+
+    result = SEARCH.run("embed", EmbedInput(query="red forklift"), Context(deployment=deployment))
+
+    assert result.body["search_messages"] == ["Visual verification disabled: no RT-VLM route is configured."]

@@ -31,8 +31,9 @@ def test_adapter_has_no_direct_backend_fallback_contract() -> None:
     )
 
     solution = _load_adapter().generate_solve_script("L40S")
-    assert "uv run --project" in solution
-    assert 'uv run --project "${VSS_REPO_ROOT}/libs/vss" vss' in solution
+    assert "uv run --project" not in solution
+    assert 'uv tool install "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss/cli"' in solution
+    assert "vss --version" in solution
     assert "--extra cli" not in solution
     for forbidden in ("curl ", "/models", "/generate", ":9200", ":8018", ":30082"):
         assert forbidden not in solution
@@ -64,7 +65,7 @@ def test_generated_tasks_use_routing_metadata_and_project_local_cli(
         assert '"memory", "introspection", "openclaw"' in task
         assert "chat-completions" not in task
         assert instruction.startswith(adapter.PREAMBLE)
-        assert "uv run --project" in solution
+        assert "uv tool install" in solution and "uv run --project" not in solution
         assert "curl " not in solution
 
 
@@ -90,11 +91,26 @@ def test_specs_cover_markdown_and_introspection_state_routing() -> None:
 
     harbor = json.loads(SPEC_PATH.read_text())
     contract = json.dumps(harbor)
-    assert "mocked" in contract
-    assert "introspection.enabled=false" in contract
-    assert "introspection=null" in contract
+    # The Harbor spec runs against a live deployment: step 1 deploys and seeds
+    # the fixture the later steps read, so each routing state is reached by
+    # doing the work rather than by describing a mocked tool result.
+    assert "mocked" not in contract
+    assert (
+        "onboard the local file /app/warehouse_safety_0001.mp4 "
+        "into VIOS as a sensor named warehouse_sample" in contract
+    )
+    assert "VSS unified memory (Elasticsearch) enabled" in contract
+
+    # Recall of what an earlier step persisted, rather than a supplied note.
+    assert "answers from what VSS unified memory already holds" in contract
+    assert "It does not run vss vlm run a second time" in contract
+
+    # The two introspection states are now stated as deployment facts.
+    assert "Introspection is turned off on this deployment" in contract
+    assert "Introspection is not configured on this deployment" in contract
+
     assert "--record-id without both --job-id and --record-type" in contract
-    assert "complete project-local uv run invocation" in contract
+    assert "calls the vss CLI on PATH" in contract
     assert "vss vlm run --file" in contract
     assert "vss configure check" in contract
     assert "--fps chosen from the skim/locate/inspect policy" in contract
@@ -106,15 +122,9 @@ def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() ->
     shell_blocks = skill.split("```bash")[1:]
     shell_blocks = [block.split("```", 1)[0] for block in shell_blocks]
     for block in shell_blocks:
-        if '"${VSS[@]}"' in block:
-            assert (
-                'VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"'
-                in block
-            )
-            assert "VSS=(uv run" in block
-            assert "--project" in block
-            assert "/libs/vss" in block
-            assert "--extra cli" not in block
+        # The skill calls the vss on PATH as-is: no wrapper, array or checkout.
+        assert "VSS=(" not in block and '"${VSS[@]}"' not in block
+        assert "uv run" not in block and "VSS_REPO_ROOT" not in block
         if "--record-id" in block:
             assert "--job-id" in block
             assert "--record-type" in block
@@ -127,7 +137,7 @@ def test_skill_examples_are_fresh_shell_safe_and_child_identity_is_complete() ->
     visual_blocks = [
         block
         for block in shell_blocks
-        if '"${VSS[@]}" memory introspect' in block or '"${VSS[@]}" vlm run' in block
+        if "vss memory introspect" in block or "vss vlm run" in block
     ]
     assert visual_blocks, "skill must show introspection and VLM invocations"
     for block in visual_blocks:

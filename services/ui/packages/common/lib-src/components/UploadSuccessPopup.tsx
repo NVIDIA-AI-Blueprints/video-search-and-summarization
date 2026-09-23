@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 import React, { useState, useCallback } from 'react';
 import { IconCheck, IconChevronDown, IconCopy, IconX } from '@tabler/icons-react';
 import { copyToClipboard } from '../utils/clipboard';

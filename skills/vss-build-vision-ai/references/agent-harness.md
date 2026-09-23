@@ -61,31 +61,35 @@ to NemoClaw never means adding a harness to a headless build.
 
 When a NemoClaw build uses the default OpenClaw runtime and includes `vss-ui`,
 connect its chat sidebar and Chat tab through the embedded adapter. This
-requires a bridge-aware `deploy_nemoclaw.ipynb`: with
-`VSS_AGENT_ADAPTER_ENABLED=true` and no Brev secure link, its dashboard forward
-must bind to Docker's private bridge gateway so `host.docker.internal` can
-reach it. If the checked-out notebook lacks that behavior, stop and report the
-checkout as incompatible; a loopback-only forward cannot serve the
-containerized UI.
+requires a relay-aware `deploy_nemoclaw.ipynb`: NemoClaw keeps its dashboard
+forward on `127.0.0.1` (its `connect`/`recover`/`start` recovery re-creates it
+there and retires a `0.0.0.0` forward as stale), so section 3.5 starts a
+**dashboard relay** on a second host port, bound to Docker's default-bridge
+gateway — what `host.docker.internal` resolves to inside the container. If the
+checked-out notebook lacks section 3.5's relay, stop and report the checkout as
+incompatible; a loopback-only forward cannot serve the containerized UI.
 
-Before onboarding, select the dashboard port (default `18789`) and export both
-it and the adapter flag. The notebook derives `AGENT_DASHBOARD_PORT` from this
-same value:
+Before onboarding, select the dashboard port (default `18789`) and the relay
+port (default `18790`, must differ) and export them with the adapter flag. The
+notebook derives `AGENT_DASHBOARD_PORT` and `AGENT_DASHBOARD_RELAY_PORT` from
+these same values:
 
 ```bash
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 ```
 
 After onboarding, add these values to `_builds/<name>/override.env`, resolving
-`<dashboard-port>` to the selected `NEMOCLAW_DASHBOARD_PORT` rather than writing
-the placeholder or assuming the default:
+`<relay-port>` to the selected `NEMOCLAW_DASHBOARD_RELAY_PORT` — the relay
+port, not the forward's — rather than writing the placeholder or assuming the
+default:
 
 | Variable | Value |
 |---|---|
 | `VSS_AGENT_ADAPTER_ENABLED` | `true` |
 | `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
-| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<dashboard-port>` |
+| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<relay-port>` |
 | `VSS_AGENT_BACKEND_TOKEN` | output of `nemoclaw <sandbox> gateway-token --quiet` |
 
 Leave `VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default. The
@@ -115,10 +119,23 @@ after deployment (below).
 Applies to **both** Q3 answers — a `yes` and a `no` alike — and not to a build
 whose request named the in-stack agent.
 
-**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES`, and change no
-other key.** `vss-ui`, `phoenix`, and the `llm_*` peer all stay. Pruning them is
-a capability decision, not a harness one: leave them and report `phoenix` as
-idle, since it collects the agent's traces and has no other client.
+**Remove `vss-agent` from the Foundation's `COMPOSE_PROFILES` together with the
+two peers only it uses: the `llm_*` key and `phoenix`.** They go as one unit.
+The `llm_*` peer is the in-stack agent's LLM: of the `base` services only
+`vss-agent` calls the LLM (`services/agent/compose.yml`; the only other consumer
+is `lvs-server`, outside `base` - `alert-bridge` never calls it: its compose
+passes `LLM_MODE`, which nothing in the service reads, and its URL rewriting
+keys on `VLM_MODE`), and the harness brings its own model provider - the NIM is
+the build's largest GPU claim and image pull.
+`phoenix` collects the agent's traces and has no other client; `haproxy` only
+routes to it, and tolerates an absent backend exactly as it does the absent
+agent. Keep `llm_*` only when an enabled service still consumes it (an
+`lvs` or combined build keeps it for `lvs-server`) or
+the harness LLM is route (a) *against the build's own LLM NIM*, which needs the
+NIM resident - name the key in `REQUESTED_PROFILES` so Step 5's validator keeps
+it. This is the agent-owned removal Step 5's harness-only invariant applies,
+and `scripts/resolve_service_graph.py` enforces. `vss-ui` stays: pruning it is
+a capability decision, not a harness one.
 
 `vss-ui`'s dependency on the agent ships as `required: false` so the filtered
 project still resolves, and `scripts/normalize_resolved_yml.py` drops the
@@ -154,12 +171,12 @@ unaffected.
 
 ### Provisioning moves to the headless path
 
-With no agent route, source provisioning is the direct-REST recipe:
-`vss-manage-video-io-storage`
-[`provision-vios-source.md`](../../vss-manage-video-io-storage/references/provision-vios-source.md).
-Its own gate — stop when an agent route answers — passes on any build with the
-agent removed, and it is the only path that fans a source into RT-CV and
-RT-Embed. Alert rules stay with `vss-manage-alerts`, which addresses Alert Bridge.
+With no agent route, source provisioning follows `vss-manage-video-io-storage`
+[`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md):
+register one VIOS source, which its mounted notification config fans out. Its
+own gate — stop when an
+agent route answers — passes on any build with the agent removed, and it is the
+only path that gets a source to RT-CV and RT-Embed. Alert rules stay with `vss-manage-alerts`, which addresses Alert Bridge.
 
 ### Ingress is still required
 
@@ -202,8 +219,10 @@ so never reaches Q3, can stay a stock deploy.
 Two things the user should hear up front rather than discover:
 
 - **GPU and memory budget.** `vss-agent` reserves no GPU, so its removal frees
-  memory rather than a device, and the `llm_*` peer stays resident. Budget the
-  build against [`sizing.md`](sizing.md) plus the harness's own model provider —
+  memory rather than a device; pruning its `llm_*` peer (above) is what frees
+  GPU memory, and a build that keeps the NIM for `lvs-server` or
+  for route (a) must say so. Budget the build against [`sizing.md`](sizing.md)
+  plus the harness's own model provider —
   and note that a NemoClaw-managed local model claims every visible GPU unless
   pinned (see [Prerequisites](#prerequisites)).
 - **One harness, two entry points.** On a default OpenClaw `yes`, the build UI
@@ -430,26 +449,28 @@ Set the environment, then run the notebook:
 | Variable | Value for a build | Why |
 |---|---|---|
 | `VSS_REPO_DIR` | the checkout root | resolves the policy, skills, and workspace docs |
-| `VSS_PUBLIC_URL` | **leave unset** for a Compose build | Kubernetes-only, and setting it breaks a Compose build — see [Leave `VSS_PUBLIC_URL` unset](#leave-vss_public_url-unset-on-a-compose-build) below |
-| `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name reuses the first build's sandbox |
-| `NEMOCLAW_RECREATE_SANDBOX` | `0` | **the notebook default is `1`, which discards the sandbox and every agent session in it.** Pass `0` unless the user asked to rebuild the harness |
+| `VSS_PUBLIC_URL` | **leave unset** for a Compose build | the deployment origin `vss configure` records; empty means this host's Compose deployment and 3.2 fills it in — see [`VSS_PUBLIC_URL` is the deployment origin](#vss_public_url-is-the-deployment-origin---leave-it-empty-on-compose) below |
+| `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name replaces the first build's sandbox |
+| `NEMOCLAW_RECREATE_SANDBOX` | `1` | onboard is the only step that applies the provider, endpoint, model and key, so a reused sandbox would run on whatever it was onboarded with. Section 3.1 adds `--recreate-sandbox` when a sandbox of that name exists, discarding it and its agent sessions |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
-| `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | the notebook forward and the UI adapter backend URL must use the same value |
-| `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | makes a compatible notebook expose the forward on Docker's private bridge when no Brev secure link exists |
+| `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
+| `NEMOCLAW_DASHBOARD_RELAY_PORT` | selected port; default `18790` | the section 3.5 relay the UI adapter backend URL must use (`ws://host.docker.internal:<relay-port>`); the Brev secure link and `CHAT_UI_URL` publish this port |
+| `VSS_AGENT_ADAPTER_ENABLED` | `true` when connecting `vss-ui` to OpenClaw | the relay is what makes the gateway reachable from the container; this flag turns the UI's adapter on |
 | `NEMOCLAW_PROVIDER`, model settings, and the selected provider's credential | the Q3a answers, per [Default provider](#default-provider) | remote Claude Opus 5 when the user accepts the default; otherwise the exact notebook provider and settings selected in Q3a. The block below spells out the default remote route alone; every other route **replaces** these values rather than defaulting through them |
 | `NEMOCLAW_INFERENCE_PROXY` | unset, or `0` against a local endpoint | `0` is required when (a) points at the build's own LLM NIM, or at any plain-HTTP server: the default rewrites such an endpoint to an `https` upstream on 443 |
 | `ORCHESTRATOR_ENABLE_HTTPS` | `false` | leave at the default; the HTTPS MCP path is a separate opt-in |
 
 ```bash
 set -o pipefail   # report the notebook's status, not `tee`'s
-umask 077         # the setup log contains the authenticated Agent UI URL
+umask 077         # the setup log echoes the notebook's own settings dump
 
 REPO="$(git rev-parse --show-toplevel)"
 
 export VSS_REPO_DIR="$REPO"
 export NEMOCLAW_SANDBOX_NAME="<build-name>"
-export NEMOCLAW_RECREATE_SANDBOX=0
+export NEMOCLAW_RECREATE_SANDBOX=1
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
+export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 
 # Harness LLM: notebook option (a), Claude Opus 5 through the NVIDIA
@@ -478,6 +499,7 @@ uv run --isolated --no-project --python 3.12 \
   python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
     --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
     --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
+    --echo-output \
   2>&1 | tee "$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/nemoclaw-setup.log"
 ```
 
@@ -486,45 +508,39 @@ read `${PIPESTATUS[0]}` on the line right after the pipeline. Non-zero is a
 blocker: report it with the log path and stop, rather than going on to the UI
 link.
 
-**Keep the whole run.** `run_setup_notebook.py` does not persist cell outputs, so
-`| tail`, `| head`, or a dropped stream loses section 3.5's `Sandbox:` and
-`Agent UI:` lines and the `WARNING:` that cell prints — without failing — when
-the dashboard forward does not come up. A clean exit does not mean the link is
-usable. Read the link and the sandbox name from the `tee`d log.
+**`--echo-output` is what puts the notebook's output in the log.** Without it the
+runner keeps every output in memory, prints one summary line, and discards the
+rest — so section 3.5's `Sandbox:` and `Agent UI:` lines, and the `WARNING:`
+that cell prints when the dashboard forward does not come up, never reach the
+`tee`d log. `--require-output` matches the in-memory copy either way, so a run
+that omits the flag exits 0 with a log that proves nothing. Keep the whole run
+for the same reason: `| tail` or `| head` drops those lines back out.
+
+The flag redacts the UI link's `#token=` fragment, so the log gives you the
+origin, the sandbox name and that warning — never a live token. Read the log for
+which origin the notebook *chose*; it is the only record of that decision, and
+it can differ from what the context file publishes when the notebook's own read
+of `/etc/brev` was denied.
 
 Do not reconstruct the URL from the notebook source. Its origin branches on
-whether the Brev context file publishes a secure link for the dashboard port.
+whether the Brev context file publishes a secure link for the relay port.
 Outside the notebook, resolve that FQDN from the context file
 ([`brev.md`](brev.md) → *Resolving a secure link*) rather than assembling a
 hostname.
 
-### Leave `VSS_PUBLIC_URL` unset on a Compose build
+### `VSS_PUBLIC_URL` is the deployment origin - leave it empty on Compose
 
-This skill deploys Docker Compose, and **`VSS_PUBLIC_URL` is a Kubernetes
-setting**. Leaving it empty is not an omission — it is the value that means
-"Compose". The sandbox's `ENV.md` already ships
-`export HOST_IP=host.openshell.internal` for exactly this case, because a Compose
-build publishes each service on a host port, and `vss-backend-readwrite`
-allowlists those ports. Kubernetes publishes nothing on host ports, which is why
-it alone needs an Ingress origin.
-
-Setting it to the build's own origin does not merely add a redundant entry, it
-**fails the harness step**. The notebook renders that value into the
-`vss-k8s-ingress` policy entry, so `http://host.openshell.internal:7777`
-duplicates the `host.openshell.internal:7777` that `vss-backend-readwrite`
-already carries — with different metadata — and the gateway rejects the whole
-policy update:
-
-```text
-network endpoint ambiguity validation failed: network policies
-'vss-backend-readwrite' endpoint[8] (host.openshell.internal:7777) and
-'vss-k8s-ingress' endpoint[0] (host.openshell.internal:7777) overlap on
-port(s) 7777 with conflicting metadata
-```
-
-The sandbox is left onboarded but with **no VSS egress at all**, since the add is
-atomic — the failure looks like a harness problem and is really this variable.
-Set it only for a Kubernetes deployment, to that cluster's Ingress origin.
+Compose and Kubernetes follow one contract in the sandbox: `vss configure
+--base-url <origin>` records the path routes behind a single origin, and every
+operation skill uses the recording. `VSS_PUBLIC_URL` is that origin. **Empty
+means the Compose deployment on this host**: section 3.2 fills in the haproxy
+origin `http://host.openshell.internal:<HAPROXY_PORT>` (already allowlisted in
+the `vss-backend-readwrite` egress entry), uploads it in `ENV.md`, runs
+`vss configure` and `vss configure check` inside the sandbox and prints the
+availability table. Set it only for a Kubernetes deployment, to that cluster's
+Ingress origin; 3.2 then also names the host in the `vss-k8s-ingress` egress
+entry. Do not set it to the Compose origin by hand - the notebook derives it,
+and it is `host.openshell.internal` as the sandbox sees it, not `HOST_IP`.
 
 Run **only** `deploy_nemoclaw.ipynb`. Its companion,
 `deploy_vss_orchestrator.ipynb`, exists so the sandbox can deploy and manage VSS
@@ -549,27 +565,47 @@ Confirm the two things that exit code cannot cover:
 1. **The harness is reachable.** Section 3.5 prints `Sandbox: <name>` and
    `Agent UI: <url>`. The OpenClaw URL carries the gateway token in `#token=`;
    treat the complete URL as a secret. In the final summary, remove the
-   fragment and report only the token-free origin as a markdown link, then
-   point the user to `_builds/<name>/nemoclaw-setup.log` on the deployment host
-   for the complete authenticated URL. Never copy the token or the
-   secret-bearing URL into the response. Hand over the recipe rather than the
-   value: on the deployment host `nemoclaw <name> gateway-token --quiet` prints
-   a fresh token, and the UI URL is the reported origin plus `/#token=<token>`.
-   On Brev the host is the secure-link FQDN. A `127.0.0.1` origin only resolves
-   on the deployment host, so pair it with the SSH tunnel the same section
-   prints.
+   fragment and report only the token-free origin as a markdown link. Never
+   copy the token or the secret-bearing URL into the response, and do not send
+   the user to the setup log for it — `--echo-output` redacts the fragment, so
+   the log does not hold one. Hand over the recipe rather than the value: on
+   the deployment host `nemoclaw <name> gateway-token --quiet` prints a fresh
+   token, and the UI URL is the reported origin plus `/#token=<token>`.
+   Carry all three — origin, token command, and that `/#token=` form — into the
+   summary; a token-free origin on its own lands the user on an unauthenticated
+   page.
 
-   Confirm the forward behind it is bound as that origin requires:
+   **On Brev the host is the secure-link FQDN for the relay port, and a
+   `127.0.0.1` origin is a claim to prove rather than a fallback to take.**
+   Resolve `brev_origin <relay-port>` yourself and read what it returned
+   before reporting anything; an unread lookup is not an empty one.
+
+   A denied read of `/etc/brev` is a third answer, distinct from both. A
+   confined agent is refused the directory even as uid 0 — under a user
+   namespace it appears owned by `nobody`, so the denial can look like an
+   ordinary missing file. Escalate it, never resolve it as "no link": re-run
+   the lookup unconfined if the environment allows, or use the approved
+   `docker run -v /etc/brev:/brev:ro` read in [`brev.md`](brev.md) →
+   *When the helpers return nothing*. Only a lookup that ran with access and
+   came back empty justifies the loopback origin, and then it is paired with
+   the SSH tunnel the same section prints. Reporting a tunnel the user does not
+   need, against an origin that does not resolve for them, is the failure this
+   paragraph exists to prevent.
+
+   Confirm the two listeners behind it:
 
    ```bash
-   openshell forward list   # BIND column for the dashboard port
+   openshell forward list         # BIND column for the dashboard port
+   pgrep -af dashboard-relay.py   # --listen addresses for the relay port
    ```
 
-   On Brev it must read `0.0.0.0`; a `127.0.0.1` bind answers a local health
-   probe and still `503`s behind the secure link. Without a Brev secure link,
-   an adapter-enabled run must bind to Docker's private bridge gateway, not
-   `127.0.0.1` or `0.0.0.0`. If the bind is wrong, stop and use a compatible
-   notebook rather than recreating the UI against an unreachable backend.
+   The forward must read `127.0.0.1` on every host, Brev included — NemoClaw's
+   recovery re-creates it there and retires a wider bind as stale, so a
+   loopback forward is the healthy state rather than a fault to repair.
+   Off-loopback clients are the relay's job: `0.0.0.0` on Brev, and Docker's
+   bridge gateway on an adapter-enabled run without a secure link. If the relay
+   is missing or bound elsewhere, re-run section 3.5 rather than re-binding the
+   forward, which the next lifecycle command undoes.
 2. **The sandbox can reach the build.** From the sandbox, one call against the
    origin recorded in `ENV.md`. A `403 CONNECT tunnel failed` is the egress
    policy (see Prerequisites), not a deployment fault — the distinction matters
@@ -587,8 +623,12 @@ rather than assumed. It is the handle every later command takes:
 `nemoclaw <name> status`, `openshell sandbox exec -n <name>`, and the
 [Teardown](#teardown) destroy. The sandbox lives outside the Compose project, so
 nothing that lists the build reveals it, and a name left at the `demo` default is
-the one a second build silently reuses — a user who cannot name this sandbox
+the one a second build silently replaces — a user who cannot name this sandbox
 cannot tell the two apart later.
+
+Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
+`NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent
+sessions, and nothing else in the run tells the user that happened.
 
 ## Teardown
 

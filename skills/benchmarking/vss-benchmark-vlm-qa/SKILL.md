@@ -1,5 +1,5 @@
 ---
-name: benchmark-vlm-qa
+name: vss-benchmark-vlm-qa
 description: Benchmark video Q&A accuracy and latency of a deployed RT-VLM (Cosmos Reason 3) via vss vlm run, using questions and videos from the DSS vss-devx-base dataset. Replaces the deprecated nat eval / vss-agent QA path. Not for tool-calling or trajectory evaluation, and not for LVS summarization throughput.
 license: Apache-2.0
 metadata:
@@ -28,7 +28,7 @@ score tool-calling or trajectories.
 ## When not to use
 
 - Tool-calling or trajectory evaluation — out of scope.
-- LVS summarization throughput — use `benchmark-video-summarization`.
+- LVS summarization throughput — use `vss-benchmark-video-summarization`.
 - Ad-hoc single questions — use `/vss-ask-video`.
 
 ## Prerequisites
@@ -94,7 +94,7 @@ export EVAL_LLM_JUDGE_NAME="${LLM_NAME}"
 # Optional: already-extracted dataset
 # export VSS_EVAL_DATASET=/path/to/vss-devx-base
 
-<repo>/skills/benchmarking/benchmark-vlm-qa/scripts/run_vlm_qa_benchmark.sh \
+<repo>/skills/benchmarking/vss-benchmark-vlm-qa/scripts/run_vlm_qa_benchmark.sh \
   --dataset-name vss-devx-base \
   --dataset-file dataset_single_turn.json
 ```

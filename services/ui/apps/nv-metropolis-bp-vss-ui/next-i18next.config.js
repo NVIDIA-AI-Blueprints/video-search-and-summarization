@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 module.exports = {
   i18n: {
     defaultLocale: 'en',
@@ -27,9 +28,6 @@ module.exports = {
       'fi',
     ],
   },
-  // The app's own locales. This used to resolve into the toolkit package,
-  // which shipped 9 English-to-English strings for components that no longer
-  // exist; nothing was ever translated, so nothing is lost by pointing here.
   localePath:
     typeof window === 'undefined'
       ? require('path').resolve('./public/locales')

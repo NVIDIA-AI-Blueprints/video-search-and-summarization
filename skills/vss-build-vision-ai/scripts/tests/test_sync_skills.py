@@ -8,6 +8,7 @@ parsing, the fail-open policy for unconfigured deployments, the exact probe
 endpoints, exact-set application, and the CLI exit-code contract.
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,12 @@ def test_read_skill_specs_sorted_and_skillmd_only(tmp_path):
     (tmp_path / "not-a-skill").mkdir()
     specs = sync_skills.read_skill_specs(tmp_path)
     assert [(s.name, s.needs) for s in specs] == [("a-skill", []), ("b-skill", ["vlm"])]
+
+
+def test_query_analytics_declares_cli_capability() -> None:
+    skills_root = Path(__file__).resolve().parents[3]
+    skill = skills_root / "operations" / "vss-query-analytics" / "SKILL.md"
+    assert sync_skills.skill_requires(skill) == ["analytics"]
 
 
 # --- `vss configure check` parsing -------------------------------------------
@@ -129,6 +136,7 @@ def specs():
         sync_skills.SkillSpec("vss-ask-video", ["vlm"]),
         sync_skills.SkillSpec("vss-manage-alerts", ["alerts"]),
         sync_skills.SkillSpec("vss-manage-video-io-storage", []),
+        sync_skills.SkillSpec("vss-query-analytics", ["analytics"]),
         sync_skills.SkillSpec("vss-search-archive", ["search"]),
     ]
 
@@ -137,13 +145,13 @@ def test_select_all_forced_never_probes():
     def run(cmd, timeout):
         raise AssertionError("must not invoke vss or curl under --all")
     sel = sync_skills.select(specs(), all_skills=True, run=run)
-    assert len(sel.active) == 4 and sel.reason == "all shipped skills (forced)"
+    assert len(sel.active) == 5 and sel.reason == "all shipped skills (forced)"
 
 
 def test_select_unconfigured_activates_everything():
     sel = sync_skills.select(
         specs(), run=lambda c, timeout: completed(stderr="no deployment configured"))
-    assert len(sel.active) == 4 and "all shipped skills active" in sel.reason
+    assert len(sel.active) == 5 and "all shipped skills active" in sel.reason
 
 
 def test_select_matches_groups_and_reports_missing():
@@ -152,7 +160,12 @@ def test_select_matches_groups_and_reports_missing():
             return completed(stdout="200")
         return completed(stdout=CHECK_OUT)
     sel = sync_skills.select(specs(), run=run)
-    assert sel.active == ["vss-ask-video", "vss-manage-alerts", "vss-manage-video-io-storage"]
+    assert sel.active == [
+        "vss-ask-video",
+        "vss-manage-alerts",
+        "vss-manage-video-io-storage",
+        "vss-query-analytics",
+    ]
     assert sel.inactive == {"vss-search-archive": "vss command group 'search' unavailable"}
     assert "commands available = analytics, vlm" in sel.reason
 
@@ -247,3 +260,34 @@ def test_vss_ref_pins_are_in_lockstep():
         refs[df.parent.name] = m.group(1)
     assert refs[".openclaw"] == refs[".hermes"], f"VSS_REF pins drifted: {refs}"
 
+
+
+def _hermes_sync_wrapper() -> str:
+    """The vss-hermes-sync script exactly as .hermes/Dockerfile writes it (via printf)."""
+    dockerfile = (Path(__file__).resolve().parents[4] / ".hermes" / "Dockerfile").read_text()
+    body = re.search(r"printf '(#!/bin/sh\\n.*?)' > /usr/local/bin/vss-hermes-sync", dockerfile).group(1)
+    return body.replace("\\n", "\n")
+
+
+@pytest.mark.parametrize("hermes_home", ["relocated", None])
+def test_hermes_sync_targets_hermes_home_skills(tmp_path, hermes_home):
+    """Hermes reads $HERMES_HOME/skills only. Harbor's adapter moves HERMES_HOME
+    to /tmp/hermes, so the wrapper must follow it; unset means /sandbox/.hermes."""
+    wrapper = tmp_path / "vss-hermes-sync"
+    wrapper.write_text(_hermes_sync_wrapper())
+    wrapper.chmod(0o755)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "argv"
+    (bin_dir / "python3").write_text(f'#!/bin/sh\necho "$@" > {log}\n')
+    (bin_dir / "python3").chmod(0o755)
+    (bin_dir / "mkdir").write_text("#!/bin/sh\nexit 0\n")  # /sandbox is not writable here
+    (bin_dir / "mkdir").chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin"}
+    if hermes_home:
+        env["HERMES_HOME"] = str(tmp_path / hermes_home)
+    subprocess.run([str(wrapper), "--all"], env=env, check=True)
+    active = f"{env.get('HERMES_HOME', '/sandbox/.hermes')}/skills"
+    assert log.read_text().split() == [
+        "/opt/vss-skills/sync_skills.py", "--skills-dir", "/opt/vss-skills/skills",
+        "--active-dir", active, "--all"]

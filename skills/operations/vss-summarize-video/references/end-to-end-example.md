@@ -166,7 +166,7 @@ fi
 ### Submit one summarize job
 
 Assume video preparation established `$CLIP`, and the SKILL.md prerequisites
-resolved `${VSS[@]}` and ran `vss configure`. One `vss summarize run` is exactly
+put `vss` on `PATH` and ran `vss configure`. One `vss summarize run` is exactly
 one `POST /v1/summarize`; the CLI resolves the LVS endpoint and the default
 model from the recorded deployment, so no model discovery is needed here and no
 payload is built by hand.
@@ -200,7 +200,7 @@ CREATION_TIME="${UPLOADED_AT:-$START_TIME}"
 SUMMARIZE_OUT=/tmp/vss-summarize-video-run.json
 
 SUMMARIZE_COMMAND=(
-  "${VSS[@]}" summarize run
+  vss summarize run
   --url "$CLIP"
   --video-id "$VIDEO_ID"
   --scenario "$SCENARIO"

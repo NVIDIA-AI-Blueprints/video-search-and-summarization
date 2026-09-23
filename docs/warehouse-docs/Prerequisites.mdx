@@ -10,6 +10,7 @@ This section covers the prerequisites for deploying and using the Warehouse Blue
 The Warehouse Blueprint has been validated and tested on the following NVIDIA GPUs:
 
 - NVIDIA RTX PRO 6000 Blackwell
+- NVIDIA RTX PRO 4500 Blackwell
 - NVIDIA GB300
 - NVIDIA H100 (NVL, SXM HBM3)
 - NVIDIA L40S
@@ -196,7 +197,7 @@ To verify your NGC key has the correct permissions:
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
 # Test access to the required resources
-ngc registry resource list "nvidia/vss-warehouse/*"
+ngc registry resource list "nvstaging/vss-warehouse/*"
 ngc registry resource list "nvidia/vss-core/*"
 
 # Test access to the required images

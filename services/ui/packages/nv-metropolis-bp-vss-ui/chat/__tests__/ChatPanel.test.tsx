@@ -7,10 +7,11 @@
  * IndexedDB is mocked at the storage module rather than shimmed, because the
  * point here is the panel, not the persistence (covered in conversations.test).
  */
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
+import { VssUiArtifact } from '../lib-src/markdown/components';
 
 jest.mock('../lib-src/storage', () => ({
   initConversationSessionLifecycle: jest.fn(),
@@ -64,6 +65,26 @@ async function typeAndSend(text: string) {
 describe('ChatPanel', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  it('renders a validated inline raster image artifact', () => {
+    render(
+      <VssUiArtifact
+        value={{
+          version: '1.0',
+          kind: 'vss.media.image',
+          payload: {
+            media_url: 'data:image/jpeg;base64,/9j/2Q==',
+            alt: 'Warehouse snapshot',
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('img', { name: 'Warehouse snapshot' })).toHaveAttribute(
+      'src',
+      'data:image/jpeg;base64,/9j/2Q==',
+    );
+  });
+
   it('streams an answer and renders it as markdown', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       sseResponse([
@@ -82,7 +103,46 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
   });
 
-  it('renders and answers NAT interaction prompts', async () => {
+  it('keeps earlier conversations visible and selectable after starting a new chat', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"first answer"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+    ) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('first question'));
+    await waitFor(() => expect(screen.getByText('first answer')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+
+    expect(screen.queryByText('first answer')).not.toBeInTheDocument();
+    const previousConversation = screen.getByRole('button', { name: 'first question' });
+    expect(previousConversation).toBeInTheDocument();
+
+    fireEvent.click(previousConversation);
+    expect(screen.getByText('first answer')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-message-user')).toHaveTextContent('first question');
+  });
+
+  it('overlays conversation history without shrinking a narrow chat panel', () => {
+    render(
+      <div style={{ width: 380 }}>
+        <ChatPanel endpoint={endpoint} features={noHeader} />
+      </div>,
+    );
+
+    const history = screen.getByRole('complementary', { name: 'Conversation history' });
+    expect(history).toHaveClass('absolute', 'max-w-[calc(100%-3rem)]');
+    expect(history).not.toHaveClass('flex-shrink-0');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide conversation history' }));
+    expect(screen.queryByRole('complementary', { name: 'Conversation history' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show conversation history' })).toBeInTheDocument();
+  });
+
+  it('renders and answers interaction prompts', async () => {
     const interaction = {
       event_type: 'interaction_required',
       execution_id: 'execution-1',
@@ -455,6 +515,63 @@ describe('ChatPanel', () => {
     expect(onAnswer.mock.calls[0][0]).toContain('vss.search.results');
   });
 
+  it('renders a snapshot artifact with same-origin download support', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          run_id: 'run_1',
+          events_url: '/api/agent/runs/run_1/events',
+          cancel_url: '/api/agent/runs/run_1/cancel',
+        }),
+      })
+      .mockResolvedValueOnce(
+        sseResponse([
+          agentApiFrame('run.started', {}, 1),
+          agentApiFrame('message.delta', { delta: 'Snapshot ready.' }, 2),
+          agentApiFrame(
+            'artifact.created',
+            {
+              version: '1.0',
+              kind: 'vss.media.image',
+              payload: {
+                media_url: '/vst/storage/temp/snapshot.jpg?token=one',
+                alt: 'Snapshot of warehouse_safety_0001 at 0:05',
+              },
+            },
+            3,
+          ),
+          agentApiFrame('run.completed', {}, 4),
+        ]),
+      );
+    global.fetch = fetchMock as any;
+    const onAnswer = jest.fn();
+
+    render(
+      <ChatPanel
+        endpoint={{
+          url: '/api/agent',
+          transport: 'agent-api',
+          surface: 'vss-ui-main',
+          conversationId: 'thread_1',
+          mediaProxyUrl: '/media',
+        }}
+        features={noHeader}
+        onAnswer={onAnswer}
+      />,
+    );
+    await act(async () => typeAndSend('take a snapshot'));
+
+    const image = await screen.findByRole('img', {
+      name: 'Snapshot of warehouse_safety_0001 at 0:05',
+    });
+    expect(image).toHaveAttribute('src', '/media/vst/storage/temp/snapshot.jpg?token=one');
+    expect(screen.getByRole('button', { name: 'Download image' })).toBeInTheDocument();
+    expect(onAnswer.mock.calls[0][0]).toContain('vss.media.image');
+  });
+
   it('folds a context chip into the request and clears it after sending', async () => {
     const fetchMock = jest.fn().mockResolvedValue(sseResponse(['data: [DONE]\n\n']));
     global.fetch = fetchMock as any;
@@ -541,6 +658,62 @@ describe('ChatPanel', () => {
     expect(screen.getByText('vss-search-archive')).toBeInTheDocument();
   });
 
+  it('settles an unfinished step when the stream dies mid-turn', async () => {
+    const encoder = new TextEncoder();
+    let reads = 0;
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (reads++ > 0) throw new Error('stream died');
+            return {
+              done: false,
+              value: encoder.encode(
+                'intermediate_data: {"id":"1","name":"vss-search-archive","status":"in_progress"}\n',
+              ),
+            };
+          },
+          releaseLock: () => {},
+        }),
+      },
+    } as unknown as Response) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('search'));
+
+    await waitFor(() => expect(screen.getByText(/stream died/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/Intermediate steps \(1\)/));
+    expect(screen.getByText('vss-search-archive').closest('li')).toHaveAttribute(
+      'data-status',
+      'error',
+    );
+  });
+
+  it('reports a clean EOF without DONE as an interrupted response', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      sseResponse([
+        'intermediate_data: {"id":"1","name":"vss-search-archive","status":"in_progress"}\n',
+        'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
+      ]),
+    ) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('search'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/backend event stream ended before the response completed/),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByText(/Intermediate steps \(1\)/));
+    expect(screen.getByText('vss-search-archive').closest('li')).toHaveAttribute(
+      'data-status',
+      'error',
+    );
+  });
+
   it('keeps workflow children visible when a start frame is replaced by completion', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       sseResponse([
@@ -592,10 +765,10 @@ describe('ChatPanel', () => {
     fireEvent.click(screen.getAllByLabelText('Delete message')[0]);
 
     await waitFor(() =>
-      expect(screen.queryByText('first question')).not.toBeInTheDocument(),
+      expect(within(screen.getByRole('log')).queryByText('first question')).not.toBeInTheDocument(),
     );
     // The other turn is untouched — deletion addressed a message, not a slot.
-    expect(screen.getByText('second question')).toBeInTheDocument();
+    expect(within(screen.getByRole('log')).getByText('second question')).toBeInTheDocument();
   });
 
   it('hands conversation controls to the host exactly once per meaningful change', async () => {

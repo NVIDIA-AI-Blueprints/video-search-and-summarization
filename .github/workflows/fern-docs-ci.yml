@@ -26,6 +26,11 @@
 
 name: Fern Docs CI
 
+env:
+  VSS_DOCS_GIT_REF: develop
+  VSS_DOCS_IMAGE_TAG: develop-latest
+  VSS_DOCS_SBSA_IMAGE_TAG: develop-latest-sbsa
+
 on:
   push:
     branches:
@@ -72,6 +77,7 @@ jobs:
             if git diff --name-only "$BEFORE" HEAD | grep -qE \
               -e '^(docs/|fern/)' \
               -e '^services/analytics/video-analytics-api/src/app/specification/openapi\.json$' \
+              -e '^\.github/scripts/(check_fern_substitutions|prepare_fern_inputs|test_check_fern_substitutions|test_prepare_fern_inputs)\.py$' \
               -e '^\.github/workflows/(fern-docs-ci|stage-fern-docs|publish-fern-docs)\.yml$'; then
               DOCS=true
             else
@@ -117,15 +123,25 @@ jobs:
             exit 1
           fi
 
+      - name: Test and prepare Fern inputs
+        run: |
+          python3 .github/scripts/test_check_fern_substitutions.py
+          python3 .github/scripts/test_prepare_fern_inputs.py
+          python3 .github/scripts/prepare_fern_inputs.py --output "${RUNNER_TEMP}/fern-input"
+          python3 .github/scripts/check_fern_substitutions.py --root "${RUNNER_TEMP}/fern-input"
+
       - name: Fern check
+        working-directory: ${{ runner.temp }}/fern-input
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}   # enables the redirects check
         run: fern check
 
       - name: Check MDX validity
+        working-directory: ${{ runner.temp }}/fern-input
         run: fern docs md check
 
       - name: Check broken links
+        working-directory: ${{ runner.temp }}/fern-input
         # Intentionally not --strict yet: the docs carry pre-existing broken
         # links from #1763. Flip this on once that backlog is cleared.
         run: fern docs broken-links
@@ -173,8 +189,12 @@ jobs:
           fi
           npm install -g "fern-api@${VERSION}"
 
+      - name: Prepare Fern inputs
+        run: python3 .github/scripts/prepare_fern_inputs.py --output "${RUNNER_TEMP}/fern-input"
+
       - name: Generate preview URL
         id: generate-docs
+        working-directory: ${{ runner.temp }}/fern-input
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
           PREVIEW_ID: pr-${{ steps.pr.outputs.number }}

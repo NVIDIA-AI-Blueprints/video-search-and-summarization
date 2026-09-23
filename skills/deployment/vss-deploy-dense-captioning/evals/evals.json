@@ -24,5 +24,15 @@
       "Prechecks RTSP URLs for an actual video stream before /v1/streams/add and deletes temporary streams afterward.",
       "Explains that Kafka topics are server-side RT-VLM config and points to references/kafka-workflows.md for broker and incident-consumer details."
     ]
+  },
+  {
+    "id": "dense-captioning-full-profile-non-activation",
+    "question": "Build and deploy the complete VSS base profile with video Q&A.",
+    "expected_skill": null,
+    "ground_truth": "This is a full-profile build request for vss-build-vision-ai, not a request for the standalone dense-captioning deployment skill.",
+    "expected_behavior": [
+      "Does not activate vss-deploy-dense-captioning for a complete VSS profile request.",
+      "Routes the request to vss-build-vision-ai."
+    ]
   }
 ]

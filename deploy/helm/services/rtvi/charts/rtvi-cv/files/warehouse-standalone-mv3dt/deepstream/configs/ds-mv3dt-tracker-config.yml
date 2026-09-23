@@ -16,6 +16,7 @@
 %YAML:1.0
 
 BaseConfig:
+  debugVerboseLevel: 1
   minDetectorConfidence: 0.266
   checkClassMatch: 1
   useBatchNumForFrameId: 1
@@ -24,33 +25,38 @@ TargetManagement:
   enableBboxUnClipping: 1
   preserveStreamUpdateOrder: 0
   maxTargetsPerStream: 200
-  minIouDiff4NewTarget: 0.33485659954800495
-  minTrackerConfidence: 0.6019478047482886
-  probationAge: 17
-  maxShadowTrackingAge: 131
+  minIouDiff4NewTarget: 0.33
+  minTrackerConfidence: 0.6
+  probationAge: 12
+  maxShadowTrackingAge: 175
   earlyTerminationAge: 7
   maxTrajectoryBufferLength: -1
   outputVisibility: 1
 
+TrajectoryManagement:
+  useUniqueID: 0
+  enableReAssoc: 0
+  reidExtractionInterval: 8
+
 DataAssociator:
   dataAssociatorType: 0
   associationMatcherType: 1
-  minMatchingScore4Overall: 0.5082953005836124
-  minMatchingScore4SizeSimilarity: 0.009643993655030297
-  minMatchingScore4Iou: 0.11557371329518315
-  matchingScoreWeight4SizeSimilarity: 0.5084913673983223
-  matchingScoreWeight4Iou: 0.3494256836722713
-  tentativeDetectorConfidence: 0.7745249596202076
-  minMatchingScore4TentativeIou: 0.42388480686796887
-  minMatchingScore4PeerAssocIou: 0.6955557941537551
+  minMatchingScore4Overall: 0.5
+  minMatchingScore4SizeSimilarity: 0.01
+  minMatchingScore4Iou: 0.15
+  matchingScoreWeight4SizeSimilarity: 0.3
+  matchingScoreWeight4Iou: 0.4
+  tentativeDetectorConfidence: 0.78
+  minMatchingScore4TentativeIou: 0.25
+  minMatchingScore4PeerAssocIou: 0.25
 
 StateEstimator:
   stateEstimatorType: 4
-  processNoiseVar4Loc: 56.29654177092754
-  processNoiseVar4Size: 96.07257407264093
-  processNoiseVar4Vel: 84.56030088053706
-  measurementNoiseVar4Detector: 78.43805173471176
-  measurementNoiseVar4Tracker: 82.2705749896136
+  processNoiseVar4Loc: 22.0
+  processNoiseVar4Size: 96.1
+  processNoiseVar4Vel: 84.6
+  measurementNoiseVar4Detector: 78.4
+  measurementNoiseVar4Tracker: 82.3
 
 PoseEstimator:
   poseEstimatorType: 1
@@ -69,9 +75,9 @@ PoseEstimator:
   poseInferenceInterval: -1
 
 ObjectModelProjection:
+  minPoseConfidence: 0.95
   outputFootLocation: 1
   outputConvexHull: 1
-  minPoseConfidence: 0.95
   cameraModelFilepath:
     Camera: /tmp/camInfo/Camera.yml
     Camera_01: /tmp/camInfo/Camera_01.yml
@@ -79,18 +85,62 @@ ObjectModelProjection:
     Camera_03: /tmp/camInfo/Camera_03.yml
   objectModelType: 0
 
+# Set reidType:2 and reidServiceType:1 when ReID service is available here
+ReID:
+  reidType: 0    # The type of reid among { DUMMY=0, NvDEEPSORT=1, Reid based reassoc=2, both NvDEEPSORT and reid based reassoc=3}
+  debugVerboseLevel: 0
+
+  # [Reid Network Info]
+  batchSize: 64    # Batch size of reid network
+  workspaceSize: 1000    # Workspace size to be used by reid engine, in MB
+  reidFeatureSize: 1280    # Size of reid feature
+  reidHistorySize: 100    # Max number of reid features kept for one object
+  inferDims: [3, 256, 128]    # Reid network input dimension CHW or HWC based on inputOrder
+  networkMode: 0    # Reid network inference precision mode among {fp32=0, fp16=1, int8=2 }
+
+  # [Input Preprocessing]
+  inputOrder: 0    # Reid network input order among { NCHW=0, NHWC=1 }. Batch will be converted to the specified order before reid input.
+  colorFormat: 0    # Reid network input color format among {RGB=0, BGR=1 }. Batch will be converted to the specified color before reid input.
+  offsets: [127.5, 127.5, 127.5]    # Array of values to be subtracted from each input channel, with length equal to number of channels
+  netScaleFactor: 0.007843    # Scaling factor for reid network input after substracting offsets = 2.0/255
+  keepAspc: 0    # Whether to keep aspc ratio when resizing input objects for reid
+  useVPICropScaler: 1 # Use VPI for image cropping and rescaling
+  outputReidTensor: 1
+
+  # [Output Postprocessing]
+  addFeatureNormalization: 1       # If reid feature is not normalized in network, adding normalization on output so each reid feature has l2 norm equal to 1
+  minVisibility4GalleryUpdate: 0.6 # Add ReID embedding to the gallery only if the visibility is not lower than this
+  minVisibility4ReidOutput: 0.4
+
+  # [Paths and Names]
+  onnxFile: "/opt/storage/reid/reid_model.onnx" # NVIDIA TAO model path
+  tltModelKey: "nvidia_tao" # NVIDIA TAO model key
+  modelEngineFile: "/opt/storage/reid/reid_model.onnx_b64_gpu0_fp32.engine"
+
+ReIDService:
+  reidServiceType: 0
+  debugVerboseLevel: 1
+  minVisibility4ReidServiceQuery: 0.4
+  minSecondClusterConfidence: 0.5
+  minTopClusterConfidence: 0.8
+  maxClusterVariance: 0.0003
+  serviceAddress: "reid-embed"
+  servicePort: 8088
+  operateOnClassIds: [0]
+
 MultiViewAssociator:
   multiViewAssociatorType: 1
   enableLatePeerReAssoc: 1
   enableIDCorrection: 0
   enableSeeThrough: 1
   maxPeerTrackletSize: 30
-  recentlyActiveAge: 150
+  recentlyActiveAge: 550
   minCommonFrames4MatchScore: 15
-  minPeerTrackletMatchScore: 0.5
+  minPeerTrackletMatchScore: 0.25
   minPeerVisibility4Fusion: 0.1
-  maxPeerToPredDistance4Fusion: 2.0
-  maxTrackletMatchingTimeSearchRange: 5
+  maxPeerToPredDistance4Fusion: 0.5
+  maxTrackletMatchingTimeSearchRange: 1
+  minReidServiceMatchConfidence: 0
   maxPeerFrameDiff4NoDet: 5
 
 Communicator:

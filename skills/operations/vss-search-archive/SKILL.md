@@ -30,7 +30,9 @@ an agent `/api` route**; on a build without one, they belong to
   storage-ms, or VST. Two paths are sanctioned, and the deployment picks which:
   the Agent upload/delete lifecycle where an agent `/api` route answers, and
   `vss-manage-video-io-storage` `references/provision-vios-source.md` where none
-  does. That recipe owns the direct calls this rule otherwise forbids.
+  does. That recipe owns VIOS registration and the hand-driven RT-VLM legs;
+  nothing sanctions a direct call to RTVI-CV or RTVI-Embed, which receive every
+  source from VIOS.
 - Never remove, broaden, or silently substitute a requested source constraint.
 - Similarity is retrieval evidence, not proof of visual presence.
 - The CLI attempts critic verification by default. Do not separately inspect
@@ -44,29 +46,21 @@ an agent `/api` route**; on a build without one, they belong to
 
 - A running VSS `search` profile and its host-reachable Compose or Ingress
   origin.
-- A checkout containing `libs/vss`, host `uv`, `curl`, and `jq`.
+- The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
+- `curl` and `jq`.
 - `vss vios list` for source listing and inspection (same CLI, same recorded origin).
 
-Resolve and validate the checkout once:
+Check the CLI once:
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-test -f "${VSS_REPO_ROOT}/libs/vss/pyproject.toml" || {
-  echo "VSS checkout not found at ${VSS_REPO_ROOT}; set VSS_REPO_ROOT explicitly" >&2
-  exit 1
-}
-VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-cd "${VSS_REPO_ROOT}" && "${VSS[@]}" search run --help >/dev/null || exit 1
+vss search run --help >/dev/null || exit 1
 ```
-
-`libs/vss` is the library's own workspace, so no extras and no `--no-dev` are
-needed — the agent stack is not in it.
 
 Resolve the deployment through its one public/host origin:
 
 ```bash
 if [ -z "${VSS_ORIGIN:-}" ]; then
-  VSS_ORIGIN=$("${VSS[@]}" configure show 2>/dev/null |
+  VSS_ORIGIN=$(vss configure show 2>/dev/null |
     jq -er '.base_url | select(type == "string" and length > 0)') || {
       echo "Provide the Compose or Ingress origin" >&2
       exit 1
@@ -75,7 +69,7 @@ fi
 VSS_ORIGIN="${VSS_ORIGIN%/}"
 VST_URL="${VSS_ORIGIN}"
 VSS_VIOS_URL="${VSS_ORIGIN}/vst"
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
+vss configure --base-url "${VSS_ORIGIN}" || exit 1
 ```
 
 In a persisted multi-step workflow, reuse the origin recorded by the prepared
@@ -102,7 +96,7 @@ independent of the index inventory.
    `the `/vss-build-vision-ai` stock Search workflow`; do not target another profile.
 
 2. When the user names a file, camera, or sensor, list registered sources with
-   `"${VSS[@]}" vios list` before invoking the search CLI — it reads the origin
+   `vss vios list` before invoking the search CLI — it reads the origin
    `vss configure` recorded, so it takes no endpoint. Accept only an exact
    source, stream ID, or one unambiguous normalized substring match.
 
@@ -159,7 +153,7 @@ if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
   exit 1
 fi
 SEARCH_COMMAND=(
-  "${VSS[@]}" search run "${SEARCH_PATH}"
+  vss search run "${SEARCH_PATH}"
   --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}" --raw
 )
 for source in "${VIDEO_SOURCES[@]}"; do
@@ -247,7 +241,7 @@ or verification parsing against that response or invent structured hit rows.
 
 ## Troubleshooting
 
-- CLI unavailable: verify `VSS_REPO_ROOT` points at the checkout, and stop.
+- CLI unavailable: `vss` is not on `PATH`; install it as *Prerequisites* says, or report the image problem, and stop.
 - Exit 2: read the selected path's `--help`; do not guess flags.
 - Exit 3: a recorded backend is unreachable; repair routing and reconfigure.
 - Exit 4: run `vss configure --base-url <origin>` or choose a path whose

@@ -33,6 +33,11 @@
 
 name: Publish Fern Docs
 
+env:
+  VSS_DOCS_GIT_REF: develop
+  VSS_DOCS_IMAGE_TAG: develop-latest
+  VSS_DOCS_SBSA_IMAGE_TAG: develop-latest-sbsa
+
 on:
   release:
     types: [published]
@@ -71,7 +76,13 @@ jobs:
           fi
           npm install -g "fern-api@${VERSION}"
 
+      - name: Prepare and check Fern inputs
+        run: |
+          python3 .github/scripts/prepare_fern_inputs.py --output "${RUNNER_TEMP}/fern-input"
+          python3 .github/scripts/check_fern_substitutions.py --root "${RUNNER_TEMP}/fern-input"
+
       - name: Publish docs
+        working-directory: ${{ runner.temp }}/fern-input
         env:
           FERN_TOKEN: ${{ secrets.DOCS_FERN_TOKEN }}
         run: |

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# VSS parent chart — LVS profile. Default install matches full LVS stack (equiv. dev-profile.sh -p lvs).
+# VSS parent chart — LVS profile. The default install enables the full LVS stack.
 # Install: helm upgrade --install vss . -f values-lvs.yaml -n vss --create-namespace
 
 profile: lvs
@@ -48,7 +48,7 @@ global:
   llmName: "nvidia/nemotron-3.5-lightning-30b-a3b"
   vlmName: "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
   # VIOS-only SDRC mode. true -> the VIOS pods get SDRC enabled.
-  # Mirrors docker dev-profile-lvs/.env: VST_USE_SDRC=true, VST_NGINX_MODE=vst-sdrc.
+  # Enable SDRC mode for the VIOS pods.
   vios:
     useSdrc: true
     # Register direct VST camera additions with RT-VLM before caption generation.
@@ -212,7 +212,7 @@ vios:
 
   vss-vios-sensor:
     enabled: true
-    # Sensor talks to SDRC — same pattern as dev-profile-search / dev-profile-alerts.
+    # Sensor registers streams through SDRC.
     streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -231,10 +231,8 @@ vios:
     enabled: true
     externallyAccessibleIp: ""
 
-  # Compose parity: dev-profile-lvs/compose.yml `nvstreamer-lvs` (profile
-  # `bp_developer_lvs_2d`). Subchart defaults already match the compose
-  # image, HTTP_PORT=31000, ADAPTOR=streamer, and
-  # NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=true.
+  # The subchart defaults provide the LVS streamer image, HTTP_PORT=31000,
+  # ADAPTOR=streamer, and NVSTREAMER_INSTALL_ADDITIONAL_PACKAGES=true.
   vss-vios-nvstreamer:
     enabled: true
 
@@ -244,15 +242,14 @@ vss-summarization:
   elasticsearchPort: "9200"
   llmService: "nemotron-35-lightning-30b-a3b"
   vlmService: "vss-rtvi-vlm"
-  # LVS backend routes VLM calls through vss-rtvi-vlm (docker parity: RTVI_VLM_URL=http://HOST:RTVI_VLM_PORT).
+  # LVS routes VLM calls through the in-cluster vss-rtvi-vlm service.
   # Values are rendered with `tpl` so {{ .Release.Name }} works when global.useReleaseNamePrefix is enabled.
   extraEnv:
     - name: RTVI_VLM_URL
       value: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $svc := "vss-rtvi-vlm" }}{{- printf "http://%s:8000" (ternary (printf "%s-%s" .Release.Name $svc) $svc $pfx) -}}'
     - name: RTVI_VLM_URL_PASSTHROUGH
       value: "true"
-    # Compose parity: dev-profile-lvs/.env sets LVS_ENABLE_LLM_MERGING=true.
-    # Subchart default is "false"; this override re-enables LLM-based merging
+    # The subchart default is "false"; this profile enables LLM-based merging
     # of overlapping/duplicate events for the LVS profile.
     - name: LVS_ENABLE_LLM_MERGING
       value: "true"
@@ -331,8 +328,7 @@ agent:
         value: ''
       - name: OPENAI_API_KEY
         value: ''
-      # Enterprise RAG (used by config_rag.yml when enabled). Compose parity:
-      # deploy/docker/services/agent/compose.yml.
+      # Enterprise RAG defaults used by config_rag.yml when enabled.
       - name: RAG_SERVER_URL
         value: 'http://rag-server:8081/v1'
       - name: RAG_API_KEY
@@ -371,7 +367,7 @@ agent:
         value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
       - name: VSS_AGENT_VERSION
         value: '{{ .Values.vssAgentVersion | default "3.3.0-65576357eb80" }}'
-      # Audio configuration (compose parity: deploy/docker/services/agent/compose.yml).
+      # Audio configuration for audio-aware VLMs.
       # Set enableAudio=true for Nemotron Nano Omni audio-aware VLM.
       - name: ENABLE_AUDIO
         value: '{{ .Values.enableAudio | default "false" }}'
@@ -548,7 +544,7 @@ vssIngress:
   phoenixPort: 6006
 
 # RTVI umbrella: LVS always-on rtvi-vlm. By default, rtvi-vlm loads the integrated
-# Cosmos checkpoint in-pod to match the docker LVS profile. LVS deploys Kafka so
+# Cosmos checkpoint in-pod. LVS deploys Kafka so
 # RTVI can publish mdx-vlm events while the LVS backend and vss-agent call RTVI over HTTP.
 rtvi:
   enabled: true
@@ -570,7 +566,6 @@ rtvi:
       topics:
         - mdx-vlm-captions
         - mdx-vlm-incidents
-    # Docker parity: shape from services/rtvi/charts/rtvi-vlm/values.yaml.
     # Full list is required because the subchart replaces `env` rather than merging.
     env:
       - name: OPENAI_API_KEY
@@ -590,7 +585,7 @@ rtvi:
       - name: ERROR_MESSAGE_TOPIC
         value: "vision-llm-errors"
       # Generated-output and error buses (empty MESSAGE_BUS/ERROR_BUS disables that bus).
-      # Docker parity: dev-profile-lvs/.env sets RTVI_VLM_MESSAGE_BUS / RTVI_VLM_MESSAGE_BUS_TOPIC / RTVI_VLM_ERROR_BUS.
+      # Enable the LVS generated-output and error buses.
       - name: MESSAGE_BUS
         value: "kafka"
       - name: MESSAGE_BUS_TOPIC
@@ -671,7 +666,8 @@ rtvi:
         value: ""
       - name: VLM_BATCH_SIZE
         value: ""
-      # Edge platforms (DGX-SPARK, IGX-THOR, AGX-THOR): override to 860 / 467 / 20 (see dev-profile.sh).
+      # Edge platforms (DGX-SPARK, IGX-THOR, AGX-THOR): override the frame
+      # chunk, input width, and input height with 20, 860, and 467 respectively.
       - name: VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK
         value: "1"
       - name: VLM_INPUT_WIDTH
@@ -689,7 +685,7 @@ rtvi:
       - name: VLM_TRUST_REMOTE_CODE
         value: "false"
       - name: VLM_VIDEO_PRUNING_RATE
-        value: "0.0"
+        value: ""
 
 nims:
   enabled: true

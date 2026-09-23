@@ -1,0 +1,502 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests for profile-driven BEV group recomputation."""
+
+import json
+import os
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from profile_configurator.profile_config_manager import ProfileConfigManager
+
+
+def make_manager(env_vars=None, mode="3d") -> ProfileConfigManager:
+    with patch.object(ProfileConfigManager, "__init__", return_value=None):
+        manager = ProfileConfigManager.__new__(ProfileConfigManager)
+    manager.env_vars = env_vars or {}
+    manager._typed_env_vars = {}
+    manager.profile_configs = {}
+    manager.hardware_profile = "TEST"
+    manager.deployment_profile = mode
+    manager.deployment_modes_enabled = True
+    manager.config = {}
+    return manager
+
+
+def write_calibration(path: Path, sensor_ids):
+    data = {
+        "version": "1.0",
+        "calibrationType": "cartesian",
+        "sensors": [{"id": sensor_id, "type": "camera"} for sensor_id in sensor_ids],
+        "sensorGroups": [],
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return data
+
+
+def make_operation(
+    video_dir: Path, calibration_file: Path, expected_count=0, required_mode="3d"
+):
+    return {
+        "required_mode": required_mode,
+        "required_calibration_mode": "mount",
+        "video_directories": [str(video_dir)],
+        "video_patterns": ["*.mp4", "*.mkv"],
+        "calibration_file": str(calibration_file),
+        "expected_camera_count": expected_count,
+        "n_sensor_groups": 1,
+    }
+
+
+def test_discover_camera_names_is_sorted_and_case_insensitive(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    for filename in ("Camera_02.MKV", "Camera.mp4", "Camera_01.Mp4", "ignore.txt"):
+        (video_dir / filename).write_text("", encoding="utf-8")
+
+    manager = make_manager()
+
+    assert manager._discover_camera_names(
+        [str(video_dir)], ["*.mp4", "*.mkv"]
+    ) == ["Camera", "Camera_01", "Camera_02"]
+
+
+def test_discover_camera_names_rejects_duplicate_stems(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    (video_dir / "Camera.mkv").write_text("", encoding="utf-8")
+
+    manager = make_manager()
+
+    try:
+        manager._discover_camera_names([str(video_dir)], ["*.mp4", "*.mkv"])
+        assert False, "duplicate stems must fail"
+    except ValueError as exc:
+        assert "Duplicate camera ID 'Camera'" in str(exc)
+
+
+def test_recompute_uses_filename_stems_and_preserves_inode(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    for filename in ("Camera_01.mp4", "Camera.mp4"):
+        (video_dir / filename).write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera", "Camera_01"])
+    original_inode = calibration_file.stat().st_ino
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    calls = []
+
+    def fake_recompute(path, sensor_names, n_sensor_groups, max_sensors_per_group):
+        calls.append((path, sensor_names, n_sensor_groups, max_sensors_per_group))
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        data["sensorGroups"] = [{"name": "bev-sensor-1", "sensors": sensor_names}]
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ):
+        assert manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file, expected_count=2)
+        )
+
+    assert calls[0][1:] == (["Camera", "Camera_01"], 1, 2)
+    result = json.loads(calibration_file.read_text(encoding="utf-8"))
+    assert calibration_file.stat().st_ino == original_inode
+    assert result["sensorGroups"][0]["sensors"] == ["Camera", "Camera_01"]
+    assert list(tmp_path.glob("calibration.backup_*.json"))
+    assert not list(tmp_path.glob(".calibration.bev_*.json"))
+
+
+def test_recompute_runs_for_matching_mv3dt_mode(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera"])
+
+    calls = []
+
+    def fake_recompute(path, sensor_names, n_sensor_groups, max_sensors_per_group):
+        calls.append((sensor_names, n_sensor_groups, max_sensors_per_group))
+        return path
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"}, mode="mv3dt")
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ):
+        assert manager._execute_recompute_bev_groups(
+            make_operation(
+                video_dir,
+                calibration_file,
+                expected_count=1,
+                required_mode="mv3dt",
+            )
+        )
+
+    assert calls == [(["Camera"], 1, 1)]
+
+
+def test_recompute_accepts_and_filters_calibration_superset(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera", "UnusedCamera"])
+    original_inode = calibration_file.stat().st_ino
+
+    def fake_recompute(path, sensor_names, *_args):
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        selected = set(sensor_names)
+        data["sensors"] = [
+            sensor for sensor in data["sensors"] if sensor["id"] in selected
+        ]
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ):
+        assert manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file, expected_count=1)
+        )
+
+    result = json.loads(calibration_file.read_text(encoding="utf-8"))
+    assert calibration_file.stat().st_ino == original_inode
+    assert [sensor["id"] for sensor in result["sensors"]] == ["Camera"]
+
+
+def test_publish_failure_restores_original_in_place(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera"])
+    original_bytes = calibration_file.read_bytes()
+    original_inode = calibration_file.stat().st_ino
+
+    def fake_recompute(path, sensor_names, *_args):
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        data["sensorGroups"] = [{"name": "bev-sensor-1", "sensors": sensor_names}]
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    real_fsync = os.fsync
+    fsync_calls = 0
+
+    def fail_first_fsync(file_descriptor):
+        nonlocal fsync_calls
+        fsync_calls += 1
+        if fsync_calls == 1:
+            raise OSError("simulated publish failure")
+        return real_fsync(file_descriptor)
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ), patch(
+        "profile_configurator.profile_config_manager.os.fsync",
+        side_effect=fail_first_fsync,
+    ):
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file, expected_count=1)
+        )
+
+    assert fsync_calls == 2
+    assert calibration_file.read_bytes() == original_bytes
+    assert calibration_file.stat().st_ino == original_inode
+    assert list(tmp_path.glob("calibration.backup_*.json"))
+    assert not list(tmp_path.glob(".calibration.bev_*.json"))
+
+
+def test_missing_video_sensor_preserves_original(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Unknown.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers"
+    ) as recompute:
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file)
+        )
+
+    recompute.assert_not_called()
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+
+
+def test_expected_camera_count_mismatch_fails_before_backup(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera"])
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    assert not manager._execute_recompute_bev_groups(
+        make_operation(video_dir, calibration_file, expected_count=2)
+    )
+
+    assert not list(tmp_path.glob("calibration.backup_*.json"))
+
+
+def test_wrong_calibration_mode_fails_without_modifying_file(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+
+    manager = make_manager({"CALIBRATION_MODE": "fetch"})
+    assert not manager._execute_recompute_bev_groups(
+        make_operation(video_dir, calibration_file)
+    )
+
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+
+
+def test_other_deployment_mode_skips_operation(tmp_path):
+    manager = make_manager({"CALIBRATION_MODE": "mount"}, mode="2d")
+
+    assert manager._execute_recompute_bev_groups(
+        make_operation(tmp_path / "missing", tmp_path / "missing.json")
+    )
+
+
+def test_recompute_exception_preserves_original_and_cleans_temp(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=RuntimeError("calculation failed"),
+    ):
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file)
+        )
+
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+    assert not list(tmp_path.glob(".calibration.bev_*.json"))
+
+
+def test_invalid_recompute_output_preserves_original(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+
+    def write_invalid_json(path, *_args):
+        Path(path).write_text("{invalid", encoding="utf-8")
+        return path
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=write_invalid_json,
+    ):
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file)
+        )
+
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+
+
+def test_duplicate_calibration_ids_fail_before_recompute(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera", "Camera"])
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers"
+    ) as recompute:
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file)
+        )
+
+    recompute.assert_not_called()
+
+
+def test_backup_failure_prevents_recompute(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch.object(manager, "_create_backup", return_value=None), patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers"
+    ) as recompute:
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file)
+        )
+
+    recompute.assert_not_called()
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+
+
+def test_unexpected_output_path_preserves_original(tmp_path):
+    video_dir = tmp_path / "videos"
+    video_dir.mkdir()
+    (video_dir / "Camera.mp4").write_text("", encoding="utf-8")
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+    unexpected_output = tmp_path / "unexpected.json"
+    write_calibration(unexpected_output, ["Camera"])
+
+    manager = make_manager({"CALIBRATION_MODE": "mount"})
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        return_value=str(unexpected_output),
+    ):
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(video_dir, calibration_file)
+        )
+
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+
+
+@pytest.mark.parametrize("mode", ["3d", "mv3dt"])
+def test_file_sensor_source_uses_camera_names_without_video_directory(tmp_path, mode):
+    sensor_file = tmp_path / "sensors.json"
+    sensor_file.write_text(
+        json.dumps(
+            {
+                "sensors": [
+                    {
+                        "camera_name": "Camera_02",
+                        "rtsp_url": "rtsp://camera-02",
+                    },
+                    {"camera_name": "Camera", "rtsp_url": "rtsp://camera"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    calibration_file = tmp_path / "calibration.json"
+    write_calibration(calibration_file, ["Camera", "Camera_02", "UnusedCamera"])
+    calls = []
+
+    def fake_recompute(path, sensor_names, n_sensor_groups, max_sensors_per_group):
+        calls.append((sensor_names, n_sensor_groups, max_sensors_per_group))
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        selected = set(sensor_names)
+        data["sensors"] = [
+            sensor for sensor in data["sensors"] if sensor["id"] in selected
+        ]
+        data["sensorGroups"] = [{"name": "bev-sensor-1", "sensors": sensor_names}]
+        Path(path).write_text(json.dumps(data), encoding="utf-8")
+        return path
+
+    manager = make_manager(
+        {
+            "CALIBRATION_MODE": "mount",
+            "SENSOR_INFO_SOURCE": "file",
+            "SENSOR_FILE_PATH": str(sensor_file),
+        },
+        mode=mode,
+    )
+    operation = make_operation(
+        tmp_path / "missing-videos",
+        calibration_file,
+        expected_count=2,
+        required_mode=mode,
+    )
+    operation["sensor_file"] = "${SENSOR_FILE_PATH}"
+
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers",
+        side_effect=fake_recompute,
+    ):
+        assert manager._execute_recompute_bev_groups(operation)
+
+    assert calls == [(["Camera", "Camera_02"], 1, 2)]
+    result = json.loads(calibration_file.read_text(encoding="utf-8"))
+    assert [sensor["id"] for sensor in result["sensors"]] == [
+        "Camera",
+        "Camera_02",
+    ]
+
+
+def test_duplicate_file_camera_name_fails_before_backup(tmp_path):
+    sensor_file = tmp_path / "sensors.json"
+    sensor_file.write_text(
+        json.dumps(
+            {
+                "sensors": [
+                    {"camera_name": "Camera", "rtsp_url": "rtsp://camera-01"},
+                    {"camera_name": "Camera", "rtsp_url": "rtsp://camera-02"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+    manager = make_manager(
+        {
+            "CALIBRATION_MODE": "mount",
+            "SENSOR_INFO_SOURCE": "file",
+            "SENSOR_FILE_PATH": str(sensor_file),
+        }
+    )
+
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers"
+    ) as recompute:
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(tmp_path / "missing", calibration_file)
+        )
+
+    recompute.assert_not_called()
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+    assert not list(tmp_path.glob("calibration.backup_*.json"))
+
+
+def test_file_sensor_source_rejects_missing_rtsp_url(tmp_path):
+    sensor_file = tmp_path / "sensors.json"
+    sensor_file.write_text(
+        json.dumps({"sensors": [{"camera_name": "Camera"}]}),
+        encoding="utf-8",
+    )
+    calibration_file = tmp_path / "calibration.json"
+    original = write_calibration(calibration_file, ["Camera"])
+    manager = make_manager(
+        {
+            "CALIBRATION_MODE": "mount",
+            "SENSOR_INFO_SOURCE": "file",
+            "SENSOR_FILE_PATH": str(sensor_file),
+        }
+    )
+
+    with patch(
+        "profile_configurator.profile_config_manager.recompute_bev_centers"
+    ) as recompute:
+        assert not manager._execute_recompute_bev_groups(
+            make_operation(tmp_path / "missing", calibration_file)
+        )
+
+    recompute.assert_not_called()
+    assert json.loads(calibration_file.read_text(encoding="utf-8")) == original
+    assert not list(tmp_path.glob("calibration.backup_*.json"))

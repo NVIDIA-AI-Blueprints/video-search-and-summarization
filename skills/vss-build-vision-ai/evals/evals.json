@@ -1,0 +1,66 @@
+[
+  {
+    "id": "build-search-profile",
+    "question": "Build and deploy a VSS search profile for natural-language video retrieval.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Use the profile composition and deployment workflow.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Selects and deploys the search profile."
+    ]
+  },
+  {
+    "id": "search-running-archive",
+    "question": "Search my existing VSS archive for the red truck.",
+    "expected_skill": null,
+    "ground_truth": "Operate the running search deployment rather than building a stack.",
+    "expected_behavior": [
+      "Does not activate vss-build-vision-ai.",
+      "Routes the request to vss-search-archive."
+    ]
+  },
+  {
+    "id": "build-base-gb300",
+    "question": "Deploy the VSS base profile on DGX Station GB300.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Use the GB300 single-GPU sizing contract and deploy base.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Applies DGX Station GB300 OS and driver checks from prerequisites.md.",
+      "Writes the complete single-GB300 device placement, RT-VLM utilization 0.2, and concrete SBSA tags directly to the build override — not a two-GPU H100 layout or a dev-profile.sh invocation — and never duplicates an existing -sbsa suffix."
+    ]
+  },
+  {
+    "id": "build-lvs-gb300",
+    "question": "Deploy LVS video summarization on DGX Station GB300.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Use the GB300 single-GPU sizing contract and deploy lvs.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Selects the lvs profile with HARDWARE_PROFILE=GB300.",
+      "Co-locates the local LLM and RT-VLM on the one selected GB300 using the documented 0.2 / 0.3 fractions and writes the placement envs directly to override.env."
+    ]
+  },
+  {
+    "id": "build-alerts-gb300",
+    "question": "Deploy the alerts profile on DGX Station GB300.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Use the GB300 single-GPU sizing contract and deploy alerts.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Does not inherit the stock alerts GPU-1 device IDs when they do not identify the selected GB300.",
+      "Writes RT-CV, LLM, and RT-VLM placement on the selected GB300, RT-VLM utilization 0.2, and the applicable concrete SBSA tags directly to override.env."
+    ]
+  },
+  {
+    "id": "build-search-gb300",
+    "question": "Deploy the search profile on DGX Station GB300.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Use the GB300 single-GPU sizing contract and deploy search.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Selects the search profile with HARDWARE_PROFILE=GB300.",
+      "Collapses the stock two-GPU search layout onto the selected GB300 through explicit override.env values and keeps the local LLM nvidia/nemotron-3.5-lightning-30b-a3b."
+    ]
+  }
+]
