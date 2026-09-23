@@ -294,7 +294,8 @@ asymmetry is deliberate — each matches the vantage it runs from:
 - **Write / provision → loopback host ports**, *not* `vss configure`. The caller
   reads the consumer ports from the build's `resolved.yml` `ports:` mappings
   (`http://localhost:<port>`; stock deploys fall back to profile defaults) and
-  hands them to `vss-manage-video-io-storage` `provision-vios-source.md`. Loopback
+  uses them for VIOS registration (`vss-manage-video-io-storage`) and any
+  hand-driven RT-VLM call (`vss-deploy-dense-captioning`). Loopback
   covers RT-VLM natively and keeps RT-Embed's live SSE stream off the proxy hop.
   `vss configure` records **ingress URLs, not loopback ports**, so the two
   mechanisms do not overlap — except on a build that fronts RT-VLM for the tagging
