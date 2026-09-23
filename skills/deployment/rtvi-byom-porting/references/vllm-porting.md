@@ -46,14 +46,58 @@ actual runtime image:
 cd services/rtvi/rt-vlm
 docker build -f docker/Dockerfile -t vss-rt-vlm:byom .
 cd docker
-RTVI_IMAGE=vss-rt-vlm:byom docker compose up -d
+RTVI_IMAGE=vss-rt-vlm:byom \
+BACKEND_PORT=8000 \
+MODEL_ROOT_DIR=/absolute/model/snapshot \
+MODEL_PATH=/absolute/model/snapshot \
+VLM_MODEL_TO_USE=vllm-compatible \
+VLLM_ENFORCE_EAGER=false \
+docker compose up -d
 docker image inspect vss-rt-vlm:byom --format '{{.Id}}'
 ```
 
-After standalone validation, select that same image in the VSS profile with
-`VSS_RT_VLM_IMAGE=vss-rt-vlm` and `VSS_RT_VLM_TAG=byom`. Verify the
-implementation/plugin imports inside the running container before accepting
-readiness.
+Include `VLM_TRUST_REMOTE_CODE=true` and an exact
+`RTVI_MODEL_PATH_ALLOWLIST=/absolute/model/snapshot` in that command when the
+reviewed snapshot requires remote code.
+
+Because the full VSS profile has no model-directory bind mount on develop,
+promote the tested snapshot into the tested image. In a private build context
+containing `model/`, use this two-line Dockerfile:
+
+```dockerfile
+FROM vss-rt-vlm:byom
+COPY --chown=1001:1001 model/ /opt/models/byom/
+```
+
+Build it as `vss-rt-vlm-byom:MODEL_REVISION`, then validate the canonical full
+profile with the same in-image snapshot:
+
+```bash
+cd /private/byom-build-context
+docker build -t vss-rt-vlm-byom:MODEL_REVISION .
+cd /path/to/video-search-and-summarization
+
+COMPOSE_FILE=deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
+export VSS_RT_VLM_IMAGE=vss-rt-vlm-byom
+export VSS_RT_VLM_TAG=MODEL_REVISION
+export RTVI_VLM_MODEL_TO_USE=vllm-compatible
+export RTVI_VLM_MODEL_PATH=/opt/models/byom
+export RTVI_VLM_PORT=8018
+export VSS_DATA_DIR=/absolute/vss-data
+mkdir -p "$VSS_DATA_DIR/data_log/vst/clip_storage"
+
+docker compose -f "$COMPOSE_FILE" --profile rtvi-vlm config --quiet
+docker compose -f "$COMPOSE_FILE" --profile rtvi-vlm up -d rtvi-vlm
+curl -fsS "http://127.0.0.1:$RTVI_VLM_PORT/v1/health/ready"
+curl -fsS "http://127.0.0.1:$RTVI_VLM_PORT/v1/models"
+```
+
+Set `VLM_TRUST_REMOTE_CODE=true` and
+`RTVI_VLM_MODEL_PATH_ALLOWLIST=/opt/models/byom` for reviewed remote code in the
+full VSS profile. Use `vss-deploy-dense-captioning` if the canonical single-file
+Compose needs its documented optional-`depends_on` normalization or Kafka
+preparation. Verify the implementation/plugin imports inside the running
+container before accepting readiness.
 
 The VSS profile maps the corresponding values through
 `RTVI_VLM_MODEL_TO_USE`, `RTVI_VLM_MODEL_PATH`, and
