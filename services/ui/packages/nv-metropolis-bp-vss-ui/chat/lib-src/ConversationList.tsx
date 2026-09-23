@@ -99,11 +99,6 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
     return (
       <li key={conversation.id}>
         <div
-          draggable={!busy}
-          onDragStart={(event) => {
-            event.dataTransfer.effectAllowed = 'move';
-            event.dataTransfer.setData('text/plain', conversation.id);
-          }}
           className={`group flex items-center gap-2 rounded-md p-2 ${
             active ? 'bg-[#76b900]/20' : 'hover:bg-gray-500/10'
           }`}
@@ -124,6 +119,11 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
           ) : (
             <button
               type="button"
+              draggable={!busy}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', conversation.id);
+              }}
               onClick={() => onSelectConversation(conversation.id)}
               onDoubleClick={() => {
                 setRenamingId(conversation.id);
@@ -137,7 +137,7 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
             </button>
           )}
 
-          {movingId === conversation.id ? (
+          {movingId === conversation.id && (
             <select
               autoFocus
               aria-label={`Move ${conversation.name} to folder`}
@@ -156,18 +156,21 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
                 </option>
               ))}
             </select>
-          ) : sortedFolders.length > 0 && renamingId !== conversation.id ? (
-            <button
-              type="button"
-              aria-label={`Move ${conversation.name}`}
-              title="Move to folder"
-              disabled={busy}
-              onClick={() => setMovingId(conversation.id)}
-              className="flex-shrink-0 text-neutral-500 opacity-0 transition-opacity hover:text-neutral-900 group-hover:opacity-100 focus:opacity-100 disabled:opacity-40 dark:text-neutral-400 dark:hover:text-white"
-            >
-              <IconFolder size={16} />
-            </button>
-          ) : null}
+          )}
+          {movingId !== conversation.id &&
+            sortedFolders.length > 0 &&
+            renamingId !== conversation.id && (
+              <button
+                type="button"
+                aria-label={`Move ${conversation.name}`}
+                title="Move to folder"
+                disabled={busy}
+                onClick={() => setMovingId(conversation.id)}
+                className="flex-shrink-0 text-neutral-500 opacity-0 transition-opacity hover:text-neutral-900 group-hover:opacity-100 focus:opacity-100 disabled:opacity-40 dark:text-neutral-400 dark:hover:text-white"
+              >
+                <IconFolder size={16} />
+              </button>
+            )}
 
           {confirmingDeleteId !== conversation.id && renamingId !== conversation.id ? (
             <button
@@ -303,14 +306,60 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
           const folderMatches = folder.name.toLowerCase().includes(searchTerm.trim().toLowerCase());
           if (searchTerm && !folderMatches && folderConversations.length === 0) return null;
           const open = openFolderIds.includes(folder.id) || !!searchTerm;
+          let folderActions: React.ReactNode = (
+            <>
+              <button
+                type="button"
+                aria-label={`Rename folder ${folder.name}`}
+                disabled={busy}
+                onClick={() => {
+                  setRenamingFolderId(folder.id);
+                  setFolderDraftName(folder.name);
+                }}
+                className="text-neutral-500 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 disabled:opacity-40 dark:text-neutral-400"
+              >
+                <IconPencil size={16} />
+              </button>
+              <button
+                type="button"
+                aria-label={`Delete folder ${folder.name}`}
+                disabled={busy}
+                onClick={() => setConfirmingDeleteFolderId(folder.id)}
+                className="text-neutral-500 opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100 focus:opacity-100 disabled:opacity-40 dark:text-neutral-400 dark:hover:text-red-400"
+              >
+                <IconTrash size={16} />
+              </button>
+            </>
+          );
+          if (confirmingDeleteFolderId === folder.id) {
+            folderActions = (
+              <>
+                <button
+                  type="button"
+                  aria-label={`Confirm delete folder ${folder.name}`}
+                  onClick={() => {
+                    onDeleteFolder(folder.id);
+                    setConfirmingDeleteFolderId(null);
+                  }}
+                  className="text-neutral-600 hover:text-[#76b900] dark:text-neutral-300"
+                >
+                  <IconCheck size={16} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Cancel folder delete"
+                  onClick={() => setConfirmingDeleteFolderId(null)}
+                  className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white"
+                >
+                  <IconX size={16} />
+                </button>
+              </>
+            );
+          }
+          if (renamingFolderId === folder.id) folderActions = null;
 
           return (
-            <div
-              key={folder.id}
-              className="mt-1"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => moveDroppedConversation(event, folder.id)}
-            >
+            <div key={folder.id} className="mt-1">
               <div className="group relative flex items-center rounded-md hover:bg-gray-500/10">
                 {renamingFolderId === folder.id ? (
                   <div className="flex min-w-0 flex-1 items-center gap-2 p-2 pr-16">
@@ -321,6 +370,8 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
                       value={folderDraftName}
                       onChange={(event) => setFolderDraftName(event.target.value)}
                       onBlur={commitFolderRename}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => moveDroppedConversation(event, folder.id)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') commitFolderRename();
                         if (event.key === 'Escape') setRenamingFolderId(null);
@@ -333,6 +384,8 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
                     type="button"
                     aria-expanded={open}
                     onClick={() => toggleFolder(folder.id)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => moveDroppedConversation(event, folder.id)}
                     className="flex min-w-0 flex-1 items-center gap-2 p-2 pr-16 text-left text-neutral-900 dark:text-white"
                   >
                     {open ? <IconCaretDown size={16} /> : <IconCaretRight size={16} />}
@@ -342,58 +395,16 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
                 )}
 
                 <span className="absolute right-1 flex items-center gap-1">
-                  {confirmingDeleteFolderId === folder.id ? (
-                    <>
-                      <button
-                        type="button"
-                        aria-label={`Confirm delete folder ${folder.name}`}
-                        onClick={() => {
-                          onDeleteFolder(folder.id);
-                          setConfirmingDeleteFolderId(null);
-                        }}
-                        className="text-neutral-600 hover:text-[#76b900] dark:text-neutral-300"
-                      >
-                        <IconCheck size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Cancel folder delete"
-                        onClick={() => setConfirmingDeleteFolderId(null)}
-                        className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white"
-                      >
-                        <IconX size={16} />
-                      </button>
-                    </>
-                  ) : renamingFolderId !== folder.id ? (
-                    <>
-                      <button
-                        type="button"
-                        aria-label={`Rename folder ${folder.name}`}
-                        disabled={busy}
-                        onClick={() => {
-                          setRenamingFolderId(folder.id);
-                          setFolderDraftName(folder.name);
-                        }}
-                        className="text-neutral-500 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 disabled:opacity-40 dark:text-neutral-400"
-                      >
-                        <IconPencil size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Delete folder ${folder.name}`}
-                        disabled={busy}
-                        onClick={() => setConfirmingDeleteFolderId(folder.id)}
-                        className="text-neutral-500 opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100 focus:opacity-100 disabled:opacity-40 dark:text-neutral-400 dark:hover:text-red-400"
-                      >
-                        <IconTrash size={16} />
-                      </button>
-                    </>
-                  ) : null}
+                  {folderActions}
                 </span>
               </div>
 
               {open ? (
-                <ul className="ml-4 border-l border-black/10 pl-1 dark:border-white/10">
+                <ul
+                  className="ml-4 border-l border-black/10 pl-1 dark:border-white/10"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => moveDroppedConversation(event, folder.id)}
+                >
                   {folderConversations.length > 0 ? (
                     folderConversations.map(renderConversation)
                   ) : (
@@ -472,8 +483,10 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
             event.target.value = '';
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = (loadEvent) =>
-              onImportConversations(String(loadEvent.target?.result ?? ''));
+            reader.onload = (loadEvent) => {
+              const content = loadEvent.target?.result;
+              if (typeof content === 'string') onImportConversations(content);
+            };
             reader.readAsText(file);
           }}
         />

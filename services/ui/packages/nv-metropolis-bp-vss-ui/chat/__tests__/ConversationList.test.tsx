@@ -136,4 +136,21 @@ describe('ConversationList', () => {
     fireEvent.click(screen.getByRole('button', { name: `Confirm delete folder ${folder.name}` }));
     expect(props.onDeleteFolder).toHaveBeenCalledWith(folder.id);
   });
+
+  it('moves a dragged conversation when dropped on a folder', () => {
+    const props = handlers({ folders: [folder] });
+    const dataTransfer = {
+      effectAllowed: 'none',
+      setData: jest.fn(),
+      getData: jest.fn(() => conversation.id),
+    };
+    render(<ConversationList {...props} />);
+
+    fireEvent.dragStart(screen.getByRole('button', { name: conversation.name }), { dataTransfer });
+    expect(dataTransfer.effectAllowed).toBe('move');
+    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', conversation.id);
+
+    fireEvent.drop(screen.getByRole('button', { name: folder.name }), { dataTransfer });
+    expect(props.onMoveConversation).toHaveBeenCalledWith(conversation.id, folder.id);
+  });
 });
