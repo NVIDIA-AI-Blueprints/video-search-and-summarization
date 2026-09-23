@@ -235,8 +235,8 @@ The Skill takes the tag from the first source that answers:
 3. Neither, in which case `containers.env` defaults. This is the ordinary case.
 
 The Skill names the selected tag in the pre-deploy review summary and applies it
-to every managed image. A build where any image did not pick up the tag fails
-instead of deploying a partially tagged stack.
+to the images it manages. If any of those is left on the default tag, the build
+stops rather than deploying a partially tagged stack.
 
 On GB300 and DGX Spark, SBSA-suffixed services run the `-sbsa` variant of the
 selected tag, so their images differ from the common tag by that suffix.
