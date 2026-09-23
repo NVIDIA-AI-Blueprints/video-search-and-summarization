@@ -718,9 +718,12 @@ in `user-overrides.env`.
 <Note>
 The search profile deploys two GPUs by default, and RT-VLM shares GPU 0 with
 RTVI-CV. On that shared GPU, use an FP8 checkpoint: **Cosmos3 Super Reasoner FP8
-is the option to use for Super**. The BF16 checkpoints are roughly twice the size
-and leave RTVI-CV too little memory to initialize its detection engine, so they
-fit only a layout that gives the VLM its own GPU.
+is the option to use for Super**. This is a validated shared-GPU placement, not
+just a recommendation — on a 95 GiB H100 NVL, RTVI-CV and RT-VLM both reach
+ready with ~31 GiB still free at `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55`. The
+BF16 checkpoints are roughly twice the size and leave RTVI-CV too little memory
+to initialize its detection engine, so BF16 fits only a layout that gives the
+VLM its own GPU — never co-locate Super BF16 with RTVI-CV.
 
 Super models have only been tested on RTX PRO 6000 and H100.
 
@@ -729,7 +732,7 @@ precisions, but it has not been tested on the shared-GPU search layout.
 </Note>
 
 Super's weights are roughly three times larger than Nano's, so raise the VLM's
-share of the GPU when you select it:
+share of the GPU when you select the FP8 checkpoint:
 
 ```ini
 RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55
