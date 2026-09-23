@@ -118,6 +118,9 @@ const PREFIXES = {
   interaction: 'interaction_data: ',
 } as const;
 
+const isNativeTerminalStep = (step: ChatStep): boolean =>
+  step.parentId === 'root' && /^Function Complete:\s*<workflow>$/i.test(step.name);
+
 /**
  * Incremental SSE reader.
  *
@@ -185,20 +188,7 @@ export class SseParser {
     }
 
     if (line.startsWith(PREFIXES.step)) {
-      const step = this.parseStep(line.slice(PREFIXES.step.length));
-      if (step) {
-        events.push({ kind: 'step', step });
-        // Native vss-agent streams close with the root workflow completion
-        // frame instead of an OpenAI `data: [DONE]` frame. Treat only that
-        // outermost completion as terminal; nested function completions are
-        // ordinary intermediate steps.
-        if (
-          step.parentId === 'root' &&
-          /^Function Complete:\s*<workflow>$/i.test(step.name)
-        ) {
-          this.emitDone(events);
-        }
-      }
+      this.readStep(line.slice(PREFIXES.step.length), events);
       return;
     }
 
@@ -246,6 +236,17 @@ export class SseParser {
       text = payload;
     }
     if (text) events.push({ kind: 'token', text });
+  }
+
+  private readStep(payload: string, events: SseEvent[]): void {
+    const step = this.parseStep(payload);
+    if (!step) return;
+
+    events.push({ kind: 'step', step });
+    // Native vss-agent streams close with the root workflow completion frame
+    // instead of an OpenAI `data: [DONE]` frame. Nested completions remain
+    // ordinary intermediate steps.
+    if (isNativeTerminalStep(step)) this.emitDone(events);
   }
 
   private emitDone(events: SseEvent[]): void {
