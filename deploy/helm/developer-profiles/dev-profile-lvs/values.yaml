@@ -506,6 +506,10 @@ vss-agent-ui:
 vssIngress:
   enabled: false
   ingressClassName: haproxy
+  # Additional controller annotations, e.g. a Traefik routing middleware. They
+  # win over the profile's own; setting haproxy.org/path-rewrite replaces the
+  # generated rewrite table instead of merging into it.
+  annotations: {}
   host: ""
   # Backend ports for the canonical route table (deploy/helm/services/common).
   # Every service is mounted at its own name — LVS at /lvs, RT-VLM at
