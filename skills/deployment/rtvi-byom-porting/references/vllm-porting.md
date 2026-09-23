@@ -77,7 +77,7 @@ cd /private/byom-build-context
 docker build -t vss-rt-vlm-byom:MODEL_REVISION .
 cd /path/to/video-search-and-summarization
 
-COMPOSE_FILE=deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml
+COMPOSE_FILE=deploy/docker/compose.yml
 export VSS_RT_VLM_IMAGE=vss-rt-vlm-byom
 export VSS_RT_VLM_TAG=MODEL_REVISION
 export RTVI_VLM_MODEL_TO_USE=vllm-compatible
@@ -94,10 +94,9 @@ curl -fsS "http://127.0.0.1:$RTVI_VLM_PORT/v1/models"
 
 Set `VLM_TRUST_REMOTE_CODE=true` and
 `RTVI_VLM_MODEL_PATH_ALLOWLIST=/opt/models/byom` for reviewed remote code in the
-full VSS profile. Use `vss-deploy-dense-captioning` if the canonical single-file
-Compose needs its documented optional-`depends_on` normalization or Kafka
-preparation. Verify the implementation/plugin imports inside the running
-container before accepting readiness.
+full VSS profile. Use `vss-deploy-dense-captioning` for Kafka preparation and
+the complete operational checks. Verify the implementation/plugin imports
+inside the running container before accepting readiness.
 
 The VSS profile maps the corresponding values through
 `RTVI_VLM_MODEL_TO_USE`, `RTVI_VLM_MODEL_PATH`, and
