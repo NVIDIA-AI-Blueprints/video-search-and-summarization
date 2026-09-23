@@ -59,7 +59,8 @@ const InternalConversationHistory: React.FC<InternalConversationHistoryProps> = 
   controls,
   enabled,
 }) => {
-  const [visible, setVisible] = useState(true);
+  // Keep chat controls reachable until someone explicitly opens history.
+  const [visible, setVisible] = useState(false);
 
   if (!enabled) return null;
 
