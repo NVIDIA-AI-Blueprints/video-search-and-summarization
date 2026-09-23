@@ -637,42 +637,23 @@ sessions, and nothing else in the run tells the user that happened.
 > OpenClaw onboarding for '<name>' is incomplete because its canonical CLI
 > device did not receive the required baseline scopes.
 
-The sandbox is left created but unregistered, and the notebook's retries
-(`--fresh`, base-image refresh) reproduce it. The VSS stack and the inference
-route have nothing to do with it.
+NemoClaw pairs the new sandbox's CLI device on the default dashboard port
+(`18789`); when another sandbox on the host already holds it, the pairing
+misses and onboarding times out. Retrying with `--fresh` reproduces it. The
+VSS stack and the inference route have nothing to do with it.
 
-**Cause.** NemoClaw (v0.0.114) pairs the sandbox's CLI device during onboard by
-calling the sandbox gateway on the port in `openclaw.json` (`18789`). The
-gateway actually listens on the port NemoClaw allocated for the sandbox, which
-is `18789` only for the first sandbox on the host with `NEMOCLAW_DASHBOARD_PORT`
-unset. A second sandbox on the host — last night's, or a personal one — or a
-custom port makes the pairing call miss, and onboarding times out with the
-message above.
-
-**Fix.** Clear cached sandboxes so this one gets `18789`, then rerun:
+A deploy recreates the sandbox, so its state is expendable: destroy every
+sandbox on the host, confirm `18789` is free, and rerun the notebook.
 
 ```bash
-openshell sandbox list            # every sandbox on this host
-nemoclaw <name> destroy           # the failed one and any stale one
-lsof -nP -iTCP:18789 -sTCP:LISTEN # must print nothing
+openshell sandbox list
+nemoclaw <name> destroy             # each one listed
+lsof -nP -iTCP:18789 -sTCP:LISTEN   # must print nothing
 ```
 
-Leave `NEMOCLAW_DASHBOARD_PORT` unset. Destroying rather than recreating also
-avoids NemoClaw's recreate guard, which refuses to delete a sandbox whose
-onboarding never finished (`NEMOCLAW_RECREATE_WITHOUT_BACKUP=1` is its bypass).
-
-If the sandbox must be kept, finish the pairing by hand — inside the sandbox
-the calls reach the right port — then resume with the same `--from`:
-
-```bash
-openshell sandbox exec -n <name> -- openclaw gateway call sessions.create --params '{"agentId":"main"}' --json
-openshell sandbox exec -n <name> -- openclaw devices list --json        # copy the pending requestId
-openshell sandbox exec -n <name> -- openclaw devices approve <requestId> --json
-nemoclaw onboard --resume --name <name> --non-interactive --agent openclaw --from "$REPO/.openclaw/Dockerfile"
-```
-
-One sandbox per host is the supported shape: the relay port `18790` is also in
-NemoClaw's allocation range, so a second sandbox can collide with it.
+Anything beyond that — repairing a sandbox in place, NemoClaw's recreate
+guards — is NemoClaw's domain: see the
+[NemoClaw documentation](https://docs.nvidia.com/nemoclaw/latest/index.html).
 
 ## Teardown
 
