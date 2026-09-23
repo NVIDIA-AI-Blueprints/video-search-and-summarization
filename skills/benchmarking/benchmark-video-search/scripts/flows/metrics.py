@@ -214,6 +214,110 @@ def evaluate_query(
         "missed_gt_indices": missed,
     }
 
+def match_clip(api_result: dict, relevant_clips: list[str]) -> bool:
+    """True iff a retrieved hit's video matches any relevant clip.
+
+    Clip-level GT is whole-clip relevance (no time bounds), so the match is by
+    video name only -- no overlap, no 5-second grid. ``video_name_matches`` strips
+    ``.mp4`` from the retrieved name and prefix-matches the GT *stem*, so the
+    adapter must store stems (no extension) or nothing matches. [F1]
+    """
+    actual = api_result.get("video_name", "")
+    if not actual:
+        return False
+    return any(video_name_matches(actual, stem) for stem in relevant_clips)
+
+
+def evaluate_clip_query(
+    query: str,
+    api_results: list[dict],
+    relevant_clips: list[str],
+    latency_s: float,
+    hit_ks: tuple[int, ...] = (1, 5, 10),
+) -> dict[str, Any]:
+    """Score one query's clip retrieval against its relevant clips.
+
+    Differs from segment scoring in two ways the plan review fixed:
+
+    * **dedupe by clip before counting.** ``for_scoring`` does not dedupe and
+      a clip chunked at ingest can return several segments sharing one
+      ``video_name``; without a dedupe a single relevant clip retrieved as 3
+      segments counts as 3 retrieved / 1 relevant and distorts precision. [F2]
+    * **k is capped at the retrieval depth.** Clip scoring has no 5-second
+      segment expansion, so ranks are 1:1 with retrieved results and ``hit@k`` /
+      ``recall@k`` for ``k > top_k`` are unmeasurable -- the caller passes a
+      ``hit_ks`` already capped at ``--top-k``. [F3]
+
+    Return keys mirror :func:`evaluate_query` so the aggregator can sum
+    either task with the same code.
+    """
+    # Dedupe to one row per clip, keeping the earliest rank. [F2]
+    seen: set[str] = set()
+    ranked: list[dict] = []
+    for r in api_results:
+        name = r.get("video_name", "")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        ranked.append(r)
+
+    found: set[str] = set()
+    matched: list[dict[str, Any]] = []
+    relevance_at_rank: list[int] = []
+    for rank, r in enumerate(ranked, 1):
+        is_match = False
+        for stem in relevant_clips:
+            if stem not in found and video_name_matches(r.get("video_name", ""), stem):
+                # Claim each relevant clip once, by the earliest-ranked result
+                # that reaches it -- mirrors segment scoring's one-claim-per-GT.
+                is_match = True
+                found.add(stem)
+                matched.append({"rank": rank, "clip": stem})
+                break
+        relevance_at_rank.append(1 if is_match else 0)
+
+    tp = len(matched)
+    total_retrieved = len(ranked)
+    total_relevant = len(relevant_clips)
+
+    precision = tp / total_retrieved if total_retrieved > 0 else 0
+    recall = tp / total_relevant if total_relevant > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
+    first_rank = min((m["rank"] for m in matched), default=None)
+    rr = 1.0 / first_rank if first_rank else 0.0
+
+    # k > top_k is unmeasurable for clip retrieval; the caller caps hit_ks.
+    hit_at_k = {k: (1 if any(m["rank"] <= k for m in matched) else 0) for k in hit_ks}
+
+    if total_relevant > 0:
+        prec_sum = 0.0
+        rel_count = 0
+        for rank, is_rel in enumerate(relevance_at_rank, 1):
+            if is_rel:
+                rel_count += 1
+                prec_sum += rel_count / rank
+        ap = prec_sum / total_relevant
+    else:
+        ap = 0.0
+
+    missed = [i for i, s in enumerate(relevant_clips) if s not in found]
+
+    return {
+        "query": query,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "average_precision": ap,
+        "reciprocal_rank": rr,
+        "hit_at_k": hit_at_k,
+        "true_positives": tp,
+        "false_positives": total_retrieved - tp,
+        "total_relevant": total_relevant,
+        "total_retrieved": total_retrieved,
+        "latency_s": latency_s,
+        "missed_gt_indices": missed,
+    }
 
 def format_inline(m: dict[str, Any], latency_s: float | None = None) -> str:
     """One-line per-query summary for the console."""

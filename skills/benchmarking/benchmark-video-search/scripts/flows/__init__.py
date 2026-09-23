@@ -56,9 +56,12 @@ from .base import (
 )
 from .dataset import (
     DATASETS,
+    DATASET_META,
     DEFAULT_DATA_DIR,
     DSS_DATASET_NAME,
+    DatasetMeta,
     aggregate_upload_stats,
+    dataset_meta,
     download_from_dss,
     llm_url_for,
     load_dataset_file,
@@ -81,8 +84,10 @@ from .metrics import (
     HIT_K_VALUES,
     SEGMENT_SIZE,
     align_ts_to_segment,
+    evaluate_clip_query,
     evaluate_query,
     format_inline,
+    match_clip,
     match_segment,
     parse_ts,
     post_process_api_results,
