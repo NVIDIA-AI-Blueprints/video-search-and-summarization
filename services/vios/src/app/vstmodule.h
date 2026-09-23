@@ -33,9 +33,9 @@ typedef void (*deleteObject_t) (IVstModule*);
 class IVstModule
 {
     public:
-        createObject_t m_createObject;
-        deleteObject_t m_deleteObject;
-        IVstModule* m_module;
+        createObject_t m_createObject = nullptr;
+        deleteObject_t m_deleteObject = nullptr;
+        IVstModule* m_module = nullptr;
         std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>>  m_func;
         nv_vms::IMediaInterface* m_mediaInterface = nullptr;
 

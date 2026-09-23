@@ -56,7 +56,10 @@ def main() -> None:
     assert "repository: ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm" in helm_values
     assert 'tag: "develop-latest"' in helm_values
 
-    assert "README.md#container-image-availability" in docs
+    assert (
+        "https://github.com/NVIDIA-AI-Blueprints/"
+        "video-search-and-summarization#container-image-availability" in docs
+    )
     assert "README.md#container-image-availability" in README.read_text(
         encoding="utf-8"
     )

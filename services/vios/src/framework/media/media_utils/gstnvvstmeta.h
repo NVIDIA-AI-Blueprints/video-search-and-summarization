@@ -52,7 +52,7 @@ GType gst_nv_vst_meta_api_get_type (void);
 const GstMetaInfo *gst_nv_vst_meta_get_info (void);
 #define GST_NV_VST_META_INFO (gst_nv_vst_meta_get_info())
 
-#define GST_NV_VST_META_STRING "nvvstmeta"
+constexpr const char* GST_NV_VST_META_STRING = "nvvstmeta";
 
 #define GST_NV_VST_META_GET(buf) ((GstNvVstMeta *)gst_buffer_get_meta(buf,GST_NV_VST_META_API_TYPE))
 #define GST_NV_VST_META_ADD(buf) ((GstNvVstMeta *)gst_buffer_add_meta(buf,GST_NV_VST_META_INFO,nullptr))

@@ -26,6 +26,7 @@ per-profile capability flags:
 """
 
 from typing import cast
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -294,3 +295,22 @@ class TestRegisterStreamingRoutesDispatcher:
         rtsp_ingest.assert_not_called()
         rtsp_delete.assert_not_called()
         video_delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_add_routes_registers_deployment_version_endpoint() -> None:
+    worker = CustomFastApiFrontEndWorker.__new__(CustomFastApiFrontEndWorker)
+    app = FastAPI()
+    builder = MagicMock()
+
+    with (
+        patch(
+            "vss_agents.api.custom_fastapi_worker.FastApiFrontEndPluginWorker.add_routes",
+            new_callable=AsyncMock,
+        ),
+        patch("vss_agents.api.custom_fastapi_worker.register_version_route") as register_version_route,
+        patch.object(worker, "_register_streaming_routes"),
+    ):
+        await worker.add_routes(app, builder)
+
+    register_version_route.assert_called_once_with(app)

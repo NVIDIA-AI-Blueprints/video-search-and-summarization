@@ -25,8 +25,8 @@
 
 struct DecoderStats : public LatencyStats
 {
-    DecoderStats() {}
-    ~DecoderStats() {}
+    DecoderStats() = default;
+    ~DecoderStats() = default;
     std::queue<int64_t> qTimestamp;
     std::mutex   m_queueLock;
     std::condition_variable  m_qTsCond;

@@ -27,14 +27,28 @@ The following diagram illustrates a conceptual architecture of the base vision a
 - Report generation tool which utilizes a LLM and VLM to generate reports from the videos.
 - Video understanding tool which utilizes a VLM to perform video understanding tasks, such as Q&A.
 
+<Warning>
+Agent Skills are released as **Early Access** and are not intended for use in
+production environments. Agent Skills for VSS were validated using Claude Opus
+5.
+</Warning>
+
 ## What's being deployed
 
-- **VSS Agent:** Agent service that uses a configured LLM endpoint to route requests and orchestrate tool calls to VSS microservices and model endpoints (LLM and RT-VLM) to answer questions and generate outputs. The recommended orchestrator model is NVIDIA Nemotron 3.5 Lightning 30B A3B (`nvidia/nemotron-3.5-lightning-30b-a3b`), which handles query routing, reasoning, and report generation.
-- **VSS Agent UI:** Web UI with chat, video upload, and different views
-- **VSS Video IO & Storage (VIOS):** Video ingestion, recording, and playback services used by the agent for video access and management
-- **Nemotron LLM (NIM):** LLM inference service used for reasoning, tool selection, and response generation
-- **Real-Time VLM (RT-VLM):** VLM microservice that serves the integrated Cosmos3 Nano Reasoner model for physical reasoning and video understanding
-- **Phoenix:** Observability and telemetry service for agent workflow monitoring
+The exact service set depends on the deployment path:
+
+- **Build Vision AI Skill (default):** VSS UI, VSS Video IO & Storage
+  (VIOS), and RT-VLM. RT-VLM serves the Cosmos3 Nano Reasoner model through
+  `vss-rtvi-vlm` on port `8018`; there is no separate Cosmos3 Reasoner
+  container. The default NemoClaw harness runs on the host outside the Compose
+  project and connects the UI chat to its OpenClaw sandbox.
+- **Manual Docker Compose:** The stock base profile adds the in-stack VSS Agent
+  to those services. It uses the configured LLM to route requests and
+  orchestrate VSS tools.
+
+Build Vision AI removes the in-stack `vss-agent` service whether you select
+NemoClaw or no harness. It deploys that service only when your request
+explicitly names the in-stack Agent, its REST API, or its chat workflow.
 
 ## Agent Harness Options
 
@@ -47,7 +61,7 @@ supported options.
 
 | Harness | What it is | Pros | Cons |
 | --- | --- | --- | --- |
-| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that drives VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Bundled with VSS skills and a policy preset; installed via the `deploy_nemoclaw.ipynb` and `deploy_vss_orchestrator.ipynb` notebooks. See [NemoClaw](/vss/vision-agent/agent-harnesses/nemoclaw). | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; safety prompts before destructive actions; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents; requires the orchestrator MCP server to be running on the host. |
+| **NemoClaw (OpenClaw sandbox, Build Vision AI default)** | An agent sandbox with a chat UI that can drive VSS through the [VSS Orchestrator MCP server](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). Build Vision AI can provision it as part of the Skill-driven deployment. The [NemoClaw setup](/vss/vision-agent/agent-harnesses/nemoclaw) provides a separate, notebook-driven route for a guided Brev/host installation. | Natural-language *operations* on top of VSS (deploy profiles, fetch logs, inspect containers); guided host setup; deployment status and log inspection; policy-controlled skills. | Focused on deploying and operating VSS rather than building bespoke video analytics agents. The orchestrator MCP server is required when deploying or managing VSS from NemoClaw chat, but not when using installed operation Skills against an existing deployment. |
 | **Direct MCP client** (BYO agent) | Any MCP-compatible LLM client (e.g., Claude Desktop, OpenAI Agents SDK with MCP, custom Python) connecting to VSS's MCP servers: [Video Analytics MCP](/vss/system-components/middleware/api-gateway-mcp/video-analytics-mcp) (port `9901`) and/or [VSS Orchestrator MCP](/vss/vision-agent/agent-harnesses/nemoclaw/vss-orchestrator-mcp) (port `9988`). | Maximum flexibility — bring any model, framework, or language; lightweight; easy to embed into existing agent stacks; reuses VSS's existing tool surface without running the full VSS Agent. | You implement orchestration, retries, multi-turn memory, and streaming yourself; no out-of-the-box Phoenix tracing or Reference UI integration. |
 | **Direct REST API** (no LLM in the loop) | Custom HTTP client calling the [Video Analytics API](/vss/system-components/middleware/api-gateway-mcp/video-analytics-api/video-analytics-api-reference) (port `8081`), VST/VIOS APIs (port `30888`), or the VSS Agent's own REST endpoints (`/generate`, `/chat`, `/api/v1/videos` on port `8000`). | No agent runtime required; lowest latency; ideal for embedding VSS into existing applications, dashboards, or batch pipelines; deterministic. | No reasoning or tool routing — caller must know exactly which API to invoke; not suitable for natural-language workflows. |
 
@@ -57,6 +71,11 @@ Docker Compose project, and the in-stack VSS Agent is omitted unless the request
 explicitly names it. The manual Docker Compose base-profile commands later on
 this page use the stock `COMPOSE_PROFILES` and still deploy the NAT-based VSS
 Agent.
+
+Use one NemoClaw setup route for a deployment. For this quickstart, let Build
+Vision AI provision the harness when it prompts you. Use the standalone
+notebooks instead when you want the guided NemoClaw-on-Brev setup; do not run
+them again for a harness that Build Vision AI already provisioned.
 </Note>
 
 ## Prerequisites
@@ -73,7 +92,12 @@ Before proceeding, ensure that NGC CLI is installed on your system. For installa
 
 ### Download Sample Data From NGC
 
-Perform this on the machine from which you may use the web-browser.
+For the default Skill-driven path, perform this on the deployment host in a
+directory available to the host-side coding agent. The archive creates
+`sample-data/dev-profile-sample-data/`; the walkthrough uses
+`warehouse_safety_0001.mp4` from that directory. If you instead use the manual
+browser upload later on this page from a different machine, copy that file to
+the browser machine before uploading it.
 
 This can be done using NGC CLI as documented below, or downloaded from the NGC UI directly.
 
@@ -123,6 +147,12 @@ quickstart, the deployment host must meet the supported Linux platform,
 GPU, Docker, and NVIDIA Container Toolkit requirements in
 [Prerequisites](/vss/getting-started/prerequisites). On x86 systems, use Ubuntu
 24.04.
+The Build Vision AI Skill requires `uv` for mandatory service-graph checks and
+helper scripts. Install it before starting the coding agent:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
 You can use a remote development environment such as a Brev or Omnistation
 sandbox when that environment exposes the required GPU, Docker Engine, network
@@ -131,27 +161,70 @@ machine can be used as the browser or coding-agent client, but it is not the
 validated Docker Compose deployment host for this quickstart; point the agent at
 a supported Linux deployment host instead.
 
-Install the Build Vision AI Skill before asking the agent to deploy VSS. From the
-VSS Blueprint checkout, ask your coding agent:
+Install the Build Vision AI Skill and the operations Skills before asking the
+agent to deploy or operate VSS. From the VSS Blueprint checkout, ask your coding
+agent:
 
-```text title="Install the Build Vision AI Skill"
-Install only skills/vss-build-vision-ai for this host. Use the host's standard
-skills directory. Symlink the skills/vss-build-vision-ai folder rather than
-copying it so a git pull here keeps the Skill up to date. If it is already
-installed and points at this checkout, leave it unchanged. When done, report the
-registered path.
+```text title="Install the VSS Skills"
+Install skills/vss-build-vision-ai and every Skill under skills/operations for
+this host. Use the host's standard skills directory. Symlink each Skill folder
+rather than copying it so a git pull here keeps the Skills up to date. If a
+Skill is already installed and points at this checkout, leave it unchanged.
+When done, report every registered path.
 ```
 
 The standard Skill locations are:
 
 | Host | Skill path |
 | --- | --- |
-| Codex | `~/.codex/skills/vss-build-vision-ai` |
-| Claude Code | `~/.claude/skills/vss-build-vision-ai` |
-| Other `agentskills.io`-compatible hosts | `~/.agents/skills/vss-build-vision-ai` |
+| Codex | `~/.codex/skills/<skill-name>` |
+| Claude Code | `~/.claude/skills/<skill-name>` |
+| Other `agentskills.io`-compatible hosts | `~/.agents/skills/<skill-name>` |
 
-After installation, start a new coding-agent session from this checkout so the
-agent discovers `vss-build-vision-ai`.
+Before deployment, have the credentials required by your choices available:
+
+| Credential | When the Skill asks for it |
+| --- | --- |
+| `NGC_CLI_API_KEY` | Standard VSS image, model, and sample-data access. |
+| `COMPATIBLE_API_KEY` | A token-protected OpenAI-compatible endpoint. Obtain the key from the endpoint provider. |
+| `NVIDIA_API_KEY` | A model served from `build.nvidia.com` or `integrate.api.nvidia.com`. Create a key from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
+| `HF_TOKEN` | Gated or rate-limited model downloads from Hugging Face. |
+
+Authenticate Docker to `nvcr.io` before asking the Skill to deploy. Use the
+same NGC Personal API Key that you provide as `NGC_CLI_API_KEY`:
+
+```bash
+export NGC_CLI_API_KEY='<your-ngc-personal-api-key>'
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
+```
+
+For a custom OpenAI-compatible NemoClaw endpoint, obtain the key from the
+endpoint provider. Do not paste the key into chat. Store it in the
+checkout-root, gitignored `nemoclaw.env` file:
+
+```bash
+COMPATIBLE_API_KEY='your-provider-api-key'
+```
+
+Alternatively, export `COMPATIBLE_API_KEY` in the shell that starts the
+coding-agent session. The session must inherit the variable; exporting it later
+in another terminal does not update the running agent.
+
+For developer-profile deployments, the Skill asks whether to add a host-side
+agent harness. If you select NemoClaw, choose a model provider that is available
+from your host. The `build.nvidia.com` provider uses `NVIDIA_API_KEY`; a custom
+OpenAI-compatible provider uses `COMPATIBLE_API_KEY`. Select **no harness** to
+operate the deployment with the project-local `vss` CLI instead.
+
+A self-hosted endpoint or **no harness** needs no harness key, although the VSS
+stack can still require NGC and model-download credentials. See
+[Credentials used by the Build Vision AI Skill](/vss/getting-started/prerequisites#credentials-used-by-the-build-vision-ai-skill)
+for the complete decision table.
+
+After installing the Skills and preparing credentials, start a new coding-agent
+session from this checkout. Start it from the shell where you exported any
+credentials so the session both discovers the Skills and inherits those values.
 
 ## Deploy the base profile
 
@@ -159,7 +232,7 @@ Use a coding agent with the [Build Vision AI Skill](/vss/vision-agent/build-visi
 the validated `base` developer profile. This is the default quickstart path.
 
 ```text title="Example prompt"
-Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
+Deploy the VSS base profile on this machine.
 ```
 
 The agent will:
@@ -168,47 +241,280 @@ The agent will:
    workflow.
 2. Confirm prerequisites, credentials, GPU hardware, model placement, and
    host/ingress settings.
-3. Show the generated deployment plan, including services, model placement,
+3. Ask whether to add a host-side agent harness and, when selected, confirm its
+   model provider and required credential.
+4. Show the generated deployment plan, including services, model placement,
    endpoints, and readiness checks.
-4. Ask for confirmation before starting containers.
-5. Deploy the base profile and return the browser-reachable VSS UI URL.
+5. Ask for confirmation before starting containers.
+6. Deploy the base profile and return the browser-reachable VSS UI URL.
 
 When deployment completes, open the returned URL, typically
 `http://<HOST_IP>:7777/`, to use the base vision agent.
 
 <Note>
-On edge platforms (DGX Spark, IGX Thor, AGX Thor), local LLM/VLM sharing is
-supported, but a remote LLM is recommended for better response time. Add
+On edge platforms (DGX Spark, IGX Thor, AGX Thor), a checked-in local
+LLM/VLM sharing configuration is available but has not yet been measured on
+the target hardware. A remote LLM is recommended for better response time. Add
 "with a remote LLM" to the prompt, for example:
-*"Use the vss-build-vision-ai skill to deploy the VSS base profile on this
-DGX-SPARK machine with a remote LLM."* See
+*"Deploy the VSS base profile on this DGX-SPARK machine with a remote LLM."*
+See
 [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
 </Note>
 
+### Verify the Skill-driven deployment
+
+The default Skill path does not include the in-stack `vss-agent` service, so
+do not use port `8000` as its readiness check. Confirm the service set and the
+base RT-VLM endpoint instead:
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+curl -fsS "http://<HOST_IP>:8018/v1/health/ready"
+curl -fsS "http://<HOST_IP>:30888/vst/api/v1/sensor/version"
+curl -fsS "http://<HOST_IP>:7777/"
+```
+
+Expect the VSS UI, VIOS/VST services, and `vss-rtvi-vlm`. Do not expect
+`vss-agent`, Phoenix, or a local LLM container in the default Skill-generated
+service graph. The Skill keeps an LLM only when another selected service needs
+it, such as `lvs-server`, or when the harness is explicitly routed to the
+build's LLM NIM. It keeps Phoenix when the in-stack Agent is explicitly
+requested.
+
+If you selected NemoClaw, use the sandbox name and harness URL returned by the
+Skill. The setup log contains the authenticated dashboard URL; do not copy or
+share its token-bearing fragment. If you selected no harness, operate the
+deployment with the project-local `vss` CLI as directed by the Skill.
+
+#### If the Skill-driven UI Doesn't Load
+
+If the returned UI URL does not open, rerun the readiness commands above and
+use `docker ps` to identify any unhealthy container. Check that container's
+startup logs with `docker logs <container-name>`; do not use the manual
+in-stack Agent check on port `8000` for the default Skill-generated stack.
+
+If the VSS containers are healthy but the NemoClaw dashboard, sandbox, or MCP
+tools are unavailable, follow
+[NemoClaw Troubleshooting](/vss/vision-agent/agent-harnesses/nemoclaw/troubleshooting).
+
+## Agent Skills walkthrough
+
+The default quickstart deploys the base profile with a coding agent and the
+Build Vision AI Skill. This section expands that same agent-driven journey —
+deploy, upload, ask, report, tear down — and documents the **example prompt** you
+give the agent and **what the agent does** in response.
+
+This walkthrough is written for developers and users who want to operate VSS
+from natural language.
+
+<Note>
+Before starting this walkthrough, follow
+[Ask the coding agent to install the Skills](/vss/vision-agent/agent-skills#step-2-ask-the-coding-agent-to-install-the-skills)
+if you have not already completed [Prepare your coding agent](#prepare-your-coding-agent),
+then start a new coding-agent session so all four Skills below are discovered.
+If Build Vision AI provisioned NemoClaw, run the operational steps in the
+NemoClaw session; its Skills are installed inside that sandbox, not back into
+the original coding-agent session. Also confirm your host meets the
+[Prerequisites](/vss/getting-started/prerequisites).
+</Note>
+
+The base profile journey exercises four skills:
+
+| Quickstart step | Skill | What it does |
+| --- | --- | --- |
+| Deploy the base profile | `vss-build-vision-ai` | Selects the stock `base` workflow, confirms deployment context, and brings up the base stack. |
+| Upload a video | `vss-manage-video-io-storage` | Ingests files and manages sensors, snapshots, and clips via VIOS/VST. |
+| Ask questions | `vss-ask-video` | Routes through conversation context and memory first, then uses `vss vlm run` only for an exact, grounded visual inspection. |
+| Generate a report | `vss-generate-video-report` | Generates a report through Mode A (VIOS clip + direct VLM call) or Mode B (incident query via analytics), depending on the prompt. |
+| Tear down | `vss-build-vision-ai` | Tears down the deployed build and cleans up profile-specific runtime state when needed. |
+
+### Deploy with Build Vision AI
+
+**Example prompts**
+
+```text title="Example prompts"
+Deploy the VSS base profile on this machine.
+Deploy a vision agent with a remote LLM at https://integrate.api.nvidia.com.
+```
+
+Name an image tag in the prompt to run a release's images instead of the
+`containers.env` default. See
+[Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+
+```text title="Example prompt with a release image tag"
+Deploy the VSS base profile with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
+```
+
+<Note>
+On edge platforms (DGX Spark, IGX Thor, AGX Thor), a checked-in local
+LLM/VLM sharing configuration is available but has not yet been measured on
+the target hardware. A remote LLM is recommended for better response time — add
+"with a remote LLM" to the prompt (for example, *"Deploy the VSS base profile
+on this DGX-SPARK machine with a remote LLM."*). See
+[Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
+</Note>
+
+The `vss-build-vision-ai` skill chooses the `<platform>` and `<mode>` to match your host,
+as documented in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
+
+**What the agent does:**
+
+1. Loads the `vss-build-vision-ai` skill and selects the stock `base`
+   workflow.
+2. Collects the required deployment context (repo path, GPU hardware,
+   local/remote LLM-VLM mode, credentials, and host/ingress settings) and asks
+   for anything missing.
+3. Runs pre-flight checks and credential validation before deployment.
+4. Generates and validates the base deployment plan, then shows a review
+   summary (services, model placement, and key endpoints).
+5. Waits for your confirmation before starting containers.
+6. Deploys with `up -d` and waits for readiness gates (container state and
+   core health checks).
+7. Returns a browser-reachable ingress URL (for example
+   `http://<HOST_IP>:7777/`) for opening the UI.
+
+The default Skill-generated base stack serves
+`nvidia/cosmos3-nano-reasoner` through RT-VLM in the `vss-rtvi-vlm`
+container (port `8018`, `VLM_MODEL_TYPE=rtvi`). The stock Compose profile
+also defines a `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM on port
+`30081`, but the Skill removes it with the in-stack Agent unless another
+selected service needs it or the harness is explicitly routed to it. To use a
+different model or remote endpoint, name it in the prompt.
+
+### Upload a video and manage storage
+
+The Skill reads the video from the filesystem of the agent session that runs
+it. For a coding agent running directly on the deployment host, provide the
+absolute host path:
+
+**Example prompts**
+
+```text title="Example prompts"
+Upload <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 to VSS.
+List all available sensors.
+Take a snapshot of warehouse_safety_0001 at 0:05.
+```
+
+If Build Vision AI provisioned NemoClaw, copy the video into its sandbox from
+the deployment host first, using the sandbox name returned by the Skill:
+
+```bash
+nemoclaw <sandbox-name> upload \
+  <absolute-path>/sample-data/dev-profile-sample-data/warehouse_safety_0001.mp4 \
+  /sandbox/
+```
+
+Then ask the agent in the NemoClaw session:
+
+```text title="NemoClaw example prompt"
+Upload /sandbox/warehouse_safety_0001.mp4 to VSS.
+```
+
+**What the agent does:**
+
+1. Loads the `vss-manage-video-io-storage` skill, which drives the Video IO &
+   Storage (VIOS / VST) microservices.
+2. For an upload, it uploads the file via HTTP PUT to VST and confirms a sensor
+   is registered for it.
+3. For "list sensors," it queries the VIOS sensor list and returns the
+   registered sensors and file names.
+4. For snapshots, clips, or recording timelines, it calls the matching VIOS
+   endpoint at the requested timestamp/range and returns the artifact.
+
+### Ask questions about the video
+
+**Example prompts**
+
+```text title="Example prompts"
+Is the worker in warehouse_safety_0001 wearing PPE?
+```
+
+**What the agent does:**
+
+1. Loads the `vss-ask-video` skill.
+2. Checks hot conversation context, agent Markdown memory, and structured VSS
+   memory before requesting new visual inference.
+3. Uses `vss memory introspect` when introspection is configured. For an exact
+   sensor and time window, pre-resolved media URL, or local file that needs a
+   fresh visual inspection, it uses the project-local `vss vlm run` command.
+4. Returns a grounded answer with the available job or record handles and
+   reports CLI failures by exit code instead of falling back to raw REST.
+
+<Note>
+The Skill does not call an OpenAI-compatible `/chat/completions` endpoint or the
+VSS agent's `/generate` endpoint directly. The `vss` CLI owns endpoint discovery,
+media resolution, memory access, and any underlying VLM request.
+</Note>
+
+### Generate a report
+
+**Example prompt**
+
+```text title="Example prompt"
+Generate a report for warehouse_safety_0001.
+```
+
+**What the agent does:**
+
+1. Loads the `vss-generate-video-report` skill.
+2. Resolves the clip URL through `vss-manage-video-io-storage`, calls the selected VLM, and renders the markdown report from that output. (Does **not** use the VSS agent `/generate` endpoint.)
+3. Returns the rendered markdown report to the user.
+
+### Tear down the deployment
+
+**Example prompt**
+
+```text title="Example prompt"
+Tear down the VSS deployment.
+```
+
+**What the agent does:**
+
+1. Loads the `vss-build-vision-ai` skill and runs the teardown flow for the
+   deployed build.
+2. When switching profiles, it also clears stale data volumes before any
+   redeploy.
+
 ## Manual deployment options
 
-Use this section when you want to run the deployment script yourself or customize
-the base profile from the command line.
+Use this section when you want to run the deployment yourself instead of asking
+the Build Vision AI Skill to do it.
 
 ### Docker Compose deployment
 
+Use the selected developer profile with its checked-in `.env` file and a local
+`user-overrides.env` file throughout the native Docker Compose procedure below.
+
 <Note>
-- Set the NGC CLI API key and Hugging Face token (`HF_TOKEN`), then run the deploy commands for your GPU type. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc-hugging-face-api-keys).
+- Set the NGC CLI API key, then run the deploy commands for your GPU type. Set `HF_TOKEN` only when the selected model downloads gated or rate-limited weights from Hugging Face. See [NGC + Hugging Face API Keys](/vss/getting-started/prerequisites#ngc--hugging-face-api-keys).
 - Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For **Nemotron Omni** video+audio with a remote VLM, set `ENABLE_AUDIO=true` and follow [Using Nemotron Omni (audio-enabled remote VLM)](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm#using-nemotron-omni-audio-enabled-vlm) in [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm).
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 </Note>
 
 ```bash
-# Set NGC CLI API key and Hugging Face access token (HF_TOKEN)
+# Set the NGC CLI API key. Set HF_TOKEN only when the selected model requires it.
 export NGC_CLI_API_KEY='<your-ngc-api-key>'
-export HF_TOKEN='<hf-token>'
+# export HF_TOKEN='<hf-token>'
 
-# View all available options
-# See developer-profiles/dev-profile-base/overrides.env for supported settings.
+# Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
+# images on ghcr.io are public and do not require a registry login.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
+
 ```
 
-Select a hardware tab, then a deployment mode. **Shared GPU** runs the LLM and VLM NIMs on the same GPU; **Dedicated GPU** assigns each model its own GPU (via `LLM_DEVICE_ID` and `VLM_DEVICE_ID`).
+See [Configuration](/vss/system-components/configuration) for common variables,
+valid values, defaults, and env-file precedence. The complete profile-specific
+template is
+`deploy/docker/developer-profiles/dev-profile-base/overrides.env`.
+
+Select a hardware tab, then a deployment mode. **Shared GPU** runs the local
+LLM and integrated RT-VLM on the same GPU. **Dedicated GPU** assigns them to
+separate GPUs with `LLM_DEVICE_ID` and `RT_VLM_DEVICE_ID`. Keep
+`VLM_DEVICE_ID` aligned with `RT_VLM_DEVICE_ID` for local integrated RT-VLM:
+the local VLM service binds the GPU named by `VLM_DEVICE_ID`, while the RT-VLM
+container binds the GPU named by `RT_VLM_DEVICE_ID`.
 
 `overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
@@ -228,6 +534,13 @@ layout below in `deploy/docker/developer-profiles/dev-profile-base/user-override
 
 **Environment-variable overrides:** In `deploy/docker/developer-profiles/dev-profile-base/user-overrides.env`, update existing values in place; add a variable only when it is absent. `COMPOSE_PROFILES` is derived from values above it, so appending duplicate model-mode or model-slug variables can select the wrong services.
 
+On GB300, DGX Spark, and other SBSA hosts, export
+`VSS_CONTAINER_TAG_SUFFIX=-sbsa` in the shell before running Compose. This
+appends `-sbsa` to the managed RT-CV, RT-Embed, RT-VLM, and Video Summarization
+image tags while preserving the shared `VSS_CONTAINER_TAG` release channel. Do
+not put the suffix in `user-overrides.env`: `containers.env` derives the image
+tags before later env files are read.
+
 **Host-path and service-address overrides (all hardware profiles):**
 
 - `VSS_APPS_DIR`: Absolute path to this repository's `deploy/docker` directory.
@@ -244,23 +557,43 @@ VSS_DATA_DIR=/absolute/path/to/vss-apps-data
 HOST_IP=<reachable-host-ip-or-name>
 ```
 
-**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+**Prepare host data directories before starting Compose.** Export
+`VSS_DATA_DIR` with the same absolute path you set in `user-overrides.env`, then
+run this block. The guard stops before `mkdir` or `chmod` if the value is absent
+or is not absolute:
 
 ```bash
-VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
 mkdir -p \
   "$VSS_DATA_DIR/data_log/analytics_cache" \
   "$VSS_DATA_DIR/data_log/calibration_toolkit" \
   "$VSS_DATA_DIR/data_log/elastic/data" \
   "$VSS_DATA_DIR/data_log/elastic/logs" \
   "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
   "$VSS_DATA_DIR/data_log/redis/data" \
   "$VSS_DATA_DIR/data_log/redis/log" \
+  "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/data_log/vst/clip_storage" \
   "$VSS_DATA_DIR/agent_eval/dataset" \
-  "$VSS_DATA_DIR/agent_eval/results"
-chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+  "$VSS_DATA_DIR/agent_eval/results" \
+  "$VSS_DATA_DIR/models"
+chmod -R a+rwx \
+  "$VSS_DATA_DIR/data_log" \
+  "$VSS_DATA_DIR/agent_eval" \
+  "$VSS_DATA_DIR/models"
 ```
 
+<Warning>
+These broad write permissions are intended for development deployments whose
+containers use multiple user IDs. For production, restrict host directory
+ownership and permissions to the identities used by your deployment. See
+[Secure Deployment](/vss/appendix/additional-deployments/secure-deployment#host-filesystem-permissions).
+</Warning>
 
 **Default container image tag**
 
@@ -276,6 +609,14 @@ Any service-specific image tag or tag suffix shown inside a hardware tab
 supersedes or augments this common default. Use the SBSA settings shown in the
 GB300 and DGX Spark tabs when deploying on those platforms.
 
+<Note>
+For DGX Spark, IGX Thor, and AGX Thor, the tabs below show the remote-LLM
+layout recommended for latency. The checked-in base configuration also supports a co-located local LLM and
+RT-VLM, but those local layouts have not
+yet been measured on the target hardware. See
+[Edge Deployment](/vss/appendix/additional-deployments/edge-deployment) for
+their settings and validation caveat.
+</Note>
 
 <Tabs>
 <Tab title="H100">
@@ -485,6 +826,10 @@ RTVI_VLM_MODEL_PATH=none
 </Tabs>
 </Tab>
 <Tab title="L40S">
+
+Shared local LLM/VLM placement is not supported on L40S. Use a dedicated-GPU
+or remote-model layout.
+
 <Tabs>
 <Tab title="Dedicated GPU">
 
@@ -512,6 +857,7 @@ LLM_MODEL_TYPE=<nim-or-openai>
 
 ```ini
 HARDWARE_PROFILE=L40S
+LLM_MODE=local
 VLM_MODE=remote
 VLM_NAME_SLUG=none
 VLM_BASE_URL=https://<vlm-endpoint-without-v1>
@@ -701,7 +1047,12 @@ docker compose -f compose.yml \
   up -d
 ```
 
-Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
+Review every unset-variable warning from `config --quiet` against the selected
+profile before running `up -d`. A zero exit code confirms that Compose could
+render the model; it does not prove that every operationally required value is
+set. Variables used only by inactive profiles can also produce warnings.
+
+Docker Compose downloads the required containers from the configured GHCR and NGC registries and starts the agent. Depending on
 your network speed, this may take a few minutes.
 
 <Note>
@@ -709,16 +1060,21 @@ When using a remote VLM of model-type `nim` (not `openai`), see [How does a remo
 </Note>
 
 <Note>
-**Switch Agent Workflows:** In the Docker Compose commands, use the matching `developer-profiles/dev-profile-<profile>/.env` and `developer-profiles/dev-profile-<profile>/user-overrides.env` files. For the Alerts profile, set `MODE` in `developer-profiles/dev-profile-alerts/user-overrides.env` to the workflow mode:
+**Switch Agent Workflows:** Use the matching `developer-profiles/dev-profile-<profile>/.env` plus `user-overrides.env`. Later `--env-file` values win.
 
-- `base`: Base vision agent (this quickstart)
-- `lvs`: [Video Summarization Workflow](/vss/vision-agent/agent-workflows/video-summarization#step-1-deploy-the-agent)
-- `search`: [Search Workflow](/vss/vision-agent/agent-workflows/search#step-1-deploy-the-search-agent)
-- `alerts`: Alert workflows
+Switch profiles by changing the `dev-profile-<profile>` directory, not by setting `MODE` to `base`/`lvs`/`search`/`alerts`. Those names are profile directories. For the **alerts** profile only, `MODE` is:
 
-  - [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#step-1-deploy-the-agent) — `MODE=2d_cv`
-  - [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#step-1-deploy-the-agent) — `MODE=2d_vlm`
+- [Alert Verification Workflow](/vss/vision-agent/agent-workflows/alert-verification#direct-docker-compose-overrides) — `MODE=2d_cv`
+- [Real-Time Alert Workflow](/vss/vision-agent/agent-workflows/real-time-alerts#direct-docker-compose-overrides) — `MODE=2d_vlm`
+
+For a manual alerts deployment, setting `MODE` alone is not sufficient. Follow
+the linked workflow and copy its complete common override block into
+`dev-profile-alerts/user-overrides.env`; that block selects the matching
+service set, message-bus behavior, and agent/UI settings together.
+
 </Note>
+
+### Verify the manual in-stack Agent deployment
 
 Once the deployment is complete, check that all the containers are running and healthy:
 
@@ -744,8 +1100,8 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
    ```
 
-   Look for the VSS Agent, VSS Agent UI, VIOS/VST, Nemotron LLM, Cosmos3 Reasoner
-   NIM, and Phoenix containers.
+   Look for the VSS Agent, VSS Agent UI, VIOS/VST, Nemotron LLM,
+   `vss-rtvi-vlm`, and Phoenix containers.
 
 3. If containers are unhealthy or certain services are unresponsive, check the corresponding
    container logs for startup, or configuration errors.
@@ -754,15 +1110,15 @@ If `http://<HOST_IP>:7777/` does not open, run these checks before redeploying:
    whether the host firewall is blocking container-to-host traffic. See
    [Bridge-network container cannot reach a VSS service on the host](/vss/appendix/faq#bridge-network-container-cannot-reach-a-vss-service-on-the-host).
 
-5. If the `cosmos3-reasoner` container stopped or crashed **in shared GPU
-   mode**, redeploy the full blueprint instead of restarting only that container.
-   With dedicated GPUs, restarting the container is sufficient. See
-   [Agent Known Issues](/vss/vision-agent/vss-agents/agent-known-issues).
-
 For the recommended agent-guided deployment path, see
 [Deploy the base profile](/vss/getting-started/quickstart#deploy-the-base-profile).
 
-## Use the deployed base profile
+## Use the manually deployed in-stack Agent
+
+The upload, chat, and report steps in this section require the manual stock
+Compose deployment, or a Build Vision AI request that explicitly retained the
+in-stack VSS Agent. For the default agentless Skill deployment, use the
+[Agent Skills walkthrough](#agent-skills-walkthrough) instead.
 
 ### Upload a video
 
@@ -888,178 +1244,26 @@ To teardown the agent, run the following command:
 
 ```bash
 cd deploy/docker
-docker compose -p vss down -v --remove-orphans
+PROFILE=base
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  down -v --remove-orphans
 ```
 
-This command will stop and remove the agent containers.
+This command stops the manually deployed base-profile containers and removes
+their Compose volumes.
 
 ## Service Endpoints
 
-Once deployed, the following services are available:
+The manually deployed in-stack Agent configuration exposes these services:
 
 | Service | URL |
 | --- | --- |
 | VSS UI | `http://<HOST_IP>:7777` |
 | VST UI | `http://<HOST_IP>:30888/vst/#/dashboard` |
 | Phoenix UI | `http://<HOST_IP>:7777/phoenix/projects` |
-
-## Agent Skills walkthrough
-
-The default quickstart deploys the base profile with a coding agent and the
-Build Vision AI Skill. This section expands that same agent-driven journey —
-deploy, upload, ask, report, tear down — and documents the **example prompt** you
-give the agent and **what the agent does** in response.
-
-This walkthrough is written for developers and users who want to operate VSS
-from natural language.
-
-<Note>
-Before starting this walkthrough, follow
-[Ask the coding agent to install the Skills](/vss/vision-agent/agent-skills#step-2-ask-the-coding-agent-to-install-the-skills)
-to install `vss-build-vision-ai` and every Skill under `skills/operations/`, then
-start a new coding-agent session so all four Skills below are discovered. The
-deployment-only setup in [Prepare your coding agent](#prepare-your-coding-agent)
-installs only `vss-build-vision-ai` and is not sufficient for the upload, Q&A,
-and report steps. If Build Vision AI provisioned NemoClaw, run those operational
-steps in the NemoClaw session; its Skills are installed inside that sandbox, not
-back into the original coding-agent session. Also confirm your host meets the
-[Prerequisites](/vss/getting-started/prerequisites).
-</Note>
-
-The base profile journey exercises four skills:
-
-| Quickstart step | Skill | What it does |
-| --- | --- | --- |
-| Deploy the base profile | `vss-build-vision-ai` | Selects the stock `base` workflow, confirms deployment context, and brings up the base stack. |
-| Upload a video | `vss-manage-video-io-storage` | Ingests files and manages sensors, snapshots, and clips via VIOS/VST. |
-| Ask questions | `vss-ask-video` | Asks the VLM a text question directly through `chat/completions`, on a VIOS clip or a video you supply. |
-| Generate a report | `vss-generate-video-report` | Generates a report through Mode A (VIOS clip + direct VLM call) or Mode B (incident query via analytics), depending on the prompt. |
-| Tear down | `vss-build-vision-ai` | Tears down the deployed build and cleans up profile-specific runtime state when needed. |
-
-### Deploy with Build Vision AI
-
-**Example prompts**
-
-```text title="Example prompts"
-Use the vss-build-vision-ai skill to deploy the VSS base profile on this machine.
-Use the vss-build-vision-ai skill to deploy VSS base with a remote LLM at https://integrate.api.nvidia.com.
-```
-
-<Note>
-On edge platforms (DGX Spark, IGX Thor, AGX Thor), local LLM/VLM sharing is
-supported, but a remote LLM is recommended for better response time — add
-"with a remote LLM" to the prompt (for example, *"Deploy the VSS base profile
-on this DGX-SPARK machine with a remote LLM."*). See
-[Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for endpoint options.
-</Note>
-
-The deploy skill chooses the `<platform>` and `<mode>` to match your host,
-as documented in [Development Profile GPU Requirements](/vss/getting-started/prerequisites#development-profile-gpu-requirements).
-
-**What the agent does:**
-
-1. Loads the `vss-build-vision-ai` skill and selects the stock `base`
-   workflow.
-2. Collects the required deployment context (repo path, GPU hardware,
-   local/remote LLM-VLM mode, credentials, and host/ingress settings) and asks
-   for anything missing.
-3. Runs pre-flight checks and credential validation before deployment.
-4. Generates and validates the base deployment plan, then shows a review
-   summary (services, model placement, and key endpoints).
-5. Waits for your confirmation before starting containers.
-6. Deploys with `up -d` and waits for readiness gates (container state and
-   core health checks).
-7. Returns a browser-reachable ingress URL (for example
-   `http://<HOST_IP>:7777/`) for opening the UI.
-
-The base defaults are the `nvidia/nemotron-3.5-lightning-30b-a3b` LLM NIM on
-host port `30081` and the `vss-rtvi-vlm` service on host port `8018`. RT-VLM
-serves the integrated Cosmos3 Nano Reasoner model; the local base profile does
-not deploy a separate VLM NIM. In remote mode, RT-VLM remains available on host
-port `8018` and proxies requests to the configured external VLM endpoint. To
-use a different model or a remote endpoint, name it in the prompt and the agent
-sets `LLM_MODE` / `VLM_MODE` accordingly.
-
-### Upload a video and manage storage
-
-**Example prompts**
-
-```text title="Example prompts"
-Upload the sample video warehouse_safety_0001.mp4 from the sample-data directory to VSS.
-List all available sensors.
-Take a snapshot of warehouse_safety_0001 at 0:05.
-```
-
-**What the agent does:**
-
-1. Loads the `vss-manage-video-io-storage` skill, which drives the Video IO &
-   Storage (VIOS / VST) microservices.
-2. For an upload, it uploads the file via HTTP PUT to VST and confirms a sensor
-   is registered for it.
-3. For "list sensors," it queries the VIOS sensor list and returns the
-   registered sensors and file names.
-4. For snapshots, clips, or recording timelines, it calls the matching VIOS
-   endpoint at the requested timestamp/range and returns the artifact.
-
-### Ask questions about the video
-
-**Example prompts**
-
-```text title="Example prompts"
-Is the worker in warehouse_safety_0001 wearing PPE?
-```
-
-**What the agent does:**
-
-1. Loads the `vss-ask-video` skill.
-2. Resolves the video — the clip URL for a named sensor from VIOS, or a file or
-   link you supply — and the VLM endpoint and model, which it reads from the
-   running deployment or takes from `VLM_ENDPOINT` and `VLM_MODEL`.
-3. Sends the question and the video to the VLM in a single
-   `POST <vlm-endpoint>/v1/chat/completions` call. Local `base`, `lvs`, and
-   `alerts` profiles expose RT-VLM on host port `8018`. In remote mode, this
-   RT-VLM service proxies requests to the configured external VLM endpoint.
-   (Does **not** go through the VSS agent — neither its
-   `video_understanding` tool nor its `/generate` endpoint.)
-4. Returns a grounded natural-language answer. Follow-up questions are
-   supported in the same thread.
-
-<Note>
-Because the skill talks to the VLM itself, a run leaves no trace in the VSS
-agent's logs — look at the VLM service when you want to inspect one. The
-agent's own `video_understanding` tool does frame-level VLM analysis and is
-what the VSS UI and the NAT agent workflows call; for that tool and its
-parameters, see [Agent Configuration](/vss/vision-agent/vss-agents/agent-configuration).
-</Note>
-
-### Generate a report
-
-**Example prompt**
-
-```text title="Example prompt"
-Generate a report for warehouse_safety_0001.
-```
-
-**What the agent does:**
-
-1. Loads the `vss-generate-video-report` skill.
-2. Resolves the clip URL through `vss-manage-video-io-storage`, calls the selected VLM, and renders the markdown report from that output. (Does **not** use the VSS agent `/generate` endpoint.)
-3. Returns the rendered markdown report to the user.
-
-### Tear down the deployment
-
-**Example prompt**
-
-```text title="Example prompt"
-Tear down the VSS deployment.
-```
-
-**What the agent does:**
-
-1. Loads the `vss-build-vision-ai` skill and runs the teardown flow for the
-   deployed build.
-2. When switching profiles, it also clears stale data volumes before any
-   redeploy.
 
 ## Next steps
 

@@ -76,7 +76,7 @@ For instructions on downloading the deployment package, see [Download the Deploy
 ### Step 1: Deploy the Search Agent
 
 <Note>
-- Set the NGC CLI API key, then run the deploy commands for your GPU type.
+- Set the NGC CLI API key and authenticate Docker to `nvcr.io` before running the deploy commands. See [Verify Your NGC Access](/vss/getting-started/prerequisites#verify-your-ngc-access).
 
   ```bash
   # Set NGC CLI API key
@@ -86,10 +86,10 @@ For instructions on downloading the deployment package, see [Download the Deploy
 - Refer to [Configure the LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) and [Configure the VLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-vlm) for all LLM and VLM (local and remote) configuration options.
 - For advanced settings and Agent Customization, edit the profile `user-overrides.env`.
 
-  ```bash
-  # View all available options
-  # See developer-profiles/dev-profile-search/overrides.env for supported settings.
-  ```
+  See [Configuration](/vss/system-components/configuration) for common
+  variables, valid values, defaults, and env-file precedence. The complete
+  profile-specific template is
+  `deploy/docker/developer-profiles/dev-profile-search/overrides.env`.
 
 </Note>
 
@@ -152,22 +152,35 @@ VSS_DATA_DIR=/absolute/path/to/vss-apps-data
 HOST_IP=<reachable-host-ip-or-name>
 ```
 
-**Prepare host data directories before starting Compose.** Use the same `VSS_DATA_DIR` (and, for Alerts, `VSS_APPS_DIR`) values set above:
+**Prepare host data directories before starting Compose.** Export
+`VSS_DATA_DIR` with the same absolute path set above, then run this block. The
+guard stops before `mkdir` or `chmod` if the value is absent or is not absolute:
 
 ```bash
-VSS_DATA_DIR=/absolute/path/to/vss-apps-data
+: "${VSS_DATA_DIR:?Export VSS_DATA_DIR with the value from user-overrides.env}"
+case "$VSS_DATA_DIR" in
+  /*) ;;
+  *) echo "VSS_DATA_DIR must be an absolute path" >&2; exit 1 ;;
+esac
 mkdir -p \
   "$VSS_DATA_DIR/data_log/analytics_cache" \
   "$VSS_DATA_DIR/data_log/calibration_toolkit" \
   "$VSS_DATA_DIR/data_log/elastic/data" \
   "$VSS_DATA_DIR/data_log/elastic/logs" \
   "$VSS_DATA_DIR/data_log/kafka" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/streamer_videos" \
+  "$VSS_DATA_DIR/data_log/nvstreamer/vst_data" \
   "$VSS_DATA_DIR/data_log/redis/data" \
   "$VSS_DATA_DIR/data_log/redis/log" \
   "$VSS_DATA_DIR/data_log/vss_video_analytics_api" \
+  "$VSS_DATA_DIR/data_log/vst/clip_storage" \
   "$VSS_DATA_DIR/agent_eval/dataset" \
-  "$VSS_DATA_DIR/agent_eval/results"
-chmod -R 777 "$VSS_DATA_DIR/data_log" "$VSS_DATA_DIR/agent_eval"
+  "$VSS_DATA_DIR/agent_eval/results" \
+  "$VSS_DATA_DIR/models"
+chmod -R a+rwx \
+  "$VSS_DATA_DIR/data_log" \
+  "$VSS_DATA_DIR/agent_eval" \
+  "$VSS_DATA_DIR/models"
 ```
 
 
@@ -654,8 +667,14 @@ docker compose -f compose.yml \
   up -d
 ```
 
-Docker Compose downloads the required containers from the NGC registry and starts the agent. Depending on
-your network speed, this may take a few minutes.
+On the first bring-up, Docker Compose pulls the required containers from the
+configured GHCR and NGC registries and builds five support images locally:
+Elasticsearch, its initializer, the Kafka topic
+initializer, the broker health checker, and the search Kibana initializer.
+Those builds pull base images from Docker Hub and `docker.elastic.co`; the
+Kafka support-image builds also download `jq` from GitHub. Allow outbound access
+and disk space for both pulls and local builds. Depending on your network
+speed, this may take a few minutes.
 
 Once the deployment is complete, check that all the containers are running and healthy:
 
@@ -675,6 +694,52 @@ You can now access the agent UI at `http://<HOST_IP>:7777/`.
 <Note>
 When using a remote VLM of model-type `nim` (not `openai`), see [How does a remote `nim` VLM access videos?](/vss/appendix/faq#how-does-a-remote-nim-vlm-access-videos) for access requirements.
 </Note>
+
+<Note>
+The default deployed model is Cosmos3 Nano Reasoner with FP8 precision.
+You can change this model by selecting an option from the following table and
+setting `VLM_NAME` to the Name value and `RTVI_VLM_MODEL_PATH` to the Path value
+in `user-overrides.env`.
+</Note>
+
+<a id="search-available-vlm-models"></a>
+
+**Available VLM Models**
+
+| Model | Name | Path |
+| --- | --- | --- |
+| CR3 Nano BF16 | `nim_nvidia_cosmos3-nano-reasoner_bf16-final` | `ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final` |
+| CR3 Nano FP8 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Nano NVFP4 | `nim_nvidia_cosmos3-nano-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+| CR3 Super BF16 | `nim_nvidia_cosmos3-super-reasoner_modelopt-bf16-final` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-bf16-final` |
+| CR3 Super FP8 | `nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix` |
+| CR3 Super NVFP4 | `nim_nvidia_cosmos3-super-reasoner_modelopt-nvfp4-full-quantize-final_format_fix` | `ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-nvfp4-full-quantize-final_format_fix` |
+
+<Note>
+The search profile deploys two GPUs by default, and RT-VLM shares GPU 0 with
+RTVI-CV. On that shared GPU, use an FP8 checkpoint: **Cosmos3 Super Reasoner FP8
+is the option to use for Super**. This is a validated shared-GPU placement, not
+just a recommendation — on a 95 GiB H100 NVL, RTVI-CV and RT-VLM both reach
+ready with ~31 GiB still free at `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55`. The
+BF16 checkpoints are roughly twice the size and leave RTVI-CV too little memory
+to initialize its detection engine, so BF16 fits only a layout that gives the
+VLM its own GPU — never co-locate Super BF16 with RTVI-CV.
+
+Super models have only been tested on RTX PRO 6000 and H100.
+
+NVFP4 models only work on Blackwell platforms. NVFP4 is the lightest of the three
+precisions, but it has not been tested on the shared-GPU search layout.
+</Note>
+
+Super's weights are roughly three times larger than Nano's, so raise the VLM's
+share of the GPU when you select the FP8 checkpoint:
+
+```ini
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55
+```
+
+`VLM_NAME` must match the id RT-VLM advertises at `/v1/models` for the selected
+checkpoint; a mismatch fails with `400 BadParameters: No such model`.
 
 **Embedding Models**
 
@@ -1198,10 +1263,16 @@ To teardown the agent, run the following command:
 
 ```bash
 cd deploy/docker
-docker compose -p vss down -v --remove-orphans
+PROFILE=search
+docker compose -f compose.yml \
+  --env-file containers.env \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/.env" \
+  --env-file "developer-profiles/dev-profile-${PROFILE}/user-overrides.env" \
+  down -v --remove-orphans
 ```
 
-This command will stop and remove the agent containers.
+This command stops the manually deployed search-profile containers and removes
+their Compose volumes.
 
 ## Service Endpoints
 
@@ -1252,6 +1323,8 @@ through single ingress.
 
 That added sentence is what puts RTVI-VLM in the build, and it also routes `/rtvi-vlm` through the ingress so the CLI can reach it. Ask for neither capability and the service is left out, because retrieval itself never calls it.
 
+Either prompt can also name an image tag to run a release's images instead of the `containers.env` default, for example *"…using image tag `${VSS_DOCS_IMAGE_TAG:-develop-latest}`."* See [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+
 The skill presents the composed architecture for your confirmation before it generates or deploys anything.
 
 <Note>
@@ -1279,16 +1352,16 @@ For this example, you will ask the agent to provision the video `warehouse_sampl
 
 ```text
 Provision ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as an
-on-demand VIOS source and fan out to the resolved consumers. Confirm the source
-appears in VIOS's sensor list when done.
+on-demand VIOS source. Confirm the source appears in VIOS's sensor list and
+that the configured consumers finish processing it.
 ```
 
 What the agent does:
 
-1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. A build without the VSS Agent has no chunked-upload handshake to call, so ingestion is a direct REST path.
-2. Reads the consumer host ports from the build's `resolved.yml` and registers the source with VIOS.
-3. Fans the source out to RTVI-CV and RTVI-Embed, which generates the searchable embeddings that Logstash indexes into Elasticsearch.
-4. Verifies the sensor is registered and online in VIOS.
+1. Reads the [`vss-manage-video-io-storage`](/vss/vision-agent/agent-skills) skill and its headless provisioning reference. A build without the VSS Agent has no chunked-upload handshake to call, so it registers the source once with VIOS.
+2. Resolves the VIOS endpoint and registers the source.
+3. Lets VIOS's mounted notification configuration fan the source out asynchronously to the configured consumers, such as RTVI-CV, RTVI-Embed, and optional RTVI-VLM tagging. Their outputs feed the indices queried by search.
+4. Verifies the sensor is registered and online, then waits for the configured consumers to finish processing it.
 
 It may take up to a few minutes depending on the size of the video(s).
 
@@ -1298,8 +1371,8 @@ To ingest a live stream instead, have NVStreamer serve a file as a synthetic RTS
 
 ```text title="Provision a live RTSP source"
 Serve ./sample-data/dev-profile-sample-data/warehouse_sample.mp4 as a synthetic
-RTSP camera and provision it - register in VIOS and fan out to the resolved
-consumers. Confirm the live stream is visible in VIOS before reporting done.
+RTSP camera and register it once in VIOS. Confirm the live stream is visible
+and the configured consumers have received it before reporting done.
 ```
 
 <Note>
@@ -1311,12 +1384,17 @@ Before the CLI can search, it has to be pointed at the build's ingress, but this
 Run it yourself when you want to see what was recorded, or to point the CLI at a different deployment. It is a host process invoked project-locally, never a globally installed `vss` and never inside a container:
 
 ```bash
-VSS=(uv run --project "${VSS_REPO_ROOT}/services/agent" --no-dev --extra cli vss)
-"${VSS[@]}" configure --base-url "http://${HOST_IP}:7777"
-"${VSS[@]}" configure show
+VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
+vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
+vss configure --base-url "<VSS_PUBLIC_URL>"
+vss configure show
 ```
 
-`--extra cli` is required. `configure` probes each route and records the ones that answer, along with the Elasticsearch index list, and `configure show` prints what it recorded.
+Replace `<VSS_PUBLIC_URL>` with the ingress origin returned for your deployment.
+
+`libs/vss` is the CLI's own workspace, so no extra is required. `configure`
+probes each route and records the ones that answer, along with the Elasticsearch
+index list, and `configure show` prints what it recorded.
 
 ### Step 3: Search with a simple query
 
@@ -1355,6 +1433,8 @@ To search with additional filters:
 ```text
 I have a video sample-warehouse-ladder.mp4. I need to find instances of a person climbing a ladder with source type video_file, video source sample-warehouse-ladder.mp4, and top 5 results.
 ```
+
+- **VLM tag search:** trigger tag/fusion search over RT-VLM-generated tags with a prompt like `Find clips tagged "forklift loading a pallet" using fusion search.`
 
 ### Step 5: Ask a Follow-up Question
 

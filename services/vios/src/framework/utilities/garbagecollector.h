@@ -22,8 +22,8 @@
 #include <condition_variable>
 #include <chrono>
 
-#define GARBAGE_CLEANUP_MIN_THRESHOLD_USEC 5*1000*1000
-#define GARBAGE_CLEANUP_THREAD_WAKEUP_SEC 5
+constexpr int GARBAGE_CLEANUP_MIN_THRESHOLD_USEC = 5*1000*1000;
+constexpr int GARBAGE_CLEANUP_THREAD_WAKEUP_SEC = 5;
 
 class GarbageCollector
 {

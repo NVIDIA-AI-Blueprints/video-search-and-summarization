@@ -32,8 +32,12 @@ spec:
       labels:
         app.kubernetes.io/name: vss-vios-sensor
         app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- $notifCm := include "vss-vios-sensor.notificationConfigMapName" . }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if $notifCm }}
+        checksum/vios-notification: {{ .Release.Revision | quote }}
+        {{- end }}
     spec:
       {{- with .Values.securityContext }}
       securityContext:
@@ -156,8 +160,17 @@ spec:
           {{- end }}
       volumes:
         - name: configs
+          {{- if $notifCm }}
+          projected:
+            sources:
+              - configMap:
+                  name: {{ include "vss-vios-sensor.fullname" . }}-configs
+              - configMap:
+                  name: {{ $notifCm }}
+          {{- else }}
           configMap:
             name: {{ include "vss-vios-sensor.fullname" . }}-configs
+          {{- end }}
         - name: vst-data
           {{- if and (index .Values "persistence") .Values.persistence.vstData.enabled }}
           persistentVolumeClaim:

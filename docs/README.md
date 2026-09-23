@@ -59,6 +59,10 @@ configurable. The allowlisted variables and defaults are:
 | `VSS_DOCS_IMAGE_TAG` | `develop-latest` |
 | `VSS_DOCS_SBSA_IMAGE_TAG` | `develop-latest-sbsa` |
 
+These variables are consumed only by the documentation build; no deployment
+reads them. A reader acts on the value they render to, not on the variable
+name, and the runtime knob behind the image tags is `VSS_CONTAINER_TAG`.
+
 All build-time variables must use the `VSS_DOCS_` prefix and be explicitly
 added to `.github/scripts/check_fern_substitutions.py`. Export overrides before
 running `prepare_fern_inputs.py` locally. The Fern GitHub Actions workflows set

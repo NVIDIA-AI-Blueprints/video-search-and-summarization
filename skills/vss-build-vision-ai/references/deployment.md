@@ -7,6 +7,7 @@ builds. Before resolving:
 - export `NGC_CLI_API_KEY` for local NVIDIA images/models;
 - export the required API key for explicitly requested remote endpoints;
 - set or confirm host paths and browser-reachable ingress values;
+- export the selected common container image tag, when the build selected one;
 - check the selected profile reference for stock-specific knobs and readiness.
 
 ## Resolve
@@ -40,6 +41,17 @@ env_args=(
   --env-file "$BUILD_DIR/override.env"
 )
 
+# containers.env derives every managed image tag from VSS_CONTAINER_TAG and is
+# expanded before override.env, so only an exported value reaches those tags.
+VSS_CONTAINER_TAG="${VSS_CONTAINER_TAG:-$(
+  sed -n 's/^VSS_CONTAINER_TAG=//p' "$BUILD_DIR/override.env"
+)}"
+tag_args=()
+if [ -n "$VSS_CONTAINER_TAG" ]; then
+  export VSS_CONTAINER_TAG
+  tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
+fi
+
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"
@@ -48,7 +60,7 @@ docker compose "${env_args[@]}" \
   "$BUILD_DIR/resolved.yml"
 
 "${VSS_SKILL_PY[@]}" "$REPO/skills/vss-build-vision-ai/scripts/validate_resolved_yml.py" \
-  "$BUILD_DIR/resolved.yml" --repo-root "$REPO"
+  "$BUILD_DIR/resolved.yml" --repo-root "$REPO" "${tag_args[@]}"
 ```
 
 Write `resolved.yml` with the `>` redirect exactly as shown — see `composition.md`

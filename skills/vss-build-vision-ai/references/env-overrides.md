@@ -44,6 +44,11 @@ Credential variables are mode-scoped. Validate them with
   require the exact model ID.
 - Probe every selected remote endpoint with
   `scripts/probe_remote_models.sh` before adding it to `override.env`.
+- Record a selected `VSS_CONTAINER_TAG` here, but export it as well: this layer
+  is read after `containers.env` derived every `VSS_*_TAG` from it, so the line
+  alone moves only `vss-agent-ui` and leaves the rest of the build on
+  `develop-latest`. A service-specific pin such as `VSS_RT_CV_TAG` needs no
+  export — being read last is exactly what makes it win.
 
 ## Common override sets
 

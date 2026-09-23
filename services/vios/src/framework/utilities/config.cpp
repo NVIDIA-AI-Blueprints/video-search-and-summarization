@@ -52,7 +52,7 @@ VmsConfigManager* VmsConfigManager::getInstance()
 }
 
 /* Default values for webrtc video quality tunning */
-std::string defaultWebrtcQualityTunning = R"(
+const std::string defaultWebrtcQualityTunning = R"(
     {
         "webrtc_video_quality_tunning" :
         {

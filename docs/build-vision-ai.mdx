@@ -32,15 +32,25 @@ profile from the [Quickstart](/vss/getting-started/quickstart#deploy-the-base-pr
 
 Use `vss-build-vision-ai` when you want to:
 
-- Deploy a pre-built developer workflow such as `base`, `alerts`,
-  `video-summarization`, or `search`.
+- Deploy a pre-built developer workflow such as `base`, `alerts`, `lvs`
+  (Video Summarization), or `search`.
 - Deploy a warehouse industry blueprint, including 2D, 3D, MV3DT, and
   auto-calibration variants.
 - Build a custom stack from capabilities such as dense captioning, object
-  detection and tracking, semantic search, alerting, video summarization, or SOP
-  compliance monitoring.
-- Extend a running deployment with additional vision capabilities.
+  detection and tracking, semantic search, alerting, or video summarization.
+- Rebuild a running deployment with additional vision capabilities in one
+  resolved stack.
 - Tear down a stack that was created by the Skill.
+
+<Warning>
+Deploying a rebuild or extension over a running deployment replaces the same
+Compose project after you confirm the teardown plan. The default teardown uses `down -v`, which
+removes that project's named volumes, including applicable model caches and
+service state. `down -v` does not delete bind-mounted data under the configured
+`VSS_DATA_DIR`, but the Skill's separate bind-mounted data cleanup does; that
+cleanup requires its own confirmation. Back up required state or ask the Skill
+for the cache-preserving teardown before you approve the replacement.
+</Warning>
 
 Do not use this Skill for ordinary runtime operations after deployment. Once the
 stack is running, use the matching runtime Skill from the
@@ -55,7 +65,7 @@ report.
 
 | Path | Use it for | What the Skill does |
 | --- | --- | --- |
-| Pre-built developer workflow | Quickstarts and standard workflows | Selects one validated developer profile: `base`, `alerts`, `video-summarization`, or `search`. |
+| Pre-built developer workflow | Quickstarts and standard workflows | Selects one validated developer profile: `base`, `alerts`, `lvs` (Video Summarization), or `search`. |
 | Pre-built industry blueprint | Warehouse deployments | Selects a warehouse variant and expands its validated service list. |
 | Custom build | Capability combinations that do not exactly match a stock profile | Starts from the closest profile and creates the smallest delta needed for the requested capabilities. |
 
@@ -63,11 +73,15 @@ report.
 
 ### Developer workflows
 
-| Profile | Best for | Main capabilities |
+The table summarizes the default Skill-generated deployment for each developer
+workflow. Build Vision AI resolves the service graph for the requested
+capabilities and selected harness, so the exact graph can vary.
+
+| Profile | Best for | Default Skill-generated capabilities |
 | --- | --- | --- |
-| `base` | First run, video Q&A, and report generation on short clips | VSS Agent, UI, VIOS, LLM, and RT-VLM. |
+| `base` | First run, video Q&A, and report generation on short clips | UI, Redis, VIOS, and RT-VLM. |
 | `alerts` | Real-time alerting and alert verification | Alert Bridge, Video Analytics API, VA-MCP, RT-VLM, and optionally RT-CV with behavior analytics. |
-| `video-summarization` | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI/agent surfaces for summarization workflows. Uses the `lvs` Foundation in generated build artifacts. |
+| `lvs` (Video Summarization) | Long video summarization | LVS server, RT-VLM, ELK/Kafka, VIOS, and the UI. |
 | `search` | Natural-language video search | RT-CV detection and tracking, RT-Embed embeddings, Elasticsearch, Video Analytics API, and search services. |
 
 For `alerts`, the Skill asks which mode you want:
@@ -92,6 +106,35 @@ Warehouse deployments register their own sample sources through the warehouse
 configurator. Do not manually provision sources during the build path unless you
 are working with a separate custom or headless deployment.
 
+## Host preflight and intake
+
+The host must satisfy [Prerequisites](/vss/getting-started/prerequisites) (Linux, GPU, Docker, NVIDIA Container Toolkit, NGC). The Skill's own checks in `skills/vss-build-vision-ai/references/prerequisites.md` also require:
+
+- `uv` for mandatory service-graph checks and helper scripts. Install it with
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`.
+- `curl`, `docker`, and NGC CLI access.
+
+The Skill asks which developer workflow or warehouse variant you want, LLM/VLM locality (local vs remote), and hardware. Defaults follow the selected profile (for example alerts `2d_vlm` vs `2d_cv`). Each answer changes the composed stack (services, `MODE`, GPU placement).
+
+The credential gate is determined by those answers:
+
+| Choice | Credential |
+| --- | --- |
+| Any standard VSS deployment | `NGC_CLI_API_KEY`; authenticate Docker to `nvcr.io` separately before running the Skill. |
+| Public OpenAI-compatible harness endpoint | `COMPATIBLE_API_KEY` issued by the endpoint provider. |
+| `build.nvidia.com` model endpoint | `NVIDIA_API_KEY`. Create one from [NVIDIA API Keys](https://build.nvidia.com/settings/api-keys). |
+| Gated or rate-limited Hugging Face model download | `HF_TOKEN`. |
+| Self-hosted harness endpoint or no harness | No harness key. Stack-level NGC/model credentials still apply. |
+
+The Skill blocks before deploying when a required key is missing. It does not
+silently change the provider or disable the harness.
+
+During host preflight the Skill runs
+`deploy/docker/scripts/pin_docker_version.sh` with approval when needed. The
+script enforces the supported Docker range and `cgroupfs` setting and can restart
+Docker. Run it before starting containers, not on a host where unrelated running
+containers may be interrupted without review.
+
 ## Custom capability builds
 
 For custom builds, describe the capabilities you want instead of choosing a
@@ -103,6 +146,100 @@ The Skill includes VIOS as the video input and storage layer for guided custom
 builds. It retains ingress only when the requested capability or harness needs a
 single public origin, and adds ELK/Kafka only for capabilities that publish to
 Kafka or index into Elasticsearch.
+
+### Combine real-time alerting and video summarization
+
+Request the capabilities as one custom build; do not bring up the stock alerts
+and LVS profiles separately:
+
+```text title="Combined deployment prompt"
+Use the vss-build-vision-ai skill to build and deploy one VSS stack that combines
+real-time VLM alerting (2d_vlm) with long-video summarization. Show the resolved
+services, GPU placement, and teardown impact before deploying.
+```
+
+The build records exactly one stock profile as `FOUNDATION` in
+`_builds/<name>/override.env`, but correctness is determined by the resolved
+service graph rather than by forcing either stock profile to run unchanged.
+`MODE=2d_vlm` applies to the alerting path; the Skill must recompute every
+Foundation-derived configuration path and value in the build-local override
+instead of applying the LVS profile's derived paths to that mode.
+
+The resolved stack contains one `alert-bridge`, one `lvs-server`, one LLM, and
+shared instances of RT-VLM, VIOS, Kafka, Redis, Elasticsearch, Logstash,
+ingress, and `vss-video-analytics-api`, plus any selected agent or harness. It
+must set the alerts mode to `2d_vlm`, enable
+always-on alerting and RT-VLM Kafka output, and retain the LVS server and its
+Kafka summary path. The Skill writes the exact `COMPOSE_PROFILES` and dependent
+environment values to `_builds/<name>/override.env`; do not assemble that list
+by concatenating the two stock profile files.
+
+Before bring-up, the Skill validates `_builds/<name>/resolved.yml`. After
+readiness, `vss configure check` must report `summarize` as available, and the
+Alert Bridge, RT-VLM, LVS, and Video Analytics API services must be running.
+Harness-free builds use the `vss-manage-alerts` Skill for alert rules and
+incident queries; it calls Alert Bridge directly and does not require the
+in-stack VSS Agent.
+
+From the repository root, after the Skill reports the build name, inspect the
+exact generated plan and the services started from it:
+
+```bash
+set -o pipefail
+BUILD_DIR="_builds/<name>"
+grep -E '^(FOUNDATION|COMPOSE_PROFILES)=' "$BUILD_DIR/override.env"
+docker compose -f "$BUILD_DIR/resolved.yml" config --services
+docker compose -f "$BUILD_DIR/resolved.yml" ps --services --filter status=running
+docker compose -f "$BUILD_DIR/resolved.yml" config --format yaml |
+  sed -n '/^  lvs-server:/,/^  [^ ]/p' |
+  grep -E 'KAFKA_(ENABLED|BOOTSTRAP_SERVERS|STRUCTURED_SUMMARY_TOPIC)'
+```
+
+Confirm that the resolved and running service lists each contain one
+`alert-bridge`, one `lvs-server`, `kafka`, `rtvi-vlm`, and
+`vss-video-analytics-api`. In the final command output, confirm that
+`KAFKA_ENABLED` is `true`, `KAFKA_BOOTSTRAP_SERVERS` names the `kafka` service,
+and `KAFKA_STRUCTURED_SUMMARY_TOPIC` is non-empty. Review the
+`COMPOSE_PROFILES` line as generated; do
+not replace it with a static list from this page because harness and capability
+choices can change the resolved graph.
+
+The default combined workflow uses one GPU. Alerts and Video Summarization share
+one RT-VLM process; Video Summarization does not add a second VLM. Alternative
+local or dedicated model choices can require additional GPU placement, so
+review the resolved plan before deployment. LVS work and continuous alert
+inference contend for the shared RT-VLM, and the Skill must still validate
+measured memory headroom and stream/request capacity on the target host.
+
+<Warning>
+Developer profiles default to the same Compose project name, `vss`, and also use
+singleton container names and host ports. Running stock alerts and LVS commands
+side by side on one host is not supported; changing only
+`COMPOSE_PROJECT_NAME` does not remove those collisions. A custom combined build
+follows the replacement and teardown behavior described under
+[When to use it](#when-to-use-it), so review the teardown plan before
+proceeding.
+</Warning>
+
+## Container image tag
+
+`deploy/docker/containers.env` derives every managed first-party image tag from
+one knob, `VSS_CONTAINER_TAG`, defaulting to `${VSS_DOCS_IMAGE_TAG:-develop-latest}`.
+A build that must run a release's images selects that tag. Do not edit
+`containers.env`; it is checked in and shared by every deployment on the host.
+
+The Skill takes the tag from the first source that answers:
+
+1. The request, for example *"deploy base with image tag `<tag>`"*.
+2. `VSS_CONTAINER_TAG` already exported in your shell.
+3. Neither, in which case `containers.env` defaults. This is the ordinary case.
+
+The Skill names the selected tag in the pre-deploy review summary and applies it
+to the images it manages. If any of those is left on the default tag, the build
+stops rather than deploying a partially tagged stack.
+
+On GB300 and DGX Spark, SBSA-suffixed services run the `-sbsa` variant of the
+selected tag, so their images differ from the common tag by that suffix.
 
 ## Agent harness
 

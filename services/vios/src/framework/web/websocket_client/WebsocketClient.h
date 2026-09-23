@@ -28,7 +28,7 @@
 #include "WebsocketInterface.h"
 
 #define GET_WEBSOCKET_CLIENT WebsocketClient::getInstance
-#define WS_EBUF_LEN 1024
+constexpr int WS_EBUF_LEN = 1024;
 
 class WebsocketClient
 {

@@ -34,8 +34,12 @@ spec:
       labels:
         app.kubernetes.io/name: vss-vios-streamprocessing
         app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- $notifCm := include "vss-vios-streamprocessing.notificationConfigMapName" . }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if $notifCm }}
+        checksum/vios-notification: {{ .Release.Revision | quote }}
+        {{- end }}
     spec:
       {{- with .Values.securityContext }}
       securityContext:
@@ -81,11 +85,16 @@ spec:
         - name: seed-vst-configs
           image: {{ .Values.configSeed.image.repository | default "docker.io/library/busybox" }}:{{ .Values.configSeed.image.tag | default "1.36" }}
           imagePullPolicy: {{ .Values.configSeed.image.pullPolicy | default "IfNotPresent" }}
-          command: ["sh", "-c", "cp -a /configmap-configs/. /home/vst/vst_release/configs/"]
+          command: ["sh", "-c", "cp -a /configmap-configs/. /home/vst/vst_release/configs/{{- if $notifCm }} && cp /notification-config/notification_config.json /home/vst/vst_release/configs/notification_config.json{{- end }}"]
           volumeMounts:
             - name: configs-cm
               mountPath: /configmap-configs
               readOnly: true
+            {{- if $notifCm }}
+            - name: notification-config
+              mountPath: /notification-config
+              readOnly: true
+            {{- end }}
             - name: configs
               mountPath: /home/vst/vst_release/configs
         {{- end }}
@@ -169,10 +178,23 @@ spec:
             name: {{ include "vss-vios-streamprocessing.fullname" . }}-configs
         - name: configs
           emptyDir: {}
+        {{- else if $notifCm }}
+        - name: configs
+          projected:
+            sources:
+              - configMap:
+                  name: {{ include "vss-vios-streamprocessing.fullname" . }}-configs
+              - configMap:
+                  name: {{ $notifCm }}
         {{- else }}
         - name: configs
           configMap:
             name: {{ include "vss-vios-streamprocessing.fullname" . }}-configs
+        {{- end }}
+        {{- if and $writableConfigs $notifCm }}
+        - name: notification-config
+          configMap:
+            name: {{ $notifCm }}
         {{- end }}
         - name: vst-data
           {{- if and (index .Values "persistence") .Values.persistence.vstData.enabled }}

@@ -123,7 +123,7 @@ class CreateSessionDescriptionObserver : public webrtc::CreateSessionDescription
 class PeerConnectionStatsCollectorCallback : public webrtc::RTCStatsCollectorCallback
 {
     public:
-        PeerConnectionStatsCollectorCallback() {}
+        PeerConnectionStatsCollectorCallback() = default;
         void clearReport() { m_report.clear(); }
         Json::Value getReport() { return m_report; }
         std::string getTransportID() { return m_transportId; }

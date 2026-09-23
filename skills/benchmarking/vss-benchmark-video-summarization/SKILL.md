@@ -4,6 +4,11 @@ description: Benchmark a deployed LVS instance — set up test media, run single
 license: Apache-2.0
 metadata:
   version: "3.2.0"
+  # Deployment versions this skill supports; enforced before every run by
+  # scripts/preflight.sh. Wide because the skill drives only the LVS REST
+  # surface (/v1/ready, POST /files, /summarize), which has been stable across
+  # 3.2 and 3.3; upper bound excludes a major, which may change it.
+  requires-vss: ">=3.2.0,<4.0.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint performance benchmarking lvs"
@@ -113,6 +118,7 @@ export LVS_BACKEND=http://localhost:38111                          # YOUR LVS /s
 export LVS_CONTAINER_NAME=vss-lvs                                   # YOUR LVS container (see deploy step)
 export VLM_GPUS=<VLM_GPU>                                           # GPU(s) your VLM uses
 export LLM_GPUS=<LLM_GPU>                                           # GPU(s) your LLM uses
+export VSS_PUBLIC_URL=http://localhost:8000                         # origin serving the VSS agent
 
 ./scripts/preflight.sh
 ```
@@ -121,9 +127,44 @@ export LLM_GPUS=<LLM_GPU>                                           # GPU(s) you
 - the config parses and `vlm_gpus`/`llm_gpus` are valid GPU ids within the host's GPU range;
 - `LVS_BACKEND` is reachable (`/v1/ready` → 200) and the dev `/files` route is enabled (not 404);
 - **your `LVS_CONTAINER_NAME` actually owns the backend port** — its server bound successfully (no `address already in use` in its logs) and no other container publishes that port;
-- **the configured `VLM_GPUS`/`LLM_GPUS` are reserved by your LVS's VLM/LLM containers** — so you can't silently benchmark idle GPUs or another tenant's instance (the exact failure this guards against).
+- **the configured `VLM_GPUS`/`LLM_GPUS` are reserved by your LVS's VLM/LLM containers** — so you can't silently benchmark idle GPUs or another tenant's instance (the exact failure this guards against);
+- **the deployed VSS version satisfies the `requires-vss` range in this skill's front matter** (`>=3.2.0,<4.0.0`) — an incompatible deployment produces numbers that cannot be compared against anything, so the run stops rather than measuring it.
 
 `run_benchmark.sh` runs `preflight.sh` automatically before every run; you can also run it standalone (above) any time.
+
+### Version compatibility
+
+`preflight.sh` checks the deployment against the `requires-vss` range declared in
+this skill's own front matter, using
+[`services/agent/scripts/check_vss_version.py`](../../../services/agent/scripts/check_vss_version.py)
+(standard library only). The range is read from `SKILL.md`, not passed in, so
+what a run enforces cannot drift from what the skill publishes.
+
+`GET /api/v1/version` is served by the **VSS agent**, not by LVS. The check uses
+`VSS_PUBLIC_URL` — the deployment origin `vss-build-vision-ai` publishes, whose
+ingress routes `/api` to the agent — and falls back to `LVS_BACKEND` when that is
+unset. On a Compose deployment `VSS_PUBLIC_URL` is unset by design and
+`LVS_BACKEND` is the LVS server, which returns 404 for this route. Because
+compatibility cannot be determined from that origin, preflight stops. Point it at
+the agent:
+
+```bash
+export VSS_PUBLIC_URL=http://localhost:8000        # YOUR VSS agent / deployment origin
+./scripts/preflight.sh
+```
+
+Outcomes, which preflight maps onto its own `ok`/`FAIL` lines:
+
+| Checker exit | Meaning | Preflight |
+|---|---|---|
+| 0 | deployed version is inside `requires-vss` | `ok` |
+| 3 | deployed version is outside `requires-vss` | `FAIL` — benchmark stops |
+| 1 | version or range could not be determined (404, 503, non-SemVer, unreachable, absent/malformed `requires-vss`) | `FAIL` — benchmark stops |
+
+A prerelease counts as its release (`3.3.0-65576357eb80` satisfies exactly what
+`3.3.0` does), so the check behaves identically on Helm and Compose defaults. The
+`requires-vss` range is owned by this skill's `author` — bump it here when a VSS
+release ships a new minor; a new deployment version never silently widens it.
 
 If `/files` returns 404, the dev route is off — enable `VIA_DEV_API=true` on your LVS (see the deploy step) before continuing.
 
@@ -241,11 +282,11 @@ export VIA_BACKEND="${LVS_BACKEND}"
 export VIA_VLM_GPUS="${VLM_GPUS:?ERROR: VLM_GPUS must be set (e.g. export VLM_GPUS=6)}"
 export VIA_LLM_GPUS="${LLM_GPUS:?ERROR: LLM_GPUS must be set (e.g. export LLM_GPUS=7)}"
 
-# Run single_file scenario
-python vss_perf_benchmark.py --config config.yaml --scenario single_file_test
+# Run single_file scenario. The wrapper runs preflight first.
+./run_benchmark.sh --scenario single_file_test
 
 # Run file_burst scenario (can be run separately or together)
-python vss_perf_benchmark.py --config config.yaml --scenario file_burst_test
+./run_benchmark.sh --scenario file_burst_test
 ```
 
 The benchmark creates an output directory (default: `vss-perf-report/`) with per-scenario subdirectories. Each scenario run generates an XLSX report and `execution_summary.json`.

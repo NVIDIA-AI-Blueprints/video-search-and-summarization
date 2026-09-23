@@ -49,7 +49,7 @@ private:
 private:
     std::thread m_monitorThread;
     std::thread m_onvifListnerThread;
-    bool m_exit;
+    bool m_exit = false;
     std::queue<SensorInfo> m_queue;
     std::mutex   m_queuemutex;
     std::mutex   m_monitorMutex;

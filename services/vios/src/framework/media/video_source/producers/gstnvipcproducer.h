@@ -44,7 +44,7 @@ typedef enum
     PLAYING
 } State;
 
-static std::map<State, GstState> gstStateMap =
+static const std::map<State, GstState> gstStateMap =
 {
     { INVALID, GST_STATE_VOID_PENDING },
     { EMPTY  , GST_STATE_NULL         },
