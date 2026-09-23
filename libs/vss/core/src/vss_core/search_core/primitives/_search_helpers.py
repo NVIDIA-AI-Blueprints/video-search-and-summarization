@@ -70,6 +70,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from ..clients.protocols import ElasticIndex
+    from ..clients.protocols import TextEmbedder
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +288,7 @@ async def fusion_search_rerank(
     rrf_w: float = 0.5,
     w_attribute: float = 0.55,
     w_embed: float = 0.35,
+    embed_client: TextEmbedder | None = None,
 ) -> list[SearchResult]:
     """Rerank embed results by fusing each video's embed score with attribute matches.
 
@@ -297,9 +299,25 @@ async def fusion_search_rerank(
     results. The assembled candidates are handed to :mod:`._fusion` for the
     chosen fusion method (an unknown method raises :class:`InvalidInputError`).
     """
+    # Drop blank/whitespace-only attributes once so the precomputed vectors stay
+    # aligned with the (blank-stripping) normalized_queries() used downstream, and so
+    # len(attributes) no longer counts no-op entries (NVBug 6781021, Greptile).
+    attributes = [a for a in attributes if a and a.strip()]
+
     logger.info(
         f"{fusion_method.upper()} fusion reranking {len(embed_results)} videos using {len(attributes)} attributes"
     )
+
+    # Embed each attribute ONCE up front so the per-hit fan-out below reuses these
+    # vectors instead of re-embedding the same attributes for every candidate video
+    # (NVBug 6781021). When no embed client is supplied, fall back to per-hit
+    # re-embedding through the attribute adapter (legacy behavior / unit tests).
+    # Skip precomputation entirely when there are no candidate videos to rerank: with
+    # nothing to fuse, embedding would only risk an avoidable service failure.
+    attribute_embeddings: list[list[float]] | None = None
+    if embed_client is not None and attributes and embed_results:
+        with TimeMeasure("fusion: generate attribute embeddings (once)"):
+            attribute_embeddings = await asyncio.gather(*(embed_client.get_text_embedding(attr) for attr in attributes))
 
     async def _get_attribute_results(embed_result: SearchResult) -> tuple[SearchResult, Any]:
         try:
@@ -342,7 +360,7 @@ async def fusion_search_rerank(
                 # filename "warehouse_clip.mp4" (VIA-2753 review).
                 filter_sensor_id = embed_result.sensor_id_raw or embed_result.video_name or embed_result.sensor_id or ""
 
-            attr_params = {
+            attr_params: dict[str, Any] = {
                 "query": attributes,
                 "source_type": source_type,
                 "video_sources": [filter_sensor_id] if filter_sensor_id else None,
@@ -352,6 +370,8 @@ async def fusion_search_rerank(
                 "min_similarity": 0.4,
                 "fuse_multi_attribute": True,
             }
+            if attribute_embeddings is not None:
+                attr_params["query_embedding"] = attribute_embeddings
             attribute_results = await attribute_search_fn.ainvoke(attr_params)
             return embed_result, attribute_results
         except LibraryError:

@@ -205,6 +205,57 @@ class TestAttributeSearchContract:
         assert len(out.results) == 1
 
     @pytest.mark.asyncio
+    async def test_precomputed_query_embedding_skips_embed_fuse(self, make_attr):
+        attr, _es, embed = make_attr()
+        await attr.run(
+            AttributeSearchInput(
+                query=["person", "red hat"],
+                source_type="video_file",
+                fuse_multi_attribute=True,
+                query_embedding=[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+            )
+        )
+        assert embed.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_precomputed_query_embedding_skips_embed_append(self, make_attr):
+        attr, _es, embed = make_attr()
+        await attr.run(
+            AttributeSearchInput(
+                query=["person", "red hat"],
+                source_type="video_file",
+                fuse_multi_attribute=False,
+                query_embedding=[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]],
+            )
+        )
+        assert embed.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_precomputed_single_vector_wraps_for_one_attribute(self, make_attr):
+        attr, _es, embed = make_attr()
+        await attr.run(
+            AttributeSearchInput(
+                query="red hat",
+                source_type="video_file",
+                fuse_multi_attribute=False,
+                query_embedding=[0.1, 0.2, 0.3],
+            )
+        )
+        assert embed.calls == 0
+
+    @pytest.mark.asyncio
+    async def test_precomputed_embedding_count_mismatch_raises(self, make_attr):
+        attr, _es, _embed = make_attr()
+        with pytest.raises(InvalidInputError):
+            await attr.run(
+                AttributeSearchInput(
+                    query=["a", "b"],
+                    source_type="video_file",
+                    query_embedding=[[0.1, 0.2]],
+                )
+            )
+
+    @pytest.mark.asyncio
     async def test_append_mode_continues_on_single_attribute_error(self):
         # A non-systemic failure for one attribute must not sink the whole request.
         class _SelectiveEmbed:
