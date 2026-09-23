@@ -39,7 +39,7 @@
       ]
     },
     {
-      "query": "What verification verdicts have been recorded so far for sample-warehouse-ladder?",
+      "query": "What verification verdicts have been recorded so far for sample-warehouse-ladder? Source the answer from the CV verification store (the `mdx-vlm-alerts-*` Elasticsearch indices) only. If that search returns no hits, report plainly that no verdicts have been recorded yet - a grounded 'none yet' is the correct answer. Do NOT substitute counts from the realtime rules list (`GET /api/v1/realtime`) or from `/incidents`.",
       "checks": [
         "The agent sources its ANSWER from the CV verification store: the trajectory queries Elasticsearch `mdx-vlm-alerts-*` (e.g. `http://localhost:9200/mdx-vlm-alerts-*/_search`, any query-body variant) and the final reply reflects what that search returned. Answering the verdict question from the realtime rules list (`GET /api/v1/realtime`), from `/incidents` alone, or from memory/fabrication is a failure; an incidental read-only peek at those endpoints is tolerable.",
         "`curl -sf --max-time 15 'http://localhost:9200/mdx-vlm-alerts-*/_search?size=5'` returns HTTP 200 with a well-formed Elasticsearch search response (deterministic data-plane probe; zero hits and populated hits are both valid states).",
