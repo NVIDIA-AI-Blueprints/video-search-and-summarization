@@ -87,6 +87,14 @@ Refer to the requirements table for valid platform and mode combinations compati
 Deploy the VSS video summarization profile (lvs).
 ```
 
+Name an image tag in the prompt to run a release's images instead of the
+`containers.env` default. See
+[Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+
+```text title="Deploy prompt with a release image tag"
+Deploy the VSS video summarization profile (lvs) with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
+```
+
 What the agent does:
 
 1. Loads the `vss-build-vision-ai` skill and detects the repository, GPU hardware, and host networking values.

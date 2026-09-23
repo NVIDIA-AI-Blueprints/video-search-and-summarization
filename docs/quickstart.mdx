@@ -337,6 +337,14 @@ Deploy the VSS base profile on this machine.
 Deploy a vision agent with a remote LLM at https://integrate.api.nvidia.com.
 ```
 
+Name an image tag in the prompt to run a release's images instead of the
+`containers.env` default. See
+[Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+
+```text title="Example prompt with a release image tag"
+Deploy the VSS base profile with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
+```
+
 <Note>
 On edge platforms (DGX Spark, IGX Thor, AGX Thor), a checked-in local
 LLM/VLM sharing configuration is available but has not yet been measured on

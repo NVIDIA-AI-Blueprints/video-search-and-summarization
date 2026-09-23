@@ -221,6 +221,26 @@ follows the replacement and teardown behavior described under
 proceeding.
 </Warning>
 
+## Container image tag
+
+`deploy/docker/containers.env` derives every managed first-party image tag from
+one knob, `VSS_CONTAINER_TAG`, defaulting to `${VSS_DOCS_IMAGE_TAG:-develop-latest}`.
+A build that must run a release's images selects that tag. Do not edit
+`containers.env`; it is checked in and shared by every deployment on the host.
+
+The Skill takes the tag from the first source that answers:
+
+1. The request, for example *"deploy base with image tag `<tag>`"*.
+2. `VSS_CONTAINER_TAG` already exported in your shell.
+3. Neither, in which case `containers.env` defaults. This is the ordinary case.
+
+The Skill names the selected tag in the pre-deploy review summary and applies it
+to every managed image. A build where any image did not pick up the tag fails
+instead of deploying a partially tagged stack.
+
+On GB300 and DGX Spark, SBSA-suffixed services run the `-sbsa` variant of the
+selected tag, so their images differ from the common tag by that suffix.
+
 ## Agent harness
 
 When a developer-profile or custom build includes the in-stack VSS Agent, the

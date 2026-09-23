@@ -75,6 +75,14 @@ Optional: You can enable notifications by setting `webhook.openclaw.enabled` to 
 Deploy the VSS alerts profile in real-time mode.
 ```
 
+Name an image tag in the prompt to run a release's images instead of the
+`containers.env` default. See
+[Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+
+```text title="Deploy prompt with a release image tag"
+Deploy the VSS alerts profile in real-time mode with image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
+```
+
 The `vss-build-vision-ai` skill uses Cosmos3 Nano Reasoner BF16 as the default VLM. You can ask the agent
 which VLM models are available during the deployment process, or request a different model
 directly in your deployment prompt:

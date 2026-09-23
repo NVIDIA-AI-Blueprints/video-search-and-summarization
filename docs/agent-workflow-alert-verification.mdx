@@ -764,6 +764,14 @@ in-stack VSS Agent explicitly when you deploy with Build Vision AI.
 Deploy the VSS alerts verification profile with the in-stack VSS Agent so I can use the Agent UI workflow.
 ```
 
+Name an image tag in the prompt to run a release's images instead of the
+`containers.env` default. See
+[Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+
+```text title="Deploy prompt with a release image tag"
+Deploy the VSS alerts verification profile with the in-stack VSS Agent and image tag ${VSS_DOCS_IMAGE_TAG:-develop-latest}.
+```
+
 For edge platforms, ask the `vss-build-vision-ai` skill to use a remote LLM when possible.
 Local LLM/VLM sharing on the edge GPU is supported, but a remote LLM is recommended for better response time.
 See [VSS Agent Customization - Configure LLM](/vss/vision-agent/vss-agents/agent-customization/customize-models/configure-the-llm) for remote LLM endpoint options.
