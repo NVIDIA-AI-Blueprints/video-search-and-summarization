@@ -52,6 +52,9 @@ from check_container_tag_source import (  # noqa: E402
     discover_env_files,
     image_name,
     read_env_file,
+    source_path_label,
+    source_paths_of,
+    source_tree_sha,
     strip_quotes,
 )
 from compose_image_golden import load_containers_env, resolve_nested  # noqa: E402
@@ -84,16 +87,13 @@ def inventory_by_compose_name(inventory: dict) -> dict[str, dict]:
 
 
 def git_tree_sha(repo_root: Path, source_path: str) -> str | None:
-    """Return the current commit's tree SHA for ``source_path``."""
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", f"HEAD:{source_path}"],
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        return None
-    value = result.stdout.strip()
-    return value if TREE_RE.fullmatch(value) else None
+    """Return the current commit's tree SHA for ``source_path``.
+
+    ``source_path`` is one path or several joined by commas (the inventory's
+    list form as it appears in a release-set entry); the hash definition is
+    ``check_container_tag_source.source_tree_sha``, shared with every gate.
+    """
+    return source_tree_sha(repo_root, "HEAD", source_paths_of(source_path))
 
 
 def first_party_refs(repo_root: Path, inventory: dict) -> list[tuple[str, str]]:
@@ -261,7 +261,7 @@ def build_fragment(
         "tag_suffix": entry.get("tag_suffix", ""),
         "digest": digest,
         "platforms": sorted(platforms),
-        "source_path": entry.get("source_path"),
+        "source_path": source_path_label(source_paths_of(entry.get("source_path"))) or None,
         "source_tree_sha": source_tree_sha,
         "upstream_digest": upstream_digest,
     }
@@ -378,7 +378,7 @@ def reuse_entries(
                 "tag_suffix": entry.get("tag_suffix", ""),
                 "digest": None,
                 "platforms": sorted(entry.get("platforms", [])),
-                "source_path": entry.get("source_path"),
+                "source_path": source_path_label(source_paths_of(entry.get("source_path"))) or None,
                 "source_tree_sha": None,
                 "upstream_digest": None,
             }
@@ -547,6 +547,32 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tree_sha(args: argparse.Namespace) -> int:
+    """Print the content hash build-dev-images.yml labels an image with.
+
+    One definition for the whole flow: the build job, the immutability guard,
+    the reuse check, the post-merge retag and the promotion gate all compare
+    against this value, so the workflow asks here instead of spelling
+    ``git rev-parse HEAD:<source_path>`` inline -- which was only right while
+    every image had exactly one source path.
+    """
+    repo_root = args.repo_root.resolve()
+    entry = inventory_by_name(load_inventory(repo_root)).get(args.name)
+    if entry is None:
+        print(f"FAIL: {args.name!r} is not an inventory image", file=sys.stderr)
+        return 1
+    paths = source_paths_of(entry.get("source_path"))
+    tree_sha = source_tree_sha(repo_root, args.commit, paths)
+    if not tree_sha:
+        print(
+            f"FAIL: {args.name}: no tree for {source_path_label(paths)!r} at {args.commit}",
+            file=sys.stderr,
+        )
+        return 1
+    print(tree_sha)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -580,12 +606,20 @@ def main() -> int:
     validate = sub.add_parser("validate", help="validate an existing release set")
     validate.add_argument("--file", type=Path, required=True)
 
+    tree = sub.add_parser(
+        "tree-sha",
+        help="print the source tree SHA of an inventory image at a commit",
+    )
+    tree.add_argument("--name", required=True, help="inventory image name")
+    tree.add_argument("--commit", default="HEAD")
+
     args = parser.parse_args()
     return {
         "closure": cmd_closure,
         "fragment": cmd_fragment,
         "assemble": cmd_assemble,
         "validate": cmd_validate,
+        "tree-sha": cmd_tree_sha,
     }[args.command](args)
 
 

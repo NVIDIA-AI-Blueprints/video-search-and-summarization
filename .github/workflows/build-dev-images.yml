@@ -16,9 +16,10 @@
 #   * NO NGC credentials live in GitHub. The nightly GitHub controller selects
 #     a green release set, then GitLab copies those same digests to NGC.
 #   * The com.nvidia.vss.source_tree_sha label carries the git TREE hash of
-#     the source folder (git rev-parse HEAD:<source_path>) — the exact value
-#     the check-*-container-source gate compares. A post-push verification
-#     reads it back through the same code path as the gate.
+#     the image's source paths (`release_set.py tree-sha`: rev-parse for one
+#     path, one mktree over all of them otherwise) — the exact value the
+#     check-*-container-source gate compares. A post-push verification reads
+#     it back through the same code path as the gate.
 #   * Candidate tags are immutable: the preflight guard refuses to overwrite
 #     an existing tag with different content and no-ops on idempotent re-runs.
 #   * Trust boundary: this workflow runs on `push` to develop and to the
@@ -168,7 +169,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -375,7 +376,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -567,7 +568,7 @@ jobs:
             --commit-sha "$GITHUB_SHA" \
             --owner "$GITHUB_REPOSITORY_OWNER" \
             --image-name "${{ matrix.repository }}" \
-            --tree-sha "$(git rev-parse "HEAD:${{ matrix.source_path }}")" \
+            --tree-sha "$(python3 .github/scripts/release_set.py tree-sha --name "${{ matrix.name }}")" \
             --tag-suffix="${{ matrix.tag_suffix }}" \
             --github-output "$GITHUB_OUTPUT"
 

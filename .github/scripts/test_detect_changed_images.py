@@ -224,7 +224,12 @@ class SelectImagesTest(unittest.TestCase):
             },
             "vss-configurator": {
                 "context": ".",
-                "source_path": "services/configurators/vss-configurator",
+                # Two source paths: the Dockerfile installs the Spatial AI
+                # data utilities from libs/analytics as well.
+                "source_path": [
+                    "services/configurators/vss-configurator",
+                    "libs/analytics/spatialai-data-utils",
+                ],
                 "native_platform_build": True,
             },
             "vss-rt-config-adaptor": {
@@ -270,10 +275,15 @@ class SelectImagesTest(unittest.TestCase):
             [entry["name"] for entry in configurator_entries], ["vss-configurator"]
         )
 
+        # The configurator Dockerfile installs the Spatial AI data utilities,
+        # so a change there must rebuild it (it used to be silently skipped and
+        # the old image re-tagged with the stale library).
         spatialai_entries, _ = dci.select_images(
             inventory, ["libs/analytics/spatialai-data-utils/release/pyproject.toml"]
         )
-        self.assertEqual([entry["name"] for entry in spatialai_entries], [])
+        self.assertEqual(
+            [entry["name"] for entry in spatialai_entries], ["vss-configurator"]
+        )
 
         adaptor_entries, _ = dci.select_images(
             inventory, ["services/configurators/vss-rt-config-adaptor/app/config.py"]
@@ -666,6 +676,56 @@ class ContentTagGapTest(unittest.TestCase):
             seen[0],
             r"^ghcr\.io/org/vss/vss-agent:tree-[0-9a-f]{40}-sbsa$",
         )
+
+
+class DockerfileCopiesAreDeclaredTest(unittest.TestCase):
+    """Every path an inventory Dockerfile COPYs from its build context must be
+    in the image's ``source_path``: that list is what triggers a rebuild and
+    what the ``tree-<sha>`` content tag hashes. A path a Dockerfile reads but
+    the entry omits is a stale-image bug -- a change there neither rebuilds the
+    image nor moves its content tag, so the workflow re-tags the old one. This
+    is the audit that found vss-agent silently ignoring libs/vss."""
+
+    @staticmethod
+    def _copied_paths(dockerfile: str) -> set[str]:
+        """Build-context sources of every COPY/ADD (not --from=<stage>, not URLs)."""
+        sources: set[str] = set()
+        for raw in dockerfile.splitlines():
+            line = raw.strip()
+            if not line.startswith(("COPY", "ADD")) or "--from" in line:
+                continue
+            tokens = [t for t in line.split()[1:] if not t.startswith("--")]
+            for src in tokens[:-1]:
+                if src.startswith(("http://", "https://")):
+                    continue
+                # Dockerfil[e]-style globs and ./ prefixes normalise to the path.
+                sources.add(src.replace("[", "").replace("]", "").lstrip("./") or ".")
+        return sources
+
+    def test_every_copied_path_is_a_declared_source_path(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo_root)
+        problems: list[str] = []
+        for entry in inventory["images"]:
+            dockerfile = entry.get("dockerfile")
+            if not dockerfile or entry.get("strategy") != "build":
+                continue
+            text = (repo_root / dockerfile).read_text()
+            context = entry.get("context", ".").strip("/")
+            declared = dci.source_paths_of(entry["source_path"])
+            for src in self._copied_paths(text):
+                repo_rel = src if context in ("", ".") else f"{context}/{src}".rstrip("/")
+                if repo_rel == context and context not in ("", "."):
+                    repo_rel = context
+                covered = any(
+                    repo_rel == path or repo_rel.startswith(path + "/") for path in declared
+                )
+                if not covered:
+                    problems.append(
+                        f"{entry['name']}: {dockerfile} copies {repo_rel!r}, "
+                        f"outside source_path {declared}"
+                    )
+        self.assertEqual(problems, [], "\n".join(problems))
 
 
 if __name__ == "__main__":

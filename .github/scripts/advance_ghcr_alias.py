@@ -25,7 +25,9 @@ Two behaviours differ from the original build-only alias mover:
    they are pinned in git at this commit and stay derivable from the repo.
 
 2. **Tree-SHA gate.** ``--verify-tree-sha`` refuses to retag an image whose
-   recorded ``source_tree_sha`` does not equal ``git rev-parse <commit>:<source_path>``.
+   recorded ``source_tree_sha`` does not equal the tree hash of its source
+   paths at ``<commit>`` (``check_container_tag_source.source_tree_sha``: a
+   plain ``git rev-parse <commit>:<source_path>`` for one path).
    This makes the retag *absolute*: it asserts "this image was built from this
    commit's source" against git and the registry, never against the previous
    commit's tags. Entries with no ``source_tree_sha`` (``mirror`` entries carry
@@ -47,6 +49,10 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from check_container_tag_source import source_paths_of, source_tree_sha  # noqa: E402
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 ALIAS_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
@@ -140,16 +146,15 @@ def alias_plan(
 
 
 def git_tree_sha(repo_root: Path, commit: str, source_path: str) -> str | None:
-    """``git rev-parse <commit>:<source_path>``, or None when the path is absent."""
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", f"{commit}:{source_path}"],
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        return None
-    value = result.stdout.strip()
-    return value if TREE_RE.fullmatch(value) else None
+    """The image's source tree SHA at ``commit``, or None when a path is absent.
+
+    ``source_path`` is the release-set entry's value: one path, or several
+    joined by commas for an image whose Dockerfile COPYs from more than one
+    place. The definition is ``check_container_tag_source.source_tree_sha`` --
+    the same one the build labelled the image with, or the gate compares
+    different things and refuses every retag.
+    """
+    return source_tree_sha(repo_root, commit, source_paths_of(source_path))
 
 
 def tree_sources(

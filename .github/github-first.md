@@ -49,9 +49,16 @@ gets built. Set `ghcr_build: true` and make sure `source_path`, `platforms` and
 `ci-vss-oss` reads it. Keep it accurate if an entry already has one, but a new
 entry does not need it and nothing depends on it.
 
-`source_path` is load-bearing beyond the build: it is what
-`git rev-parse <commit>:<source_path>` hashes to produce the `tree-<sha>` content
-tag, and what the change detector diffs to decide whether to build.
+`source_path` is load-bearing beyond the build: it is what the content hash
+covers (`release_set.py tree-sha` — `git rev-parse <commit>:<source_path>` for
+one path) to produce the `tree-<sha>` content tag, and what the change detector
+diffs to decide whether to build. **It must name every build-context path the
+Dockerfile `COPY`s.** A Dockerfile that reads outside its service folder lists
+them all — `"source_path": ["services/agent", "libs/vss"]` — and the hash
+becomes one `git mktree` over those paths. A path the Dockerfile reads but the
+entry omits is a stale-image bug: a change there neither rebuilds the image nor
+moves its content tag, so the workflow re-tags the old one.
+`test_detect_changed_images.py` audits every inventory Dockerfile for this.
 
 ### 2. Declare a namespaced image/tag pair in `containers.env`
 
