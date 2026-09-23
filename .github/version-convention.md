@@ -144,9 +144,16 @@ from the `vss-admins` team (ruleset *Protect develop*), so the workflow pushes
 with a fine-grained PAT of a member — repository secret
 `SKILLS_VERSION_PUSH_TOKEN`, sign-off from repository variables
 `SKILLS_VERSION_GIT_NAME` / `SKILLS_VERSION_GIT_EMAIL`. Without them it stops
-with a clear error and pushes nothing. The compliance checker
-(`vss-playbook-compliance`) accepts pre-release skill versions; it does not
-gate on the stamp — a hand edit is overwritten by the next run.
+with a clear error and pushes nothing.
+
+**The gate:** `stamp_versions.py --check` runs on every PR (`ci.yml`, job
+*Container Coordinates Golden*, on a full-depth checkout so the tags are
+reachable) and fails when any stamped field disagrees with the nearest `v*`
+tag, or a skill / ingress chart lacks its field. A hand edit therefore cannot
+merge; the fix is `python3 .github/scripts/stamp_versions.py`, never the
+number. One known cost: a PR opened before a new `v*` tag lands fails the gate
+until it is rebased onto develop — once per line. The compliance checker
+(`vss-playbook-compliance`) additionally accepts pre-release skill versions.
 
 ### Release order: stamp first, tag second
 

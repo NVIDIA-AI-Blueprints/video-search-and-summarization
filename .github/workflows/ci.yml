@@ -1423,6 +1423,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
+          # Full depth: the version-stamp check below derives the release line
+          # from the nearest v* tag, which a shallow clone cannot reach.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Unit-test static CI and deployment guards
@@ -1444,6 +1447,16 @@ jobs:
 
       - name: Unit-test the version stamp (skills, compose edge, helm edge)
         run: python3 .github/scripts/test_stamp_versions.py
+
+      # Every stamped version field -- SKILL.md metadata.version, the
+      # containers.env VSS_VERSION line, each ingress chart's vssVersion -- must
+      # equal the release line of the nearest v* tag (.github/version-convention.md).
+      # A hand edit, or a new skill / ingress chart without its field, fails
+      # here with the file list; the fix is `python3 .github/scripts/stamp_versions.py`,
+      # never the number. A PR opened before a new v* tag lands fails until it
+      # is rebased onto develop -- once per line, by design.
+      - name: Stamped version fields agree with the release tag
+        run: python3 .github/scripts/stamp_versions.py --check
 
       - name: Unit-test the downstream GHCR candidate reporter
         run: |
