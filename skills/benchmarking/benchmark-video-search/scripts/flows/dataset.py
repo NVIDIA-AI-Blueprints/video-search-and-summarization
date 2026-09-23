@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Dataset discovery, DSS download and ingest-stat aggregation.
 
 Vendored from ``run_eval.py`` so this flow owns them and that script can be
@@ -27,8 +26,9 @@ import json
 import os
 import statistics
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 #: Where DSS downloads land unless --data-dir says otherwise.
@@ -43,6 +43,10 @@ DEFAULT_DATA_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cach
 
 #: The DSS dataset holding every eval fixture.
 DSS_DATASET_NAME = "vss-devx-search"
+
+#: Base upload timestamp every existing segment dataset's ground truth is
+#: offset from. Clip datasets ignore the anchor (scoring is by video name).
+DEFAULT_UPLOAD_TIMESTAMP = "2025-01-01T00:00:00"
 
 # ---------------------------------------------------------------------------
 # Dataset registry -- maps (dataset, subset) to a path under --data-dir.
@@ -81,6 +85,17 @@ DATASETS: dict[str, dict[str, str]] = {
         "attribute": "physicalai-dev/dataset_attribute.json",
         "fusion": "physicalai-dev/dataset_fusion.json",
     },
+    # A clip-level retrieval release (DSS dataset ``physicalAI-event-videos-test``):
+    # 393 short event clips, 6,040 queries (3,040 event + 3,000 pas), whole-clip
+    # relevance (no time bounds). The on-disk ``dataset.json`` in benchmark
+    # shape is produced from the raw DSS layout (clips/ + gt/queries_gt.json +
+    # manifest.json) by :func:`flows.preprocess.make_clip_dataset`, run once
+    # after download. ``event``/``pas`` subsets select a single query_domain.
+    "physicalAI-event-videos-test": {
+        "": "physicalAI-event-videos-test/dataset.json",
+        "event": "physicalAI-event-videos-test/dataset_event.json",
+        "pas": "physicalAI-event-videos-test/dataset_pas.json",
+    },
     "kpi-search-v3": {
         "": "kpi-search-v3/dataset.json",
         "easy": "kpi-search-v3/dataset_easy.json",
@@ -91,8 +106,60 @@ DATASETS: dict[str, dict[str, str]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Per-dataset metadata that the subset map above cannot carry without breaking
+# its shape parity with run_eval.py's registry (which the drift test asserts
+# equals a ``dict[str, dict[str, str]]``). DSS source, retrieval task, the
+# reported HIT@k set, and the ingest anchor all live here.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DatasetMeta:
+    """Per-dataset wiring that is not the subset map."""
+
+    #: DSS dataset to download from. Umbrella datasets (``vss-devx-search``)
+    #: hold several eval fixtures and filter to ``<dataset>/``; standalone DSS
+    #: datasets are downloaded whole.
+    dss: str = DSS_DATASET_NAME
+    #: ``segment`` = time-bounded retrieval within long videos (overlap score);
+    #: ``clip`` = whole-clip retrieval (clip-match score).
+    task: Literal["segment", "clip"] = "segment"
+    #: Filter DSS files by ``f"{dataset}/"`` (umbrella) or not (standalone).
+    prefix_filter: bool = True
+    #: k values reported as HIT@k. Segment keeps the historical [1, 3, 5, 10];
+    #: clip has no segment expansion so k > --top-k is unmeasurable and the set
+    #: is capped at the retrieval depth.
+    hit_ks: tuple[int, ...] = (1, 3, 5, 10)
+    #: Upload timestamp the ground-truth offsets are relative to. Ignored for
+    #: ``clip`` (scoring is by video name, not time).
+    upload_ts: str = DEFAULT_UPLOAD_TIMESTAMP
+
+
+DATASET_META: dict[str, DatasetMeta] = {
+    "physicalAI-event-videos-test": DatasetMeta(
+        dss="physicalAI-event-videos-test",
+        task="clip",
+        prefix_filter=False,
+        hit_ks=(1, 5, 10),
+    ),
+}
+
+
+def dataset_meta(dataset: str) -> DatasetMeta:
+    """Per-dataset wiring, defaulting to a segment umbrella dataset."""
+    return DATASET_META.get(dataset, DatasetMeta())
+
+
 def download_from_dss(data_dir: Path, dataset: str | None = None) -> None:
-    """Download eval data from DSS (nvdataset) to local directory."""
+    """Download eval data from DSS (nvdataset) to local directory.
+
+    The DSS source is per-dataset metadata (:func:`dataset_meta`): umbrella
+    datasets (``vss-devx-search``) filter to ``<dataset>/``; standalone DSS
+    datasets download whole. ``clip``-task datasets are then materialized into
+    the benchmark's on-disk ``dataset.json`` shape by the preprocessing
+    adapter, so the rest of the flow sees one layout regardless of task.
+    """
     try:
         from nvdataset import load_dataset
     except ImportError:
@@ -106,16 +173,18 @@ def download_from_dss(data_dir: Path, dataset: str | None = None) -> None:
         )
         sys.exit(1)
 
-    print(f"Loading DSS dataset: {DSS_DATASET_NAME}")
-    ds = load_dataset(name=DSS_DATASET_NAME)
+    meta = dataset_meta(dataset) if dataset else DatasetMeta()
+    print(f"Loading DSS dataset: {meta.dss}")
+    ds = load_dataset(name=meta.dss)
     sc = ds.to_storage_client(read_only=True)
 
     # List all files in the dataset (File.datum.key holds the path)
     all_files = [f.datum.key for f in ds.list_files()]
     print(f"  Found {len(all_files)} files in DSS dataset")
 
-    # Filter to requested dataset if specified
-    if dataset:
+    # Umbrella datasets hold many fixtures under <dataset>/ prefixes; standalone
+    # datasets are already this dataset's files, so filtering would drop them.
+    if dataset and meta.prefix_filter:
         prefix = f"{dataset}/"
         all_files = [f for f in all_files if f.startswith(prefix)]
         print(f"  Filtered to {len(all_files)} files for dataset '{dataset}'")
@@ -139,6 +208,27 @@ def download_from_dss(data_dir: Path, dataset: str | None = None) -> None:
         downloaded += 1
 
     print(f"  Download complete: {downloaded} new, {skipped} already present")
+
+    if meta.task == "clip" and dataset:
+        _ensure_clip_dataset(data_dir, dataset)
+
+
+def _ensure_clip_dataset(data_dir: Path, dataset: str) -> None:
+    """Materialize a ``clip``-task DSS layout into the benchmark's on-disk format.
+
+    Idempotent: skipped when ``dataset.json`` is already newer than the raw
+    ``queries_gt.json`` it is built from, so re-runs do no work.
+    """
+    try:
+        from .preprocess.make_clip_dataset import make_clip_dataset
+    except ImportError as e:  # pragma: no cover - import guard
+        print(
+            f"ERROR: clip dataset adapter unavailable "
+            f"(flows/preprocess/make_clip_dataset.py): {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    make_clip_dataset(data_dir / dataset, dataset)
 
 
 def load_dataset_file(data_dir: Path, dataset: str, subset: str) -> dict:
