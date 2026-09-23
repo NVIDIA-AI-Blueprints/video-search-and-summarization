@@ -17,14 +17,16 @@
 # templates/configmap-warehouse-standalone-mv3dt.yaml when
 # standaloneWarehouse.mv3dt.reid.enabled is true. Kept out of the configs/
 # directory so the ConfigMap's glob over that directory does not pick it up as
-# a config of its own. The template rewrites serviceAddress, servicePort, the
-# two model paths and reidExtractionInterval from values; every other field
-# tracks the Compose tracker config in
+# a config of its own. The template rewrites serviceAddress, servicePort and
+# the two model paths from values; every other field tracks the Compose
+# tracker config in
 # deploy/docker/industry-profiles/warehouse-operations/warehouse-mv3dt-app/
 # deepstream/configs/ds-mv3dt-tracker-config.yml.
-
-TrajectoryManagement:
-  reidExtractionInterval: 8
+#
+# Only sections absent from that base config belong here. reidExtractionInterval
+# stays under the base TrajectoryManagement and is rewritten in place: repeating
+# a top-level key appends a second node the tracker never reads, rather than
+# overriding the first.
 
 ReID:
   reidType: 2    # The type of reid among { DUMMY=0, NvDEEPSORT=1, Reid based reassoc=2, both NvDEEPSORT and reid based reassoc=3}
