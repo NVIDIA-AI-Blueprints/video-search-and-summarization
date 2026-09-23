@@ -11,7 +11,10 @@
 #   4. YOUR LVS container actually owns the backend port (not another tenant) —
 #      i.e. its server bound successfully and no other container holds the port;
 #   5. the configured vlm_gpus/llm_gpus are reserved by running GPU containers,
-#      and (best-effort) are the GPUs your LVS's VLM/LLM containers use.
+#      and (best-effort) are the GPUs your LVS's VLM/LLM containers use;
+#   6. the deployed VSS version satisfies the `requires-vss` range this skill
+#      declares in its SKILL.md front matter — benchmarking a deployment the
+#      skill does not support produces numbers nothing can be compared against.
 #
 # Required env:
 #   LVS_BACKEND          your LVS /summarize endpoint (e.g. http://localhost:38111)
@@ -19,6 +22,8 @@
 #   VLM_GPUS / LLM_GPUS  GPU indices for the VLM / LLM (comma-separated; or VIA_VLM_GPUS/VIA_LLM_GPUS)
 # Optional:
 #   CONFIG               path to the benchmark config.yaml (default: config.yaml next to this script)
+#   VSS_PUBLIC_URL       deployment origin published by vss-build-vision-ai (Kubernetes). Used for
+#                        the version-compatibility check; falls back to LVS_BACKEND when unset.
 #
 # Exit codes: 0 = all good (warnings allowed), 1 = hard failure (do not benchmark).
 
@@ -127,6 +132,42 @@ for g in $(echo "${VLM_GPUS},${LLM_GPUS}" | tr ',' '\n' | sort -un); do
     [[ -z "${GPU_OWNER[$g]:-}" ]] && err "GPU $g is configured but no running container reserves it (you would measure 0%)"
 done
 echo "  (Verify the containers above are YOUR LVS's VLM/LLM and match the endpoints — not another tenant's.)"
+
+echo "=== 7. Deployed VSS version satisfies this skill's requires-vss range ==="
+# The range lives in this skill's SKILL.md front matter, and the checker reads it
+# from there rather than taking it as an argument, so what a run enforces cannot
+# drift from what the skill publishes.
+SKILL_MD="$(cd "${SCRIPT_DIR}/.." && pwd)/SKILL.md"
+# GET /api/v1/version is served by the VSS agent. VSS_PUBLIC_URL is the deployment
+# origin vss-build-vision-ai publishes (Kubernetes; deliberately unset on Compose),
+# and its ingress routes /api to the agent. With no such origin we fall back to the
+# LVS backend the operator already gave us — no host is constructed here.
+VERSION_ORIGIN="${VSS_PUBLIC_URL:-${LVS_BACKEND}}"
+# Next to this script if someone copied it (the checker is designed to be copied),
+# otherwise in the repo checkout this skill lives in.
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." 2>/dev/null && pwd)"
+CHECKER=""
+for cand in "${SCRIPT_DIR}/check_vss_version.py" \
+            "${REPO_ROOT:+${REPO_ROOT}/services/agent/scripts/check_vss_version.py}"; do
+    [[ -n "${cand}" && -f "${cand}" ]] && { CHECKER="${cand}"; break; }
+done
+if [[ -z "${CHECKER}" ]]; then
+    err "check_vss_version.py not found (looked next to this script and in services/agent/scripts)"
+    err "      so skill/deployment compatibility cannot be determined"
+elif [[ ! -f "${SKILL_MD}" ]]; then
+    err "SKILL.md not found at ${SKILL_MD}, so this skill's requires-vss range cannot be read"
+else
+    vout=$("${PYBIN}" "${CHECKER}" "${VERSION_ORIGIN}" --skill "${SKILL_MD}" --timeout 10 2>&1)
+    vrc=$?
+    case "$vrc" in
+        0) ok "deployed VSS ${vout} satisfies this skill's requires-vss range (via ${VERSION_ORIGIN})" ;;
+        3) err "${vout}"
+           err "      this skill does not support this deployment — do not benchmark it" ;;
+        *) err "${vout}"
+           err "      compatibility could not be determined; set VSS_PUBLIC_URL to an origin that routes"
+           err "      /api to the VSS agent, then retry" ;;
+    esac
+fi
 
 echo ""
 if [[ "$fail" -ne 0 ]]; then echo "PREFLIGHT: FAIL — do not benchmark until resolved."; exit 1; fi

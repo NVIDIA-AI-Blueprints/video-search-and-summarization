@@ -332,6 +332,8 @@ the Agent container. Create and select that file as described in
 | Variable | Purpose |
 | --- | --- |
 | `HOST_IP` | Deployment host used to derive externally reachable URLs. |
+| `VSS_DEPLOYMENT_VERSION` | Strict SemVer reported by `GET /api/v1/version`; an invalid value makes the endpoint return HTTP 503. |
+| `VSS_AGENT_VERSION` | Agent image-tag and Phoenix telemetry-project suffix; also the reported-version fallback when `VSS_DEPLOYMENT_VERSION` is unset. Set `VSS_CONTAINER_TAG` alongside it when the telemetry suffix should change without selecting a different image. |
 | `VSS_AGENT_CONFIG_FILE` | Agent configuration path inside the container. |
 | `VSS_AGENT_HOST`, `VSS_AGENT_PORT` | Agent bind address and container port; the default container port is `8000`. |
 | `VSS_AGENT_OBJECT_STORE_TYPE` | Object-store entry used by report and chart tools. |
