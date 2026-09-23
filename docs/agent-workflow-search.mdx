@@ -1277,6 +1277,8 @@ through single ingress.
 
 That added sentence is what puts RTVI-VLM in the build, and it also routes `/rtvi-vlm` through the ingress so the CLI can reach it. Ask for neither capability and the service is left out, because retrieval itself never calls it.
 
+Either prompt can also name an image tag to run a release's images instead of the `containers.env` default, for example *"…using image tag `${VSS_DOCS_IMAGE_TAG:-develop-latest}`."* See [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
+
 The skill presents the composed architecture for your confirmation before it generates or deploys anything.
 
 <Note>

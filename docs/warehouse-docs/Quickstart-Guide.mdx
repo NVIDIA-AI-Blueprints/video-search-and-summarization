@@ -1126,6 +1126,10 @@ operator's behalf:
   custom dataset requires calibration generated with `vss-generate-video-calibration`
   or a separate `MODE=auto-calibration` build, placed at the mode-specific repository
   path before an analytics build is deployed.
+* **Container image tag** - runs a release's images when you name an image tag in
+  the prompt, or when `VSS_CONTAINER_TAG` is already exported. Otherwise it uses the
+  `containers.env` default. See
+  [Container image tag](/vss/vision-agent/build-vision-ai#container-image-tag).
 * **Build and validate** - writes `_builds/<name>/override.env`, `compose.yml`,
   `configurator.env`, and `resolved.yml`. The Skill resolves the Warehouse env layers
   into `resolved.yml`, then validates the resolved services, images, bind mounts,
