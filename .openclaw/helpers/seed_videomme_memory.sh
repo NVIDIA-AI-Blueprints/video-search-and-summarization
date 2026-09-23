@@ -5,44 +5,26 @@
 set -euo pipefail
 
 if [[ "$#" -ne 1 || -z "$1" ]]; then
-  echo "usage: seed_videomme_memory.sh <video-id>" >&2
+  echo "usage: seed_videomme_memory.sh <sensor-id>" >&2
   exit 2
 fi
 
-video_id="$1"
+sensor_id="$1"
+video_id="${VSS_VIDEO_ID:-${sensor_id}}"
 : "${VSS_GATEWAY_ORIGIN:?missing VSS_GATEWAY_ORIGIN}"
-: "${VSS_BINDING:?missing VSS_BINDING}"
 : "${VSS_EVAL_RUN_ID:?missing VSS_EVAL_RUN_ID}"
 : "${VSS_EVAL_TASK_ID:?missing VSS_EVAL_TASK_ID}"
 
 workspace="${HOME:-/sandbox}/.openclaw/workspace"
 log_dir="/logs/agent"
 memory_index="$(
-  printf 'video-mme-%s-%s' "${VSS_EVAL_RUN_ID}" "${VSS_EVAL_TASK_ID}" |
+  printf 'video-mme-%s' "${VSS_EVAL_RUN_ID}" |
     tr '[:upper:]_/' '[:lower:]---' |
     tr -cd 'a-z0-9._-'
 )"
 memory_index="${memory_index:0:220}"
 
 mkdir -p "${workspace}/memory" "${log_dir}"
-
-sensor_id="$(
-  jq -er --arg video_id "${video_id}" '
-    [
-      to_entries[]
-      | select(
-          (.key | split("/")[-1] | sub("\\.[^.]+$"; "")) == $video_id
-        )
-    ]
-    | if length == 1 then
-        .[0].value
-      elif length == 0 then
-        error("video ID is absent from VSS_BINDING")
-      else
-        error("video ID is ambiguous in VSS_BINDING")
-      end
-  ' <<<"${VSS_BINDING}"
-)"
 
 vss configure --base-url "${VSS_GATEWAY_ORIGIN}"
 vss configure memory \
