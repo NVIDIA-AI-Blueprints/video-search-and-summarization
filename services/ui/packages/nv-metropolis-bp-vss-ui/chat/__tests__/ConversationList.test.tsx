@@ -98,6 +98,21 @@ describe('ConversationList', () => {
     expect(screen.getByRole('button', { name: 'Clear conversations' })).toBeDisabled();
   });
 
+  it('shows an empty state when search matches neither folders nor conversations', () => {
+    render(
+      <ConversationList
+        {...handlers({
+          folders: [folder],
+          filteredConversations: [],
+          searchTerm: 'missing',
+        })}
+      />,
+    );
+
+    expect(screen.getByText('No conversations')).toBeInTheDocument();
+    expect(screen.queryByText(folder.name)).not.toBeInTheDocument();
+  });
+
   it('creates, renames, moves conversations into, and deletes folders', () => {
     const props = handlers({ folders: [folder] });
     render(<ConversationList {...props} />);

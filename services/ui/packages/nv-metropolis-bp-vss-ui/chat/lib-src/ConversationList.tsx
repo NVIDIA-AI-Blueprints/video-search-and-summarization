@@ -228,6 +228,12 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
     return source.filter((conversation) => conversation.folderId === folder.id);
   };
 
+  const hasVisibleFolder = sortedFolders.some((folder) => {
+    if (!searchTerm) return true;
+    if (folder.name.toLowerCase().includes(searchTerm.trim().toLowerCase())) return true;
+    return conversationsForFolder(folder).length > 0;
+  });
+
   return (
     <div className="flex h-full flex-col gap-2 p-2 text-sm">
       <div className="flex gap-2">
@@ -401,7 +407,7 @@ export const ConversationList: React.FC<ChatSidebarControlHandlers> = ({
           );
         })}
 
-        {filteredConversations.length === 0 && sortedFolders.length === 0 ? (
+        {unfiledConversations.length === 0 && !hasVisibleFolder ? (
           <p className="p-2 text-neutral-500 dark:text-neutral-400">No conversations</p>
         ) : null}
       </div>
