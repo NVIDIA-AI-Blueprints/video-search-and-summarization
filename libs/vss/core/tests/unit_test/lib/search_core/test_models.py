@@ -10,7 +10,7 @@ from datetime import datetime
 from pydantic import ValidationError
 import pytest
 
-from vss_core.critic import VideoInfo
+from vss_core.search_core.critic import VideoInfo
 from vss_core.search_core.errors import InvalidInputError
 from vss_core.search_core.models.attribute_search import AttributeSearchInput
 from vss_core.search_core.models.embed_search import EmbedSearchInput

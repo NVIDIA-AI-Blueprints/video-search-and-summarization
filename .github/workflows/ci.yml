@@ -554,7 +554,6 @@ jobs:
           uv sync --frozen
           uv run --no-sync mypy \
             core/src/vss_core/_foundation \
-            core/src/vss_core/critic \
             core/src/vss_core/search_core \
             core/src/vss_core/vlm \
             core/src/vss_core/vios \
@@ -585,7 +584,7 @@ jobs:
 
           import vss_core
           import vss_cli
-          import vss_core.critic
+          import vss_core.search_core.critic
           import vss_core.search_core
           import vss_core.vlm
           import vss_core.vios
@@ -600,7 +599,7 @@ jobs:
           assert importlib.util.find_spec("nat") is None
           assert importlib.util.find_spec("torch") is None
           assert importlib.util.find_spec("vss_agents") is None
-          assert vss_core.critic is not None and vss_core.search_core is not None
+          assert importlib.util.find_spec("vss_core.critic") is None and vss_core.search_core is not None and vss_core.search_core.critic is not None
           assert vss_core.vlm is not None and vss_core.vios is not None
           PY
           .wheel-smoke/bin/vss --help >/dev/null

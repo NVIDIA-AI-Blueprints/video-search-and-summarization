@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 
     import click
 
-    from vss_core.critic import CriticAgent
+    from vss_core.search_core.critic import CriticAgent
     from vss_core.vlm import OpenAIVLMAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,20 @@ class _Common(BaseModel):
     # ignore a misspelled key and silently use the default.
     model_config = ConfigDict(extra="forbid")
 
+    # What the user actually asked, before whatever decomposed it produced the
+    # arguments on this command line. Retrieval never reads it; the critic does.
+    #
+    # A decomposed request is lossy in one direction that matters: `run
+    # attribute --attribute "white jacket"` is a perfectly good retrieval
+    # request but a poor question to verify against, and the host reconstructs
+    # one by pasting the attributes back onto the query string. That
+    # reconstruction is a guess, and it is the CLI's fault it has to guess --
+    # the caller had the sentence and dropped it at the argv boundary. Pass it
+    # here and the critic is asked the user's question instead.
+    original_query: str | None = Field(
+        None,
+        description="The user's question before decomposition; used for result verification, not retrieval.",
+    )
     source_type: Literal["video_file", "rtsp"] | None = Field(None, description="Media source type.")
     video_sources: list[str] = Field(
         default_factory=list,
@@ -358,7 +372,7 @@ async def _critic_from(
         logger.warning("Search critic disabled: %s", reason)
         return None, None, reason
 
-    from vss_core.critic import CriticAgent
+    from vss_core.search_core.critic import CriticAgent
     from vss_core.vios import VSTClient
     from vss_core.vlm import OpenAIVLMAnalyzer
 
@@ -374,12 +388,21 @@ async def _critic_from(
         # fetches the bounded VST clip. Inlining the MP4 is subject to the
         # proxy's base64-size cap and makes otherwise valid hits unverifiable.
         media_mode="video_url",
-        video_url_scope="external",
+        # RT-VLM fetches the clip itself. Use VST's in-cluster videoUrl (the
+        # URL VST returns) rather than rewriting it to the client-facing origin,
+        # so a container-hosted RT-VLM is not handed a localhost clip link its
+        # SSRF guard rejects. Mirrors `vss vlm run` (vss_cli/vlm/runner.py).
+        video_url_scope="internal",
         # A Cosmos model id does not make this a direct Cosmos NIM endpoint.
         # RT-VLM performs its own preprocessing, so the direct-NIM
         # media_io_kwargs that OpenAIVLMAnalyzer normally adds do not belong
         # in this proxy request.
         cosmos_nim_runtime_options=False,
+        # RT-VLM samples the opening frame alone when the budget is absent,
+        # which is not enough to ground a question about an interval. Match
+        # `vss vlm run`'s default (vss_cli/vlm/runner.py:_RT_VLM_FRAME_BUDGET)
+        # so the critic judges the whole clip, not its first frame.
+        rt_vlm_frame_budget=8,
     )
     # iso, not offset: the critic already rebases file-source bounds onto the
     # real replay timeline itself (cached per sensor), so the analyzer's clip-URL
