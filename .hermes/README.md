@@ -43,11 +43,11 @@ cohort a release selects is the one its `openclaw-sandbox` release tag is
 labeled with:
 
 ```
-docker buildx imagetools inspect ghcr.io/nvidia/nemoclaw/openclaw-sandbox:v0.0.114 --format '{{json .}}' \
+docker buildx imagetools inspect ghcr.io/nvidia/nemoclaw/openclaw-sandbox:v0.0.127 --format '{{json .}}' \
   | jq -r '.image | to_entries[0].value.config.Labels["io.nvidia.nemoclaw.managed-image.cohort"]'
-# ghrun-32694475593-1
-docker buildx imagetools inspect ghcr.io/nvidia/nemoclaw/hermes-sandbox:cohort-ghrun-32694475593-1
-# Digest: sha256:32d7ed6a…  ← BASE_IMAGE
+# ghrun-35246345308-1
+docker buildx imagetools inspect ghcr.io/nvidia/nemoclaw/hermes-sandbox:cohort-ghrun-35246345308-1
+# Digest: sha256:26899bd0…  ← BASE_IMAGE
 ```
 
 Move `BASE_IMAGE` together with `../openclaw/Dockerfile`'s and the notebook's
@@ -74,7 +74,7 @@ the source pin. To include a skill or CLI change, publish it and add
 
 | Build arg | Default | What it pins |
 |---|---|---|
-| `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7…` (v0.0.114 cohort) | the managed runtime |
+| `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:2689…` (v0.0.127 cohort) | the managed runtime |
 | `VSS_REPO`, `VSS_REF` | this repo, a commit sha | skills, workspace docs and the `vss` CLI |
 | `BUILDER_IMAGE` | `node:22-trixie-slim@sha256:db8a…` | the checkout stage |
 

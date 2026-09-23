@@ -120,10 +120,10 @@ Pins are build args:
 
 | Build arg | Default | What it pins |
 |---|---|---|
-| `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:25f4…` (v0.0.114, the release `deploy_nemoclaw.ipynb` installs) | the managed runtime |
+| `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:959d…` (v0.0.127, the release `deploy_nemoclaw.ipynb` installs) | the managed runtime |
 | `OPENCLAW_VERSION` | `2026.7.1` | the OpenClaw the base carries; the build fails if the plugin lockfile pins a different one |
 | `VSS_REPO`, `VSS_REF` | this repo, a commit sha | the skills and the `vss` CLI |
-| `BUILDER_IMAGE` | `node:22-trixie-slim@sha256:db8a…` | the plugin build stage (same as NemoClaw's) |
+| `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the plugin build stage (same as NemoClaw's) |
 | `UV_IMAGE` | `ghcr.io/astral-sh/uv@sha256:2bb3…` (0.12.10) | uv, for the `vss` venv |
 | `NEMOCLAW_TOOL_DISCLOSURE` | `progressive` | NemoClaw tool disclosure mode |
 
