@@ -39,7 +39,7 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
 
    - `reid-embed` consumes `mdx-raw`, stores CLIP-ReID (1280-D) features in a Milvus gallery (etcd + MinIO), and answers HTTP queries from the tracker. Re-association is **Person only**.
    - Warehouse deployments also run a secondary SigLIP 2 encoder (`siglip_v2_vdeployable_v1.1`) and publish `mdx-compressed-embeddings` on the same Kafka or Redis broker. BEV Fusion still consumes only `mdx-raw`.
-   - Gallery backends are ephemeral. CLIP-ReID and SigLIP 2 weights persist under `$VSS_DATA_DIR/models/reid` (Compose) or the RT-CV models PVC (Helm). Perception waits on `GET /health/ready` (first boot can take up to 300s while engines initialize).
+   - Gallery backends are ephemeral. CLIP-ReID and SigLIP 2 weights persist under `$VSS_DATA_DIR/models/reid` (Compose) or the RT-CV models PVC (Helm). Perception waits on `GET /health/ready` after the init container and Milvus are up. The health-check start grace period is 300s; first-boot engine build can take longer.
 
 5. **MQTT Broker (Mosquitto)**
 
@@ -242,7 +242,7 @@ parameters, ROI/tripwire definitions, or MV3DT `group` / `region` metadata.
 
 **What the agent does:**
 
-1. Checks container health for perception, ReID Embed, BEV Fusion, mosquitto, Kafka or
+1. Checks container health for perception, BEV Fusion, mosquitto, Kafka or
    Redis, VST, configurator, behavior analytics, and the extended overlay
    services when enabled.
 2. Reads `vss-rtvi-cv-mv3dt` logs for TensorRT engine build status, active

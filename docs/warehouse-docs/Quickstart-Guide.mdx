@@ -886,14 +886,14 @@ docker logs -f vss-rtvi-cv
 docker logs -f vss-rtvi-cv-mv3dt
 ```
 
-On first MV3DT boot, wait for appearance ReID before expecting perception FPS. The one-shot `vss-reid-embed-init-mv3dt` container should exit `0`, then:
+On first MV3DT boot, wait for appearance ReID before expecting perception FPS. Models download in the one-shot `vss-reid-embed-init-mv3dt` container (exit `0`), then etcd, MinIO, and Milvus must be healthy, then:
 
 ```bash
 docker logs -f vss-reid-embed-mv3dt
 curl -sf http://localhost:8088/health/ready
 ```
 
-`GET /health/ready` can take up to 300s on the first engine build. Perception does not start until that probe succeeds.
+The 300s figure on the ReID health check is a start grace period, not a maximum. Retries continue after that, so first-boot engine build can take longer. Perception does not start until the probe succeeds.
 
 4. Check Kibana for indexed analytics data and alerts. Go to the endpoint listed below and navigate to the dashboard.
 

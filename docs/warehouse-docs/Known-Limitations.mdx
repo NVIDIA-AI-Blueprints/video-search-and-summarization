@@ -25,7 +25,7 @@ Multiple bounding boxes (BBOX) for the same object may be observed when running 
 
 ### Appearance ReID gallery and GPU
 
-* The Milvus gallery is **ephemeral**. After a Compose or Helm restart, appearance memory is empty until new `mdx-raw` embeddings are ingested.
+* The Milvus gallery is not durable storage. Warehouse Compose has no named volumes for etcd, MinIO, or Milvus, so `docker compose restart` keeps appearance memory, and `docker compose down` (or recreating those containers) empties it until new `mdx-raw` embeddings are ingested. Standalone named volumes survive `docker compose down` unless you pass `-v`. Helm uses `emptyDir` for those backends, so the gallery is cleared when the pods are recreated, not on a process restart inside a running pod.
 * Re-association applies to **Person** only (`operateOnClassIds: [0]`). 
 * Helm files three GPU claims (perception, stream processing, `reid-embed`) against two physical cards. Without GPU time-slicing, first install can deadlock: the init Job needs a GPU to export CLIP-ReID while other pods already hold both cards. Enable time-slicing or stage models out of band as described in the [warehouse-mv3dt-app Helm README](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/blob/develop/deploy/helm/industry-profiles/warehouse-operations/warehouse-mv3dt-app/README.md).
 
