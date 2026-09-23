@@ -15,13 +15,13 @@ contract.
    [RT-Embed](services/rt-embed.md).
 4. Place singleton RT-VLM last, into the capacity step 3 leaves behind; never
    displace or co-pack a fixed service to free a GPU for it. When composition
-   must converge different integrated Cosmos3 variants (Nano or Super — the rule
-   is quantization-driven, not family-driven), use BF16 only if a
+   must converge different integrated Cosmos3 Nano variants, use BF16 only if a
    GPU remains free after every fixed-footprint service has its preferred
    dedicated device; otherwise use FP8 co-resident on the RT-CV device
    (`RT_VLM_DEVICE_ID = RT_CV_DEVICE_ID`), which retains the most headroom among
-   the fixed-footprint services placed in step 3. Share only when the combined
-   budget fits. Resolve the atomic variant/placement set without inheriting
+   the fixed-footprint services placed in step 3. Super does not participate in
+   this split — it always resolves to FP8, dedicated or shared. Share only when
+   the combined budget fits. Resolve the atomic variant/placement set without inheriting
    consumer wiring, as specified by the [RT-VLM owner](services/rt-vlm.md). Stock
    mode retains its Foundation's reviewed variant and placement, except that a
    co-located placement on a host with a free GPU is the user's call — ask, per

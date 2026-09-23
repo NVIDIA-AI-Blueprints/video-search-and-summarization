@@ -58,15 +58,15 @@ Notes on choosing a row:
   lightest and requires FP4-capable (Blackwell-class) hardware.
 - Super is supported only on H100 and RTX PRO 6000. Treat that hardware gate as a
   hard constraint for every Super row.
-- **Super quantization follows placement, not preference.** On a *dedicated* GPU,
-  prefer Super BF16 — nothing else competes for the device. On a GPU *shared* with
-  another service, use Super FP8: it is validated co-resident with RT-CV on the
-  `search` profile's GPU 0 at `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55`. Super BF16
-  is **not** co-residency-capable — at 62.14 GB of weights it leaves the shared
-  GPU with too little headroom and RT-CV's TensorRT execution-context allocation
-  OOMs, even though RT-VLM itself reaches ready. Super NVFP4 co-residency is
-  untested: treat it as dedicated-only until validated, and keep its Blackwell-class
-  hardware requirement, which the H100/RTX PRO 6000 gate above does not satisfy.
+- **Use Super FP8.** It is validated co-resident with RT-CV on the `search`
+  profile's GPU 0 at `RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.55`, and works
+  unchanged when RT-VLM has the GPU to itself. Super BF16 is **not**
+  co-residency-capable — at 62.14 GB of weights it leaves a shared GPU with too
+  little headroom and RT-CV's TensorRT execution-context allocation OOMs, even
+  though RT-VLM itself reaches ready. Super NVFP4 co-residency is untested:
+  treat it as dedicated-only until validated, and keep its Blackwell-class
+  hardware requirement, which the H100/RTX PRO 6000 gate above does not
+  satisfy.
 - **Surface an unsupported-hardware Super request before acting on it.** If Super
   is requested and the detected GPUs are neither H100 nor RTX PRO 6000, or the
   requested variant is BF16/NVFP4 and no GPU can be dedicated to RT-VLM, stop and
@@ -87,11 +87,14 @@ Notes on choosing a row:
 RT-VLM is a singleton owner: one instance, one checkpoint, and one
 variant/placement knob-set per build. When capabilities bring different
 integrated Cosmos3 variants, resolve the placement first, then converge on
-one variant. The rule is quantization-driven, so it applies to the Nano and
-Super families alike:
+one variant. For Nano, the rule is quantization-driven:
 
 - a dedicated GPU selects the heavier BF16 variant;
 - co-residence with another GPU service selects the lighter FP8 variant.
+
+Super always resolves to FP8 (see
+[Available integrated model variants](#available-integrated-model-variants)),
+regardless of placement.
 
 Resolve the variant/placement knobs as one set:
 `RTVI_VLM_MODEL_PATH`, `VLM_NAME`, `RTVI_VLLM_GPU_MEMORY_UTILIZATION`,

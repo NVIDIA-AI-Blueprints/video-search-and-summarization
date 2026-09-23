@@ -629,7 +629,7 @@ function get_rtvi_vllm_gpu_memory_utilization() {
       # 0.55 is validated co-resident with RT-CV on a 95 GiB H100 NVL: RT-VLM and
       # RT-CV both reach ready with ~31 GiB free. Super BF16 (62.14 GB) does not
       # fit a shared GPU at all — RT-CV's TensorRT execution context OOMs — so
-      # shared placement is FP8-only; prefer BF16 where the VLM owns the GPU.
+      # shared placement is FP8-only.
       H100|RTXPRO6000BW)
         if [[ "${_model_path}" == *cosmos3-super-reasoner* ]]; then echo "0.55"; else echo "0.4"; fi
         ;;
