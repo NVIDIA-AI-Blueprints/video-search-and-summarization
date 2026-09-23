@@ -7,7 +7,7 @@
  * IndexedDB is mocked at the storage module rather than shimmed, because the
  * point here is the panel, not the persistence (covered in conversations.test).
  */
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 
 import { ChatPanel } from '../lib-src/ChatPanel';
@@ -101,6 +101,45 @@ describe('ChatPanel', () => {
     // Rendered as markdown, not as literal asterisks.
     expect(screen.getByText('bold').tagName).toBe('STRONG');
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
+  });
+
+  it('keeps earlier conversations visible and selectable after starting a new chat', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      sseResponse([
+        'data: {"choices":[{"delta":{"content":"first answer"}}]}\n\n',
+        'data: [DONE]\n\n',
+      ]),
+    ) as any;
+
+    render(<ChatPanel endpoint={endpoint} features={noHeader} />);
+    await act(async () => typeAndSend('first question'));
+    await waitFor(() => expect(screen.getByText('first answer')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
+
+    expect(screen.queryByText('first answer')).not.toBeInTheDocument();
+    const previousConversation = screen.getByRole('button', { name: 'first question' });
+    expect(previousConversation).toBeInTheDocument();
+
+    fireEvent.click(previousConversation);
+    expect(screen.getByText('first answer')).toBeInTheDocument();
+    expect(screen.getByTestId('chat-message-user')).toHaveTextContent('first question');
+  });
+
+  it('overlays conversation history without shrinking a narrow chat panel', () => {
+    render(
+      <div style={{ width: 380 }}>
+        <ChatPanel endpoint={endpoint} features={noHeader} />
+      </div>,
+    );
+
+    const history = screen.getByRole('complementary', { name: 'Conversation history' });
+    expect(history).toHaveClass('absolute', 'max-w-[calc(100%-3rem)]');
+    expect(history).not.toHaveClass('flex-shrink-0');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide conversation history' }));
+    expect(screen.queryByRole('complementary', { name: 'Conversation history' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show conversation history' })).toBeInTheDocument();
   });
 
   it('renders and answers interaction prompts', async () => {
@@ -726,10 +765,10 @@ describe('ChatPanel', () => {
     fireEvent.click(screen.getAllByLabelText('Delete message')[0]);
 
     await waitFor(() =>
-      expect(screen.queryByText('first question')).not.toBeInTheDocument(),
+      expect(within(screen.getByRole('log')).queryByText('first question')).not.toBeInTheDocument(),
     );
     // The other turn is untouched — deletion addressed a message, not a slot.
-    expect(screen.getByText('second question')).toBeInTheDocument();
+    expect(within(screen.getByRole('log')).getByText('second question')).toBeInTheDocument();
   });
 
   it('hands conversation controls to the host exactly once per meaningful change', async () => {

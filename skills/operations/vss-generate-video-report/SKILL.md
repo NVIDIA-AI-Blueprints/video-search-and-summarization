@@ -83,6 +83,8 @@ Never route reports through VSS-agent `POST /generate`.
 
 ## Runtime prerequisites
 
+The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
+
 This skill is profile-agnostic for Mode A. A specific profile does **not** have to be pre-deployed as long as the chosen Mode A input path and VLM path are available.
 **Mode C** needs a **VA-MCP that exposes the SOP tools** (`get_sop_*`) over Elasticsearch `mdx-vlm-captions-*` — deployed by the SOP profile (compose via `/vss-build-vision-ai`; see that skill's `references/services/sop.md` § Patch specifics, inside its own directory wherever it is installed).
 

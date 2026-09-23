@@ -20,6 +20,28 @@
     ]
   },
   {
+    "id": "build-base-release-tag",
+    "question": "Deploy the VSS base profile using container image tag 3.4.0.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Select 3.4.0 as the common container image tag and resolve with it exported.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Exports VSS_CONTAINER_TAG=3.4.0 for every docker compose config that loads containers.env, records it in override.env, and names it before deploying.",
+      "Leaves deploy/docker/containers.env unmodified, and resolves every managed image to 3.4.0 rather than develop-latest."
+    ]
+  },
+  {
+    "id": "build-base-default-tag",
+    "question": "Deploy the VSS base profile.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "No tag was requested, so the containers.env default applies.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Does not ask for a container image tag, export VSS_CONTAINER_TAG, or write it to override.env.",
+      "Resolves the managed images to the containers.env develop-latest default."
+    ]
+  },
+  {
     "id": "build-base-gb300",
     "question": "Deploy the VSS base profile on DGX Station GB300.",
     "expected_skill": "vss-build-vision-ai",
@@ -28,6 +50,17 @@
       "Activates vss-build-vision-ai.",
       "Applies DGX Station GB300 OS and driver checks from prerequisites.md.",
       "Writes the complete single-GB300 device placement, RT-VLM utilization 0.2, and concrete SBSA tags directly to the build override — not a two-GPU H100 layout or a dev-profile.sh invocation — and never duplicates an existing -sbsa suffix."
+    ]
+  },
+  {
+    "id": "build-base-gb300-release-tag",
+    "question": "Deploy the VSS base profile on DGX Station GB300 using container image tag 3.4.0.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Derive the SBSA tags from the selected common tag rather than from develop-latest.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Exports VSS_CONTAINER_TAG=3.4.0 and derives the SBSA tags from it, writing VSS_RT_VLM_TAG=3.4.0-sbsa to override.env without duplicating the suffix.",
+      "Resolves rtvi-vlm to 3.4.0-sbsa and the unsuffixed managed images to 3.4.0, with no image left on develop-latest."
     ]
   },
   {

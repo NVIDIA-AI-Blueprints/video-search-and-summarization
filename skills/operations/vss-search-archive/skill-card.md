@@ -7,7 +7,7 @@ This skill is for demonstration purposes and not for production usage. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers who need to search archived video content using natural-language queries, ingest video files or RTSP streams for search indexing, and manage search-ingested video sources. <br>
 

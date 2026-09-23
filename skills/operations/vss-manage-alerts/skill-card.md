@@ -7,7 +7,7 @@ This skill is for demonstration purposes and not for production usage. <br>
 NVIDIA <br>
 
 ### License/Terms of Use: <br>
-Apache 2.0 OR MIT <br>
+Apache-2.0 <br>
 ## Use Case: <br>
 Developers and engineers operating the NVIDIA Video Search and Summarization AI Blueprint alert pipeline — managing real-time monitoring, alert subscriptions, Slack notifications, incident queries, and camera onboarding. <br>
 

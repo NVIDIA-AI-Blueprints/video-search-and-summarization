@@ -75,7 +75,7 @@ here and no model is discovered: `vss configure` recorded both.
 
 ```bash
 SUMMARIZE_OUT=/tmp/vss-summarize-video-run.json
-"${VSS[@]}" summarize run \
+vss summarize run \
   --url "<fresh_vios_clip_url_from_stage_2>" \
   --video-id "<resolved VIOS sensor id>" \
   --scenario "<scenario>" \

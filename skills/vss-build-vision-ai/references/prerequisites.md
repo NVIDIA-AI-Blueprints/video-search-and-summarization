@@ -370,7 +370,7 @@ If `nvidia-smi` fails, rule out [confinement](#confinement) first — inside a s
 | x86 dGPU — H100 (SXM / PCIe), H200 | **`595.58.03`** | same x86_64 baseline; the SXM parts also need Fabric Manager below |
 | x86 Brev Cloud — NemoClaw, RTX 6000 launchables | **`595.91.07`** | the instance image |
 | Kubernetes — RTX 6000, H200 | **`595.58.03`** | the GPU Operator's driver setting |
-| ARM SBSA — DGX Station GB300 | **`610.43.03`** | the bundled DGX OS 7.6.0 driver (host-confirmed, VSS-TEGRA-REQ-002 §4.9) |
+| ARM SBSA — DGX Station GB300 | **`595.58.03`** | the DGX OS 7.6.0 driver; a newer bundled driver passes |
 | ARM SBSA — GH200 / GB200 | **`580.159.03`** | bundled in the container, not installed on the host |
 | DGX-SPARK | **`580.173.02`** | the bundled DGX OS driver |
 | Jetson AGX Orin / AGX Thor / Orin NX | **`595.78`** | JetPack 7.2 / L4T r39.2 |
@@ -590,7 +590,7 @@ Single source of truth for **every** dependency the deploy assumes. Sourced from
 | OS — DGX-SPARK | DGX OS 7.5.0 | |
 | OS — IGX-THOR | IGX-SW 2.0 Production (LTS), including IGX OS 2.0 (Ubuntu 24.04) | |
 | OS — AGX-THOR | JetPack 7.2 (Jetson Linux/L4T r39.2) | |
-| NVIDIA Driver | per platform — [GPU Detection](#1-gpu-detection) owns the table | a minimum, not an exact pin. `595.58.03` on x86 dGPU and Kubernetes; `595.91.07` on Brev Cloud; `610.43.03` on DGX Station GB300; `595.78` on Jetson; `580.173.02` on DGX-SPARK; `580.00` on IGX Thor |
+| NVIDIA Driver | per platform — [GPU Detection](#1-gpu-detection) owns the table | a minimum, not an exact pin. `595.58.03` on x86 dGPU and Kubernetes; `595.91.07` on Brev Cloud; `595.58.03` on DGX Station GB300; `595.78` on Jetson; `580.173.02` on DGX-SPARK; `580.00` on IGX Thor |
 | NVIDIA Fabric Manager | exact match to the installed driver | **only** for multi-GPU NVLink/NVSwitch hosts running local LLM (H100 SXM, H200 SXM, NVSwitch, HGX). Not a floor like the driver row — the service will not initialize the fabric on a mismatch, so it moves with whatever [GPU Detection](#1-gpu-detection) selected |
 | NVIDIA Container Toolkit | `1.17.8+` | |
 | Docker | `28.3.3+` **and** `< 29.5.0` | pin with [`pin_docker_version.sh`](#docker-pin), which owns the exact versions. Upper bound: `29.5.0`+ breaks NGC image pulls — on a host that cannot be downgraded, see [Docker 29.5.0+ workaround](#docker-2950-workaround) |

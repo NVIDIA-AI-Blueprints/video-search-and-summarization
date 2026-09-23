@@ -84,31 +84,32 @@ dozen places in the NemoClaw tree and cannot live here, so this image starts
 from the image that Dockerfile produces, which NemoClaw publishes to
 `ghcr.io/nvidia/nemoclaw/openclaw-sandbox`.
 
-Skills and the `vss` CLI come from one pinned commit of this repo (`VSS_REF`),
-so they always match. `nvidia-vss` is on no reachable index, so the checkout
-stage builds it as wheels and the runtime installs those by name — no VSS
-source ships in the image. The workspace files come from this directory.
+From a clean build context, the build uses the pinned VSS revision (`VSS_REF`)
+to package the operational skills and build the CLI wheels. The plugin is compiled in a separate builder
+stage. The final image contains the installed plugin, skills, workspace
+instructions, and `/usr/local/bin/vss`; the build-stage source checkout is not
+copied into the runtime image.
+
+At runtime, use `vss_cli` or `/usr/local/bin/vss`; no checkout or installation
+is needed. The workspace preserves the operator's deployment origin and skips
+deployment bootstrap for operation requests. `OPENCLAW_CHILD_OOM_SCORE_ADJ=0`
+disables OpenClaw's optional write to the sandbox's read-only `/proc`.
 
 ```
-docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
+git archive HEAD:.openclaw | docker build -t <registry>/vss-harness-openclaw:<tag> -
 ```
 
-**Dev loop — build from the local checkout instead of the pin.** NemoClaw's
-`onboard --from` fixes the build context to this directory, so the Dockerfile
-cannot COPY the repo's `skills/` directly; the pinned fetch is how it normally
-gets them. To put uncommitted local edits into the image, pre-stage a
-working-tree snapshot (skills, workspace docs, `vss` CLI source) into
-`.openclaw/.vss-src/` — the next build uses it instead of fetching `VSS_REF`:
+The archive includes only committed files, so local build inputs cannot override
+the source pin. To include a skill or CLI change, publish it and add
+`--build-arg VSS_REF=<commit-sha>` to the archived-context build above. Skills and CLI then come from that same
+revision; using the resulting image requires no source checkout.
 
-```
-python3 skills/vss-build-vision-ai/scripts/stage_vss_src.py           # stage (both harnesses)
-python3 skills/vss-build-vision-ai/scripts/stage_vss_src.py --clean   # back to the pin
-```
+Run the regressions from the repository root; a cached image enables the
+installed-CLI and OOM-score checks without network or GPU access:
 
-The snapshot is git's view of the tree (tracked + untracked-unignored files),
-and the image logs its provenance (`sha`, `dirty`, pretend version) from the
-snapshot's `STAGED` marker at build time. Gitignored, never committed;
-shipping builds stay on the pin.
+```bash
+VSS_TEST_IMAGE=<cached-image> python3 -m unittest discover -s .openclaw/tests -v
+```
 
 The eval harness's Provision panel does the same: it shows this Dockerfile,
 lets an operator edit it for a variant experiment, and builds a

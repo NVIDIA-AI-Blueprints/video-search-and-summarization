@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
+import { IconMenu2 } from '@tabler/icons-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ChatHeader } from './ChatHeader';
 import { ChatInput } from './ChatInput';
 import { ChatMessageView } from './ChatMessage';
+import { ConversationList } from './ConversationList';
 import { createRandomId } from './id';
 import type { InteractionRequest } from './sse';
 import { useChatStream } from './useChatStream';
@@ -46,6 +48,47 @@ interface PendingInteraction {
   request: InteractionRequest;
   conversationId: string;
 }
+
+interface InternalConversationHistoryProps {
+  controls: ChatSidebarControlHandlers;
+  enabled: boolean;
+}
+
+/** Conversation controls for hosts that do not provide their own placement. */
+const InternalConversationHistory: React.FC<InternalConversationHistoryProps> = ({
+  controls,
+  enabled,
+}) => {
+  const [visible, setVisible] = useState(true);
+
+  if (!enabled) return null;
+
+  const toggleLabel = visible ? 'Hide conversation history' : 'Show conversation history';
+
+  return (
+    <>
+      {visible ? (
+        <aside
+          aria-label="Conversation history"
+          className="absolute inset-y-0 left-0 z-40 w-64 max-w-[calc(100%-3rem)] border-r border-gray-200 bg-white pt-12 shadow-xl dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          <ConversationList {...controls} />
+        </aside>
+      ) : null}
+
+      <button
+        type="button"
+        aria-label={toggleLabel}
+        aria-expanded={visible}
+        onClick={() => setVisible((current) => !current)}
+        className="absolute left-2 top-2 z-50 flex h-8 w-8 items-center justify-center rounded-md border border-black/20 bg-white text-neutral-900 shadow-sm transition-colors hover:bg-neutral-100 dark:border-white/20 dark:bg-black dark:text-white dark:hover:bg-neutral-800"
+        title={toggleLabel}
+      >
+        <IconMenu2 size={18} />
+      </button>
+    </>
+  );
+};
 
 /** Stable per-mount id so the backend maps this panel to one agent thread. */
 function useFallbackConversationId(supplied?: string): string {
@@ -356,22 +399,83 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   return (
     <section
-      className={`relative flex h-full w-full flex-col overflow-hidden bg-white dark:bg-black ${
+      className={`relative flex h-full w-full flex-row overflow-hidden bg-white dark:bg-black ${
         className ?? ''
       }`}
       data-theme={theme}
     >
-      {features.headerMenu ? (
-        <ChatHeader
-          workflowName={workflowName}
-          hasMessages={visibleMessages.length > 0}
-          features={features}
-          theme={theme}
-          onThemeChange={onThemeChange}
-          chatHistory={chatHistory}
-          onChatHistoryChange={setChatHistory}
-          onNewConversation={() => createConversation()}
+      {/* The full-page Chat tab owns the controls it requests; standalone and
+          docked panels keep an internal selector so old chats remain reachable. */}
+      <InternalConversationHistory controls={controls} enabled={!onControlsReady} />
+
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {features.headerMenu ? (
+          <ChatHeader
+            workflowName={workflowName}
+            hasMessages={visibleMessages.length > 0}
+            features={features}
+            theme={theme}
+            onThemeChange={onThemeChange}
+            chatHistory={chatHistory}
+            onChatHistoryChange={setChatHistory}
+            onNewConversation={() => createConversation()}
+            busy={busy}
+            uploadUrlBase={endpoint.uploadUrlBase}
+            uploadConfigTemplateJson={uploadConfigTemplateJson}
+            uploadHiddenMessageTemplate={uploadHiddenMessageTemplate}
+            getActiveConversationId={() => selectedIdRef.current}
+            onSendHiddenMessage={(message, uploadConversationId) =>
+              void send(message, { hidden: true, uploadConversationId })
+            }
+            onChatVideoUploadComplete={onChatVideoUploadComplete}
+            onUploadFlowActiveChange={setUploadFlowActive}
+            onNotify={notify}
+          />
+        ) : null}
+
+        <div
+          ref={logRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto"
+          role="log"
+          aria-live="polite"
+          aria-busy={busy}
+        >
+          {hydrated && visibleMessages.length === 0 && !features.headerMenu ? (
+            <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
+              {placeholder ?? 'Ask about your video…'}
+            </p>
+          ) : null}
+          {hydrated
+            ? visibleMessages.map((message) => (
+                <ChatMessageView
+                  key={message.id}
+                  message={message}
+                  features={features}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  onNotify={notify}
+                  mediaProxyUrl={endpoint.mediaProxyUrl}
+                />
+              ))
+            : null}
+          {/* Keeps the last message clear of the floating composer. */}
+          <div className="h-[162px]" ref={endRef} />
+        </div>
+
+        <ChatInput
+          onSend={submitText}
+          onRegenerate={handleRegenerate}
+          onStop={stopTurn}
+          onScrollDown={scrollDown}
+          showScrollDownButton={!autoScroll}
           busy={busy}
+          canRegenerate={visibleMessages.length > 1}
+          workflowName={workflowName}
+          features={features}
+          customAgentParamsJson={customAgentParamsJson}
+          contextItems={contextItems}
+          onRemoveContext={(id) => setContextItems((prev) => prev.filter((c) => c.id !== id))}
           uploadUrlBase={endpoint.uploadUrlBase}
           uploadConfigTemplateJson={uploadConfigTemplateJson}
           uploadHiddenMessageTemplate={uploadHiddenMessageTemplate}
@@ -381,119 +485,64 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           }
           onChatVideoUploadComplete={onChatVideoUploadComplete}
           onUploadFlowActiveChange={setUploadFlowActive}
+          chatBlocked={uploadFlowActive}
           onNotify={notify}
         />
-      ) : null}
 
-      <div
-        ref={logRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto"
-        role="log"
-        aria-live="polite"
-        aria-busy={busy}
-      >
-        {hydrated && visibleMessages.length === 0 && !features.headerMenu ? (
-          <p className="p-4 text-sm text-gray-500 dark:text-gray-400">
-            {placeholder ?? 'Ask about your video…'}
-          </p>
+        {notice ? (
+          <div
+            role="status"
+            className="pointer-events-none absolute left-1/2 top-14 z-[120] -translate-x-1/2 rounded-md bg-black/80 px-3 py-1.5 text-sm text-white shadow-lg"
+          >
+            {notice}
+          </div>
         ) : null}
-        {hydrated
-          ? visibleMessages.map((message) => (
-              <ChatMessageView
-                key={message.id}
-                message={message}
-                features={features}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onNotify={notify}
-                mediaProxyUrl={endpoint.mediaProxyUrl}
-              />
-            ))
-          : null}
-        {/* Keeps the last message clear of the floating composer. */}
-        <div className="h-[162px]" ref={endRef} />
-      </div>
 
-      <ChatInput
-        onSend={submitText}
-        onRegenerate={handleRegenerate}
-        onStop={stopTurn}
-        onScrollDown={scrollDown}
-        showScrollDownButton={!autoScroll}
-        busy={busy}
-        canRegenerate={visibleMessages.length > 1}
-        workflowName={workflowName}
-        features={features}
-        customAgentParamsJson={customAgentParamsJson}
-        contextItems={contextItems}
-        onRemoveContext={(id) => setContextItems((prev) => prev.filter((c) => c.id !== id))}
-        uploadUrlBase={endpoint.uploadUrlBase}
-        uploadConfigTemplateJson={uploadConfigTemplateJson}
-        uploadHiddenMessageTemplate={uploadHiddenMessageTemplate}
-        getActiveConversationId={() => selectedIdRef.current}
-        onSendHiddenMessage={(message, uploadConversationId) =>
-          void send(message, { hidden: true, uploadConversationId })
-        }
-        onChatVideoUploadComplete={onChatVideoUploadComplete}
-        onUploadFlowActiveChange={setUploadFlowActive}
-        chatBlocked={uploadFlowActive}
-        onNotify={notify}
-      />
-
-      {notice ? (
-        <div
-          role="status"
-          className="pointer-events-none absolute left-1/2 top-14 z-[120] -translate-x-1/2 rounded-md bg-black/80 px-3 py-1.5 text-sm text-white shadow-lg"
-        >
-          {notice}
-        </div>
-      ) : null}
-
-      {features.hitl && interaction ? (
-        <div
-          data-testid="hitl-modal"
-          className="absolute inset-0 z-[130] flex items-center justify-center bg-black/60 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="hitl-prompt"
-        >
-          <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
-            <p
-              id="hitl-prompt"
-              data-testid="hitl-modal-prompt"
-              className="mb-4 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100"
-            >
-              {interaction.prompt.text}
-            </p>
-            <textarea
-              data-testid="hitl-modal-textarea"
-              className="min-h-28 w-full rounded border border-gray-400 bg-white p-2 text-gray-900 dark:bg-black dark:text-gray-100"
-              placeholder={interaction.prompt.placeholder ?? undefined}
-              required={interaction.prompt.required}
-              value={interactionText}
-              onChange={(event) => setInteractionText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  submitInteraction();
-                }
-              }}
-            />
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                data-testid="hitl-modal-submit"
-                className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                disabled={interaction.prompt.required && !interactionText.trim()}
-                onClick={submitInteraction}
+        {features.hitl && interaction ? (
+          <div
+            data-testid="hitl-modal"
+            className="absolute inset-0 z-[130] flex items-center justify-center bg-black/60 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hitl-prompt"
+          >
+            <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
+              <p
+                id="hitl-prompt"
+                data-testid="hitl-modal-prompt"
+                className="mb-4 whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-100"
               >
-                Submit
-              </button>
+                {interaction.prompt.text}
+              </p>
+              <textarea
+                data-testid="hitl-modal-textarea"
+                className="min-h-28 w-full rounded border border-gray-400 bg-white p-2 text-gray-900 dark:bg-black dark:text-gray-100"
+                placeholder={interaction.prompt.placeholder ?? undefined}
+                required={interaction.prompt.required}
+                value={interactionText}
+                onChange={(event) => setInteractionText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    submitInteraction();
+                  }
+                }}
+              />
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  data-testid="hitl-modal-submit"
+                  className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  disabled={interaction.prompt.required && !interactionText.trim()}
+                  onClick={submitInteraction}
+                >
+                  Submit
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </section>
   );
 };

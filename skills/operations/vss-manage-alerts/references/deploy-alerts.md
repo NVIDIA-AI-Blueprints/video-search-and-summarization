@@ -102,7 +102,7 @@ healthcheck:
 # 1. Service health
 curl -sf --connect-timeout 5 http://${HOST_IP}:9080/health && echo "alert-bridge OK"
 
-# 2. (vlm-realtime) realtime rules endpoint reachable — empty array is success
+# 2. (vlm-realtime) realtime rules endpoint reachable — an empty .rules array is success
 curl -s http://${HOST_IP}:9080/api/v1/realtime | jq .
 
 # 3. Verified records land in Elasticsearch after a detection

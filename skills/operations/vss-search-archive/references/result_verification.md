@@ -25,11 +25,10 @@ resolve its main stream from VST, and request only the hit interval. Use
 : "${HIT_END:?exact CLI end_time}"
 [[ "${HIT_SENSOR_ID}" =~ ^[A-Za-z0-9_-]+$ ]] || exit 1
 VSS_PUBLIC_URL="${VST_URL%/}"
-VSS=(uv run --project "${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}/libs/vss" vss)
 
 # The recorded timeline. `vios timeline` resolves the sensor and its main
 # stream itself, so there is no /sensor/<id>/streams call to make.
-TIMELINE=$("${VSS[@]}" vios timeline --sensor "${HIT_SENSOR_ID}") || exit 1
+TIMELINE=$(vss vios timeline --sensor "${HIT_SENSOR_ID}") || exit 1
 TIMELINE_START=$(printf '%s' "${TIMELINE}" |
   jq -er '.segments[0].start_time') || exit 1
 TIMELINE_END=$(printf '%s' "${TIMELINE}" |
@@ -37,8 +36,10 @@ TIMELINE_END=$(printf '%s' "${TIMELINE}" |
 
 # Rebase the synthetic hit interval onto the current file timeline, preserving
 # its exact duration. This is the one part the CLI does not do for you.
+# The CLI's own interpreter, so vss_core is importable wherever vss came from.
+VSS_PYTHON="$(dirname "$(readlink -f "$(command -v vss)")")/python"
 mapfile -t MAPPED_BOUNDS < <(
-  uv run --project "${VSS_REPO_ROOT}/libs/vss" python - \
+  "${VSS_PYTHON}" - \
     "${HIT_START}" "${HIT_END}" "${TIMELINE_START}" "${TIMELINE_END}" <<'PY'
 import sys
 from vss_core.vios import map_interval_to_timeline
@@ -53,7 +54,7 @@ PY
 # is minted, normalised onto the configured origin, and its lazy render warmed.
 # The scheme-doubling and bare-/storage repairs that used to live here are the
 # CLI's job now.
-CLIP=$("${VSS[@]}" vios clip --sensor "${HIT_SENSOR_ID}" \
+CLIP=$(vss vios clip --sensor "${HIT_SENSOR_ID}" \
   --start-time "${MAPPED_BOUNDS[0]}" --end-time "${MAPPED_BOUNDS[1]}") || exit 1
 VIDEO_URL=$(printf '%s' "${CLIP}" |
   jq -er '.media_url | select(type == "string" and length > 0)') || exit 1

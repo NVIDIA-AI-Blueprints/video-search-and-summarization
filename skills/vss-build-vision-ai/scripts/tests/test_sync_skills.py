@@ -8,6 +8,7 @@ parsing, the fail-open policy for unconfigured deployments, the exact probe
 endpoints, exact-set application, and the CLI exit-code contract.
 """
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -259,3 +260,34 @@ def test_vss_ref_pins_are_in_lockstep():
         refs[df.parent.name] = m.group(1)
     assert refs[".openclaw"] == refs[".hermes"], f"VSS_REF pins drifted: {refs}"
 
+
+
+def _hermes_sync_wrapper() -> str:
+    """The vss-hermes-sync script exactly as .hermes/Dockerfile writes it (via printf)."""
+    dockerfile = (Path(__file__).resolve().parents[4] / ".hermes" / "Dockerfile").read_text()
+    body = re.search(r"printf '(#!/bin/sh\\n.*?)' > /usr/local/bin/vss-hermes-sync", dockerfile).group(1)
+    return body.replace("\\n", "\n")
+
+
+@pytest.mark.parametrize("hermes_home", ["relocated", None])
+def test_hermes_sync_targets_hermes_home_skills(tmp_path, hermes_home):
+    """Hermes reads $HERMES_HOME/skills only. Harbor's adapter moves HERMES_HOME
+    to /tmp/hermes, so the wrapper must follow it; unset means /sandbox/.hermes."""
+    wrapper = tmp_path / "vss-hermes-sync"
+    wrapper.write_text(_hermes_sync_wrapper())
+    wrapper.chmod(0o755)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "argv"
+    (bin_dir / "python3").write_text(f'#!/bin/sh\necho "$@" > {log}\n')
+    (bin_dir / "python3").chmod(0o755)
+    (bin_dir / "mkdir").write_text("#!/bin/sh\nexit 0\n")  # /sandbox is not writable here
+    (bin_dir / "mkdir").chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin"}
+    if hermes_home:
+        env["HERMES_HOME"] = str(tmp_path / hermes_home)
+    subprocess.run([str(wrapper), "--all"], env=env, check=True)
+    active = f"{env.get('HERMES_HOME', '/sandbox/.hermes')}/skills"
+    assert log.read_text().split() == [
+        "/opt/vss-skills/sync_skills.py", "--skills-dir", "/opt/vss-skills/skills",
+        "--active-dir", active, "--all"]

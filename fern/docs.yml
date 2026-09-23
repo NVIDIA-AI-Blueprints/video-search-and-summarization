@@ -345,6 +345,9 @@ navigation:
               - page: "API Reference"
                 slug: api-reference
                 path: ../docs/object-detection-tracking-api.mdx
+              - page: "MV3DT Standalone Deployment"
+                slug: mv3dt-standalone-deployment
+                path: ../docs/mv3dt-standalone-deployment.mdx
           - section: "Real-Time VLM"
             slug: real-time-vlm
             path: ../docs/real-time-vlm.mdx

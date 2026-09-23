@@ -20,6 +20,7 @@ recording status.
 
 ## Prerequisites
 
+- The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
 - Active VSS deployment reachable through `VSS_PUBLIC_URL` (Kubernetes
   Ingress) or `$HOST_IP` (Docker Compose).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.

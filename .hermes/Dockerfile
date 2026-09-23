@@ -35,7 +35,7 @@ ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbe
 # (the runtime uses the uv the base image ships).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
+ARG VSS_REF=01ecaf705c676123aadc77177143aa963338026f
 
 # ── uv, for the vss-src wheel builds ───────────────────────────────────────────
 FROM ${UV_IMAGE} AS uv
@@ -154,15 +154,18 @@ RUN set -eux; \
     # Skill discovery, same machinery as the OpenClaw plugin, same python
     # tool: the shipped set stays read-only under /opt/vss-skills/skills, and
     # sync_skills.py fills the active set from what `vss configure` records.
-    # Hermes scans /sandbox/.hermes/skills natively, so that IS the active
-    # dir. --all at build activates everything; `vss-hermes-sync` re-selects
-    # after `vss configure`.
+    # Hermes loads skills from $HERMES_HOME/skills only, so that IS the
+    # active dir: /sandbox/.hermes/skills by default, seeded here with --all.
+    # A harness that relocates HERMES_HOME (Harbor's Hermes adapter uses
+    # /tmp/hermes, a fresh tmpfs under OpenShell) runs `vss-hermes-sync --all`
+    # with that HERMES_HOME before the agent; without it Hermes sees no VSS
+    # skills at all. `vss-hermes-sync` also re-selects after `vss configure`.
     && mkdir -p /opt/vss-skills \
     && cp -R /opt/vss-assets/skills /opt/vss-skills/skills \
     && cp /opt/vss-assets/sync_skills.py /opt/vss-skills/sync_skills.py \
     && mkdir -p /sandbox/.hermes/skills \
     && chmod -R a+rX /opt/vss-skills \
-    && printf '#!/bin/sh\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /sandbox/.hermes/skills "$@"\n' > /usr/local/bin/vss-hermes-sync \
+    && printf '#!/bin/sh\nactive="${HERMES_HOME:-/sandbox/.hermes}/skills"\nmkdir -p "$active"\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir "$active" "$@"\n' > /usr/local/bin/vss-hermes-sync \
     && chmod 0755 /usr/local/bin/vss-hermes-sync \
     && python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /sandbox/.hermes/skills --all \
     && chown -R sandbox:sandbox /sandbox/.hermes/skills \

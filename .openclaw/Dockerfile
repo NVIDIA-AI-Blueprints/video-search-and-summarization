@@ -53,7 +53,7 @@ ARG NGC_CLI_VERSION=4.10.0
 # on older layouts). Override with --build-arg VSS_REF=<sha>; bump the default
 # when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=9dc06553d67fcc21882fe0620b33f7a094b38f72
+ARG VSS_REF=01ecaf705c676123aadc77177143aa963338026f
 
 # ── uv, for wheel builds and the vss CLI venv ──────────────────────────────────
 FROM ${UV_IMAGE} AS uv
@@ -274,6 +274,10 @@ RUN chmod 755 /usr/local/bin/vss-apply-onboard-config \
 # Workspace-variant selector for the plugin's register-time seeding: apply the
 # _nemoclaw overlay (ENV.md, sandbox host alias, proxy notes) in this image.
 ENV VSS_WORKSPACE_VARIANT=nemoclaw
+
+# OpenShell mounts /proc read-only. OpenClaw's supported zero value disables
+# its optional child OOM-score write; pod resource limits remain authoritative.
+ENV OPENCLAW_CHILD_OOM_SCORE_ADJ=0
 
 # The managed base image already contains generic workspace Markdown, while
 # register-time seeding intentionally preserves existing files. Seed the VSS
