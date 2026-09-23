@@ -148,6 +148,32 @@ class _AlwaysRaisesAttr:
         raise self._error
 
 
+class _CountingEmbed:
+    """Embed client that records each text and returns a deterministic vector."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def get_text_embedding(self, text: str) -> list[float]:
+        self.calls.append(text)
+        # Deterministic per-text vector so asyncio.gather completion order is irrelevant.
+        return [float(sum(ord(c) for c in text)), 0.0, 0.0]
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _RecordingAttr:
+    """Attribute adapter that records every ainvoke payload and returns empty."""
+
+    def __init__(self) -> None:
+        self.calls: list[Any] = []
+
+    async def ainvoke(self, payload: Any) -> Any:
+        self.calls.append(payload)
+        return []
+
+
 @pytest.mark.asyncio
 async def test_fusion_rerank_soft_degrades_single_video():
     embed_results = [
@@ -283,3 +309,100 @@ async def test_fusion_rerank_uses_indexed_sensor_id_when_vst_absent():
     # The attribute hit (object 42) survives rrf fusion instead of vanishing.
     assert out
     assert any("42" in r.object_ids for r in out)
+
+
+@pytest.mark.asyncio
+async def test_fusion_rerank_embeds_each_attribute_once_and_threads_vectors():
+    # NVBug 6781021: with an embed client, attributes are embedded ONCE up front and
+    # the precomputed vectors are threaded into every per-hit attribute lookup,
+    # instead of re-embedding the same attributes for each candidate video.
+    embed_results = [
+        _embed_result(video_name="vA", sensor_id="camA"),
+        _embed_result(video_name="vB", sensor_id="camB"),
+        _embed_result(video_name="vC", sensor_id="camC"),
+    ]
+    embed = _CountingEmbed()
+    attr = _RecordingAttr()
+    await sh.fusion_search_rerank(
+        embed_results=embed_results,
+        attributes=["red hat", "blue car"],
+        attribute_search_fn=attr,
+        vst_internal_url="",
+        embed_client=embed,
+    )
+    # Two attributes embedded exactly once each (2 calls) -- NOT once per video (6).
+    assert len(embed.calls) == 2
+    assert set(embed.calls) == {"red hat", "blue car"}
+    # One attribute lookup per candidate video, each carrying the precomputed vectors
+    # in attributes order (gather preserves input order regardless of completion).
+    assert len(attr.calls) == 3
+    expected_vectors = [
+        [float(sum(ord(c) for c in "red hat")), 0.0, 0.0],
+        [float(sum(ord(c) for c in "blue car")), 0.0, 0.0],
+    ]
+    for payload in attr.calls:
+        assert payload["query_embedding"] == expected_vectors
+
+
+@pytest.mark.asyncio
+async def test_fusion_rerank_without_embed_client_omits_query_embedding():
+    # Legacy/back-compat path: no embed client -> per-hit re-embed via the adapter,
+    # and the precomputed-vectors key is not added to the payload.
+    embed_results = [_embed_result(video_name="vA", sensor_id="camA")]
+    attr = _RecordingAttr()
+    await sh.fusion_search_rerank(
+        embed_results=embed_results,
+        attributes=["red hat"],
+        attribute_search_fn=attr,
+        vst_internal_url="",
+    )
+    assert len(attr.calls) == 1
+    assert "query_embedding" not in attr.calls[0]
+
+
+@pytest.mark.asyncio
+async def test_fusion_rerank_blanks_dropped_before_embed_and_aligned():
+    # Greptile P1: a blank attribute entry must not be embedded and must not desync the
+    # precomputed vectors from the (blank-stripping) normalized_queries() downstream.
+    embed_results = [_embed_result(video_name="vA", sensor_id="camA")]
+    embed = _CountingEmbed()
+    attr = _RecordingAttr()
+    out = await sh.fusion_search_rerank(
+        embed_results=embed_results,
+        attributes=["red hat", "   ", "blue car"],
+        attribute_search_fn=attr,
+        vst_internal_url="",
+        embed_client=embed,
+    )
+    # Only the two non-blank attributes were embedded; the blank was dropped first.
+    assert len(embed.calls) == 2
+    assert set(embed.calls) == {"red hat", "blue car"}
+    # The per-hit lookup carries exactly two vectors in attribute order, with no slot
+    # for the dropped blank, so downstream normalized_queries() stays aligned.
+    assert len(attr.calls) == 1
+    assert attr.calls[0]["query"] == ["red hat", "blue car"]
+    expected_vectors = [
+        [float(sum(ord(c) for c in "red hat")), 0.0, 0.0],
+        [float(sum(ord(c) for c in "blue car")), 0.0, 0.0],
+    ]
+    assert attr.calls[0]["query_embedding"] == expected_vectors
+    # The embed hit survives fusion (attribute-only matches empty); no InvalidInputError.
+    assert len(out) == 1
+
+
+@pytest.mark.asyncio
+async def test_fusion_rerank_empty_embed_results_skips_precompute():
+    # Greptile P1: with no candidate videos to rerank, precomputation is skipped so an
+    # embedder failure cannot turn a no-hits search into an error, and no latency is paid.
+    embed = _CountingEmbed()
+    attr = _RecordingAttr()
+    out = await sh.fusion_search_rerank(
+        embed_results=[],
+        attributes=["red hat", "blue car"],
+        attribute_search_fn=attr,
+        vst_internal_url="",
+        embed_client=embed,
+    )
+    assert embed.calls == []  # nothing embedded when there is nothing to rerank
+    assert attr.calls == []  # no per-hit attribute lookups either
+    assert out == []  # nothing to fuse

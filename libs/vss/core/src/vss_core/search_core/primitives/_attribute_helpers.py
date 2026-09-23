@@ -918,11 +918,18 @@ async def search_single_attribute(
     frames_index: str | list[str] | None,
     es: ElasticIndex,
     enable_frame_lookup: bool = True,
+    query_embedding: list[float] | None = None,
 ) -> list[AttributeSearchResult]:
-    """Embed a single attribute string and run the attribute search pipeline."""
+    """Embed a single attribute string and run the attribute search pipeline.
+
+    When ``query_embedding`` is supplied (e.g. precomputed once by a fusion caller
+    over every attribute), the embed round-trip is skipped so the same attribute
+    is not re-embedded on each per-hit fan-out (NVBug 6781021).
+    """
     assert search_input.top_k is not None
-    with TimeMeasure("attribute_search: generate text embedding"):
-        query_embedding = await embed_client.get_text_embedding(query_text)
+    if query_embedding is None:
+        with TimeMeasure("attribute_search: generate text embedding"):
+            query_embedding = await embed_client.get_text_embedding(query_text)
     return await search_by_attributes(
         query_embedding=query_embedding,
         index=index,
@@ -953,6 +960,7 @@ async def search_attributes(
 ) -> list[AttributeSearchResult]:
     """Entry point: resolve indices by source_type, then fuse or append per attribute."""
     queries = search_input.normalized_queries()
+    embeddings = search_input.normalized_query_embeddings()
     logger.info(f"Searching {len(queries)} attribute(s) (fuse_multi_attribute={search_input.fuse_multi_attribute})")
 
     source_type = search_input.source_type
@@ -970,6 +978,7 @@ async def search_attributes(
     if search_input.fuse_multi_attribute:
         return await _fuse_multi_attribute(
             queries=queries,
+            embeddings=embeddings,
             search_input=search_input,
             embed_client=embed_client,
             search_index=search_index,
@@ -981,6 +990,7 @@ async def search_attributes(
         )
     return await _append_multi_attribute(
         queries=queries,
+        embeddings=embeddings,
         search_input=search_input,
         embed_client=embed_client,
         search_index=search_index,
@@ -994,6 +1004,7 @@ async def search_attributes(
 
 async def _fuse_multi_attribute(
     queries: list[str],
+    embeddings: list[list[float]] | None,
     search_input: AttributeSearchInput,
     embed_client: TextEmbedder,
     search_index: str | list[str],
@@ -1020,8 +1031,9 @@ async def _fuse_multi_attribute(
             frames_index=search_frames_index,
             es=es,
             enable_frame_lookup=enable_frame_lookup,
+            query_embedding=embeddings[i] if embeddings is not None else None,
         )
-        for q in queries
+        for i, q in enumerate(queries)
     ]
     results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -1048,6 +1060,7 @@ async def _fuse_multi_attribute(
 
 async def _append_multi_attribute(
     queries: list[str],
+    embeddings: list[list[float]] | None,
     search_input: AttributeSearchInput,
     embed_client: TextEmbedder,
     search_index: str | list[str],
@@ -1061,7 +1074,7 @@ async def _append_multi_attribute(
     per_attr = search_input.model_copy(update={"fuse_multi_attribute": False})
 
     all_results: list[AttributeSearchResult] = []
-    for attr_query in queries:
+    for idx, attr_query in enumerate(queries):
         try:
             attr_results = await search_single_attribute(
                 query_text=attr_query,
@@ -1071,6 +1084,7 @@ async def _append_multi_attribute(
                 frames_index=search_frames_index,
                 es=es,
                 enable_frame_lookup=enable_frame_lookup,
+                query_embedding=embeddings[idx] if embeddings is not None else None,
             )
 
             if attr_results and vst_internal_url:
