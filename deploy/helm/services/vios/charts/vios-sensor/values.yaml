@@ -42,6 +42,14 @@ readinessProbe:
   timeoutSeconds: 3
   failureThreshold: 20
 streamProcessorEndpoint: ""   # override if needed; else derived from streamProcessorService
+# Release-name prefix of each derived peer's Service, when it differs from
+# global.useReleaseNamePrefix. The peers are rendered by other subcharts
+# (vss-vios-streamprocessing; infra's sdrc), whose local useReleaseNamePrefix
+# this chart cannot read -- so a mixed-prefix install states it here, e.g.
+#   peerUseReleaseNamePrefix: { streamprocessing: false }
+# for global true with vss-vios-streamprocessing.useReleaseNamePrefix: false.
+# Unset keys follow global.useReleaseNamePrefix; an explicit false is honoured.
+peerUseReleaseNamePrefix: {}
 streamProcessorService: "sdrc"
 vstIngressEndpoint: ""        # full URL with scheme. When global.vlmBaseUrl and global.externalHost are set, defaults to <externalScheme>://<externalHost>[:externalPort]/vst for remote VLM. Else in-cluster vst-ingress URL.
 # Redis: used in notification_config.json message_broker.redis_server_env_var. Default "" means <Release.Name>-redis:6379.
