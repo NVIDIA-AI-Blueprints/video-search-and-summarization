@@ -59,7 +59,8 @@ AGENT_BACKEND_URL=ws://host.docker.internal:18789
 AGENT_BACKEND_PATH=/
 AGENT_BACKEND_TOKEN=replace-with-the-harness-token
 
-# Server-only targets used by the same-origin media and chat proxy routes.
+# Server-only targets used by the same-origin media proxy and, when the agent
+# adapter is disabled, the in-stack vss-agent chat-SSE proxy.
 VSS_PROXY_BASE_URL=http://vss-haproxy-ingress:7777
 VSS_CHAT_BACKEND_MAIN=http://vss-agent:8000/v1/chat/stream
 VSS_CHAT_BACKEND_SIDEBAR=http://vss-agent:8000/v1/chat/stream

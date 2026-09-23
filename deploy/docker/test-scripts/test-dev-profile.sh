@@ -2268,10 +2268,11 @@ else
   ((TESTS_FAILED++)) || true
 fi
 
-# The UI's same-origin chat proxy runs inside the vss-ui container. Its stock
-# backend must therefore use Compose DNS instead of hairpinning through HOST_IP,
-# which fresh hosts can block at the Docker-to-host firewall boundary. Render
-# the Compose model to cover interpolation as well as explicit BYO overrides.
+# With the external-agent adapter disabled, the UI's same-origin chat proxy
+# runs inside the vss-ui container and targets the in-stack vss-agent. It must
+# use Compose DNS instead of hairpinning through HOST_IP, which fresh hosts can
+# block at the Docker-to-host firewall boundary. Render the Compose model to
+# cover interpolation as well as explicit BYO chat-SSE overrides.
 _ui_compose="${REPO_ROOT}/deploy/docker/services/ui/compose.yml"
 _ui_agent_stub=$'services:\n  vss-agent:\n    image: scratch'
 set +e
@@ -2298,19 +2299,19 @@ set -e
 if [[ ${_ui_default_exit} -eq 0 ]] \
   && grep -Fq 'VSS_CHAT_BACKEND_MAIN: http://vss-agent:8000/v1/chat/stream' <<< "${_ui_default_config}" \
   && grep -Fq 'VSS_CHAT_BACKEND_SIDEBAR: http://vss-agent:8000/v1/chat/stream' <<< "${_ui_default_config}"; then
-  echo "PASS: rendered vss-ui chat defaults use the internal vss-agent service"
+  echo "PASS: rendered in-stack vss-agent chat defaults use Compose DNS"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: rendered vss-ui chat defaults should use the internal vss-agent service"
+  echo "FAIL: rendered in-stack vss-agent chat defaults should use Compose DNS"
   ((TESTS_FAILED++)) || true
 fi
 if [[ ${_ui_override_exit} -eq 0 ]] \
   && grep -Fq 'VSS_CHAT_BACKEND_MAIN: http://custom-main:9100/custom' <<< "${_ui_override_config}" \
   && grep -Fq 'VSS_CHAT_BACKEND_SIDEBAR: http://custom-sidebar:9200/custom' <<< "${_ui_override_config}"; then
-  echo "PASS: rendered vss-ui chat backends preserve explicit overrides"
+  echo "PASS: rendered in-stack vss-agent chat backends preserve explicit overrides"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: rendered vss-ui chat backends should preserve explicit overrides"
+  echo "FAIL: rendered in-stack vss-agent chat backends should preserve explicit overrides"
   ((TESTS_FAILED++)) || true
 fi
 
