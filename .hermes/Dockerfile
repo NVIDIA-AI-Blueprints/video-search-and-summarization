@@ -9,9 +9,9 @@
 # workflow (docs.nvidia.com/nemoclaw → Install Hermes Plugins): start from the
 # complete managed runtime, add image-owned files, end with USER sandbox and
 # WORKDIR /sandbox. Hermes has no plugin/tool layer to add here: it drives the
-# deployment through the `vss` CLI on PATH, and loads skills from its canonical
-# writable root (/sandbox/.hermes/skills, per NemoClaw's agents/hermes/manifest.yaml)
-# and instruction docs (SOUL.md, AGENTS.md, …) from /sandbox.
+# deployment through the `vss` CLI on PATH, loads skills from $HERMES_HOME/skills
+# (/sandbox/.hermes/skills, per NemoClaw's agents/hermes/manifest.yaml), which
+# Hermes seeds from its bundled library, and instruction docs (SOUL.md, AGENTS.md, …) from /sandbox.
 #
 # NemoClaw publishes hermes-sandbox by publication cohort only (no release tag,
 # NVIDIA/NemoClaw#11228). The cohort a release selects is the one its
@@ -154,22 +154,23 @@ RUN set -eux; \
     # Skill discovery, same machinery as the OpenClaw plugin, same python
     # tool: the shipped set stays read-only under /opt/vss-skills/skills, and
     # sync_skills.py fills the active set from what `vss configure` records.
-    # Hermes loads skills from $HERMES_HOME/skills only, so that IS the
-    # active dir: /sandbox/.hermes/skills by default, seeded here with --all.
-    # A harness that relocates HERMES_HOME (Harbor's Hermes adapter uses
-    # /tmp/hermes, a fresh tmpfs under OpenShell) runs `vss-hermes-sync --all`
-    # with that HERMES_HOME before the agent; without it Hermes sees no VSS
-    # skills at all. `vss-hermes-sync` also re-selects after `vss configure`.
+    # Hermes loads skills from $HERMES_HOME/skills only, and every
+    # `hermes chat` first copies its bundled library (/opt/hermes/skills)
+    # into that dir. So the VSS set ships inside the bundle, under vss/:
+    # any HERMES_HOME -- the default /sandbox/.hermes or one a caller
+    # picks -- gets it with nothing run beforehand. `vss-hermes-sync`
+    # re-selects after `vss configure`; it owns $HERMES_HOME/skills/vss
+    # only, leaving Hermes' own skills alone.
     && mkdir -p /opt/vss-skills \
     && cp -R /opt/vss-assets/skills /opt/vss-skills/skills \
     && cp /opt/vss-assets/sync_skills.py /opt/vss-skills/sync_skills.py \
-    && mkdir -p /sandbox/.hermes/skills \
-    && chmod -R a+rX /opt/vss-skills \
-    && printf '#!/bin/sh\nactive="${HERMES_HOME:-/sandbox/.hermes}/skills"\nmkdir -p "$active"\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir "$active" "$@"\n' > /usr/local/bin/vss-hermes-sync \
+    && test ! -e /opt/hermes/skills/vss \
+    && python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /opt/hermes/skills/vss --all \
+    && chmod -R a+rX /opt/vss-skills /opt/hermes/skills/vss \
+    && printf '#!/bin/sh\nactive="${HERMES_HOME:-/sandbox/.hermes}/skills/vss"\nmkdir -p "$active"\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir "$active" "$@"\n' > /usr/local/bin/vss-hermes-sync \
     && chmod 0755 /usr/local/bin/vss-hermes-sync \
-    && python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /sandbox/.hermes/skills --all \
-    && chown -R sandbox:sandbox /sandbox/.hermes/skills \
-    && su -s /bin/sh sandbox -c "vss-hermes-sync --all" \
+    # Prove Hermes' own launch sync seeds a fresh HERMES_HOME, as sandbox.
+    && su -s /bin/sh sandbox -c 'h=$(mktemp -d) && cd /opt/hermes && HERMES_HOME=$h /opt/hermes/.venv/bin/python3 -c "from tools.skills_sync import sync_skills; sync_skills(quiet=True)" && test -f $h/skills/vss/vss-ask-video/SKILL.md && HERMES_HOME=$h vss-hermes-sync --all && test -d $h/skills/github && rm -rf $h' \
     && cp /opt/vss-assets/workspace/*.md /sandbox/ \
     && for f in /opt/vss-assets/workspace/*.md; do chown sandbox:sandbox "/sandbox/$(basename "$f")"; done \
     && mv /opt/vss-assets/ngc-cli /usr/local/lib/ngc-cli \
@@ -179,7 +180,7 @@ RUN set -eux; \
     && ngc --version \
     && su -s /bin/sh sandbox -c "ngc --version" \
     && rm -rf /opt/vss-assets \
-    && test -f /sandbox/.hermes/skills/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
+    && test -f /opt/hermes/skills/vss/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
     && rm -f /etc/profile.d/nemoclaw-rlimits.sh \
     && sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc \
     && ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc

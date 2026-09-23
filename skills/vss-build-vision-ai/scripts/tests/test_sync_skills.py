@@ -271,8 +271,8 @@ def _hermes_sync_wrapper() -> str:
 
 @pytest.mark.parametrize("hermes_home", ["relocated", None])
 def test_hermes_sync_targets_hermes_home_skills(tmp_path, hermes_home):
-    """Hermes reads $HERMES_HOME/skills only. Harbor's adapter moves HERMES_HOME
-    to /tmp/hermes, so the wrapper must follow it; unset means /sandbox/.hermes."""
+    """Hermes reads $HERMES_HOME/skills only, so the wrapper follows HERMES_HOME
+    (unset means /sandbox/.hermes) and owns just its vss/ category there."""
     wrapper = tmp_path / "vss-hermes-sync"
     wrapper.write_text(_hermes_sync_wrapper())
     wrapper.chmod(0o755)
@@ -287,7 +287,7 @@ def test_hermes_sync_targets_hermes_home_skills(tmp_path, hermes_home):
     if hermes_home:
         env["HERMES_HOME"] = str(tmp_path / hermes_home)
     subprocess.run([str(wrapper), "--all"], env=env, check=True)
-    active = f"{env.get('HERMES_HOME', '/sandbox/.hermes')}/skills"
+    active = f"{env.get('HERMES_HOME', '/sandbox/.hermes')}/skills/vss"
     assert log.read_text().split() == [
         "/opt/vss-skills/sync_skills.py", "--skills-dir", "/opt/vss-skills/skills",
         "--active-dir", active, "--all"]
