@@ -113,7 +113,9 @@ def _decomposition_for(query: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_relevant(query: dict[str, Any], chunk_index: dict[str, str]) -> tuple[list[str], list[str]]:
+def _resolve_relevant(
+    query: dict[str, Any], chunk_index: dict[str, str]
+) -> tuple[list[str], list[str]]:
     """Map ``relevant_clip_ids`` to stems, returning ``(stems, unresolved)``. [F1]"""
     stems: list[str] = []
     unresolved: list[str] = []
@@ -181,8 +183,12 @@ def _build_queries(
     return queries, counts
 
 
-def _write_subset(out_path: Path, queries: dict[str, dict[str, Any]], counts: dict[str, int]) -> None:
-    out_path.write_text(json.dumps({"schema_version": 3, "task": "clip", "queries": queries}, indent=2))
+def _write_subset(
+    out_path: Path, queries: dict[str, dict[str, Any]], counts: dict[str, int]
+) -> None:
+    out_path.write_text(
+        json.dumps({"schema_version": 3, "task": "clip", "queries": queries}, indent=2)
+    )
 
 
 def _ensure_videos_symlink(dataset_dir: Path) -> None:
@@ -220,8 +226,11 @@ def make_clip_dataset(dataset_dir: Path, dataset_name: str) -> None:
     queries_gt = dataset_dir / "gt" / "queries_gt.json"
     out = dataset_dir / "dataset.json"
     if not manifest.is_file() or not queries_gt.is_file():
-        print(f"ERROR: {dataset_dir} is not a clip DSS layout (missing manifest.json "
-              f"or gt/queries_gt.json).", file=sys.stderr)
+        print(
+            f"ERROR: {dataset_dir} is not a clip DSS layout (missing manifest.json "
+            f"or gt/queries_gt.json).",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Idempotent: nothing to do when already up to date.
@@ -233,7 +242,9 @@ def make_clip_dataset(dataset_dir: Path, dataset_name: str) -> None:
     raw = json.loads(queries_gt.read_text())
     raw_queries = raw.get("queries") or []
     if not isinstance(raw_queries, list):
-        raise TypeError(f"{queries_gt}: expected 'queries' to be a list; got {type(raw_queries).__name__}")
+        raise TypeError(
+            f"{queries_gt}: expected 'queries' to be a list; got {type(raw_queries).__name__}"
+        )
 
     all_q, all_counts = _build_queries(raw_queries, chunk_index, None)
     event_q, event_counts = _build_queries(raw_queries, chunk_index, "event")
@@ -247,9 +258,11 @@ def make_clip_dataset(dataset_dir: Path, dataset_name: str) -> None:
     # The run summary wants the exclusions visible: a silent drop of
     # near-universal queries would otherwise read as a smaller dataset. [F4]
     meta = raw.get("meta") or {}
-    print(f"  Clip dataset '{dataset_name}': {all_counts['n']} queries scored "
-          f"({event_counts['n']} event, {pas_counts['n']} pas), "
-          f"{all_counts['excluded_near_universal']} excluded (near_universal/empty), "
-          f"{all_counts['unresolved_chunk_ids']} unresolved chunk_id(s). "
-          f"Gallery: {len(chunk_index)} clips.")
+    print(
+        f"  Clip dataset '{dataset_name}': {all_counts['n']} queries scored "
+        f"({event_counts['n']} event, {pas_counts['n']} pas), "
+        f"{all_counts['excluded_near_universal']} excluded (near_universal/empty), "
+        f"{all_counts['unresolved_chunk_ids']} unresolved chunk_id(s). "
+        f"Gallery: {len(chunk_index)} clips."
+    )
     _ = meta  # meta retained for future per-relset reporting
