@@ -89,10 +89,10 @@ COPY docker/generate_metadata.sh generate_metadata.sh
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         g++=4:14.2.0-1 \
-        git=1:2.47.3-0+deb13u1 \
-        jq=1.7.1-6+deb13u2 \
+        git \
+        jq \
         libgl1=1.7.0-1+b2 \
-        libglib2.0-0t64=2.84.4-3~deb13u3 \
+        libglib2.0-0t64 \
         libgomp1=14.2.0-19 && \
     mkdir -p /var/lib/dpkg/status.d && \
     chmod +x generate_metadata.sh && \
