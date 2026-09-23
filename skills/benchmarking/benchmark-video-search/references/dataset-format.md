@@ -105,3 +105,25 @@ leg re-ranks by appearance. A decomposition missing `has_action` routes to
 
 ---
 
+## Clip-level retrieval (schema_version 3, `task: "clip"`)
+
+Some datasets (e.g. `physicalAI-event-videos-test`) are **clip-level**: the gallery is a set of short clips and a query is relevant to whole clips, not time-bounded segments within a long video. The scorer matches by `video_name` (no overlap, no 5-second grid), so the ground truth is a list of clip **stems** (no `.mp4`): the search core returns `<stem>_<timestamp>_<hash>.mp4`, and `video_name_matches` strips `.mp4` from the retrieved name and prefix-matches the GT string -- a GT string with `.mp4` would never match.
+
+```json
+{"schema_version": 3, "task": "clip",
+ "queries": {
+   "<query text>": {
+     "relevant_clips": ["CHAD_1_086_1_0", "..."],
+     "query_domain": "event", "query_slice": "specific",
+     "query_id": "event_0000", "n_relevant": 1,
+     "decomposition": {"query": "...", "attributes": [], "has_action": true, "source_type": "video_file"}
+   }
+ }}
+```
+
+- `relevant_clips` are stems (no extension). The preprocessing adapter (`flows/preprocess/make_clip_dataset.py`) resolves the raw DSS `chunk_id` -> clip path -> stem, and runs once after `--skip-download` is omitted.
+- `decomposition` is synthesized from `query_domain` (event -> `has_action: true` -> fusion; pas -> `attributes: [query]` -> attribute) and used **only** as the fallback when the live decomposer is down. Live decomposition stays the default.
+- `near_universal` queries (relevant to almost every clip) do not discriminate retrieval and are excluded from scoring; the run summary records the count.
+- **HIT@k is capped at `--top-k`.** Clip scoring has no 5-second segment expansion, so ranks are 1:1 with retrieved clips and `hit@k`/`recall@k` for `k > top-k` are unmeasurable. Default `--top-k 10` reports `HIT@{1,5,10}`; pass `--top-k 100` for the full curve (`HIT@{1,5,10,50,100}`).
+- The anchor check (`verify_anchor`) is skipped for clip runs -- scoring is by `video_name`, not absolute-timestamp overlap.
+- `event`/`pas` subsets are written as `dataset_event.json` / `dataset_pas.json` so `--subset event` or `--subset pas` selects a single query domain.
