@@ -25,8 +25,6 @@ VSS CLI. It uses `vss analytics incidents`; use this command shape after its
 bootstrap:
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
 vss analytics incidents \
   --source "<sensor-id>" --source-type sensor \
   --start-time "<ISO>" --end-time "<ISO>" \

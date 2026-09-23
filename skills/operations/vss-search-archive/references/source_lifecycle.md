@@ -29,13 +29,11 @@ the backends' own service, model, and index inventory:
 
 ```bash
 : "${VSS_ORIGIN:?set the deployment origin}"
-: "${VSS_REPO_ROOT:?set the validated checkout}"
 VSS_ORIGIN="${VSS_ORIGIN%/}"
 
-VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-"${VSS[@]}" search run --help >/dev/null || exit 1
-"${VSS[@]}" configure --base-url "${VSS_ORIGIN}" || exit 1
-CONFIG_JSON=$("${VSS[@]}" configure show) || exit 1
+vss search run --help >/dev/null || exit 1
+vss configure --base-url "${VSS_ORIGIN}" || exit 1
+CONFIG_JSON=$(vss configure show) || exit 1
 
 ES_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.elasticsearch.url') || exit 1
 RTVI_CV_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.rtvi_cv.url') || exit 1
@@ -46,7 +44,7 @@ resolve_upload_indexes() {
   # File uploads always land in the fixed epoch anchors. Read those exact names
   # from the configured inventory so file readiness and deletion never absorb
   # same-named live-stream documents from another date shard.
-  CONFIG_JSON=$("${VSS[@]}" configure show) || return 1
+  CONFIG_JSON=$(vss configure show) || return 1
   printf '%s' "${CONFIG_JSON}" |
     jq -e '.services.elasticsearch.indices | type == "array"' >/dev/null || return 1
   EMBED_INDEX=$(printf '%s' "${CONFIG_JSON}" | jq -er \
@@ -194,7 +192,7 @@ from the VST source list, then delete its UUID only through the Agent:
 
 ```bash
 VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
+VST_SENSOR_LIST=$(vss vios list) || exit 1
 mapfile -t SENSORS_TO_DELETE < <(
   printf '%s' "${VST_SENSOR_LIST}" |
     jq -er '.sensors[] | select(.name == "airport" or
@@ -213,7 +211,7 @@ done
 
 while :; do
   VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-  VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
+  VST_SENSOR_LIST=$(vss vios list) || exit 1
   if ! printf '%s' "${VST_SENSOR_LIST}" | jq -e \
     'any(.sensors[]; .name == "airport" or
               .name == "warehouse_sample" or
@@ -232,7 +230,7 @@ partial state through a backend.
 
 ## File source
 
-List current sources with `"${VSS[@]}" vios list`; do not upload an exact
+List current sources with `vss vios list`; do not upload an exact
 existing source. Confirm an interactive upload, then use the mandatory
 three-step agent flow.
 
@@ -319,7 +317,7 @@ printf '%s' "${COMPLETE_RESPONSE}" |
   { echo "Upload completion failed validation" >&2; exit 1; }
 
 VST_LIST_TIMEOUT=$(readiness_timeout 15) || exit 1
-VST_SENSOR_LIST=$("${VSS[@]}" vios list) || exit 1
+VST_SENSOR_LIST=$(vss vios list) || exit 1
 printf '%s' "${VST_SENSOR_LIST}" | jq -e \
   --arg sensor "${SENSOR}" --arg name "${CANONICAL_SOURCE}" \
   'any(.sensors[]; .sensor_id == $sensor and .name == $name)' >/dev/null || {
@@ -363,7 +361,7 @@ while :; do
   # so `configure` + `resolve_upload_indexes` run inside this wait, not before
   # it: resolving once while the embedding index does not yet exist fails
   # outright and never reaches the document counts below.
-  if "${VSS[@]}" configure --base-url "${VSS_ORIGIN}" >/dev/null 2>&1 &&
+  if vss configure --base-url "${VSS_ORIGIN}" >/dev/null 2>&1 &&
      resolve_upload_indexes; then
     SAMPLE_EMBED_COUNT=$(index_count "${EMBED_INDEX}" sensor.id.keyword \
       "${WAREHOUSE_SAMPLE_SENSOR}" 2>/dev/null || echo 0)
@@ -499,7 +497,7 @@ while :; do
     echo "cleanup did not finish within the deadline; the values above are what is still present" >&2
     exit 6
   }
-  VST_SENSORS=$("${VSS[@]}" vios list) || exit 1
+  VST_SENSORS=$(vss vios list) || exit 1
   VST_PRESENT=$(printf '%s' "${VST_SENSORS}" | jq -r \
     --arg id "${SAVED_SENSOR_ID}" --arg name "${SAVED_SOURCE_NAME}" \
     'any(.sensors[]; .sensor_id == $id or .name == $name)') || exit 1

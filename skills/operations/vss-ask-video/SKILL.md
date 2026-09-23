@@ -28,9 +28,8 @@ This skill does not call `POST /generate` on the VSS agent. It requires a
 > reaches the deployment any other way.
 >
 > Four things follow, because each has been done instead:
-> - use the installation the environment already provides - a `vss` on PATH, or
->   in a source checkout the invocation [AGENTS.md](../../../AGENTS.md) defines.
->   Do not build a parallel virtualenv to shorten the command;
+> - use the `vss` on PATH (see Prerequisites) and call it as `vss`. Do not
+>   build a parallel virtualenv or wrap it in another launcher;
 > - `vss vlm run` is the only eye on the video - never post to
 >   `/v1/chat/completions`, `/generate` or `/v1/summarize` yourself, and never
 >   decode or sample frames and answer from them;
@@ -44,6 +43,8 @@ This skill does not call `POST /generate` on the VSS agent. It requires a
 >   it, repairing the deployment, or looking again.
 
 ## Prerequisites
+
+The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
 
 Run `vss configure` once per deployment. Bootstrap, exit codes, and common CLI
 rules live in [AGENTS.md](../../../AGENTS.md).
@@ -65,17 +66,7 @@ Introspection requires:
 - RT-VLM only when a bounded visual follow-up is required.
 
 ```bash
-VSS=(vss)
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  # Development checkout only; the harness image already has vss on PATH.
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-fi
-
-"${VSS[@]}" configure check
+vss configure check
 ```
 
 These checks show endpoint names and credential environment-variable names, not
@@ -161,43 +152,21 @@ it.
 The OpenClaw harness image already provides the pinned executable and the
 `vss_cli` tool. Prefer that tool with the arguments after `vss` as its `args`
 array. Do not clone, install, or deploy anything to answer a video question.
-If the image's CLI is missing, report the image problem and stop. The fallback
-below is only for development checkouts without a packaged CLI.
+If the image's CLI is missing, report the image problem and stop.
 
 OpenClaw may execute every tool call in a fresh shell. Never depend on a shell
-function or array defined in an earlier call. Select and invoke the CLI in the
-same shell call.
+variable defined in an earlier call.
 
 For a stored parent:
 
 ```bash
-VSS=(vss)
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  # Development checkout only; the harness image already has vss on PATH.
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-fi
-
-"${VSS[@]}" memory get --job-id "${JOB_ID}"
+vss memory get --job-id "${JOB_ID}"
 ```
 
 For a known child, pass the complete identity:
 
 ```bash
-VSS=(vss)
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  # Development checkout only; the harness image already has vss on PATH.
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-fi
-
-"${VSS[@]}" memory get \
+vss memory get \
   --job-id "${JOB_ID}" \
   --record-type "${RECORD_TYPE}" \
   --record-id "${RECORD_ID}"
@@ -206,17 +175,7 @@ fi
 For structured discovery, use only relevant filters:
 
 ```bash
-VSS=(vss)
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  # Development checkout only; the harness image already has vss on PATH.
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-fi
-
-"${VSS[@]}" memory query \
+vss memory query \
   --query "${USER_QUESTION}" \
   --sensor-id "${SENSOR_NAME}" \
   --limit 20
@@ -276,22 +235,13 @@ For a general memory-aware question that Markdown does not fully answer:
   owns bounded VLM follow-ups.
 
 ```bash
-VSS=(vss)
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  # Development checkout only; the harness image already has vss on PATH.
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-fi
 VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
-"${VSS[@]}" configure memory show
-"${VSS[@]}" configure memory check
+vss configure memory show
+vss configure memory check
 
 RC=0
-RESULT=$("${VSS[@]}" memory introspect \
+RESULT=$(vss memory introspect \
   --query "${USER_QUESTION}" \
   --sensor "${SENSOR_NAME}" \
   --fps "${VLM_FPS}") || RC=$?
@@ -342,17 +292,7 @@ fails when introspection was never configured; include the judge endpoint on
 first setup:
 
 ```bash
-VSS=(vss)
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  # Development checkout only; the harness image already has vss on PATH.
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-fi
-
-"${VSS[@]}" configure memory introspection \
+vss configure memory introspection \
   --enable \
   --judge-endpoint "${JUDGE_ENDPOINT}"
 ```
@@ -392,19 +332,10 @@ not come from the deployment under test.
 For a trusted bounded URL or local file (no sensor registration or ingestion):
 
 ```bash
-VSS=(vss)
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  # Development checkout only; the harness image already has vss on PATH.
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-fi
 VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
 RC=0
-RESULT=$("${VSS[@]}" vlm run \
+RESULT=$(vss vlm run \
   --prompt "${USER_QUESTION}" \
   --media-url "${VIDEO_URL}" \
   --fps "${VLM_FPS}") || RC=$?
@@ -415,25 +346,16 @@ fi
 printf 'vss_exit_code=%s\n' "${RC}" >&2
 
 # A configured VSS local-file request uses:
-# RESULT=$("${VSS[@]}" vlm run --prompt "${USER_QUESTION}" --file "${VIDEO_FILE}") || RC=$?
+# RESULT=$(vss vlm run --prompt "${USER_QUESTION}" --file "${VIDEO_FILE}") || RC=$?
 ```
 
 For an exact named VIOS sensor/window:
 
 ```bash
-VSS=(vss)
-if ! command -v vss >/dev/null; then
-  if [ -x /usr/local/bin/nemoclaw-start ]; then
-    echo "Baked VSS CLI missing from the harness image" >&2; exit 1
-  fi
-  # Development checkout only; the harness image already has vss on PATH.
-  VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-  VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-fi
 VLM_FPS=1 # choose 0.5 (skim), 1 (locate), or 2 (inspect)
 
 RC=0
-RESULT=$("${VSS[@]}" vlm run \
+RESULT=$(vss vlm run \
   --prompt "${USER_QUESTION}" \
   --sensor "${SENSOR_NAME}" \
   --start-time "${START_TIME}" \

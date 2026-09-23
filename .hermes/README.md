@@ -90,9 +90,10 @@ and `WORKDIR /sandbox`. `LABEL harness.agent=hermes`.
 Same machinery as the OpenClaw plugin, same file: the image carries
 `skills/vss-build-vision-ai/scripts/sync_skills.py` (staged from the pinned
 `VSS_REF` checkout) at `/opt/vss-skills/sync_skills.py`, with the shipped
-skill set read-only under `/opt/vss-skills/skills/`. Hermes scans
-`/sandbox/.hermes/skills` natively, so that directory is passed as
-`--active-dir` — no layout adapter needed. Stdlib-only python; the same file
+skill set read-only under `/opt/vss-skills/skills/`. Hermes loads skills
+from `$HERMES_HOME/skills` only, so `vss-hermes-sync` passes that directory
+as `--active-dir` (`/sandbox/.hermes/skills` when `HERMES_HOME` is unset) —
+no layout adapter needed. Stdlib-only python; the same file
 serves the OpenClaw plugin and host tooling, with its behavior pinned by unit
 tests beside it.
 
@@ -100,3 +101,8 @@ At build, `--all` activates every shipped skill. After `vss configure` records
 a deployment, run `vss-hermes-sync` in the sandbox to re-select: each skill's
 `vss-requires` frontmatter is matched against `vss configure check` (plus the
 alert-bridge probe), exactly like `vss-openclaw-sync`.
+
+A harness that moves `HERMES_HOME` hides the baked skills: Harbor's Hermes
+adapter uses `/tmp/hermes`, a fresh tmpfs under OpenShell, and rewrites
+`config.yaml`, so `skills.external_dirs` cannot point back at them. Run
+`HERMES_HOME=<that home> vss-hermes-sync --all` before the agent starts.

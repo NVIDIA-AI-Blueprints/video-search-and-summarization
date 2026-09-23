@@ -136,7 +136,7 @@
     "expected_skill": "vss-ask-video",
     "ground_truth": "Select and invoke the provided VSS CLI in one shell call.",
     "expected_behavior": [
-      "Uses the installed vss CLI when available; only a development checkout without it may use uv run --project against libs/vss.",
+      "Uses the vss CLI on PATH, called as `vss`; no uv run wrapper and no parallel virtualenv.",
       "Does not depend on a shell function or array from an earlier call."
     ]
   },

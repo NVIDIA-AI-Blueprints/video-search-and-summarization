@@ -199,21 +199,13 @@ class InstalledCliInstructions(unittest.TestCase):
             check=False,
         )
 
-    def skill_selectors(self):
+    def test_skill_calls_the_baked_cli_as_is(self):
         blocks = re.findall(r"```bash\n(.*?)\n```", SKILL.read_text(), re.DOTALL)
-        selectors = [
-            block.split("\n\n", 1)[0].split("\nVLM_FPS", 1)[0]
-            for block in blocks
-            if "VSS=(" in block
-        ]
-        self.assertEqual(len(selectors), 8)
-        return selectors
-
-    def test_all_skill_selectors_use_baked_cli(self):
-        selected_commands = "\n".join(
-            selector + '\n"${VSS[@]}" --version\n'
-            for selector in self.skill_selectors()
-        )
+        calls = [block for block in blocks if re.search(r"(?m)^\s*vss |\$\(vss ", block)]
+        self.assertTrue(calls, "the skill must call vss")
+        for block in blocks:
+            self.assertNotIn("VSS=(", block)
+            self.assertNotIn("uv run", block)
         result = self.run_image(
             "set -eu\n"
             'test ! -e "$HOME/video-search-and-summarization"\n'
@@ -221,28 +213,13 @@ class InstalledCliInstructions(unittest.TestCase):
             'test "$(command -v vss)" = /usr/local/bin/vss\n'
             'git() { echo "unexpected git" >&2; exit 97; }\n'
             'uv() { echo "unexpected uv" >&2; exit 98; }\n'
-            + selected_commands
-            + '\n"${VSS[@]}" vlm run --help\n'
-            + '\n"${VSS[@]}" vios --help\n'
+            "vss --version\n"
+            "vss vlm run --help\n"
+            "vss vios --help\n"
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--media-url", result.stdout)
         self.assertNotIn("unexpected", result.stderr)
-
-    def test_missing_baked_cli_stops_before_development_fallback(self):
-        blocks = self.skill_selectors()
-        for index, block in enumerate(blocks):
-            with self.subTest(selector=index):
-                result = self.run_image(
-                    "test -x /usr/local/bin/nemoclaw-start || exit 96\n"
-                    "command() { return 1; }\n"
-                    'uv() { echo "unexpected uv" >&2; exit 98; }\n'
-                    + block
-                    + '\necho "unexpected continuation"\n'
-                )
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn("Baked VSS CLI missing", result.stderr)
-                self.assertNotIn("unexpected", result.stdout + result.stderr)
 
     def test_oom_default_disables_installed_runtime_proc_write(self):
         dockerfile = (ROOT / ".openclaw/Dockerfile").read_text()

@@ -36,14 +36,10 @@ authorize deployment or another write operation.
 
 ## Bootstrap and configure
 
-Follow the project-local bootstrap in the repository root
-[`AGENTS.md`](../../../AGENTS.md). Run the checkout's `vss`; do not use a global
-binary or execute it inside a container.
+The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`. Exit codes and common CLI rules live in the repository root
+[`AGENTS.md`](../../../AGENTS.md). Do not execute it inside a container.
 
 ```bash
-VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-vss() { uv run --project "${VSS_REPO_ROOT}/libs/vss" vss "$@"; }
-
 vss configure --base-url "${VSS_PUBLIC_URL}"
 vss configure check
 ```

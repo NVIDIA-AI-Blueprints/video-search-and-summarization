@@ -50,22 +50,19 @@ Hand off to `/vss-manage-video-io-storage` to:
    ```bash
    # Resolves the sensor by name, mints the clip URL, normalises it, and warms the render.
    # Omit the window to take the whole recorded segment; the response echoes what it resolved.
-   # CLI bootstrap and exit codes: AGENTS.md at the repo root (repo checkout only)
+   # `vss` on PATH (SKILL.md Runtime prerequisites); exit codes: AGENTS.md at the repo root
    # Fresh shell: paste the Endpoint resolution hand-off (SKILL.md) at the top of this block.
    case "${DEPLOYMENT_KIND:?paste the Endpoint resolution output at the top of this block}" in
      kubernetes) VSS_ORIGIN="${VSS_PUBLIC_URL:?kubernetes hand-off lacks VSS_PUBLIC_URL — re-run Endpoint resolution}" ;;
      docker)     VSS_ORIGIN="http://${HOST_IP:?docker hand-off lacks HOST_IP — re-run Endpoint resolution}:7777" ;;   # HAProxy host port
      *) echo "ERROR: DEPLOYMENT_KIND must be kubernetes or docker, got '${DEPLOYMENT_KIND}'" >&2; exit 1 ;;
    esac
-   VSS_REPO_ROOT="${VSS_REPO_ROOT:-$HOME/video-search-and-summarization}"
-   [ -d "${VSS_REPO_ROOT}/libs/vss" ] || { echo "ERROR: VSS_REPO_ROOT (${VSS_REPO_ROOT}) has no libs/vss — set it to the repo checkout" >&2; exit 1; }
-   VSS=(uv run --project "${VSS_REPO_ROOT}/libs/vss" vss)
-   "${VSS[@]}" configure --base-url "${VSS_ORIGIN%/}" \
+   vss configure --base-url "${VSS_ORIGIN%/}" \
      || { echo "vss configure failed for ${VSS_ORIGIN} — is the VSS origin reachable?" >&2; exit 1; }   # once per deployment
 
    # Captured, not piped: `vss ... | jq` hides the CLI's exit code behind jq's,
    # so a failed command with empty stdout reads as an empty answer.
-   CLIP=$("${VSS[@]}" vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>]) || {
+   CLIP=$(vss vios clip --sensor <sensor-name> [--start-time <startTime> --end-time <endTime>]) || {
      echo "vss vios clip failed for <sensor-name>" >&2; exit 1; }
    VIDEO_URL=$(printf '%s' "${CLIP}" | jq -er '.media_url | select(type=="string" and length>0)') \
      || { echo "vss vios clip returned no media_url for <sensor-name>" >&2; printf '%s\n' "${CLIP}" >&2; exit 1; }

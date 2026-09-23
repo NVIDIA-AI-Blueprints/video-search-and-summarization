@@ -94,7 +94,7 @@
       "query": "I want the stored child record event-17 but I do not know its job id or record type. What is the safe way to ask for it? Assume each command runs in a fresh shell.",
       "checks": [
         "It never emits --record-id without both --job-id and --record-type and requests the missing identity or another valid scope.",
-        "Any proposed VSS command uses the installed vss CLI when available; only a development checkout without it uses uv run --project against libs/vss, in the same shell call.",
+        "Any proposed VSS command calls the vss CLI on PATH as `vss`, with no uv run wrapper.",
         "It does not rely on a shell function or prior-shell state and does not use raw REST."
       ]
     },
