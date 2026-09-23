@@ -181,10 +181,7 @@ PROJECTS: list[dict[str, Any]] = [
     },
     {
         "name": "rt-cv",
-        "project_key": (
-            "TEGRASW_metropolis_video-search-and-summarization-rt-cv"
-            "_video-search-and-summarization"
-        ),
+        "project_key": "TEGRASW_Perception_PerceptionApplication_few-shot-learning",
         "project_name": "video-search-and-summarization-rt-cv",
         "sources": (
             "services/rtvi/rt-cv/src,"
