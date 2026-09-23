@@ -154,6 +154,11 @@ securityContext:
 # Must be paired with resources: null so the pod is not scheduled requiring a GPU.
 useSoftwarePath: false
 
+# VST download_files_timeout_secs: how long VIOS may spend fetching a video it
+# is asked to ingest by URL. 120 matches the previous hard-coded value; long
+# videos (e.g. hour-long benchmark clips over the software path) need more.
+downloadFilesTimeoutSecs: 120
+
 # Request 1 GPU for HW encode/decode (matches Docker runtime: nvidia). Requires NVIDIA device plugin on nodes.
 resources:
   limits:

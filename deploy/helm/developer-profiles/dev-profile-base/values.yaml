@@ -100,7 +100,11 @@ vios:
   vss-vios-sensor:
     enabled: true
     # Direct streamprocessing — sensor talks straight to vss-vios-streamprocessing:30001 (no SDR/Envoy/SDRC router).
-    streamProcessorEndpoint: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-vios-streamprocessing" .Release.Name) "vss-vios-streamprocessing" $pfx }}{{- printf "http://%s:30001" $host }}'
+    # Empty: vss-vios-sensor derives the release-aware direct endpoint itself
+    # (peerHost + :30001, or SDRC when global.vios.useSdrc). A template string
+    # here is NOT rendered -- the subchart reads it verbatim -- so it reached
+    # the sensor as literal "{{- $g := ..." text.
+    streamProcessorEndpoint: ""
     # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -143,6 +147,8 @@ vssIngress:
   resourceName: ""
   # Ingress class on the cluster (e.g. haproxy, nginx).
   ingressClassName: haproxy
+  # Additional controller annotations, e.g. a Traefik routing middleware.
+  annotations: {}
   # If empty, uses global.externalHost (set in values-base.yaml for external installs).
   host: ""
   # Backend ports for the canonical route table (deploy/helm/services/common).
