@@ -17,10 +17,9 @@ metadata:
 
 ## When to Use
 
-- Deploy a stock developer profile (`base`, `alerts`, `lvs`, `search`) or the `warehouse` industry profile
-- Build, extend, or customize a deployment as a delta overlay on a developer profile Foundation
-- Install the NemoClaw/OpenClaw/Hermes harness against a new or already-deployed build
-- Tear down or resize an existing build
+- Compose and deploy a self-contained vision application stack — a stock developer profile (`base`, `alerts`, `lvs`, `search`) or the `warehouse` industry profile — not a single microservice on its own
+- Extend or customize that stack as a delta overlay on a developer profile Foundation
+- Change a build's lifecycle: install the NemoClaw/OpenClaw/Hermes harness on it, resize it, or tear it down. Operating the running stack (search, Q&A, summaries, alerts, reports) is not this skill — see below
 
 ## Do Not Use This Skill For
 
