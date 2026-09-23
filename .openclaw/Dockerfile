@@ -53,7 +53,8 @@ ARG NGC_CLI_VERSION=4.10.0
 # on older layouts). Override with --build-arg VSS_REF=<sha>; bump the default
 # when the skills move.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=01ecaf705c676123aadc77177143aa963338026f
+# develop at tags nightly-20260922-1 / dev-26.09.4
+ARG VSS_REF=4abf68ecd10f40a74bb1978b44407990415a1ef8
 
 # ── uv, for wheel builds and the vss CLI venv ──────────────────────────────────
 FROM ${UV_IMAGE} AS uv
@@ -72,7 +73,13 @@ COPY --from=uv /uv /usr/local/bin/uv
 # stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
 # reaches the image without a push. The Dockerfil[e] glob keeps this COPY
 # valid when nothing is staged — the Dockerfile itself always matches.
-COPY Dockerfil[e] .vss-sr[c] /opt/vss-src/
+# --chown=root:root: docker's COPY gives the files to root by default, kaniko
+# keeps the build context's owner. Built by the eval harness (kaniko, context
+# staged by a uid-10001 service) the directory arrived owned by 10001 while RUN
+# executes as root, and `git init` refused it: "detected dubious ownership in
+# repository at '/opt/vss-src'" (exit 128). Pinning the owner makes both
+# engines agree and keeps git's safe.directory check intact.
+COPY --chown=root:root Dockerfil[e] .vss-sr[c] /opt/vss-src/
 RUN rm -f /opt/vss-src/Dockerfile \
     && if [ -f /opt/vss-src/STAGED ]; then \
          echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
