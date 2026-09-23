@@ -12,7 +12,6 @@ The Video Summarization Workflow enables analysis and summarization of video con
 - Configure live streams for caption generation (experimental).
 - Summarize live streams over a time range (experimental).
 - Generate reports for live streams over a time range (experimental).
-- Ask questions over stored stream captions and events (experimental).
 - Review extracted events in the Kibana dashboard.
 
 **Use Cases**
@@ -20,11 +19,10 @@ The Video Summarization Workflow enables analysis and summarization of video con
 - Automated incident report generation
 - Event detection in extended video archives
 - Shift summaries and daily activity reports
-- Question answering over captioned live streams (experimental)
 
 **Technical Approach**
 
-Standard VLMs are limited to processing short video clips, usually less than 1 minute, depending on the number of subsampled frames and level of detail required. This workflow uses the Video Summarization microservice to segment longer videos, analyze each segment with a VLM, and synthesize the results into coherent summaries with timestamped events. For live streams, the workflow can store VLM captions and events so the agent can answer later questions or generate stream summaries. Stream summary and stored-caption Q&A are experimental.
+Standard VLMs are limited to processing short video clips, usually less than 1 minute, depending on the number of subsampled frames and level of detail required. This workflow uses the Video Summarization microservice to segment longer videos, analyze each segment with a VLM, and synthesize the results into coherent summaries with timestamped events. For live streams, the workflow can store VLM captions and events for stream summaries and reports. Stream summary and report generation are experimental.
 
 **Estimated Deployment Time:** 15-20 minutes
 
@@ -38,7 +36,7 @@ The following diagram illustrates the video summarization architecture:
 - Generate reports for a single uploaded video or for multiple uploaded videos in one request.
 - Formulate timestamped highlights based on user-defined events.
 - Configure live streams for caption generation with a monitoring scenario, events, and optional objects of interest (experimental).
-- Summarize live streams, generate reports, and answer questions using stored captions and events (experimental).
+- Summarize live streams and generate reports using stored captions and events (experimental).
 - Return results through the AI agent interface.
 
 ## What's being deployed
@@ -156,12 +154,12 @@ What the agent does:
 5. Returns the rendered report.
 
 <Note>
-Stream summary and stored-caption Q&A are experimental and are not available
+Stream summary and report generation are experimental and are not available
 through Agent Skills. They require the in-stack VSS Agent. To use them, ask
 Build Vision AI to deploy the in-stack Agent, as described in the Quickstart's
 [deployment-path comparison](/vss/getting-started/quickstart#whats-being-deployed),
-or follow the manual deployment and [Step 4: Summarize and query a live
-stream](/vss/vision-agent/agent-workflows/video-summarization#step-4-summarize-and-query-a-live-stream)
+or follow the manual deployment and [Step 4: Summarize and report on a live
+stream](/vss/vision-agent/agent-workflows/video-summarization#step-4-summarize-and-report-on-a-live-stream)
 below.
 </Note>
 
@@ -710,7 +708,6 @@ Use natural language prompts in the chat interface. The agent routes the request
 | Start stream captioning (experimental) | `Start generating captions for stream CAM_1` |
 | Summarize a stream (experimental) | `Summarize the stream CAM_1 from 45 seconds till now` |
 | Generate a report for a stream (experimental) | `Generate a report for stream CAM_1 from 45 seconds till now` |
-| Ask about stored stream captions (experimental) | `Were there PPE violations in CAM_1 from 2026-05-13T21:00:00Z to 2026-05-13T21:05:00Z?` |
 
 #### Step 2: Upload a video
 
@@ -781,10 +778,10 @@ You can cancel the workflow at any time by typing "/cancel" in the pop-up input 
   <img src="/assets/images/agent-workflows/lvs-response.png" alt="Report generated" />
 </Frame>
 
-#### Step 4: Summarize and query a live stream
+#### Step 4: Summarize and report on a live stream
 
 <Note>
-Stream summary, stream report generation, and stored-caption Q&A are experimental. The supported flow is to add a stream from the Video Management tab, ask the agent to start generating captions for the stream, wait for captions to accumulate, and then request a summary or a report for a timestamp range covered by stored captions.
+Stream summary and stream report generation are experimental. The supported flow is to add a stream from the Video Management tab, ask the agent to start generating captions for the stream, wait for captions to accumulate, and then request a summary or a report for a timestamp range covered by stored captions.
 </Note>
 
 The Video Summarization profile can also analyze live streams. First add a stream from the Video Management tab, then ask the agent to start caption generation for that stream. The agent prompts for the same monitoring scenario, events, and optional objects of interest that are used for uploaded-video analysis.
@@ -795,15 +792,14 @@ Example prompt:
 Start generating captions for stream CAM_1.
 ```
 
-After caption generation starts, allow time for captions to accumulate before asking for summaries or questions over the stream.
+After caption generation starts, allow time for captions to accumulate before requesting summaries or reports for the stream.
 
 | Task | Example prompt |
 | --- | --- |
 | Summarize a stream time range | `Summarize the stream CAM_1 from 45 seconds till now.` |
 | Generate a stream report for a time range | `Generate a report for stream CAM_1 from 45 seconds till now.` |
-| Ask about stored stream captions | `Were there PPE violations in CAM_1 from 2026-05-13T21:00:00Z to 2026-05-13T21:05:00Z?` |
 
-If no captions are available in Elasticsearch for the requested stream and time period, the summary or Q&A request can return empty results. This can happen when the requested time period is before caption generation started, or when the caption generation prompt causes no captions to be stored for that time period.
+If no captions are available in Elasticsearch for the requested stream and time period, the summary or report request can return empty results. This can happen when the requested time period is before caption generation started, or when the caption generation prompt causes no captions to be stored for that time period.
 
 If multiple agent sessions or agent instances connect to the same backend, the caption generation prompt is overwritten by the latest query. The agent does not have visibility into caption prompts set by other agent instances.
 

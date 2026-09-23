@@ -30,7 +30,6 @@ A defining feature of the Video Summarization microservice is its high degree of
 The integrity and accessibility of the processed data are managed through a configurable database layer.
 
 * **Configurable Database**: Processed summaries, extracted events, captions, and associated metadata are stored in a dedicated database. Four backends are selectable — Elasticsearch (the default), Milvus, ArangoDB, and Neo4j. Only Elasticsearch is provisioned inside the compose stack; the others are selected by pointing the microservice at an instance you run. See [Database Backends](/vss/system-components/vision-microservices/video-summarization#database-backends) for the selectors and connection variables.
-* **Stream Caption Retrieval**: Stored captions and events can be retrieved by stream name and time range so agents can answer later questions about configured streams. Stream retrieval and stream summaries based on stored captions are experimental.
 
 ### Access and Integration Methods
 
@@ -68,7 +67,7 @@ The Video Summarization microservice consists of the following core components:
 * **RTVI-VLM**: [Real-Time VLM](/vss/system-components/vision-microservices/real-time-vlm) service used for per-chunk and live-stream video inferencing.
 * **CA-RAG Pipeline**: Context-aware retrieval and generation system that orchestrates event aggregation and summarization.
 * **LLM NIM**: NVIDIA Inference Microservice for the summarization LLM.
-* **Data Store**: Elasticsearch by default for storing extracted events, captions, and aggregated summaries, with Milvus, ArangoDB, and Neo4j available as alternative backends. Stored captions and events can be retrieved by stream name and time range so agents can answer later questions about configured streams.
+* **Data Store**: Elasticsearch by default for storing extracted events, captions, and aggregated summaries, with Milvus, ArangoDB, and Neo4j available as alternative backends.
 * **Kafka Message Queue** (Summarization with Streaming and Message Bus profile only): Carries raw VLM events on the `mdx-vlm-captions` topic and aggregated summaries on the `mdx-structured-events-summary` topic.
 * **Logstash Consumer Service** (Summarization with Streaming and Message Bus profile only): Subscribes to the Kafka topics, decodes the `nv.VisionLLM` protobuf payloads, normalizes field types, and indexes the documents into Elasticsearch.
 
