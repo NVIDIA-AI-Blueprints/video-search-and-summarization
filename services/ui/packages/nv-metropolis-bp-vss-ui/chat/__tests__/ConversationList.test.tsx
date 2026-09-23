@@ -12,6 +12,8 @@ const conversation = {
   messages: [],
   createdAt: 1,
 };
+const folder = { id: 'folder-1', name: 'Operations', type: 'chat' as const };
+const createdFolder = { id: 'folder-2', name: 'New folder', type: 'chat' as const };
 
 function handlers(
   overrides: Partial<ChatSidebarControlHandlers> = {},
@@ -19,6 +21,7 @@ function handlers(
   return {
     conversations: [conversation],
     filteredConversations: [conversation],
+    folders: [],
     selectedConversationId: conversation.id,
     searchTerm: '',
     onSearchTermChange: jest.fn(),
@@ -26,6 +29,10 @@ function handlers(
     onNewConversation: jest.fn(),
     onRenameConversation: jest.fn(),
     onDeleteConversation: jest.fn(),
+    onMoveConversation: jest.fn(),
+    onCreateFolder: jest.fn(() => createdFolder),
+    onRenameFolder: jest.fn(),
+    onDeleteFolder: jest.fn(),
     onClearConversations: jest.fn(),
     onExportData: jest.fn(),
     onImportConversations: jest.fn(),
@@ -87,6 +94,63 @@ describe('ConversationList', () => {
     render(<ConversationList {...handlers({ busy: true })} />);
 
     expect(screen.getByRole('button', { name: 'New chat' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'New folder' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Clear conversations' })).toBeDisabled();
+  });
+
+  it('shows an empty state when search matches neither folders nor conversations', () => {
+    render(
+      <ConversationList
+        {...handlers({
+          folders: [folder],
+          filteredConversations: [],
+          searchTerm: 'missing',
+        })}
+      />,
+    );
+
+    expect(screen.getByText('No conversations')).toBeInTheDocument();
+    expect(screen.queryByText(folder.name)).not.toBeInTheDocument();
+  });
+
+  it('creates, renames, moves conversations into, and deletes folders', () => {
+    const props = handlers({ folders: [folder] });
+    render(<ConversationList {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+    expect(props.onCreateFolder).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: `Move ${conversation.name}` }));
+    fireEvent.change(screen.getByRole('combobox', { name: `Move ${conversation.name} to folder` }), {
+      target: { value: folder.id },
+    });
+    expect(props.onMoveConversation).toHaveBeenCalledWith(conversation.id, folder.id);
+
+    fireEvent.click(screen.getByRole('button', { name: `Rename folder ${folder.name}` }));
+    const rename = screen.getByRole('textbox', { name: 'Folder name' });
+    fireEvent.change(rename, { target: { value: 'Safety' } });
+    fireEvent.keyDown(rename, { key: 'Enter' });
+    expect(props.onRenameFolder).toHaveBeenCalledWith(folder.id, 'Safety');
+
+    fireEvent.click(screen.getByRole('button', { name: `Delete folder ${folder.name}` }));
+    fireEvent.click(screen.getByRole('button', { name: `Confirm delete folder ${folder.name}` }));
+    expect(props.onDeleteFolder).toHaveBeenCalledWith(folder.id);
+  });
+
+  it('moves a dragged conversation when dropped on a folder', () => {
+    const props = handlers({ folders: [folder] });
+    const dataTransfer = {
+      effectAllowed: 'none',
+      setData: jest.fn(),
+      getData: jest.fn(() => conversation.id),
+    };
+    render(<ConversationList {...props} />);
+
+    fireEvent.dragStart(screen.getByRole('button', { name: conversation.name }), { dataTransfer });
+    expect(dataTransfer.effectAllowed).toBe('move');
+    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', conversation.id);
+
+    fireEvent.drop(screen.getByRole('button', { name: folder.name }), { dataTransfer });
+    expect(props.onMoveConversation).toHaveBeenCalledWith(conversation.id, folder.id);
   });
 });

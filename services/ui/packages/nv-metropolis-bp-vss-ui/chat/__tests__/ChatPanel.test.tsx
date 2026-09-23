@@ -17,8 +17,10 @@ jest.mock('../lib-src/storage', () => ({
   initConversationSessionLifecycle: jest.fn(),
   loadConversations: jest.fn().mockResolvedValue([]),
   loadSelectedConversationId: jest.fn().mockResolvedValue(null),
+  loadChatExportAuxiliary: jest.fn(() => ({ folders: [], prompts: [] })),
   saveConversations: jest.fn().mockResolvedValue(undefined),
   saveSelectedConversationId: jest.fn().mockResolvedValue(undefined),
+  saveChatExportAuxiliary: jest.fn(),
   clearAllConversations: jest.fn().mockResolvedValue(undefined),
 }));
 
@@ -127,7 +129,7 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('first question');
   });
 
-  it('overlays conversation history without shrinking a narrow chat panel', () => {
+  it('reflows a narrow chat panel when conversation history opens', () => {
     render(
       <div style={{ width: 380 }}>
         <ChatPanel endpoint={endpoint} features={noHeader} />
@@ -139,12 +141,20 @@ describe('ChatPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show conversation history' }));
     const history = screen.getByRole('complementary', { name: 'Conversation history' });
-    expect(history).toHaveClass('absolute', 'max-w-[calc(100%-3rem)]');
-    expect(history).not.toHaveClass('flex-shrink-0');
+    expect(history).toHaveClass('shrink-0', 'max-w-[calc(100%-3rem)]');
+    expect(history).not.toHaveClass('absolute');
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide conversation history' }));
     expect(screen.queryByRole('complementary', { name: 'Conversation history' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show conversation history' })).toBeInTheDocument();
+  });
+
+  it('shows only one new-chat action while conversation history is open', () => {
+    render(<ChatPanel endpoint={endpoint} />);
+
+    expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Show conversation history' }));
+    expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
   });
 
   it('renders and answers interaction prompts', async () => {
@@ -785,9 +795,30 @@ describe('ChatPanel', () => {
     );
     await waitFor(() => expect(onControlsReady).toHaveBeenCalled());
 
-    const handlers = onControlsReady.mock.calls.at(-1)![0];
-    expect(handlers.filteredConversations).toHaveLength(1);
-    expect(typeof handlers.onNewConversation).toBe('function');
-    expect(handlers.busy).toBe(false);
+    const handlers = () => onControlsReady.mock.calls.at(-1)![0];
+    expect(handlers().filteredConversations).toHaveLength(1);
+    expect(handlers().folders).toEqual([]);
+    expect(typeof handlers().onNewConversation).toBe('function');
+    expect(typeof handlers().onCreateFolder).toBe('function');
+    expect(typeof handlers().onMoveConversation).toBe('function');
+    expect(handlers().busy).toBe(false);
+
+    const conversationId = handlers().selectedConversationId;
+    let folder!: { id: string; name: string };
+    await act(async () => {
+      folder = handlers().onCreateFolder();
+    });
+    await waitFor(() => expect(handlers().folders).toContainEqual(folder));
+
+    await act(async () => handlers().onMoveConversation(conversationId, folder.id));
+    await waitFor(() =>
+      expect(handlers().conversations.find((item: any) => item.id === conversationId)?.folderId)
+        .toBe(folder.id),
+    );
+
+    await act(async () => handlers().onDeleteFolder(folder.id));
+    await waitFor(() => expect(handlers().folders).toEqual([]));
+    expect(handlers().conversations.find((item: any) => item.id === conversationId)?.folderId)
+      .toBeNull();
   });
 });

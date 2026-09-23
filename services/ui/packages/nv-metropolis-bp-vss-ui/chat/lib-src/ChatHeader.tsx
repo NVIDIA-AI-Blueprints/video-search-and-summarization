@@ -22,6 +22,7 @@ export interface ChatHeaderProps {
   chatHistory: boolean;
   onChatHistoryChange: (value: boolean) => void;
   onNewConversation: () => void;
+  showNewConversation?: boolean;
   busy: boolean;
   /** Upload wiring for the welcome drop zone. */
   uploadUrlBase?: string;
@@ -62,6 +63,85 @@ const Toggle: React.FC<{
   </label>
 );
 
+interface ChatHeaderMenuProps {
+  showNewConversation: boolean;
+  onNewConversation: () => void;
+  chatHistory: boolean;
+  onChatHistoryChange: (value: boolean) => void;
+  busy: boolean;
+  themeToggle: boolean;
+  theme: 'light' | 'dark';
+  onThemeChange?: (theme: 'light' | 'dark') => void;
+}
+
+const ChatHeaderMenu: React.FC<ChatHeaderMenuProps> = ({
+  showNewConversation,
+  onNewConversation,
+  chatHistory,
+  onChatHistoryChange,
+  busy,
+  themeToggle,
+  theme,
+  onThemeChange,
+}) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="absolute right-0 top-0 z-20 flex h-12 items-center bg-white pl-6 transition-all duration-300 dark:bg-black">
+      <button
+        type="button"
+        onClick={() => setIsExpanded((previous) => !previous)}
+        aria-label={isExpanded ? 'Collapse chat menu' : 'Expand chat menu'}
+        aria-expanded={isExpanded}
+        className="flex p-1 text-black transition-colors dark:text-white"
+      >
+        {isExpanded ? <IconChevronRight size={20} /> : <IconChevronLeft size={20} />}
+      </button>
+
+      <div
+        className={`flex gap-1 overflow-hidden transition-all duration-300 sm:gap-1 md:gap-4 ${
+          isExpanded ? 'w-auto opacity-100' : 'w-0 opacity-0'
+        }`}
+      >
+        {showNewConversation ? (
+          <button
+            type="button"
+            onClick={onNewConversation}
+            disabled={busy}
+            title="New chat"
+            aria-label="New chat"
+            className="flex items-center gap-1 whitespace-nowrap text-sm font-medium text-black disabled:opacity-40 dark:text-white"
+          >
+            <IconPlus size={16} /> New chat
+          </button>
+        ) : null}
+
+        <Toggle
+          label="Chat History"
+          checked={chatHistory}
+          disabled={busy}
+          onChange={() => onChatHistoryChange(!chatHistory)}
+        />
+
+        {themeToggle && onThemeChange ? (
+          <button
+            type="button"
+            onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
+            aria-label="Toggle theme"
+            className="flex items-center rounded-full text-black transition-colors dark:text-white"
+          >
+            {theme === 'dark' ? (
+              <IconSun className="h-6 w-6 text-yellow-500" />
+            ) : (
+              <IconMoonFilled className="h-6 w-6 text-gray-800" />
+            )}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
   workflowName,
   hasMessages,
@@ -71,6 +151,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   chatHistory,
   onChatHistoryChange,
   onNewConversation,
+  showNewConversation = true,
   busy,
   uploadUrlBase,
   uploadConfigTemplateJson,
@@ -81,7 +162,6 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onUploadFlowActiveChange,
   onNotify,
 }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
   const uploadEnabled = !!features.uploadFile && !!uploadUrlBase;
 
   const body = (upload?: {
@@ -153,56 +233,16 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         )}
 
         {/* Opaque so the expanded menu covers the title rather than overlapping it. */}
-        <div className="absolute right-0 top-0 z-20 flex h-12 items-center bg-white pl-6 transition-all duration-300 dark:bg-black">
-          <button
-            type="button"
-            onClick={() => setIsExpanded((prev) => !prev)}
-            aria-label={isExpanded ? 'Collapse chat menu' : 'Expand chat menu'}
-            aria-expanded={isExpanded}
-            className="flex p-1 text-black transition-colors dark:text-white"
-          >
-            {isExpanded ? <IconChevronRight size={20} /> : <IconChevronLeft size={20} />}
-          </button>
-
-          <div
-            className={`flex gap-1 overflow-hidden transition-all duration-300 sm:gap-1 md:gap-4 ${
-              isExpanded ? 'w-auto opacity-100' : 'w-0 opacity-0'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={onNewConversation}
-              disabled={busy}
-              title="New chat"
-              aria-label="New chat"
-              className="flex items-center gap-1 whitespace-nowrap text-sm font-medium text-black disabled:opacity-40 dark:text-white"
-            >
-              <IconPlus size={16} /> New chat
-            </button>
-
-            <Toggle
-              label="Chat History"
-              checked={chatHistory}
-              disabled={busy}
-              onChange={() => onChatHistoryChange(!chatHistory)}
-            />
-
-            {features.themeToggle && onThemeChange && (
-              <button
-                type="button"
-                onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
-                aria-label="Toggle theme"
-                className="flex items-center rounded-full text-black transition-colors dark:text-white"
-              >
-                {theme === 'dark' ? (
-                  <IconSun className="h-6 w-6 text-yellow-500" />
-                ) : (
-                  <IconMoonFilled className="h-6 w-6 text-gray-800" />
-                )}
-              </button>
-            )}
-          </div>
-        </div>
+        <ChatHeaderMenu
+          showNewConversation={showNewConversation}
+          onNewConversation={onNewConversation}
+          chatHistory={chatHistory}
+          onChatHistoryChange={onChatHistoryChange}
+          busy={busy}
+          themeToggle={!!features.themeToggle}
+          theme={theme}
+          onThemeChange={onThemeChange}
+        />
       </div>
     </div>
   );

@@ -5,10 +5,11 @@
  *
  * Export/import stay wire-compatible with the v4 format
  * (`{version: 4, history, folders, prompts}`). Folders and prompts are accepted
- * and round-tripped but not rendered — VSS never surfaced either.
+ * and round-tripped. Chat folders are rendered; prompt folders and prompt
+ * templates remain opaque so older exports stay lossless.
  */
 import { createRandomId } from './id';
-import type { ChatMessage, Conversation } from './types';
+import type { ChatFolder, ChatMessage, Conversation } from './types';
 
 export const NEW_CONVERSATION_NAME = 'New Conversation';
 
@@ -29,8 +30,34 @@ let seq = 0;
 export const newId = (): string =>
   `c${Date.now().toString(36)}-${(seq++).toString(36)}-${createRandomId()}`;
 
-export function createConversation(name = NEW_CONVERSATION_NAME): Conversation {
-  return { id: newId(), name, messages: [] };
+export function createConversation(
+  name = NEW_CONVERSATION_NAME,
+  folderId: string | null = null,
+): Conversation {
+  return { id: newId(), name, messages: [], folderId };
+}
+
+export function createChatFolder(name = 'New folder'): ChatFolder {
+  return { id: `f${newId().slice(1)}`, name, type: 'chat' };
+}
+
+export function normalizeChatFolders(folders: unknown[]): ChatFolder[] {
+  const seen = new Set<string>();
+  return folders.flatMap((folder) => {
+    if (!folder || typeof folder !== 'object') return [];
+    const value = folder as Record<string, unknown>;
+    if (
+      (typeof value.id !== 'string' && typeof value.id !== 'number') ||
+      typeof value.name !== 'string' ||
+      (value.type !== undefined && value.type !== 'chat')
+    ) {
+      return [];
+    }
+    const id = String(value.id);
+    if (seen.has(id)) return [];
+    seen.add(id);
+    return [{ id, name: value.name, type: 'chat' as const }];
+  });
 }
 
 /**
@@ -271,6 +298,10 @@ export function parseImport(rawJson: string): ImportResult {
     id: String(c.id),
     name: c.name,
     messages: normalizeMessages(c.messages as unknown[]),
+    folderId:
+      typeof c.folderId === 'string' || typeof c.folderId === 'number'
+        ? String(c.folderId)
+        : null,
   }));
 
   return { conversations, folders, prompts };
