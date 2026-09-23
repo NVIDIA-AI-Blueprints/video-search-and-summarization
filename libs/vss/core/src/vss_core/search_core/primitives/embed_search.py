@@ -253,6 +253,7 @@ class EmbedSearch:
             start_time=parsed.start_time,
             end_time=parsed.end_time,
             sensor_id=parsed.sensor_id,
+            sensor_id_raw=parsed.sensor_id_raw,
             screenshot_url=screenshot_url,
             similarity_score=parsed.similarity_score,
         )

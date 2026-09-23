@@ -334,6 +334,11 @@ class ParsedHit:
     description: str
     start_time: str
     end_time: str
+    # The raw ``sensor.id`` from the ES document: the indexed sensor identity
+    # the behavior index keys on. Kept separate from ``sensor_id`` (the stream
+    # UUID, used for clip-URL/merge) so fusion's per-hit attribute lookup can
+    # filter by the behavior doc's sensor.id even when VST is absent.
+    sensor_id_raw: str = ""
 
 
 def parse_hit(
@@ -388,4 +393,5 @@ def parse_hit(
         description=description,
         start_time=start_time,
         end_time=end_time,
+        sensor_id_raw=sensor_id_raw,
     )

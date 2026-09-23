@@ -14,6 +14,7 @@ from .client import build_screenshot_url
 from .client import classify_media_source
 from .client import classify_source
 from .client import confirm_absent
+from .client import count_documents
 from .client import delete_media
 from .client import get_name_to_stream_id_map
 from .client import get_sensor_id_from_stream_id
@@ -28,6 +29,7 @@ from .client import list_sensors
 from .client import map_interval_to_timeline
 from .client import map_timestamp_to_timeline
 from .client import normalise_media_url
+from .client import rebase_interval_to_segments
 from .client import recorded_segments
 from .client import recorded_span
 from .client import resolve_sensor
@@ -52,6 +54,7 @@ __all__ = [
     "classify_media_source",
     "classify_source",
     "confirm_absent",
+    "count_documents",
     "delete_media",
     "get_name_to_stream_id_map",
     "get_sensor_id_from_stream_id",
@@ -66,6 +69,7 @@ __all__ = [
     "map_interval_to_timeline",
     "map_timestamp_to_timeline",
     "normalise_media_url",
+    "rebase_interval_to_segments",
     "recorded_segments",
     "recorded_span",
     "resolve_sensor",

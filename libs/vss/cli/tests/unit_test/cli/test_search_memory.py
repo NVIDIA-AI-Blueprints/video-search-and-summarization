@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from typing import Any
 from unittest.mock import MagicMock
 
+from click.testing import CliRunner
 from pydantic import BaseModel
 import pytest
 
@@ -84,6 +85,79 @@ def test_search_exposes_only_the_safe_persistence_opt_out() -> None:
     assert "--no-persist" in options
     assert "--persist" not in options
     assert {"--write-memory-note", "--no-write-memory-note"} <= options
+
+
+def test_search_cli_resolves_fusion_flags_at_invocation_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise Click parsing and the runtime handoff, not only the resolver helper."""
+    deployment = config_mod.Deployment(
+        base_url="http://h:7777",
+        services={
+            "elasticsearch": config_mod.Service(url="http://h:7777/elasticsearch"),
+            "rt_embed": config_mod.Service(url="http://h:7777/cosmos-embed"),
+            "rtvi_cv": config_mod.Service(url="http://h:7777/rtvi-cv"),
+        },
+    )
+    captured: list[dict[str, Any]] = []
+
+    def runtime_from(_deployment: Any, tuning: dict[str, Any] | None = None) -> MagicMock:
+        captured.append(dict(tuning or {}))
+        return MagicMock()
+
+    async def critic_from(
+        _deployment: Any, eval_count: int | None = None
+    ) -> tuple[None, None, None]:
+        del eval_count
+        return None, None, None
+
+    class _VSS:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *_args: Any) -> None:
+            return None
+
+        async def search(self, **_kwargs: Any) -> SearchOutput:
+            return _search_output(0)
+
+        @classmethod
+        def from_runtime(cls, *_args: Any, **_kwargs: Any) -> Any:
+            return cls()
+
+    monkeypatch.setattr("vss_cli.group.context_from", lambda _values: Context(deployment=deployment))
+    monkeypatch.setattr("vss_cli.search.group._runtime_from", runtime_from)
+    monkeypatch.setattr("vss_cli.search.group._critic_from", critic_from)
+    monkeypatch.setattr("vss_core.search_core.host.VSSSearch", _VSS)
+    cli = SearchGroup().cli()
+    runner = CliRunner()
+
+    default = runner.invoke(cli, ["run", "fusion", "--query", "forklift", "--no-persist"])
+    automatic = runner.invoke(
+        cli,
+        ["run", "fusion", "--query", "forklift", "--w-tag", "0.2", "--no-persist"],
+    )
+    contradictory = runner.invoke(
+        cli,
+        [
+            "run",
+            "fusion",
+            "--query",
+            "forklift",
+            "--w-tag",
+            "0.2",
+            "--fusion-method",
+            "rrf",
+            "--no-persist",
+        ],
+    )
+
+    assert default.exit_code == 0, default.output
+    assert automatic.exit_code == 0, automatic.output
+    assert captured == [
+        {"fusion_method": "rrf"},
+        {"w_tag": 0.2, "fusion_method": "weighted_rrf"},
+    ]
+    assert contradictory.exit_code == int(Exit.INVALID_INPUT)
+    assert "has no VLM tag leg" in contradictory.output
 
 
 @pytest.fixture

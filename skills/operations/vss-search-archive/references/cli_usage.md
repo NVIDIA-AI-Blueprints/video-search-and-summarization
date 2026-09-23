@@ -56,7 +56,10 @@ that VST cannot resolve narrows to an empty result rather than failing.
 ## Query controls
 
 Shared by every path: `--source-type`, `--video-source` (repeatable),
-`--timestamp-start`, `--timestamp-end`, `--top-k`.
+`--timestamp-start`, `--timestamp-end`, `--top-k`, and `--original-query`.
+When a caller decomposes the request, `--original-query` carries the exact
+pre-decomposition user sentence to the critic; retrieval continues to use the
+path-specific query, attributes, or object IDs.
 
 ```bash
 # Embed-only
@@ -87,8 +90,12 @@ step 2) either way.
 `--fusion-method weighted_rrf|rrf`, `--w-tag`, `--w-embed`, `--w-attribute`,
 `--rrf-k`, `--rrf-w`, `--top-percent-filter`,
 `--embed-confidence-threshold`, `--min-cosine-similarity`. At least one
-provider weight must be positive; library defaults are `w_tag=0.45`,
-`w_embed=0.35`, `w_attribute=0.55`, `rrf_k=60`.
+provider weight must be positive; library defaults are `w_tag=0` (VLM tag leg
+off by default), `w_embed=0.35`, `w_attribute=0.55`, `rrf_k=60`,
+`rrf_w=0.5`, `fusion_method=rrf` (legacy embed + attribute RRF,
+no tag leg). Opting into the VLM tag leg with `--w-tag > 0`
+auto-selects `weighted_rrf` (the only method that fuses a tag leg);
+an explicit `--fusion-method rrf --w-tag > 0` is an input error.
 
 `--no-merge-adjacent` reports raw retrieval windows. By default contiguous
 same-sensor windows merge into one result whose score is the mean of the merged

@@ -1,0 +1,32 @@
+name: benchmark-video-search tests
+
+# The benchmark-video-search skill ships its own pytest suite (the eval-flow
+# backends). No other workflow runs it, so regressions in the skill would
+# land uncaught. This job runs the suite whenever the skill (or this
+# workflow) changes.
+
+on:
+  pull_request:
+    paths:
+      - "skills/benchmarking/benchmark-video-search/**"
+      - ".github/workflows/benchmark-skills.yml"
+  push:
+    branches: [develop]
+    paths:
+      - "skills/benchmarking/benchmark-video-search/**"
+      - ".github/workflows/benchmark-skills.yml"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+      - name: Install deps
+        run: pip install pytest requests
+      - name: Run benchmark-video-search tests
+        working-directory: skills/benchmarking/benchmark-video-search
+        run: PYTHONPATH=scripts python -m pytest scripts/tests/ -q -p no:cacheprovider

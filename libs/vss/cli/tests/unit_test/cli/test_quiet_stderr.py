@@ -17,6 +17,8 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
     import types
 
@@ -115,6 +117,78 @@ def test_configure_check_reports_which_groups_the_deployment_can_serve() -> None
     assert rows["vios"][0] is True
     assert rows["search"][0] is False
     assert "elasticsearch" in rows["search"][1]
+
+
+def test_configure_check_prints_recorded_model_and_index_inventory(capsys, monkeypatch) -> None:
+    from vss_cli import config as config_mod
+    from vss_cli import configure as configure_mod
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.test",
+        services={
+            "elasticsearch": config_mod.Service(
+                url="https://vss.test/elasticsearch",
+                indices=["mdx-raw-2025-01-01", "mdx-behavior-2025-01-01"],
+            ),
+            "rt_vlm": config_mod.Service(
+                url="https://vss.test/rtvi-vlm",
+                models=["cosmos-reason1-7b"],
+            ),
+        },
+    )
+    monkeypatch.setattr(configure_mod.config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(configure_mod, "_probe", lambda *_args: (True, "reachable"))
+    monkeypatch.setattr(configure_mod, "_command_availability", lambda _deployment: [])
+
+    configure_mod.check.callback()
+
+    output = capsys.readouterr().out
+    assert "models: cosmos-reason1-7b" in output
+    assert "indices: 2" in output
+
+
+def test_configure_check_omits_empty_inventory_labels(capsys, monkeypatch) -> None:
+    from vss_cli import config as config_mod
+    from vss_cli import configure as configure_mod
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.test",
+        services={"vst": config_mod.Service(url="https://vss.test/vst")},
+    )
+    monkeypatch.setattr(configure_mod.config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(configure_mod, "_probe", lambda *_args: (True, "reachable"))
+    monkeypatch.setattr(configure_mod, "_command_availability", lambda _deployment: [])
+
+    configure_mod.check.callback()
+
+    output = capsys.readouterr().out
+    assert "models:" not in output
+    assert "indices:" not in output
+
+
+def test_configure_check_keeps_inventory_visible_for_unreachable_service(capsys, monkeypatch) -> None:
+    from vss_cli import config as config_mod
+    from vss_cli import configure as configure_mod
+
+    deployment = config_mod.Deployment(
+        base_url="https://vss.test",
+        services={
+            "rt_vlm": config_mod.Service(
+                url="https://vss.test/rtvi-vlm",
+                models=["cosmos-reason1-7b"],
+            )
+        },
+    )
+    monkeypatch.setattr(configure_mod.config_mod, "load", lambda: deployment)
+    monkeypatch.setattr(configure_mod, "_probe", lambda *_args: (False, "connection refused"))
+    monkeypatch.setattr(configure_mod, "_command_availability", lambda _deployment: [])
+
+    with pytest.raises(SystemExit):
+        configure_mod.check.callback()
+
+    output = capsys.readouterr().out
+    assert "UNREACHABLE" in output
+    assert "models: cosmos-reason1-7b" in output
 
 
 def test_stderr_stays_quiet_when_an_env_file_is_present(tmp_path, monkeypatch) -> None:
