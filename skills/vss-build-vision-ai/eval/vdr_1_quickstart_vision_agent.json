@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. Covers VDR row 1, \"Quickstart via vss-build-vision-ai skill\" - the prompts are the slide's verbatim.\n\nQueries 1 and 2 are questions, not build requests: answer from the skill's own SKILL.md and references without writing a build directory, running `docker compose`, or starting a container. Query 3 is the quickstart deploy: artifacts under `_builds/vdr-1-quickstart/`, brought up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes. Use the **build.nvidia.com hosted-model provider (notebook option (c))** for NemoClaw: `NVIDIA_API_KEY` is supplied; `COMPATIBLE_API_KEY` is not, so the default option (a) would block on a missing bearer. No teardown.",
+  "env": "A stock RTX PRO 6000 Blackwell host with Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. The prompts are verbatim from the VDR slide.\n\nQueries 1 and 2 are questions, not build requests: answer from the skill's own SKILL.md and references without writing a build directory, running `docker compose`, or starting a container. Query 3 is the quickstart deploy: artifacts under `_builds/vdr-1-quickstart/`, brought up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes. Use the **build.nvidia.com hosted-model provider (notebook option (c))** for NemoClaw: `NVIDIA_API_KEY` is supplied; `COMPATIBLE_API_KEY` is not, so the default option (a) would block on a missing bearer. No teardown.",
   "expects": [
     {
       "artifact_expected": false,
