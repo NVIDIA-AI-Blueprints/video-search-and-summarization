@@ -680,6 +680,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
 
         def start_forward(port: int, sandbox: str) -> None:
             starts.append((port, sandbox))
+            calls.append(("_start_forward", str(port), sandbox))
             state["forward"] = True
 
         def restart_agent_gateway(context: str, recover: bool = True) -> None:
@@ -756,13 +757,17 @@ class NemoClawForwardContractTests(unittest.TestCase):
     def test_the_brev_ui_origin_is_registered_before_the_forward(self) -> None:
         # The image carries loopback-only allowedOrigins, so the UI answers "Browser
         # origin not allowed" over the secure link until the origin is written and
-        # the gateway restarted. The cell's own re-read proves the write landed.
+        # the gateway restarted. The cell's own re-read proves the write landed, and
+        # the restart drops the forward, so both have to come before it starts.
         namespace, _, calls, _ = self._run_ui_cell(
-            adapter_enabled=False, chat_fqdn="agent.example.test"
+            adapter_enabled=False, chat_fqdn="agent.example.test", forward_up=False
         )
         write = next(c for c in calls if c[:3] == ("openshell", "sandbox", "exec") and c[6] == "sh")
         self.assertIn("sha256sum openclaw.json > .config-hash", write[-1])
-        self.assertIn(("restart_agent_gateway", "registering the UI origin"), calls)
+        restart = ("restart_agent_gateway", "registering the UI origin")
+        forward = ("_start_forward", str(self.PORT), self.SANDBOX)
+        self.assertLess(calls.index(write), calls.index(restart))
+        self.assertLess(calls.index(restart), calls.index(forward))
         self.assertIn(
             "https://agent.example.test",
             namespace["_cfg"]["gateway"]["controlUi"]["allowedOrigins"],
