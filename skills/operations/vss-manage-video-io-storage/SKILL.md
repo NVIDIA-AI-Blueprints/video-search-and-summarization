@@ -18,6 +18,14 @@ Manage VIOS and NvStreamer API operations for VSS video input/output and
 storage workflows: sensors, streams, uploads, snapshots, clips, timelines, and
 recording status.
 
+## When to Use
+
+- Call the VIOS REST API — add/list sensors or RTSP streams, check stream status, get a snapshot, download a clip, upload a video file, manage storage
+- Serve test/sample videos as synthetic RTSP via NvStreamer, or drive the NvStreamer → VIOS `/sensor/add` handoff
+- Provision a source into a headless (no-agent) build so the deployment fans it out to RT-CV / RT-Embed / RT-VLM
+
+Not for VLM inference or ad-hoc visual Q&A (`vss-ask-video`), semantic search (`vss-search-archive`), agent-backed search ingestion (`vss-search-archive`), narrative summaries (`vss-summarize-video`), or reading analytics/incidents (`vss-query-analytics`).
+
 ## Prerequisites
 
 - The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.

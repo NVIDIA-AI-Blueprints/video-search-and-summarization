@@ -16,6 +16,14 @@ metadata:
 
 # Report
 
+## When to Use
+
+- Generate a per-clip VLM video analysis report (Mode A)
+- Generate a narrative report over an incident/alert time range (Mode B)
+- Generate an SOP compliance report via the SOP tools (Mode C)
+
+Not for standalone video summarization, real-time alerts, or ad-hoc Q&A.
+
 Generate a video analysis report by routing to one of three backends — **never via** `POST /generate` on the VSS agent.
 
 | Mode | Backend | Steps |

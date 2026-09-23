@@ -15,6 +15,13 @@ metadata:
 
 **Two ways in:** **guided intake** (state an open intent like "build a vision agent" / "add vision capabilities" and the skill walks you through capability selection) or **prompt-driven** (name the capability or profile directly). Both land on the same routing and composition flow.
 
+## When to Use
+
+- Deploy a stock developer profile (`base`, `alerts`, `lvs`, `search`) or the `warehouse` industry profile
+- Build, extend, or customize a deployment as a delta overlay on a developer profile Foundation
+- Install the NemoClaw/OpenClaw/Hermes harness against a new or already-deployed build
+- Tear down or resize an existing build
+
 ## Do Not Use This Skill For
 
 - Operating an already-running deployment: search, summarize, VIOS, alerts,

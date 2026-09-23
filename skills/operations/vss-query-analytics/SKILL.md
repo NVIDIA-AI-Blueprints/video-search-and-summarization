@@ -16,7 +16,7 @@ Answer read-only video-analytics questions with `vss analytics`, which calls the
 configured VSS Video Analytics API. Use `vss vios list` only when the question
 is about sensors registered in VIOS.
 
-## Scope
+## When to Use
 
 Use this skill for:
 
