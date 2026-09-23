@@ -74,11 +74,14 @@ profile with the same in-image snapshot:
 
 ```bash
 cd /private/byom-build-context
-docker build -t vss-rt-vlm-byom:MODEL_REVISION .
+: "${BYOM_REGISTRY_REPO:?Set a private registry/repository}"
+: "${MODEL_REVISION:?Set the immutable model revision}"
+docker build -t "$BYOM_REGISTRY_REPO:$MODEL_REVISION" .
+docker push "$BYOM_REGISTRY_REPO:$MODEL_REVISION"
 cd /path/to/video-search-and-summarization
 
-export VSS_RT_VLM_IMAGE=vss-rt-vlm-byom
-export VSS_RT_VLM_TAG=MODEL_REVISION
+export VSS_RT_VLM_IMAGE="$BYOM_REGISTRY_REPO"
+export VSS_RT_VLM_TAG="$MODEL_REVISION"
 export RTVI_VLM_MODEL_TO_USE=vllm-compatible
 export RTVI_VLM_MODEL_PATH=/opt/models/byom
 export RTVI_VLM_PORT=8018
@@ -97,9 +100,11 @@ Set `VLM_TRUST_REMOTE_CODE=true` and
 `RTVI_VLM_MODEL_PATH_ALLOWLIST=/opt/models/byom` for reviewed remote code in the
 full VSS profile. Replace the example hardware profile and host IP with observed
 values; provide `NGC_CLI_API_KEY` through the shell or secret manager as required
-by the launcher. Use `vss-deploy-dense-captioning` for the complete operational
-checks. Verify the implementation/plugin imports inside the running container
-before accepting readiness.
+by the launcher. Authenticate Docker to the private registry without putting
+credentials in this file or command history; the profile helper pulls the image
+on launch. Use `vss-deploy-dense-captioning` for the complete operational checks.
+Verify the implementation/plugin imports inside the running container before
+accepting readiness.
 
 The VSS profile maps the corresponding values through
 `RTVI_VLM_MODEL_TO_USE`, `RTVI_VLM_MODEL_PATH`, and
