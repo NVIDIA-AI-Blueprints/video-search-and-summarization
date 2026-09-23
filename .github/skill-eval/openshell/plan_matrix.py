@@ -186,7 +186,6 @@ OPENSHELL_A40_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
     "openshell",
-    
     "a40",
     "gpu-a40",
     "gpu-nvidia-a40",
