@@ -26,19 +26,19 @@
 #
 #   docker build -t <registry>/vss-harness-openclaw:<tag> .openclaw
 
-# NemoClaw v0.0.114 managed OpenClaw runtime: OpenClaw 2026.7.1, node 22.23.2,
-# python 3.13, git, the nemoclaw plugin, nemoclaw-start entrypoint. v0.0.114 is
+# NemoClaw v0.0.127 managed OpenClaw runtime: OpenClaw 2026.7.1, node 24.18.1,
+# python 3.13, git, the nemoclaw plugin, nemoclaw-start entrypoint. v0.0.127 is
 # the NEMOCLAW_INSTALL_REF deploy/docker/scripts/deploy_nemoclaw.ipynb installs,
 # and NemoClaw requires the CLI, base image and plugin OpenClaw to be one release.
 # Pinned by digest — a mutable tag with IfNotPresent silently serves whatever
 # the node cached first. Move it deliberately, together with OPENCLAW_VERSION
 # and the notebook's NEMOCLAW_INSTALL_REF.
-ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:25f400dee9bcd6b109aa3ab00dfda93e452159db0338530a4e6858f18fbc579a
+ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/openclaw-sandbox@sha256:959d1255717b54f724248eb282dbb049d3cd785d5aa4eddb0da2a03839ad6fca
 # The OpenClaw the base carries. The plugin's devDependency must match it, so
 # the compiled plugin links against the runtime it will actually load in.
 ARG OPENCLAW_VERSION=2026.7.1
 # Same builder image NemoClaw's Dockerfile uses for its plugin stages.
-ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
+ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
 # uv 0.12.10, by index digest (multi-arch).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
 # NGC CLI, staged unconditionally: the operation skills fetch sample data and
