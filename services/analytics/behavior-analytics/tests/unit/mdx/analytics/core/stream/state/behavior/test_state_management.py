@@ -17,6 +17,10 @@ import pytest
 from unittest.mock import Mock
 from datetime import datetime, timedelta, timezone
 
+from mdx.analytics.core.stream.state.behavior.behavior_holdback import (
+    INFO_FIELD_IS_COMPLETE,
+    INFO_VALUE_COMPLETE,
+)
 from mdx.analytics.core.stream.state.behavior.state_management import StateMgmt
 from mdx.analytics.core.schema.config import AppConfig
 from mdx.analytics.core.schema.models import (
@@ -608,7 +612,7 @@ class TestStateMgmtEmitOnce:
 
     # --- emit-once disabled: unchanged per-batch output ---
     def test_writes_every_batch_when_disabled(self, state_mgmt, emit_once_config):
-        """With behavior_emit_once False, the batch writes what it produced and retains nothing."""
+        """With behavior_emit_once False, the batch writes what it produced, live and unmarked."""
         emit_once_config.behavior_emit_once = False
         key = "sensor1 #-# obj1"
         base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -617,7 +621,10 @@ class TestStateMgmtEmitOnce:
 
         assert [b.id for b in batch.behaviors_to_write] == [key]
         assert batch.behaviors_to_write == batch.active_behaviors
-        assert state_mgmt.behavior_holdback.pending == {}
+        # Retained in both modes now: the snapshot is what gets re-emitted, marked, when the track
+        # ends. Absence of the key is what says "still live".
+        assert list(state_mgmt.behavior_holdback.pending) == [key]
+        assert INFO_FIELD_IS_COMPLETE not in batch.behaviors_to_write[0].info
 
     # --- emit-once enabled: exactly one behavior per track, at the valid interval ---
     def test_behavior_held_back_while_track_is_live(self, state_mgmt):
@@ -889,18 +896,23 @@ class TestStateMgmtEmitOnce:
         self._feed(state_mgmt, other_key, "obj2", base + timedelta(seconds=4), 100.0)
         assert key in state_mgmt.state
 
-        # obj1 goes 6s silent; nothing is held back in this mode, but its state is still released.
+        # obj1 goes 8s silent, so its state is released and its terminal behavior is written.
         written = self._feed(state_mgmt, other_key, "obj2", base + timedelta(seconds=8), 101.0)
 
-        assert [b.id for b in written] == [other_key]  # per-batch output, unaffected
+        assert sorted(b.id for b in written) == sorted([key, other_key])
         assert key not in state_mgmt.state
 
-    def test_switching_emit_once_off_still_writes_held_back_tracks(self, state_mgmt, emit_once_config):
-        """behaviorEmitOnce is runtime-updatable, so turning it off must not strand what was held.
+        # The live track is unmarked; the ended one carries the completion marker.
+        by_id = {b.id: b for b in written}
+        assert INFO_FIELD_IS_COMPLETE not in by_id[other_key].info
+        assert by_id[key].info[INFO_FIELD_IS_COMPLETE] == INFO_VALUE_COMPLETE
 
-        A track retained under emit-once may only end after the setting flips. Nothing else collects
-        the holdback, so without handing it over on switch-off that behavior would never be written
-        and the holdback would grow without bound.
+    def test_switching_emit_once_off_still_writes_held_back_tracks(self, state_mgmt, emit_once_config):
+        """Turning behaviorEmitOnce off must not strand a track retained while it was on.
+
+        Retention is unconditional now, so there is nothing to hand over on the flip: the track stays
+        held and is released by the ordinary end-of-track sweep, marked complete. What the flip
+        changes is only whether *live* tracks are written alongside it.
         """
         key = "sensor1 #-# obj1"
         other_key = "sensor1 #-# obj2"
@@ -915,10 +927,15 @@ class TestStateMgmtEmitOnce:
 
         written = self._feed(state_mgmt, other_key, "obj2", base + timedelta(seconds=6), 100.0)
 
-        # obj1's held-back behavior is written alongside the now per-batch output for obj2, and
-        # exactly once each -- no track appears twice in the same batch.
+        # obj1 has been silent a full valid interval, so it ends in this batch and goes out marked,
+        # alongside the now per-batch output for obj2 -- exactly once each.
         assert sorted(b.id for b in written) == [key, other_key]
-        assert state_mgmt.behavior_holdback.pending == {}
+        by_id = {b.id: b for b in written}
+        assert by_id[key].info[INFO_FIELD_IS_COMPLETE] == INFO_VALUE_COMPLETE
+        assert INFO_FIELD_IS_COMPLETE not in by_id[other_key].info
+
+        # obj1 is gone from the holdback; obj2 is retained in its place, still live.
+        assert list(state_mgmt.behavior_holdback.pending) == [other_key]
         assert state_mgmt.behavior_holdback.ended == []
 
         # Settled in one go: later batches carry nothing over.
@@ -945,7 +962,10 @@ class TestStateMgmtEmitOnce:
 
         assert [b.id for b in written] == [key]
         assert written[0].end == base + timedelta(seconds=1)  # the fresh one, not the frozen snapshot
-        assert state_mgmt.behavior_holdback.pending == {}
+        assert INFO_FIELD_IS_COMPLETE not in written[0].info
+        # Still live, so still retained -- the snapshot is now the fresher behavior.
+        assert list(state_mgmt.behavior_holdback.pending) == [key]
+        assert state_mgmt.behavior_holdback.pending[key].end == base + timedelta(seconds=1)
 
     def test_switching_emit_once_on_holds_back_from_that_point(self, state_mgmt, emit_once_config):
         """Turning emit-once on mid-run starts holding back, keeping the track's history so far.
@@ -975,6 +995,77 @@ class TestStateMgmtEmitOnce:
         assert written[0].timestamp == base
         assert written[0].end == base + timedelta(seconds=1)
         assert len(written[0].locations.coordinates) == 2
+
+    # --- ended tracks are emitted in both modes, marked complete ---
+    def test_ended_track_is_marked_complete_under_emit_once(self, state_mgmt):
+        """The single behavior emit-once writes per track is the terminal one, so it is marked."""
+        key = "sensor1 #-# obj1"
+        other_key = "sensor1 #-# obj2"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        assert self._feed(state_mgmt, key, "obj1", base, 0.0) == []
+        written = self._feed(state_mgmt, other_key, "obj2", base + timedelta(seconds=6), 100.0)
+
+        assert [b.id for b in written] == [key]
+        assert written[0].info[INFO_FIELD_IS_COMPLETE] == INFO_VALUE_COMPLETE
+
+    def test_ended_track_is_emitted_in_per_batch_mode(self, state_mgmt, emit_once_config):
+        """Per-batch mode gains a terminal message per track, which it never used to produce.
+
+        Live output is unchanged; what is new is the final copy of the last snapshot, marked, so a
+        consumer can tell the track is over without inferring it from silence.
+        """
+        emit_once_config.behavior_emit_once = False
+        key = "sensor1 #-# obj1"
+        other_key = "sensor1 #-# obj2"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        live = self._feed(state_mgmt, key, "obj1", base, 0.0)
+        assert [b.id for b in live] == [key]
+        assert INFO_FIELD_IS_COMPLETE not in live[0].info
+
+        # obj2 pushes the sensor clock a valid interval past obj1's last message.
+        written = self._feed(state_mgmt, other_key, "obj2", base + timedelta(seconds=6), 100.0)
+
+        by_id = {b.id: b for b in written}
+        assert sorted(by_id) == sorted([key, other_key])
+        assert by_id[key].info[INFO_FIELD_IS_COMPLETE] == INFO_VALUE_COMPLETE
+        # The terminal copy does not regress: its end matches the last live one already sent.
+        assert by_id[key].end == base
+
+    def test_track_produced_and_ended_in_one_batch_is_written_once(self, state_mgmt, emit_once_config):
+        """A track can produce a behavior and end in the same batch; it must go out once, marked.
+
+        Retention happens before the end-of-track sweep, so such a track is in both active_behaviors
+        and the released set -- as the same object. Writing both would duplicate it.
+        """
+        emit_once_config.behavior_emit_once = False
+        key_a = "sensor1 #-# obj1"
+        key_b = "sensor2 #-# obj2"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        # obj2 on its own sensor, already far behind its sensor clock when it next reports.
+        self._feed(state_mgmt, key_b, "obj2", base, 0.0)
+        self._feed(state_mgmt, key_a, "obj1", base, 0.0)
+
+        batch = state_mgmt.process_batch(
+            self._messages_map([(key_b, "obj2", base + timedelta(seconds=50), 1.0)])
+        )
+
+        written_ids = [b.id for b in batch.behaviors_to_write]
+        assert len(written_ids) == len(set(written_ids)), f"duplicate write: {written_ids}"
+
+    def test_flush_behaviors_marks_everything_complete(self, state_mgmt, emit_once_config):
+        """Shutdown ends every track, in either mode, so everything flushed is marked."""
+        emit_once_config.behavior_emit_once = False
+        key = "sensor1 #-# obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        self._feed(state_mgmt, key, "obj1", base, 0.0)
+        flushed = state_mgmt.flush_behaviors()
+
+        assert [b.id for b in flushed] == [key]
+        assert flushed[0].info[INFO_FIELD_IS_COMPLETE] == INFO_VALUE_COMPLETE
 
     def _flip_inside_batch(self, state_mgmt, emit_once_config, to_value: bool) -> None:
         """Land a config update *inside* process_batch, between the retain and the write decision.
@@ -1008,7 +1099,8 @@ class TestStateMgmtEmitOnce:
 
         # Started off, so it finishes off -- written per-batch rather than swallowed.
         assert [b.id for b in written] == [key]
-        assert state_mgmt.behavior_holdback.pending == {}
+        # Retention does not depend on the latched value, so the track is held either way.
+        assert list(state_mgmt.behavior_holdback.pending) == [key]
 
         # The update still lands; it just takes effect from the next batch.
         assert self._feed(state_mgmt, key, "obj1", base + timedelta(seconds=1), 1.0) == []
@@ -1038,7 +1130,7 @@ class TestStateMgmtEmitOnce:
         assert self._feed(state_mgmt, key, "obj1", base, 0.0) == []           # on: held
         emit_once_config.behavior_emit_once = False
         assert [b.id for b in self._feed(state_mgmt, key, "obj1", base + timedelta(seconds=1), 1.0)] == [key]
-        assert state_mgmt.behavior_holdback.pending == {}                      # handed over on switch-off
+        assert list(state_mgmt.behavior_holdback.pending) == [key]             # still live, still retained
 
         emit_once_config.behavior_emit_once = True
         assert self._feed(state_mgmt, key, "obj1", base + timedelta(seconds=2), 2.0) == []

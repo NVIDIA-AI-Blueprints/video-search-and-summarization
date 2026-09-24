@@ -108,12 +108,10 @@ class StateMgmt:
         """
         batch = BehaviorBatch()
 
-        # One call is one batch, and that has to cover the policy as well as the data.
-        # ``behaviorEmitOnce`` is runtime-updatable, so reading it once to retain and again to decide
-        # what to write lets an update land between the two and tear the branch: flipping off->on in
-        # that window retains nothing and then writes ``take_ended()``, so this batch's behaviors are
-        # dropped for good rather than delayed. Latched here, a flip costs at most a one-batch delay,
-        # which is what every other runtime-updatable key already does.
+        # ``behaviorEmitOnce`` is runtime-updatable, so latch it once per batch: one call is one
+        # batch, and the policy should not change halfway through it. Retention is now unconditional,
+        # so a flip can no longer strand a batch -- it only changes whether live tracks accompany the
+        # ended ones, and at most by a one-batch delay.
         emit_once = self.config.behavior_emit_once
 
         for message_key, messages in messages_map.items():
@@ -125,54 +123,40 @@ class StateMgmt:
 
         # Retain before ending, so a track that both produced a behavior and fell silent in the same
         # batch still reaches the stream: the sweep below releases whatever was just retained.
-        if emit_once:
-            self.behavior_holdback.retain(batch.active_behaviors)
+        # Unconditional, because ended tracks are emitted in both modes and the holdback is what
+        # holds the snapshot to emit. It also removes the flag-flip hazard that per-mode retention
+        # had: nothing can be stranded by an update landing mid-batch when every batch retains.
+        self.behavior_holdback.retain(batch.active_behaviors)
 
         # Runs in both modes -- ending a track is what reclaims its state, so per-batch mode depends
-        # on it too, even though it holds nothing back.
+        # on it too.
         self._end_inactive_behaviors()
 
+        # Ended tracks are written in both modes, carrying info["isComplete"] = "true" (set by the
+        # holdback as it releases them). ``behaviorEmitOnce`` decides only whether live tracks are
+        # written alongside them.
+        ended_behaviors = self.behavior_holdback.take_ended()
+
         if emit_once:
-            batch.behaviors_to_write = self.behavior_holdback.take_ended()
+            batch.behaviors_to_write = ended_behaviors
         else:
-            batch.behaviors_to_write = (
-                self._carry_over_held_behaviors(batch.active_behaviors) + batch.active_behaviors
-            )
+            # A track that produced a behavior and ended in the same batch is in both lists -- the
+            # same object -- so write only the completed copy rather than it twice.
+            ended_ids = {behavior.id for behavior in ended_behaviors}
+            batch.behaviors_to_write = [
+                behavior for behavior in batch.active_behaviors if behavior.id not in ended_ids
+            ] + ended_behaviors
 
         return batch
-
-    def _carry_over_held_behaviors(self, active_behaviors: list[Behavior]) -> list[Behavior]:
-        """
-        Hand over anything still held back, once, after ``behaviorEmitOnce`` is switched off.
-
-        ``behaviorEmitOnce`` is runtime-updatable, so tracks can be left held when it flips. They
-        cannot simply be dropped -- a track that fell silent around the flip would never be written
-        at all -- but neither can they trickle out as they end: per-batch output resumes immediately
-        and writes progressively more complete behaviors for the same IDs, so a snapshot released
-        later would arrive with an older ``end`` than one already sent and regress it downstream.
-
-        So the holdback is emptied in one go, minus any track already producing fresh output this
-        batch. After that it stays empty and this is a no-op.
-
-        :param list[Behavior] active_behaviors: Behaviors this batch produced, whose tracks already
-            have fresher output and so need nothing carried over.
-        :return list[Behavior]: Held behaviors worth writing, ahead of this batch's own output.
-        """
-        if not self.behavior_holdback.pending and not self.behavior_holdback.ended:
-            return []
-
-        fresh_ids = {behavior.id for behavior in active_behaviors}
-        carried = [behavior for behavior in self.behavior_holdback.flush() if behavior.id not in fresh_ids]
-        logger.info(f"behaviorEmitOnce switched off; handing over {len(carried)} held behavior(s)")
-
-        return carried
 
     def flush_behaviors(self) -> list[Behavior]:
         """
         Return every behavior still held back, ended or not, and drop it.
 
-        Intended for shutdown, where tracks that were still live would otherwise be lost. Returns an
-        empty list unless emit-once is enabled, since nothing is ever held back in per-batch mode.
+        Intended for shutdown, where tracks that were still live would otherwise be lost. Returns
+        behaviors in both modes, since the holdback retains every live track regardless of
+        ``behaviorEmitOnce``. Everything returned is marked ``info["isComplete"] = "true"``:
+        shutdown ends every remaining track.
 
         :return list[Behavior]: Behaviors to write before the app stops.
 
