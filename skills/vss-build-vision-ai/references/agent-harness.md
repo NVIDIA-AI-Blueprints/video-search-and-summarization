@@ -630,6 +630,34 @@ Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
 `NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent
 sessions, and nothing else in the run tells the user that happened.
 
+### Troubleshooting: "did not receive the required baseline scopes"
+
+`nemoclaw onboard` stops after `[8/8] Policy presets` with:
+
+> OpenClaw onboarding for '<name>' is incomplete because its canonical CLI
+> device did not receive the required baseline scopes.
+
+NemoClaw pairs the new sandbox's CLI device on the default dashboard port
+(`18789`); when another sandbox on the host already holds it, the pairing
+misses and onboarding times out. Retrying with `--fresh` reproduces it. The
+VSS stack and the inference route have nothing to do with it.
+
+A deploy recreates the sandbox, so its state is expendable: destroy the
+sandboxes this deploy owns - the failed one and any left by earlier runs -
+confirm `18789` is free, and rerun the notebook. A sandbox someone else owns
+holding `18789` is not yours to destroy; it means this host cannot run the
+deploy until they release it.
+
+```bash
+openshell sandbox list
+nemoclaw <name> destroy             # each sandbox of this deploy
+lsof -nP -iTCP:18789 -sTCP:LISTEN   # must print nothing
+```
+
+Anything beyond that — repairing a sandbox in place, NemoClaw's recreate
+guards — is NemoClaw's domain: see the
+[NemoClaw documentation](https://docs.nvidia.com/nemoclaw/latest/index.html).
+
 ## Teardown
 
 The harness and the build are independent lifecycles. Tearing down one never
