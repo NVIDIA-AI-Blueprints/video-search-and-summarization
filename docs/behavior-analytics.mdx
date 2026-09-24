@@ -258,7 +258,7 @@ The configuration file supports multiple message broker types. You can configure
     - `behaviorStateValidInterval`: Maximum gap (in seconds) between an object's previous state end and next state start before treating them as separate behaviors. This is also the inactivity gap after which a track's state is reclaimed: if an object with the same `id` reappears after the gap, a new behavior is created. The uniqueness of the behavior is based on sensor + id + start timestamp. The gap is measured on the sensor's own event clock, never the wall clock, so a lagging or replayed pipeline is not mistaken for a quiet camera. **Default: 6**
     - `behaviorWatermarkSec`: The watermark for the behavior in seconds. **Default: 30**
     - `behaviorMaxPoints`: Maximum number of behavior points to store. **Default: 200**
-    - `behaviorEmitOnce`: If true, each behavior is written once — one `behaviorStateValidInterval` after its track goes quiet — instead of on every batch, and tracks still live at shutdown are flushed. Events, anomalies and incidents are always built from the per-batch behaviors and are unaffected. **Default: false**
+    - `behaviorEmitOnce`: If true, only ended tracks are written — one `behaviorStateValidInterval` after a track goes quiet — instead of writing every live track on every batch. A track that ends is written in **either** mode, carrying `info["isComplete"] = "true"`; the key decides only whether live tracks accompany it. Tracks still live at shutdown are flushed and marked complete in either mode. Events, anomalies and incidents are always built from the per-batch behaviors and are unaffected. **Default: false**
     - `behaviorStateEndToleranceSec`: Grace window (in seconds) past a state's end within which late messages are still accepted into that state. **Default: 0.1**
     - `behaviorTimeThreshold`: ISO-8601 instant; messages at or before it are filtered out. **Default: 1970-01-01T00:00:00.000Z**
     - `stateManagementFilter`: Whitelist of object types to admit into the pipeline; other types are dropped at frame ingest, before state management. If the list is empty, no filter is applied and all types pass through. **Default: []**
@@ -751,8 +751,9 @@ for trip in behavior_batch.trip_behaviors:
     events.extend(roi_event.get_events(trip))
 ```
 
-At shutdown, call `flush_behaviors()` to release anything still held back by
-`behaviorEmitOnce`; otherwise those behaviors are never written:
+At shutdown, call `flush_behaviors()` to release every track still held — live tracks are
+retained in both emission modes — otherwise those behaviors are never written. Everything it
+returns is marked `info["isComplete"] = "true"`, since shutdown ends every remaining track:
 
 ```python
 def close(self) -> None:

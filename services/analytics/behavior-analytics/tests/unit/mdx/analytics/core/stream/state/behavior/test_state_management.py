@@ -1037,23 +1037,62 @@ class TestStateMgmtEmitOnce:
         """A track can produce a behavior and end in the same batch; it must go out once, marked.
 
         Retention happens before the end-of-track sweep, so such a track is in both active_behaviors
-        and the released set -- as the same object. Writing both would duplicate it.
+        and the released set -- as the *same object*. Writing both would duplicate it. Reached by a
+        second object on the same sensor carrying a far later timestamp: it drags the sensor clock
+        past the first track's end, so the sweep ends a track that just produced output.
         """
         emit_once_config.behavior_emit_once = False
-        key_a = "sensor1 #-# obj1"
-        key_b = "sensor2 #-# obj2"
+        key = "sensor1 #-# obj1"
+        other_key = "sensor1 #-# obj2"
         base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
 
-        # obj2 on its own sensor, already far behind its sensor clock when it next reports.
-        self._feed(state_mgmt, key_b, "obj2", base, 0.0)
-        self._feed(state_mgmt, key_a, "obj1", base, 0.0)
+        self._feed(state_mgmt, key, "obj1", base, 0.0)
 
+        # obj1 continues (no discontinuity: 1s < the 6s valid interval), while obj2 on the same
+        # sensor jumps the clock to +50s, so the sweep ends obj1 in the batch it just reported in.
         batch = state_mgmt.process_batch(
-            self._messages_map([(key_b, "obj2", base + timedelta(seconds=50), 1.0)])
+            self._messages_map([
+                (key, "obj1", base + timedelta(seconds=1), 1.0),
+                (other_key, "obj2", base + timedelta(seconds=50), 50.0),
+            ])
         )
 
-        written_ids = [b.id for b in batch.behaviors_to_write]
-        assert len(written_ids) == len(set(written_ids)), f"duplicate write: {written_ids}"
+        written = batch.behaviors_to_write
+        assert [b.id for b in written].count(key) == 1, f"obj1 written twice: {[b.id for b in written]}"
+
+        # It is the same object in both lists, so the one copy written is the completed one.
+        obj1_written = next(b for b in written if b.id == key)
+        assert obj1_written.info[INFO_FIELD_IS_COMPLETE] == INFO_VALUE_COMPLETE
+        assert any(obj1_written is b for b in batch.active_behaviors), "expected the same object, not a copy"
+
+    def test_reused_track_id_does_not_suppress_the_replacement(self, state_mgmt, emit_once_config):
+        """A replacement track must still be written in the batch that produced it.
+
+        On an idle sensor the clock cannot advance, so ``_end_inactive_behaviors`` never ends the
+        track -- it survives until the same object ID reappears after a gap. ``_process_key`` then
+        ends the old track and creates a replacement in one batch, putting two *different* Behavior
+        objects under one ID into both the active and released lists. Deduplicating by ID would drop
+        the replacement's first snapshot; deduplicating by object identity keeps both.
+        """
+        emit_once_config.behavior_emit_once = False
+        key = "sensor1 #-# obj1"
+        base = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        # obj1 is the only traffic on sensor1, so its clock freezes when obj1 goes quiet.
+        for i in range(3):
+            self._feed(state_mgmt, key, "obj1", base + timedelta(seconds=i), float(i))
+
+        # Same ID returns well past the valid interval: old track ends, replacement starts, one batch.
+        written = self._feed(state_mgmt, key, "obj1", base + timedelta(seconds=20), 9.0)
+
+        assert len(written) == 2, f"expected old + replacement, got {[b.end for b in written]}"
+        completed = [b for b in written if b.info.get(INFO_FIELD_IS_COMPLETE) == INFO_VALUE_COMPLETE]
+        live = [b for b in written if INFO_FIELD_IS_COMPLETE not in b.info]
+
+        # The old track goes out marked, ending where it fell silent.
+        assert [b.end for b in completed] == [base + timedelta(seconds=2)]
+        # The replacement goes out live, carrying the observation that started it.
+        assert [b.end for b in live] == [base + timedelta(seconds=20)]
 
     def test_flush_behaviors_marks_everything_complete(self, state_mgmt, emit_once_config):
         """Shutdown ends every track, in either mode, so everything flushed is marked."""

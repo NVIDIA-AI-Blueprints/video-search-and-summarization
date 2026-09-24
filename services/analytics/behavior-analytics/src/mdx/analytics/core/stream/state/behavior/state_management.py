@@ -141,10 +141,13 @@ class StateMgmt:
             batch.behaviors_to_write = ended_behaviors
         else:
             # A track that produced a behavior and ended in the same batch is in both lists -- the
-            # same object -- so write only the completed copy rather than it twice.
-            ended_ids = {behavior.id for behavior in ended_behaviors}
+            # same object -- so write only the completed copy rather than it twice. Keyed on object
+            # identity, not behavior ID: a track whose ID is reused after a gap ends the old track
+            # and starts a replacement in one batch, putting two *different* objects under one ID
+            # into both lists. Filtering by ID would drop the replacement's first snapshot.
+            ended_objects = {id(behavior) for behavior in ended_behaviors}
             batch.behaviors_to_write = [
-                behavior for behavior in batch.active_behaviors if behavior.id not in ended_ids
+                behavior for behavior in batch.active_behaviors if id(behavior) not in ended_objects
             ] + ended_behaviors
 
         return batch

@@ -68,7 +68,8 @@ its last message — so that key sets the latency — and tracks still live when
 
 Events, anomalies and incidents are built from per-batch behaviors either way, so they are unaffected.
 
-The key is runtime-updatable; switching it off hands over anything still being held back.
+The key is runtime-updatable. Ended tracks are written in either mode, so a switch strands
+nothing: it only changes whether live tracks are written alongside them, from the next batch.
 
 ### When a track ends
 A track ends — releasing its state, and under `behaviorEmitOnce` writing its behavior — when
