@@ -471,17 +471,17 @@ HARDWARE_PROFILE=GB300
 # One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
-VLM_MODE=none
 ```
 </Tab>
 <Tab title="Agents + Remote LLM">
 
 ```ini
-# Two GPUs: bp_wh with MODE=2d; RT-CV and RT-VLM remain local.
+# One GPU: bp_wh with MODE=2d; RT-CV and RT-VLM share the GB300.
 RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=1
+RT_VLM_DEVICE_ID=0
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 LLM_MODE=remote
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -492,12 +492,14 @@ LLM_MODEL_TYPE=<nim-or-openai>
 <Tab title="Agents + Local LLM">
 
 ```ini
-# Three GPUs: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM are local.
+# One GPU: bp_wh with MODE=2d; RT-CV, RT-VLM, and the LLM share the GB300.
 RT_CV_DEVICE_ID=0
-RT_VLM_DEVICE_ID=1
-LLM_DEVICE_ID=2
-LLM_MODE=local
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
+RT_VLM_DEVICE_ID=0
+LLM_DEVICE_ID=0
+SHARED_LLM_VLM_DEVICE_ID=0
+LLM_MODE=local_shared
+RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.2
+RTVI_VLLM_ATTENTION_BACKEND=TRITON_ATTN
 ```
 </Tab>
 </Tabs>
@@ -525,7 +527,6 @@ HARDWARE_PROFILE=RTXPRO6000BW
 # One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
-VLM_MODE=none
 ```
 </Tab>
 <Tab title="Agents + Remote LLM">
@@ -535,7 +536,6 @@ VLM_MODE=none
 RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_MODE=remote
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -551,7 +551,6 @@ RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_DEVICE_ID=2
 LLM_MODE=local
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 ```
 </Tab>
 </Tabs>
@@ -577,7 +576,6 @@ RTVI_VLM_MAX_MODEL_LEN=18000
 # One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
-VLM_MODE=none
 ```
 </Tab>
 <Tab title="Agents + Remote LLM">
@@ -587,7 +585,6 @@ VLM_MODE=none
 RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_MODE=remote
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -603,7 +600,6 @@ RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_DEVICE_ID=2
 LLM_MODE=local
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 ```
 </Tab>
 </Tabs>
@@ -632,7 +628,6 @@ HARDWARE_PROFILE=H100
 # One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
-VLM_MODE=none
 ```
 </Tab>
 <Tab title="Agents + Remote LLM">
@@ -642,7 +637,6 @@ VLM_MODE=none
 RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_MODE=remote
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -658,7 +652,6 @@ RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_DEVICE_ID=2
 LLM_MODE=local
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 ```
 </Tab>
 </Tabs>
@@ -685,7 +678,6 @@ HARDWARE_PROFILE=L40S
 # One GPU: use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
-VLM_MODE=none
 ```
 </Tab>
 <Tab title="Agents + Remote LLM">
@@ -695,7 +687,6 @@ VLM_MODE=none
 RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_MODE=remote
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 
 LLM_NAME_SLUG=none
 LLM_BASE_URL=https://<llm-endpoint-without-v1>
@@ -711,7 +702,6 @@ RT_CV_DEVICE_ID=0
 RT_VLM_DEVICE_ID=1
 LLM_DEVICE_ID=2
 LLM_MODE=local
-VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM NIM.
 ```
 </Tab>
 </Tabs>
@@ -729,11 +719,9 @@ VLM_MODE=none # Warehouse uses the local rtvi-vlm service, not a standalone VLM 
 ```ini
 # The bp_wh agent profile is not supported on IGX-THOR.
 # Use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
-# All supported deployments use one GPU.
 HARDWARE_PROFILE=IGX-THOR
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
-VLM_MODE=none
 ```
 
 </Tab>
@@ -758,11 +746,9 @@ In `industry-profiles/warehouse-operations/overrides.env`, set:
 ```ini
 # The bp_wh agent profile is not supported on DGX-SPARK.
 # Use bp_wh_kafka or bp_wh_redis with MODE=2d, 3d, or mv3dt.
-# All supported deployments use one GPU.
 HARDWARE_PROFILE=DGX-SPARK
 RT_CV_DEVICE_ID=0
 LLM_MODE=none
-VLM_MODE=none
 ```
 
 </Tab>
@@ -1116,19 +1102,13 @@ This deployment uses the Docker Compose deployment method to set up the Warehous
 
 [Link to GitHub Repository](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) used in this launchable.
 
-<a href="https://brev.nvidia.com/launchable/deploy?launchableID=env-2tYIjRXL4eMCbH9Az8mJC5WPAI4" target="_blank" class="btn btn-primary" style="padding:10px 15px; background-color:#76b900; color:white; text-decoration:none; border-radius:5px;">
-Launch Blueprint
-</a>
+[Launch Blueprint](https://brev.nvidia.com/launchable/deploy?launchableID=env-2tYIjRXL4eMCbH9Az8mJC5WPAI4)
 
 ### Prerequisites
 
 #### Host System Prerequisites
 
-Brev Launchable takes care of the host requirements below. The provided notebook validates the environment and prepares Docker storage and versions when needed.
-
-- Ubuntu 24.04
-- NVIDIA driver 595.91.07 (Brev RTX PRO 6000 instances)
-- The notebook pins Docker to a known-good combination if the host Docker stack is outside the supported version range
+Brev Launchable takes care of the host requirements.
 
 #### Obtain NGC API Key
 
