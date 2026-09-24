@@ -1195,7 +1195,6 @@ cupy,UNKNOWN,MIT,services/rtvi/rt-embed,python,usage,services/rtvi/rt-embed/src/
 cupy,UNKNOWN,MIT,services/rtvi/rt-vlm,python,usage,services/rtvi/rt-vlm/src/vlm_pipeline/video_file_frame_getter.py,runtime,no,no,no,imported-only,None
 cupy-cuda12x,13.3.0,MIT License,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-embed/docker/py_deps/pdm.lock;services/rtvi/rt-embed/docker/py_deps/pyproject.toml;services/rtvi/rt-embed/docker/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
 cupy-cuda12x,13.3.0,MIT License,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pyproject.toml;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-curl,8.14.1-2+deb13u4,UNKNOWN,services/analytics/behavior-analytics,deb,container,services/analytics/behavior-analytics/docker/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,deploy,apk,container,deploy/docker/developer-profiles/dev-profile-alerts/Dockerfiles/kibana-dashboard.Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,.hermes,deb,container,.hermes/Dockerfile,runtime,no,no,yes,container-apt,Unknown
 curl,UNKNOWN,UNKNOWN,.openclaw,deb,container,.openclaw/Dockerfile,runtime,no,no,yes,container-apt,Unknown
