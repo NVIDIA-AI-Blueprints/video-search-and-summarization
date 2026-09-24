@@ -21,10 +21,8 @@ from vss_core.memory.store import MemoryQuery
 _PROXY_ENVIRONMENT_VARIABLES = (
     "HTTP_PROXY",
     "HTTPS_PROXY",
-    "ALL_PROXY",
     "http_proxy",
     "https_proxy",
-    "all_proxy",
 )
 
 
