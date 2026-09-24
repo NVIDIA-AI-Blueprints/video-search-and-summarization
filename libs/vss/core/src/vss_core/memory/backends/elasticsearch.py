@@ -46,10 +46,8 @@ DEFAULT_MEMORY_INDEX = "vss-memory"
 _PROXY_ENVIRONMENT_VARIABLES = (
     "HTTP_PROXY",
     "HTTPS_PROXY",
-    "ALL_PROXY",
     "http_proxy",
     "https_proxy",
-    "all_proxy",
 )
 
 
