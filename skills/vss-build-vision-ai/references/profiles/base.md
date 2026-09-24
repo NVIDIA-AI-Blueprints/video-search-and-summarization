@@ -76,9 +76,10 @@ instead of the absent local service.
 
 ## Sources
 
+- `deploy/docker/developer-profiles/dev-profile-base/compose.yml` (intentional
+  empty override anchor; services come from the shared root graph)
 - `deploy/docker/developer-profiles/dev-profile-base/.env`
 - `deploy/docker/developer-profiles/dev-profile-base/overrides.env`
-- `deploy/docker/developer-profiles/dev-profile-base/compose.yml`
 - `deploy/docker/services/agent/compose.yml`
 - `deploy/docker/services/rtvi/rtvi-vlm/rtvi-vlm-docker-compose.yml`
 - `deploy/docker/services/vios/compose.yml`

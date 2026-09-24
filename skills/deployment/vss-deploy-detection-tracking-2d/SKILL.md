@@ -23,7 +23,7 @@ Follow the routing tables and step-by-step workflows below. Each section that en
 
 ## Examples
 
-Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. Run a Tier-3 evaluation with `nv-base validate <this-skill-dir> --agent-eval` to replay them.
+Worked end-to-end examples are kept under `evals/` (each `*.json` manifest contains a runnable scenario) and inline in the per-workflow `curl` blocks below. The Skills Eval workflow dispatches specs only for `skills/operations/**` and `skills/vss-build-vision-ai`, so a change here runs no eval leg; replay a spec by hand by issuing a manifest's `expects[].query` to the agent and running its `checks` (spec schema: [`.github/skill-eval/AGENTS.md`](../../../.github/skill-eval/AGENTS.md)).
 
 ## Limitations
 
@@ -59,6 +59,7 @@ Unified skill for the **Real Time Video Intelligence CV (RTVI-CV)** microservice
 | `stop rtvi-cv`, `tear down`, `kill the perception container`, `cleanup rtvicv-perception-docker` | **TEARDOWN** (handled by deploy doc → "Mode Selection") | [`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md) + [`references/teardown-flow.md`](references/teardown-flow.md) |
 | `check rtvi-cv logs`, `diagnose rtvi-cv crashing`, `troubleshoot healthcheck failing`, `rtvi-cv won't start` | **DEBUG** | [`references/deploy-vss-detection-tracking-2d.md`](references/deploy-vss-detection-tracking-2d.md) + [`references/troubleshooting.md`](references/troubleshooting.md) |
 | `add a stream`, `remove camera`, `list streams`, `health check`, `is rtvi-cv ready`, `get metrics`, `what's the FPS`, `check GPU usage`, `generate text embeddings`, `call rtvi-cv api` | **API USAGE** | [`references/usage-vss-detection-tracking-2d.md`](references/usage-vss-detection-tracking-2d.md) + [`references/api-reference.md`](references/api-reference.md) |
+| `compose rtvi-cv into a VSS build`, `which peers does rtvi-cv need`, `what class labels does it emit`, `which compose service keys`, `what metadata does it publish` | **INTEGRATE** (no container of its own — this is the composition contract) | [`references/integrate-vss-detection-tracking-2d.md`](references/integrate-vss-detection-tracking-2d.md) |
 
 **Selection rule:** match the user's phrasing against the table above and immediately load the corresponding reference file. Do not mix the flows — DEPLOY assumes no running container yet; API USAGE assumes the container is already running on `http://<host>:9000`.
 

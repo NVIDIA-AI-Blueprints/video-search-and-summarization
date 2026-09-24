@@ -440,9 +440,39 @@ services:
 For Topology B (NvStreamer file-driven), reuse the centralized `nvstreamer-alerts` service from `deploy/docker/services/nvstreamer/compose.yml` instead of copying or patching its service definition. For the default Kafka-backed deployment, add the complete NvStreamer and broker dependency profile set and launch from the top-level `deploy/docker/compose.yml`:
 
 ```dotenv
+# Required whenever the top-level deploy/docker/compose.yml is used.
+VSS_APPS_DIR=/opt/vss/deploy/docker
+VSS_DATA_DIR=/var/lib/vss
+HOST_IP=192.0.2.10
+EXTERNAL_IP=192.0.2.10
+VSS_PUBLIC_HOST=192.0.2.10
+
 STREAM_TYPE=kafka
 COMPOSE_PROFILES=<existing-profile-list>,kafka,kafka-topic-init-container,broker-health-check,nvstreamer-alerts
 NVSTREAMER_ALERTS_VIDEO_DIR=${VSS_DATA_DIR}/videos/<profile-name>
+```
+
+Put these values in the deployment's final generated/override env layer and pass
+that layer together with the Foundation `.env` on every root Compose command.
+Root Compose `${VAR:?}` checks reject an unset or empty `VSS_APPS_DIR`,
+`VSS_DATA_DIR`, `HOST_IP`, or `VSS_PUBLIC_HOST`:
+
+```bash
+cd deploy/docker || {
+  echo "deploy/docker is not accessible." >&2
+  exit 1
+}
+FOUNDATION_DIR=developer-profiles/dev-profile-alerts
+docker compose \
+  --env-file containers.env \
+  --env-file "$FOUNDATION_DIR/.env" \
+  --env-file "$FOUNDATION_DIR/generated.env" \
+  config
+docker compose \
+  --env-file containers.env \
+  --env-file "$FOUNDATION_DIR/.env" \
+  --env-file "$FOUNDATION_DIR/generated.env" \
+  up -d
 ```
 
 The image, ports, environment, and configuration mounts are inherited from `deploy/docker/services/nvstreamer/base.yml`. By default, the configuration files come from `${VSS_APPS_DIR}/services/nvstreamer/configs`; set `NVSTREAMER_CONFIG_DIR` only when the deployment requires a custom `vst-config.json`. The shared `vios-apt-cache-init` dependency carries the same `nvstreamer-alerts` profile and activates automatically. `broker-health-check` is separately profile-gated, so it must be selected explicitly together with Kafka and `kafka-topic-init-container`, which creates the topics that the health check waits for. The standard Alerts profile lists already include this complete set.

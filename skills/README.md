@@ -177,7 +177,7 @@ repository organisation only and never appears in the installed path or in the
 | [vss-benchmark-video-summarization](benchmarking/vss-benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
 | [vss-evaluate-caption-accuracy](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | — | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
-Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
+Skills with `evals/*.json` specs under `operations/` or `vss-build-vision-ai/` are exercised automatically by the Skills Eval CI workflow on every PR that touches them; specs under `deployment/`, `tools/` and `benchmarking/` ship with their skill but dispatch no eval leg, because the planner attributes a changed file to a skill only under `EVAL_SKILL_ROOTS` ([`.github/skill-eval/plan_matrix.py`](../.github/skill-eval/plan_matrix.py)). Legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
 
 ---
 

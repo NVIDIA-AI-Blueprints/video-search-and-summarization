@@ -90,6 +90,8 @@ def _compose_config(
                 f"VSS_APPS_DIR={REPOSITORY / 'deploy/docker'}",
                 f"VSS_DATA_DIR={tmp_path / 'data'}",
                 "HOST_IP=127.0.0.1",
+                "EXTERNAL_IP=127.0.0.1",
+                "VSS_PUBLIC_HOST=127.0.0.1",
             )
         )
         + "\n"

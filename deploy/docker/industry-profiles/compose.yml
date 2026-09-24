@@ -13,5 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Smart Cities is absent by design: its overlay is applied by
+# scripts/deploy_smartcities_launchable.ipynb, which rsyncs ./smartcities over
+# developer-profiles/dev-profile-alerts and runs the alerts profile. Included
+# here instead, ./smartcities/compose.yml would not resolve: its build contexts
+# and mounts point at dev-profile-alerts/smc-app/, which only exists after that
+# copy.
 include:
   - path: ./warehouse-operations/compose.yml

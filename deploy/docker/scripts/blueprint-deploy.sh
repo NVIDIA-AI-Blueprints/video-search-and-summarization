@@ -1689,7 +1689,12 @@ function state_down() {
   if [[ "${dry_run}" == "true" ]]; then
     echo "[DRY-RUN] docker compose -p ${_compose_project_name} down -v --remove-orphans"
   else
-    docker compose -p "${_compose_project_name}" down -v --remove-orphans
+    VSS_APPS_DIR="${deployment_directory}" \
+    VSS_DATA_DIR="${deployment_directory}/data-dir" \
+    HOST_IP="127.0.0.1" \
+    EXTERNAL_IP="127.0.0.1" \
+    VSS_PUBLIC_HOST="127.0.0.1" \
+      docker compose -p "${_compose_project_name}" down -v --remove-orphans
   fi
 
   echo "[INFO] Removing dangling docker volumes..."

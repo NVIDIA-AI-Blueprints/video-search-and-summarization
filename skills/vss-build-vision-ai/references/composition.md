@@ -193,10 +193,20 @@ file are not recomputed when a later file changes one of their inputs.
 Therefore, materialize the complete dependent-value closure in `override.env`.
 For example:
 
-- changing `VSS_APPS_DIR` also requires the effective `VST_CONFIG_PATH`,
+- `VSS_APPS_DIR` also requires the effective `VST_CONFIG_PATH`,
   `SDR_CONTROLLER_CONFIG_PATH`, and any selected profile-specific config paths;
-- changing `HOST_IP` also requires the effective `EXTERNAL_IP`,
+- `HOST_IP` also requires the effective `EXTERNAL_IP`,
   `VSS_PUBLIC_HOST`, public VIOS/Agent URLs, and selected UI/API endpoints.
+
+This closure is unconditional, not only for values you change: the Foundation
+ships `VSS_APPS_DIR`, `VSS_DATA_DIR` and `HOST_IP` empty so Compose names them
+rather than interpolating a placeholder, which means every dependent value
+expanded from them in the Foundation layer is empty until `override.env`
+supplies it. `HOST_IP` and `VSS_PUBLIC_HOST` are guarded and fail at
+interpolation; a path derived from an empty `VSS_APPS_DIR` is not, so it reaches
+`resolved.yml` as an absolute path outside the repository — which
+`validate_resolved_yml.py` skips, since its bind-source check only inspects
+sources under the repo root.
 
 Find the exact closure by following variable references in the selected
 Foundation's `.env` and `overrides.env`; do not assume a later primitive
@@ -304,6 +314,30 @@ tag_args=()
 if [ -n "$VSS_CONTAINER_TAG" ]; then
   export VSS_CONTAINER_TAG
   tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
+fi
+
+if ! effective_environment="$(
+  docker compose "${env_args[@]}" -f "$BUILD_DIR/compose.yml" \
+    config --environment --no-consistency
+)"; then
+  echo "Could not read the effective environment; NIM hardware was not validated." >&2
+  exit 1
+fi
+effective_hardware="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^HARDWARE_PROFILE=//p' | tail -n 1
+)"
+effective_profiles="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^COMPOSE_PROFILES=//p' | tail -n 1
+)"
+if ! "${VSS_SKILL_PY[@]}" \
+  "$REPO/skills/vss-build-vision-ai/scripts/validate_nim_hardware_env.py" \
+  --repo-root "$REPO" \
+  --profiles "$effective_profiles" \
+  --hardware-profile "$effective_hardware"; then
+  echo "NIM hardware validation failed." >&2
+  exit 1
 fi
 
 docker compose "${env_args[@]}" \
@@ -414,8 +448,10 @@ Then verify:
   `credentials.md` Artifact Entitlement Probes against the exact baked `nvcr.io/`
   images and `ngc:` paths. A `401`/`403`/missing-repo result is a blocker — a
   Validate gate on every build, deploy or not.
-- `resolved.yml` contains no stock sentinels such as
-  `/path/to/deploy/docker` or `<HOST_IP>`.
+- `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`, and `VSS_PUBLIC_HOST` are non-empty
+  in the build override. Root Compose `${VAR:?}` checks reject an unset or empty
+  value before resolution. `resolved.yml` must also contain no legacy sentinel
+  supplied by a custom input, such as `/path/to/deploy/docker` or `<HOST_IP>`.
 - Every checked-in bind source exists and a file target is not backed by a
   directory. This is a validation check only: do not create placeholder files
   or directories under `deploy/docker/` to satisfy it.

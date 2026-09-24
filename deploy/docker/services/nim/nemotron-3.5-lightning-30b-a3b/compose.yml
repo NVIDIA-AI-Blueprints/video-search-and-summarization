@@ -32,7 +32,8 @@ services:
       NIM_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
       NIM_SERVED_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
     env_file:
-      - ${VSS_APPS_DIR}/services/nim/nemotron-3.5-lightning-30b-a3b/hw-${HARDWARE_PROFILE}.env
+      - path: ${VSS_APPS_DIR}/services/nim/nemotron-3.5-lightning-30b-a3b/hw-${HARDWARE_PROFILE}.env
+        required: false
       - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - nemotron_3_5_lightning_cache:/opt/nim/.cache
@@ -75,7 +76,8 @@ services:
       NIM_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
       NIM_SERVED_MODEL_NAME: nvidia/nemotron-3.5-lightning-30b-a3b
     env_file:
-      - ${VSS_APPS_DIR}/services/nim/nemotron-3.5-lightning-30b-a3b/hw-${HARDWARE_PROFILE}-shared.env
+      - path: ${VSS_APPS_DIR}/services/nim/nemotron-3.5-lightning-30b-a3b/hw-${HARDWARE_PROFILE}-shared.env
+        required: false
       - ${LLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - nemotron_3_5_lightning_cache:/opt/nim/.cache

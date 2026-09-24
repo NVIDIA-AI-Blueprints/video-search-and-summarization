@@ -34,14 +34,29 @@ Surface discovered credentials to the user; do not auto-source them without conf
 
 ## Probes
 
-Run the credential-probe script. It validates each key that is set (`ok` /
-`invalid`), prints `skip` for unset keys, resolves `NGC_CLI_API_KEY` /
-`NGC_API_KEY` to one key, and reports a conflict when both are set and differ.
-Compare each result with the chosen deployment mode before continuing.
+Run the credential gate, naming the credentials the chosen mode requires with
+`--require`. It validates each key that is set, reports it as validated,
+rejected by the service, not validated because the service never answered, or
+skipped, resolves `NGC_CLI_API_KEY` / `NGC_API_KEY` to one key, and reports a
+conflict when both are set and differ. Only a `401`/`403` is a verdict on the
+key itself; a timeout, a rate limit, or a `5xx` means the probe got no verdict,
+so retry or check the service rather than replacing the key. Each probe is
+bounded at 5s to connect and 15s in total.
+
+| Chosen mode | Pass |
+| --- | --- |
+| `LLM_MODE` or `VLM_MODE` of `local` / `local_shared` | `--require ngc` |
+| Remote NIM endpoint | `--require nvidia-api` |
+| Standalone RT-VLM / RT-Embed Hugging Face checkpoints | `--require hf` |
 
 ```bash
-bash skills/vss-build-vision-ai/scripts/check_credentials.sh
+bash skills/vss-build-vision-ai/scripts/check_credentials.sh --require ngc
 ```
+
+Branch on the exit code, not on the printed lines: `0` every required
+credential validated, `1` usage error, `2` gate failed, with a `BLOCKER`
+summary on stderr naming each cause. Requiredness is the caller's to declare —
+with no `--require` the gate only fails on an NGC key-name conflict.
 
 After the NGC key validates, set **both** `NGC_CLI_API_KEY` and `NGC_API_KEY` to
 that one resolved key in `_builds/<name>/override.env` — the NGC CLI and VSS env read
@@ -133,10 +148,13 @@ the user for the correct endpoint/model before writing the build override.
 
 ## Decision Rule
 
-A key reported `invalid` that the chosen mode needs, a `skip` for a key the
-mode requires, conflicting `NGC_CLI_API_KEY` / `NGC_API_KEY` values, selected
-NGC artifact access failure, or a selected remote endpoint that fails
-`/v1/models` is a blocker. Prompt the user, re-probe, and do not proceed to env
-mutation until it resolves.
+Exit `2` from the credential gate, a selected NGC artifact access failure, or a
+selected remote endpoint that fails `/v1/models` is a blocker. Prompt the user,
+re-probe, and do not proceed to env mutation until it resolves — an unset key
+that reaches `resolved.yml` is baked in as `''` and no later export fixes it.
 
-A `skip` for a key the mode does not use is fine.
+The gate applies requiredness itself, so a `skip` for a key the mode does not
+use exits `0` and is fine, as is a rejected or unvalidated key the mode does
+not need. `not validated` means the service gave no verdict on the key — no
+answer within the probe timeout, a rate limit, or a `5xx`: fix the host's
+egress or wait for the service, rather than replacing a key that may be good.
