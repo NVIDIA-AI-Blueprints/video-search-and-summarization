@@ -36,7 +36,7 @@ This profile pins `VST_NOTIFICATION_CONFIG_PATH` at a webhooks-enabled
 `notification_config.json`, so a registered VIOS source reaches RT-VLM with no
 caller: `stream/add` on `camera_add` and `camera_streaming`, `stream/remove` on
 `camera_remove`. Registering the source is the whole caller-side job
-(`vss-manage-video-io-storage` `provision-vios-source.md`).
+(`vss-manage-video-io-storage` `api-reference.md` § 6 / § 8).
 
 The adds carry no prompt, so RT-VLM admits the stream and starts no inference —
 summaries still come from a caller driving `/v1/summarize`, and no captions or

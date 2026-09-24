@@ -6,7 +6,7 @@ consistent. Never replace these operations with direct backend mutations.
 These Agent-backed mutations are the full-stack path. For a headless
 `vss-build-vision-ai` deployment with no Agent tier, provision the source
 through `vss-manage-video-io-storage`'s
-[headless registration workflow](../../vss-manage-video-io-storage/references/provision-vios-source.md) —
+[VIOS registration API](../../vss-manage-video-io-storage/references/api-reference.md) —
 the deployment's own webhook config fans it out —
 then return here for search. Do not apply the Agent endpoint recipes below to
 a deployment that has no Agent.

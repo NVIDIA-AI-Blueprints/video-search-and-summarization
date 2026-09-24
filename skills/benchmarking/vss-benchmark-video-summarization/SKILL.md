@@ -28,6 +28,14 @@ Measure the latency and throughput limits of a deployed LVS (Long Video Summariz
 - Production monitoring or alerting — this is an offline benchmarking tool.
 - Non-LVS VSS profiles (RTVI, search-only, etc.) — the `/files` API and `/summarize` endpoint are LVS-specific.
 
+## When to Use
+
+- Measure single-file latency or burst throughput of a deployed LVS instance
+- Identify whether the VLM or LLM stage is the pipeline bottleneck
+- Get concrete config recommendations (chunk size, frame count, resolution, concurrency) after a benchmark run
+- Compare performance across hardware profiles or config changes on the same LVS deployment
+- Re-run a benchmark scenario after setup is already complete (see **Repeat Runs**)
+
 ## Routing
 
 | Situation | Action |

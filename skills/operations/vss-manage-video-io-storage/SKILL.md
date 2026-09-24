@@ -18,6 +18,14 @@ Manage VIOS and NvStreamer API operations for VSS video input/output and
 storage workflows: sensors, streams, uploads, snapshots, clips, timelines, and
 recording status.
 
+## When to Use
+
+- Call the VIOS REST API — add/list sensors or RTSP streams, check stream status, get a snapshot, download a clip, upload a video file, manage storage
+- Serve test/sample videos as synthetic RTSP via NvStreamer, or drive the NvStreamer → VIOS `/sensor/add` handoff
+- Provision a source into a headless (no-agent) build so the deployment fans it out to RT-CV / RT-Embed / RT-VLM
+
+Not for VLM inference or ad-hoc visual Q&A (`vss-ask-video`), semantic search (`vss-search-archive`), agent-backed search ingestion (`vss-search-archive`), narrative summaries (`vss-summarize-video`), or reading analytics/incidents (`vss-query-analytics`).
+
 ## Prerequisites
 
 - The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
@@ -40,7 +48,7 @@ Call the VIOS REST API to manage cameras/sensors, RTSP streams, recordings, snap
 
 **Provisioning + fan-out routing rule:**
 
-- To register a source into a build with **no agent tier** — e.g. a `vss-build-vision-ai` headless `_builds/<name>` deployment — follow [`references/provision-vios-source.md`](references/provision-vios-source.md) (register one VIOS source; the deployment's mounted notification config fans it out to RT-CV / RT-Embed / RT-VLM). RT-VLM carries **two independent legs** — dense captioning (free-form prompt) and **VLM tagging** (a controlled JSON-tag prompt that feeds BM25 tag search via `mdx-vlm-captions` → Logstash → `default_<streamId>`). Either can be driven by hand where no receiver runs it; tagging is independent of the Alert-Bridge carve-out that governs the dense-captioning leg.
+- To register a source into a build with **no agent tier** — e.g. a `vss-build-vision-ai` headless `_builds/<name>` deployment — register it once through [`references/api-reference.md`](references/api-reference.md) § 6 (Add Sensor / Stream) or § 8 (File Upload) (register one VIOS source; the deployment's mounted notification config fans it out to RT-CV / RT-Embed / RT-VLM). RT-VLM carries **two independent legs** — dense captioning (free-form prompt) and **VLM tagging** (a controlled JSON-tag prompt that feeds BM25 tag search via `mdx-vlm-captions` → Logstash → `default_<streamId>`). Either can be driven by hand where no receiver runs it; tagging is independent of the Alert-Bridge carve-out that governs the dense-captioning leg.
 - If an agent `/api` tier **is** present, provisioning is agent-owned: defer to `vss-search-archive` (search ingestion) or `vss-manage-alerts` (alert rules), not this recipe.
 
 **Do NOT use this skill for:**
@@ -54,12 +62,11 @@ Call the VIOS REST API to manage cameras/sensors, RTSP streams, recordings, snap
 
 ## Reference contracts shipped with this skill
 
-This skill bundles five reference files under `references/`. Read whichever applies to the task in front of you:
+This skill bundles four reference files under `references/`. Read whichever applies to the task in front of you:
 
 | File | Purpose | Audience |
 | --- | --- | --- |
 | [`references/api-reference.md`](references/api-reference.md) | The full VIOS REST API reference (the runtime contract) — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, service discovery. **Read this when invoking any VIOS API operation.** | Operational users + this skill itself |
-| [`references/provision-vios-source.md`](references/provision-vios-source.md) | The **headless (no-agent) write path** — register one VIOS source and stop; the mounted notification config fans it out. Carries the upload `creation_time` rule, the shared-id rule, idempotency, teardown, the two RT-VLM legs a caller must drive by hand where no receiver runs them, and what to read when a consumer never got the source. **Read this when provisioning a source into a headless build.** | Runtime operators, `vss-build-vision-ai` callers |
 | [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md) | The **NvStreamer REST API reference** — version, sensor list/info/status/streams, the three upload methods (PUT v2 / PUT v1 / POST multipart) with the `nvstreamer-*` custom headers, delete, snapshots (frame-indexed live, timestamp-indexed storage), storage info, filesystem scan. NvStreamer (`vss-vios-nvstreamer`, the streamer-adaptor variant of `launch_vst`) is **brought up by the same profiles that bring VIOS up** — `dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles. See `integrate-vios-service.md § Topology B` for the deployment side. **Read this when serving test / sample videos as synthetic RTSP, retrieving the RTSP URL NvStreamer generated for a file, or driving the canonical NvStreamer → VIOS handoff** (upload to NvStreamer → read RTSP URL → register that URL with VIOS via `/sensor/add`). | Operational users + skill authors composing the upload → RTSP URL → VIOS `/sensor/add` flow |
 | [`references/integrate-vios-service.md`](references/integrate-vios-service.md) | The **integration contract** — how VIOS plugs into other VSS microservices. Documents required peer services (RT-VLM, ELK, Kafka, Redis; `sdr-controller` / SDRC **when `VST_USE_SDRC=true`**), the structured `component_services:` block consumed by the `vss-build-vision-ai` skill's Step 4, integration inputs/outputs (Kafka topics, REST endpoints, file paths), environment variables, network requirements, and known integration constraints (e.g. the `/url`-variant double-`http://` bug, the VIOS + SDRC co-enablement rule for SDRC-routed profiles). **Read this when authoring a skill that talks to VIOS as a peer, when composing a new VSS deployment, or when debugging caption-pipeline wiring.** | Skill authors, deployment composers, pair-file maintainers |
 | [`references/deploy-vios-service.md`](references/deploy-vios-service.md) | The **deployment contract** — what it takes to bring VIOS up. Documents container images and tags (VIOS core under `nvcr.io/nvidia/vss-core/vss-vios-*`; **SDRC `sdr-mw-l` from [`sdrc/docker-compose.yaml`](../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) `SDR_MW_L_IMAGE` — resolve there before pull/deploy**), GPU / CPU / memory / storage requirements, startup behavior + healthcheck tuning, required environment variables (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true` for the libav apt-install step that gates uploads), known deployment issues (volume drift, libav missing, 502 from leftover containers), prerequisites, dry-run, verify-deployment, and tear-down commands. **Read this when VIOS isn't running and you (or your caller) need to deploy it standalone, when debugging container-startup failures, or when authoring a deploy skill that wraps VIOS.** | Operators, deploy-skill authors |
@@ -316,9 +323,7 @@ Example operation prompts:
   added to VIOS. **Cause**: the deployment fans a new source out by webhook,
   asynchronously and with retries, so consumer state trails registration.
   **Solution**: allow for the delay — the slowest shipped receivers retry for
-  ~30 minutes before giving up. Never call a consumer directly to compensate;
-  [`references/provision-vios-source.md`](references/provision-vios-source.md)
-  has the logs to read if it genuinely never arrives.
+  ~30 minutes before giving up. Never call a consumer directly to compensate.
 
 ---
 

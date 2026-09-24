@@ -137,9 +137,9 @@ neither path below runs unless the request asks for it, and provisioning a
 source to prove the stack works is not a readiness check.
 
 - **Write path (provisioning), when a source was requested.** Confirm the build is
-  headless (no `vss-agent`), then follow `vss-manage-video-io-storage`
-  [`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md)
-  to register one VIOS source. The build's mounted notification config fans it
+  headless (no `vss-agent`), then register one VIOS source through `vss-manage-video-io-storage`
+  [`api-reference.md`](../../operations/vss-manage-video-io-storage/references/api-reference.md)
+  § 6 / § 8. The build's mounted notification config fans it
   out, asynchronously, so registration ends the write path.
 - **Read path (query), when a query was requested.** Run `vss configure --base-url <build-origin>` (the fronting
   `http://$HOST_IP:$HAPROXY_HOST_PORT`) through the project-local `vss` entry point

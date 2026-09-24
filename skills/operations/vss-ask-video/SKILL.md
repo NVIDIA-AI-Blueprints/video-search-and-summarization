@@ -15,6 +15,15 @@ metadata:
 
 # Ask a VSS video question
 
+## When to Use
+
+- Answer a question about previously analyzed or freshly scoped VSS video
+- Read a stored VSS memory job or record by id
+- Answer a question that requires running `vss memory introspect`
+- Answer a directly scoped URL, file, or sensor-window question via `vss vlm run`
+
+Not for video retrieval or metadata-answerable questions.
+
 Answer from the cheapest grounded source that can satisfy the question. For a
 running VSS deployment, use the installed `vss` CLI. Do not call an
 OpenAI-compatible `/chat/completions` endpoint directly or fall back to raw REST

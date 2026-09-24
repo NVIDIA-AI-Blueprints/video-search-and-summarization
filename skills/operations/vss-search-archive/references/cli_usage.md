@@ -137,5 +137,5 @@ ingestion** follows the build's notification config: where its tagging items are
 enabled, registering the source is enough; where they are not, a caller drives
 the controlled JSON-tag `generate_captions` leg — from any host that reaches the
 origin on a build that fronts RT-VLM at `/rtvi-vlm`, otherwise loopback-only on
-the deploy host. Both are in `vss-manage-video-io-storage`
-`references/provision-vios-source.md`.
+the deploy host. Registration is in `vss-manage-video-io-storage`; the
+`generate_captions` call is in `vss-deploy-dense-captioning`.

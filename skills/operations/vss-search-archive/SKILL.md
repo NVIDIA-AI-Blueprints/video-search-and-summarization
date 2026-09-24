@@ -20,7 +20,14 @@ Operate archive search from the caller's host. Compose and Kubernetes use the
 same `vss configure` and `vss search run` commands; only the deployment origin
 differs. Source ingestion and deletion are Agent-backed **when the deployment has
 an agent `/api` route**; on a build without one, they belong to
-`vss-manage-video-io-storage` `references/provision-vios-source.md`.
+`vss-manage-video-io-storage` (VIOS registration).
+
+## When to Use
+
+- Search archived VSS video by natural-language or similarity query
+- Ingest a source for search, or delete a previously ingested source (Agent-backed when an agent `/api` route exists)
+
+Not for visual Q&A, live captioning, or video summarization.
 
 ## Hard boundaries
 
@@ -29,8 +36,8 @@ an agent `/api` route**; on a build without one, they belong to
 - Never improvise a mutation against Elasticsearch, RTVI-CV, RTVI-Embed,
   storage-ms, or VST. Two paths are sanctioned, and the deployment picks which:
   the Agent upload/delete lifecycle where an agent `/api` route answers, and
-  `vss-manage-video-io-storage` `references/provision-vios-source.md` where none
-  does. That recipe owns VIOS registration and the hand-driven RT-VLM legs;
+  VIOS registration through `vss-manage-video-io-storage` where none does, with
+  any hand-driven RT-VLM leg through `vss-deploy-dense-captioning`;
   nothing sanctions a direct call to RTVI-CV or RTVI-Embed, which receive every
   source from VIOS.
 - Never remove, broaden, or silently substitute a requested source constraint.

@@ -172,7 +172,7 @@ unaffected.
 ### Provisioning moves to the headless path
 
 With no agent route, source provisioning follows `vss-manage-video-io-storage`
-[`provision-vios-source.md`](../../operations/vss-manage-video-io-storage/references/provision-vios-source.md):
+[`api-reference.md`](../../operations/vss-manage-video-io-storage/references/api-reference.md) § 6 / § 8:
 register one VIOS source, which its mounted notification config fans out. Its
 own gate — stop when an
 agent route answers — passes on any build with the agent removed, and it is the

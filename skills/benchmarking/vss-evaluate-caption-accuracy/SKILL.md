@@ -23,6 +23,14 @@ holds. This skill captures captions twice over the same videos — once with the
 change (HYP) and once without (REF) — scores both against a ground truth using an
 LLM judge, and reports accuracy delta alongside time saved.
 
+## When to Use
+
+- Before/after changing RT-VLM frame selection, decode, or model settings, to prove there is no caption-quality regression
+- Quantifying accuracy delta and processing-time saved for a candidate config change
+- Verifying a change was behavior-neutral via frame-level provenance, not just matching totals
+
+Not for deploying RT-VLM, general LVS/RTVI benchmarking (see `vss-benchmark-video-summarization`), or one-off caption spot checks with no paired baseline.
+
 ## Prerequisites
 
 Everything except the judge runs **inside the RT-VLM container**. The container
