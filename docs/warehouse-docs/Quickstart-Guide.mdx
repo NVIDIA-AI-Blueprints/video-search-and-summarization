@@ -1018,7 +1018,7 @@ After installation, start a new coding-agent session before invoking the Skill b
      <img src="/assets/images/vss-warehouse-skill/warehouse-skill-deployment-successful.png" alt="Deployment verification shows running services, four active streams, and analytics data" />
    </Frame>
 
-After the stack is running, use the Warehouse Blueprint VIOS UI and Kibana UI to verify that the deployment is serving data.
+After the stack is running, use the Warehouse Blueprint VIOS UI and Kibana UI to verify that the deployment is serving data. Kibana is not available in minimal deployments.
 
 <Frame caption="Verify camera streams in the VIOS UI.">
   <img src="/assets/images/vss-warehouse-skill/warehouse-skill-vios-ui.png" alt="Warehouse camera streams in the VIOS UI" />
@@ -1035,8 +1035,8 @@ For the Warehouse Blueprint, `vss-build-vision-ai` loads
 repository. That reference owns the Warehouse-specific decisions the Skill makes on the
 operator's behalf:
 
-* **Profile variants** - picks `bp_wh`, `bp_wh_kafka`, or `bp_wh_redis` with
-  `MODE=2d|3d|mv3dt`, or selects `bp_wh_auto_calib` with
+* **Profile variants** - selects `bp_wh` for `MODE=2d` only,
+  `bp_wh_kafka` or `bp_wh_redis` for `MODE=2d|3d|mv3dt`, or `bp_wh_auto_calib` for
   `MODE=auto-calibration`, along with the matching Compose profile list. Dataset
   selection is independent of the analytics mode. For `MODE=3d`, confirm that the
   generated `override.env` sets `DATASET_TYPE` to the family described under Common
@@ -1082,13 +1082,7 @@ For deployment or runtime failures, consult the Skill's
 `references/troubleshooting.md`. Warehouse-specific configuration, validation, and
 readiness checks are defined in `references/profiles/warehouse.md`.
 
-After a `git pull` of the VSS Blueprint repository, symlinked Skills automatically
-point at the updated content. If new Skills were added, ask the coding agent:
-
-```text
-Re-read skills/README.md and add any new skills missing from this host's skills
-directory.
-```
+After updating the repository, follow [Updating Skills](/vss/vision-agent/agent-skills#updating-skills) and start a new coding-agent session.
 
 ### Related Documentation
 
