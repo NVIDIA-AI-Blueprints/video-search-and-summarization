@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Provision reference only: this is a set of fragments to copy into the
+# pre-filled OpenClaw Dockerfile in the VSS Evaluation Harness Provision tab.
+# It is deliberately not a standalone Dockerfile.
+#
+# Copy-paste workflow:
+#
+# 1. In Provision, select the standard OpenClaw template.
+# 2. Set VSS_REF to this PR's exact immutable commit SHA. The existing
+#    `vss-src` stage checks out that revision, providing the matching VSS CLI,
+#    skills, and `.openclaw/helpers/seed_videomme_memory.sh`.
+#
+#    The helper is not part of the Provision build context. It must be copied
+#    from the checked-out `vss-src` stage.
+# 3. In the pre-filled Dockerfile, replace its existing VSS_REF declaration
+#    with the ARG line below. Replace REPLACE_WITH_PR_HEAD_SHA first.
+# 4. Paste the ENV block below immediately after the final runtime-stage line:
+#
+#       FROM nemoclaw-runtime AS vss-runtime
+#
+# 5. Paste the USER/RUN/COPY block below immediately before the Dockerfile's
+#    final `USER sandbox` line.
+# 6. Build the image as `openclaw-memory-introspection`.
+#
+# Do not paste this entire reference file over the pre-filled Dockerfile. Copy
+# only the three marked fragments into their documented locations.
+
+# ── Fragment 1: replace the existing VSS_REF declaration ─────────────────────
+ARG VSS_REF=REPLACE_WITH_PR_HEAD_SHA
+
+# ── Fragment 2: add after `FROM nemoclaw-runtime AS vss-runtime` ──────────────
+ENV VSS_VLM_BACKEND=rt_vlm \
+    VSS_VLM_TIMEOUT=600 \
+    VSS_VLM_TEMPERATURE=0 \
+    VSS_VLM_MAX_TOKENS=8192 \
+    VSS_VLM_SEED=1 \
+    VSS_VLM_ENABLE_REASONING=false \
+    VSS_VLM_CHUNK_DURATION=0 \
+    VSS_VLM_FPS=4 \
+    VSS_VLM_SHORTEST_EDGE=262144 \
+    VSS_VLM_LONGEST_EDGE=16777216 \
+    VSS_VLM_LOCKED=true
+
+# ── Fragment 3: add immediately before the final `USER sandbox` ──────────────
+# The complete VSS revision is available in the existing `vss-src` stage.
+# Copy the helper from that stage; a relative COPY would incorrectly search
+# the Provision build context, where the helper is not present.
+USER root
+
+RUN mkdir -p /opt/vss-eval/helpers
+
+COPY --from=vss-src --chown=root:root --chmod=0555 \
+    /opt/vss-src/.openclaw/helpers/seed_videomme_memory.sh \
+    /opt/vss-eval/helpers/seed_videomme_memory.sh
+
+RUN test -x /opt/vss-eval/helpers/seed_videomme_memory.sh
+
+USER sandbox
