@@ -10,7 +10,7 @@
 #
 # "Active" means "present in --active-dir": OpenClaw reads a plugin's skills
 # from its static manifest path (skills-active/), Hermes scans its writable
-# skill root (/sandbox/.hermes/skills) natively, and both are just directories
+# skill root ($HERMES_HOME/skills/vss) natively, and both are just directories
 # this script fills. Everything shipped stays in --skills-dir; this only
 # decides what the agent sees.
 #

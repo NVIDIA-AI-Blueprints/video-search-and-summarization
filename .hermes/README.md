@@ -15,15 +15,16 @@ that harness loads skills.
 | `Dockerfile` | The sandbox image: NemoClaw's managed Hermes runtime (digest-pinned) + the `vss` CLI + the VSS operation skills (activated per deployment, see below) + the workspace docs |
 
 Hermes has no plugin or tool layer to add: it drives the deployment through the
-`vss` CLI on `PATH`, loads skills from its canonical writable root
+`vss` CLI on `PATH`, loads skills from `$HERMES_HOME/skills`
 (`/sandbox/.hermes/skills`, per NemoClaw's `agents/hermes/manifest.yaml`), and
 reads its instruction docs (`SOUL.md`, `AGENTS.md`, `TOOLS.md`, `ENV.md`, …)
 from `/sandbox`. The image puts each in place:
 
 - **Skills** — every skill in the pinned checkout whose `SKILL.md` frontmatter
   declares `metadata.vss-requires` (the same rule the OpenClaw plugin uses),
-  copied into `/sandbox/.hermes/skills/`, sandbox-owned like the ones
-  `nemohermes <sb> skill install` places there. Unlike the OpenClaw image, all
+  shipped in Hermes' bundled library as `/opt/hermes/skills/vss/`. Every
+  `hermes chat` copies that library into `$HERMES_HOME/skills/`, so the skills
+  appear under whatever `HERMES_HOME` the agent runs with. Unlike the OpenClaw image, all
   of them are active; each skill begins with `vss configure check` and reports
   what the deployment cannot serve.
 - **Workspace docs** — `.openclaw/workspace/*.md` with the
@@ -91,9 +92,14 @@ Same machinery as the OpenClaw plugin, same file: the image carries
 `skills/vss-build-vision-ai/scripts/sync_skills.py` (staged from the pinned
 `VSS_REF` checkout) at `/opt/vss-skills/sync_skills.py`, with the shipped
 skill set read-only under `/opt/vss-skills/skills/`. Hermes loads skills
-from `$HERMES_HOME/skills` only, so `vss-hermes-sync` passes that directory
-as `--active-dir` (`/sandbox/.hermes/skills` when `HERMES_HOME` is unset) —
-no layout adapter needed. Stdlib-only python; the same file
+from `$HERMES_HOME/skills` only, and seeds it from its bundled library
+(`/opt/hermes/skills`) on every `hermes chat`, tracking what it copied in
+`.bundled_manifest`. The image fills `/opt/hermes/skills/vss/` from the
+shipped set, so no caller has to run anything first, whichever `HERMES_HOME`
+it picks. `vss-hermes-sync` passes `$HERMES_HOME/skills/vss` as
+`--active-dir` (`/sandbox/.hermes/skills/vss` when `HERMES_HOME` is unset), so
+it never touches Hermes' own skills, and Hermes does not re-add a skill that
+`vss-hermes-sync` deselected. Stdlib-only python; the same file
 serves the OpenClaw plugin and host tooling, with its behavior pinned by unit
 tests beside it.
 
@@ -101,8 +107,3 @@ At build, `--all` activates every shipped skill. After `vss configure` records
 a deployment, run `vss-hermes-sync` in the sandbox to re-select: each skill's
 `vss-requires` frontmatter is matched against `vss configure check` (plus the
 alert-bridge probe), exactly like `vss-openclaw-sync`.
-
-A harness that moves `HERMES_HOME` hides the baked skills: Harbor's Hermes
-adapter uses `/tmp/hermes`, a fresh tmpfs under OpenShell, and rewrites
-`config.yaml`, so `skills.external_dirs` cannot point back at them. Run
-`HERMES_HOME=<that home> vss-hermes-sync --all` before the agent starts.
