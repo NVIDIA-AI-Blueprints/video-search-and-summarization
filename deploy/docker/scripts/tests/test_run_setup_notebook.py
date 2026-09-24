@@ -551,6 +551,9 @@ class NemoClawForwardContractTests(unittest.TestCase):
     RELAY_SCRIPT = (SCRIPTS_DIR / "nemoclaw" / "dashboard-relay.py").resolve()
     RECOVER = ("nemoclaw", SANDBOX, "recover")
     RECOVER_FAILURE = "another process owns the recorded dashboard port"
+    RECOVER_HANDSHAKE = "SUPERVISOR_UNAVAILABLE"
+    FORWARD_PID = "4141"
+    RELAY_PID = "5151"
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -584,7 +587,10 @@ class NemoClawForwardContractTests(unittest.TestCase):
         adapter_enabled: bool,
         chat_fqdn: str | None,
         forward_up: bool = True,
+        forward_squatted: bool = False,
+        forward_listener_visible: bool = True,
         recover_restores_forward: bool = True,
+        recover_handshake_fails: bool = False,
         ui_origin_baked: bool = True,
         brev_env_id: str | None = None,
         gateway_lookup_fails: bool = False,
@@ -594,7 +600,10 @@ class NemoClawForwardContractTests(unittest.TestCase):
     ) -> tuple[dict[str, object], list[tuple[str, ...]], list[list[str]]]:
         """Run 3.5 against a fake host. `relay_running_for` is the --listen list of a
         relay already on the relay port (this checkout's script, this sandbox);
-        `relay_dead` makes that relay hold the port without answering through it."""
+        `relay_dead` makes that relay hold the port without answering through it.
+        `forward_squatted` answers the dashboard port from something that is not this
+        sandbox's forward; `forward_listener_visible` off is a listener lsof cannot
+        report - started by another user, or no lsof on the host at all."""
 
         # The config the image carries: whatever onboard's generator derived from the
         # CHAT_UI_URL 3.1 baked in - this session's secure link, or loopback alone
@@ -630,6 +639,21 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 f"--upstream 127.0.0.1:{self.PORT}"
             )
 
+        def forward_args():
+            """What holds the dashboard port: onboard's gRPC forward, or a squatter."""
+            if forward_squatted:
+                return f"python3 -m http.server {self.PORT} --bind 127.0.0.1"
+            return (
+                "/usr/local/bin/openshell --gateway nemoclaw --gateway-endpoint "
+                f"https://127.0.0.1:8080 --workspace default forward service {self.SANDBOX} "
+                f"--target-port {self.PORT} --target-host 127.0.0.1 --local 127.0.0.1:{self.PORT}"
+            )
+
+        def listener_pid(port):
+            if port == self.PORT:
+                return self.FORWARD_PID if state["forward"] and forward_listener_visible else ""
+            return self.RELAY_PID if state["relay"] else ""
+
         def run(command, **_kwargs):
             calls.append(tuple(command))
             if command[:3] == ["docker", "inspect", "--format"]:
@@ -644,10 +668,15 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 if not recover_restores_forward:
                     return completed(command, 1, stderr=f"{self.RECOVER_FAILURE}\n")
                 state["forward"] = True
+                if recover_handshake_fails:
+                    return completed(command, 1, stderr=f"{self.RECOVER_HANDSHAKE}\n")
                 return completed(command)
             if command[:2] == ["lsof", "-t"]:
-                return completed(command, stdout="5151\n" if state["relay"] else "")
+                pid = listener_pid(int(command[2].removeprefix("-i:")))
+                return completed(command, stdout=f"{pid}\n" if pid else "")
             if command[:2] == ["ps", "-p"]:
+                if command[2] == self.FORWARD_PID:
+                    return completed(command, stdout=forward_args() + "\n")
                 return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
             if command[:3] == ["openshell", "sandbox", "exec"]:
                 return completed(command, stdout=json.dumps(state["config"]))
@@ -748,6 +777,47 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertIn(f"`nemoclaw {self.SANDBOX} recover` (exit 1)", str(raised.exception))
         self.assertIn(self.RECOVER_FAILURE, str(raised.exception))
         self.assertEqual(self.relays, [])
+
+    def test_a_listener_that_is_not_this_sandboxs_forward_never_gets_the_token(self) -> None:
+        # Answering /health proves only that something is there. A service of its own
+        # on this sandbox's dashboard port would be relayed to and handed the token in
+        # the printed link, so the cell asks NemoClaw, which refuses a listener it
+        # cannot attribute (#11149) and leaves it running.
+        with self.assertRaises(RuntimeError) as raised:
+            self._run_ui_cell(
+                adapter_enabled=True,
+                chat_fqdn=None,
+                forward_squatted=True,
+                recover_restores_forward=False,
+            )
+        self.assertIn(self.RECOVER, self.calls)
+        self.assertIn(self.RECOVER_FAILURE, str(raised.exception))
+        self.assertEqual(self.relays, [])
+        self.assertFalse(any(command[0] == "kill" for command in self.calls))
+
+    def test_a_forward_proved_ours_survives_a_recover_handshake_failure(self) -> None:
+        # recover also exits non-zero when its managed-control handshake gives up
+        # after restoring the forward (see 3.4), so its exit code cannot be the only
+        # gate: the port's own argv settles ownership when recover will not.
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=False,
+            chat_fqdn=None,
+            forward_up=False,
+            recover_handshake_fails=True,
+        )
+        self.assertIn(self.RECOVER, calls)
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+        self.assertEqual(relays, [])
+
+    def test_a_listener_lsof_cannot_report_is_settled_by_recover(self) -> None:
+        # No lsof on the host, or a forward another user started: the cell cannot
+        # prove ownership itself, so it defers to recover rather than calling a
+        # healthy forward foreign.
+        namespace, calls, _ = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, forward_listener_visible=False
+        )
+        self.assertIn(self.RECOVER, calls)
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
 
     def test_brev_relays_on_the_wildcard_without_host_gateway_lookup(self) -> None:
         namespace, calls, relays = self._run_ui_cell(
