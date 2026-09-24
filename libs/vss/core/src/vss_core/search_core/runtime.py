@@ -63,6 +63,15 @@ RAW_INDEX_ANCHOR = f"mdx-raw-{UPLOADS_ANCHOR_DATE}"
 # =============================================================================
 
 
+def resolve_fusion_method(fusion_method: FusionMethod | None, w_tag: float) -> FusionMethod:
+    """Resolve automatic fusion selection without silently dropping the tag leg."""
+    if fusion_method is None:
+        return "weighted_rrf" if w_tag > 0 else "rrf"
+    if fusion_method == "rrf" and w_tag > 0:
+        raise ConfigurationError("fusion_method='rrf' has no VLM tag leg; use 'weighted_rrf' or set w_tag=0")
+    return fusion_method
+
+
 # =============================================================================
 # SearchRuntime — the one env boundary
 # =============================================================================
@@ -121,10 +130,10 @@ class SearchRuntime:
     # Search orchestrator default from functions.search.default_max_results.
     default_max_results: int = 10
     embed_confidence_threshold: float = 0.1  # config.yml:80 override; code default is 0.2
-    fusion_method: FusionMethod = "weighted_rrf"
+    fusion_method: FusionMethod | None = None
     w_attribute: float = 0.55
     w_embed: float = 0.35
-    w_tag: float = 0.45
+    w_tag: float = 0.0  # VLM tag leg off by default; opt in via --w-tag (auto-selects weighted_rrf)
     rrf_k: int = 60
     rrf_w: float = 0.5
     top_percent_filter: float | None = None
@@ -155,7 +164,7 @@ class SearchRuntime:
             raise ConfigurationError("request_timeout_seconds must be >= 1")
         if self.rrf_k < 1:
             raise ConfigurationError("rrf_k must be >= 1")
-        if self.fusion_method not in {"weighted_rrf", "rrf"}:
+        if self.fusion_method not in {None, "weighted_rrf", "rrf"}:
             raise ConfigurationError(f"unsupported fusion_method: {self.fusion_method!r}")
         for name in ("embed_confidence_threshold", "w_attribute", "w_embed", "w_tag", "rrf_w"):
             value = getattr(self, name)
@@ -168,6 +177,7 @@ class SearchRuntime:
                 raise ConfigurationError(f"{name} must be non-negative")
         if self.w_attribute + self.w_embed + self.w_tag <= 0:
             raise ConfigurationError("at least one fusion provider weight must be positive")
+        object.__setattr__(self, "fusion_method", resolve_fusion_method(self.fusion_method, self.w_tag))
         if self.top_percent_filter is not None and not 0 < self.top_percent_filter < 1:
             raise ConfigurationError("top_percent_filter must be in (0, 1) when provided")
 

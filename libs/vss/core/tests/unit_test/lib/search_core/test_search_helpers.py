@@ -110,7 +110,7 @@ def test_attribute_result_uses_frame_timestamp_when_no_range():
 # --------------------------------------------------------------- fusion_search_rerank
 
 
-def _embed_result(*, video_name: str, sensor_id: str, similarity: float = 0.5) -> SearchResult:
+def _embed_result(*, video_name: str, sensor_id: str, similarity: float = 0.5, sensor_id_raw: str = "") -> SearchResult:
     return SearchResult(
         video_name=video_name,
         description="d",
@@ -120,6 +120,7 @@ def _embed_result(*, video_name: str, sensor_id: str, similarity: float = 0.5) -
         screenshot_url="",
         similarity=similarity,
         object_ids=[],
+        sensor_id_raw=sensor_id_raw,
     )
 
 
@@ -235,3 +236,50 @@ async def test_fusion_rerank_skips_unparseable_timestamp_video():
     # No attribute lookup is attempted for the unparseable clip.
     assert attr.calls == []
     assert len(out) == 1
+
+
+@pytest.mark.asyncio
+async def test_fusion_rerank_uses_indexed_sensor_id_when_vst_absent():
+    # Regression (PR #2263 review): with VST absent, fusion_search_rerank must
+    # scope each embed hit's attribute lookup by the indexed sensor identity
+    # (sensor.id), not the display filename (video_name). A behavior document
+    # keyed by sensor.id="warehouse_clip" with no path/url is otherwise missed
+    # when the embed hit's video_name is the display filename
+    # "warehouse_clip.mp4" and its sensor_id is the stream UUID.
+    stream_id = "11111111-2222-3333-4444-555555555555"
+    embed_results = [
+        _embed_result(
+            video_name="warehouse_clip.mp4",
+            sensor_id=stream_id,
+            similarity=0.9,
+            sensor_id_raw="warehouse_clip",
+        ),
+    ]
+
+    class _AttrByIndexedSensorId:
+        def __init__(self) -> None:
+            self.calls: list[Any] = []
+
+        async def ainvoke(self, payload: Any) -> Any:
+            self.calls.append(payload)
+            sources = payload.get("video_sources") or []
+            # Only the indexed sensor.id matches the behavior document; the
+            # display filename and the stream UUID must not.
+            if "warehouse_clip" in sources:
+                return [_attr_result(object_id="42", sensor_id="warehouse_clip")]
+            return []
+
+    attr = _AttrByIndexedSensorId()
+    out = await sh.fusion_search_rerank(
+        embed_results=embed_results,
+        attributes=["white jacket"],
+        attribute_search_fn=attr,
+        vst_internal_url="",  # no VST: forces the indexed-identity path
+    )
+    # The per-hit lookup was scoped to the indexed sensor identity, not the
+    # display filename ("warehouse_clip.mp4") the old fallback used.
+    assert attr.calls
+    assert attr.calls[0]["video_sources"] == ["warehouse_clip"]
+    # The attribute hit (object 42) survives rrf fusion instead of vanishing.
+    assert out
+    assert any("42" in r.object_ids for r in out)

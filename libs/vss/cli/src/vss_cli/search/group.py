@@ -500,6 +500,22 @@ class SearchGroup(CommandGroup):
         # out of `tuning` (which feeds SearchRuntime) and thread it to the
         # critic instead. None = verify every hit (bounded by --top-k).
         critic_eval_count = tuning.pop("critic_eval_count", None)
+        # Auto-select the fusion method from the VLM tag leg choice. The
+        # legacy `rrf` (embed + attribute, no tag leg) is the default; opting
+        # into the VLM tag leg (--w-tag > 0) auto-selects `weighted_rrf`
+        # (the only method that fuses a tag leg). An explicit
+        # `--fusion-method rrf` with `--w-tag > 0` is a contradiction —
+        # surface it as an input error rather than silently dropping the tag leg.
+        from vss_core.search_core.errors import ConfigurationError
+        from vss_core.search_core.runtime import resolve_fusion_method
+
+        try:
+            tuning["fusion_method"] = resolve_fusion_method(
+                tuning.get("fusion_method"),
+                tuning.get("w_tag") or 0.0,
+            )
+        except ConfigurationError as error:
+            raise InvalidInput(str(error)) from error
         # The library still selects a path by `search_mode`; the CLI just no
         # longer asks the caller to name it. The sub-action is the mode.
         payload["search_mode"] = action

@@ -85,6 +85,10 @@ class EmbedSearchResultItem(BaseModel):
     sensor_id: str = ""
     screenshot_url: str = ""
     similarity_score: float = 0.0
+    # Indexed sensor identity (the behavior document's sensor.id) carried from
+    # the embed adapter; excluded from serialization so it never reaches client
+    # payloads. ``sensor_id`` stays the stream UUID (for clip-URL/merge).
+    sensor_id_raw: str = Field(default="", exclude=True)
 
     @property
     def similarity(self) -> float:
