@@ -56,9 +56,12 @@ class StateMgmt:
 **Behavior under dynamic updates:** `ConfigApplier.apply(...)` mutates `config.app` then calls `config.invalidate_caches()`. The next read returns the new value. **No additional code needed.**
 
 That last sentence is about *value propagation* only. A key that changes what a component
-**does** may still need transition code for state accumulated under the old value —
-`behaviorEmitOnce` is the example, and `StateMgmt._carry_over_held_behaviors` is what it needs.
-Read-at-use gets the new value to you; it does not decide what to do with the old one.
+**does** may still need transition code for state accumulated under the old value.
+`behaviorEmitOnce` used to be the example: retention was conditional on it, so flipping it off
+stranded whatever was held, and `StateMgmt._carry_over_held_behaviors` existed to hand that over.
+`StateMgmt` now retains in both modes and releases every ended track, so there is no old-value
+state to reconcile and that method is gone. Read-at-use gets the new value to you; it does not
+decide what to do with the old one — it is just that here there is no longer anything to decide.
 
 ### Per-call value-capture (rotates within seconds)
 

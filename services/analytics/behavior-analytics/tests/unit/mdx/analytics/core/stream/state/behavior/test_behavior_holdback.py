@@ -16,7 +16,11 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from mdx.analytics.core.stream.state.behavior.behavior_holdback import BehaviorHoldback
+from mdx.analytics.core.stream.state.behavior.behavior_holdback import (
+    INFO_FIELD_IS_COMPLETE,
+    INFO_VALUE_COMPLETE,
+    BehaviorHoldback,
+)
 from mdx.analytics.core.schema.models import Behavior, Coordinate, Object, Place, Sensor
 
 
@@ -93,6 +97,32 @@ class TestBehaviorHoldback:
 
         assert len(holdback.take_ended()) == 1
         assert holdback.take_ended() == []
+
+    def test_retained_live_behavior_is_not_marked_complete(self, holdback):
+        """A held track is still live, so it carries no completion marker."""
+        holdback.retain([self._behavior("s1 #-# obj1")])
+
+        assert INFO_FIELD_IS_COMPLETE not in holdback.pending["s1 #-# obj1"].info
+
+    def test_end_track_marks_the_behavior_complete(self, holdback):
+        """Ending a track stamps the completion marker on the behavior it releases."""
+        holdback.retain([self._behavior("s1 #-# obj1")])
+        holdback.end_track("s1 #-# obj1", reason="track inactive")
+
+        assert holdback.ended[0].info[INFO_FIELD_IS_COMPLETE] == INFO_VALUE_COMPLETE
+
+    def test_flush_marks_still_live_tracks_complete(self, holdback):
+        """Shutdown ends every remaining track, so flush marks the live ones too, not just the ended.
+
+        Otherwise a consumer would see the final message for a track that was live at shutdown and be
+        unable to tell it was the last one.
+        """
+        holdback.retain([self._behavior("s1 #-# obj1"), self._behavior("s1 #-# obj2")])
+        holdback.end_track("s1 #-# obj1", reason="track inactive")
+
+        flushed = holdback.flush()
+
+        assert all(b.info[INFO_FIELD_IS_COMPLETE] == INFO_VALUE_COMPLETE for b in flushed)
 
     def test_flush_returns_ended_then_live_and_clears(self, holdback):
         """Flush hands over everything held -- ended first, then still-live tracks -- and empties."""
