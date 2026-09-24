@@ -72,8 +72,10 @@ COPY docker/deps.json deps.json
 
 # Install jq so generate_metadata.sh does not try to download it from GitHub (fails in CI)
 # Ensure status.d exists for py-deploy COPY (python:3.13-trixie may not have it)
+# curl is not installed here: python:3.13-trixie ships it (buildpack-deps installs it as a
+# manual package), and pinning it broke the build once the pinned version was withdrawn from
+# the Debian repo. A slim base would not carry it -- the curl below would then need reinstating.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl=8.14.1-2+deb13u4 \
         jq=1.7.1-6+deb13u3 \
     && rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/lib/dpkg/status.d
