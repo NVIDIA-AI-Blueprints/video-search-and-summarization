@@ -16,8 +16,8 @@
 # NemoClaw publishes hermes-sandbox by publication cohort only (no release tag,
 # NVIDIA/NemoClaw#11228). The cohort a release selects is the one its
 # openclaw-sandbox release tag is labeled with:
-#   openclaw-sandbox:v0.0.114 → io.nvidia.nemoclaw.managed-image.cohort=ghrun-32694475593-1
-#   hermes-sandbox:cohort-ghrun-32694475593-1 → the digest below
+#   openclaw-sandbox:v0.0.127 → io.nvidia.nemoclaw.managed-image.cohort=ghrun-35246345308-1
+#   hermes-sandbox:cohort-ghrun-35246345308-1 → the digest below
 # Move BASE_IMAGE together with ../openclaw/Dockerfile's BASE_IMAGE and the
 # notebook's NEMOCLAW_INSTALL_REF: NemoClaw requires CLI and images to be one release.
 #
@@ -29,8 +29,8 @@
 #
 #   docker build -t <registry>/vss-harness-hermes:<tag> .hermes
 
-ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7ed6a6f1b682991818a2acaf5636d9fb066ae33265b011837b0ba601c0970
-ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
+ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd065c10eb54f9cf1461a24e1c21ed1a
+ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
 # uv 0.12.10, by index digest (multi-arch) — for the wheel builds in vss-src
 # (the runtime uses the uv the base image ships).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500

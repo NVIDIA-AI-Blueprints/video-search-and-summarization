@@ -549,22 +549,21 @@ class NemoClawForwardContractTests(unittest.TestCase):
     RELAY_PORT = 18790
     SANDBOX = "demo"
     RELAY_SCRIPT = (SCRIPTS_DIR / "nemoclaw" / "dashboard-relay.py").resolve()
+    RECOVER = ("nemoclaw", SANDBOX, "recover")
+    RECOVER_FAILURE = "another process owns the recorded dashboard port"
+    RECOVER_HANDSHAKE = "SUPERVISOR_UNAVAILABLE"
+    FORWARD_PID = "4141"
+    RELAY_PID = "5151"
 
     @classmethod
     def setUpClass(cls) -> None:
         path = SCRIPTS_DIR / "deploy_nemoclaw.ipynb"
         notebook = json.loads(path.read_text(encoding="utf-8"))
-        source = next(
+        cls.source = next(
             "".join(cell["source"])
             for cell in notebook["cells"]
             if cell["id"] == "s37-ui-code"
         )
-        cls.source = source.replace(
-            "    !setsid -f openshell forward start --background {AGENT_DASHBOARD_PORT} "
-            "{NEMOCLAW_SANDBOX_NAME}\n",
-            "    _start_forward(AGENT_DASHBOARD_PORT, NEMOCLAW_SANDBOX_NAME)\n",
-        )
-        assert "_start_forward(" in cls.source, "forward start line not found in 3.5"
         verify_source = next(
             "".join(cell["source"])
             for cell in notebook["cells"]
@@ -574,7 +573,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
         hooks_end = verify_source.index("\nif gateway_container:\n", hooks_start)
         cls.hooks_source = verify_source[hooks_start:hooks_end]
         # The real generator, loaded the way the notebook loads it: the origin the
-        # cell registers has to be the one NemoClaw would have produced.
+        # cell demands has to be one NemoClaw would have baked.
         spec = importlib.util.spec_from_file_location(
             "apply_onboard_config", SCRIPTS_DIR.parents[2] / ".openclaw" / "apply-onboard-config.py"
         )
@@ -588,25 +587,47 @@ class NemoClawForwardContractTests(unittest.TestCase):
         adapter_enabled: bool,
         chat_fqdn: str | None,
         forward_up: bool = True,
+        forward_squatted: bool = False,
+        forward_listener_visible: bool = True,
+        recover_restores_forward: bool = True,
+        recover_handshake_fails: bool = False,
+        ui_origin_baked: bool = True,
         brev_env_id: str | None = None,
         gateway_lookup_fails: bool = False,
         relay_running_for: list[str] | None = None,
         relay_dead: bool = False,
         runtime: str = "openclaw",
-    ) -> tuple[dict[str, object], list[tuple[int, str]], list[tuple[str, ...]], list[list[str]]]:
+    ) -> tuple[dict[str, object], list[tuple[str, ...]], list[list[str]]]:
         """Run 3.5 against a fake host. `relay_running_for` is the --listen list of a
         relay already on the relay port (this checkout's script, this sandbox);
-        `relay_dead` makes that relay hold the port without answering through it."""
+        `relay_dead` makes that relay hold the port without answering through it.
+        `forward_squatted` answers the dashboard port from something that is not this
+        sandbox's forward; `forward_listener_visible` off is a listener lsof cannot
+        report - started by another user, or no lsof on the host at all."""
 
+        # The config the image carries: whatever onboard's generator derived from the
+        # CHAT_UI_URL 3.1 baked in - this session's secure link, or loopback alone
+        # when the sandbox was built without a remote origin.
+        built_for = (
+            f"https://{chat_fqdn}"
+            if chat_fqdn and ui_origin_baked
+            else f"http://127.0.0.1:{self.PORT}"
+        )
         state = {
             "forward": forward_up,
             "relay": relay_running_for,
             "relay_dead": relay_dead,
-            "config": {"gateway": {"port": self.PORT}},
+            "config": {
+                "gateway": {
+                    "port": self.PORT,
+                    "controlUi": self.control_ui(built_for, self.PORT),
+                }
+            },
         }
-        starts: list[tuple[int, str]] = []
         calls: list[tuple[str, ...]] = []
         relays: list[list[str]] = []
+        # Also on the instance, so a run that raises can still be inspected.
+        self.calls, self.relays = calls, relays
 
         def completed(command, returncode=0, stdout="", stderr=""):
             return subprocess.CompletedProcess(command, returncode, stdout, stderr)
@@ -618,7 +639,22 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 f"--upstream 127.0.0.1:{self.PORT}"
             )
 
-        def run(command, **kwargs):
+        def forward_args():
+            """What holds the dashboard port: onboard's gRPC forward, or a squatter."""
+            if forward_squatted:
+                return f"python3 -m http.server {self.PORT} --bind 127.0.0.1"
+            return (
+                "/usr/local/bin/openshell --gateway nemoclaw --gateway-endpoint "
+                f"https://127.0.0.1:8080 --workspace default forward service {self.SANDBOX} "
+                f"--target-port {self.PORT} --target-host 127.0.0.1 --local 127.0.0.1:{self.PORT}"
+            )
+
+        def listener_pid(port):
+            if port == self.PORT:
+                return self.FORWARD_PID if state["forward"] and forward_listener_visible else ""
+            return self.RELAY_PID if state["relay"] else ""
+
+        def run(command, **_kwargs):
             calls.append(tuple(command))
             if command[:3] == ["docker", "inspect", "--format"]:
                 return completed(command, stdout="sha256:gateway-image\n")
@@ -626,27 +662,24 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 if gateway_lookup_fails:
                     return completed(command, 1, stderr="host alias unavailable")
                 return completed(command, stdout=f"{self.HOST_GATEWAY}\n")
-            if command[:3] == ["openshell", "forward", "list"]:
-                row = f"{self.SANDBOX} 127.0.0.1 {self.PORT} 4242 running\n" if state["forward"] else ""
-                return completed(command, stdout=row)
-            if command[:2] == ["lsof", "-t"]:
-                port = int(command[2].split(":")[1])
-                if port == self.PORT:
-                    return completed(command, stdout="4242\n" if state["forward"] else "")
-                return completed(command, stdout="5151\n" if state["relay"] else "")
-            if command[:2] == ["ps", "-p"]:
-                if command[2] == "4242":
-                    return completed(command, stdout="ssh --sandbox-id sandbox-id\n")
-                return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
-            if command[:3] == ["openshell", "sandbox", "get"]:
-                return completed(command, stdout="Id: sandbox-id\n")
-            if command[:3] == ["openshell", "sandbox", "exec"]:
-                if command[6] == "cat":
-                    return completed(command, stdout=json.dumps(state["config"]))
-                # The cell re-reads the config to check the write landed, so store
-                # what was piped in rather than acknowledging it blindly.
-                state["config"] = json.loads(kwargs["input"])
+            if command[:3] == ["nemoclaw", self.SANDBOX, "recover"]:
+                # recover fails closed on its own preflight gates, leaving the
+                # forward as it found it.
+                if not recover_restores_forward:
+                    return completed(command, 1, stderr=f"{self.RECOVER_FAILURE}\n")
+                state["forward"] = True
+                if recover_handshake_fails:
+                    return completed(command, 1, stderr=f"{self.RECOVER_HANDSHAKE}\n")
                 return completed(command)
+            if command[:2] == ["lsof", "-t"]:
+                pid = listener_pid(int(command[2].removeprefix("-i:")))
+                return completed(command, stdout=f"{pid}\n" if pid else "")
+            if command[:2] == ["ps", "-p"]:
+                if command[2] == self.FORWARD_PID:
+                    return completed(command, stdout=forward_args() + "\n")
+                return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
+            if command[:3] == ["openshell", "sandbox", "exec"]:
+                return completed(command, stdout=json.dumps(state["config"]))
             if command[0] == "curl":
                 url = command[-1]
                 host, port = url.split("://", 1)[1].rsplit("/", 1)[0].rsplit(":", 1)
@@ -656,14 +689,8 @@ class NemoClawForwardContractTests(unittest.TestCase):
                     "0.0.0.0" in state["relay"] or host in state["relay"]
                 )
                 return completed(command, 0 if reachable else 7)
-            if command[:3] == ["openshell", "forward", "stop"]:
-                state["forward"] = False
-                return completed(command)
             if command[0] == "kill":
-                if command[1] == "4242":
-                    state["forward"] = False
-                else:
-                    state["relay"] = None
+                state["relay"] = None
                 return completed(command)
             if command[:2] == ["hostname", "-I"]:
                 return completed(command, stdout="192.0.2.10\n")
@@ -677,14 +704,6 @@ class NemoClawForwardContractTests(unittest.TestCase):
             process = mock.Mock()
             process.poll.return_value = None
             return process
-
-        def start_forward(port: int, sandbox: str) -> None:
-            starts.append((port, sandbox))
-            calls.append(("_start_forward", str(port), sandbox))
-            state["forward"] = True
-
-        def restart_agent_gateway(context: str, recover: bool = True) -> None:
-            calls.append(("restart_agent_gateway", context))
 
         namespace: dict[str, object] = {
             "AGENT_CONNECT_CMD": "",
@@ -701,12 +720,9 @@ class NemoClawForwardContractTests(unittest.TestCase):
             "Path": lambda p: Path(self._tmp) / Path(p).name,
             "SANDBOX_CONFIG_PATH": "/sandbox/.openclaw/openclaw.json",
             "VSS_AGENT_ADAPTER_ENABLED": adapter_enabled,
-            "_start_forward": start_forward,
             "brev_environment_id": lambda: brev_env_id,
             "brev_secure_link_fqdn": lambda _port: chat_fqdn,
-            "control_ui": self.control_ui,
             "resolve_openshell_gateway_container": lambda _sandbox: "gateway",
-            "restart_agent_gateway": restart_agent_gateway,
         }
         with (
             tempfile.TemporaryDirectory() as tmp,
@@ -720,33 +736,93 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 compile(self.source, "deploy_nemoclaw:s37-ui-code", "exec"),
                 namespace,
             )
-        return namespace, starts, calls, relays
+        return namespace, calls, relays
 
     def test_the_forward_is_never_re_bound_off_loopback(self) -> None:
-        # No configuration makes 3.5 request another bind: the forward start line takes
-        # the bare port, which is loopback - the bind NemoClaw's recovery keeps.
+        # No configuration makes 3.5 request another bind: it neither starts nor stops
+        # the forward, and `nemoclaw recover` restores the recorded port, which is
+        # loopback.
         self.assertNotIn("0.0.0.0:{AGENT_DASHBOARD_PORT}", self.source)
         self.assertNotIn("_desired_bind", self.source)
 
     def test_non_brev_without_adapter_keeps_loopback_and_starts_no_relay(self) -> None:
-        namespace, starts, calls, relays = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None)
+        namespace, calls, relays = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None)
         self.assertEqual(namespace["_health"], f"http://127.0.0.1:{self.PORT}/health")
         self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
-        self.assertEqual(starts, [])
+        self.assertNotIn(self.RECOVER, calls)
         self.assertEqual(relays, [])
         self.assertFalse(namespace["_relay_up"])
         self.assertFalse(any(command[0] == "docker" for command in calls))
 
-    def test_a_dead_forward_is_re_established_on_loopback(self) -> None:
-        _, starts, calls, _ = self._run_ui_cell(adapter_enabled=False, chat_fqdn=None, forward_up=False)
-        self.assertEqual(starts, [(self.PORT, self.SANDBOX)])
-        self.assertIn(("openshell", "forward", "stop", str(self.PORT), self.SANDBOX), calls)
+    def test_a_dead_forward_is_repaired_by_nemoclaw_recover(self) -> None:
+        # 3.5 owns neither the forward nor the port check: a failed health probe hands
+        # the repair to NemoClaw, which verifies ownership and restores loopback.
+        namespace, calls, _ = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, forward_up=False
+        )
+        self.assertIn(self.RECOVER, calls)
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+
+    def test_a_forward_recover_cannot_repair_stops_the_cell(self) -> None:
+        # recover's preflight gates are the only account of why it declined, so the
+        # cell has to carry its output out; nothing downstream may run on a dead
+        # forward, least of all a relay pointed at it.
+        with self.assertRaises(RuntimeError) as raised:
+            self._run_ui_cell(
+                adapter_enabled=True,
+                chat_fqdn=None,
+                forward_up=False,
+                recover_restores_forward=False,
+            )
+        self.assertIn(f"`nemoclaw {self.SANDBOX} recover` (exit 1)", str(raised.exception))
+        self.assertIn(self.RECOVER_FAILURE, str(raised.exception))
+        self.assertEqual(self.relays, [])
+
+    def test_a_listener_that_is_not_this_sandboxs_forward_never_gets_the_token(self) -> None:
+        # Answering /health proves only that something is there. A service of its own
+        # on this sandbox's dashboard port would be relayed to and handed the token in
+        # the printed link, so the cell asks NemoClaw, which refuses a listener it
+        # cannot attribute (#11149) and leaves it running.
+        with self.assertRaises(RuntimeError) as raised:
+            self._run_ui_cell(
+                adapter_enabled=True,
+                chat_fqdn=None,
+                forward_squatted=True,
+                recover_restores_forward=False,
+            )
+        self.assertIn(self.RECOVER, self.calls)
+        self.assertIn(self.RECOVER_FAILURE, str(raised.exception))
+        self.assertEqual(self.relays, [])
+        self.assertFalse(any(command[0] == "kill" for command in self.calls))
+
+    def test_a_forward_proved_ours_survives_a_recover_handshake_failure(self) -> None:
+        # recover also exits non-zero when its managed-control handshake gives up
+        # after restoring the forward (see 3.4), so its exit code cannot be the only
+        # gate: the port's own argv settles ownership when recover will not.
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=False,
+            chat_fqdn=None,
+            forward_up=False,
+            recover_handshake_fails=True,
+        )
+        self.assertIn(self.RECOVER, calls)
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
+        self.assertEqual(relays, [])
+
+    def test_a_listener_lsof_cannot_report_is_settled_by_recover(self) -> None:
+        # No lsof on the host, or a forward another user started: the cell cannot
+        # prove ownership itself, so it defers to recover rather than calling a
+        # healthy forward foreign.
+        namespace, calls, _ = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn=None, forward_listener_visible=False
+        )
+        self.assertIn(self.RECOVER, calls)
+        self.assertEqual(namespace["origin"], f"http://127.0.0.1:{self.PORT}")
 
     def test_brev_relays_on_the_wildcard_without_host_gateway_lookup(self) -> None:
-        namespace, starts, calls, relays = self._run_ui_cell(
+        namespace, calls, relays = self._run_ui_cell(
             adapter_enabled=False, chat_fqdn="agent.example.test"
         )
-        self.assertEqual(starts, [])
         self.assertEqual(len(relays), 1)
         self.assertEqual(relays[0][relays[0].index("--listen") + 1], "0.0.0.0")
         self.assertEqual(relays[0][relays[0].index("--upstream") + 1], f"127.0.0.1:{self.PORT}")
@@ -754,35 +830,47 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertEqual(namespace["origin"], "https://agent.example.test")
         self.assertFalse(any(command[0] == "docker" for command in calls))
 
-    def test_the_brev_ui_origin_is_registered_before_the_forward(self) -> None:
-        # The image carries loopback-only allowedOrigins, so the UI answers "Browser
-        # origin not allowed" over the secure link until the origin is written and
-        # the gateway restarted. The cell's own re-read proves the write landed, and
-        # the restart drops the forward, so both have to come before it starts.
-        namespace, _, calls, _ = self._run_ui_cell(
-            adapter_enabled=False, chat_fqdn="agent.example.test", forward_up=False
+    def test_the_brev_ui_origin_is_read_from_the_image_not_written(self) -> None:
+        # Onboard derives gateway.controlUi from CHAT_UI_URL at build time and `config
+        # set` refuses gateway.*, so nothing can add the origin to a running sandbox.
+        # 3.5 may only read the live config and confirm the image was built for it.
+        namespace, calls, relays = self._run_ui_cell(
+            adapter_enabled=False, chat_fqdn="agent.example.test"
         )
-        write = next(c for c in calls if c[:3] == ("openshell", "sandbox", "exec") and c[6] == "sh")
-        self.assertIn("sha256sum openclaw.json > .config-hash", write[-1])
-        restart = ("restart_agent_gateway", "registering the UI origin")
-        forward = ("_start_forward", str(self.PORT), self.SANDBOX)
-        self.assertLess(calls.index(write), calls.index(restart))
-        self.assertLess(calls.index(restart), calls.index(forward))
-        self.assertIn(
-            "https://agent.example.test",
-            namespace["_cfg"]["gateway"]["controlUi"]["allowedOrigins"],
-        )
+        execs = [c for c in calls if c[:3] == ("openshell", "sandbox", "exec")]
+        self.assertEqual(len(execs), 1)
+        self.assertEqual(execs[0][-2:], ("cat", namespace["SANDBOX_CONFIG_PATH"]))
+        self.assertEqual(len(relays), 1)
+        self.assertTrue(namespace["_relay_up"])
 
-    def test_hermes_registers_no_ui_origin(self) -> None:
-        # Hermes has no controlUi block, so the secure link must not send it a write.
-        _, _, calls, relays = self._run_ui_cell(
+    def test_an_image_built_for_another_ui_origin_stops_the_cell(self) -> None:
+        # Without the origin baked in, the gateway answers "Browser origin not
+        # allowed" over the secure link, and only a rebuild can add it - so the cell
+        # has to stop at the check and name the step that rebuilds, not relay past it.
+        with self.assertRaises(AssertionError) as raised:
+            self._run_ui_cell(
+                adapter_enabled=False,
+                chat_fqdn="agent.example.test",
+                ui_origin_baked=False,
+            )
+        self.assertIn(
+            "https://agent.example.test is not in the sandbox's allowedOrigins",
+            str(raised.exception),
+        )
+        self.assertIn("NEMOCLAW_RECREATE_SANDBOX = True", str(raised.exception))
+        self.assertEqual(self.relays, [])
+
+    def test_hermes_checks_no_ui_origin(self) -> None:
+        # Hermes has no controlUi block, so there is nothing for the secure link to
+        # check and no reason to read the sandbox's config at all.
+        _, calls, relays = self._run_ui_cell(
             adapter_enabled=False, chat_fqdn="agent.example.test", runtime="hermes"
         )
         self.assertFalse(any(c[:3] == ("openshell", "sandbox", "exec") for c in calls))
         self.assertEqual(len(relays), 1)
 
     def test_unreadable_brev_context_still_relays_on_the_wildcard(self) -> None:
-        namespace, _, calls, relays = self._run_ui_cell(
+        namespace, calls, relays = self._run_ui_cell(
             adapter_enabled=False, chat_fqdn=None, brev_env_id="brev-env"
         )
         self.assertEqual(relays[0][relays[0].index("--listen") + 1], "0.0.0.0")
@@ -790,8 +878,8 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertFalse(any(command[0] == "docker" for command in calls))
 
     def test_non_brev_adapter_relays_on_the_docker_host_gateway(self) -> None:
-        namespace, starts, calls, relays = self._run_ui_cell(adapter_enabled=True, chat_fqdn=None)
-        self.assertEqual(starts, [])
+        namespace, calls, relays = self._run_ui_cell(adapter_enabled=True, chat_fqdn=None)
+        self.assertNotIn(self.RECOVER, calls)
         self.assertEqual(relays[0][relays[0].index("--listen") + 1], self.HOST_GATEWAY)
         self.assertTrue(namespace["_relay_up"])
         # The forward itself stays on loopback, so the printed local link does too.
@@ -811,7 +899,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
             self._run_ui_cell(adapter_enabled=True, chat_fqdn=None, gateway_lookup_fails=True)
 
     def test_a_relay_bound_for_a_previous_run_is_replaced(self) -> None:
-        namespace, _, calls, relays = self._run_ui_cell(
+        namespace, calls, relays = self._run_ui_cell(
             adapter_enabled=True, chat_fqdn=None, relay_running_for=["0.0.0.0"]
         )
         self.assertIn(("kill", "5151"), calls)
@@ -820,7 +908,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertTrue(namespace["_relay_up"])
 
     def test_a_matching_relay_is_kept(self) -> None:
-        namespace, _, calls, relays = self._run_ui_cell(
+        namespace, calls, relays = self._run_ui_cell(
             adapter_enabled=True, chat_fqdn=None, relay_running_for=[self.HOST_GATEWAY]
         )
         self.assertEqual(relays, [])
@@ -829,7 +917,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
 
     def test_a_matching_relay_that_no_longer_answers_is_replaced(self) -> None:
         # Bound correctly but dead end-to-end: kept relays get the same probe as new ones.
-        namespace, _, calls, relays = self._run_ui_cell(
+        namespace, calls, relays = self._run_ui_cell(
             adapter_enabled=True, chat_fqdn=None,
             relay_running_for=[self.HOST_GATEWAY], relay_dead=True,
         )
@@ -838,7 +926,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
         self.assertTrue(namespace["_relay_up"])
 
     def test_hooks_verification_posts_to_the_loopback_forward_without_proxy(self) -> None:
-        namespace, _, _, _ = self._run_ui_cell(adapter_enabled=True, chat_fqdn=None)
+        namespace, _, _ = self._run_ui_cell(adapter_enabled=True, chat_fqdn=None)
         hook_calls: list[list[str]] = []
 
         def run(command, **_kwargs):

@@ -11,6 +11,7 @@ the sandbox kept the base image's model and limits, and kept a loopback-only
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -145,3 +146,33 @@ def test_full_onboard_arg_set(cfg):
     assert d["agents"]["defaults"]["model"]["primary"] == "inference/aws/anthropic/bedrock-claude-opus-5"
     assert "https://chat.example.brevlab.com" in d["gateway"]["controlUi"]["allowedOrigins"]
     assert changes  # reported to the build log
+
+
+# --- how .openclaw/Dockerfile delivers the values to this script ---------------
+
+ONBOARD_ARGS = ("NEMOCLAW_PRIMARY_MODEL_REF", "NEMOCLAW_MODEL", "NEMOCLAW_CONTEXT_WINDOW",
+                "NEMOCLAW_MAX_TOKENS", "CHAT_UI_URL")
+DOCKERFILE = (REPO_ROOT / ".openclaw" / "Dockerfile").read_text()
+
+
+def test_onboard_rewrites_the_global_arg_for_every_value():
+    # onboard's patcher rewrites only the first `ARG <name>=` in the file
+    # (/m, no /g). An `ARG <name>=` added to an earlier stage would absorb that
+    # rewrite and leave the global default empty, and onboard warns about nothing.
+    first_from = re.search(r"^FROM ", DOCKERFILE, re.M).start()
+    for name in ONBOARD_ARGS:
+        first_arg = re.search(rf"^ARG {name}=", DOCKERFILE, re.M)
+        assert first_arg, f"no global `ARG {name}=` for onboard to rewrite"
+        assert first_arg.start() < first_from, (
+            f"the first `ARG {name}=` is inside a build stage; onboard would rewrite "
+            "it instead of the global default")
+
+
+def test_every_value_reaches_this_script_as_a_file():
+    # The base image exports all five as ENV and the legacy builder lets that ENV
+    # win over a same-named ARG, so the final RUN has to read the onboard-args
+    # stage's files; from the environment it would read the base image's values.
+    for name in ONBOARD_ARGS:
+        assert re.search(rf'{name}="\$\(cat /etc/vss-onboard-args/{name}\)"', DOCKERFILE), (
+            f"{name} is not read from /etc/vss-onboard-args/ into "
+            "vss-apply-onboard-config — the base image's ENV would shadow it")
