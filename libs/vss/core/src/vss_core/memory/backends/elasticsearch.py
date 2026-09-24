@@ -18,8 +18,10 @@ from collections.abc import Iterator
 from collections.abc import Sequence
 from datetime import datetime
 import logging
+import os
 from typing import Any
 
+from elastic_transport import RequestsHttpNode
 from elasticsearch import Elasticsearch
 from elasticsearch import NotFoundError as ESNotFoundError
 from elasticsearch.exceptions import ConnectionError as ESConnectionError
@@ -41,6 +43,14 @@ from ..store import storage_id_for
 logger = logging.getLogger(__name__)
 
 DEFAULT_MEMORY_INDEX = "vss-memory"
+_PROXY_ENVIRONMENT_VARIABLES = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
 
 
 def _decode(source: dict[str, Any], storage_id: str) -> UnifiedMemoryRecord:
@@ -66,7 +76,13 @@ class ElasticsearchMemoryStore:
         self._endpoint = endpoint
         self._index = index
         self._owned = client is None
-        self._client = client or Elasticsearch(endpoint, request_timeout=request_timeout)
+        client_options: dict[str, Any] = {"request_timeout": request_timeout}
+        if any(os.environ.get(name) for name in _PROXY_ENVIRONMENT_VARIABLES):
+            # elastic-transport defaults to Urllib3HttpNode, which doesn't
+            # honor the standard proxy environment. RequestsHttpNode does,
+            # while still respecting NO_PROXY through requests.Session.
+            client_options["node_class"] = RequestsHttpNode
+        self._client = client or Elasticsearch(endpoint, **client_options)
 
     @property
     def index(self) -> str:
