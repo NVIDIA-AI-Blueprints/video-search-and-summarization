@@ -76,7 +76,7 @@ the source pin. To include a skill or CLI change, publish it and add
 |---|---|---|
 | `BASE_IMAGE` | `ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:2689…` (v0.0.127 cohort) | the managed runtime |
 | `VSS_REPO`, `VSS_REF` | this repo, a commit sha | skills, workspace docs and the `vss` CLI |
-| `BUILDER_IMAGE` | `node:22-trixie-slim@sha256:db8a…` | the checkout stage |
+| `BUILDER_IMAGE` | `node:24.18.1-trixie-slim@sha256:ac39…` | the checkout stage |
 
 ## Trial paths and sandbox contract
 
