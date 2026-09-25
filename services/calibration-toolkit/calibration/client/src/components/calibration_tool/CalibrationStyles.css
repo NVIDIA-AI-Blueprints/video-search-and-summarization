@@ -1,0 +1,28 @@
+.calibrationApp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.calibrationDrawing {
+  display: flex;
+  flex-direction: row;
+  height: 80vh;
+}
+
+.calibrationManager {
+  height: 15vh;
+}
+
+.calibrationImage {
+  flex-basis: 50%;
+}
+
+.calibrationMap {
+  flex-basis: 50%;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+}

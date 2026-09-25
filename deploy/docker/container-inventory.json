@@ -325,11 +325,14 @@
       "tag_variables": ["VSS_AUTO_CALIBRATION_UI_TAG"]
     },
     {
-      "name": "calibration",
-      "strategy": "mirror",
-      "platforms": ["linux/amd64"],
-      "compose_image_names": ["calibration"],
-      "tag_variables": ["CALIBRATION_TOOLKIT_IMAGE_TAG"]
+      "name": "vss-calibration-toolkit",
+      "strategy": "build",
+      "ghcr_build": true,
+      "source_path": "services/calibration-toolkit",
+      "context": "services/calibration-toolkit",
+      "dockerfile": "services/calibration-toolkit/Dockerfile",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "compose_image_names": ["vss-calibration-toolkit"]
     },
     {
       "name": "vss-video-analytics-ui",

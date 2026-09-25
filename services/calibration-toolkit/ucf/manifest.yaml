@@ -1,0 +1,162 @@
+type: msapplication
+specVersion: 2.0.0
+name: ucf.svc.metropolis.mdx-calibration
+description: mdx-calibration build using ucf tool
+version: 1.0.2
+tags: []
+keywords: []
+
+publish: false
+
+egress-endpoints:
+  - name: mdx-calibration-endpoint-name
+    description: Short description of endpoint
+    protocol: TCP # Or UDP
+    scheme: http # Or grpc / rtsp / asyncio / none
+    mandatory: false # Or False
+    data-flow: in-out # Or in or out
+
+ingress-endpoints:
+  - name: http-api
+    description: Short description of http-api ingress endpoint
+    scheme: http
+    data-flow: in-out # Or in or out
+    service: http-api-svc
+    port: 8080
+
+params:
+  replicas: 1
+  replicaCount: 1
+  imagePullSecrets:
+  - name: imagepullsecret
+  - name: ngc-docker-reg-secret
+  #> type: string
+  #> enum_values: someString, someOtherString
+  #> description: String to echo in init container
+  #> type: integer
+  #> maximum: 2000000
+  #> minimum: 1000000
+  #> description: String to echo in init container
+  #> flags: mandatory
+
+tests:
+  - name: dev-params1
+    app: tests/dev/app.yaml
+    params: tests/dev/params1.yaml
+    ciTrigger: false
+    timeout: 10
+    duration: 10
+    installPreReqs: false  # Wether to install foundational services
+    namespace: default  # Kubernetes namespace
+    gpuNodeLabels: ""
+    watchAllPods: false # OR set to false and set list of pods to watch below
+    watchPods:
+    - mdx-calibration
+    testerPods:  # At least one tester pod is required
+    - name: mdx-calibration  # Name of the test pod
+      startSignature: Starting  # Signature to look for in the logs indicating start of tests. Regex is accepted
+      endSignature: started  # Signature to look for in the logs indicating end of tests. Regex is accepted
+      errorSignatures:  # Signatures that indicate test failures.  Regex is accepted
+      - failed
+
+
+
+---
+
+spec:
+  - name: app
+    type: ucf.k8s.app.deployment
+    parameters:
+      apptype: stateless
+
+
+  - name: app-data
+    type: ucf.k8s.volume
+    parameters:
+      persistentVolumeClaim:
+        claimName: mdx-calibration-app-data-pvc
+
+  - name: calibration-testconn-init
+    type: ucf.k8s.initcontainer
+    parameters:
+      image: "vukomir/busybox:latest"
+      imagePullPolicy: IfNotPresent
+      command: [sh, -c]
+      args: [ "until nc -zv -w 2 mdx-web-api-app-service 8081; do echo 'Waiting for API Services to be up'; done" ]
+
+  - name: calibration-container
+    type: ucf.k8s.container
+    parameters:
+      image:
+        repository: "nvcr.io/nfgnkvuikvjm/mdx-v2-0/mdx-calibration"
+        tag: "3.2"
+        pullPolicy: Always
+      command: ['sh', '-c', 'deploy.sh 8003']
+      ports:
+        - containerPort: 8003
+          name: http
+      volumeMounts:
+        - mountPath: "/mdx-calibration/files"
+          name: app-data
+      livenessProbe:
+        exec:
+          command:
+            - echo
+            - "TODO livenessProbe"
+        initialDelaySeconds: 10
+        periodSeconds: 5
+      readinessProbe:
+        exec:
+          command:
+            - echo
+            - "TODO readinessProbe"
+        initialDelaySeconds: 10
+        periodSeconds: 5
+
+
+  - name: service
+    type: ucf.k8s.service
+    parameters:
+      ports:
+        - port: 8003
+          protocol: TCP
+          name: http
+      type: ClusterIP
+
+  - name: app-data
+    type: ucf.k8s.pvc
+    parameters:
+      annotations:
+        "helm.sh/resource-policy": keep
+      spec:
+        storageClassName: mdx-local-path
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+
+  - name: calibration-ingress
+    type: ucf.appspec.ingress
+    parameters:
+      enabled: true
+      className: "nginx"
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: /$1
+        nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      rules:
+      - http:
+          paths:
+            - path: /calibration/(.*)
+              pathType: Prefix
+              backend:
+                service:
+                  name: mdx-calibration-app-service
+                  port:
+                   number: 8003
+
+
+                   #  - name: securityContext
+                   #    type: ucf.k8s.podSecurityContext
+                   #    parameters:
+                   #      runAsUser: 2004
+                   #      runAsGroup: 113

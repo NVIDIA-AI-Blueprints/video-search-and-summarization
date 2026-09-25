@@ -1,0 +1,20 @@
+.corridorsApp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.corridorsMap {
+  font-family: sans-serif;
+  height: 80vh;
+  width: 100%;
+}
+
+.corridorsManager {
+  height: 15vh;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+}

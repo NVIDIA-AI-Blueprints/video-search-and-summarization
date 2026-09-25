@@ -1,0 +1,17 @@
+rawTopic = metromind-its-raw
+kafka-brokers = localhost:9092
+topic = metromind-its-start
+trajectoryTopic = metromind-its-trajectory
+alertsTopic = metromind-its-alerts
+understay = 5 minutes
+overstay = 24 hours
+speed_mph_threshold = 100
+speed_time_interval_threshold = 4
+stopping_mph_threshold = 5
+stopping_time_interval_threshold = 150
+abnormal_distance_threshold = 100
+abnormal_time_interval_threshold  = 4
+abnormal_deviation_threshold  = 9.5
+abnormal_filtered_list = HWY_20_AND_LOCUST,HWY_20_AND_DEVON
+osmFile=/app/data/iowa-latest.osm.bz2
+osmFileCache=/app/data/NEW_PROJECT/mapmatchingtest-ch
