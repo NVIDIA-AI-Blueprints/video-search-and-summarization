@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/skills/operations/vss-generate-evidence-plan/references/evidence-plan.schema.json",
+  "title": "Evidence Planning Outcome",
+  "oneOf": [
+    {"$ref": "#/$defs/initial_plan"},
+    {"$ref": "#/$defs/expansion_plan"},
+    {"$ref": "#/$defs/gather_evidence"},
+    {"$ref": "#/$defs/rejection"}
+  ],
+  "$defs": {
+    "initial_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_version", "mode", "question_id", "question_stem", "asset_id", "claims"],
+      "properties": {
+        "plan_version": {"const": "2.1"},
+        "mode": {"const": "initial"},
+        "question_id": {"type": "string", "minLength": 1},
+        "question_stem": {"type": "string", "minLength": 1},
+        "asset_id": {"type": ["string", "null"]},
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/claim"}
+        }
+      }
+    },
+    "expansion_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_version", "mode", "question_id", "question_stem", "asset_id", "claims"],
+      "properties": {
+        "plan_version": {"const": "2.1"},
+        "mode": {"const": "expansion"},
+        "question_id": {"type": "string", "minLength": 1},
+        "question_stem": {"type": "string", "minLength": 1},
+        "asset_id": {"type": ["string", "null"]},
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/claim"}
+        }
+      }
+    },
+    "gather_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_version", "decision", "question_id", "claim_id", "missing_visible_fact"],
+      "properties": {
+        "plan_version": {"const": "2.1"},
+        "decision": {"const": "gather_evidence"},
+        "question_id": {"type": "string", "minLength": 1},
+        "claim_id": {"type": "string", "pattern": "^claim-[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "missing_visible_fact": {"type": "string", "minLength": 1}
+      }
+    },
+    "rejection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan_version", "decision", "question_id", "reason_code", "reason"],
+      "properties": {
+        "plan_version": {"const": "2.1"},
+        "decision": {"const": "reject"},
+        "question_id": {"type": "string", "minLength": 1},
+        "reason_code": {
+          "enum": ["unavailable_modality", "unsanitized_question", "non_visual_question"]
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "unavailable_modalities": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "requirement",
+        "evidence_type",
+        "coverage_requirement",
+        "support_test",
+        "falsification_test"
+      ],
+      "properties": {
+        "claim_id": {
+          "type": "string",
+          "pattern": "^claim-[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "requirement": {"type": "string", "minLength": 1},
+        "evidence_type": {
+          "enum": [
+            "attribute",
+            "object",
+            "count",
+            "action",
+            "state_change",
+            "order",
+            "duration",
+            "trajectory",
+            "identity",
+            "spatial",
+            "cause",
+            "prediction",
+            "counterfactual",
+            "negative"
+          ]
+        },
+        "coverage_requirement": {
+          "enum": ["local_window", "before_after", "repeated_observation", "whole_video"]
+        },
+        "support_test": {"type": "string", "minLength": 1},
+        "falsification_test": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
