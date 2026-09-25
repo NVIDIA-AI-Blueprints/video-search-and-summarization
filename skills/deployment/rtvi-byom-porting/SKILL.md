@@ -97,9 +97,11 @@ Run the smallest relevant checks in this order:
 6. Record latency, throughput, GPU memory/utilization, eager state and custom
    kernel state.
 
-Use `scripts/byom_port_report.py` to turn observed JSON facts into a compact
-Markdown report. The helper records evidence; it does not manufacture PASS
-results.
+Use `skills/deployment/rtvi-byom-porting/scripts/byom_port_report.py` to turn
+observed JSON facts into a compact Markdown report. Evidence is mandatory for a
+PASS result; the helper does not manufacture it. Run
+`python3 skills/deployment/rtvi-byom-porting/scripts/tests/test_byom_port_report.py`
+after changing the helper.
 
 ## Completion Contract
 

@@ -14,12 +14,18 @@
 
 The develop downloader does not pass a Hugging Face revision and its cache key
 uses only the repository basename. Do not use `MODEL_PATH=git:...` as immutable
-evidence. Stage an exact snapshot outside the service, then mount it with the
-standalone Compose path:
+evidence. Install the official `hf` CLI (`huggingface_hub>=0.34`), stage an
+exact snapshot outside the service, then mount it with the standalone Compose
+path:
 
 ```bash
-read -rsp "Hugging Face token: " HF_TOKEN && export HF_TOKEN
-hf download ORG/MODEL --revision COMMIT_SHA --local-dir /absolute/model/snapshot
+command -v hf >/dev/null || { echo "Install huggingface_hub>=0.34" >&2; exit 1; }
+read -rsp "Hugging Face token: " HF_TOKEN && printf '\n'
+if ! HF_TOKEN="$HF_TOKEN" hf download ORG/MODEL \
+  --revision COMMIT_SHA --local-dir /absolute/model/snapshot; then
+  unset HF_TOKEN
+  exit 1
+fi
 unset HF_TOKEN
 
 cd services/rtvi/rt-vlm/docker
@@ -28,7 +34,7 @@ MODEL_ROOT_DIR=/absolute/model/snapshot \
 MODEL_PATH=/absolute/model/snapshot \
 VLM_MODEL_TO_USE=vllm-compatible \
 VLLM_ENFORCE_EAGER=false \
-docker compose up -d
+docker compose up -d --wait --wait-timeout 1800
 ```
 
 If reviewed remote code is required, set `VLM_TRUST_REMOTE_CODE=true` and set
@@ -52,7 +58,7 @@ MODEL_ROOT_DIR=/absolute/model/snapshot \
 MODEL_PATH=/absolute/model/snapshot \
 VLM_MODEL_TO_USE=vllm-compatible \
 VLLM_ENFORCE_EAGER=false \
-docker compose up -d
+docker compose up -d --wait --wait-timeout 1800
 docker image inspect vss-rt-vlm:byom --format '{{.Id}}'
 ```
 
@@ -78,6 +84,7 @@ cd /private/byom-build-context
 : "${MODEL_REVISION:?Set the immutable model revision}"
 docker build -t "$BYOM_REGISTRY_REPO:$MODEL_REVISION" .
 docker push "$BYOM_REGISTRY_REPO:$MODEL_REVISION"
+docker image inspect "$BYOM_REGISTRY_REPO:$MODEL_REVISION" --format '{{.Id}}'
 cd /path/to/video-search-and-summarization
 
 export VSS_RT_VLM_IMAGE="$BYOM_REGISTRY_REPO"
@@ -85,15 +92,18 @@ export VSS_RT_VLM_TAG="$MODEL_REVISION"
 export RTVI_VLM_MODEL_TO_USE=vllm-compatible
 export RTVI_VLM_MODEL_PATH=/opt/models/byom
 export RTVI_VLM_PORT=8018
-export HARDWARE_PROFILE=H100
-export HOST_IP=192.0.2.10
+: "${HARDWARE_PROFILE:?Set the actual VSS hardware profile}"
+: "${HOST_IP:?Set the host IP reachable by the VSS services}"
 
 ./deploy/docker/scripts/dev-profile.sh up \
   --profile base --hardware-profile "$HARDWARE_PROFILE" --host-ip "$HOST_IP" --dry-run
 ./deploy/docker/scripts/dev-profile.sh up \
   --profile base --hardware-profile "$HARDWARE_PROFILE" --host-ip "$HOST_IP"
-curl -fsS "http://127.0.0.1:$RTVI_VLM_PORT/v1/health/ready"
-curl -fsS "http://127.0.0.1:$RTVI_VLM_PORT/v1/models"
+curl -fsS --connect-timeout 10 --max-time 30 --retry 120 \
+  --retry-connrefused --retry-delay 15 --retry-max-time 1800 \
+  "http://127.0.0.1:$RTVI_VLM_PORT/v1/health/ready"
+curl -fsS --connect-timeout 10 --max-time 30 \
+  "http://127.0.0.1:$RTVI_VLM_PORT/v1/models"
 ```
 
 Set `VLM_TRUST_REMOTE_CODE=true` and
@@ -103,6 +113,8 @@ values; provide `NGC_CLI_API_KEY` through the shell or secret manager as require
 by the launcher. Authenticate Docker to the private registry without putting
 credentials in this file or command history; the profile helper pulls the image
 on launch. Use `vss-deploy-dense-captioning` for the complete operational checks.
+The health and model endpoints prove readiness and registration only; run the
+text, image, and video smoke tests from this skill before accepting the port.
 Verify the implementation/plugin imports inside the running container before
 accepting readiness.
 

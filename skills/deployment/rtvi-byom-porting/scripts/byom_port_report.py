@@ -142,12 +142,14 @@ def main() -> None:
     parser.add_argument("--write-json", help="Normalized JSON output path")
     args = parser.parse_args()
 
-    data = json.loads(Path(args.input_json).read_text())
+    data = json.loads(Path(args.input_json).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise SystemExit("input JSON must be an object")
-    Path(args.write_markdown).write_text(build_report(data))
+    Path(args.write_markdown).write_text(build_report(data), encoding="utf-8")
     if args.write_json:
-        Path(args.write_json).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        Path(args.write_json).write_text(
+            json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
 
 if __name__ == "__main__":

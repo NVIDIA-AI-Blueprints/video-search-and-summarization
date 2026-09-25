@@ -3,6 +3,11 @@
 
 from pathlib import Path
 import importlib.util
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
@@ -14,6 +19,40 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ReportTest(unittest.TestCase):
+    def test_cli_reads_and_writes_utf8_under_ascii_locale(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "facts.json"
+            output_path = Path(tmpdir) / "report.md"
+            input_path.write_text(
+                json.dumps({"model": {"name": "Cosmos α"}}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "LC_ALL": "C",
+                    "PYTHONCOERCECLOCALE": "0",
+                    "PYTHONUTF8": "0",
+                }
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--input-json",
+                    str(input_path),
+                    "--write-markdown",
+                    str(output_path),
+                ],
+                capture_output=True,
+                env=env,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Cosmos α", output_path.read_text(encoding="utf-8"))
+
     def test_handles_unexpected_shapes_and_escapes_markdown_cells(self):
         report = MODULE.build_report(
             {
