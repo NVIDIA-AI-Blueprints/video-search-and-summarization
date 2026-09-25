@@ -1,0 +1,206 @@
+{
+  "specs": {
+    "vss-ask-video/base_profile_video_understanding@L40S": {
+      "files": 70,
+      "tree_sha256": "1376f13055b47e33a1ddc3e1b6b3fe88e5ccdf05c2fb58ec35183c0ca0761361"
+    },
+    "vss-ask-video/direct_vlm_video_understanding@L40S": {
+      "files": 56,
+      "tree_sha256": "178e695590583ff4141f4a1d87dc2b8af0603086a049fe598f4ade642976ad7b"
+    },
+    "vss-build-vision-agent/profile_an_1_stored_video_summarization_api@RTXPRO6000BW": {
+      "files": 98,
+      "tree_sha256": "8126b590f92e13d954cc75d76a8ba2b270ef020133ef293b783640225636b2d8"
+    },
+    "vss-build-vision-agent/profile_an_1_stored_video_summarization_runtime_harbor@RTXPRO6000BW": {
+      "files": 294,
+      "tree_sha256": "2b9761e6122e37a83881a4697e4323cc6b4a1344227422bca8ff4b36b0ab1d2b"
+    },
+    "vss-build-vision-agent/profile_at_1_alert_verification@RTXPRO6000BW": {
+      "files": 122,
+      "tree_sha256": "4d5c5cf19c37874083010f7929038a9512c14d8d96fe8cc167592c740173b926"
+    },
+    "vss-build-vision-agent/profile_combined_alerts_search_harbor@RTXPRO6000BW": {
+      "files": 468,
+      "tree_sha256": "6498ae4b8c307f330022ffb01aed9fd8f2272769c9633e4c61770c88b574713b"
+    },
+    "vss-build-vision-agent/profile_in_1_streaming_dense_captions@RTXPRO6000BW": {
+      "files": 392,
+      "tree_sha256": "122e4429a02f87c58693cee243907a0ff9fa69fb4794fbd5e75317f8ca1649b0"
+    },
+    "vss-build-vision-agent/profile_in_2_rt_cv_person_detection_harbor@RTXPRO6000BW": {
+      "files": 438,
+      "tree_sha256": "70e49d5d94cd9e7ca3f32a73bf4f3ed5cfb00dff596322ab954aab4eff9d4e23"
+    },
+    "vss-build-vision-agent/profile_in_3_ingestion_detection_embeddings_harbor@RTXPRO6000BW": {
+      "files": 438,
+      "tree_sha256": "be0c74dc7ab7923fc137975e75e6c3cabe5a6e70bf0911c72366182775bc3219"
+    },
+    "vss-build-vision-agent/profile_search_standalone_harbor@RTXPRO6000BW": {
+      "files": 438,
+      "tree_sha256": "949abafcc06ad0746c88aa1af32ff0c873becaff2f97c7693ac0e9bf35c857b5"
+    },
+    "vss-build-vision-agent/profile_sop_1_compliance_monitoring@RTXPRO6000BW": {
+      "files": 108,
+      "tree_sha256": "c2f509b871c5754a3c2cb7bfb6d484eb690f86eb84e83f3d31b898c9983197d5"
+    },
+    "vss-deploy-dense-captioning/alerts_profile_api@L40S": {
+      "files": 38,
+      "tree_sha256": "82b8be4cbf0f8d592893e1da6fc037c1483c50acd55fc6ef871c7c4cb7779586"
+    },
+    "vss-deploy-dense-captioning/standalone_api@L40S": {
+      "files": 19,
+      "tree_sha256": "611aea4b88dac6728f03a5a2564d6234456cb6d4ecedb867a9e4dbba815d0642"
+    },
+    "vss-deploy-detection-tracking-2d/deploy-evals@L40S": {
+      "files": 64,
+      "tree_sha256": "ea9b557b1b0161351b30911ad0ddff9f63ecc3e741575b7af13ec6ba984d5729"
+    },
+    "vss-deploy-detection-tracking-2d/usage-evals@RTXPRO6000BW": {
+      "files": 160,
+      "tree_sha256": "3e4fb00d95930ebb42b9dab775ccf2d8cf97495f97a30e77eba084227fe9cd92"
+    },
+    "vss-deploy-detection-tracking-3d/calibration-chain@RTXPRO6000BW": {
+      "files": 44,
+      "tree_sha256": "05dc04994b76342bc42241923d1e8e109b018e88bb69ced67a2a68423d30e054"
+    },
+    "vss-deploy-detection-tracking-3d/routing@RTXPRO6000BW": {
+      "files": 75,
+      "tree_sha256": "4b0d07090fd29f6f546045c9fff2f95d1c1e71aad41586bc5aa24362bc1908e6"
+    },
+    "vss-deploy-detection-tracking-3d/sample-deployment@RTXPRO6000BW": {
+      "files": 22,
+      "tree_sha256": "9007db2de55a8997806a815a4bfc9d262b75f5261cc8b1093ef5fc6f3fb517ed"
+    },
+    "vss-deploy-profile/alerts_cv@RTXPRO6000BW": {
+      "files": 37,
+      "tree_sha256": "151491a7c86cb0b3b497441828e1e478ee735be05a8f8c1291bb1e084e0df6f7"
+    },
+    "vss-deploy-profile/alerts_vlm@RTXPRO6000BW": {
+      "files": 37,
+      "tree_sha256": "2c2bb18bc4a1413cc510d817ebd63dcb8f701b4688e6eebcbf55abca2982207f"
+    },
+    "vss-deploy-profile/base@RTXPRO6000BW": {
+      "files": 37,
+      "tree_sha256": "d3d48484b2333fb9566371dbe33603aa53617119608ef9149b77a3d1a17308d6"
+    },
+    "vss-deploy-profile/lvs@RTXPRO6000BW": {
+      "files": 37,
+      "tree_sha256": "8354a31593d881ccae6cb399a0bc9846520502cf4f076fd2bafde098de3d0994"
+    },
+    "vss-deploy-profile/search@RTXPRO6000BW": {
+      "files": 37,
+      "tree_sha256": "cd1e931f9799be8c0b805fe4eda8453e69c58064fc976f3f6af1affe9ab90bd3"
+    },
+    "vss-deploy-profile/warehouse@RTXPRO6000BW": {
+      "files": 37,
+      "tree_sha256": "37793023f311dee2471fe6ad5c780fa95fc020b4816c8d2e6f3a32c12f91f776"
+    },
+    "vss-deploy-video-embedding/standalone_deploy@RTXPRO6000BW": {
+      "files": 19,
+      "tree_sha256": "1baada21e46eade67d7846ca278a8b0d66cad1d3d9694f8fd10b32fcebfbf619"
+    },
+    "vss-generate-video-calibration/auto-calibration@RTXPRO6000BW": {
+      "files": 209,
+      "tree_sha256": "8de33d8b7ac3913e4288b190929e9ac2e08833cb25f3dd6fbc551e86ab2ff099"
+    },
+    "vss-generate-video-report/base_profile_report@RTXPRO6000BW": {
+      "files": 119,
+      "tree_sha256": "24fe19a93a4cff4145b98b9fa7539caa26e87cad52673881f0c588edd10886b4"
+    },
+    "vss-manage-alerts/alerts_vlm_real_time@L40S": {
+      "files": 180,
+      "tree_sha256": "af64d00880e1b2b7f1fef68ba8d466b7a40d602670223c1ca2e1ddf930acb814"
+    },
+    "vss-manage-alerts/always_on_operate@L40S": {
+      "files": 117,
+      "tree_sha256": "f80d549bcf438686f1b0d5eed36fd9617b021c08feecdd92aac19a5b07f592fd"
+    },
+    "vss-manage-alerts/cv_mode_gate@L40S": {
+      "files": 102,
+      "tree_sha256": "433bc2b4288b6b8d908165da27e0ee4389d9185c08ec23fc43df8d9d0b7ff3df"
+    },
+    "vss-manage-alerts/ondemand_verification@L40S": {
+      "files": 117,
+      "tree_sha256": "e95e73d8d58571a7d7fc5ea45a0963c551f90a449226193a764131d35535bff6"
+    },
+    "vss-manage-alerts/routing_e_gate_negative@L40S": {
+      "files": 204,
+      "tree_sha256": "3c3b64fce3e03109f57a59b08697ef6d3f7b8cccf9facea0cc33a7b5aca6f783"
+    },
+    "vss-manage-alerts/routing_vlm_c_vs_d@L40S": {
+      "files": 156,
+      "tree_sha256": "b3336ccb3b5c000fdeeac4828d2aaa87c07ee256552eea8a1ae29abb17da0e78"
+    },
+    "vss-manage-alerts/slack_notify_ops@L40S": {
+      "files": 156,
+      "tree_sha256": "a3655a2fc062b16e7a322163a3ae942fc2a0618180c059e237c92150ed74d4cc"
+    },
+    "vss-manage-alerts/subscriptions_create_phrasings@L40S": {
+      "files": 204,
+      "tree_sha256": "28807b7182479c6dd85ad6182fd1a69d5619fd87b80ada287d640b933691f1bf"
+    },
+    "vss-manage-alerts/subscriptions_edge_cases@L40S": {
+      "files": 153,
+      "tree_sha256": "e10892b258ff7e68ec8e8750436fa704a483940a341ee9a86149f6cbb5225310"
+    },
+    "vss-manage-alerts/subscriptions_lifecycle@L40S": {
+      "files": 204,
+      "tree_sha256": "3b40344ea59747d26e404eef26a2a7faf86c264d3de9cd30c5833481d6ad8181"
+    },
+    "vss-manage-alerts/verification_flow@L40S": {
+      "files": 153,
+      "tree_sha256": "325c0135c00f8701fe4032cb2feec8f36764f201bd758e995d9a10e2d4d4852c"
+    },
+    "vss-manage-video-io-storage/nvstreamer_ops@L40S": {
+      "files": 57,
+      "tree_sha256": "f13309bf79a521989080847ab5d760810027de4266ce5b60e7e8e51f3f32cf72"
+    },
+    "vss-manage-video-io-storage/vios_ops@L40S": {
+      "files": 247,
+      "tree_sha256": "11903859fcd73702722f6847c1cd30d32013a75b5f620c0706b823c18ac4785b"
+    },
+    "vss-query-analytics/query_analytics@RTXPRO6000BW": {
+      "files": 78,
+      "tree_sha256": "dc1f974e8ca11b68717f46d3130b56e689b8354694a1e529da90f0a6b571c605"
+    },
+    "vss-search-archive/search@RTXPRO6000BW": {
+      "files": 216,
+      "tree_sha256": "49034b23fa52565047d8e8d72d67453427641ad7081d39c8814362d26f6c4ee9"
+    },
+    "vss-setup-behavior-analytics/deploy_search_and_alerts@ANY": {
+      "files": 23,
+      "tree_sha256": "d1136d2678b9bc6bf15cbd5ff780369bbd8fbf7c74b2083a74f47c3060459e91"
+    },
+    "vss-setup-behavior-analytics/fov_count_alert@ANY": {
+      "files": 23,
+      "tree_sha256": "021b2461e3bd6048eefb53856ec13abbbb744bc241eb59d42b1f4776b6afa229"
+    },
+    "vss-setup-behavior-analytics/proximity_alert@ANY": {
+      "files": 23,
+      "tree_sha256": "c08e24df5c6646953735fc430d6c76a20e5031bf958a0055e979a09523dfa84d"
+    },
+    "vss-setup-behavior-analytics/roi_bbox_overlap@ANY": {
+      "files": 23,
+      "tree_sha256": "f82b4f089b305a193bfc311b5306e3e0d3296a3e959806c3dcff90e9df38c706"
+    },
+    "vss-setup-behavior-analytics/standalone_deploy@ANY": {
+      "files": 23,
+      "tree_sha256": "24e71489decea787a6357f44de003c964baffa1edad136216051181289f92ac5"
+    },
+    "vss-setup-video-analytics-api/standalone_deploy@ANY": {
+      "files": 16,
+      "tree_sha256": "9d2be7614e8af3cb68750639ad00b9aec00ab9a87c186b111cf4b6d87751593f"
+    },
+    "vss-summarize-video/lvs_api_ops@RTXPRO6000BW": {
+      "files": 69,
+      "tree_sha256": "b35217d08e4560f56648b1498d3678dd7fed3931e9e278164637d25fb16375bf"
+    },
+    "vss-summarize-video/lvs_profile_summarize@RTXPRO6000BW": {
+      "files": 46,
+      "tree_sha256": "d9d80a4105bc34cb8675c39496e41e50fa56980386314ec72041c4fd9b52f3cf"
+    }
+  },
+  "ungenerated": {},
+  "version": 2
+}
