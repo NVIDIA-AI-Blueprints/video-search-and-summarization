@@ -16,6 +16,7 @@
 """Unit tests for RealtimeAlertService."""
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -348,6 +349,47 @@ class TestStopAlert:
 
         assert code == 200
         mock_rtvi_client.stop_stream.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stop_captions_and_stop_stream_are_sequential(
+        self, realtime_service, mock_rtvi_client
+    ):
+        """Regression test for the always-on camera_remove orphan race.
+
+        RTVI's ``remove_rtsp_stream`` is guarded by a per-stream mutex
+        that rejects a second concurrent teardown call for the same
+        stream with HTTP 409. Both ``/generate_captions`` DELETE and
+        ``/streams/delete`` route through it. Firing stop_captions and
+        stop_stream concurrently (``asyncio.gather``) let one lose that
+        race; when ``/streams/delete`` lost, RTVI's asset cleanup never
+        ran, permanently orphaning the stream record even though this
+        method reported the teardown as clean. ``stop_stream`` must not
+        start until ``stop_captions`` has fully completed.
+        """
+        create_data, _ = await realtime_service.start_alert(make_config())
+        rule_id = create_data["id"]
+
+        order = []
+
+        async def _stop_captions(*args, **kwargs):
+            order.append("captions_start")
+            await asyncio.sleep(0.01)
+            order.append("captions_end")
+            return {"status": "stopped"}
+
+        async def _stop_stream(*args, **kwargs):
+            order.append("stream_start")
+            return {"status": "deleted"}
+
+        mock_rtvi_client.stop_captions.side_effect = _stop_captions
+        mock_rtvi_client.stop_stream.side_effect = _stop_stream
+
+        await realtime_service.stop_alert(rule_id)
+
+        assert order == ["captions_start", "captions_end", "stream_start"], (
+            "stop_captions must fully complete before stop_stream starts "
+            f"— got {order}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -951,6 +993,172 @@ class TestPersistentStopAlert:
 
         assert code == 200
         assert fake_rule_store.get(rule_id) is None
+
+    @pytest.mark.asyncio
+    async def test_stop_captions_failure_continues(
+        self, persistent_service, fake_rule_store, mock_rtvi_client
+    ):
+        """A stop_captions failure must not skip stop_stream.
+
+        Persistent-path counterpart of TestStopAlert's
+        test_stop_captions_failure_continues — the in-memory and
+        persistent variants duplicate this error handling inline
+        (see :meth:`RealtimeAlertService._safe_teardown_rtvi_with_outcome`),
+        so each needs its own regression coverage.
+        """
+        create_data, _ = await persistent_service.start_alert(make_config())
+        rule_id = create_data["id"]
+        mock_rtvi_client.stop_captions.side_effect = httpx.ConnectError("timeout")
+
+        data, code = await persistent_service.stop_alert(rule_id)
+
+        assert code == 200
+        assert fake_rule_store.get(rule_id) is None
+        mock_rtvi_client.stop_stream.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_stop_captions_and_stop_stream_are_sequential(
+        self, persistent_service, fake_rule_store, mock_rtvi_client
+    ):
+        """Regression test for the always-on camera_remove orphan race.
+
+        This is the ES-backed path SDR's always-on camera_remove webhook
+        actually drives. RTVI's ``remove_rtsp_stream`` is guarded by a
+        per-stream mutex that rejects a second concurrent teardown call
+        for the same stream with HTTP 409 — both ``/generate_captions``
+        DELETE and ``/streams/delete`` route through it. Firing
+        stop_captions and stop_stream concurrently (``asyncio.gather``)
+        let one lose that race; when ``/streams/delete`` lost, RTVI's
+        asset cleanup never ran, permanently orphaning the stream record
+        (visible via RTVI's ``get-stream-info``) even though the ES rule
+        was already deleted and this method reported success. VIOS's
+        retry of camera_remove then found no tracked rule left and
+        never reconciled the orphan. ``stop_stream`` must not start
+        until ``stop_captions`` has fully completed.
+        """
+        create_data, _ = await persistent_service.start_alert(make_config())
+        rule_id = create_data["id"]
+
+        order = []
+
+        async def _stop_captions(*args, **kwargs):
+            order.append("captions_start")
+            await asyncio.sleep(0.01)
+            order.append("captions_end")
+            return {"status": "stopped"}
+
+        async def _stop_stream(*args, **kwargs):
+            order.append("stream_start")
+            return {"status": "deleted"}
+
+        mock_rtvi_client.stop_captions.side_effect = _stop_captions
+        mock_rtvi_client.stop_stream.side_effect = _stop_stream
+
+        await persistent_service.stop_alert(rule_id)
+
+        assert order == ["captions_start", "captions_end", "stream_start"], (
+            "stop_captions must fully complete before stop_stream starts "
+            f"— got {order}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_stop_alert_shared_stream_only_one_deletes(
+        self, persistent_service, fake_rule_store, mock_rtvi_client
+    ):
+        """Regression test: two rules sharing one RTVI stream, stopped
+        concurrently, must not both decide they're the last reader.
+
+        Each stop_alert deletes its own rule, then counts remaining
+        ACTIVE rules referencing the shared stream to decide whether to
+        call ``/streams/delete``. Without serializing "delete + count"
+        per stream, both concurrent deletes can land before either
+        count runs, so both counts observe zero remaining readers and
+        both fire ``/streams/delete`` for the same stream — the same
+        class of RTVI 409/orphan collision the sequencing fix
+        addressed, just triggered by two overlapping requests instead
+        of one. The fake store's delete is slowed slightly to force
+        the overlap deterministically.
+        """
+        d1, _ = await persistent_service.start_alert(make_config(alert_type="a"))
+        d2, _ = await persistent_service.start_alert(make_config(alert_type="b"))
+        assert (
+            fake_rule_store.get(d1["id"])["rtvi_stream_id"]
+            == fake_rule_store.get(d2["id"])["rtvi_stream_id"]
+        )
+
+        real_delete = fake_rule_store.delete
+
+        def _slow_delete(rule_id):
+            time.sleep(0.02)
+            return real_delete(rule_id)
+
+        fake_rule_store.delete = _slow_delete
+
+        await asyncio.gather(
+            persistent_service.stop_alert(d1["id"]),
+            persistent_service.stop_alert(d2["id"]),
+        )
+
+        assert mock_rtvi_client.stop_stream.await_count == 1, (
+            "exactly one of the two concurrent deletes should tear down "
+            f"the shared stream, got {mock_rtvi_client.stop_stream.await_count}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_stop_alert_shared_stream_rtvi_calls_never_overlap(
+        self, persistent_service, fake_rule_store, mock_rtvi_client
+    ):
+        """Regression test: the per-stream lock must cover the RTVI calls
+        themselves, not just the last-reader decision.
+
+        Two rules share a stream: one is not the last reader (only
+        stop_captions runs) and the other is (stop_captions then
+        stop_stream). If the lock were released before the RTVI calls
+        run, the non-last-reader's stop_captions could be in flight
+        while the last reader's stop_stream fires — RTVI's per-stream
+        mutex 409s whichever call loses that race, which can abort
+        /streams/delete before it cleans up the stream record. No two
+        RTVI calls for the shared stream may ever be in flight at once.
+        """
+        d1, _ = await persistent_service.start_alert(make_config(alert_type="a"))
+        d2, _ = await persistent_service.start_alert(make_config(alert_type="b"))
+        assert (
+            fake_rule_store.get(d1["id"])["rtvi_stream_id"]
+            == fake_rule_store.get(d2["id"])["rtvi_stream_id"]
+        )
+
+        real_delete = fake_rule_store.delete
+
+        def _slow_delete(rule_id):
+            time.sleep(0.02)
+            return real_delete(rule_id)
+
+        fake_rule_store.delete = _slow_delete
+
+        in_flight = 0
+        overlapped = False
+
+        async def _tracked_rtvi_call(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            await asyncio.sleep(0.03)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        mock_rtvi_client.stop_captions.side_effect = _tracked_rtvi_call
+        mock_rtvi_client.stop_stream.side_effect = _tracked_rtvi_call
+
+        await asyncio.gather(
+            persistent_service.stop_alert(d1["id"]),
+            persistent_service.stop_alert(d2["id"]),
+        )
+
+        assert not overlapped, (
+            "RTVI calls for the shared stream overlapped across two "
+            "concurrent stop_alert callers"
+        )
 
 
 class TestPersistentListAlerts:
@@ -2696,3 +2904,401 @@ class TestStreamIdentityConflict:
         assert data["error"] == "rtvi_stream_conflict"
         # PENDING row from Step 0 must be cleaned up.
         assert fake_rule_store._docs == {}
+
+
+class TestReconcileOrphanedStream:
+    """RealtimeAlertService.reconcile_orphaned_stream"""
+
+    @pytest.mark.asyncio
+    async def test_deletes_stream_with_no_owning_rule(
+        self, realtime_service, mock_rtvi_client
+    ):
+        mock_rtvi_client.get_stream_info.return_value = [{"id": "orphan-1"}]
+
+        found = await realtime_service.reconcile_orphaned_stream("orphan-1")
+
+        assert found is True
+        mock_rtvi_client.stop_captions.assert_awaited_once_with("orphan-1")
+        mock_rtvi_client.stop_stream.assert_awaited_once_with("orphan-1")
+
+    @pytest.mark.asyncio
+    async def test_does_not_delete_stream_still_used_by_active_rule(
+        self, realtime_service, mock_rtvi_client
+    ):
+        """Regression test: a regular (non-always-on) rule can reuse an
+        RTVI stream via sensor_id (see
+        :meth:`RealtimeAlertService._resolve_or_add_stream`). Nothing
+        tracking a stream under *this* caller's id doesn't mean no rule
+        anywhere still depends on it — reconcile must not delete a
+        stream an active rule still references.
+
+        Same-instance case: the rule and the reconcile call happen on
+        the same RealtimeAlertService object. See
+        test_does_not_delete_stream_used_by_rule_on_other_instance for
+        the topology this actually runs under in production.
+        """
+        await realtime_service.start_alert(make_config())
+        mock_rtvi_client.get_stream_info.return_value = [{"id": "stream-abc-123"}]
+
+        found = await realtime_service.reconcile_orphaned_stream("stream-abc-123")
+
+        assert found is False
+        mock_rtvi_client.stop_captions.assert_not_awaited()
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_does_not_delete_stream_used_by_rule_on_other_instance(
+        self, persistent_service, fake_rule_store,
+    ):
+        """Regression test for the actual production topology.
+
+        get_always_on_service() deliberately wires AlwaysOnService to a
+        *separate*, in-memory-only RealtimeAlertService instead of the
+        persistent singleton regular REST calls use (see that
+        function's docstring — this avoids duplicating ES rows after a
+        restart). Without extra_rule_store giving that instance
+        read-only visibility into the same ES store,
+        reconcile_orphaned_stream running on it is blind to a "regular"
+        rule created through the *other*, persistent instance and will
+        tear down a stream that rule still depends on — exactly the
+        failure this test reproduces if extra_rule_store isn't wired.
+        """
+        await persistent_service.start_alert(make_config())
+
+        with patch(
+            "realtime.services.realtime_service.load_config",
+            return_value={
+                "rtvi_vlm": {
+                    "base_url": "http://mock:8000",
+                    "timeout": 5,
+                    "default_model": "default-vlm",
+                    "captions_ack_timeout": 0.1,
+                    "stream_readiness_poll_interval": 0.01,
+                    "stream_readiness_max_wait": 0.05,
+                }
+            },
+        ):
+            always_on_svc = RealtimeAlertService(extra_rule_store=fake_rule_store)
+        always_on_client = AsyncMock()
+        always_on_client.get_stream_info.return_value = [{"id": "stream-abc-123"}]
+        always_on_svc._client = always_on_client
+
+        found = await always_on_svc.reconcile_orphaned_stream("stream-abc-123")
+
+        assert found is False
+        always_on_client.stop_captions.assert_not_awaited()
+        always_on_client.stop_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_noop_when_stream_not_live(self, realtime_service, mock_rtvi_client):
+        mock_rtvi_client.get_stream_info.return_value = []
+
+        found = await realtime_service.reconcile_orphaned_stream("gone-already")
+
+        assert found is False
+        mock_rtvi_client.stop_captions.assert_not_awaited()
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_skips_delete_when_ref_count_unavailable(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        """Regression test: a failed ref-count query must not be
+        treated as "verified zero readers".
+
+        reconcile_orphaned_stream is deciding whether to delete a
+        stream nothing is known, from this instance's own registry, to
+        own — unlike stop_alert (deleting a stream *this* rule owns),
+        failing open here would actively delete a stream that might
+        still be in use instead of just costing an unnecessary
+        teardown. If the store query itself fails, it must skip.
+        """
+        mock_rtvi_client.get_stream_info.return_value = [{"id": "stream-abc-123"}]
+        fake_rule_store.list = MagicMock(side_effect=Exception("ES unavailable"))
+
+        found = await persistent_service.reconcile_orphaned_stream("stream-abc-123")
+
+        assert found is False
+        mock_rtvi_client.stop_captions.assert_not_awaited()
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_reconcile_calls_never_overlap(
+        self, realtime_service, mock_rtvi_client
+    ):
+        """Regression test: two concurrent reconcile calls for the same
+        stream (SDR's own camera_remove retry behavior is the expected
+        trigger) must not both pass the "still live" check and both
+        tear the stream down at once — the same RTVI-mutex collision
+        the rest of this PR fixes, reintroduced between reconcile
+        callers if this method isn't serialized per stream too.
+        """
+        mock_rtvi_client.get_stream_info.return_value = [{"id": "orphan-1"}]
+
+        in_flight = 0
+        overlapped = False
+
+        async def _tracked_get_stream_info():
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            await asyncio.sleep(0.02)
+            in_flight -= 1
+            return [{"id": "orphan-1"}]
+
+        mock_rtvi_client.get_stream_info.side_effect = _tracked_get_stream_info
+
+        await asyncio.gather(
+            realtime_service.reconcile_orphaned_stream("orphan-1"),
+            realtime_service.reconcile_orphaned_stream("orphan-1"),
+        )
+
+        assert not overlapped, (
+            "two concurrent reconcile_orphaned_stream calls for the "
+            "same stream overlapped"
+        )
+
+
+class TestCrossInstanceStreamTeardownLock:
+    """Regression coverage for sharing stream_teardown_locks across the
+    two RealtimeAlertService instances production actually runs.
+
+    get_realtime_service() (persistent singleton) and
+    get_always_on_service() (separate in-memory instance) are different
+    objects — see get_always_on_service's docstring for why. Without
+    sharing one stream_teardown_locks dict between them (in addition to
+    extra_rule_store, which only covers the ref-count query), each
+    instance's per-stream lock only serialises RTVI teardown calls made
+    through *that* instance, so two instances racing the same shared
+    stream could still both fire concurrent RTVI calls — reproducing
+    the 409/orphan collision the lock exists to prevent, just across
+    instances instead of within one.
+    """
+
+    def _build_instance(
+        self,
+        rule_store,
+        extra_rule_store,
+        shared_locks,
+        rules_registry=None,
+        extra_in_memory_rules=None,
+    ):
+        with patch(
+            "realtime.services.realtime_service.load_config",
+            return_value={
+                "rtvi_vlm": {
+                    "base_url": "http://mock:8000",
+                    "timeout": 5,
+                    "default_model": "default-vlm",
+                    "captions_ack_timeout": 0.1,
+                    "stream_readiness_poll_interval": 0.01,
+                    "stream_readiness_max_wait": 0.05,
+                }
+            },
+        ):
+            return RealtimeAlertService(
+                rule_store=rule_store,
+                extra_rule_store=extra_rule_store,
+                stream_teardown_locks=shared_locks,
+                rules_registry=rules_registry,
+                extra_in_memory_rules=extra_in_memory_rules,
+            )
+
+    @pytest.mark.asyncio
+    async def test_shared_lock_serializes_rtvi_calls_across_instances(
+        self, fake_rule_store,
+    ):
+        """svc_a (persistent, mirrors get_realtime_service()) owns a
+        rule on a stream; svc_b (in-memory + extra_rule_store, mirrors
+        get_always_on_service()) concurrently reconciles that same
+        stream. With the lock dict shared, svc_b's reconcile must wait
+        for svc_a's stop_alert to fully finish (and vice versa) — no
+        RTVI call from either instance may be in flight while the other
+        is running.
+        """
+        shared_locks = {}
+        svc_a = self._build_instance(fake_rule_store, None, shared_locks)
+        svc_b = self._build_instance(None, fake_rule_store, shared_locks)
+
+        client_a = AsyncMock()
+        client_a.start_stream.return_value = {"results": [{"id": "stream-abc-123"}]}
+        client_a.get_stream_info.return_value = []
+        client_a.generate_captions.return_value = {"status": "started"}
+        svc_a._client = client_a
+
+        client_b = AsyncMock()
+        client_b.get_stream_info.return_value = [{"id": "stream-abc-123"}]
+        svc_b._client = client_b
+
+        create_data, _ = await svc_a.start_alert(make_config())
+        rule_id = create_data["id"]
+
+        # svc_a's ES delete happens *before* its RTVI calls, inside the
+        # same locked section (see _stop_alert_persistent). Gate svc_b's
+        # reconcile on svc_a's stop_captions actually starting, so by
+        # the time svc_b's ref-count check runs, svc_a's rule is
+        # genuinely already gone from fake_rule_store — svc_b's
+        # ref-count correctly (not accidentally) sees zero other active
+        # rules and proceeds to its own RTVI calls. That isolates the
+        # lock as the only thing that can still prevent overlap; a test
+        # that raced both from t=0 would be confounded by svc_b's
+        # ref-count sometimes still seeing svc_a's not-yet-deleted rule
+        # and backing off for an unrelated reason.
+        a_in_rtvi_calls = asyncio.Event()
+        in_flight = 0
+        overlapped = False
+
+        async def _tracked_a_captions(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            a_in_rtvi_calls.set()
+            await asyncio.sleep(0.05)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        async def _tracked(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            await asyncio.sleep(0.03)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        client_a.stop_captions.side_effect = _tracked_a_captions
+        client_a.stop_stream.side_effect = _tracked
+        client_b.stop_captions.side_effect = _tracked
+        client_b.stop_stream.side_effect = _tracked
+
+        async def _reconcile_once_a_is_mid_teardown():
+            await a_in_rtvi_calls.wait()
+            return await svc_b.reconcile_orphaned_stream("stream-abc-123")
+
+        await asyncio.gather(
+            svc_a.stop_alert(rule_id),
+            _reconcile_once_a_is_mid_teardown(),
+        )
+
+        assert not overlapped, (
+            "RTVI calls from two separate RealtimeAlertService "
+            "instances overlapped for the same shared stream"
+        )
+
+    @pytest.mark.asyncio
+    async def test_persistent_instance_sees_always_on_rule_via_extra_in_memory_rules(
+        self, fake_rule_store,
+    ):
+        """Regression test for the reverse direction of the
+        cross-instance ref-count gap: get_realtime_service()'s
+        persistent instance must not be blind to an always-on rule
+        (in-memory only, never written to ES) sharing its stream.
+
+        Deterministic, no timing needed: without extra_in_memory_rules,
+        deleting a regular rule that reuses a camera's sensor_id as
+        rtvi_stream_id sees zero ES readers and tears the stream down
+        under a live always-on rule — the mirror of the collision
+        extra_rule_store prevents in the other direction.
+        """
+        shared_always_on_rules = {}
+        svc_persistent = self._build_instance(
+            fake_rule_store, None, {},
+            extra_in_memory_rules=shared_always_on_rules,
+        )
+        client_persistent = AsyncMock()
+        client_persistent.start_stream.return_value = {
+            "results": [{"id": "stream-abc-123"}]
+        }
+        client_persistent.get_stream_info.return_value = []
+        client_persistent.generate_captions.return_value = {"status": "started"}
+        svc_persistent._client = client_persistent
+
+        create_data, _ = await svc_persistent.start_alert(make_config())
+        rule_id = create_data["id"]
+
+        # Simulate a live always-on rule sharing the same stream — the
+        # same shape get_always_on_service()'s RealtimeAlertService
+        # writes into its own _rules dict, which rules_registry makes
+        # the same object as shared_always_on_rules here.
+        shared_always_on_rules["always-on-rule-1"] = {
+            "rtvi_stream_id": "stream-abc-123",
+            "status": "active",
+        }
+
+        data, code = await svc_persistent.stop_alert(rule_id)
+
+        assert code == 200
+        client_persistent.stop_captions.assert_awaited_once()
+        client_persistent.stop_stream.assert_not_awaited()
+
+
+class TestCleanupFailedRuleLocking:
+    """_cleanup_failed_rule must hold the per-stream teardown lock like
+    every other RTVI-teardown call site.
+
+    It runs as a fire-and-forget asyncio.create_task from a
+    caption-task failure callback (see the caller in start_alert), so
+    it can genuinely be concurrent with a stop_alert or
+    reconcile_orphaned_stream for the same stream — not just a
+    theoretical race.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cleanup_serializes_with_concurrent_stop_alert(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        d1, _ = await persistent_service.start_alert(make_config(alert_type="a"))
+        d2, _ = await persistent_service.start_alert(make_config(alert_type="b"))
+        stream_id = fake_rule_store.get(d1["id"])["rtvi_stream_id"]
+        assert fake_rule_store.get(d2["id"])["rtvi_stream_id"] == stream_id
+
+        # d1's ES delete happens *before* its RTVI calls, inside the
+        # same locked section. Gate _cleanup_failed_rule on d1's
+        # stop_captions actually starting, so by the time its own
+        # ref-count runs, d1's ES doc is genuinely already gone —
+        # isolating the lock as the only thing that can still prevent
+        # its stop_stream call from overlapping d1's still-in-flight
+        # stop_captions call.
+        d1_in_rtvi_calls = asyncio.Event()
+        in_flight = 0
+        overlapped = False
+
+        async def _tracked_d1_captions(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            d1_in_rtvi_calls.set()
+            await asyncio.sleep(0.05)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        async def _tracked(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            await asyncio.sleep(0.03)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        mock_rtvi_client.stop_captions.side_effect = _tracked_d1_captions
+        mock_rtvi_client.stop_stream.side_effect = _tracked
+
+        async def _cleanup_once_d1_is_mid_teardown():
+            await d1_in_rtvi_calls.wait()
+            await persistent_service._cleanup_failed_rule(
+                stream_id, alert_rule_id=d2["id"],
+            )
+
+        await asyncio.gather(
+            persistent_service.stop_alert(d1["id"]),
+            _cleanup_once_d1_is_mid_teardown(),
+        )
+
+        assert not overlapped, (
+            "RTVI calls from stop_alert and _cleanup_failed_rule "
+            "overlapped for the same shared stream"
+        )
