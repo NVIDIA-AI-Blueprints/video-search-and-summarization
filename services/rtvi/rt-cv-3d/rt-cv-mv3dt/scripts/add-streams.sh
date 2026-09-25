@@ -578,17 +578,16 @@ report_removal_blocked() {
   echo "       cd docker && docker compose up -d --force-recreate perception" >&2
 }
 
-# First-buffer alignment runs once per pipeline: the flag latches on the first
-# batch and is never reset, so a set registered later shares no time origin.
-report_alignment_reset() {
-  echo
-  echo "   Note: no streams are registered now. Streams added from now on are not"
-  echo "   guaranteed to be time synchronized. Please recreate perception before"
-  echo "   registering streams again to avoid timing issues:"
-  echo
-  echo "     cd docker && docker compose up -d --force-recreate perception"
-  echo
-}
+# There used to be a note here warning that streams added after the registry
+# empties are not guaranteed to share a time origin, on the theory that
+# first_batch_aligned latches once per pipeline. Measured 2026-09-25 on a live
+# four-camera stack: a pipeline that never had a stream removed shows the same
+# cross-sensor spread as one cycled through remove-all and re-add, three runs
+# each, indistinguishable. Removal does not cause a desync, so the warning
+# pointed the user at the wrong thing and fired on every clean --remove-all.
+#
+# The spread itself, one frame at 30 FPS, is present from a cold start and is
+# not specific to removal. It is not a reason to recreate the container.
 
 if [[ "$MODE" == remove ]]; then
   if (( REMOVE_ALL )); then
@@ -662,11 +661,6 @@ if [[ "$MODE" == remove ]]; then
   if ! show_stream_info 2>/dev/null; then
     report_api_lost
     (( rc )) || rc=1
-  else
-    # A failed query is not an empty one: advise the reset only on a real answer.
-    if remaining="$(registered_camera_ids 2>/dev/null)"; then
-      [[ -z "${remaining//[[:space:]]/}" ]] && report_alignment_reset
-    fi
   fi
   exit "$rc"
 fi
