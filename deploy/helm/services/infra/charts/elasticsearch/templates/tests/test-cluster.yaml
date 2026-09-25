@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "elasticsearch.fullname" . }}-test-cluster
+  labels:
+    {{- include "elasticsearch.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: cluster-health
+      image: {{ .Values.volumeInit.image }}:{{ .Values.volumeInit.tag }}
+      command:
+        - sh
+        - -ec
+        - |
+          expected={{ .Values.replicas }}
+          health_url="http://{{ include "elasticsearch.fullname" . }}:{{ .Values.service.port }}/_cluster/health?wait_for_nodes=%3E%3D${expected}&wait_for_status=yellow&timeout=120s"
+          response="$(wget -qO- "${health_url}")"
+          nodes="$(printf '%s' "${response}" | sed -n 's/.*"number_of_nodes":\([0-9][0-9]*\).*/\1/p')"
+          status="$(printf '%s' "${response}" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')"
+          test -n "${nodes}"
+          test "${nodes}" -ge "${expected}"
+          test "${status}" = green -o "${status}" = yellow
+{{- end }}

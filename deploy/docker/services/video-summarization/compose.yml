@@ -24,6 +24,13 @@ services:
       - ${BACKEND_HOST_PORT:-38111}:${BACKEND_PORT:-38111}
       - ${LVS_MCP_HOST_PORT:-38112}:${LVS_MCP_PORT:-38112}
 
+    # The process-based ContextManager pool can exceed Docker's default
+    # descriptor limit under sustained concurrency.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
     # Volume mounts
     volumes:
       # Mount config.yaml and set CA_RAG_CONFIG_PATH to this location
@@ -107,6 +114,7 @@ services:
       # to avoid host-port collisions in multi-profile deployments.
       - LVS_ENABLE_MCP=${LVS_ENABLE_MCP:-false}
       - VSS_LOG_LEVEL=${VSS_LOG_LEVEL:-INFO}
+      - VSS_EXTRA_ARGS=${VSS_EXTRA_ARGS:-}
       - VLM_SYSTEM_PROMPT=""
 
       # RTVI-VLM integration (routes VLM calls to the RTVI container /generate_captions)
