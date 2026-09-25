@@ -1094,6 +1094,10 @@ class ViaServer:
             responses={
                 200: {"description": "Successful Response."},
                 **add_common_error_responses(),
+                502: {
+                    "model": LvsError,
+                    "description": "A summarization stage returned an unusable result.",
+                },
                 503: {
                     "model": LvsError,
                     "description": "Server is busy. Client may try again later.",
@@ -1161,11 +1165,15 @@ class ViaServer:
             if req_info.status == RequestInfo.Status.FAILED:
                 rtvi_status = getattr(req_info, "rtvi_status_code", None)
                 rtvi_code = getattr(req_info, "rtvi_error_code", None)
+                error_status = getattr(req_info, "error_status_code", None)
+                error_code = getattr(req_info, "error_code", None)
                 error_msg = req_info.error_message or "Unknown error"
                 raise ViaException(
                     error_msg,
-                    rtvi_code or "InternalServerError",
-                    rtvi_status or 500,
+                    rtvi_code or error_code or "InternalServerError",
+                    rtvi_status or error_status or 500,
+                    job_id=request_id,
+                    failed_stage=getattr(req_info, "failed_stage", None),
                 )
 
             return CompletionResponse(
@@ -1284,6 +1292,10 @@ class ViaServer:
             responses={
                 200: {"description": "Successful Response."},
                 **add_common_error_responses(),
+                502: {
+                    "model": LvsError,
+                    "description": "A summarization stage returned an unusable result.",
+                },
                 503: {
                     "model": LvsError,
                     "description": (
@@ -1301,6 +1313,10 @@ class ViaServer:
             responses={
                 200: {"description": "Successful Response."},
                 **add_common_error_responses(),
+                502: {
+                    "model": LvsError,
+                    "description": "A summarization stage returned an unusable result.",
+                },
                 503: {
                     "model": LvsError,
                     "description": (
@@ -1637,10 +1653,14 @@ class ViaServer:
                     rtvi_code = getattr(req_info, "rtvi_error_code", None)
                     dep_status = getattr(req_info, "dependency_http_status", None)
                     dep_code = getattr(req_info, "dependency_error_code", None)
+                    error_status = getattr(req_info, "error_status_code", None)
+                    error_code = getattr(req_info, "error_code", None)
                     raise ViaException(
                         req_info.error_message or "Failed to generate summary",
-                        rtvi_code or dep_code or "InternalServerError",
-                        rtvi_status or dep_status or 500,
+                        rtvi_code or dep_code or error_code or "InternalServerError",
+                        rtvi_status or dep_status or error_status or 500,
+                        job_id=request_id,
+                        failed_stage=getattr(req_info, "failed_stage", None),
                     )
 
                 # Create response json and return it
@@ -1844,8 +1864,14 @@ class ViaServer:
         # Handle exceptions and return error details in format specified in the API schema.
         @self._app.exception_handler(ViaException)
         async def handle_via_exception(request, ex: ViaException) -> LvsError:
+            content = {"code": ex.code, "message": ex.message}
+            if ex.job_id:
+                content["job_id"] = ex.job_id
+            if ex.failed_stage:
+                content["failed_stage"] = ex.failed_stage
             return JSONResponse(
-                status_code=ex.status_code, content={"code": ex.code, "message": ex.message}
+                status_code=ex.status_code,
+                content=content,
             )
 
         # Handle exceptions and return error details in format specified in the API schema.
@@ -1952,4 +1978,3 @@ if __name__ == "__main__":
 
     server = ViaServer(args)
     server.run()
-
