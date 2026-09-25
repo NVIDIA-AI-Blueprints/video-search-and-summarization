@@ -236,6 +236,54 @@ print(" ".join(sorted(str(i) for i in ids if i)))
 }
 check_camera_consistency
 
+# The perception tag has to match the machine's architecture. The aarch64 build
+# ships as a separate -sbsa tag; the default tag's arm64 variant carries no
+# NVIDIA decoder at all (no libgstnvvideo4linux2.so, no tegra libraries), so
+# nvv4l2decoder cannot be created, GStreamer falls back, extract-sei-type5-data
+# is unavailable and nvstreammux drops every buffer. The operator sees an
+# element-creation failure deep in the pipeline instead of a wrong-image message.
+# That is bug 6575042. Settle it here, before anything is staged.
+#
+# Only the stock ghcr image follows this tag convention, so a custom
+# PERCEPTION_IMAGE is left alone. SKIP_ARCH_CHECK=1 bypasses the whole thing.
+check_perception_arch() {
+  [ "${SKIP_ARCH_CHECK:-0}" = "1" ] && return 0
+
+  local image="${PERCEPTION_IMAGE:-}" tag="${PERCEPTION_TAG:-}" arch
+  [ -n "$tag" ] || return 0
+  case "$image" in
+    ''|*ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv) ;;
+    *) return 0 ;;                       # custom image, convention does not apply
+  esac
+
+  arch="$(uname -m)"
+  case "$arch" in
+    aarch64|arm64)
+      case "$tag" in
+        *-sbsa|*sbsa*) return 0 ;;
+        *) { echo "ERROR: perception image does not match this machine, nothing was staged."
+             echo "       $arch needs the -sbsa tag; docker/.env has PERCEPTION_TAG=\"$tag\"."
+             echo "       That image carries no NVIDIA decoder, so sources register and then"
+             echo "       produce no frames (bug 6575042)."
+             echo "       Set PERCEPTION_TAG=\"${tag}-sbsa\" in docker/.env and restage,"
+             echo "       or re-run with SKIP_ARCH_CHECK=1 to stage anyway."; } >&2
+           exit 1 ;;
+      esac ;;
+    x86_64|amd64)
+      case "$tag" in
+        *-sbsa|*sbsa*)
+          { echo "ERROR: perception image does not match this machine, nothing was staged."
+            echo "       PERCEPTION_TAG=\"$tag\" is the aarch64 build and this host is $arch."
+            echo "       Set PERCEPTION_TAG=\"${tag%-sbsa}\" in docker/.env and restage,"
+            echo "       or re-run with SKIP_ARCH_CHECK=1 to stage anyway."; } >&2
+          exit 1 ;;
+        *) return 0 ;;
+      esac ;;
+    *) return 0 ;;                       # unknown architecture, say nothing
+  esac
+}
+check_perception_arch
+
 # enc-type=1 needs an encoder the stock image lacks. Settle it before staging so
 # a config known to fail at runtime is never written.
 ensure_sw_encoder() {
