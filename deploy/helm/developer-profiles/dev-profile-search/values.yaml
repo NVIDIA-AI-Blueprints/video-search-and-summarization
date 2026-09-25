@@ -455,6 +455,10 @@ rtvi:
     # Long generations outlast the controller default; this backend carries its
     # own server timeout instead of the ingress imposing one on every route.
     ingressTimeoutServer: "3600s"
+    # CR3 Super is a supported alternative here. Use the FP8 checkpoint.
+    # Change this together with agent.vss-agent.vlmName below; a mismatch
+    # fails with `400 BadParameters: No such model`.
+    #   modelPath: "ngc:nim/nvidia/cosmos3-super-reasoner:modelopt-fp8-final_format_fix"
     modelPath: "ngc:nim/nvidia/cosmos3-nano-reasoner:modelopt-fp8-final_format_fix"
     sharedNimPort: "8000"
     waitForKafka:
@@ -701,6 +705,9 @@ agent:
     # The VLM is served by rtvi-vlm (see rtvi.vss-rtvi-vlm) for both the critic and
     # video_understanding. Model id must match the rtvi-vlm /v1/models advertisement,
     # not the cosmos3-reasoner NIM id.
+    # Keep paired with rtvi.vss-rtvi-vlm.modelPath above. For the CR3 Super
+    # (FP8) alternative documented there, use:
+    #   vlmName: nim_nvidia_cosmos3-super-reasoner_modelopt-fp8-final_format_fix
     vlmName: nim_nvidia_cosmos3-nano-reasoner_modelopt-fp8-final_format_fix
     # Search routes VLM calls (critic and video_understanding) through vss-rtvi-vlm.
     # rtviVlmServiceName feeds the RTVI_VLM_BASE_URL env below; leave rtviVlmBaseUrl empty
