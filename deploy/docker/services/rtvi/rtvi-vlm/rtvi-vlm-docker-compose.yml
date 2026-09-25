@@ -170,6 +170,7 @@ services:
       VLLM_MULTIMODAL_TENSOR_IPC: "${VLLM_MULTIMODAL_TENSOR_IPC:-}"
       # vLLM mm_encoder_attn_backend (e.g. for backend experiments).
       VLLM_MM_ENCODER_ATTN_BACKEND: "${VLLM_MM_ENCODER_ATTN_BACKEND:-}"
+      VLLM_DISABLED_KERNELS: "${VLLM_DISABLED_KERNELS:-FlashInferFP8ScaledMMLinearKernel}"
       # vLLM NVFP4 CT emulation toggle (set to "1" to enable on non-NVFP4 hardware).
       VLLM_USE_NVFP4_CT_EMULATIONS: "${VLLM_USE_NVFP4_CT_EMULATIONS:-0}"
       # Override path for vLLM patch script.
