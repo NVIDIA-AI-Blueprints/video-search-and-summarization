@@ -606,6 +606,14 @@ function get_rtvi_vllm_gpu_memory_utilization() {
     esac
   fi
 
+  # search co-locates RT-CV (SigLIP v2.0 + RT-DETR) with RT-VLM on one L40S GPU;
+  # 0.8 (38.4 GiB) starves RT-CV and crashes the vLLM EngineCore. 0.7 (33.6 GiB)
+  # leaves ~14 GiB for RT-CV.
+  if [[ "${_profile}" == "search" && "${_hardware_profile}" == "L40S" ]]; then
+    echo "0.7"
+    return
+  fi
+
   if [[ "${_vlm_mode}" == "local_shared" ]]; then
     case "${_hardware_profile}" in
       # High-memory boards: vLLM claims gpu_memory_utilization x total_memory

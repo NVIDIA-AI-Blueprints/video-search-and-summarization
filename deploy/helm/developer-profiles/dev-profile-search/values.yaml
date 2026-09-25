@@ -287,7 +287,7 @@ rtvi:
       DS_MODE_FLAG: "1"
       DS_MESSAGE_RATE: "1"
       VISION_ENCODER_MODEL: siglip_v2
-      VISION_ENCODER_VERSION: v1.1
+      VISION_ENCODER_VERSION: v2.0
       STREAM_TYPE: kafka
     otelSdkDisabled: 'true'
     otelServiceName: rtvi-cv
@@ -313,18 +313,18 @@ rtvi:
         org: nvidia
         sourcePath: rtdetr_2d_warehouse_vdeployable_rn50_v1.0.2/rtdetr_warehouse_v1.0.2.fp16.onnx
         destPath: rtdetr_warehouse_v1.0.2.fp16.onnx
-      - model: nvidia/tao/siglip_v2:deployable_v1.1
-        org: nvidia
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1.onnx
-        destPath: siglip_v2_v1.1.onnx
-      - model: nvidia/tao/siglip_v2:deployable_v1.1
-        org: nvidia
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_weights.bin
-        destPath: siglip_v2_v1.1_weights.bin
-      - model: nvidia/tao/siglip_v2:deployable_v1.1
-        org: nvidia
-        sourcePath: siglip_v2_vdeployable_v1.1/siglip_v2_v1.1_tokenizer
-        destPath: siglip_v2_v1.1_tokenizer
+      - model: nvstaging/tao/siglip_v2:deployable_v2.0
+        org: nvstaging
+        sourcePath: siglip_v2_vdeployable_v2.0/siglip_v2_v2.0.onnx
+        destPath: siglip_v2_v2.0.onnx
+      - model: nvstaging/tao/siglip_v2:deployable_v2.0
+        org: nvstaging
+        sourcePath: siglip_v2_vdeployable_v2.0/siglip_v2_v2.0_weights.bin
+        destPath: siglip_v2_v2.0_weights.bin
+      - model: nvstaging/tao/siglip_v2:deployable_v2.0
+        org: nvstaging
+        sourcePath: siglip_v2_vdeployable_v2.0/siglip_v2_v2.0_tokenizer
+        destPath: siglip_v2_v2.0_tokenizer
     models:
       authSecretName: ngc-api-key-secret
       authSecretKey: NGC_API_KEY
@@ -339,14 +339,14 @@ rtvi:
         onnxFile: rtdetr_warehouse_v1.0.2.fp16.onnx
         inferDims: 3;640;640
       # Vision encoder: only model + version needed; all paths derived by convention.
-      #   NGC model:  nvidia/tao/{model}:deployable_{version}
+      #   NGC model:  nvstaging/tao/{model}:deployable_{version}
       #   ONNX:       {model}_{version}.onnx
       #   Weights:    {model}_{version}_weights.bin
       #   Tokenizer:  {model}_{version}_tokenizer
       #   DS name:    {model}-onnx
       visionEncoder:
         model: siglip_v2
-        version: v1.1
+        version: v2.0
     resources:
       limits:
         nvidia.com/gpu: 1
