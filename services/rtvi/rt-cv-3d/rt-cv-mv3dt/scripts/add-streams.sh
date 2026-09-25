@@ -971,6 +971,12 @@ while True:
         break
     time.sleep(2)
 
+# The endpoint answered every time but never named a single stream. That is the
+# signature of stats not being collected at all (nvdslogger off in the sink
+# config), not of sources failing to decode, so it is not evidence of failure.
+if not baseline:
+    sys.exit(4)
+
 for cam in wanted:
     if cam in producing:
         continue
@@ -982,6 +988,20 @@ PY
 )" || rc=$?
 
   if (( rc == 0 || rc == 3 )); then
+    return 0
+  fi
+
+  # rc 4: the endpoint is there but reports no per-stream stats at all, so the
+  # check cannot tell a live stream from a dead one. Say so instead of calling
+  # every stream UNSEEN.
+  if (( rc == 4 )); then
+    echo
+    echo "   Note: could not verify activation. ${BASE}/api/v1/metrics returned no"
+    echo "   per-stream statistics for any stream. Those come from nvdslogger, which"
+    echo "   the shipped sink config disables, so this check has nothing to read."
+    echo "   The streams are registered. Confirm they are producing with:"
+    echo "     docker logs --since 60s vss-rtvi-cv-mv3dt 2>&1 | grep -aE 'Active sources|source_id'"
+    echo "   To enable this check, set nvdslogger=1 in the [sink] blocks and restage."
     return 0
   fi
 
