@@ -1,6 +1,6 @@
 ---
 name: vss-generate-video-calibration
-description: Use this skill when running AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, or when deploying vss-auto-calibration. Do not use for non-AMC calibration or runtime analytics.
+description: Use this skill when running or tuning AutoMagicCalib on local MP4s, RTSP, or the bundled sample dataset, or when deploying vss-auto-calibration. Do not use for non-AMC calibration or runtime analytics.
 license: Apache-2.0
 metadata:
   author: "Harshal Nishar <hnishar@nvidia.com>"
@@ -10,13 +10,13 @@ metadata:
 ---
 ## When to Use This Skill
 
-Run AutoMagicCalib end-to-end on local files, RTSP streams, or the bundled sample dataset and (when needed) deploy the AMC microservice.
+Run or tune AutoMagicCalib end-to-end on local files, RTSP streams, or the bundled sample dataset and (when needed) deploy the AMC microservice.
 
 Do not use for non-AMC camera calibration or runtime analytics.
 
 ## Workflow
 
-Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`; load only the reference needed for the selected input mode.
+Resolve tuning intent before input mode, then follow the applicable routing table and workflow below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/`; load only the references needed for the selected intent and input mode.
 
 ## Examples
 
@@ -36,11 +36,18 @@ Worked end-to-end examples are kept under `evals/` (each `*.json` manifest conta
 
 # VSS Generate Video Calibration
 
-Run AutoMagicCalib over one of three input sources and drive the calibration through the microservice REST API. The input-resolution work differs per source; everything from `verify_project` onward is identical and lives in this file. Pick the right input-mode reference and pair it with the [Shared Calibration Tail](#shared-calibration-tail) below.
+Run AutoMagicCalib over one of three input sources and drive the calibration through the microservice REST API. For normal single-run calibration, the input-resolution work differs per source and the shared work from `verify_project` onward lives in this file. Pair the selected input-mode reference with the [Shared Calibration Tail](#shared-calibration-tail); explicit tuning uses its own routed workflow below.
 
 Shared helper references are loaded only when needed:
 - Read [`references/common-steps.md`](references/common-steps.md) when a mode reference needs the shared `create_project`, video-upload, or handoff snippets.
 - Read [`references/calibration-tail.md`](references/calibration-tail.md) when you need the reusable Python implementation of the stage-linear-media → verify → VGGT/post-process → AMC/post-process → compare-results tail.
+- Read [`references/tuning.md`](references/tuning.md) first when the user explicitly asks to tune, optimize, or find AMC settings. It owns tuning project names and the multi-attempt lifecycle; do not run the ordinary shared calibration tail for that request.
+- Read [`references/calibration-parameters.md`](references/calibration-parameters.md) only when tuning evidence requires a numeric AMC configuration change.
+
+## Intent Routing
+
+- **Normal calibration** — follow the existing input-mode workflow and shared calibration tail. Run one AMC configuration, then offer bounded tuning after reporting a completed or tunable failed result. Do not start repeated attempts without an explicit tuning request or acceptance of that offer.
+- **Explicit tuning** — read [`references/tuning.md`](references/tuning.md) before the relevant input-mode reference. Use the input-mode reference only for source discovery, ordering, capture, and upload semantics; the tuning reference replaces its project-naming and shared-tail handoff instructions.
 
 ## Input Routing
 
@@ -130,10 +137,10 @@ Content-Type: application/json
 
 UI Step 3 (Parameters) does NOT cover detector choice; never assume the user picked one in the UI.
 
-**Also when there's no settings file, ask whether to tune the calibration parameters first** (`AskUserQuestion`):
+**Also when there's no settings file, ask whether to review the calibration parameters before this single run** (`AskUserQuestion`):
 
 - **Proceed with the default parameters** — well-suited to typical warehouse scenes; recommended unless the user has specific tuning in mind.
-- **Adjust parameters in the UI first** — open the project, go to Step 3: Parameters, change values, and click Save; then continue.
+- **Review or adjust parameters in the UI first** — open the project, go to Step 3: Parameters, change values, and click Save; then continue.
 
 In Step 3, set `layout_px_per_m` directly or measure a known two-point distance. Re-run post-processing after a scale or alignment change.
 
@@ -182,6 +189,12 @@ After `COMPLETED`, always give the user a way to review the result for that exac
 - **UI** — `http://<HOST_IP>:${VSS_AUTO_CALIBRATION_UI_HOST_PORT:-5000}`; open the project, then the Results page to view the overlay.
 - **Overlay image on disk** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/output/multi_view_results/BA_output/results_ba_scaled_world/overlay_img_*.png` (single-camera projects use `output/single_view_results/cam_00/verification_map_overlay.png`).
 - **Project files** — `${VSS_APPS_DIR}/services/auto-calibration/projects/project_<id>/`.
+
+### Optional Tuning Handoff
+
+After reporting a normal run, offer bounded tuning when the user wants further optimization or the failure logs identify a potentially tunable AMC stage. Do not offer numeric tuning for missing or invalid inputs, synchronization, alignment, layout scale, rectification, service, GPU, or storage failures.
+
+If the user accepts, read [`references/tuning.md`](references/tuning.md). Reuse the normal project as attempt 1 when its inputs and baseline are valid, preserve its existing AMC and VGGT results, and do not rename it.
 
 ## Settings File + Detector Pattern
 
