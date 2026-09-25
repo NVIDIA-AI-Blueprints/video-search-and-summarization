@@ -4,7 +4,7 @@
     "question": "Run a natural-language fusion search over archived VSS video, ingesting a clip first if needed.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent searches the requested archived source with fusion retrieval, using the agent-backed ingestion lifecycle first only when the named source is absent and the user authorizes ingestion.",
+    "ground_truth": "The agent searches the requested archived source with fusion retrieval, using `vss vios add` (the deployment's notification config fans it out) first only when the named source is absent and the user authorizes ingestion.",
     "expected_behavior": [
       "The agent loads vss-search-archive and preserves the requested source and visual constraints.",
       "The agent uses the supported search interface for the selected deployment.",

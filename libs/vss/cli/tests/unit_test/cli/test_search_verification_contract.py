@@ -14,8 +14,6 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-import pytest
-
 if TYPE_CHECKING:
     from types import ModuleType
 
@@ -54,7 +52,7 @@ def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None
     normalized_verification = " ".join(verification.split())
 
     assert len(main.splitlines()) < 500
-    assert 'version: "3.3.0"' in main
+    assert 'version: "3.4.0"' in main
     assert "The CLI attempts critic verification by default" in main
     assert "VSS_ORIGIN=$(vss configure show" in main
     assert "Do not repeat public-origin selection" in main
@@ -318,7 +316,11 @@ def test_search_routing_eval_rejects_partial_set_fallback() -> None:
 
 
 def test_source_lifecycle_uses_current_configure_contract() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
+    setup = (SEARCH_SKILL / "references/source_setup.md").read_text(encoding="utf-8")
+    ingest = (SEARCH_SKILL / "references/ingest.md").read_text(encoding="utf-8")
+    delete = (SEARCH_SKILL / "references/delete.md").read_text(encoding="utf-8")
+    lifecycle = setup + "\n" + ingest + "\n" + delete
+    eval_spec = (SEARCH_SKILL / "evals/search.json").read_text(encoding="utf-8")
     origin_selector = (SEARCH_SKILL / "scripts/select_brev_origin.sh").read_text(encoding="utf-8")
     # Prose assertions run against a whitespace-normalized copy so rewrapping a
     # paragraph or indenting it under a list marker doesn't fail the contract.
@@ -329,11 +331,14 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert 'configure --base-url "${VSS_ORIGIN}"' in lifecycle
     assert "configure show" in lifecycle
     assert "uv run --project" not in lifecycle and "vss search run --help" in lifecycle
-    assert "dev-profile-sample-data:3.2.0" in lifecycle
-    assert "mktemp -d" in lifecycle
+    # Fixture-specific content (the pinned NGC bundle, mktemp download) lives in
+    # the eval, not the shipped skill.
+    assert "dev-profile-sample-data:3.2.0" not in lifecycle
+    assert "dev-profile-sample-data:3.2.0" in eval_spec
+    assert "mktemp -d" not in lifecycle
     assert "Never send a mutating request directly" in lifecycle
     assert "if it is absent, continue" in lifecycle
-    assert "must not block fixture download, Agent-backed ingestion, or index readiness" in prose
+    assert "must not block ingestion, or index readiness" in prose
     assert "ONE shared 40-minute source-setup budget, not 40 minutes each" in prose
     assert "Deployment and public-origin selection are prerequisite work outside this ingestion budget" in prose
     assert "SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))" in lifecycle
@@ -344,13 +349,13 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert '.type == "vst"' in origin_selector
     assert origin_selector.count("curl ") == 1
     assert "Do not issue a public-origin `curl` before or after it" in prose
-    assert "readiness_timeout 300" in lifecycle
-    assert "readiness_timeout 900" in lifecycle
-    assert 'max-time "${DELETE_TIMEOUT}"' in lifecycle
-    assert 'max-time "${COUNT_TIMEOUT}"' in lifecycle
+    # One parameterized timeout helper, reused by ingest and delete; the
+    # agent-three-step upload/complete request caps are retired.
+    assert "source_timeout()" in lifecycle
+    assert "readiness_timeout 300" not in lifecycle
+    assert "readiness_timeout 900" not in lifecycle
     assert "DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))" in lifecycle
-    assert "delete_timeout()" in lifecycle
-    assert 'max-time "${DELETE_TIMEOUT}"' in lifecycle
+    assert "delete_timeout()" not in lifecycle
     assert 'RTSP_EMBED_INDEX="mdx-embed-filtered-*"' in lifecycle
     assert "resolve_upload_indexes()" in lifecycle
     assert "resolve_upload_indexes || exit 1" in lifecycle
@@ -358,26 +363,29 @@ def test_source_lifecycle_uses_current_configure_contract() -> None:
     assert 'select(. == "mdx-behavior-2025-01-01")' in lifecycle
     assert 'select(. == "mdx-raw-2025-01-01")' in lifecycle
     assert not re.search(r'(?m)^EMBED_INDEX="mdx-embed-filtered-\*"$', lifecycle)
-    assert 'delete_index_count "${BEHAVIOR_INDEX}" sensor.id.keyword' in lifecycle
-    assert 'delete_index_count "${RAW_INDEX}" sensorId.keyword' in lifecycle
+    # One count helper, parameterized by deadline; the delete tuples use it.
+    assert 'index_count "${DELETE_READINESS_DEADLINE}" "${BEHAVIOR_INDEX}" sensor.id.keyword' in lifecycle
+    assert 'index_count "${DELETE_READINESS_DEADLINE}" "${RAW_INDEX}" sensorId.keyword' in lifecycle
+    assert "delete_index_count" not in lifecycle
     assert "SAMPLE_RTVI_LOG == 1" not in lifecycle
     assert "Never keep an otherwise-ready setup waiting for an exact log message" in prose
 
     # The host CLI stamps the `vss configure` origin into screenshot_url, so the
-    # lifecycle must point at that lever and must not send the agent off editing
+    # skill must point at that lever and must not send the agent off editing
     # VST_EXTERNAL_URL (which only feeds the Agent-served path) to change it.
     assert "The host CLI stamps the origin you gave `vss configure`" in prose
     assert "Editing `VST_EXTERNAL_URL` in `generated.env` cannot change them" in prose
     assert "`VST_EXTERNAL_URL` governs the Agent-served path" in prose
 
-    # The handshake mints the upload URL from VST_EXTERNAL_URL, so posting the
-    # bytes to it verbatim fails whenever the selector chose the host-local
-    # fallback -- which the budget prose above promises will not block
-    # ingestion. Keep the re-anchor, and keep the media-URL prohibition scoped
-    # so it cannot be read as forbidding it.
-    assert 'UPLOAD_URL="${VSS_ORIGIN%/}/${UPLOAD_TARGET#*/}"' in lifecycle
+    # Mutations are `vss vios add`/`delete` now; the agent three-step and its
+    # handshake URL re-anchor are retired (the CLI owns the upload URL).
+    assert "vss vios add" in lifecycle
+    assert "vss vios delete" in lifecycle
+    assert "DELETE /api/v1/videos" in lifecycle
+    assert "/complete" not in lifecycle
+    assert "UPLOAD_URL=" not in lifecycle
+    assert "Post the bytes to the re-anchored" not in prose
     assert "Never rewrite a media URL returned in a search result" in prose
-    assert "Post the bytes to the re-anchored `UPLOAD_URL`" in prose
 
 
 def test_public_probe_rejects_redirects_and_accepts_vst_json(tmp_path: Path) -> None:
@@ -422,89 +430,44 @@ printf '%s' "${CURL_STATUS}"
     run_probe(200, '{"type":"vst","version":"3.2.0"}', "https://public.example")
 
 
-def test_readiness_timeout_caps_each_blocking_request() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    match = re.search(r"(readiness_timeout\(\) \{.*?\n\})", lifecycle, flags=re.DOTALL)
+def test_source_timeout_caps_each_blocking_request() -> None:
+    setup = (SEARCH_SKILL / "references/source_setup.md").read_text(encoding="utf-8")
+    match = re.search(r"(source_timeout\(\) \{.*?\n\})", setup, flags=re.DOTALL)
     assert match is not None
     script = f"""set -euo pipefail
 {match.group(1)}
-SEARCH_READINESS_DEADLINE=$(($(date +%s) + 3))
-value=$(readiness_timeout 900)
+DEADLINE=$(($(date +%s) + 3))
+value=$(source_timeout "${{DEADLINE}}" 900)
 [ "$value" -ge 1 ] && [ "$value" -le 3 ]
-SEARCH_READINESS_DEADLINE=$(($(date +%s) - 1))
-! readiness_timeout 30
+DEADLINE=$(($(date +%s) - 1))
+! source_timeout "${{DEADLINE}}" 30
 """
     subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
 
 
-@pytest.mark.parametrize(
-    ("returned_url", "origin", "expected"),
-    [
-        # The failure this recipe exists for: the handshake answers with the
-        # public secure link while the selector chose the host-local origin.
-        (
-            "https://7777-env.brevlab.com:443/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-        # Already anchored on the origin we are using: unchanged.
-        (
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-        # VIOS 3.2.0 defects the CLI repairs for media URLs, absorbed here too.
-        (
-            "http://http://localhost:30888/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-        (
-            "/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-        # The returned path is carried over as-is, so a deployment that serves
-        # VST under a prefix is re-anchored rather than mangled.
-        (
-            "https://public.example/edge/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/edge/vst/api/v1/storage/file",
-        ),
-        # A trailing slash on the recorded origin must not double up.
-        (
-            "https://public.example/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777/",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-    ],
-)
-def test_upload_url_is_reanchored_on_the_configured_origin(returned_url: str, origin: str, expected: str) -> None:
-    """The re-anchor block in the skill must move any handshake URL onto the
-    origin `vss configure` recorded. Run the block the agent actually reads
-    rather than a copy, so a doc edit that breaks it fails here."""
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    match = re.search(
-        r"(UPLOAD_TARGET=\$\{UPLOAD_URL\}\n.*?UPLOAD_URL=\"\$\{VSS_ORIGIN%/\}/\$\{UPLOAD_TARGET#\*/\}\")",
-        lifecycle,
-        flags=re.DOTALL,
-    )
-    assert match is not None, "the upload re-anchor block is missing from source_lifecycle.md"
+def test_ingest_uses_vss_vios_add_not_agent_three_step() -> None:
+    """Mutations are `vss vios add` / `vss vios delete`; the Agent three-step
+    upload and its handshake URL re-anchor are retired -- the CLI owns the
+    upload URL. Run the recipes the agent actually reads."""
+    ingest = (SEARCH_SKILL / "references/ingest.md").read_text(encoding="utf-8")
 
-    script = f"""set -euo pipefail
-UPLOAD_URL={shlex.quote(returned_url)}
-VSS_ORIGIN={shlex.quote(origin)}
-{match.group(1)}
-printf '%s' "${{UPLOAD_URL}}"
-"""
-    completed = subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
-    assert completed.stdout == expected
+    assert "vss vios add" in ingest
+    assert "vss vios delete" in ingest
+    assert "/api/v1/videos" not in ingest
+    assert "/complete" not in ingest
+    # No handshake URL re-anchor: the CLI mints and anchors the upload URL.
+    assert "UPLOAD_URL=" not in ingest
+    assert "UPLOAD_TARGET" not in ingest
+    assert "nvstreamer" not in ingest
+    assert "Post the bytes to the re-anchored" not in ingest
 
 
 def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    source_setup = lifecycle.split("## Pre-ingestion cleanup", 1)[1].split("## Delete source", 1)[0]
-    shell = "\n".join(re.findall(r"```bash\n(.*?)```", source_setup, flags=re.DOTALL))
+    setup = (SEARCH_SKILL / "references/source_setup.md").read_text(encoding="utf-8")
+    ingest = (SEARCH_SKILL / "references/ingest.md").read_text(encoding="utf-8")
+    # The source-setup budget covers setup + ingest; the delete step carries
+    # its own short deadline and is excluded from this budget.
+    shell = "\n".join(re.findall(r"```bash\n(.*?)```", setup + "\n" + ingest, flags=re.DOTALL))
 
     assert shell.count("SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))") == 1
     assert not re.search(r"(?m)^(?:DEADLINE|READINESS_DEADLINE|CLEANUP_DEADLINE)=", shell)
@@ -513,30 +476,34 @@ def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
 
 
 def test_delete_recipe_is_bounded_and_checks_all_cleanup_tuples() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    resolver_match = re.search(r"resolve_upload_indexes\(\) \{\n.*?\n\}", lifecycle, flags=re.DOTALL)
+    setup = (SEARCH_SKILL / "references/source_setup.md").read_text(encoding="utf-8")
+    delete = (SEARCH_SKILL / "references/delete.md").read_text(encoding="utf-8")
+    resolver_match = re.search(r"resolve_upload_indexes\(\) \{\n.*?\n\}", setup, flags=re.DOTALL)
     assert resolver_match is not None
     resolver = resolver_match.group(0)
+    timeout_match = re.search(r"(source_timeout\(\) \{.*?\n\})", setup, flags=re.DOTALL)
+    assert timeout_match is not None
+    count_match = re.search(r"(index_count\(\) \{.*?\n\})", setup, flags=re.DOTALL)
+    assert count_match is not None
     blocks = [
         block
-        for block in re.findall(r"```bash\n(.*?)```", lifecycle, flags=re.DOTALL)
+        for block in re.findall(r"```bash\n(.*?)```", delete, flags=re.DOTALL)
         if "DELETE_READINESS_DEADLINE=" in block
     ]
     assert len(blocks) == 1
     script = f"""set -euo pipefail
 curl() {{
   case "$*" in
-    *'-X DELETE'*) printf '%s\n' '{{"status":"success"}}' ;;
     *'/_count'*) printf '%s\n' '{{"count":0}}' ;;
     *) return 9 ;;
   esac
 }}
-# Source listing is `vss vios list` now, not a curl. Stub it in the CLI's own
-# shape -- {{count, sensors:[...]}} -- so the recipe's jq is exercised against
-# what the command actually returns.
+# `vss vios delete` is canonical now (no agent DELETE curl). Stub it, plus the
+# source listing and configure inventory in the CLI's own shape.
 vss_stub() {{
   case "$*" in
     'vios list') printf '%s\n' '{{"count":0,"type":null,"sensors":[]}}' ;;
+    vios\\ delete*) : ;;
     'configure show')
       printf '%s\n' \
         '{{"services":{{"elasticsearch":{{"indices":["mdx-embed-filtered-2025-01-01","mdx-behavior-2025-01-01","mdx-raw-2025-01-01"]}}}}}}'
@@ -552,6 +519,8 @@ SAVED_SOURCE_NAME=warehouse-ladder
 EMBED_INDEX=mdx-embed-filtered-2025-01-01
 BEHAVIOR_INDEX=mdx-behavior-2025-01-01
 RAW_INDEX=mdx-raw-2025-01-01
+{timeout_match.group(1)}
+{count_match.group(1)}
 {resolver}
 {blocks[0]}
 """

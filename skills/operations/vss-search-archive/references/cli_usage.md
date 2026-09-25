@@ -80,10 +80,11 @@ run fusion --query "person in white jacket running" --attribute "white jacket" \
 
 `--video-source` is matched **literally** against the index for `embed`,
 `attribute`, and `object` — the CLI does no name↔id resolution or VST
-validation, so an unknown source silently returns nothing (not an error). For
-only `tag` resolves a source name to its VST sensor ID (passing an already-id through); `fusion` matches the sensor ID literally — hand it the preserved sensor ID so the embedding leg's literal filter matches (the tag leg accepts IDs too). For `tag`, an unresolved source is dropped (not carried forward) and yields an empty, narrowed result (exit 0), not an error.
-Validating a named source against `vss vios list` is the skill's job (SKILL.md
-step 2) either way.
+validation, so an unknown source silently returns nothing (not an error). `tag`
+resolves a source name to its VST sensor ID (an already-id passes through);
+`fusion` matches the sensor ID literally. See the `--video-source` table in
+SKILL.md step 2 for which identifier each path takes; validating a named
+source against `vss vios list` is the skill's job either way.
 
 ## Retrieval tuning
 
@@ -91,7 +92,12 @@ step 2) either way.
 `--rrf-k`, `--rrf-w`, `--top-percent-filter`,
 `--embed-confidence-threshold`, `--min-cosine-similarity`. At least one
 provider weight must be positive; library defaults are `w_tag=0.45`,
-`w_embed=0.35`, `w_attribute=0.55`, `rrf_k=60`.
+`w_embed=0.35`, `w_attribute=0.55`, `rrf_k=60`. `--critic-eval-count N` caps
+how many retrieved hits the VLM critic verifies; hits beyond the cap stay
+`unverified`. Omit to verify every hit (bounded by `--top-k`). The critic is
+best-effort, fail-open, and already concurrent (semaphore 5), so for small
+top-k it costs about one VLM round trip; the cap bounds latency and remote-VLM
+cost on large result sets.
 
 `--no-merge-adjacent` reports raw retrieval windows. By default contiguous
 same-sensor windows merge into one result whose score is the mean of the merged
@@ -132,10 +138,11 @@ Never provide secrets through CLI flags. Kubernetes Secret values are not read
 by this command.
 
 `vss search run` is read-only. For upload, registration, deletion, or
-repair, use the agent-backed mutation workflows in the parent skill. **VLM tag
-ingestion** follows the build's notification config: where its tagging items are
-enabled, registering the source is enough; where they are not, a caller drives
-the controlled JSON-tag `generate_captions` leg — from any host that reaches the
-origin on a build that fronts RT-VLM at `/rtvi-vlm`, otherwise loopback-only on
-the deploy host. Both are in `vss-manage-video-io-storage`
+repair, use `vss vios add` / `vss vios delete` in the parent skill
+([source setup](source_setup.md), [ingest](ingest.md), [delete](delete.md)).
+**VLM tag ingestion** follows the build's notification config: where its
+tagging items are enabled, registering the source is enough; where they are
+not, a caller drives the controlled JSON-tag `generate_captions` leg — from
+any host that reaches the origin on a build that fronts RT-VLM at `/rtvi-vlm`,
+otherwise loopback-only on the deploy host. Both are in `vss-manage-video-io-storage`
 `references/provision-vios-source.md`.
