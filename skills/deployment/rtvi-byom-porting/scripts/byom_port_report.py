@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +29,26 @@ def _status(value: Any, evidence: Any = None) -> str:
     return "UNKNOWN"
 
 
-def _md_cell(value: Any, limit: int | None = None) -> str:
-    text = str(value).replace("\n", " ")
-    return (text[:limit] if limit else text).replace("|", r"\|")
+def _one_line(value: Any, limit: int | None = None) -> str:
+    text = " ".join(str(value).splitlines())
+    return text[:limit] if limit is not None else text
+
+
+def _md_text(value: Any, limit: int | None = None) -> str:
+    return re.sub(r"([\\`*_{}\[\]()<>#+\-.!|~&])", r"\\\1", _one_line(value, limit))
+
+
+def _md_code(value: Any) -> str:
+    text = _one_line(value)
+    if not text:
+        return "<code></code>"
+    fence = "`" * (max((len(run) for run in re.findall(r"`+", text)), default=0) + 1)
+    padding = (
+        " "
+        if not text.isspace() and (text.startswith(("`", " ")) or text.endswith(("`", " ")))
+        else ""
+    )
+    return f"{fence}{padding}{text}{padding}{fence}"
 
 
 def build_report(data: dict[str, Any]) -> str:
@@ -42,14 +60,14 @@ def build_report(data: dict[str, Any]) -> str:
         validation = {}
 
     lines = [
-        f"# RTVI BYOM Port Report: {_md_cell(model.get('name', 'unknown model'))}",
+        f"# RTVI BYOM Port Report: {_md_text(model.get('name', 'unknown model'))}",
         "",
         "## Model",
         "",
-        f"- Source: `{model.get('source', 'unknown')}`",
-        f"- Revision/tag: `{model.get('revision', 'unknown')}`",
-        f"- Backend: `{model.get('backend', 'unknown')}`",
-        f"- Container: `{model.get('container', 'unknown')}`",
+        f"- Source: {_md_code(model.get('source', 'unknown'))}",
+        f"- Revision/tag: {_md_code(model.get('revision', 'unknown'))}",
+        f"- Backend: {_md_code(model.get('backend', 'unknown'))}",
+        f"- Container: {_md_code(model.get('container', 'unknown'))}",
         "",
         "## Gates",
         "",
@@ -60,7 +78,7 @@ def build_report(data: dict[str, Any]) -> str:
         item = validation.get(key, {})
         if not isinstance(item, dict):
             item = {"status": item}
-        evidence = _md_cell(item.get("evidence", ""))
+        evidence = _md_text(item.get("evidence", ""))
         lines.append(
             f"| {label} | {_status(item.get('status'), evidence)} | {evidence or '-'} |"
         )
@@ -73,8 +91,8 @@ def build_report(data: dict[str, Any]) -> str:
     if smoke_rows:
         lines.extend(["| Prompt | Status | Output sample |", "|---|---:|---|"])
         for row in smoke_rows:
-            name = _md_cell(row.get("name", "unnamed"))
-            sample = _md_cell(row.get("sample", ""), 240)
+            name = _md_text(row.get("name", "unnamed"))
+            sample = _md_text(row.get("sample", ""), 240)
             lines.append(f"| {name} | {_status(row.get('status'), sample)} | {sample or '-'} |")
     else:
         lines.append("- No smoke results provided.")
@@ -90,17 +108,17 @@ def build_report(data: dict[str, Any]) -> str:
             "",
             "## Runtime Evidence",
             "",
-            f"- Integration path: {_md_cell(integration.get('path', 'unknown'))}",
-            f"- Image digest: `{integration.get('image_digest', 'unknown')}`",
-            f"- Eager mode: {_md_cell(integration.get('eager_mode', 'unknown'))}",
-            f"- Eager reason: {_md_cell(integration.get('eager_reason', 'not recorded'))}",
-            f"- Platform evidence: {_md_cell(integration.get('platforms', 'not recorded'))}",
-            f"- Custom kernels: {_md_cell(integration.get('custom_kernels', 'not recorded'))}",
-            f"- Accuracy: {_md_cell(performance.get('accuracy', 'not recorded'))}",
-            f"- Latency: {_md_cell(performance.get('latency', 'not recorded'))}",
-            f"- Throughput: {_md_cell(performance.get('throughput', 'not recorded'))}",
-            f"- GPU utilization: {_md_cell(performance.get('gpu_utilization', 'not recorded'))}",
-            f"- GPU memory: {_md_cell(performance.get('gpu_memory', 'not recorded'))}",
+            f"- Integration path: {_md_text(integration.get('path', 'unknown'))}",
+            f"- Image digest: {_md_code(integration.get('image_digest', 'unknown'))}",
+            f"- Eager mode: {_md_text(integration.get('eager_mode', 'unknown'))}",
+            f"- Eager reason: {_md_text(integration.get('eager_reason', 'not recorded'))}",
+            f"- Platform evidence: {_md_text(integration.get('platforms', 'not recorded'))}",
+            f"- Custom kernels: {_md_text(integration.get('custom_kernels', 'not recorded'))}",
+            f"- Accuracy: {_md_text(performance.get('accuracy', 'not recorded'))}",
+            f"- Latency: {_md_text(performance.get('latency', 'not recorded'))}",
+            f"- Throughput: {_md_text(performance.get('throughput', 'not recorded'))}",
+            f"- GPU utilization: {_md_text(performance.get('gpu_utilization', 'not recorded'))}",
+            f"- GPU memory: {_md_text(performance.get('gpu_memory', 'not recorded'))}",
         ]
     )
 
@@ -108,12 +126,12 @@ def build_report(data: dict[str, Any]) -> str:
     if not isinstance(caveats, list):
         caveats = [str(caveats)]
     lines.extend(["", "## Caveats", ""])
-    lines.extend([f"- {c}" for c in caveats] or ["- None recorded."])
+    lines.extend([f"- {_md_text(c)}" for c in caveats] or ["- None recorded."])
 
     next_step = data.get(
         "next_step", "Run a bounded smoke and quality validation and retain raw responses."
     )
-    lines.extend(["", "## Next Step", "", f"- {next_step}", ""])
+    lines.extend(["", "## Next Step", "", f"- {_md_text(next_step)}", ""])
     return "\n".join(lines)
 
 

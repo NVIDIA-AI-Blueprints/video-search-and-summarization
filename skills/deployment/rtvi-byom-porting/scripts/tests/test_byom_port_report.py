@@ -37,6 +37,70 @@ class ReportTest(unittest.TestCase):
         self.assertIn("- Latency: 42 ms", report)
         self.assertIn("- single caveat", report)
 
+    def test_escapes_untrusted_markdown_in_every_output_context(self):
+        value = "`code` **bold** [link](url) <tag> a|b"
+        report = MODULE.build_report(
+            {
+                "model": {
+                    "name": value,
+                    "source": value,
+                    "revision": value,
+                    "backend": value,
+                    "container": value,
+                },
+                "validation": {
+                    "legible_output": {"status": True, "evidence": value},
+                },
+                "smoke": [{"name": value, "status": True, "sample": value}],
+                "integration": {
+                    "path": value,
+                    "image_digest": value,
+                    "eager_mode": value,
+                    "eager_reason": value,
+                    "platforms": value,
+                    "custom_kernels": value,
+                },
+                "performance": {
+                    "accuracy": value,
+                    "latency": value,
+                    "throughput": value,
+                    "gpu_utilization": value,
+                    "gpu_memory": value,
+                },
+                "caveats": [value],
+                "next_step": value,
+            }
+        )
+
+        escaped = r"\`code\` \*\*bold\*\* \[link\]\(url\) \<tag\> a\|b"
+        code = "`` `code` **bold** [link](url) <tag> a|b ``"
+        self.assertIn(f"# RTVI BYOM Port Report: {escaped}", report)
+        self.assertIn(f"- Source: {code}", report)
+        self.assertIn(f"- Revision/tag: {code}", report)
+        self.assertIn(f"- Backend: {code}", report)
+        self.assertIn(f"- Container: {code}", report)
+        self.assertIn(f"| Output is legible | PASS | {escaped} |", report)
+        self.assertIn(f"| {escaped} | PASS | {escaped} |", report)
+        self.assertIn(f"- Image digest: {code}", report)
+        for label in (
+            "Integration path",
+            "Eager mode",
+            "Eager reason",
+            "Platform evidence",
+            "Custom kernels",
+            "Accuracy",
+            "Latency",
+            "Throughput",
+            "GPU utilization",
+            "GPU memory",
+        ):
+            self.assertIn(f"- {label}: {escaped}", report)
+        self.assertEqual(report.count(f"- {escaped}"), 2)
+        self.assertEqual(MODULE._md_code("a `` b"), "```a `` b```")
+        self.assertEqual(MODULE._md_code(""), "<code></code>")
+        self.assertEqual(MODULE._md_code(" "), "` `")
+        self.assertEqual(MODULE._md_text("AT&amp;T"), r"AT\&amp;T")
+
 
 if __name__ == "__main__":
     unittest.main()
