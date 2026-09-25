@@ -37,7 +37,11 @@ COPY libs/analytics/spatialai-data-utils /libs/analytics/spatialai-data-utils
 COPY services/configurators/vss-configurator/pyproject.toml \
     services/configurators/vss-configurator/uv.lock \
     ./
-RUN uv sync --frozen --no-dev
+# This service intentionally builds repository-controlled spatialai-data-utils and
+# dependencies without Python 3.13 wheels (including NumPy 1.26.4 and fvcore).
+# --frozen prevents dependency resolution and uv verifies every registry artifact
+# against the hashes committed in uv.lock, so the accepted inputs cannot change.
+RUN uv sync --frozen --no-dev  # NOSONAR docker:S8541 - reviewed locked builds
 
 # -----------------------------------------------------------------------------
 # Stage 2: Runtime — distroless Python 3.13 (no shell, no package manager)
