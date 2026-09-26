@@ -404,6 +404,29 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.adapter_exists = orig_adapter
         self.assertEqual(inc, [])
 
+    def test_any_skill_opts_into_openshell_by_spec(self):
+        """Fleet membership is the spec, not the skill directory name."""
+        original = plan_matrix.infrastructures_for_path
+        orig_req = plan_matrix.openshell_requirements
+        orig_adapter = plan_matrix.adapter_exists
+        plan_matrix.infrastructures_for_path = lambda _path: frozenset({"openshell"})
+        plan_matrix.openshell_requirements = lambda _path: (
+            {"gpu_count": 1, "requires_blackwell": False},
+            None,
+        )
+        plan_matrix.adapter_exists = lambda _s: True
+        try:
+            inc = plan_matrix.build_matrix(
+                ["skills/operations/vss-search-archive/evals/search.json"]
+            )
+        finally:
+            plan_matrix.infrastructures_for_path = original
+            plan_matrix.openshell_requirements = orig_req
+            plan_matrix.adapter_exists = orig_adapter
+        self.assertEqual(len(inc), 1)
+        self.assertEqual(inc[0]["skill"], "vss-search-archive")
+        self.assertTrue(inc[0]["local_gpu"])
+        self.assertEqual(inc[0]["cohort"], plan_matrix.OPENSHELL_COHORT_TAG)
 
     def test_openshell_pr_keeps_changed_file_scope(self):
         changed = ["skills/operations/vss-search-archive/SKILL.md"]

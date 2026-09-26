@@ -73,14 +73,14 @@ def _is_local_gpu_instance(instance: str | None) -> bool:
 
 
 def _openshell_skill_count_only() -> bool:
-    """True on an OpenShell guest running `vss-deploy-test-openshell`.
+    """True on an OpenShell guest, for whichever skill opted into this fleet.
 
     Placement is GitHub labels (`openshell`, `gpus-N`) plus live GPU
-    *count*. SKU / VRAM / `gpu_type` are not part of the gate.
+    *count*. SKU / VRAM / `gpu_type` are not part of the gate. Brev
+    coordinators leave ``SKILL_EVAL_LOCAL_GPU_INSTANCE`` unset, so they
+    keep the SKU and VRAM checks.
     """
-    return bool(_local_gpu_instance()) and (
-        os.environ.get("EVAL_SKILL", "").strip() == "vss-deploy-test-openshell"
-    )
+    return bool(_local_gpu_instance())
 
 
 # Remote LLM/VLM placement is available on both coordinator Brev boxes and
@@ -344,7 +344,7 @@ class OpenShellEnvironment(BaseEnvironment):
                     requirements["gpu_type"] = None
                     requirements["min_vram_gb_per_gpu"] = 0
                     logger.info(
-                        "OpenShell vss-deploy-test-openshell: GPU gate is "
+                        "OpenShell guest: GPU gate is "
                         "gpu_count>=%s only (no SKU / VRAM check)",
                         requirements["gpu_count"],
                     )
