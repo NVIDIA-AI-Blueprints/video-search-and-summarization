@@ -1,0 +1,337 @@
+################################################################################
+# Copyright (c) 2024-2026, NVIDIA CORPORATION. All rights reserved.
+#
+# NVIDIA Corporation and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA Corporation is strictly prohibited.
+#
+################################################################################
+
+# Standalone performance-benchmarking compose file.
+#
+# Differences from compose.yaml:
+#   - Kafka and Redis are OMITTED  (MESSAGE_BUS unset, ERROR_BUS unset)
+#   - otel-collector and jaeger are OMITTED  (no OpenTelemetry side-car needed)
+#   - dcgm-exporter, node-exporter, prometheus always start (no `profiles:` guard)
+#   - prometheus reads prometheus.perf.yml (no otel-collector scrape target)
+#   - VLLM_MAX_NUM_BATCHED_TOKENS exposed for token-budget tuning
+#
+# Usage:
+#   docker compose -f compose.perf.yaml --env-file .env.perf up -d
+#
+# Minimum .env.perf:
+#   BACKEND_PORT=8010
+#   NVIDIA_VISIBLE_DEVICES=0
+#   NGC_API_KEY=nvapi-XXXXXX
+#   VLM_MODEL_TO_USE=cosmos-reason2
+#   MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-dynamic-kv8
+# Optional image override; defaults to GHCR develop-latest:
+#   RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest
+# DGX Spark (SBSA) uses:
+#   RTVI_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest-sbsa
+#
+# BCD 3.2 static-KV8 runs can use:
+#   MODEL_PATH=ngc:nim/nvidia/cosmos-reason2-8b:0303-fp8-static-kv8
+#
+# Benchmark cache defaults:
+#   VLLM_ENABLE_PREFIX_CACHING=false
+#   VLLM_DISABLE_MM_PREPROCESSOR_CACHE=true
+#   VLLM_NUM_PREPROCESS_WORKERS=16
+#   VLLM_MM_TENSOR_IPC=        # optional experiment; empty is the BCD default
+
+services:
+  rtvi-server:
+    image: ${RTVI_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-rt-vlm:develop-latest}
+    shm_size: '16gb'
+    runtime: nvidia
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+    user: "1001:1001"
+    ports:
+      - "${BACKEND_PORT?}:8000"
+    volumes:
+      - "${ASSET_STORAGE_DIR:-/dummy}${ASSET_STORAGE_DIR:+:/tmp/assets}"
+      - "${MODEL_ROOT_DIR:-/dummy}${MODEL_ROOT_DIR:+:${MODEL_ROOT_DIR:-}}"
+      - "${NGC_MODEL_CACHE:-rtvi-ngc-model-cache}:/opt/nvidia/rtvi/.rtvi/ngc_model_cache"
+      - "${RTVI_SRC_DIR:-/dummy}${RTVI_SRC_DIR:+:/opt/nvidia/rtvi:ro}"
+      - "${RTVI_LOG_DIR:-/dummy}${RTVI_LOG_DIR:+:/opt/nvidia/rtvi/log/rtvi/}"
+      - "${RTVI_IPC_SOCKET_HOST_DIR:-/dummy}${RTVI_IPC_SOCKET_HOST_DIR:+:${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}:ro}"
+      # Perf benchmark videos (warehouse_gopro_*.mp4).
+      # Set PERF_VIDEOS_DIR to the host path printed by perf/setup_perf_env.sh.
+      # Videos become visible inside the container at /opt/nvidia/rtvi/streams/perf/
+      # and are also used by nvstreamer (VST) for RTSP streaming.
+      - "${PERF_VIDEOS_DIR:-/dummy}${PERF_VIDEOS_DIR:+:/opt/nvidia/rtvi/streams/perf}"
+      - rtvi-hf-cache:/tmp/huggingface
+    # tmpfs: back /tmp/assets with RAM so uploaded video assets are served
+    # from memory rather than disk, eliminating storage I/O from the benchmark
+    # hot path.  Overridden by an ASSET_STORAGE_DIR bind-mount when that var
+    # is set (Docker applies bind-mounts after tmpfs for the same path).
+    # Size: default 8 GB — set ASSET_TMPFS_SIZE in .env.perf to adjust.
+    tmpfs:
+      - /tmp/assets:size=${ASSET_TMPFS_SIZE:-8g},mode=1777
+      - /tmp/rtvi:size=2g,mode=1777
+
+    environment:
+      AZURE_OPENAI_API_KEY: "${AZURE_OPENAI_API_KEY:-}"
+      AZURE_OPENAI_ENDPOINT: "${AZURE_OPENAI_ENDPOINT:-}"
+      AZURE_OPENAI_API_VERSION: "${AZURE_OPENAI_API_VERSION:-}"
+      MODEL_PATH: "${MODEL_PATH:-}"
+      RTVI_ENFORCE_MODEL_PATH_ALLOWLIST: "${RTVI_ENFORCE_MODEL_PATH_ALLOWLIST:-false}"
+      RTVI_MODEL_PATH_ALLOWLIST: "${RTVI_MODEL_PATH_ALLOWLIST:-}"
+      MODEL_IMPLEMENTATION_PATH: "${MODEL_IMPLEMENTATION_PATH:-}"
+      NGC_API_KEY: "${NGC_API_KEY:-}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      NV_LLMG_CLIENT_ID: "${NV_LLMG_CLIENT_ID:-}"
+      NV_LLMG_CLIENT_SECRET: "${NV_LLMG_CLIENT_SECRET:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-NOAPIKEYSET}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-NOAPIKEYSET}"
+      OPENAI_API_VERSION: "${OPENAI_API_VERSION:-}"
+      VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME: "${VIA_VLM_OPENAI_MODEL_DEPLOYMENT_NAME:-}"
+      VIA_VLM_OPENAI_TOKEN_PARAM: "${VIA_VLM_OPENAI_TOKEN_PARAM:-max_tokens}"
+      VIA_VLM_ENDPOINT: "${VIA_VLM_ENDPOINT:-}"
+      VIA_VLM_API_KEY: "${VIA_VLM_API_KEY:-}"
+      VLM_BATCH_SIZE: "${VLM_BATCH_SIZE:-}"
+      VLM_MODEL_TO_USE: "${VLM_MODEL_TO_USE:-cosmos-reason2}"
+      NUM_VLM_PROCS: "${NUM_VLM_PROCS:-}"
+      NUM_GPUS: "${NUM_GPUS:-}"
+      VLM_INPUT_WIDTH: "${VLM_INPUT_WIDTH:-}"
+      VLM_INPUT_HEIGHT: "${VLM_INPUT_HEIGHT:-}"
+      VLM_USE_FPS_FOR_CHUNKING: "${VLM_USE_FPS_FOR_CHUNKING:-}"
+      ENABLE_DENSE_CAPTION: "${ENABLE_DENSE_CAPTION:-}"
+      VLM_MODEL_SUPPORTS_AUDIO: "${VLM_MODEL_SUPPORTS_AUDIO:-false}"
+      VLM_TRUST_REMOTE_CODE: "${VLM_TRUST_REMOTE_CODE:-false}"
+      RTVI_ALLOW_UNSAFE_MODEL_CONFIG: "${RTVI_ALLOW_UNSAFE_MODEL_CONFIG:-false}"
+      INSTALL_PROPRIETARY_CODECS: "${INSTALL_PROPRIETARY_CODECS:-false}"
+      FORCE_SW_AV1_DECODER: "${FORCE_SW_AV1_DECODER:-}"
+      RIVA_ASR_SERVER_URI: "${RIVA_ASR_SERVER_URI:-parakeet-ctc-asr}"
+      RIVA_ASR_SERVER_IS_NIM: "${RIVA_ASR_SERVER_IS_NIM:-true}"
+      RIVA_ASR_SERVER_USE_SSL: "${RIVA_ASR_SERVER_USE_SSL:-false}"
+      RIVA_ASR_SERVER_API_KEY: "${RIVA_ASR_SERVER_API_KEY:-}"
+      RIVA_ASR_SERVER_FUNC_ID: "${RIVA_ASR_SERVER_FUNC_ID:-}"
+      RIVA_ASR_GRPC_PORT: "${RIVA_ASR_GRPC_PORT:-50051}"
+      RIVA_ASR_HTTP_PORT: "${RIVA_ASR_HTTP_PORT:-}"
+      ENABLE_RIVA_SERVER_READINESS_CHECK: "${ENABLE_RIVA_SERVER_READINESS_CHECK:-}"
+      RIVA_ASR_MODEL_NAME: "${RIVA_ASR_MODEL_NAME:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-warning}"
+      RTVI_EXTRA_ARGS: "${RTVI_EXTRA_ARGS:-}"
+      # BCD max-stream latency is measured from the last frame NTP timestamp
+      # to caption output. Keep the RTSP jitter buffer low enough that buffer
+      # delay does not dominate the measured VLM latency.
+      RTVI_RTSP_LATENCY: "${RTVI_RTSP_LATENCY:-300}"
+      RTVI_RTSP_TIMEOUT: "${RTVI_RTSP_TIMEOUT:-}"
+      RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY: "${RTVI_RTPJITTERBUFFER_DROP_ON_LATENCY:-false}"
+      RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS: "${RTVI_RTPJITTERBUFFER_FASTSTART_MIN_PACKETS:-2}"
+      RTVI_RTSP_RECONNECTION_INTERVAL: "${RTVI_RTSP_RECONNECTION_INTERVAL:-5}"
+      RTVI_RTSP_RECONNECTION_WINDOW: "${RTVI_RTSP_RECONNECTION_WINDOW:-60}"
+      RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS: "${RTVI_RTSP_RECONNECTION_MAX_ATTEMPTS:-10}"
+      RTVI_DISABLE_LIVESTREAM_PREVIEW: "${RTVI_DISABLE_LIVESTREAM_PREVIEW:-true}"
+      RTVI_ENABLE_LIVE_TIMESTAMP_FILTER: "${RTVI_ENABLE_LIVE_TIMESTAMP_FILTER:-false}"
+      RTVI_ENABLE_FILE_TIMESTAMP_FILTER: "${RTVI_ENABLE_FILE_TIMESTAMP_FILTER:-true}"
+      RTVI_EMPTY_CUDA_CACHE_ON_RESULT: "${RTVI_EMPTY_CUDA_CACHE_ON_RESULT:-false}"
+      RTVI_IPC_FRAME_COPY: "${RTVI_IPC_FRAME_COPY:-false}"
+      RTVI_IPC_SOCKET_DIR: "${RTVI_IPC_SOCKET_DIR:-/run/rtvi-ipc}"
+      RTVI_IPC_SOCKET_TEMPLATE: "${RTVI_IPC_SOCKET_TEMPLATE:-}"
+      RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC: "${RTVI_STREAM_DELETE_BLOCKING_TIMEOUT_SEC:-300}"
+      RTVI_ENABLE_GOP_DECODE_OPT: "${RTVI_ENABLE_GOP_DECODE_OPT:-true}"
+      RTVI_ENABLE_CUDA_OOM_RECOVERY: "${RTVI_ENABLE_CUDA_OOM_RECOVERY:-true}"
+      RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE: "${RTVI_TIMESTAMP_PROMPT_PREFIX_FILE_SOURCE:-}"
+      RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE: "${RTVI_TIMESTAMP_PROMPT_SUFFIX_FILE_SOURCE:-}"
+      RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE: "${RTVI_TIMESTAMP_PROMPT_PREFIX_RTSP_SOURCE:-}"
+      RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE: "${RTVI_TIMESTAMP_PROMPT_SUFFIX_RTSP_SOURCE:-}"
+      RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS: "${RTVI_VIDEO_METADATA_ABSOLUTE_TIMESTAMPS:-false}"
+      VSS_CACHE_VIDEO_EMBEDS: "${VSS_CACHE_VIDEO_EMBEDS:-false}"
+      VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK: "${VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK:-}"
+      VSS_NUM_GPUS_PER_VLM_PROC: "${VSS_NUM_GPUS_PER_VLM_PROC:-}"
+      VLM_SYSTEM_PROMPT: "${VLM_SYSTEM_PROMPT:-}"
+      VLM_SYSTEM_PROMPT_MAX_LENGTH: "${VLM_SYSTEM_PROMPT_MAX_LENGTH:-10240}"
+      VLM_PROMPT_MAX_LENGTH: "${VLM_PROMPT_MAX_LENGTH:-10240}"
+      VLM_MAX_GENERATION_TOKENS: "${RTVI_VLM_MAX_GENERATION_TOKENS:-16384}"
+      # OpenTelemetry disabled for perf benchmarking
+      ENABLE_VIA_HEALTH_EVAL: "${ENABLE_VIA_HEALTH_EVAL:-false}"
+      ENABLE_OTEL_MONITORING: "false"
+      # Kafka and Redis disabled — not required for benchmarking
+      MESSAGE_BUS: ""
+      MESSAGE_BUS_TOPIC: "${MESSAGE_BUS_TOPIC:-mdx-vlm-captions}"
+      KAFKA_INCIDENT_TOPIC: "${KAFKA_INCIDENT_TOPIC:-mdx-vlm-incidents}"
+      KAFKA_BOOTSTRAP_SERVERS: "${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}"
+      KAFKA_ASYNC_SEND_QUEUE_MAXSIZE: "${RTVI_VLM_KAFKA_ASYNC_SEND_QUEUE_MAXSIZE:-1024}"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: ERROR
+      ERROR_MESSAGE_TOPIC: "${ERROR_MESSAGE_TOPIC:-mdx-vlm-errors}"
+      ERROR_BUS: ""
+      ENABLE_REDIS_ERROR_MESSAGES: "false"
+      REDIS_HOST: "${REDIS_HOST:-redis}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_DB: "${REDIS_DB:-0}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+      ENABLE_REQUEST_PROFILING: "${ENABLE_REQUEST_PROFILING:-false}"
+      VLLM_GPU_MEMORY_UTILIZATION: "${VLLM_GPU_MEMORY_UTILIZATION:-0.7}"
+      RTVI_LIVE_STREAM_GPU_MEMORY_GUARD: "${RTVI_LIVE_STREAM_GPU_MEMORY_GUARD:-true}"
+      RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB: "${RTVI_LIVE_STREAM_GPU_MEMORY_HEADROOM_MB:-1024}"
+      RTVI_VLM_ADMISSION_MODE: "${RTVI_VLM_ADMISSION_MODE:-off}"
+      RTVI_VLM_ADMISSION_MAX_ACTIVE_COST: "${RTVI_VLM_ADMISSION_MAX_ACTIVE_COST:-0}"
+      VLLM_IGNORE_EOS: "${VLLM_IGNORE_EOS:-true}"
+      VSS_SKIP_INPUT_MEDIA_VERIFICATION: "${VSS_SKIP_INPUT_MEDIA_VERIFICATION:-}"
+      VSS_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC: "${VSS_INPUT_MEDIA_VERIFICATION_TIMEOUT_SEC:-300}"
+      RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT: "${RTVI_ADD_TIMESTAMP_TO_VLM_PROMPT:-}"
+      RTVI_QWEN_REFERENCE_RESIZE: "${RTVI_QWEN_REFERENCE_RESIZE:-false}"
+      VLLM_MAX_NUM_SEQS: "${VLLM_MAX_NUM_SEQS:-1024}"
+      VLM_MAX_MODEL_LEN: "${VLM_MAX_MODEL_LEN:-32768}"
+      VLLM_MAX_NUM_BATCHED_TOKENS: "${VLLM_MAX_NUM_BATCHED_TOKENS:-}"
+      # Additional VLLM Runtime Configuration
+      SKIP_PIPELINE_WARMUP: "${SKIP_PIPELINE_WARMUP:-0}"
+      VLLM_HAS_FLASHINFER_CUBIN: "${VLLM_HAS_FLASHINFER_CUBIN:-1}"
+      VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES: "${VLLM_MM_PROCESSOR_VIDEO_NUM_FRAMES:-256}"
+      VLLM_NUM_SCHEDULER_STEPS: "${VLLM_NUM_SCHEDULER_STEPS:-8}"
+      VLLM_LOGGING_LEVEL: "${VLLM_LOGGING_LEVEL:-INFO}"
+      # EVS (Early Video Summarization) Configuration
+      VLM_VIDEO_PRUNING_RATE: "${VLM_VIDEO_PRUNING_RATE:-}"
+      VLLM_EVS_SIMILARITY_THRESHOLD: "${VLLM_EVS_SIMILARITY_THRESHOLD:-}"
+      # Keep multimodal preprocessing parallel on vLLM 0.17+ video workloads.
+      VLLM_NUM_PREPROCESS_WORKERS: "${VLLM_NUM_PREPROCESS_WORKERS:-16}"
+      RTVI_VLLM_ADAPTIVE_PREPROCESS: "${RTVI_VLLM_ADAPTIVE_PREPROCESS:-disabled}"
+      VIA_EVS_SESSION: "${VIA_EVS_SESSION:-}"
+      VIA_EVS_TOKEN_BUDGET: "${VIA_EVS_TOKEN_BUDGET:-}"
+      VIA_EVS_MAX_SESSIONS: "${VIA_EVS_MAX_SESSIONS:-}"
+      VLLM_WORKER_MULTIPROC_METHOD: "${VLLM_WORKER_MULTIPROC_METHOD:-spawn}"
+      VLLM_ENABLE_PREFIX_CACHING: "${VLLM_ENABLE_PREFIX_CACHING:-false}"
+      VLLM_DISABLE_MM_PREPROCESSOR_CACHE: "${VLLM_DISABLE_MM_PREPROCESSOR_CACHE:-true}"
+      VLLM_MM_PROCESSOR_CACHE_GB: "${RTVI_VLLM_MM_PROCESSOR_CACHE_GB:-0}"
+      VLLM_MM_PROCESSOR_CACHE_TYPE: "${VLLM_MM_PROCESSOR_CACHE_TYPE:-shm}"
+      VLLM_MM_TENSOR_IPC: "${VLLM_MM_TENSOR_IPC:-}"
+      VLLM_MULTIMODAL_TENSOR_IPC: "${VLLM_MULTIMODAL_TENSOR_IPC:-}"
+      VLLM_MM_ENCODER_ATTN_BACKEND: "${VLLM_MM_ENCODER_ATTN_BACKEND:-}"
+      VLLM_ATTENTION_BACKEND: "${RTVI_VLLM_ATTENTION_BACKEND:-}"
+      VLLM_DISABLED_KERNELS: "${VLLM_DISABLED_KERNELS:-FlashInferFP8ScaledMMLinearKernel}"
+      VLLM_USE_NVFP4_CT_EMULATIONS: "${VLLM_USE_NVFP4_CT_EMULATIONS:-0}"
+      # The entrypoint removes a blank value before vLLM import.
+      VLLM_NVFP4_GEMM_BACKEND: "${VLLM_NVFP4_GEMM_BACKEND:-}"
+      VLLM_USE_DEEP_GEMM: "${VLLM_USE_DEEP_GEMM:-1}"
+      VLLM_ROOT: "${VLLM_ROOT:-/usr/local/lib/python3.12/dist-packages/vllm}"
+      # Perf intentionally enables standalone compile for platform-specific optimization.
+      VLLM_USE_STANDALONE_COMPILE: "${VLLM_USE_STANDALONE_COMPILE:-1}"
+      # Disable AOT compile artifact reuse by default. With vLLM 0.17/Torch 2.10+,
+      # reloading saved AOT artifacts can fail during restart for Qwen3-VL models.
+      # This keeps compiled mode enabled; it is not the same as enforce_eager.
+      VLLM_USE_AOT_COMPILE: "${VLLM_USE_AOT_COMPILE:-0}"
+      # Disable vLLM's persisted Inductor graph cache by default. Qwen3-VL can
+      # fail on restart when reusing saved graph handles, while fresh compile
+      # still runs with enforce_eager=false and CUDA graph capture enabled.
+      VLLM_DISABLE_COMPILE_CACHE: "${VLLM_DISABLE_COMPILE_CACHE:-1}"
+      PYTORCH_CUDA_ALLOC_CONF: "${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+      VLLM_ENFORCE_EAGER: "${VLLM_ENFORCE_EAGER:-false}"
+      TORCH_CUDNN_V8_API_DISABLED: "${TORCH_CUDNN_V8_API_DISABLED:-false}"
+      VLLM_CUDAGRAPH_MODE: "${VLLM_CUDAGRAPH_MODE:-}"
+      VLLM_MOE_BACKEND: "${RTVI_VLLM_MOE_BACKEND:-}"
+      GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS: "${GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS:-1}"
+      REMOTE_VIDEO_INPUT: "${REMOTE_VIDEO_INPUT:-true}"
+      MAX_ASSET_STORAGE_SIZE_GB: "${MAX_ASSET_STORAGE_SIZE_GB:-}"
+      ASSET_MAX_AGE_HOURS: "${ASSET_MAX_AGE_HOURS:-0}"
+      ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS: "${ASSET_DOWNLOAD_SSL_SKIP_VERIFY_DOMAINS:-}"
+      ASSET_DOWNLOAD_MAX_REDIRECTS: "${ASSET_DOWNLOAD_MAX_REDIRECTS:-0}"
+      ASSET_DOWNLOAD_MAX_FILE_SIZE_GB: "${ASSET_DOWNLOAD_MAX_FILE_SIZE_GB:-8}"
+      ASSET_DOWNLOAD_AUTH_TOKENS: "${ASSET_DOWNLOAD_AUTH_TOKENS:-}"
+      FILE_URL_ALLOWED_DIRS: "${FILE_URL_ALLOWED_DIRS:-}"
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack: 67108864
+      nofile:
+        soft: 65535
+        hard: 65535
+    ipc: host
+    stdin_open: true
+    tty: true
+    extra_hosts:
+      host.docker.internal: host-gateway
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: ${HEALTHCHECK_START_PERIOD:-1800s}
+
+  # DCGM Exporter - GPU metrics (always-on, no profiles guard)
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.0-4.1.0-ubuntu22.04
+    runtime: nvidia
+    ports:
+      - "${DCGM_EXPORTER_PORT:-9400}:9400"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - DCGM_EXPORTER_INTERVAL=${DCGM_EXPORTER_INTERVAL:-500}
+    volumes:
+      - ../perf/dcgm/dcgm-metrics-config.csv:/etc/dcgm-exporter/custom-metrics.csv:ro
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      - default
+
+  # Node Exporter - CPU and system metrics (always-on, no profiles guard)
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "${NODE_EXPORTER_PORT:-9100}:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run|snap|boot)($$|/)'
+      - '--collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|nfs|nfs4|cifs|smbfs|fuse\.sshfs)$$'
+      - '--no-collector.netstat'
+      - '--no-collector.ntp'
+      - '--no-collector.wifi'
+      - '--no-collector.arp'
+      - '--no-collector.ipvs'
+      - '--no-collector.nfsd'
+    restart: unless-stopped
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 10s
+
+  # Prometheus - Metrics collection (always-on, references prometheus.perf.yml)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.perf.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=2d'
+    restart: unless-stopped
+    depends_on:
+      - dcgm-exporter
+      - node-exporter
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  rtvi-hf-cache:
+  rtvi-ngc-model-cache:
+  prometheus-data:

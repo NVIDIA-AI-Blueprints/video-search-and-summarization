@@ -102,6 +102,7 @@ Match the user's intent to a skill. Start here before opening any individual `SK
 | Run object detection & tracking on streams (2D) | [`vss-deploy-detection-tracking-2d`](deployment/vss-deploy-detection-tracking-2d/SKILL.md) |
 | Run standalone RTVI-CV-3D / MV3DT multi-camera 3D tracking on calibrated MP4s or RTSP streams | [`vss-deploy-detection-tracking-3d`](deployment/vss-deploy-detection-tracking-3d/SKILL.md) |
 | Generate dense captions / detect anomalies via VLM on streams | [`vss-deploy-dense-captioning`](deployment/vss-deploy-dense-captioning/SKILL.md) |
+| Benchmark RT-VLM stream capacity, correctness, latency, or throughput | [`rtvi-vlm-perf-testing`](benchmarking/rtvi-vlm-perf-testing/SKILL.md) |
 | Generate semantic video embeddings as a standalone service | [`vss-deploy-video-embedding`](deployment/vss-deploy-video-embedding/SKILL.md) |
 | Calibrate a multi-camera dataset (often a prerequisite for 3D) | [`vss-generate-video-calibration`](tools/vss-generate-video-calibration/SKILL.md) |
 | Deploy behavior analytics on its own | [`vss-setup-behavior-analytics`](deployment/vss-setup-behavior-analytics/SKILL.md) |
@@ -175,6 +176,7 @@ repository organisation only and never appears in the installed path or in the
 |---|---|---|
 | [vss-benchmark-vlm-qa](benchmarking/vss-benchmark-vlm-qa/SKILL.md) | — | E2E video Q&A accuracy + latency on `vss-devx-base` through `vss vlm run` (CR3 RT-VLM). Replaces `nat eval` QA. Not tool-calling / trajectory. |
 | [vss-benchmark-video-summarization](benchmarking/vss-benchmark-video-summarization/SKILL.md) | — | LVS latency and burst-throughput on a deployed summarization instance. |
+| [rtvi-vlm-perf-testing](benchmarking/rtvi-vlm-perf-testing/SKILL.md) | 1 | Plan and execute fresh-container RT-VLM GPU canaries with semantic stream-isolation and reproducible evidence. |
 | [vss-evaluate-caption-accuracy](benchmarking/vss-evaluate-caption-accuracy/SKILL.md) | — | Check whether an RT-VLM configuration change moved caption quality: capture paired baseline and candidate captions, score both against a ground truth with an LLM judge, and emit an accuracy and processing-time table. |
 
 Skills with `evals/*.json` specs are exercised automatically by the Skills Eval CI workflow on every PR that touches `skills/**`; legacy `eval/*.json` specs are still accepted for skills that have not moved yet. See [`.github/skill-eval/AGENTS.md`](../.github/skill-eval/AGENTS.md) for harness behavior.
