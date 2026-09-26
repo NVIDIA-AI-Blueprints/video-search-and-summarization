@@ -17,10 +17,10 @@ Rules (see docs/matrix-dispatch-design.md):
         -> dispatch every spec under <skill>
   - harness files (envs/, verifiers/, skills_eval_agent.py, AGENTS.md,
     plan_matrix.py, skills-eval.yml) match no rule, so a harness-only
-    diff yields an empty matrix — except the OpenShell GPU fleet route,
-    which emits one smoke leg for `vss-deploy-test-openshell`. Other
-    skills stay on the Brev coordinator path even when the fleet flag is
-    set. It does not replace a changed skill with unrelated work.
+    diff yields an empty matrix — except a harness-only diff, which emits
+    one smoke leg. Fleet membership is per spec (`infrastructure`, or an
+    `openshell` object), not a hardcoded skill name. Specs that do not opt
+    into OpenShell are left to the Brev planner.
 
 A skill whose adapter is missing collapses to a single `missing_adapter`
 leg (that leg's agent commits the one adapter to the PR branch), so N specs
@@ -42,6 +42,7 @@ Env:
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -53,6 +54,13 @@ from typing import NamedTuple
 # .github/skill-eval/openshell/plan_matrix.py -> parents[3] = repo root
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ADAPTERS_DIR = Path(__file__).resolve().parent.parent / "adapters"
+_INFRA_SPEC = importlib.util.spec_from_file_location(
+    "skill_eval_infrastructure",
+    Path(__file__).resolve().parent.parent / "infrastructure.py",
+)
+_infra = importlib.util.module_from_spec(_INFRA_SPEC)
+_INFRA_SPEC.loader.exec_module(_infra)
+infrastructures_for_path = _infra.infrastructures_for_path
 
 # A changed file is attributed to its owning skill by discover_skills() +
 # skill_for_file() below (which handle both flat skills/<name>/ and nested
@@ -60,6 +68,10 @@ ADAPTERS_DIR = Path(__file__).resolve().parent.parent / "adapters"
 # An adapter edit re-scopes its whole skill (the adapter feeds every spec); the
 # adapters/ tree stays flat, keyed by the skill's leaf name.
 ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
+# Nested skill dirs live one level under these category folders. Flat skills
+# (skills/<name>/) are everything else. Used only when the skill dir is not
+# on disk yet; a live SKILL.md wins via discover_skills().
+SKILL_CATEGORIES = ("operations",)
 # A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
 # scratch/results paths (/tmp/skill-eval/results/<slug>/…). Skill dirs, spec
 # stems, and platform keys are safe today, but enforce the token so a future
@@ -108,9 +120,12 @@ def skill_for_file(path: str, skills: dict[str, Path]) -> str | None:
             best, best_depth = name, len(d.parts)
     if best is not None:
         return best
-    # Not under any discovered skill dir (e.g. a new skill dir not yet on disk):
-    # fall back to the first path segment under skills/ (the flat layout).
+    # Not under any discovered skill dir (e.g. a new skill dir not yet on disk).
+    # Flat skills are skills/<name>/...; category skills are
+    # skills/<category>/<name>/... so the leaf name is the skill.
     parts = path.split("/")
+    if len(parts) >= 4 and parts[1] in SKILL_CATEGORIES and parts[2]:
+        return parts[2]
     return parts[1] if len(parts) >= 3 and parts[1] else None
 
 
@@ -131,8 +146,18 @@ def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:
 # routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
 # never becomes a matrix leg.
 EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
-# Infrastructure carrier specs are owned exclusively by the OpenShell planner.
-BREV_EXCLUDED_SKILLS = frozenset()
+
+
+def _on_openshell(spec_path: str) -> bool:
+    """True when this spec opts into the OpenShell fleet."""
+    return "openshell" in infrastructures_for_path(REPO_ROOT / spec_path)
+
+
+def _skill_has_openshell_spec(skill: str) -> bool:
+    return any(
+        _on_openshell(spec_path)
+        for spec_path, _, _ in specs_for_skill(skill)
+    )
 
 # --- Runner labels -----------------------------------------------------
 # Every leg carries a `runs_on` label set derived from the spec's own
@@ -147,10 +172,10 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 
 # OpenShell cohorts. GitHub still attaches `self-hosted` to each runner.
 # Cohort tuples below describe how boxes are *registered* (SKU + active
-# labels). `vss-deploy-test-openshell` jobs do **not** require those SKU
-# labels: `openshell_job_labels()` emits only the shared fleet tags plus
-# `gpus-N`. Register replacements without a cohort active label (or keep
-# listeners down) until canaries pass.
+# labels). OpenShell jobs do **not** require those SKU labels:
+# `openshell_job_labels()` emits only the shared fleet tags plus `gpus-N`.
+# Register replacements without a cohort active label (or keep listeners
+# down) until canaries pass.
 #
 # Post-job destroy/recreate is host-side: the OpenShell VM orchestrator
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
@@ -222,18 +247,12 @@ SMOKE_SPEC = (
     "skills/vss-deploy-test-openshell/evals/"
     "base_profile_video_understanding.json"
 )
-# OpenShell GHA guests are only for this test skill. Every other skill
-# keeps `local_gpu: False` and lands on the Brev coordinator (`vss-eval`).
-OPENSHELL_SKILLS = frozenset({"vss-deploy-test-openshell"})
 
 
 def _openshell_gpu_fleet() -> bool:
     """This dedicated planner always targets the OpenShell fleet."""
     return True
 
-
-def _route_skill_on_openshell(skill: str) -> bool:
-    return _openshell_gpu_fleet() and skill in OPENSHELL_SKILLS
 
 # `resources.platforms` key -> GPU-type label. `ANY` is GPU-independent
 # and contributes no `gpu-*` label. Keys mirror the PLATFORMS tables in
@@ -264,9 +283,9 @@ class OpenShellCohort(NamedTuple):
 
 
 # The OpenShell fleet inventory. It is documentation and capacity
-# accounting only — no leg is placed from it. `vss-deploy-test-openshell`
-# asks for a GPU count and takes whichever guest claims the labels, and
-# the guest's own card decides `HARDWARE_PROFILE`; see
+# accounting only — no leg is placed from it. An OpenShell spec asks for
+# a GPU count and takes whichever guest claims the labels, and the
+# guest's own card decides `HARDWARE_PROFILE`; see
 # `openshell_requirements`. Capacity is runner capacity,
 # not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, 8 one-GPU
 # H200 VMs, 4 two-GPU H200 VMs, 8 one-GPU L40S VMs, 4 two-GPU L40S VMs, and
@@ -357,13 +376,13 @@ def openshell_job_labels(
     gpu_count: int,
     requirements: dict | None = None,
 ) -> list[str]:
-    """GitHub `runs-on` for `vss-deploy-test-openshell`.
+    """GitHub `runs-on` for any spec that opted into OpenShell.
 
     Fleet tags only — no SKU (`gpu-h200`, `gpu-rtxpro6000bw`), no cohort
     active label (`openshell-h200-active`), no VRAM/codec tags. `gpus-N`
     is the GPU-count demand so 1-GPU and 2-GPU jobs stay on matching
     guests. Operators still register SKU labels on the VMs if they want;
-    this skill does not require them.
+    this fleet does not require them.
     """
     if gpu_count not in (1, 2):
         return list(SKIP_RUNNER)
@@ -651,8 +670,6 @@ def build_matrix(changed: list[str]) -> list[dict]:
         # SKILL.md is never treated as a skill.
         owner = skill_for_file(f, skills_map)
         if owner is not None:
-            if owner in BREV_EXCLUDED_SKILLS:
-                continue
             si = _spec_info(f, reldir.get(owner) or f"skills/{owner}")
             # A changed `evals.json` is not a spec; fall through to whole-skill.
             if si and Path(f).name not in EXCLUDED_SPEC_NAMES:
@@ -661,7 +678,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 whole_skills.add(owner)
             continue
         m = ADAPTER_RE.match(f)
-        if m and m.group(1) not in BREV_EXCLUDED_SKILLS:
+        if m:
             whole_skills.add(m.group(1))
             # else: harness file or unrelated path -> contributes nothing.
 
@@ -669,7 +686,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
     target_meta: dict[str, dict] = {}
 
     def add_spec(skill: str, spec_path: str, eval_dir: str, stem: str) -> None:
-        if spec_path in target_meta:
+        if spec_path in target_meta or not _on_openshell(spec_path):
             return
         target_meta[spec_path] = {
             "skill": skill,
@@ -725,65 +742,39 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 "slug": f"{skill}__missing-adapter",
                 "name": f"{skill} · missing-adapter",
                 # Commits an adapter; runs no trial and needs no GPU.
-                "runs_on": (
-                    list(OPENSHELL_FLEET_LABELS)
-                    if _route_skill_on_openshell(skill)
-                    else list(BASE_LABELS)
-                ),
+                "runs_on": list(OPENSHELL_FLEET_LABELS),
                 "local_gpu": False,
             })
             continue
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
-            platform_config = spec_platform_config(meta["spec_path"])
-            if _route_skill_on_openshell(skill):
-                requirements, metadata_error = openshell_requirements(
-                    meta["spec_path"]
-                )
-                if metadata_error or requirements is None:
-                    append_blocked(meta, metadata_error or "invalid metadata")
-                    continue
-                tag = openshell_placement_tag(
-                    requirements["gpu_count"], requirements
-                )
-                include.append({
-                    "skill": skill,
-                    "spec_path": meta["spec_path"],
-                    "spec_stem": meta["spec_stem"],
-                    "eval_dir": meta["eval_dir"],
-                    # Empty on purpose: the guest that claims the job owns
-                    # its own SKU, and the adapter reads it from the card.
-                    "platform": "",
-                    "hardware_profile": "",
-                    "cohort": OPENSHELL_COHORT_TAG,
-                    "kind": "eval",
-                    "slug": f"{skill}__{meta['spec_stem']}__{tag}",
-                    "name": f"{skill} · {meta['spec_stem']} · {tag}",
-                    "runs_on": openshell_job_labels(
-                        requirements["gpu_count"], requirements
-                    ),
-                    "gpu_count": requirements["gpu_count"],
-                    "local_gpu": True,
-                })
+            requirements, metadata_error = openshell_requirements(
+                meta["spec_path"]
+            )
+            if metadata_error or requirements is None:
+                append_blocked(meta, metadata_error or "invalid metadata")
                 continue
-
-            platforms = sorted(platform_config) or [""]
-            for platform in platforms:
-                plat_cfg = platform_config.get(platform)
-                plat_tag = platform or "no-platform"
-                labels = runs_on_labels(platform, plat_cfg, openshell=False)
-                include.append({
-                    "skill": skill,
-                    "spec_path": meta["spec_path"],
-                    "spec_stem": meta["spec_stem"],
-                    "eval_dir": meta["eval_dir"],
-                    "platform": platform,
-                    "hardware_profile": hardware_profile_for(platform),
-                    "kind": "eval",
-                    "slug": f"{skill}__{meta['spec_stem']}__{plat_tag}",
-                    "name": f"{skill} · {meta['spec_stem']} · {plat_tag}",
-                    "runs_on": labels,
-                    "local_gpu": False,
-                })
+            tag = openshell_placement_tag(
+                requirements["gpu_count"], requirements
+            )
+            include.append({
+                "skill": skill,
+                "spec_path": meta["spec_path"],
+                "spec_stem": meta["spec_stem"],
+                "eval_dir": meta["eval_dir"],
+                # Empty on purpose: the guest that claims the job owns
+                # its own SKU, and the adapter reads it from the card.
+                "platform": "",
+                "hardware_profile": "",
+                "cohort": OPENSHELL_COHORT_TAG,
+                "kind": "eval",
+                "slug": f"{skill}__{meta['spec_stem']}__{tag}",
+                "name": f"{skill} · {meta['spec_stem']} · {tag}",
+                "runs_on": openshell_job_labels(
+                    requirements["gpu_count"], requirements
+                ),
+                "gpu_count": requirements["gpu_count"],
+                "local_gpu": True,
+            })
     if _openshell_gpu_fleet() and not include:
         # Harness-only diffs (no skills/ files) still need a GPU canary.
         # A named OpenShell test skill with no eligible cohort must fail
@@ -797,8 +788,8 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 if (owner := skill_for_file(path, discover_skills()))
             }
         )
-        openshell_owners = [s for s in owners if s in OPENSHELL_SKILLS]
-        brev_owners = [s for s in owners if s not in OPENSHELL_SKILLS]
+        openshell_owners = [s for s in owners if _skill_has_openshell_spec(s)]
+        brev_owners = [s for s in owners if s not in openshell_owners]
         if brev_owners:
             pass
         elif named_a_skill and (openshell_owners or not owners):
@@ -855,8 +846,9 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 })
     return [
         leg for leg in include
-        if leg.get("cohort") == OPENSHELL_COHORT_TAG
-        or leg.get("skill") in OPENSHELL_SKILLS
+        if leg.get("local_gpu")
+        or leg.get("cohort") in {OPENSHELL_COHORT_TAG, "blocked"}
+        or leg.get("kind") in {"missing_adapter", "not_run_infra_acquisition"}
     ]
 
 

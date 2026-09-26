@@ -43,6 +43,7 @@ Env:
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -53,6 +54,13 @@ from pathlib import Path
 # .github/skill-eval/plan_matrix.py -> parents[2] = repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ADAPTERS_DIR = Path(__file__).resolve().parent / "adapters"
+_INFRA_SPEC = importlib.util.spec_from_file_location(
+    "skill_eval_infrastructure",
+    Path(__file__).resolve().parent / "infrastructure.py",
+)
+_infra = importlib.util.module_from_spec(_INFRA_SPEC)
+_INFRA_SPEC.loader.exec_module(_infra)
+infrastructures_for_path = _infra.infrastructures_for_path
 
 # A changed file is attributed to its owning skill by discover_skills() +
 # skill_for_file() below (which handle both flat skills/<name>/ and nested
@@ -148,8 +156,16 @@ def _spec_info(path: str, skill_reldir: str) -> tuple[str, str] | None:
 # routing.json, …). Skip `evals.json` everywhere a spec is discovered so it
 # never becomes a matrix leg.
 EXCLUDED_SPEC_NAMES = frozenset({"evals.json"})
-# Harbor exams for this skill run on OpenShell guests, never the Brev Daily pool.
-BREV_EXCLUDED_SKILLS = frozenset({"vss-deploy-test-openshell"})
+
+
+def _on_brev(spec_path: str) -> bool:
+    """True when this spec opts into the Brev fleet.
+
+    OpenShell-only specs (an ``openshell`` object, or
+    ``infrastructure: openshell``) stay out of this matrix. A spec may
+    name both fleets.
+    """
+    return "brev" in infrastructures_for_path(REPO_ROOT / spec_path)
 
 # --- Runner labels -----------------------------------------------------
 # Every leg carries a `runs_on` label set derived from the spec's own
@@ -380,8 +396,6 @@ def build_matrix(changed: list[str]) -> list[dict]:
         # owner is the longest-ancestor skill dir, so a category dir with no
         # SKILL.md is never treated as a skill.
         owner = skill_for_file(f, skills_map)
-        if owner in BREV_EXCLUDED_SKILLS:
-            continue
         if owner is not None:
             si = _spec_info(f, reldir.get(owner) or f"skills/{owner}")
             # A changed `evals.json` is not a spec; fall through to whole-skill.
@@ -391,7 +405,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
                 whole_skills.add(owner)
             continue
         m = ADAPTER_RE.match(f)
-        if m and m.group(1) not in BREV_EXCLUDED_SKILLS:
+        if m:
             whole_skills.add(m.group(1))
             # else: harness file or unrelated path -> contributes nothing.
 
@@ -399,7 +413,7 @@ def build_matrix(changed: list[str]) -> list[dict]:
     target_meta: dict[str, dict] = {}
 
     def add_spec(skill: str, spec_path: str, eval_dir: str, stem: str) -> None:
-        if spec_path in target_meta:
+        if spec_path in target_meta or not _on_brev(spec_path):
             return
         target_meta[spec_path] = {
             "skill": skill,
