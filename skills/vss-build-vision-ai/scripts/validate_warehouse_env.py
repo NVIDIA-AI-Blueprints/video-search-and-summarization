@@ -440,7 +440,8 @@ def check(env: dict[str, str], repo: Path, foundation_dir: Path) -> list[str]:
             ) if slug else []
             errors.append(
                 f"LLM_MODE=local needs {sizing.relative_to(repo)}, which does not exist "
-                f"(compose fails with a bare 'no such file'). Available: {available or 'none'}"
+                "(validate_nim_hardware_env.py must reject this selection before "
+                f"resolution). Available: {available or 'none'}"
             )
         if mode != "2d" or bp != "bp_wh":
             errors.append(

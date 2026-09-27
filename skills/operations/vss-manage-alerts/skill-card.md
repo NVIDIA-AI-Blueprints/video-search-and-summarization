@@ -27,7 +27,7 @@ Mitigation: Review and scan skill before deployment. <br>
 ## Reference(s): <br>
 - [Alert Notify Reference](references/alert-notify.md) <br>
 - [Alert Subscriptions Reference](references/alert-subscriptions.md) <br>
-- [CV Verifier Prompts Reference](references/cv-verifier-prompts.md) <br>
+- [Verification Results, Verdicts and Verifier Prompts Reference](references/verification.md) <br>
 - [NVIDIA Video Search and Summarization GitHub](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization) <br>
 - [VSS Documentation](https://docs.nvidia.com/vss/latest/index.html) <br>
 

@@ -35,12 +35,18 @@ Set stable service defaults such as container ports in [`deploy/docker/industry-
 | `VGGT_MODEL_PATH` | In-container path the MS reads VGGT from | `/tmp/vggt_model/vggt_1B_commercial.pt` |
 | `VIOS_BASE_URL` | Base URL of VIOS (used only by the `rtsp` calibration mode — see `rtsp.md`). Auto-set to `${VST_INTERNAL_URL}` when the warehouse auto-calibration variant with VST is running; for calibration-only RTSP set `MODE=auto-calibration`, `BP_PROFILE=bp_wh_auto_calib`, and `COMPOSE_PROFILES=${COMPOSE_PROFILES_WH_AUTO_CALIB}`. | `${VST_INTERNAL_URL}` |
 | `HOST_IP` | Host's network IP. **Must be a real reachable IP** — the UI container needs to reach the MS at this address. Not `localhost`, not `0.0.0.0`. | `hostname -I \| awk '{print $1}'` |
-| `VSS_APPS_DIR` | **Absolute path to your repo's `deploy/docker/` directory** (compose-tree root) — NOT an arbitrary data dir. Compose uses it both for `env_file:` lookups (e.g. `${VSS_APPS_DIR}/services/vios/vst.env`) and for bind-mounts of in-repo configs + project state (AMC mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` here). The `overrides.env` template ships with a placeholder `/path/to/deploy/docker`; replace it in the active `generated.env` with the absolute path to your checkout's `deploy/docker`, otherwise the dry-run fails with `couldn't find env file: …/services/vios/vst.env`. | (no default — must be set) |
+| `EXTERNAL_IP` | Public/client-reachable host address. Materialize it explicitly alongside `HOST_IP`; use the same value for a directly reachable local host. | `HOST_IP` |
+| `VSS_APPS_DIR` | **Absolute path to your repo's `deploy/docker/` directory** (compose-tree root) — NOT an arbitrary data dir. Compose uses it both for `env_file:` lookups (e.g. `${VSS_APPS_DIR}/services/vios/vst.env`) and for bind-mounts of in-repo configs + project state (AMC mounts `${VSS_APPS_DIR}/services/auto-calibration/projects` here). The override template ships this value blank; set it in the active `generated.env`. Root Compose `${VSS_APPS_DIR:?}` rejects an unset or empty value before resolving services. | (no default — must be set) |
 | `VSS_DATA_DIR` | Runtime data root (separate from `VSS_APPS_DIR`). MS bind-mounts `${VSS_DATA_DIR}/auto-calib/vggt` (read-only) for the VGGT model. | (no default — must be set) |
 
 ## Deployment flow
 
-Standard compose-centric workflow: initialize `generated.env` from `overrides.env` → apply env overrides → `docker compose --env-file .env --env-file generated.env config` dry-run → review → `docker compose up` with the same env-file pair.
+Standard compose-centric workflow: initialize `generated.env` from
+`overrides.env` → set non-empty `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
+`EXTERNAL_IP`, and `VSS_PUBLIC_HOST` → run `docker compose config` with the
+warehouse `.env` plus `generated.env` → review → run `docker compose up` with
+the same env-file pair. Every invocation of the top-level
+`deploy/docker/compose.yml` requires all five values.
 
 ### Step 0 — Platform Preflight
 
@@ -193,7 +199,10 @@ Pick the deployment variant that matches the intent, initialize the runtime env 
 | Standalone AMC only (no warehouse agent/UI stack) | `vss-auto-calibration,vss-auto-calibration-ui` |
 
 ```bash
-cd deploy/docker
+cd deploy/docker || {
+  echo "deploy/docker is not accessible." >&2
+  exit 1
+}
 [ -f industry-profiles/warehouse-operations/generated.env ] || cp industry-profiles/warehouse-operations/overrides.env industry-profiles/warehouse-operations/generated.env
 grep -q '^BP_CONFIGURATOR_ENV_FILE=' industry-profiles/warehouse-operations/generated.env \
   || printf '\nBP_CONFIGURATOR_ENV_FILE=%s/industry-profiles/warehouse-operations/generated.env\n' "$(pwd)" >> industry-profiles/warehouse-operations/generated.env
@@ -225,13 +234,35 @@ set -a
 . industry-profiles/warehouse-operations/generated.env
 set +a
 
+# Root compose.yml rejects any unset or empty deployment root/public address.
+for _key in VSS_APPS_DIR VSS_DATA_DIR HOST_IP EXTERNAL_IP VSS_PUBLIC_HOST; do
+  if ! _value="$(printenv "$_key")" || [ -z "$_value" ]; then
+    echo "Set $_key to a non-empty value in $GEN before invoking root Compose." >&2
+    exit 1
+  fi
+done
+
 # 1. Generate the resolved compose for review
-docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config > resolved.yml
+docker compose \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  config > resolved.yml
 # Review resolved.yml — confirm vss-auto-calibration and vss-auto-calibration-ui appear
 
 # 2. Confirm the NGC key can access the AMC images before bringing the stack up.
 #    Image references are read from the resolved compose, so this tracks the release tag automatically.
-AMC_IMAGES=$(docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env config --images | grep auto-calibration)
+if ! ALL_IMAGES="$(
+  docker compose \
+    --env-file containers.env \
+    --env-file industry-profiles/warehouse-operations/.env \
+    --env-file industry-profiles/warehouse-operations/generated.env \
+    config --images
+)"; then
+  echo "Failed to resolve image references from the Compose model." >&2
+  exit 1
+fi
+AMC_IMAGES="$(printf '%s\n' "$ALL_IMAGES" | grep 'auto-calibration' || true)"
 if [ -z "$AMC_IMAGES" ]; then
   echo "No auto-calibration images found in the resolved compose."
   echo "Confirm COMPOSE_PROFILES is exported and the chosen service list includes vss-auto-calibration before continuing."
@@ -249,7 +280,11 @@ for img in $AMC_IMAGES; do
 done
 
 # 3. Bring up the stack (images are already local from the access check)
-docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env up -d
+docker compose \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  up -d
 ```
 
 ### Step 4 — Verify
@@ -356,8 +391,15 @@ Re-run the write test to confirm, then continue. Prefer this scoped ACL over a b
 ## Stopping the services
 
 ```bash
-cd deploy/docker
-COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
+cd deploy/docker || {
+  echo "deploy/docker is not accessible." >&2
+  exit 1
+}
+COMPOSE_PROFILES=vss-auto-calibration,vss-auto-calibration-ui docker compose \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  down
 
 # Or, if running as part of warehouse auto-calibration: always use the
 # auto-calib list. Do not reuse COMPOSE_PROFILES from generated.env — the
@@ -373,7 +415,11 @@ test -n "${COMPOSE_PROFILES}" || {
   exit 1
 }
 export COMPOSE_PROFILES
-docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env down
+docker compose \
+  --env-file containers.env \
+  --env-file industry-profiles/warehouse-operations/.env \
+  --env-file industry-profiles/warehouse-operations/generated.env \
+  down
 ```
 
 ## What comes next

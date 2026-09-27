@@ -49,9 +49,12 @@ Then pass `containers.env`, the profile `.env`, and the user overlay:
 --env-file <profile>/user-overrides.env
 ```
 
-Before direct Compose bring-up, update the deployment-specific placeholders in
-`user-overrides.env`, especially `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
-`EXTERNAL_IP`, credentials, and the active `COMPOSE_PROFILES`.
+Before direct Compose bring-up, set the required blank deployment roots in
+`user-overrides.env`: `VSS_APPS_DIR`, `VSS_DATA_DIR`, and `HOST_IP`. Materialize
+`EXTERNAL_IP` alongside `HOST_IP`; a later env layer does not recompute the
+profile layer's derived value. Also review credentials and the active
+`COMPOSE_PROFILES`. Root Compose validation rejects an unset or empty required
+value before processing service definitions.
 
 ---
 
@@ -127,7 +130,7 @@ derived runtime values, and starts Compose with `containers.env`, the profile
 `.env`, and `generated.env` in that order.
 
 The helper resets its managed state before every `up`: it stops the Compose
-project **`mdx`**, removes Compose volumes, deletes old `generated.env` files,
+project **`vss`**, removes Compose volumes, deletes old `generated.env` files,
 cleans generated SDRC artifacts, and deletes the developer data directory
 (default: **`deploy/docker/data-dir`**) before recreating it. Use `--dry-run` to
 preview the commands and generated environment without starting containers.
@@ -160,8 +163,9 @@ docker compose -f compose.yml \
 ```
 
 For direct Compose, copy `overrides.env` to `user-overrides.env` first, then
-replace the user file's placeholder values for `VSS_APPS_DIR`, `VSS_DATA_DIR`, `HOST_IP`,
-credentials, ports, and model settings.
+set its blank `VSS_APPS_DIR`, `VSS_DATA_DIR`, and `HOST_IP` values and
+materialize `EXTERNAL_IP`, followed by the credentials, ports, and model
+settings needed for the selected profile.
 
 Create writable host directories for the bind-mounted infrastructure volumes
 before starting a direct Compose stack:

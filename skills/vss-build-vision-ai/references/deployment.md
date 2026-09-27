@@ -52,6 +52,30 @@ if [ -n "$VSS_CONTAINER_TAG" ]; then
   tag_args=(--expect-container-tag "$VSS_CONTAINER_TAG")
 fi
 
+if ! effective_environment="$(
+  docker compose "${env_args[@]}" -f "$BUILD_DIR/compose.yml" \
+    config --environment --no-consistency
+)"; then
+  echo "Could not read the effective environment; NIM hardware was not validated." >&2
+  exit 1
+fi
+effective_hardware="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^HARDWARE_PROFILE=//p' | tail -n 1
+)"
+effective_profiles="$(
+  printf '%s\n' "$effective_environment" |
+    sed -n 's/^COMPOSE_PROFILES=//p' | tail -n 1
+)"
+if ! "${VSS_SKILL_PY[@]}" \
+  "$REPO/skills/vss-build-vision-ai/scripts/validate_nim_hardware_env.py" \
+  --repo-root "$REPO" \
+  --profiles "$effective_profiles" \
+  --hardware-profile "$effective_hardware"; then
+  echo "NIM hardware validation failed." >&2
+  exit 1
+fi
+
 docker compose "${env_args[@]}" \
   -f "$BUILD_DIR/compose.yml" \
   config --no-consistency > "$BUILD_DIR/resolved.yml"

@@ -38,7 +38,8 @@ services:
       NIM_MODEL_NAME: "${VLM_NIM_MODEL_NAME:-${VLM_CUSTOM_WEIGHTS:-}}"
       NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
     env_file:
-      - ${VSS_APPS_DIR}/services/nim/cosmos3-reasoner/hw-${HARDWARE_PROFILE}.env
+      - path: ${VSS_APPS_DIR}/services/nim/cosmos3-reasoner/hw-${HARDWARE_PROFILE}.env
+        required: false
       - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - cosmos3_reasoner_cache:/opt/nim/.cache
@@ -82,7 +83,8 @@ services:
       NIM_MODEL_NAME: "${VLM_NIM_MODEL_NAME:-${VLM_CUSTOM_WEIGHTS:-}}"
       NIM_MODEL_SIZE: "${NIM_MODEL_SIZE:-nano}"
     env_file:
-      - ${VSS_APPS_DIR}/services/nim/cosmos3-reasoner/hw-${HARDWARE_PROFILE}-shared.env
+      - path: ${VSS_APPS_DIR}/services/nim/cosmos3-reasoner/hw-${HARDWARE_PROFILE}-shared.env
+        required: false
       - ${VLM_ENV_FILE:-${VSS_APPS_DIR}/services/nim/fallback-override.env}
     volumes:
       - cosmos3_reasoner_cache:/opt/nim/.cache

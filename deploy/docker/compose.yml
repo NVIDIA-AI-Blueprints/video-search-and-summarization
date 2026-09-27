@@ -13,6 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Host values every profile must supply. The profile env layers declare these
+# keys empty, so Compose stops here — naming the variable — instead of
+# interpolating a placeholder into bind mounts and generated URLs and failing
+# later in a service log. Every profile defines all four, so the guard is
+# profile-independent; interpolation runs over the whole include graph before
+# COMPOSE_PROFILES filtering, so a guard on a profile-specific variable would
+# fail the profiles that do not set it.
+x-required-host-values:
+  vss_apps_dir: ${VSS_APPS_DIR:?set VSS_APPS_DIR to this repository's deploy/docker directory}
+  vss_data_dir: ${VSS_DATA_DIR:?set VSS_DATA_DIR to the host data directory for models, videos and logs}
+  host_ip: ${HOST_IP:?set HOST_IP to the hostname or IP clients use to reach these services}
+  # Derived in the profile env layer from HOST_IP, and every client-facing URL
+  # is built from it. Compose expands an env file as it is read and does not
+  # recompute it when a later --env-file changes an input, so a layer that sets
+  # HOST_IP alone leaves this empty.
+  vss_public_host: ${VSS_PUBLIC_HOST:?set VSS_PUBLIC_HOST alongside HOST_IP; the profile layer derives it from HOST_IP and a later env layer must carry the resolved value}
+
 include:
   - path: ./services/compose.yml
   - path: ./developer-profiles/compose.yml
