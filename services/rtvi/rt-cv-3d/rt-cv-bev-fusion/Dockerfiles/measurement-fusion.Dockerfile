@@ -13,8 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Rebuild bump: edit this block to re-trigger the CI image build.
-#   [1]: inventory platforms expanded to amd64+arm64
+#
+# Build with services/rtvi/rt-cv-3d/rt-cv-bev-fusion as the context:
+#
+#   docker build \
+#     -f services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile \
+#     -t <registry>/vss-rt-cv-mv3dt-bev-fusion:<tag> \
+#     services/rtvi/rt-cv-3d/rt-cv-bev-fusion
 
 ARG PYTHON_VERSION=3.13
 ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.9

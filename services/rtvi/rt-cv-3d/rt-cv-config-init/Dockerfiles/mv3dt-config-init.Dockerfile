@@ -20,9 +20,6 @@
 #     -t <registry>/vss-rt-cv-mv3dt-config-init:<tag> \
 #     services/rtvi/rt-cv-3d/rt-cv-config-init
 
-# Rebuild bump: edit this block to re-trigger the CI image build.
-#   [0]: initial GHCR onboarding
-
 ARG PYTHON_VERSION=3.13
 ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.9
 ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python

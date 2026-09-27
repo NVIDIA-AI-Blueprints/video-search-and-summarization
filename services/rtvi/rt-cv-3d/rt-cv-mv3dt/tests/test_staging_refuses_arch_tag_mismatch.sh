@@ -69,6 +69,19 @@ chk "x86_64 with the default tag stages"             "$(stage x86_64 develop-lat
 chk "SKIP_ARCH_CHECK=1 stages anyway"                "$(stage aarch64 develop-latest SKIP_ARCH_CHECK=1)" "0"
 chk "a custom image is not second-guessed"           "$(stage aarch64 some-tag PERCEPTION_IMAGE=my.registry/perception)" "0"
 
+# An unset PERCEPTION_TAG is not a pass: compose falls back to develop-latest,
+# which on aarch64 is exactly the decoder-less image the guard rejects.
+chk "aarch64 with no tag set is still refused"       "$(stage aarch64 '')" "1"
+chk "  the fallback tag is named"                    "$(said 'develop-latest')" "yes"
+
+# The refusal matches sbsa anywhere in the tag, so the advice has to remove it
+# anywhere. Suggesting the tag that was just rejected leaves the operator stuck.
+chk "x86_64 with sbsa mid-tag is refused"            "$(stage x86_64 develop-latest-sbsa-swenc)" "1"
+# The rejected tag is named in the diagnostic, which is correct. What must not
+# happen is the "Set ..." advice handing back the same tag.
+chk "  the advice is not the rejected tag"           "$(said 'Set PERCEPTION_TAG="develop-latest-sbsa-swenc"')" "no"
+chk "  the advice strips sbsa from the middle"       "$(said 'PERCEPTION_TAG="develop-latest-swenc"')" "yes"
+
 # An unrecognised machine must not block staging.
 chk "an unknown architecture is left alone"          "$(stage riscv64 develop-latest)" "0"
 

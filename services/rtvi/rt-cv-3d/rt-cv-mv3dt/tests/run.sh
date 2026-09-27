@@ -25,8 +25,9 @@ export MV3DT_TESTS_DIR="$HERE"
 # camera names that a fresh clone accepts. Copying the component minus its run
 # state makes the suite hermetic; a test needing staged config creates it.
 MV3DT_SRC="$(cd "$HERE/.." && pwd)"
-SCRATCH="${TMPDIR:-/tmp}/mv3dt-tests-scratch"
-rm -rf "$SCRATCH"; mkdir -p "$SCRATCH"
+# mktemp, not a fixed path: two suites running at once would otherwise delete
+# each other's scratch mid-run, and a fixed name could belong to something else.
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/mv3dt-tests-XXXXXX")"
 cp -r "$MV3DT_SRC/." "$SCRATCH/"
 rm -rf "$SCRATCH/generated" "$SCRATCH/video-output" "$SCRATCH/bev-output" "$SCRATCH/utils/venv"
 export MV3DT_SCRATCH="$SCRATCH"

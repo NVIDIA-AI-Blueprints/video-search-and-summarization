@@ -988,14 +988,28 @@ PY
   # rc 4: the endpoint is there but reports no per-stream stats at all, so the
   # check cannot tell a live stream from a dead one. Say so instead of calling
   # every stream UNSEEN.
+  # rc 4: the endpoint answered but named no stream at all. Two different states
+  # produce that and this check cannot separate them:
+  #
+  #   - statistics are not being collected (nvdslogger off in the enabled sink),
+  #     so there is nothing to report about perfectly healthy streams, or
+  #   - no source decoded, so there is nothing to report.
+  #
+  # Reading the staged config does not settle it. The running perception process
+  # loaded its config at startup, so a restage without a recreate leaves the two
+  # disagreeing, and nvdslogger can sit in a sink block that is disabled. Say
+  # plainly that the check could not run, name both causes, and do not fail a run
+  # that may be healthy: an activation check that cannot see is not evidence.
   if (( rc == 4 )); then
     echo
-    echo "   Note: could not verify activation. ${BASE}/api/v1/metrics returned no"
-    echo "   per-stream statistics for any stream. Those come from nvdslogger, which"
-    echo "   the shipped sink config disables, so this check has nothing to read."
-    echo "   The streams are registered. Confirm they are producing with:"
+    echo "   Note: could not verify activation. ${BASE}/api/v1/metrics reported no"
+    echo "   per-stream statistics. Two things look identical from here and this"
+    echo "   check cannot tell them apart:"
+    echo "     - nvdslogger is off in the enabled sink, so nothing is collected, or"
+    echo "     - no source decoded, so there is nothing to collect."
+    echo "   The streams are registered. Settle it against the perception log:"
     echo "     docker logs --since 60s vss-rtvi-cv-mv3dt 2>&1 | grep -aE 'Active sources|source_id'"
-    echo "   To enable this check, set nvdslogger=1 in the [sink] blocks and restage."
+    echo "   Active sources at 0 with a non-zero stream-count means the sources failed."
     return 0
   fi
 

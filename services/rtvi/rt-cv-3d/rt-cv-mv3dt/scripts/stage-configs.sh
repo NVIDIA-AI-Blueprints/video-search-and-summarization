@@ -246,11 +246,24 @@ check_camera_consistency
 #
 # Only the stock ghcr image follows this tag convention, so a custom
 # PERCEPTION_IMAGE is left alone. SKIP_ARCH_CHECK=1 bypasses the whole thing.
+# Strip the sbsa marker wherever it sits so the suggested tag is one this guard
+# would accept. "develop-latest-sbsa" -> "develop-latest",
+# "develop-latest-sbsa-swenc" -> "develop-latest-swenc".
+x86_tag() {
+  local t="${1//-sbsa/}"
+  t="${t//sbsa-/}"
+  t="${t//sbsa/}"
+  printf '%s' "${t:-develop-latest}"
+}
+
 check_perception_arch() {
   [ "${SKIP_ARCH_CHECK:-0}" = "1" ] && return 0
 
   local image="${PERCEPTION_IMAGE:-}" tag="${PERCEPTION_TAG:-}" arch
-  [ -n "$tag" ] || return 0
+  # An unset tag is not "no opinion": compose falls back to develop-latest
+  # (see docker/compose.yml), which on aarch64 is the decoder-less image this
+  # guard exists to reject. Check what will actually run.
+  [ -n "$tag" ] || tag=develop-latest
   case "$image" in
     ''|*ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv) ;;
     *) return 0 ;;                       # custom image, convention does not apply
@@ -274,7 +287,7 @@ check_perception_arch() {
         *-sbsa|*sbsa*)
           { echo "ERROR: perception image does not match this machine, nothing was staged."
             echo "       PERCEPTION_TAG=\"$tag\" is the aarch64 build and this host is $arch."
-            echo "       Set PERCEPTION_TAG=\"${tag%-sbsa}\" in docker/.env and restage,"
+            echo "       Set PERCEPTION_TAG=\"$(x86_tag "$tag")\" in docker/.env and restage,"
             echo "       or re-run with SKIP_ARCH_CHECK=1 to stage anyway."; } >&2
           exit 1 ;;
         *) return 0 ;;
