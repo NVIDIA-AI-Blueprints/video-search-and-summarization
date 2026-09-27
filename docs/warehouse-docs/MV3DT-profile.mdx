@@ -35,17 +35,17 @@ The **VSS Warehouse MV3DT Blueprint** emphasizes 3D multi-camera detection, trac
    - It sends per-camera frame data, including detected and tracked object IDs with 3D foot locations, in Protobuf format to the message broker via the `mdx-raw` topic. When appearance ReID is on, those payloads also carry CLIP-ReID embeddings.
    - The tracker queries the ReID service over HTTP (`reid-embed:8088`) so Person tracks can be re-associated from the appearance gallery.
 
-4. **Appearance ReID (`reid-embed` + Milvus)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
-
-   - `reid-embed` consumes `mdx-raw`, stores CLIP-ReID (1280-D) features in a Milvus gallery (etcd + MinIO), and answers HTTP queries from the tracker. Re-association is **Person only**.
-   - Warehouse deployments also run a secondary SigLIP 2 encoder (`siglip_v2_vdeployable_v1.1`) and publish `mdx-compressed-embeddings` on the same Kafka or Redis broker. BEV Fusion still consumes only `mdx-raw`.
-   - Gallery backends are ephemeral. CLIP-ReID and SigLIP 2 weights persist under `$VSS_DATA_DIR/models/reid` (Compose) or the RT-CV models PVC (Helm). Perception waits on `GET /health/ready` after the init container and Milvus are up. The health-check start grace period is 300s; first-boot engine build can take longer.
-
-5. **MQTT Broker (Mosquitto)**
+4. **MQTT Broker (Mosquitto)**
 
    - An [Eclipse Mosquitto](https://mosquitto.org/) MQTT message broker used exclusively for inter-camera MV3DT communication.
    - Each camera publishes its 3D tracklets to a dedicated MQTT topic and subscribes to topics from its vision neighbors (cameras with overlapping fields of view).
    - This enables decentralized, globally unique ID assignment and cross-camera handover without a central coordinator.
+
+5. **Appearance ReID (`reid-embed` + Milvus)** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
+
+   - `reid-embed` consumes `mdx-raw`, stores CLIP-ReID (1280-D) features in a Milvus gallery (etcd + MinIO), and answers HTTP queries from the tracker. This helps re-associate people across gaps in camera coverage or when they reappear after an extended period. Re-association is **Person only**.
+   - Warehouse deployments also run a secondary SigLIP 2 encoder (`siglip_v2_vdeployable_v1.1`) and publish `mdx-compressed-embeddings` on the same Kafka or Redis broker. SigLIP runs only on selected high-quality samples of each object, at regular intervals, so each object still gets a strong appearance embedding without putting SigLIP on every DeepStream frame. BEV Fusion still consumes only `mdx-raw`.
+   - Gallery backends are ephemeral. CLIP-ReID and SigLIP 2 weights persist under `$VSS_DATA_DIR/models/reid` (Compose) or the RT-CV models PVC (Helm). Perception waits on `GET /health/ready` after the init container and Milvus are up. The health-check start grace period is 300s; first-boot engine build can take longer.
 
 6. **BEV Fusion** ([3D Multi Camera Detection and Tracking (MV3DT)](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-mv3dt))
 

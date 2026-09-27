@@ -20,7 +20,7 @@ MV3DT is implemented as an additional module in the `NvMultiObjectTracker` low-l
 
 Tracking outputs include 3D foot location, visibility, velocity, class labels, and globally consistent instance IDs, enabling sophisticated multi-camera fusion and analytics capabilities.
 
-Warehouse MV3DT also runs **appearance-based re-association** by default. The tracker extracts [CLIP-ReID](https://github.com/Syliz517/CLIP-ReID) features and streams them over kafka. These are saved by `reid-embed` microservice in it's gallery. Tracker queries the `reid-embed` gallery to re-associate **Person** tracks that geometry and MQTT handoff would otherwise lose e.g. when there are camera coverage gaps or when a person is occluded for a long time.
+Warehouse MV3DT also enables **appearance-based re-association**. The tracker extracts [CLIP-ReID](https://github.com/Syliz517/CLIP-ReID) features and streams them over kafka. These are saved by `reid-embed` microservice in it's gallery. Tracker queries the `reid-embed` gallery to re-associate **Person** tracks that geometry and MQTT handoff would otherwise lose e.g. when there are camera coverage gaps or when a person is occluded for a long time.
 
 For detailed information on all components, APIs, and customization options, refer to the [Object Detection and Tracking](/vss/system-components/vision-microservices/object-detection-and-tracking).
 To deploy the standalone MV3DT stack from natural-language prompts, see the
