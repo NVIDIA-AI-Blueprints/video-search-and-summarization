@@ -1,1 +1,1 @@
-Person:0.75;Fourier_GR1_T2_Humanoid:0.75;Agility_Digit_Humanoid:0.75;Nova_Carter:0.75;Transporter:0.75;Forklift:0.5;Forklift:0.5;
+Person:0.75;Fourier_GR1_T2_Humanoid:0.75;Agility_Digit_Humanoid:0.75;Nova_Carter:0.75;Transporter:0.75;Forklift:0.5;Pallet_Truck:0.5;
