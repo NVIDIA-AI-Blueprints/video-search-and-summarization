@@ -28,6 +28,9 @@ These Release Notes describe the key features, software enhancements and improve
 ### Agent Workflows
 
 <Tabs>
+<Tab title="Video Summarization">
+- A video summary can return HTTP 200 with empty output when a backend is unhealthy. Check backend health, especially RTVI-VLM.
+</Tab>
 <Tab title="Alerts">
 * **Redis is no longer a dependency of the Alerts microservice.** Deduplication
   and filter state are in-process, and durable state — alert configs and
