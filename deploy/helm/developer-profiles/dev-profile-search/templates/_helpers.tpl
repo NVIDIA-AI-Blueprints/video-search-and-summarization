@@ -211,6 +211,8 @@ sensor/streamprocessing broker overrides.
 {{- $rtviEmbedDefault := ternary (printf "%s:%v%s" $controllerService $controllerPort $rtviEmbedPath) (printf "%s:8000" $rtviEmbedH) $riiEnabled }}
 {{- $rtviCvAddr := index $service "rtviCvServerAddress" | default $rtviCvDefault }}
 {{- $rtviEmbedAddr := index $service "rtviEmbedServerAddress" | default $rtviEmbedDefault }}
-{{- $raw | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_CV_ADDRESS__" $rtviCvAddr | replace "__RTVI_EMBED_ADDRESS__" $rtviEmbedAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | replace "__ELASTICSEARCH_ADDRESS__" $elasticsearchAddr | replace "__USE_MESSAGE_BROKER_CONSUMER__" $messageBrokerConsumer | replace "__MESSAGE_BROKER_TOPIC_CONSUMER__" $messageBrokerTopicConsumer | replace "__MESSAGE_BROKER_METADATA_TOPIC__" $messageBrokerMetadataTopic -}}
+{{- $sdrcH := ternary (printf "%s-sdrc-controller" $root.Release.Name) "sdrc-controller" $pfx }}
+{{- $sdrcRtviCvAddr := index $service "sdrcRtviCvServerAddress" | default (index $vios "sdrcRtviCvServerAddress" | default (printf "%s:10001" $sdrcH)) }}
+{{- $raw | replace "__REDIS_ADDRESS__" $redisAddr | replace "__KAFKA_ADDRESS__" $kafkaAddr | replace "__MQTT_BROKER_ADDRESS__" $mqttAddr | replace "__RTVI_CV_ADDRESS__" $rtviCvAddr | replace "__SDRC_RTVI_CV_ADDRESS__" $sdrcRtviCvAddr | replace "__RTVI_EMBED_ADDRESS__" $rtviEmbedAddr | replace "__RTVI_VLM_ADDRESS__" $rtviVlmAddr | replace "__ELASTICSEARCH_ADDRESS__" $elasticsearchAddr | replace "__USE_MESSAGE_BROKER_CONSUMER__" $messageBrokerConsumer | replace "__MESSAGE_BROKER_TOPIC_CONSUMER__" $messageBrokerTopicConsumer | replace "__MESSAGE_BROKER_METADATA_TOPIC__" $messageBrokerMetadataTopic -}}
 {{- end }}
 

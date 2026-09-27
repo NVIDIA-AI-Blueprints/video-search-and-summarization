@@ -198,6 +198,13 @@ infra:
   sdrc:
     enabled: true
     configFilePath: configs/sdrc/config-search.yml
+    # Publishes the rtvi-cv Envoy listener (WDM_MS_LISTENER_PORT) so VIOS
+    # webhooks can POST /api/v1/stream/add and /remove through SDRC.
+    service:
+      workloadListeners:
+        - name: rtvi-cv-http
+          port: 10001
+          targetPort: 10001
     config:
       configMapName: sdrc-config
       key: config.yml
@@ -264,7 +271,7 @@ rtvi:
     enabled: true
     # `search` mounts ds-main-config / ds-ppl-analytics from dev-profile-search vss-rtvi-cv-configmap (not the default `alerts` StatefulSet).
     profileMode: search
-    replicas: 1
+    replicas: 2
     # image: inherited from the rtvi-cv subchart's managed GHCR channel.
     # Pinning it here would override that default and silently keep this
     # profile on NGC, like the other managed images which are not pinned in
