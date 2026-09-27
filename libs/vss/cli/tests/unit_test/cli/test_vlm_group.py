@@ -740,6 +740,50 @@ def test_standalone_vllm_translates_fixed_frame_count(
     assert captured["json"]["mm_processor_kwargs"] == {"do_sample_frames": False}
 
 
+def test_standalone_vllm_can_delegate_video_sampling_to_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _capture(_url: str, *, json: Any, **_kwargs: Any) -> httpx.Response:
+        captured["json"] = json
+        return httpx.Response(200, json=_completion())
+
+    monkeypatch.setattr(httpx, "post", _capture)
+
+    from vss_cli.group import Context
+    from vss_cli.vlm.group import VlmGroup
+
+    ctx = Context(deployment=_deployment(vlm=config_mod.VlmConfig(backend="vllm")))
+    ctx.extra = {"no_persist": True}
+    VlmGroup().run(
+        "",
+        VlmInput(
+            prompt="What?\n\nAnswer with only the option letter: A, B, C, or D. Do not explain your answer and do not repeat the question or choices.",
+            media_url="http://h/clip.mp4",
+            server_video_sampling=True,
+        ),
+        ctx,
+    )
+
+    request = captured["json"]
+    assert "media_io_kwargs" not in request
+    assert "mm_processor_kwargs" not in request
+    assert request["messages"][0]["content"] == [
+        {"type": "video_url", "video_url": {"url": "http://h/clip.mp4"}},
+        {"type": "text", "text": "What?\n\nAnswer with only the option letter: A, B, C, or D. Do not explain your answer and do not repeat the question or choices."},
+    ]
+
+
+def test_server_video_sampling_rejects_client_frame_overrides() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="server-video-sampling"):
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", server_video_sampling=True, fps=2)
+    with pytest.raises(ValidationError, match="server-video-sampling"):
+        VlmInput(prompt="What?", media_url="http://h/clip.mp4", server_video_sampling=True, num_frames=8)
+
+
 def test_configured_vlm_policy_applies_all_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
