@@ -139,6 +139,21 @@
             "temperature": {
               "type": "number"
             },
+            "top_p": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "top_k": {
+              "type": "integer"
+            },
+            "presence_penalty": {
+              "type": "number"
+            },
+            "repetition_penalty": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
             "max_tokens": {
               "type": "integer",
               "minimum": 1

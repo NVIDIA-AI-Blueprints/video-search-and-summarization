@@ -56,7 +56,7 @@ vllm:
   dtype: bfloat16
   gpuMemoryUtilization: 0.75
   maxModelLen: 262144
-  maxNumSeqs: 8
+  maxNumSeqs: 4
   enableChunkedPrefill: true
   skipMmProfiling: true
   mmProcessorCacheGiB: 16
@@ -72,24 +72,34 @@ vllm:
       seek_mode: exact
       num_frames: -1
       fps: 2
-      max_frames: 768
+      max_frames: 8192
   overrideGenerationConfig:
-    temperature: 0
-    max_new_tokens: 8192
+    temperature: 1
+    top_p: 0.95
+    top_k: 20
+    presence_penalty: 0
+    repetition_penalty: 1
+    max_new_tokens: 16384
   defaultChatTemplateKwargs:
-    enable_thinking: false
+    enable_thinking: true
+    preserve_thinking: true
   extraArgs: []
 
 # This middleware replaces conflicting per-request values so every OpenAI chat
-# request uses the configured deterministic generation policy.
+# request uses the configured generation policy.
 requestPolicy:
   enabled: true
   payload:
-    temperature: 0
-    max_tokens: 8192
+    temperature: 1
+    top_p: 0.95
+    top_k: 20
+    presence_penalty: 0
+    repetition_penalty: 1
+    max_tokens: 16384
     seed: 1
     chat_template_kwargs:
-      enable_thinking: false
+      enable_thinking: true
+      preserve_thinking: true
     mm_processor_kwargs:
       size:
         shortest_edge: 4096
@@ -132,11 +142,11 @@ shm:
 resources:
   requests:
     cpu: "16"
-    memory: 128Gi
+    memory: 256Gi
     nvidia.com/gpu: 1
   limits:
     cpu: "16"
-    memory: 128Gi
+    memory: 256Gi
     nvidia.com/gpu: 1
 
 startupProbe:

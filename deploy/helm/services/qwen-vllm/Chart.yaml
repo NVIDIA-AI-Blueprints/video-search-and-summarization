@@ -15,9 +15,9 @@
 
 apiVersion: v2
 name: qwen-vllm
-description: Deploy Qwen3.8-27B with vLLM and a deterministic request policy
+description: Deploy Qwen3.8-27B with vLLM and a locked request policy
 type: application
-version: 3.3.0
+version: 3.4.0
 appVersion: "0.28.0"
 kubeVersion: ">=1.25.0-0"
 maintainers:
