@@ -358,8 +358,9 @@ RUN rm -f /etc/profile.d/nemoclaw-rlimits.sh \
 
 # nvm shim. Harbor's openclaw adapter bootstraps node with nvm (`. ~/.nvm/nvm.sh
 # && nvm use 22 && node -v`); this image pins node, so the shim answers `use`
-# and `install` for the pinned major and refuses any other, exactly as the
-# openshell-community image did. Without it every trial fails at agent setup
+# and `install` for the pinned major. It also accepts Harbor's hardcoded
+# `nvm use 22` as a no-op against the pinned node 24; installing 22 remains
+# refused. Without it every trial fails at agent setup
 # with "/sandbox/.nvm/nvm.sh: No such file or directory".
 # (Kaniko does not support heredocs in RUN; the shim ships as a context file.)
 COPY --chown=sandbox:sandbox nvm-shim.sh /sandbox/.nvm/nvm.sh
