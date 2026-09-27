@@ -24,7 +24,7 @@
 #   [0]: initial GHCR onboarding
 
 ARG PYTHON_VERSION=3.13
-ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.5
+ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.9
 ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
 
 ###################################################
@@ -120,4 +120,7 @@ COPY --chmod=0644 3rdParty_Licenses.md /app/3rdParty_Licenses.md
 
 # Reset any preset ENTRYPOINT from the distroless base so CMD is used directly.
 ENTRYPOINT []
+# Attribute this image to its nSpect program.
+LABEL com.nvidia.mm.nspect=NSPECT-H991-WYFJ
+
 CMD ["python3", "-u", "/app/mv3dt-config-init.py"]
