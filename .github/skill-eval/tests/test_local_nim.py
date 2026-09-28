@@ -26,7 +26,7 @@ def registry(monkeypatch, *, arch="arm64", tags=None, fail=None):
         calls.append(url)
         if fail:
             raise urllib.error.HTTPError(url, fail, "registry error", {}, None)
-        if "authn.nvidia" in url:
+        if "nvcr.io/proxy_auth" in url:
             return {"token": "test-token"}, {}
         if url.endswith("tags/list"):
             return {"tags": tags or ["1.9.0", "1.10.0", "1.11.0-rc1"]}, {}
@@ -52,6 +52,7 @@ def test_spark_packaging_keeps_model_identity(monkeypatch):
     calls = registry(monkeypatch)
     result = nim.resolve_image("qwen/qwen3-32b", "arm64", "secret")
     assert result["model"] == "qwen/qwen3-32b"
+    assert calls[0].startswith("https://nvcr.io/proxy_auth?")
     assert "/nim/qwen/qwen3-32b-dgx-spark/" in calls[-1]
 
 

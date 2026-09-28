@@ -111,7 +111,10 @@ def resolve_image(model: str, arch: str, key: str) -> dict:
     found = False
     for repo in repos:
         basic = base64.b64encode(f"$oauthtoken:{key}".encode()).decode()
-        auth_url = "https://authn.nvidia.com/token?" + urllib.parse.urlencode(
+        # nvcr.io's Registry v2 challenge advertises this realm for image
+        # pulls. The NGC API's authn.nvidia.com/token endpoint is a separate
+        # service and can reject an otherwise valid container-registry key.
+        auth_url = "https://nvcr.io/proxy_auth?" + urllib.parse.urlencode(
             {
                 "service": "registry",
                 "scope": f"repository:{repo}:pull",
