@@ -77,10 +77,15 @@ to `${HOST_IP}:${VSS_AGENT_PORT}` — the agent this build removed — answering
 HTTP 502 in a UI that otherwise looks ready. Hold it out of the first `up`:
 
 ```bash
-docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
+docker compose -f "$BUILD_DIR/resolved.yml" rm -sf vss-ui \
+  && docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
   && docker compose -f "$BUILD_DIR/resolved.yml" up -d --build \
     $(docker compose -f "$BUILD_DIR/resolved.yml" config --services | grep -vx vss-ui)
 ```
+
+The `rm` matters on a redeploy: naming services on `up` leaves a `vss-ui`
+already running from the previous one serving its stale chat config through
+onboarding. On a fresh deploy it removes nothing.
 
 The `pull` stays unfiltered, exactly as [`deployment.md`](deployment.md) has it:
 only the *start* is deferred, and fetching the UI image here is what keeps the
@@ -88,7 +93,8 @@ deferral's cost to the seconds its container takes to come up later.
 
 Naming services keeps [`deployment.md`](deployment.md)'s contract intact — still
 only `-f resolved.yml`, no `--env-file`, no `--profile`. The readiness gate then
-runs one container short; [`readiness.md`](readiness.md) Gate 0 covers that.
+runs one container short: run [`readiness.md`](readiness.md) Gate 0 with
+`DEFERRED=1` on this pass, and again with `DEFERRED=0` once `vss-ui` starts.
 
 **Defer it only on this shape:** the adapter this run is about to wire to the
 NemoClaw relay, *and* at least one chat surface on — read those back from

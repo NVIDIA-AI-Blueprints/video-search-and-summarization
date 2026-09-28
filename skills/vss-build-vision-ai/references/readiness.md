@@ -19,7 +19,7 @@ BUILD_DIR="_builds/<name>"
 # How many services this deploy deliberately held back. 0 on every build except
 # one deferring vss-ui for the harness (agent-harness.md, "Start vss-ui last");
 # never a way to excuse a service that failed to start.
-DEFERRED=0
+DEFERRED=${DEFERRED:-0}
 expected=$(( $(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l) - DEFERRED ))
 actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -q | wc -l)
 if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
@@ -68,9 +68,11 @@ Run those `curl` checks with a generous deadline (15 min is reasonable for cold
 NIM warmup) and only declare the deploy done once every documented endpoint
 returns the expected success exit code.
 
-Every profile's list includes the UI on `:3000`. On a build deferring `vss-ui`
-that probe belongs to the second pass, not this one — running it early reports a
-deliberate deferral as a failed deploy.
+On a build deferring `vss-ui`, the UI probe belongs to the second pass, not this
+one — running it early reports a deliberate deferral as a failed deploy. Where
+the profile's list includes it (`base`, `alerts`, `search`), move that probe;
+where it lists none (`lvs`), add `curl -sf "http://${HOST_IP}:3000/"` to the
+second pass.
 
 **Agent gate — only when the build includes the VSS Agent.** Stock profiles run
 `vss-agent`, so it must answer on `:8000/health`; a headless delta prunes it (no
