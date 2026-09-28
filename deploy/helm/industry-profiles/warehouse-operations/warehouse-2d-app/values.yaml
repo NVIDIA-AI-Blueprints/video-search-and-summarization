@@ -132,7 +132,7 @@ bp-configurator:
       optional: true
 
 calibration-import:
-  enabled: true
+  enabled: false
   name: import-calibration-output-2d
   restartPolicy: OnFailure
   backoffLimit: 5
@@ -309,7 +309,7 @@ analytics:
       calibration:
         enabled: true
         mountPath: /resources/calibration.json
-        apiUrl: "http://vss-video-analytics-api:8081/config/calibration"
+        apiUrl: ""
     config:
       kafkaConfigJson: |
         {
