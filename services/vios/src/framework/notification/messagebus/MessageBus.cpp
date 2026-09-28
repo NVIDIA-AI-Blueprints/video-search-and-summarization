@@ -18,6 +18,7 @@
 #include <MessageBus.h>
 
 using namespace std;
+using namespace nv_vms;
 
 #define SET_VMS_ERROR(err_code, value) { std::pair<std::string, std::string> err = getCameraErrorCodeString(err_code); \
                                         value["error_code"] = err.first; \

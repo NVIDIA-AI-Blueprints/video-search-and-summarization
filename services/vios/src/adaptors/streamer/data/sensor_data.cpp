@@ -25,6 +25,7 @@
 #include <memory>
 
 using namespace std;
+using namespace nv_vms;
 
 extern "C" ISensorDiscoveryInterface* createObject()
 {

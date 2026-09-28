@@ -63,11 +63,11 @@ public:
 
     void addRequestHandler(std::map<std::string, HttpServerRequestHandler::httpFunction, std::less<>>& func);
 
-     grpc::Status addDevice(std::shared_ptr<DeviceManager> deviceMngr,
+     grpc::Status addDevice(std::shared_ptr<nv_vms::DeviceManager> deviceMngr,
                             const CreateUDPConnectionRequest* request,
                             CreateUDPConnectionReply* reply,
                             std::string& peerid, std::string& stream_id);
-    std::string createUniqueStreamId(std::shared_ptr<SensorInfo> sensor);
+    std::string createUniqueStreamId(std::shared_ptr<nv_vms::SensorInfo> sensor);
 
 private:
     std::shared_ptr<nv_vms::DeviceManager>      m_deviceManager;
@@ -96,8 +96,8 @@ public:
     };
 
     void addRequestHandler(std::map<std::string, HttpServerRequestHandler::httpFunction, std::less<>>& func);
-    VmsErrorCode remotePeerAnswer(const Json::Value &in);
-    VmsErrorCode remotePeerCandidate(const Json::Value &in);
+    nv_vms::VmsErrorCode remotePeerAnswer(const Json::Value &in);
+    nv_vms::VmsErrorCode remotePeerCandidate(const Json::Value &in);
 
     grpc::Status sdpExchange(ServerContext* context, const Sdp* request, Sdp* reply) override;
     grpc::Status iceCandidateExchange(ServerContext* context, grpc::ServerReaderWriter<IceCandidate, IceCandidate>* stream) override;

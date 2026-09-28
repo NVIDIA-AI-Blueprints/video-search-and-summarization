@@ -37,7 +37,6 @@
 #include "modules_apis.h"
 #include "storage_management.h"
 
-using namespace nv_vms;
 
 inline constexpr const char* DEFAULT_WEBRTC_IN_VIDEO_CODEC = "h264";
 inline constexpr int DEFAULT_WEBRTC_IN_FRAMERATE = 30;

@@ -22,6 +22,7 @@
 #include "sensor_info.h"
 
 using namespace std;
+using namespace nv_vms;
 
 extern "C" ISensorControlInterface* createObject()
 {

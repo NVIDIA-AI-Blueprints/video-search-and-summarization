@@ -31,7 +31,6 @@
 #include "error_code.h"
 #include "sensor_info.h"
 
-using namespace nv_vms;
 
 #define __METHOD_NAME__ methodName(__PRETTY_FUNCTION__)
 #define __CLASS_NAME__ className(__PRETTY_FUNCTION__)
@@ -133,12 +132,12 @@ std::string convertUTCToHumanReadableFormat(const std::string& utcTimeStr);
 std::string getUniqueIdFromUTCTime(const std::string& utcTimeStr, const std::string& prefix = "");
 std::string sanitizeTimestampForFilename(const std::string& timeStr);
 std::string sanitizePrefix(const std::string& raw);
-std::pair<std::string, std::string> getCameraErrorCodeString(VmsErrorCode code);
-VmsErrorCode getCameraErrorCode(const std::string& error);
-std::pair<int, std::string> translateVmsErrorCodeToCameraHttpErrorCode(VmsErrorCode code);
-VmsErrorCode translateCameraHttpErrorCodeToVmsErrorCode(int code);
-StreamStatus stringToStreamStatus(const std::string& event);
-std::string translateStreamStatusToString(StreamStatus value);
+std::pair<std::string, std::string> getCameraErrorCodeString(nv_vms::VmsErrorCode code);
+nv_vms::VmsErrorCode getCameraErrorCode(const std::string& error);
+std::pair<int, std::string> translateVmsErrorCodeToCameraHttpErrorCode(nv_vms::VmsErrorCode code);
+nv_vms::VmsErrorCode translateCameraHttpErrorCodeToVmsErrorCode(int code);
+nv_vms::StreamStatus stringToStreamStatus(const std::string& event);
+std::string translateStreamStatusToString(nv_vms::StreamStatus value);
 bool validateIpAddress(const std::string &ipAddress);
 bool validateAndStripRtspUrl(std::string& url, std::string& ip, std::string& username, std::string& password);
 bool ping(const std::string& ip);
@@ -222,7 +221,7 @@ std::string removeTrailingSlashes(const std::string& str);
 int getCurrentCoreId();
 double findNearestValue(const std::vector<double>& numbers, double target);
 std::string removeDecimals(double number);
-AuthenticationMethods getSecuredAuthMethod(AuthenticationMethods supportedMethods);
+nv_vms::AuthenticationMethods getSecuredAuthMethod(nv_vms::AuthenticationMethods supportedMethods);
 long long stringToLong(const std::string& str, const long long value = 0);
 std::string serialize(std::vector<std::string> &filePaths);
 std::pair<int64_t, int64_t> getEpochTimeRangeFromIsoString(const std::string& timeRange);

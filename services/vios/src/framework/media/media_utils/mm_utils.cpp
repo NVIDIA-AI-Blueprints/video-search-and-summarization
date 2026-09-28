@@ -44,6 +44,7 @@ extern "C" {
 }
 
 using namespace std;
+using namespace nv_vms;
 
 constexpr int MAX_CHUNK_TO_READ = 8;
 constexpr int MIN_SIZE_VIDEO_FRAME = 4;

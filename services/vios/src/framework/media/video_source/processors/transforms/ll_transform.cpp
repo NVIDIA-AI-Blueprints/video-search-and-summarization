@@ -23,6 +23,7 @@
 #include "nvvideoencoder.h"
 
 using namespace std;
+using namespace nv_vms;
 
 constexpr int MAX_BUFFERS = 4;
 

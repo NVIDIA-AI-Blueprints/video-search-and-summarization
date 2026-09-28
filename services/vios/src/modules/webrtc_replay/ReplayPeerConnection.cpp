@@ -25,6 +25,7 @@
 #include <filesystem>
 
 using namespace std;
+using namespace nv_vms;
 
 namespace {
 

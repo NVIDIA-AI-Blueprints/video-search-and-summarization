@@ -27,7 +27,6 @@
 #include "Websocket.h"
 
 
-using namespace nv_vms;
 
 /* ---------------------------------------------------------------------------
 **  Civet Websocket callback 

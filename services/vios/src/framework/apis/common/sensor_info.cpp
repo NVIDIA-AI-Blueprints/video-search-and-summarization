@@ -24,6 +24,7 @@
 #include "nvsoap.h"
 
 using namespace std;
+using namespace nv_vms;
 
 SensorInfo::SensorInfo() :
         id("")

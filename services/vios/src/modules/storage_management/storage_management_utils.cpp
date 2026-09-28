@@ -41,6 +41,7 @@
 #include <mutex>
 
 using namespace std;
+using namespace nv_vms;
 
 constexpr int64_t DEFAULT_START_TIME_EPOCH = 1735689600000; // 2025-01-01T00:00:00.000Z
 

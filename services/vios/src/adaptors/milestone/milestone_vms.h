@@ -25,7 +25,6 @@
 #include <jsoncpp/json/json.h>
 #include <thread>
 
-using namespace nv_vms;
 
 namespace nv_vms {
 

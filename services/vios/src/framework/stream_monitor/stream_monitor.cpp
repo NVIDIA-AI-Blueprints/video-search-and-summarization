@@ -39,6 +39,7 @@
 #include <unistd.h>
 
 using namespace std;
+using namespace nv_vms;
 
 //#define DUMP_QOS_IN_NON_CSV_FORMAT
 constexpr int MAX_WAIT_MSECS = 1000; /* Wait max. 1 second */

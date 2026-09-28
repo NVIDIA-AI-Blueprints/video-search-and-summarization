@@ -186,7 +186,7 @@ NaluType parseH264NaluType(const unsigned char *buffer, ssize_t size);
 std::vector<uint8_t> getH26xMarker(const unsigned char *buffer);
 int getH26xMarkerSize(const unsigned char *buffer);
 std::vector<uint8_t> getDefaultH26xMarker();
-std::vector<uint8_t> getUserDefinedSeiFrame(FrameInfoSeiPayload& frameInfo, const std::string& uuid, const std::string& codec);
+std::vector<uint8_t> getUserDefinedSeiFrame(nv_vms::FrameInfoSeiPayload& frameInfo, const std::string& uuid, const std::string& codec);
 std::vector<uint8_t> getUserDefinedSeiFrameFromJson(Json::Value& value, const std::string& uuid, const std::string& codec);
 int64_t parseSeiFrameId(const unsigned char *buffer, ssize_t size, int64_t& pts_from_server, const std::string& codec);
 H265NaluType parseH265NaluType(const unsigned char *buffer, ssize_t size);

@@ -47,8 +47,8 @@ public:
     bool processReceivedMessage(struct mg_connection *conn, int flags, char *data, size_t data_len);
     bool isConnected();
     void handleClose(const struct mg_connection *conn);
-    void registerListener(IWebsocketNotification *listener);
-    void deRegisterListener(IWebsocketNotification *listener);
+    void registerListener(nv_vms::IWebsocketNotification *listener);
+    void deRegisterListener(nv_vms::IWebsocketNotification *listener);
 
 private:
     WebsocketClient();
@@ -81,5 +81,5 @@ private:
     std::atomic<bool> m_isConnected;
 
     std::mutex m_listenerMutex;
-    std::set<IWebsocketNotification*> m_listeners;
+    std::set<nv_vms::IWebsocketNotification*> m_listeners;
 };

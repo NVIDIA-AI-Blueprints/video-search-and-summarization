@@ -20,6 +20,7 @@
 #include <unordered_set>
 
 using namespace std;
+using namespace nv_vms;
 
 void videoRecordHelper(VideoRecordDBColumns &row, unordered_map<string, string> &entries)
 {

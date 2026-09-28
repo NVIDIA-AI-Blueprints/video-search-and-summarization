@@ -25,6 +25,7 @@
 using grpc::Status;
 using grpc::StatusCode;
 using namespace std;
+using namespace nv_vms;
 
 #ifdef USE_GRPC_SERVER
 using grpc::ServerBuilder;

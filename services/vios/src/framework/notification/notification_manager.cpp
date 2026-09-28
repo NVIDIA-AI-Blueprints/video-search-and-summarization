@@ -23,6 +23,7 @@
 #include <iomanip>
 
 using namespace std;
+using namespace nv_vms;
 
 constexpr int MSG_EXPIRY_HOURS = 1;
 

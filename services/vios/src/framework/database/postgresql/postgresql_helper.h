@@ -24,7 +24,7 @@
 #include "query_builder.h"
 #include <optional>
 
-#define GET_POSTGRESQL_INSTANCE Postgresql::getInstance
+#define GET_POSTGRESQL_INSTANCE nv_vms::Postgresql::getInstance
 
 inline constexpr int CONNECTION_RETRY_DELAY = 1;
 inline constexpr int RETRY_FOR_MIN = 1;

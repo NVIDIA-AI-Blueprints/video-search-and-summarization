@@ -39,6 +39,7 @@
 
 using namespace std::chrono_literals;
 using namespace std;
+using namespace nv_vms;
 constexpr int MAX_DISPLAY_LEN = 64;
 constexpr const char* MATCH = "MATCH";
 constexpr const char* UNMATCH = "UNMATCH";

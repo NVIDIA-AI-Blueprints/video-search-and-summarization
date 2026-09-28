@@ -22,6 +22,7 @@
 #include "config.h"
 
 using namespace std;
+using namespace nv_vms;
 
 // Handler to redirect /vst prefixed static file requests to root
 // e.g., /vst/ → /, /vst/index.html → /index.html

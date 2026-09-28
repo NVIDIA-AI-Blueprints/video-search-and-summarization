@@ -158,7 +158,7 @@ class NvMediaSource : public IMediaDataConsumer
         eMediaType              m_mediaType;
         eSourceType             m_sourceType;
         std::string             m_sourceState;
-        std::shared_ptr<GstDeMux>    m_demux;
+        std::shared_ptr<nv_vms::GstDeMux>    m_demux;
         std::shared_ptr<VodOverlayManager> m_vodOverlayManager = nullptr;
         std::map<NvFileServerMediaSubsession *, cb_frameSourceEvent_t> m_callback;
         bool                    m_includeFrameId = false;
