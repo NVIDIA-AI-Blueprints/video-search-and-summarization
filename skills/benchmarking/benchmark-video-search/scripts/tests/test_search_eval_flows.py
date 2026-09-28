@@ -48,7 +48,7 @@ NEW_FLOW_HIT: dict[str, Any] = {
     "start_time": "2025-01-01T00:00:10Z",
     "end_time": "2025-01-01T00:00:15Z",
     "sensor_id": "abc-123",
-    "screenshot_url": "http://vst/screenshot.jpg",
+    "screenshot_url": "https://vst/screenshot.jpg",
     "similarity": 0.82,
     "object_ids": ["7"],
     "verification": {"result": "confirmed", "criteria_met": {"forklift": True}},
@@ -440,13 +440,13 @@ def test_sensor_streams_payload_is_parsed_to_id_name_pairs(monkeypatch) -> None:
     monkeypatch.setattr(
         "flows.readiness.requests.get", lambda *_a, **_k: _Resp()
     )
-    streams = flows.list_sensor_streams("http://host:30888")
+    streams = flows.list_sensor_streams("https://host:30888")
     assert streams == {"abc-123": "warehouse_sample", "def-456": "Assault036_x264"}
 
 
 def test_sensor_list_url_does_not_double_the_vst_prefix() -> None:
-    assert flows.sensor_list_url("http://h:30888") == "http://h:30888/vst/api/v1/sensor/list"
-    assert flows.sensor_list_url("http://h:30888/") == "http://h:30888/vst/api/v1/sensor/list"
+    assert flows.sensor_list_url("https://h:30888") == "https://h:30888/vst/api/v1/sensor/list"
+    assert flows.sensor_list_url("https://h:30888/") == "https://h:30888/vst/api/v1/sensor/list"
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +468,7 @@ def test_live_decomposer_rejects_malformed_model_inventory(monkeypatch: pytest.M
     monkeypatch.setattr("flows.decompose.requests.get", lambda *_args, **_kwargs: _Response())
 
     with pytest.raises(flows.DecompositionError, match="malformed model list|without an id"):
-        flows.LiveDecomposer("http://llm", repo_root=flows.REPO_ROOT)
+        flows.LiveDecomposer("https://llm", repo_root=flows.REPO_ROOT)
 
 
 def test_routing_rule_matches_the_four_cli_paths() -> None:
@@ -775,14 +775,15 @@ def test_repo_root_with_the_cli_package_is_accepted(tmp_path: Path) -> None:
     assert "--vss-repo-root" in how
 
 
-def test_configure_origin_uses_the_unified_port_not_the_agent_port() -> None:
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_configure_origin_uses_the_unified_port_not_the_agent_port(scheme: str) -> None:
     """The agent port does not route /elasticsearch or /rtvi-embed.
 
     Pointing `vss configure` at it finds 1/7 services and every query then
     exits 4 -- observed on 10.86.12.161.
     """
-    assert flows.vss_origin_for("http://10.87.88.126:8000") == "http://10.87.88.126:7777"
-    assert flows.vss_origin_for("http://host:8000", port=9999) == "http://host:9999"
+    assert flows.vss_origin_for(f"{scheme}://10.87.88.126:8000") == f"{scheme}://10.87.88.126:7777"
+    assert flows.vss_origin_for(f"{scheme}://host:8000", port=9999) == f"{scheme}://host:9999"
 
 
 # ---------------------------------------------------------------------------
@@ -894,7 +895,7 @@ def test_vendored_dataset_registry_matches_run_eval() -> None:
     # considers shared-writable, and spelling the path out here would itself
     # trip the scanner rule this assertion exists to keep satisfied.
     assert not str(flows.DEFAULT_DATA_DIR).startswith(tempfile.gettempdir())
-    assert flows.vst_url_for("http://h:8000") == legacy._get_vst_url("http://h:8000")
+    assert flows.vst_url_for("https://h:8000") == legacy._get_vst_url("https://h:8000")
 
 
 def test_flow_package_imports_nothing_from_run_eval() -> None:
@@ -931,7 +932,7 @@ def test_the_default_ingest_flow_is_the_one_the_product_uses() -> None:
     """
     import run_eval_flows as rf
 
-    parsed = rf.parse_args(["--endpoint", "http://host:8000"])
+    parsed = rf.parse_args(["--endpoint", "https://host:8000"])
     assert parsed.ingest_flow == "vst-direct"
     assert parsed.skip_index_probe is False
     assert parsed.skip_existing is True
@@ -942,8 +943,8 @@ def test_destructive_modes_require_confirmation(flag: str) -> None:
     import run_eval_flows as rf
 
     with pytest.raises(SystemExit):
-        rf.parse_args(["--endpoint", "http://host:8000", flag])
-    parsed = rf.parse_args(["--endpoint", "http://host:8000", flag, "--confirm-delete"])
+        rf.parse_args(["--endpoint", "https://host:8000", flag])
+    parsed = rf.parse_args(["--endpoint", "https://host:8000", flag, "--confirm-delete"])
     assert getattr(parsed, flag.removeprefix("--").replace("-", "_")) is True
 
 
@@ -952,11 +953,11 @@ def test_destructive_modes_are_mutually_exclusive_and_cannot_skip_ingest() -> No
 
     with pytest.raises(SystemExit):
         rf.parse_args(
-            ["--endpoint", "http://host:8000", "--clear", "--only-dataset", "--confirm-delete"]
+            ["--endpoint", "https://host:8000", "--clear", "--only-dataset", "--confirm-delete"]
         )
     with pytest.raises(SystemExit):
         rf.parse_args(
-            ["--endpoint", "http://host:8000", "--clear", "--confirm-delete", "--skip-ingest"]
+            ["--endpoint", "https://host:8000", "--clear", "--confirm-delete", "--skip-ingest"]
         )
 
 
@@ -980,8 +981,8 @@ def test_expected_sources_exist_even_when_readiness_wait_is_skipped() -> None:
 
 
 def test_vst_direct_posts_to_vios_and_never_calls_the_agent() -> None:
-    backend = flows.VstDirectIngest("http://host:30888/")
-    assert backend.upload_url == "http://host:30888/vst/api/v1/storage/file"
+    backend = flows.VstDirectIngest("https://host:30888/")
+    assert backend.upload_url == "https://host:30888/vst/api/v1/storage/file"
     described = backend.describe()
     assert described["flow"] == "vst-direct"
     # Stated, not inferred: a reader comparing this against a 3-step run has to
@@ -1019,9 +1020,9 @@ def test_vst_direct_reports_no_chunk_count_rather_than_zero(
         return _Resp()
 
     monkeypatch.setattr(requests, "post", fake_post)
-    record = flows.VstDirectIngest("http://host:30888").upload(video)
+    record = flows.VstDirectIngest("https://host:30888").upload(video)
 
-    assert posted == ["http://host:30888/vst/api/v1/storage/file"]
+    assert posted == ["https://host:30888/vst/api/v1/storage/file"]
     assert record["success"] is True
     assert record["sensor_id"] == "abc-123"
     assert record["chunks_processed"] is None
@@ -1048,7 +1049,7 @@ def test_vst_direct_checks_the_anchor_instead_of_assuming_it(monkeypatch: Any) -
         def json(self) -> dict[str, Any]:
             return self._payload
 
-    backend = flows.VstDirectIngest("http://host:30888")
+    backend = flows.VstDirectIngest("https://host:30888")
 
     def anchored(*_a: Any, **_k: Any) -> Any:
         return _Resp({"abc-123": [{"startTime": "2025-01-01T00:00:00.000Z",
@@ -1116,7 +1117,7 @@ def test_a_crowded_out_video_is_confirmed_before_being_called_missing(
     monkeypatch.setattr(flows, "CliQueryBackend", backend)
     monkeypatch.setattr(flows, "list_sensor_streams", lambda _u: {"s1": "clip_a", "s2": "clip_b"})
     result = rf.probe_index_coverage(
-        _Backend(), ["clip_a", "clip_b"], vst_url="http://vst", attempts=2, backoff_s=0
+        _Backend(), ["clip_a", "clip_b"], vst_url="https://vst", attempts=2, backoff_s=0
     )
     assert result["covered"] is True
     assert scoped_asked == ["clip_b"], "only the crowded-out source needs a scoped query"
@@ -1157,7 +1158,7 @@ def test_vsts_own_casing_reaches_the_scoped_probe(monkeypatch: Any) -> None:
         flows, "list_sensor_streams", lambda _u: {"s1": "Assault036_x264"}
     )
     result = rf.probe_index_coverage(
-        _Backend(), ["Assault036_x264.mp4"], vst_url="http://vst", attempts=1, backoff_s=0
+        _Backend(), ["Assault036_x264.mp4"], vst_url="https://vst", attempts=1, backoff_s=0
     )
     assert scoped == ["Assault036_x264"], "VST's spelling must survive, not a lowercased copy"
     assert result["covered"] is True
@@ -1187,7 +1188,7 @@ def test_a_genuinely_absent_source_survives_the_scoped_check(monkeypatch: Any) -
     monkeypatch.setattr(flows, "list_sensor_streams", lambda _u: {"s1": "clip_a", "s2": "clip_b"})
     monkeypatch.setattr(rf.time, "sleep", lambda _s: None)
     result = rf.probe_index_coverage(
-        _Backend(), ["clip_a", "clip_b"], vst_url="http://vst", attempts=2, backoff_s=0
+        _Backend(), ["clip_a", "clip_b"], vst_url="https://vst", attempts=2, backoff_s=0
     )
     assert result["covered"] is False
     assert result["missing"] == ["clip_b"]
@@ -1349,7 +1350,7 @@ def test_an_unreachable_vst_is_unchecked_not_a_passing_anchor(monkeypatch: Any) 
         raise requests.ConnectionError("refused")
 
     monkeypatch.setattr(requests, "get", boom)
-    result = flows.VstDirectIngest("http://host:30888").verify_anchor("abc-123")
+    result = flows.VstDirectIngest("https://host:30888").verify_anchor("abc-123")
     assert result["checked"] is False
     assert "matches_expected_anchor" not in result
 
@@ -1404,7 +1405,7 @@ def test_prune_deletes_only_foreign_sources(tmp_path: Path, monkeypatch: Any) ->
         lambda url, **_k: (deleted.append(url.rsplit("/", 1)[-1]), _Resp())[1],
     )
 
-    out = rf.prune_foreign_videos("http://agent:8000", "http://vst:30888", _dataset_dir(tmp_path))
+    out = rf.prune_foreign_videos("https://agent:8000", "https://vst:30888", _dataset_dir(tmp_path))
 
     assert sorted(deleted) == ["id-theirs", "id-theirs2"]
     assert out["kept"] == 2
@@ -1429,7 +1430,7 @@ def test_prune_refuses_when_the_dataset_has_no_videos(tmp_path: Path, monkeypatc
     empty = tmp_path / "videos"
     empty.mkdir()
     with pytest.raises(SystemExit, match="no video files"):
-        rf.prune_foreign_videos("http://agent:8000", "http://vst:30888", empty)
+        rf.prune_foreign_videos("https://agent:8000", "https://vst:30888", empty)
 
 
 def test_prune_is_a_noop_when_every_source_belongs_to_the_dataset(
@@ -1446,7 +1447,7 @@ def test_prune_is_a_noop_when_every_source_belongs_to_the_dataset(
         lambda *_a, **_k: pytest.fail("nothing foreign, so nothing should be deleted"),
     )
 
-    out = rf.prune_foreign_videos("http://agent:8000", "http://vst:30888", _dataset_dir(tmp_path))
+    out = rf.prune_foreign_videos("https://agent:8000", "https://vst:30888", _dataset_dir(tmp_path))
     assert out == {"found": 2, "kept": 2, "deleted": 0, "names": []}
 
 
@@ -1471,7 +1472,7 @@ class _Backend:
 class _Decomposer:
     @staticmethod
     def describe() -> dict[str, Any]:
-        return {"llm_url": "http://llm:30081", "model": "nemotron", "temperature": 0.0}
+        return {"llm_url": "https://llm:30081", "model": "nemotron", "temperature": 0.0}
 
 
 def test_flow_records_live_decomposition_before_any_query_runs() -> None:
@@ -1495,9 +1496,9 @@ def test_dry_run_reports_planned_decomposition_without_building_one() -> None:
     """The dry run builds no decomposer -- that would call the LLM."""
     import run_eval_flows as rf
 
-    out = rf.describe_query_flow(_Backend(), None, planned_llm_url="http://llm:30081")
+    out = rf.describe_query_flow(_Backend(), None, planned_llm_url="https://llm:30081")
     assert out["routing"] == "per-query (live decomposition)"
-    assert out["live_decomposition"]["llm_url"] == "http://llm:30081"
+    assert out["live_decomposition"]["llm_url"] == "https://llm:30081"
     assert out["live_decomposition"]["model"] == "(discovered at run time)"
 
 
@@ -1509,19 +1510,20 @@ def test_flow_reports_false_when_nothing_decomposes() -> None:
     assert out["live_decomposition"] is False
 
 
-def test_llm_origin_is_derived_from_the_agent_endpoint() -> None:
+@pytest.mark.parametrize("scheme", ["http", "https"])
+def test_llm_origin_is_derived_from_the_agent_endpoint(scheme: str) -> None:
     """Decomposition must not depend on the caller remembering a flag.
 
     The NIM is not behind the unified origin, so it is derived the same way VST
     is: same host, its own port.
     """
-    assert flows.llm_url_for("http://10.86.12.161:8000") == "http://10.86.12.161:30081"
-    assert flows.llm_url_for("http://host:8000", 31000) == "http://host:31000"
-    assert flows.llm_url_for("https://host:8000/") == "https://host:30081"
+    assert flows.llm_url_for(f"{scheme}://10.86.12.161:8000") == f"{scheme}://10.86.12.161:30081"
+    assert flows.llm_url_for(f"{scheme}://host:8000", 31000) == f"{scheme}://host:31000"
+    assert flows.llm_url_for(f"{scheme}://host:8000/") == f"{scheme}://host:30081"
 
 
 def test_vst_and_llm_origins_do_not_collide() -> None:
-    endpoint = "http://10.86.12.161:8000"
+    endpoint = "https://10.86.12.161:8000"
     assert flows.vst_url_for(endpoint) != flows.llm_url_for(endpoint)
 
 
@@ -1575,7 +1577,7 @@ def test_the_llm_unreachable_fallback_lands_on_embed() -> None:
     """
     import run_eval_flows as rf
 
-    assert rf.parse_args(["--endpoint", "http://host:8000"]).search_path == "embed"
+    assert rf.parse_args(["--endpoint", "https://host:8000"]).search_path == "embed"
 
 
 def test_the_fallback_path_needs_nothing_a_decomposition_would_supply() -> None:
@@ -1592,7 +1594,7 @@ def test_the_two_paths_that_must_not_be_fallbacks_are_refused_without_attributes
     import run_eval_flows as rf
 
     for path in ("attribute", "fusion"):
-        args = rf.parse_args(["--endpoint", "http://host:8000", "--search-path", path])
+        args = rf.parse_args(["--endpoint", "https://host:8000", "--search-path", path])
         with pytest.raises(SystemExit) as exc:
             rf.build_query_backend(args)
         assert "requires at least one --attribute" in str(exc.value)
@@ -1602,7 +1604,7 @@ def test_flow_records_that_the_run_fell_back(tmp_path: Path) -> None:
     """A fallback run must not read as a deliberate fixed-path choice."""
     import run_eval_flows as rf
 
-    fb = {"attempted": "http://llm:30081", "error": "refused",
+    fb = {"attempted": "https://llm:30081", "error": "refused",
           "fell_back_to": "dataset answer key (devset_provenance.json)"}
     out = rf.describe_query_flow(_Backend(), None, fallback=fb)
     assert out["live_decomposition"]["fell_back_to"].startswith("dataset answer key")
