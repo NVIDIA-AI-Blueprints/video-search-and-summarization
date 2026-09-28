@@ -472,16 +472,26 @@ def start(plan: dict):
                     "tool_choice": "auto",
                 },
             )
-        request_json(
-            f"http://127.0.0.1:{PROXY_PORT}/v1/{path}",
-            {
-                "Authorization": f"Bearer {plan['token']}",
-                "x-api-key": plan["token"],
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-            },
-            {"model": route["model"], **body},
-        )
+        try:
+            request_json(
+                f"http://127.0.0.1:{PROXY_PORT}/v1/{path}",
+                {
+                    "Authorization": f"Bearer {plan['token']}",
+                    "x-api-key": plan["token"],
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                {"model": route["model"], **body},
+            )
+        except urllib.error.HTTPError as exc:
+            detail = exc.read(1500).decode(errors="replace")
+            for secret in (plan["token"], os.environ.get("NGC_API_KEY"), os.environ.get("NGC_CLI_API_KEY")):
+                if secret:
+                    detail = detail.replace(secret, "[REDACTED]")
+            raise NimError(
+                f"Local NIM {runtime} protocol smoke failed for {route['model']}: "
+                f"HTTP {exc.code}: {detail}"
+            ) from None
     evidence = {"models": resolved, "roles": plan["routes"], "architecture": arch}
     if any(r["runtime"] == "nemoclaw" for r in plan["routes"]):
         # The provider runs outside the sandbox; it needs the worker's
