@@ -21,7 +21,7 @@ BUILD_DIR="_builds/<name>"
 # never a way to excuse a service that failed to start.
 DEFERRED=${DEFERRED:-0}
 expected=$(( $(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l) - DEFERRED ))
-actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -q | wc -l)
+actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -aq | wc -l)
 if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
   echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
   exit 1
@@ -33,7 +33,7 @@ fi
 # `running` and `exited 0`; everything else (restarting, unhealthy,
 # exited with non-zero code) is a failure.
 bad=$(
-  docker compose -f "$BUILD_DIR/resolved.yml" ps --format json \
+  docker compose -f "$BUILD_DIR/resolved.yml" ps -a --format json \
     | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
              | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
 )
@@ -50,8 +50,9 @@ fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
 failure even though `up -d` returned 0.
 
 A deferred service is not exempt, only late. The deferring pass sets `DEFERRED`
-to the held-back count; run this whole gate again at `DEFERRED=0` once the
-service starts, and declare nothing done before that second pass.
+to the held-back count. Once the service starts, set `DEFERRED=0` before
+re-running this whole gate in the same shell, so an exported first-pass value
+cannot carry over. Declare nothing done before that second pass.
 
 > **Warehouse needs a data-plane check, not just Gate 0.** Every container can
 > report `Up` while zero streams are processed, and Gate 0 cannot see it. Run the
