@@ -55,6 +55,7 @@ COPY --from=vss-src --chown=root:root --chmod=0555 \
     /opt/vss-src/.openclaw/helpers/seed_videomme_memory.sh \
     /opt/vss-eval/helpers/seed_videomme_memory.sh
 
-RUN test -x /opt/vss-eval/helpers/seed_videomme_memory.sh
+RUN command -v flock >/dev/null && \
+    test -x /opt/vss-eval/helpers/seed_videomme_memory.sh
 
 USER sandbox
