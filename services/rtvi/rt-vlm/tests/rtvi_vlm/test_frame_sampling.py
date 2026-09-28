@@ -10,11 +10,16 @@
 # its affiliates is strictly prohibited.
 ######################################################################################################
 
+from threading import Lock
 from unittest.mock import patch
 
 from common.chunk_info import ChunkInfo
 from utils.media_file_info import MediaFileInfo
-from vlm_pipeline.video_file_frame_getter import DefaultFrameSelector
+from vlm_pipeline.video_file_frame_getter import (
+    DefaultFrameSelector,
+    FrameSelectorData,
+    VideoFileFrameGetter,
+)
 
 
 def test_fixed_file_sampling_selects_qwen_endpoint_indices():
@@ -100,3 +105,41 @@ def test_fixed_file_subrange_keeps_pts_selection():
         15_000_000_000,
         17_500_000_000,
     ]
+
+
+def test_live_chunk_ntp_ends_at_last_selected_frame():
+    chunk = ChunkInfo(
+        file="rtsp://localhost/live",
+        start_pts=0,
+        end_pts=10_000_000_000,
+    )
+    selector = DefaultFrameSelector(10)
+    selector.set_chunk(chunk)
+    for second in range(10):
+        assert selector.choose_frame(None, second * 1_000_000_000)
+
+    getter = VideoFileFrameGetter.__new__(VideoFileFrameGetter)
+    getter._live_stream_frame_selectors = {
+        selector: FrameSelectorData(
+            cached_pts=[float(second) for second in range(10)],
+            cached_frames=[object() for _ in range(10)],
+        )
+    }
+    getter._preprocess = lambda frames: frames
+    getter._live_stream_ntp_epoch = 1_727_514_000_000_000_000
+    getter._live_stream_ntp_pts = 0
+    getter._sei_base_time = None
+    getter._enable_audio = False
+    getter._err_msg_lock = Lock()
+    getter._err_msg = None
+    getter._timestamp_filter = None
+    reported = []
+    getter._live_stream_chunk_decoded_callback = lambda chunk, *_: reported.append(chunk)
+
+    with patch.dict("os.environ", {"CHOOSE_FSELECT": "false"}):
+        getter._process_finished_chunks(current_pts=9_000_000_000)
+
+    assert len(reported) == 1
+    assert chunk.end_pts == 10_000_000_000  # The next chunk still uses the same boundary.
+    assert chunk.end_ntp == "2024-09-28T09:00:09.000Z"
+    assert chunk.end_ntp_float == 1_727_514_009.0
