@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Guards the Helm ingress *routes*: renders the four developer profiles and
+# asserts the Ingress objects against the canonical route table in
+# services/common (deploy/helm/scripts/verify-ingress-routes.py). Six seconds,
+# no cluster.
+#
+# The script existed before this workflow and nothing ran it -- it was a
+# developer-only step documented in deploy/helm/services/common/README.md. That
+# is how ten of the eleven rewriting routes came to render unanchored in Helm
+# while every `replace-path` rule on the Docker edge was anchored: the drift was
+# only ever visible to whoever remembered to run the script by hand.
+#
+# A second, live pass -- .github/scripts/test_helm_ingress_live.py, deploying
+# these objects to a throwaway kind cluster with a real HAProxy ingress
+# controller and asserting which backend each request reaches and with what
+# path -- lands with PR #1983 and extends this file. It is kept out of here so
+# this workflow needs no Docker, pulls no controller chart and cannot fail on a
+# network blip. The static pass reads only the Ingress objects of
+# templates/vss-ingress.yaml, so Service-scoped `backend-config-snippet`
+# annotations stay the live pass's job. Neither pass covers the Docker edge.
+#
+# Separate from the lint job in ci.yml because this needs helm and a vendoring
+# step; no product image, GPU or NGC credential is involved.
+name: Helm ingress routes
+
+on:
+  pull_request:
+    paths:
+      - "deploy/helm/**"
+      - ".github/workflows/helm-ingress-live.yml"
+      # The check asserts that every mount `vss configure` probes exists in the
+      # route table, so a new INGRESS_SERVICES entry has to run it too.
+      - "services/agent/packages/vss_cli/src/vss_cli/config.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-ingress-routes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  routes:
+    name: Static route table
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      # The check parses `helm template` output, and the CI interpreter carries
+      # no PyYAML (see .github/osrb/README.md). Pinned to the version OSRB
+      # approved, and installed explicitly so a PyPI blip reads as a failed
+      # install rather than an opaque ModuleNotFoundError.
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install --quiet 'PyYAML==6.0.3'
+
+      - name: Install helm
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar -xz -C /tmp
+          install -m 0755 /tmp/linux-amd64/helm "$HOME/bin/helm"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Vendor chart dependencies
+        # The umbrella charts have file:// dependencies, so this resolves
+        # offline; `helm template` cannot render them until it has run.
+        #
+        # This MUST precede the check, and is why the check does not vendor
+        # lazily. A profile renders services/common from the charts/*.tgz
+        # vendored here, not from the source tree, so an edit to services/common
+        # that is not re-vendored is invisible to a render -- the check then
+        # passes on the vendored copy and reports on charts nobody is about to
+        # deploy. Verified by hand on this branch: un-anchoring the template and
+        # re-running the check without re-vendoring still printed OK.
+        #
+        # The .tgz artifacts are gitignored, so a fresh checkout always has to
+        # build them; that is what keeps this honest.
+        run: |
+          set -euo pipefail
+          for chart in \
+            deploy/helm/developer-profiles/dev-profile-base \
+            deploy/helm/developer-profiles/dev-profile-alerts \
+            deploy/helm/developer-profiles/dev-profile-lvs \
+            deploy/helm/developer-profiles/dev-profile-search
+          do
+            helm dependency update "$chart" >/dev/null
+          done
+
+      - name: Verify the rendered Ingress routes against the canonical table
+        run: python3 deploy/helm/scripts/verify-ingress-routes.py
