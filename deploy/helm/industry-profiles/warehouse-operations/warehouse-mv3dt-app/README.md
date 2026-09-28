@@ -565,7 +565,7 @@ Then confirm the VST ingress responds:
 
 ```bash
 kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
-curl -f http://127.0.0.1:30888/vst/api/health
+curl -f http://127.0.0.1:30888/health
 ```
 
 ### URLs
@@ -607,6 +607,38 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 
 It sets **`global.vssIngress.enabled`** to false and clears the path prefixes, since
 each app then owns the root of its own port.
+
+### Port-forward
+
+No ingress, no NodePort:
+
+```bash
+kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
+kubectl port-forward -n <namespace> svc/kibana 5601:5601
+kubectl port-forward -n <namespace> svc/grafana 3000:3000
+kubectl port-forward -n <namespace> svc/prometheus 9090:9090
+```
+
+| UI | URL |
+| --- | --- |
+| VST | `http://localhost:30888/vst/` |
+| Kibana | `http://localhost:5601` |
+| Grafana | `http://localhost:3000` |
+| Prometheus | `http://localhost:9090` |
+
+With [Alerts](#alerts) enabled:
+
+```bash
+kubectl port-forward -n <namespace> svc/vss-agent-ui 3000:3000
+kubectl port-forward -n <namespace> svc/vss-agent 8000:8000
+kubectl port-forward -n <namespace> svc/vss-alert-bridge 9080:9080
+```
+
+| UI | URL |
+| --- | --- |
+| Agent UI | `http://localhost:3000` |
+| Agent API | `http://localhost:8000` |
+| Alert bridge | `http://localhost:9080` |
 
 ## Monitoring
 

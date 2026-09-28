@@ -356,7 +356,7 @@ Then confirm the VST ingress responds:
 
 ```bash
 kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
-curl -f http://127.0.0.1:30888/vst/api/health
+curl -f http://127.0.0.1:30888/health
 ```
 
 ### URLs
@@ -372,6 +372,15 @@ With `<NODE_IP>` being any cluster node:
 | Prometheus | `http://<NODE_IP>/prometheus/` |
 
 `/storage/`, `/video-analytics-api/` and `/behavior-analytics/` are routed too.
+
+With [Alerts](#alerts) enabled, Agent UI takes the root path and Agent API /
+Alert bridge are routed too:
+
+| UI | URL |
+| --- | --- |
+| Agent UI | `http://<NODE_IP>/` |
+| Agent API | `http://<NODE_IP>/api` |
+| Alert bridge | `http://<NODE_IP>/alert-bridge` |
 
 Kibana, Grafana and Prometheus run under a path prefix set by
 **`infra.kibana.basePath`**, **`monitoring.grafana.rootUrl`** and
@@ -396,8 +405,48 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
 
+With [Alerts](#alerts) enabled:
+
+| UI | URL |
+| --- | --- |
+| Agent UI | `http://<NODE_IP>:32300/` |
+| Agent API | `http://<NODE_IP>:30800/` |
+| Alert bridge | `http://<NODE_IP>:30980/` |
+
 It sets **`global.vssIngress.enabled`** to false and clears
 the path prefixes, since each app then owns the root of its own port.
+
+### Port-forward
+
+No ingress, no NodePort:
+
+```bash
+kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
+kubectl port-forward -n <namespace> svc/kibana 5601:5601
+kubectl port-forward -n <namespace> svc/grafana 3000:3000
+kubectl port-forward -n <namespace> svc/prometheus 9090:9090
+```
+
+| UI | URL |
+| --- | --- |
+| VST | `http://localhost:30888/vst/` |
+| Kibana | `http://localhost:5601` |
+| Grafana | `http://localhost:3000` |
+| Prometheus | `http://localhost:9090` |
+
+With [Alerts](#alerts) enabled:
+
+```bash
+kubectl port-forward -n <namespace> svc/vss-agent-ui 3000:3000
+kubectl port-forward -n <namespace> svc/vss-agent 8000:8000
+kubectl port-forward -n <namespace> svc/vss-alert-bridge 9080:9080
+```
+
+| UI | URL |
+| --- | --- |
+| Agent UI | `http://localhost:3000` |
+| Agent API | `http://localhost:8000` |
+| Alert bridge | `http://localhost:9080` |
 
 ## Alerts
 
