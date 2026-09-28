@@ -516,7 +516,13 @@ separate GPUs with `LLM_DEVICE_ID` and `RT_VLM_DEVICE_ID`. Keep
 the local VLM service binds the GPU named by `VLM_DEVICE_ID`, while the RT-VLM
 container binds the GPU named by `RT_VLM_DEVICE_ID`.
 
-`overrides.env` is the checked-in template. From `deploy/docker`, copy it to any
+From the repository checkout root, enter the Compose deployment directory:
+
+```bash
+cd deploy/docker
+```
+
+`overrides.env` is the checked-in template. Copy it to any
 filename matching `*-overrides.env` before selecting a layout. Files matching
 that pattern are ignored by Git so local settings and credentials are not
 committed. The commands below use `user-overrides.env` as a concrete example;
@@ -524,7 +530,6 @@ if you choose another name, use it consistently in every `--env-file` argument.
 Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
-cd deploy/docker
 PROFILE=base
 cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
