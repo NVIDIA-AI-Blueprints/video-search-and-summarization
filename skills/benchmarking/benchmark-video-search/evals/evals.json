@@ -11,6 +11,17 @@
     ]
   },
   {
+    "id": "benchmark-search-deployment-handoff",
+    "question": "We have no VSS deployment yet. Build what is needed and benchmark video search on my labelled warehouse dataset.",
+    "expected_skill": "benchmark-video-search",
+    "ground_truth": "Hand the deployment to vss-build-vision-ai with an explicit stock search profile request that retains the in-stack agent REST API and in-stack LLM, then return to benchmarking only after endpoint readiness and dataset location are confirmed.",
+    "expected_behavior": [
+      "Requests the stock search profile with its in-stack agent and in-stack LLM retained, avoiding the harness choice that removes them.",
+      "Records the reachable agent endpoint and unified origin and checks agent /health and LLM /v1/models before the benchmark run.",
+      "Asks for the dataset location if it is missing; does not invent an evaluation result."
+    ]
+  },
+  {
     "id": "single-search-not-a-benchmark",
     "question": "Find the clip where a forklift crosses in front of a worker in dock_cam.",
     "expected_skill": null,

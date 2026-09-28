@@ -36,7 +36,7 @@ agent REST search endpoint.
 
 | Situation | Action |
 |---|---|
-| No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the search profile, note its public endpoint, then return here |
+| No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the **stock search profile with its in-stack agent REST API and in-stack LLM retained**. Explicitly name both requirements in the build request so it skips the harness question (which would remove the agent and possibly the LLM); do not select a NemoClaw-only or CLI-only harness. Record the reachable agent endpoint and unified origin, then return here and check both the agent `/health` and LLM `/v1/models` prerequisites before benchmarking |
 | User did not give an endpoint | Ask for it. Do not guess, and do not default to localhost |
 | User did not give a dataset | Ask which dataset and where its `--data-dir` is. Do not invent one |
 | Elasticsearch has no `mdx-*` indices | Ingestion has not completed. Run **Step 4**; do not report zero scores as a quality result |
