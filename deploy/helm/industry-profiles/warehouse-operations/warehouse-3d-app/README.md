@@ -334,6 +334,43 @@ fetch calibration.json from that endpoint via an initContainer, retrying until
 it returns real data and validating it before the main container starts. Clear
 it to fall back to the bundled `files/behavior-analytics/calibration.json`.
 
+#### Using a custom dataset
+
+Real cameras, not the bundled sample videos: set **`global.cameraInfo.enabled=true`**,
+then add each camera under **`global.cameraInfo.sensors`** with `camera_name`,
+`rtsp_url`, `group_id`, and `region`. For more than a handful, use
+**`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
+`sensors` — copy `../camera_configs/camera_info.example.json` outside the repo,
+fill in real cameras, and pass it with `--set-file`).
+
+Calibration data has to be supplied either way — override **`calibration-import.calibrationFileSource`**,
+**`imageMetadataFileSource`**, and **`imageBaseSource`** to point at your own
+`calibration.json`, `imageMetadata.json`, and floor-plan images instead of the
+bundled sample set. `imageMetadataFileSource` must resolve to a file with an
+`images[]` array, each entry carrying a `fileName`; `imageBaseSource` is the
+base URL each `fileName` is fetched from. Keep **`calibration-import.requireCalibration`**
+and **`requireImages`** at their default `true` once real sources are set, so a
+broken URL fails the Job instead of deploying with no calibration. Each
+`camera_name` registered above must match the corresponding sensor name in
+`calibration.json` — the importer doesn't check this for you.
+
+Also configure, outside `global`:
+
+- **`warehouse.datasetType`** — set to `real`, then regenerate the
+  model-selection values file (see the `warehouse.datasetType` row above).
+  Left at the default `synthetic`, real footage still runs against the
+  synthetic Sparse4D model/anchor/label set: no error, just wrong results.
+- **Stream count** — set to the number of sensors registered under
+  `global.cameraInfo.sensors`/`sensorsFile`, by running
+  `scripts/compute_stream_cap.py --mode 3d --num-streams <N>` (see
+  [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and layering the
+  generated file in. Left at the default 4, sensors past the 4th are dropped
+  silently.
+
+`global.gitRef` and `global.sampleVideoDataset` only matter for the bundled
+sample datasets under `calibration/sample-data/`; once the three
+`calibration-import` source keys above are overridden, both are unused.
+
 ### 4. Post-install validation
 
 Wait for all pods to be ready:
