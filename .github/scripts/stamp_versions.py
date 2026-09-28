@@ -20,12 +20,23 @@ The stamp is the *release line* rendered as SemVer -- ``3.3.0-rc0`` off the
 tag ``v3.3.0rc0``, ``3.3.0`` off ``v3.3.0`` -- with no commit distance, sha or
 tree: a deployment's identity is the commit it ships from, which the images
 already record, and a distance would make these files change on every merge.
-As written the stamp changes only when a ``v*`` tag is pushed, which is when
-version-stamp.yml (post-tag and post-merge) commits it to develop -- including
-the first run, which brings hand-typed values in line.
+The number only moves when the line does.
 
-    stamp_versions.py            rewrite every file that disagrees
-    stamp_versions.py --check    exit 1 and list every file that disagrees
+No bot writes these files: a person runs this script and lands the result in
+an ordinary reviewed PR. ``--check`` is the merge gate (ci.yml), and it is
+deliberately one-sided so the release order works:
+
+* every field must declare the *same* version -- a hand edit to one file, or a
+  new skill or chart that copied an old number, fails;
+* that version must be *equal to or newer than* the nearest ``v*`` tag's
+  (SemVer precedence) -- so after a new tag lands, the gate fails until someone
+  lands the stamp PR, and a release PR stamping ``3.3.0`` passes while develop
+  is still on ``v3.3.0rc0``, which is what lets the tag be cut on a commit that
+  already agrees with it.
+
+    stamp_versions.py                  rewrite every field to the nearest tag's version
+    stamp_versions.py --version 3.3.0  rewrite every field to 3.3.0 (the release PR)
+    stamp_versions.py --check          exit 1 unless the fields agree and are >= the tag
 
 A file that should carry a version and has no field to rewrite is an error
 (exit 2), never a field invented: a chart with an ingress template must
@@ -94,6 +105,24 @@ def derive_version(repo_root: Path) -> str:
     if version is None or "+" in version or ".dev." in version:
         raise RuntimeError(f"tag {tag!r} is not a bare release or pre-release (vX.Y.Z, vX.Y.ZrcN)")
     return version
+
+
+def semver_key(version: str) -> tuple:
+    """Sort key giving SemVer 2.0.0 precedence (section 11); build metadata ignored.
+
+    A release outranks its pre-releases; pre-release identifiers compare
+    numerically when numeric, lexically otherwise, numeric below alphanumeric,
+    and a longer list outranks its own prefix: 3.3.0-rc0 < 3.3.0-rc0.dev.20 < 3.3.0.
+    """
+    core, _, _build = version.partition("+")
+    release, _, prerelease = core.partition("-")
+    major, minor, patch = (int(part) for part in release.split("."))
+    if not prerelease:
+        return (major, minor, patch, 1, ())
+    identifiers = tuple(
+        (0, int(ident), "") if ident.isdigit() else (1, 0, ident) for ident in prerelease.split(".")
+    )
+    return (major, minor, patch, 0, identifiers)
 
 
 # --- targets -----------------------------------------------------------------
@@ -211,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 2
 
-    stale: list[tuple[Target, Path]] = []
+    declared_by: dict[str, list[tuple[Target, Path]]] = {}
     broken: list[tuple[Target, Path]] = []
     for target in TARGETS:
         for path in target.paths(repo_root):
@@ -220,10 +249,8 @@ def main(argv: list[str] | None = None) -> int:
             if declared is None:
                 broken.append((target, path))
                 continue
-            if declared == version:
-                continue
-            stale.append((target, path))
-            if not args.check:
+            declared_by.setdefault(declared, []).append((target, path))
+            if not args.check and declared != version:
                 stamped = target.stamp(text, version)
                 assert stamped is not None
                 path.write_text(stamped, encoding="utf-8")
@@ -233,14 +260,38 @@ def main(argv: list[str] | None = None) -> int:
             f"error: {path.relative_to(repo_root)}: no version field to stamp ({target.name})",
             file=sys.stderr,
         )
-    verb = "disagrees with" if args.check else "stamped"
-    for target, path in stale:
-        print(f"{path.relative_to(repo_root)}: {verb} {version} ({target.name})")
-    if not stale and not broken:
-        print(f"every version field already declares {version}")
+    if not args.check:
+        restamped = [entry for value, entries in declared_by.items() if value != version for entry in entries]
+        for target, path in restamped:
+            print(f"{path.relative_to(repo_root)}: stamped {version} ({target.name})")
+        if not restamped and not broken:
+            print(f"every version field already declares {version}")
+        return 2 if broken else 0
+
     if broken:
         return 2
-    return 1 if (args.check and stale) else 0
+    fix = "run `python3 .github/scripts/stamp_versions.py` (or `--version X.Y.Z` for a release) and commit the result"
+    if len(declared_by) > 1:
+        # Name the minority values file by file; the majority is the reference.
+        majority = max(declared_by, key=lambda value: len(declared_by[value]))
+        print(f"error: version fields disagree; most declare {majority}; {fix}", file=sys.stderr)
+        for value, entries in sorted(declared_by.items()):
+            if value == majority:
+                continue
+            for target, path in entries:
+                print(f"  {path.relative_to(repo_root)}: {value} ({target.name})", file=sys.stderr)
+        return 1
+    (stamped_version,) = declared_by or {version: []}
+    if not SEMVER_PATTERN.fullmatch(stamped_version) or semver_key(stamped_version) < semver_key(version):
+        print(
+            f"error: every version field declares {stamped_version}, older than the nearest "
+            f"v* tag's {version}; {fix}",
+            file=sys.stderr,
+        )
+        return 1
+    ahead = "" if stamped_version == version else f" (ahead of the nearest v* tag's {version}: a release stamp)"
+    print(f"every version field declares {stamped_version}{ahead}")
+    return 0
 
 
 if __name__ == "__main__":

@@ -213,7 +213,7 @@ enforced, so `03.3.0`, `3.3.0-01`, `3.3.0-.` and `v1.0.0` are all rejected.
 
 **Who answers.** On a deployed stack, the **HAProxy edge** answers
 `GET /api/v1/version` itself, on every profile — with or without this agent —
-from the version stamped into the deployment files by CI
+from the version stamped into the deployment files from the git tag
 (`VSS_VERSION` in `deploy/docker/containers.env` on Compose, `vssVersion` in
 the profile chart's `values.yaml` on Helm; see
 [`.github/version-convention.md`](../../.github/version-convention.md)). The
