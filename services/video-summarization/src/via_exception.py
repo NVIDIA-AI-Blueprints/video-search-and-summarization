@@ -21,7 +21,13 @@ from via_logger import logger
 class ViaException(Exception):
 
     def __init__(
-        self, message: str, code="InternalServerError", status_code=500, *args: object
+        self,
+        message: str,
+        code="InternalServerError",
+        status_code=500,
+        *args: object,
+        job_id: str | None = None,
+        failed_stage: str | None = None,
     ) -> None:
         """VIA Exception constructor
 
@@ -34,6 +40,8 @@ class ViaException(Exception):
         self._status_code = status_code
         self._code = code
         self._message = message
+        self._job_id = job_id
+        self._failed_stage = failed_stage
         logger.error(message)
 
     @property
@@ -47,6 +55,14 @@ class ViaException(Exception):
     @property
     def message(self):
         return self._message
+
+    @property
+    def job_id(self):
+        return self._job_id
+
+    @property
+    def failed_stage(self):
+        return self._failed_stage
 
     def __str__(self) -> str:
         return f"ViaException - code: {self._code} message: {self._message}"
