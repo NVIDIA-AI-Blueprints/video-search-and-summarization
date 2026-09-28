@@ -134,10 +134,10 @@ from .routing import (
 #:
 #: "vst-direct" is what the UI does -- see ci-vss-oss commit 0bdfc8d (the eval's
 #: previous home), which skipped six UI E2E specs because "UI video upload /
-#: RTSP add no longer call Agent ingest APIs". It is NOT the default, because
-#: the agent's ``/complete`` is the only step that returns a chunk count and
-#: the only step that pins the timestamp anchor the dataset's ground truth is
-#: written against; see :class:`VstDirectIngest`.
+#: RTSP add no longer call Agent ingest APIs". It is the default. Unlike the
+#: agent's ``/complete``, it does not return a chunk count, so the runner
+#: checks the timestamp anchor and probes index coverage separately; see
+#: :class:`VstDirectIngest`.
 INGEST_BACKENDS = {
     LegacyPutIngest.name: LegacyPutIngest,
     AgentThreeStepIngest.name: AgentThreeStepIngest,

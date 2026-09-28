@@ -47,6 +47,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import requests
@@ -137,6 +138,12 @@ class LiveDecomposer:
         first = data[0]
         if not isinstance(first, dict) or not first.get("id"):
             raise DecompositionError(f"{self._url} served a model entry without an id.")
+        if len(data) > 1:
+            warnings.warn(
+                f"{self._url} serves multiple LLM models; auto-selected {first['id']!r}. "
+                "Pass --llm-model matching the deployed agent before comparing routing metrics.",
+                stacklevel=2,
+            )
         return str(first["id"])
 
     def describe(self) -> dict[str, Any]:

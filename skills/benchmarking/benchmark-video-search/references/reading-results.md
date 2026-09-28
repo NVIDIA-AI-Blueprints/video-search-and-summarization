@@ -2,8 +2,6 @@
 
 Which metrics mean what, and how to read the per-stage latency breakdown.
 
-## Reading the results
-
 Results are written to `scripts/cli_eval_result/`, beside the
 script rather than relative to your shell, so a run is findable regardless of
 where it was started. The filename is `--name` if given, otherwise

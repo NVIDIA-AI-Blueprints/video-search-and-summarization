@@ -471,6 +471,20 @@ def test_live_decomposer_rejects_malformed_model_inventory(monkeypatch: pytest.M
         flows.LiveDecomposer("https://llm", repo_root=flows.REPO_ROOT)
 
 
+def test_live_decomposer_warns_when_model_discovery_is_ambiguous(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"data": [{"id": "first"}, {"id": "second"}]}
+
+    monkeypatch.setattr("flows.decompose.requests.get", lambda *_args, **_kwargs: _Response())
+    with pytest.warns(UserWarning, match="--llm-model"):
+        decomposer = flows.LiveDecomposer("https://llm", repo_root=flows.REPO_ROOT)
+    assert decomposer.model == "first"
+
+
 def test_routing_rule_matches_the_four_cli_paths() -> None:
     """Derived from the paths' input models, not invented.
 
@@ -1059,6 +1073,20 @@ def test_vst_direct_checks_the_anchor_instead_of_assuming_it(monkeypatch: Any) -
     good = backend.verify_anchor("abc-123")
     assert good["found"] is True
     assert good["matches_expected_anchor"] is True
+
+    def same_day_wrong_time(*_a: Any, **_k: Any) -> Any:
+        return _Resp({"abc-123": [{"startTime": "2025-01-01T11:04:00.000Z"}]})
+
+    monkeypatch.setattr(requests, "get", same_day_wrong_time)
+    wrong_time = backend.verify_anchor("abc-123")
+    assert wrong_time["matches_expected_anchor"] is False
+
+    def equivalent_offset(*_a: Any, **_k: Any) -> Any:
+        return _Resp({"abc-123": [{"startTime": "2025-01-01T05:30:00+05:30"}]})
+
+    monkeypatch.setattr(requests, "get", equivalent_offset)
+    same_instant = backend.verify_anchor("abc-123")
+    assert same_instant["matches_expected_anchor"] is True
 
     def wall_clock(*_a: Any, **_k: Any) -> Any:
         return _Resp({"abc-123": [{"startTime": "2026-09-09T11:04:00.000Z",

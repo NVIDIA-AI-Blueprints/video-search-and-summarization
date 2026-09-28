@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import requests
@@ -396,13 +397,22 @@ class VstDirectIngest:
         if not timelines:
             return {"checked": True, "found": False, "sensor_id": sensor_id}
         start = timelines[0].get("startTime") or ""
+        try:
+            actual = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            expected = datetime.fromisoformat(self.upload_timestamp.replace("Z", "+00:00"))
+            # An upload timestamp without an offset is specified in UTC.
+            actual = actual.replace(tzinfo=actual.tzinfo or timezone.utc)
+            expected = expected.replace(tzinfo=expected.tzinfo or timezone.utc)
+            matches_expected_anchor = actual == expected
+        except ValueError:
+            matches_expected_anchor = False
         return {
             "checked": True,
             "found": True,
             "start_time": start,
             "end_time": timelines[0].get("endTime") or "",
             # The dataset's ground truth is offsets from this instant.
-            "matches_expected_anchor": start.startswith(self.upload_timestamp[:10]),
+            "matches_expected_anchor": matches_expected_anchor,
             "expected_anchor": self.upload_timestamp,
         }
 

@@ -36,8 +36,11 @@ agent REST search endpoint.
 
 | Situation | Action |
 |---|---|
+| User asks to benchmark the OpenClaw chat route | This runner does not measure it; explain the gap instead of presenting CLI timings as chat timings |
+| User asks to benchmark the retired agent REST search endpoint | This runner does not measure it; for historical comparison, use the external legacy `run_eval.py` noted in `references/troubleshooting.md` |
 | No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the **stock search profile with its in-stack agent REST API and in-stack LLM retained**. Explicitly name both requirements in the build request so it skips the harness question (which would remove the agent and possibly the LLM); do not select a NemoClaw-only or CLI-only harness. Record the reachable agent endpoint and unified origin, then return here and check both the agent `/health` and LLM `/v1/models` prerequisites before benchmarking |
 | User did not give an endpoint | Ask for it. Do not guess, and do not default to localhost |
+| Endpoint uses `localhost` or `127.0.0.1` | Ask for a host address reachable from the containers; loopback can make critic verification silently fail |
 | User did not give a dataset | Ask which dataset and where its `--data-dir` is. Do not invent one |
 | Elasticsearch has no `mdx-*` indices | Ingestion has not completed. Run **Step 4**; do not report zero scores as a quality result |
 | User asks to reuse what is already ingested | Add `--skip-ingest`. It cannot be combined with `--clear` or `--only-dataset` |
@@ -53,7 +56,7 @@ if missing, which deployment endpoint to target.
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET \
-    --skip-existing --name RUN_NAME
+    --skip-download --skip-existing --name RUN_NAME
 ```
 
 Five defaults, each load-bearing:
@@ -71,7 +74,7 @@ Five defaults, each load-bearing:
 
   If the NIM is unreachable the run continues on `--search-path embed` — the one
   path that needs nothing but the query text. It warns loudly and records
-  `live_decomposition.fell_back_to` in the result file. **That run measures one
+  `flow.query.live_decomposition.fell_back_to` in the result file. **That run measures one
   path, not routing**; read the field before quoting any number from it.
 
   A dataset that carries its own decompositions still routes per query, because
@@ -132,8 +135,9 @@ says so.
 | `vss` CLI runs from this checkout | `vss search run --help` exits 0 |
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
-| Python 3.10+ | `python3 --version` |
+| Python 3.10+ for this runner; Python 3.13–3.14 for a separately installed `vss` CLI | `python3 --version` for the runner; use a Python 3.13 or 3.14 environment when installing `libs/vss/core` and `libs/vss/cli` (their `requires-python` is `>=3.13,<3.15`), then check `vss search run --help` there |
 | LLM reachable (else the run falls back and says so) | `curl -sf --connect-timeout 5 --max-time 10 http://HOST:30081/v1/models` returns 200 |
+| LLM model selected unambiguously | If `/v1/models` lists multiple IDs, pass `--llm-model` matching the deployed agent's model |
 | ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
 
 ## Step 1 — Configure the CLI
@@ -203,6 +207,10 @@ Expect this to be slow while the webhook pipeline indexes the videos:
   `--confirm-delete`; report its candidate inventory before it runs.
 - `--clear --confirm-delete` deletes **every** source including other people's.
   Use it only on explicit request.
+- `--clear` and `--only-dataset` list sources via `--vst-url` but delete through
+  the agent endpoint. If those URLs have different hosts, verify they belong
+  to the **same deployment** before deletion; otherwise source IDs from one
+  stack could be sent to another.
 
 Then re-run Step 3. Indices are lazy; they appear after webhook processing,
 not immediately after upload. See `references/flags.md` for ingest options.
@@ -255,9 +263,10 @@ State these alongside any number, because each one changes what it means:
 - **Whether the critic ran.** Critic-filtered metrics print `NA` when the
   response carried no verification block. `NA` is not `0`.
 
-`references/reading-results.md` explains the stage-latency table and each stage
-name; `references/flags.md` covers which flags change what a run means; and
-`references/troubleshooting.md` covers ingestion failures and CLI exit codes.
+Read `references/reading-results.md` when interpreting stage latencies or
+metrics. Read `references/flags.md` when a flag might change comparability.
+Read `references/troubleshooting.md` when ingest fails or the CLI exits nonzero.
+Read `references/dataset-format.md` when validating a dataset's layout.
 
 ## Error handling
 
