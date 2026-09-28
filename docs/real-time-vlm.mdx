@@ -1484,7 +1484,7 @@ standalone Helm override.
 | `VLLM_ENFORCE_EAGER` | Force eager vLLM execution | `false` |
 | `TORCH_CUDNN_V8_API_DISABLED` | Disable the cuDNN v8 API on platforms affected by the Qwen3-VL Conv3D engine issue | `false` |
 | `VLLM_CUDAGRAPH_MODE` | vLLM CUDA graph mode; supported values are `NONE`, `PIECEWISE`, `FULL`, `FULL_DECODE_ONLY`, and `FULL_AND_PIECEWISE` | Empty (Cosmos3 Edge defaults to `PIECEWISE`) |
-| `VLLM_DISABLED_KERNELS` | Comma-separated vLLM kernels to disable | `MacheteLinearKernel` |
+| `VLLM_DISABLED_KERNELS` | Comma-separated vLLM kernels to disable | VSS/LVS Compose: `FlashInferFP8ScaledMMLinearKernel`; standalone Compose: `MacheteLinearKernel,FlashInferFP8ScaledMMLinearKernel` |
 | `GST_ENABLE_CUSTOM_PARSER_MODIFICATIONS` | Enable custom GStreamer parser modifications | `1` |
 | `REMOTE_VIDEO_INPUT` | For `openai-compat` remote endpoints, send multi-frame chunks as MP4 video payloads instead of per-frame JPEG payloads | `true` |
 | `MESSAGE_BUS` (developer-profile Compose: `RTVI_VLM_MESSAGE_BUS`) | Generated-message output bus (`kafka`, `redis`, or empty to disable in the service runtime) | Service runtime: Empty; Docker Compose: `kafka`; performance Compose: Empty |
