@@ -156,7 +156,7 @@ services:
       start_period: 5s
 
   reid-minio-mv3dt:
-    image: quay.io/minio/minio:RELEASE.2023-03-20T20-16-18Z
+    image: cgr.dev/chainguard/minio:latest
     profiles: ["reid-minio-mv3dt"]
     container_name: vss-reid-minio-mv3dt
     networks:
