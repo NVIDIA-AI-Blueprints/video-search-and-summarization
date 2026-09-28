@@ -72,16 +72,17 @@ Five defaults, each load-bearing:
   picks the retrieval path. Override with `--llm-url` / `--llm-port`; turn it
   off only with `--no-decompose`.
 
-  If the NIM is unreachable the run continues on `--search-path embed` — the one
-  path that needs nothing but the query text. It warns loudly and records
+  If the NIM is unreachable the run automatically falls back to the `embed`
+  path, which needs nothing but the query text. Do not pass `--search-path embed`
+  yourself; that explicitly fixes every query to one path. The fallback warns loudly and records
   `flow.query.live_decomposition.fell_back_to` in the result file. **That run measures one
   path, not routing**; read the field before quoting any number from it.
 
   A dataset that carries its own decompositions still routes per query, because
   that is the dataset's stated intent. Nothing else is inferred: a
-  `devset_provenance.json` answer key is used only when you pass
-  `--decompositions` explicitly, since scoring against perfect routing is a
-  different experiment from scoring the live decomposer.
+  `devset_provenance.json` sidecar is never loaded automatically. To use it as
+  an answer key, pass its full path with `--decompositions`; scoring against
+  perfect routing is a different experiment from scoring the live decomposer.
 - **The pre-decomposition question is sent with every query** as
   `--original-query`. Retrieval ignores it; the critic verifies against it
   instead of a question the library rebuilds out of `--query` and `--attribute`.
@@ -131,7 +132,7 @@ says so.
 | Requirement | How to check |
 |---|---|
 | Search profile agent reachable | `curl -sf --connect-timeout 5 --max-time 10 ${ENDPOINT}/health` returns 200 |
-| Unified origin routes the services | `curl -sf --connect-timeout 5 --max-time 10 ${ORIGIN}/vst/api/v1/sensor/version` returns 200 (ORIGIN is usually the endpoint host on port 7777) |
+| Unified HAProxy origin routes the services | `curl -sf --connect-timeout 5 --max-time 10 ${ORIGIN}/vst/api/v1/sensor/version` returns 200. ORIGIN is usually the endpoint host on port 7777; use it for `vss configure` and the Step 3 Elasticsearch probe. The runner separately derives VST's direct ingress on port 30888 (`--vst-port` default); do not pass the HAProxy port as `--vst-port` |
 | `vss` CLI runs from this checkout | `vss search run --help` exits 0 |
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
@@ -139,6 +140,10 @@ says so.
 | LLM reachable (else the run falls back and says so) | `curl -sf --connect-timeout 5 --max-time 10 http://HOST:30081/v1/models` returns 200 |
 | LLM model selected unambiguously | If `/v1/models` lists multiple IDs, pass `--llm-model` matching the deployed agent's model |
 | ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
+
+Agent `/health` confirms the process is reachable, not that VIOS and the search
+indices are ready. Step 3 and the post-ingest index probe are the retrieval
+readiness gates.
 
 ## Step 1 — Configure the CLI
 
