@@ -138,6 +138,9 @@ jobs:
     name: ${{ matrix.name }}
     needs: [resolve_ref, plan]
     if: needs.plan.outputs.has_targets == 'true'
+    # Periodic broad hardware coverage keeps the coordinator, Brev fleet
+    # selection, and per-instance locking path. Only per-PR skills-eval.yml
+    # consumes matrix.runs_on for direct GPU placement.
     runs-on: [self-hosted, vss-skill-eval-runner]
     strategy:
       # One slow/failed spec must not cancel its siblings.
@@ -182,13 +185,23 @@ jobs:
 
       - name: Load coordinator env (Anthropic, NGC, Brev, remote endpoints)
         run: |
-          # The runner host (vss-skill-validator-v2) keeps coordinator
-          # secrets in a single .env. Don't echo contents.
+          # CPU coordinators and direct GPU runners keep the same secret
+          # contract under their own home directory. The runner may override
+          # the path with SKILL_EVAL_ENV_FILE; never echo its contents.
+          ENV_FILE="${SKILL_EVAL_ENV_FILE:-$HOME/eval-coordinator/.env}"
+          test -s "$ENV_FILE"
+          test "$(stat -c '%U' "$ENV_FILE")" = root
+          MODE="$(stat -c '%a' "$ENV_FILE")"
+          (( (8#$MODE & 0022) == 0 ))
           set -a
-          source /home/ubuntu/eval-coordinator/.env
+          # shellcheck source=/dev/null
+          source "$ENV_FILE"
           set +a
-          printf "COORDINATOR_ENV=loaded\n" >> "$GITHUB_ENV"
-          printf "CLAUDE_CODE_DISABLE_THINKING=1\n" >> "$GITHUB_ENV"
+          {
+            printf "SKILL_EVAL_ENV_FILE=%s\n" "$ENV_FILE"
+            printf "COORDINATOR_ENV=loaded\n"
+            printf "CLAUDE_CODE_DISABLE_THINKING=1\n"
+          } >> "$GITHUB_ENV"
 
       - name: Run skills eval agent (single spec)
         id: agent
@@ -217,7 +230,8 @@ jobs:
           skill_eval_python_version="$SKILL_EVAL_PYTHON_VERSION"
           daily_harness="$DAILY_HARNESS_INPUT"
           set -a
-          source /home/ubuntu/eval-coordinator/.env   # Anthropic / NGC / Brev
+          # shellcheck source=/dev/null
+          source "$SKILL_EVAL_ENV_FILE"   # Anthropic / NGC / Brev
           set +a
           # Keep the per-leg venv ahead of any operator-provided PATH so the
           # SDK's Bash children resolve adapters and run_leg.py with 3.12.
