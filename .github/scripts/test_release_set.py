@@ -361,6 +361,51 @@ class ReuseEntriesTest(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("ambiguous", problems[0])
 
+    def test_a_ghcr_built_non_compose_image_is_carried_at_its_content_tag(self):
+        """The NemoClaw sandbox harnesses are GHCR builds that no compose file
+        references (``compose_image_names: []`` by declaration). With no tag
+        suffix and no compose coordinate they used to make assembly fail on
+        any commit that did not rebuild them; they are carried forward at the
+        content tag the build workflow pushes, exactly like an -sbsa variant."""
+        harness = {
+            "name": "vss-harness-hermes",
+            "strategy": "build",
+            "ghcr_build": True,
+            "source_path": ".hermes",
+            "platforms": ["linux/amd64", "linux/arm64"],
+            "compose_image_names": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(
+                tmp, {"a/compose.yml": AGENT_COMPOSE}, [AGENT_ENTRY, harness],
+                roots=["ghcr.io/nvidia-ai-blueprints/vss", "nvcr.io/nvstaging/vss-core"],
+            )
+            inventory = rs.load_inventory(root)
+            entries, problems = rs.reuse_entries(
+                root, inventory, {"vss-agent"}, tree_reader=lambda _root, _path: TREE_SHA)
+        self.assertEqual(problems, [])
+        (entry,) = entries
+        self.assertEqual(entry["name"], "vss-harness-hermes")
+        self.assertEqual(entry["strategy"], "reuse-pinned")
+        self.assertEqual(entry["image"], "ghcr.io/nvidia-ai-blueprints/vss/vss-harness-hermes")
+        self.assertEqual(entry["tag"], f"tree-{TREE_SHA}")
+        self.assertEqual(entry["tag_suffix"], "")
+
+    def test_an_image_that_merely_omits_compose_names_is_not_treated_as_non_compose(self):
+        """Omitting the key means 'my compose name is my own name'; only an
+        explicit empty list opts an image out of needing a compose coordinate."""
+        omitted = {"name": "vss-thing", "strategy": "build", "ghcr_build": True,
+                   "source_path": "services/thing", "platforms": ["linux/amd64"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_repo(tmp, {"a/compose.yml": AGENT_COMPOSE}, [AGENT_ENTRY, omitted],
+                             roots=["ghcr.io/nvidia-ai-blueprints/vss", "nvcr.io/nvstaging/vss-core"])
+            inventory = rs.load_inventory(root)
+            entries, problems = rs.reuse_entries(
+                root, inventory, {"vss-agent"}, tree_reader=lambda _root, _path: TREE_SHA)
+        self.assertEqual(entries, [])
+        self.assertEqual(len(problems), 1)
+        self.assertIn("no resolvable compose coordinate", problems[0])
+
     def test_missing_coordinate_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_repo(

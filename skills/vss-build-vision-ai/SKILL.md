@@ -66,7 +66,7 @@ without requiring credentials, probing services, or changing files:
 | `scripts/stage_vss_src.py` | Harness-development utility used by `.openclaw/` and `.hermes/`; never run during a normal build or deployment. |
 | `scripts/sync_skills.py` | Harness runtime utility used by `.openclaw/` and `.hermes/` to activate operation Skills; not part of the build workflow. |
 
-`scripts/tests/` contains CI-only contracts, `eval/` contains Skill evaluation
+`scripts/tests/` contains CI-only contracts, `evals/` contains Skill evaluation
 specifications, and `config/skillspector-baseline.yml` is scanner-maintenance
 configuration. Agents must not load or execute those files as workflow steps.
 

@@ -4,7 +4,7 @@
 		"http_port":"30000",
 		"server_domain_name":"",
 		"stunurl_list": ["stun.l.google.com:19302","stun1.l.google.com:19302"],
-		"static_turnurl_list": __STATIC_TURNURL_LIST__,
+		"static_turnurl_list": "__STATIC_TURNURL_LIST__",
 		"use_coturn_auth_secret": false,
 		"coturn_turnurl_list_with_secret": [],
 		"use_twilio_stun_turn": false,
@@ -127,7 +127,7 @@
 		"event_recording": false,
 		"event_record_length_secs": 10,
 		"record_buffer_length_secs": 2,
-		"use_software_path": __USE_SOFTWARE_PATH__,
+		"use_software_path": "__USE_SOFTWARE_PATH__",
 		"use_webrtc_inbuilt_encoder": "",
 		"webrtc_in_fixed_resolution": "1280x720",
 		"webrtc_in_max_framerate": 30,
@@ -154,7 +154,7 @@
 		"use_centralize_local_db": false,
 		"max_network_db_connections": 10,
 		"default_file_expiry_minutes": 10080,
-		"download_files_timeout_secs": 120,
+		"download_files_timeout_secs": "__DOWNLOAD_FILES_TIMEOUT_SECS__",
 		"picture_api_timeout_secs": 20
 	},
 	"debug":

@@ -113,11 +113,17 @@ metadata:
   labels:
     app.kubernetes.io/name: vss-ingress
     app.kubernetes.io/instance: {{ .Release.Name }}
-{{- if include "vss.ingress.hasPathRewrites" (dict "backends" $b) }}
+  {{- /* vssIngress.annotations (e.g. a Traefik routing middleware) win over the
+         profile's own; the generated HAProxy rewrites are added unless the
+         caller supplies haproxy.org/path-rewrite, which replaces the table. */}}
+  {{- $annotations := deepCopy ($vi.annotations | default dict) }}
+  {{- if and (include "vss.ingress.hasPathRewrites" (dict "backends" $b)) (not (hasKey $annotations "haproxy.org/path-rewrite")) }}
+  {{- $_ := set $annotations "haproxy.org/path-rewrite" (printf "%s\n" (include "vss.ingress.pathRewrites" (dict "backends" $b))) }}
+  {{- end }}
+  {{- if $annotations }}
   annotations:
-    haproxy.org/path-rewrite: |
-      {{- include "vss.ingress.pathRewrites" (dict "backends" $b) | nindent 6 }}
-{{- end }}
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
 spec:
   ingressClassName: {{ index $vssIngress "ingressClassName" | default "haproxy" }}
   rules:

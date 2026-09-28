@@ -333,3 +333,51 @@ port: {{ index $svc "port" | default 8000 }}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+  Fails the render when the VIOS sensor would address its stream-processing
+  peer by a name that peer's own chart does not render.
+
+  The sensor derives the peer Service name (vss-vios-streamprocessing, or
+  SDRC's controller when global.vios.useSdrc) from
+  vios.vss-vios-sensor.peerUseReleaseNamePrefix.<peer>, else the global
+  useReleaseNamePrefix: a subchart cannot read a sibling subchart's local
+  useReleaseNamePrefix. The profile CAN read both, so a mixed-prefix install
+  that sets the peer's local flag without telling the sensor is refused here,
+  naming the missing value, instead of deploying a sensor that calls a Service
+  that does not exist. An explicit streamProcessorEndpoint skips the check.
+
+  Pass: the profile's root context.
+*/}}
+{{- define "vss.vios.prefixOf" -}}
+{{- $local := .local | default dict -}}
+{{- $g := .global | default dict -}}
+{{- if and (hasKey $local .key) (kindIs "bool" (index $local .key)) -}}
+{{- ternary "true" "" (index $local .key) -}}
+{{- else if and (hasKey $g "useReleaseNamePrefix") (kindIs "bool" (index $g "useReleaseNamePrefix")) -}}
+{{- ternary "true" "" (index $g "useReleaseNamePrefix") -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "vss.vios.assertPeerNaming" -}}
+{{- $g := .Values.global | default dict -}}
+{{- $vios := .Values.vios | default dict -}}
+{{- $sensor := index $vios "vss-vios-sensor" | default dict -}}
+{{- if and (include "vss.ingress.enabled" (dict "vals" $vios "default" true)) (include "vss.ingress.enabled" (dict "vals" $sensor "default" false)) (not (trim (toString (default "" $sensor.streamProcessorEndpoint)))) -}}
+{{- $peer := "streamprocessing" -}}
+{{- $chartVals := index $vios "vss-vios-streamprocessing" | default dict -}}
+{{- $chartPath := "vios.vss-vios-streamprocessing" -}}
+{{- if dig "vios" "useSdrc" false $g -}}
+{{- $peer = "sdrc" -}}
+{{- $chartVals = index (.Values.infra | default dict) "sdrc" | default dict -}}
+{{- $chartPath = "infra.sdrc" -}}
+{{- end -}}
+{{- if include "vss.ingress.enabled" (dict "vals" $chartVals "default" false) -}}
+{{- $actual := include "vss.vios.prefixOf" (dict "local" $chartVals "key" "useReleaseNamePrefix" "global" $g) -}}
+{{- $seen := include "vss.vios.prefixOf" (dict "local" ($sensor.peerUseReleaseNamePrefix | default dict) "key" $peer "global" $g) -}}
+{{- if ne $actual $seen -}}
+{{- fail (printf "vios.vss-vios-sensor would address its %s peer %s the release-name prefix, but %s renders its Service %s it. The sensor cannot read %s.useReleaseNamePrefix; set vios.vss-vios-sensor.peerUseReleaseNamePrefix.%s: %t to match (or set vios.vss-vios-sensor.streamProcessorEndpoint explicitly)." $peer (ternary "WITH" "WITHOUT" (eq $seen "true")) $chartPath (ternary "WITH" "WITHOUT" (eq $actual "true")) $chartPath $peer (eq $actual "true")) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

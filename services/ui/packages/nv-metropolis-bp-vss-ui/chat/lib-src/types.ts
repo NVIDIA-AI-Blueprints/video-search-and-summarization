@@ -63,11 +63,19 @@ export interface ChatMessage {
   timestamp?: number;
 }
 
+/** A folder used to organize chat conversations. */
+export interface ChatFolder {
+  id: string;
+  name: string;
+  type: 'chat';
+}
+
 /** A named thread of messages. */
 export interface Conversation {
   id: string;
   name: string;
   messages: ChatMessage[];
+  folderId?: string | null;
 }
 
 /**
@@ -131,13 +139,18 @@ export interface ChatVideoUploadCompletePayload {
 export interface ChatSidebarControlHandlers {
   conversations: Conversation[];
   filteredConversations: Conversation[];
+  folders: ChatFolder[];
   selectedConversationId: string | null;
   searchTerm: string;
   onSearchTermChange: (term: string) => void;
   onSelectConversation: (id: string) => void;
-  onNewConversation: () => void;
+  onNewConversation: (folderId?: string | null) => void;
   onRenameConversation: (id: string, name: string) => void;
   onDeleteConversation: (id: string) => void;
+  onMoveConversation: (id: string, folderId: string | null) => void;
+  onCreateFolder: () => ChatFolder;
+  onRenameFolder: (id: string, name: string) => void;
+  onDeleteFolder: (id: string) => void;
   onClearConversations: () => void;
   onExportData: () => void;
   onImportConversations: (data: unknown) => void;

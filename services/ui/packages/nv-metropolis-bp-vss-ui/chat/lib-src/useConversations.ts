@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   buildExport,
+  createChatFolder,
   createConversation,
   exportFilename,
   filterConversations,
   mergeConversations,
   mergeExportAuxiliary,
+  normalizeChatFolders,
   parseImport,
   sanitizeForPersistence,
   titleFromMessage,
@@ -23,7 +25,7 @@ import {
   saveConversations,
   saveSelectedConversationId,
 } from './storage';
-import type { ChatMessage, Conversation } from './types';
+import type { ChatFolder, ChatMessage, Conversation } from './types';
 
 export interface UseConversationsResult {
   conversations: Conversation[];
@@ -33,10 +35,15 @@ export interface UseConversationsResult {
   searchTerm: string;
   setSearchTerm: (term: string) => void;
   filtered: Conversation[];
+  folders: ChatFolder[];
   select: (id: string) => void;
-  create: () => Conversation;
+  create: (folderId?: string | null) => Conversation;
   rename: (id: string, name: string) => void;
   remove: (id: string) => void;
+  moveToFolder: (id: string, folderId: string | null) => void;
+  createFolder: () => ChatFolder;
+  renameFolder: (id: string, name: string) => void;
+  removeFolder: (id: string) => void;
   clearAll: () => void;
   /** Replace the selected conversation's messages. */
   setMessages: (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
@@ -63,9 +70,40 @@ export function useConversations(storageKeyPrefix?: string): UseConversationsRes
   const [selectedId, setSelectedId] = useState<string | null>(() => conversations[0]?.id ?? null);
   const [hydrated, setHydrated] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [auxiliary, setAuxiliary] = useState(() => loadChatExportAuxiliary(storageKeyPrefix));
 
   const conversationsRef = useRef(conversations);
   conversationsRef.current = conversations;
+  const auxiliaryRef = useRef(auxiliary);
+  auxiliaryRef.current = auxiliary;
+
+  const folders = useMemo(
+    () => normalizeChatFolders(auxiliary.folders),
+    [auxiliary.folders],
+  );
+
+  const persistAuxiliary = useCallback(
+    (next: typeof auxiliary) => {
+      saveChatExportAuxiliary(next, storageKeyPrefix);
+      auxiliaryRef.current = next;
+      setAuxiliary(next);
+    },
+    [storageKeyPrefix],
+  );
+
+  const replaceChatFolders = useCallback(
+    (nextFolders: ChatFolder[]) => {
+      const current = auxiliaryRef.current;
+      const nonChatFolders = current.folders.filter(
+        (folder) => normalizeChatFolders([folder]).length === 0,
+      );
+      persistAuxiliary({
+        ...current,
+        folders: [...nonChatFolders, ...nextFolders],
+      });
+    },
+    [persistAuxiliary],
+  );
 
   // Hydrate once, then never read again — this hook is the source of truth.
   useEffect(() => {
@@ -154,8 +192,8 @@ export function useConversations(storageKeyPrefix?: string): UseConversationsRes
     [selectedId],
   );
 
-  const create = useCallback(() => {
-    const fresh = createConversation();
+  const create = useCallback((folderId: string | null = null) => {
+    const fresh = createConversation(undefined, folderId);
     setConversations((prev) => [...prev, fresh]);
     setSelectedId(fresh.id);
     return fresh;
@@ -181,18 +219,64 @@ export function useConversations(storageKeyPrefix?: string): UseConversationsRes
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, name: trimmed } : c)));
   }, []);
 
+  const moveToFolder = useCallback((id: string, folderId: string | null) => {
+    const validFolderId = folderId && normalizeChatFolders(auxiliaryRef.current.folders)
+      .some((folder) => folder.id === folderId)
+      ? folderId
+      : null;
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === id ? { ...conversation, folderId: validFolderId } : conversation,
+      ),
+    );
+  }, []);
+
+  const createFolder = useCallback(() => {
+    const fresh = createChatFolder();
+    replaceChatFolders([...normalizeChatFolders(auxiliaryRef.current.folders), fresh]);
+    return fresh;
+  }, [replaceChatFolders]);
+
+  const renameFolder = useCallback(
+    (id: string, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      replaceChatFolders(
+        normalizeChatFolders(auxiliaryRef.current.folders).map((folder) =>
+          folder.id === id ? { ...folder, name: trimmed } : folder,
+        ),
+      );
+    },
+    [replaceChatFolders],
+  );
+
+  const removeFolder = useCallback(
+    (id: string) => {
+      replaceChatFolders(
+        normalizeChatFolders(auxiliaryRef.current.folders).filter((folder) => folder.id !== id),
+      );
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          conversation.folderId === id ? { ...conversation, folderId: null } : conversation,
+        ),
+      );
+    },
+    [replaceChatFolders],
+  );
+
   const clearAll = useCallback(() => {
     const fresh = createConversation();
     setConversations([fresh]);
     setSelectedId(fresh.id);
+    replaceChatFolders([]);
     clearAllConversations(storageKeyPrefix).catch(() => {});
-  }, [storageKeyPrefix]);
+  }, [replaceChatFolders, storageKeyPrefix]);
 
   const exportData = useCallback(() => {
     if (typeof window === 'undefined') return;
     const blob = new Blob([
       JSON.stringify(
-        buildExport(conversations, loadChatExportAuxiliary(storageKeyPrefix)),
+        buildExport(conversations, auxiliary),
         null,
         2,
       ),
@@ -205,7 +289,7 @@ export function useConversations(storageKeyPrefix?: string): UseConversationsRes
     link.download = exportFilename();
     link.click();
     URL.revokeObjectURL(url);
-  }, [conversations, storageKeyPrefix]);
+  }, [auxiliary, conversations]);
 
   const importData = useCallback((rawJson: string) => {
     const { conversations: imported, folders, prompts, error } = parseImport(rawJson);
@@ -219,6 +303,8 @@ export function useConversations(storageKeyPrefix?: string): UseConversationsRes
     } catch {
       return { ok: false, error: 'Failed to preserve imported folders and prompts' };
     }
+    auxiliaryRef.current = auxiliary;
+    setAuxiliary(auxiliary);
     // Append rather than replace: an import should not destroy live threads.
     setConversations((prev) => mergeConversations(prev, imported));
     if (imported.length) setSelectedId(imported[imported.length - 1].id);
@@ -236,10 +322,15 @@ export function useConversations(storageKeyPrefix?: string): UseConversationsRes
       searchTerm,
       setSearchTerm,
       filtered,
+      folders,
       select: setSelectedId,
       create,
       rename,
       remove,
+      moveToFolder,
+      createFolder,
+      renameFolder,
+      removeFolder,
       clearAll,
       setMessages,
       titleIfUntitled,
@@ -252,9 +343,14 @@ export function useConversations(storageKeyPrefix?: string): UseConversationsRes
       hydrated,
       searchTerm,
       filtered,
+      folders,
       create,
       rename,
       remove,
+      moveToFolder,
+      createFolder,
+      renameFolder,
+      removeFolder,
       clearAll,
       setMessages,
       titleIfUntitled,

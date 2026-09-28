@@ -6,5 +6,11 @@
 
 - pipeline.id: mdx-kafka
   path.config: "/usr/share/logstash/pipelines/mdx-logstash.conf"
+- pipeline.id: mdx-kafka-1
+  path.config: "/usr/share/logstash/pipelines/mdx-logstash.conf"
+- pipeline.id: mdx-kafka-2
+  path.config: "/usr/share/logstash/pipelines/mdx-logstash.conf"
+- pipeline.id: mdx-kafka-3
+  path.config: "/usr/share/logstash/pipelines/mdx-logstash.conf"
 - pipeline.id: mdx-lvs
   path.config: "/usr/share/logstash/pipelines/mdx-lvs-logstash.conf"

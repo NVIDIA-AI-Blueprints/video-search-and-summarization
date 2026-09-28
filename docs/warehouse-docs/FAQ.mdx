@@ -7,6 +7,10 @@ This section provides categorized frequently asked questions.
 
 ## Blueprint & Agent Deployment
 
+### Are VIOS and VST the same service?
+
+VIOS (Video IO & Storage) is also referred to as VST (Video Storage Toolkit). The Warehouse documentation uses VIOS for the service and UI; URLs such as `/vst/` and configuration variables such as `VST_USE_SDRC` retain the VST name.
+
 ### How do I resolve a failure when deploying the blueprints and agents?
 
 We recommend the following steps to resolve deployment failures -
@@ -129,7 +133,13 @@ The videos can be encoded while uploading via NVStreamer UI.
 
 ### I get the message "unauthorized: authentication required" when downloading containers from NGC
 
-Generate NGC API Key from NGC: https://org.ngc.nvidia.com/setup and then `docker login nvcr.io -u '$oauthtoken' -p <NGC_API_KEY>`
+Follow [How to get an NVIDIA NGC API key](#how-to-get-an-nvidia-ngc-api-key), then sign in to the container registry:
+
+```bash
+docker login nvcr.io --username '$oauthtoken'
+```
+
+Enter your NGC API key when prompted for the password, then retry the download.
 
 ### Troubleshooting NVStreamer/VST Videos in Docker-Compose
 
@@ -435,8 +445,9 @@ These are the fundamental assumptions and requirements for setting up passwordle
 
 2. **Generate Your API Key**
 
-- Log in to your NGC account
-- Navigate to **"Setup"** under your account name in the top right corner
+- Log in and open [NGC API Keys](https://org.ngc.nvidia.com/account/api-keys), or select **Account Settings** from your account menu and find **API Keys**.
+- Select **Generate Personal Key**, enter a name and expiration, and select the services needed to access your containers, models, and resources.
+- Generate the key and store it securely; it is shown only once. See the [NGC User Guide](https://docs.nvidia.com/ngc/latest/ngc-user-guide.html#generating-a-personal-api-key) for details.
 
 3. **API Key Types Available**
 
@@ -470,8 +481,6 @@ Password: <Your_API_Key>
 ```
 
 **Important:** For Docker login, always use `$oauthtoken` exactly as the username - this is a special authentication token for all users.
-
-`NGC API Key Setup` https://org.ngc.nvidia.com/setup/api-key
 
 ## IGX Thor
 

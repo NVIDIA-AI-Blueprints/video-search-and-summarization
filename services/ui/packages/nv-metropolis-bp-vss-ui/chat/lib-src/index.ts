@@ -48,6 +48,7 @@ export type {
   ChatAttachment,
   ChatEndpointConfig,
   ChatFeatureFlags,
+  ChatFolder,
   ChatMessage,
   ChatPanelProps,
   ChatRole,

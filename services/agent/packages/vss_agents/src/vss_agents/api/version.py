@@ -16,10 +16,10 @@
 """VSS deployment version endpoint: ``GET /api/v1/version``.
 
 The version contract (strict Semantic Versioning 2.0.0) and how a deployment's
-version is resolved live in the library, :mod:`vss_core.version`: the
-derivation from git tags is shared with deploy tooling, and this endpoint is
-one consumer of it. Both names are re-exported here, because that is where
-callers and tests reach for them.
+version is resolved live in the library, :mod:`vss_core.version`: what this
+endpoint reports is the version of the ``nvidia-vss-core`` library the process
+imported, which deploy tooling resolves the same way. Those names are
+re-exported here, because that is where callers and tests reach for them.
 """
 
 from typing import Literal
@@ -29,12 +29,12 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from pydantic import Field
 
-from vss_core.version import DEPLOYMENT_VERSION_ENV_VARS
+from vss_core.version import DEPLOYMENT_VERSION_ENV_VAR
 from vss_core.version import SEMVER_PATTERN
 from vss_core.version import resolve_deployment_version
 
 __all__ = [
-    "DEPLOYMENT_VERSION_ENV_VARS",
+    "DEPLOYMENT_VERSION_ENV_VAR",
     "SEMVER_PATTERN",
     "VersionResponse",
     "register_version_route",

@@ -44,8 +44,8 @@ fi
 unset legacy_password
 turn_realm="${TURN_REALM:-vss.local}"
 turn_port="${TURN_PORT:-3478}"
-turn_min_relay_port="${TURN_MIN_RELAY_PORT:-49160}"
-turn_max_relay_port="${TURN_MAX_RELAY_PORT:-49200}"
+turn_min_relay_port="${TURN_MIN_RELAY_PORT:-20000}"
+turn_max_relay_port="${TURN_MAX_RELAY_PORT:-20040}"
 turn_external_ip="${TURN_EXTERNAL_IP:-${EXTERNAL_IP:-${HOST_IP:-}}}"
 
 {

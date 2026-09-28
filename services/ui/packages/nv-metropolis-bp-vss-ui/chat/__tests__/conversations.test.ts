@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   buildExport,
+  createChatFolder,
   createConversation,
   filterConversations,
   mergeConversations,
   mergeExportAuxiliary,
+  normalizeChatFolders,
   parseImport,
   sanitizeForPersistence,
   titleFromMessage,
@@ -107,11 +109,11 @@ describe('parseImport', () => {
   it('upgrades v2 folders and accepts v3', () => {
     const v2 = parseImport(
       JSON.stringify({
-        history: null,
+        history: [{ id: 1, name: 'Filed chat', messages: [], folderId: 7 }],
         folders: [{ id: 7, name: 'Old folder' }],
       }),
     );
-    expect(v2.conversations).toEqual([]);
+    expect(v2.conversations?.[0].folderId).toBe('7');
     expect(v2.folders).toEqual([{ id: '7', name: 'Old folder', type: 'chat' }]);
     expect(v2.prompts).toEqual([]);
 
@@ -201,5 +203,21 @@ describe('createConversation', () => {
   it('gives every conversation a distinct id', () => {
     const ids = new Set(Array.from({ length: 50 }, () => createConversation().id));
     expect(ids.size).toBe(50);
+  });
+
+  it('can be created inside a folder', () => {
+    expect(createConversation(undefined, 'folder-1').folderId).toBe('folder-1');
+  });
+});
+
+describe('chat folders', () => {
+  it('creates folders and normalizes compatible imported folders', () => {
+    expect(createChatFolder('Operations')).toMatchObject({ name: 'Operations', type: 'chat' });
+    expect(
+      normalizeChatFolders([
+        { id: 1, name: 'Legacy' },
+        { id: 'prompt', name: 'Prompts', type: 'prompt' },
+      ]),
+    ).toEqual([{ id: '1', name: 'Legacy', type: 'chat' }]);
   });
 });

@@ -311,6 +311,19 @@ def _split_ref(resolved_ref: str) -> tuple[str, str]:
     return no_digest, ""
 
 
+def _is_non_compose_ghcr_build(entry: dict) -> bool:
+    """A GHCR-built image that declares, explicitly, that no Compose service
+    references it. ``compose_image_names: []`` is the declaration; an entry
+    that merely OMITS the key defaults to its own name (see
+    ``inventory_by_compose_name``) and is not one of these."""
+    return bool(
+        entry.get("strategy") == "build"
+        and entry.get("ghcr_build")
+        and entry.get("compose_image_names") == []
+        and entry.get("source_path")
+    )
+
+
 def reuse_entries(
     repo_root: Path,
     inventory: dict,
@@ -335,13 +348,20 @@ def reuse_entries(
         if name in built_names or entry.get("strategy") not in IN_SCOPE_STRATEGIES:
             continue
         coordinates = sorted(pinned.get(name, set()))
-        # A tagged variant can intentionally have no dedicated Compose
-        # reference: it shares the base image repository and is selected by
-        # an environment/profile tag override (for example, ``-sbsa``).
-        # Carry it forward from its immutable content tag so a no-change
-        # commit still produces a complete release set. This is branch-neutral:
-        # a PR must never fall back to develop-latest for unchanged content.
-        if not coordinates and entry.get("tag_suffix"):
+        # Two kinds of in-scope image intentionally have no dedicated Compose
+        # reference, and both are carried forward from their immutable content
+        # tag (``tree-<source tree sha><tag_suffix>``, exactly what the build
+        # workflow pushes) so a no-change commit still produces a complete
+        # release set:
+        #   * a tagged variant (``tag_suffix``, e.g. ``-sbsa``) that shares the
+        #     base image repository and is selected by a tag override;
+        #   * a GHCR-built image that is not a Compose service at all --
+        #     ``compose_image_names`` declared EMPTY, not omitted -- such as the
+        #     NemoClaw sandbox harnesses, consumed by ``nemoclaw onboard`` and
+        #     the eval harness rather than by any compose file.
+        # This is branch-neutral: a PR must never fall back to develop-latest
+        # for unchanged content.
+        if not coordinates and (entry.get("tag_suffix") or _is_non_compose_ghcr_build(entry)):
             ghcr_roots = [
                 root.rstrip("/")
                 for root in inventory.get("first_party_registry_roots", [])
@@ -353,7 +373,7 @@ def reuse_entries(
                 coordinates = [
                     (
                         f"{ghcr_roots[0]}/{repository}",
-                        f"tree-{tree_sha}{entry['tag_suffix']}",
+                        f"tree-{tree_sha}{entry.get('tag_suffix', '')}",
                     )
                 ]
         if not coordinates:

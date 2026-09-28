@@ -43,7 +43,9 @@ Then `vss configure --base-url <origin>` against what came up.
 
 A partial deployment is normal and fine: `vss configure check` reports which
 command groups it can serve, and the rest fail with exit 4 naming what is
-missing rather than misbehaving.
+missing rather than misbehaving. It also reports the version the deployment
+says it is, or why it cannot say — the same fact the benchmark skills gate on,
+so you learn it there rather than from an aborted benchmark.
 
 ### Point it at a deployment
 
@@ -52,7 +54,7 @@ Once per deployment. Nothing after this takes a host, port, or service URL.
 ```bash
 vss configure --base-url "${VSS_PUBLIC_URL}"   # e.g. http://localhost:7777
 vss configure show                              # what was recorded
-vss configure check                             # re-probe + what each group can serve
+vss configure check                             # re-probe + what each group can serve + the version reported
 ```
 
 `configure` probes the origin's ingress routes and writes `~/.vss/config.json`

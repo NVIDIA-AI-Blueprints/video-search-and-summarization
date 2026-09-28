@@ -94,21 +94,28 @@ metadata:
     app.kubernetes.io/name: vss
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- /* haproxy.org/timeout-client is kept for continuity with earlier releases,
+         but inert: the controller reads timeout-client only from its own
+         ConfigMap, not from an Ingress annotation
+         (haproxytech/kubernetes-ingress documentation/annotations.md). A
+         summarization run that outlasts the controller default still has its
+         client side closed; fixing that means setting timeout-client on the
+         controller ConfigMap, which is cluster-wide and outside this chart. */}}
+  {{- $annotations := dict "haproxy.org/timeout-client" ($vi.timeoutClient | default "3600s") }}
+  {{- with $vi.timeoutServer }}
+  {{- $_ := set $annotations "haproxy.org/timeout-server" . }}
+  {{- end }}
+  {{- /* vssIngress.annotations (e.g. a Traefik routing middleware) win over the
+         profile's own; the generated HAProxy rewrites are added unless the
+         caller supplies haproxy.org/path-rewrite, which replaces the table. */}}
+  {{- $annotations = merge (deepCopy ($vi.annotations | default dict)) $annotations }}
+  {{- if and (include "vss.ingress.hasPathRewrites" (dict "backends" $b)) (not (hasKey $annotations "haproxy.org/path-rewrite")) }}
+  {{- $_ := set $annotations "haproxy.org/path-rewrite" (printf "%s\n" (include "vss.ingress.pathRewrites" (dict "backends" $b))) }}
+  {{- end }}
+  {{- if $annotations }}
   annotations:
-    # Kept for continuity with earlier releases, but inert: the controller reads
-    # timeout-client only from its own ConfigMap, not from an Ingress annotation
-    # (haproxytech/kubernetes-ingress documentation/annotations.md). A
-    # summarization run that outlasts the controller default still has its
-    # client side closed; fixing that means setting timeout-client on the
-    # controller ConfigMap, which is cluster-wide and outside this chart.
-    haproxy.org/timeout-client: {{ $vi.timeoutClient | default "3600s" | quote }}
-    {{- with $vi.timeoutServer }}
-    haproxy.org/timeout-server: {{ . | quote }}
-    {{- end }}
-    {{- if include "vss.ingress.hasPathRewrites" (dict "backends" $b) }}
-    haproxy.org/path-rewrite: |
-      {{- include "vss.ingress.pathRewrites" (dict "backends" $b) | nindent 6 }}
-    {{- end }}
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
 spec:
   ingressClassName: {{ default "haproxy" $vi.ingressClassName | quote }}
   rules:

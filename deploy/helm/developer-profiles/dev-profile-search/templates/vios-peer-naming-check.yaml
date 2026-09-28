@@ -1,0 +1,4 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+{{- /* Renders nothing; refuses a sensor/peer release-prefix mismatch (services/common). */}}
+{{- include "vss.vios.assertPeerNaming" . }}

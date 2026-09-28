@@ -1664,6 +1664,11 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     echo "FAIL: warehouse env files should not define or reference _WH helper variables"
     ((_split_failed++)) || true
   fi
+  if ! awk -F= '/^TURN_MIN_RELAY_PORT=/{min=$2} /^TURN_MAX_RELAY_PORT=/{max=$2}
+      END{exit !(min > 0 && min <= max && max < 30000)}' "${_warehouse_stable_env}"; then
+    echo "FAIL: warehouse TURN relay range must stay below the ephemeral and NodePort ranges (< 30000)"
+    ((_split_failed++)) || true
+  fi
   for _key in "${_warehouse_host_port_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define host-published port override ${_key}"

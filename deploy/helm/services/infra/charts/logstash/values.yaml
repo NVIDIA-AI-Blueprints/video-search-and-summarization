@@ -18,7 +18,7 @@ image:
   repository: docker.elastic.co/logstash/logstash
   tag: "9.4.4"
   pullPolicy: IfNotPresent
-javaOpts: "-Xmx3g -Xms1g"
+javaOpts: "-Xmx4g -Xms4g"
 streamType: "kafka"
 kafka:
   bootstrapServers: ""
@@ -34,7 +34,7 @@ persistence:
     size: 5Gi
 resources:
   requests:
-    memory: "2Gi"
+    memory: "6Gi"
     cpu: "2"
   limits:
     memory: "8Gi"

@@ -122,8 +122,8 @@ spec:
                    An explicit .Values.streamProcessorEndpoint still overrides both. */}}
             {{- $streamProcessorService := default "sdrc" .Values.streamProcessorService }}
             {{- $sdrcName := ternary "sdrc-controller" $streamProcessorService (eq $streamProcessorService "sdrc") }}
-            {{- $sdrcEndpoint := printf "http://%s:10000" (include "vss-vios-sensor.peerHost" (dict "root" . "short" $sdrcName)) }}
-            {{- $spEndpoint := printf "http://%s:30001" (include "vss-vios-sensor.peerHost" (dict "root" . "short" "vss-vios-streamprocessing")) }}
+            {{- $sdrcEndpoint := printf "http://%s:10000" (include "vss-vios-sensor.peerHost" (dict "root" . "short" $sdrcName "peer" "sdrc")) }}
+            {{- $spEndpoint := printf "http://%s:30001" (include "vss-vios-sensor.peerHost" (dict "root" . "short" "vss-vios-streamprocessing" "peer" "streamprocessing")) }}
             {{- $streamProcessorModuleEndpoint := .Values.streamProcessorEndpoint | default (ternary $sdrcEndpoint $spEndpoint $useSdrc) }}
             - name: STREAM_PROCESSOR_MODULE_ENDPOINT
               value: {{ $streamProcessorModuleEndpoint | quote }}

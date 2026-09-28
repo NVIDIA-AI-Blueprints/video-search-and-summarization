@@ -100,7 +100,7 @@ vios:
   vss-vios-sensor:
     enabled: true
     # Direct streamprocessing — sensor talks straight to vss-vios-streamprocessing:30001 (no SDR/Envoy/SDRC router).
-    streamProcessorEndpoint: '{{- $g := .Values.global | default dict }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $host := ternary (printf "%s-vss-vios-streamprocessing" .Release.Name) "vss-vios-streamprocessing" $pfx }}{{- printf "http://%s:30001" $host }}'
+    streamProcessorEndpoint: "" # use the subchart's release-aware direct endpoint
     # Persistence: when existingClaim is "", subchart uses <release>-vst-data / -vst-video (vios shared PVCs when vios.vstStorage.createSharedPvcs is true).
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
@@ -143,6 +143,11 @@ vssIngress:
   resourceName: ""
   # Ingress class on the cluster (e.g. haproxy, nginx).
   ingressClassName: haproxy
+  # Additional controller annotations, for example a Traefik routing middleware.
+  # Non-HAProxy controllers ignore the generated haproxy.org/path-rewrite annotation and
+  # need their own rewrite here; see the README. Setting haproxy.org/path-rewrite in this
+  # map replaces the generated rewrite table for every backend instead of merging into it.
+  annotations: {}
   # If empty, uses global.externalHost (set in values-base.yaml for external installs).
   host: ""
   # Backend ports for the canonical route table (deploy/helm/services/common).

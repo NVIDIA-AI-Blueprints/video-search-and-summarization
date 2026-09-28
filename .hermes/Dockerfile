@@ -9,15 +9,15 @@
 # workflow (docs.nvidia.com/nemoclaw → Install Hermes Plugins): start from the
 # complete managed runtime, add image-owned files, end with USER sandbox and
 # WORKDIR /sandbox. Hermes has no plugin/tool layer to add here: it drives the
-# deployment through the `vss` CLI on PATH, and loads skills from its canonical
-# writable root (/sandbox/.hermes/skills, per NemoClaw's agents/hermes/manifest.yaml)
-# and instruction docs (SOUL.md, AGENTS.md, …) from /sandbox.
+# deployment through the `vss` CLI on PATH, loads skills from $HERMES_HOME/skills
+# (/sandbox/.hermes/skills, per NemoClaw's agents/hermes/manifest.yaml), which
+# Hermes seeds from its bundled library, and instruction docs (SOUL.md, AGENTS.md, …) from /sandbox.
 #
 # NemoClaw publishes hermes-sandbox by publication cohort only (no release tag,
 # NVIDIA/NemoClaw#11228). The cohort a release selects is the one its
 # openclaw-sandbox release tag is labeled with:
-#   openclaw-sandbox:v0.0.114 → io.nvidia.nemoclaw.managed-image.cohort=ghrun-32694475593-1
-#   hermes-sandbox:cohort-ghrun-32694475593-1 → the digest below
+#   openclaw-sandbox:v0.0.127 → io.nvidia.nemoclaw.managed-image.cohort=ghrun-35246345308-1
+#   hermes-sandbox:cohort-ghrun-35246345308-1 → the digest below
 # Move BASE_IMAGE together with ../openclaw/Dockerfile's BASE_IMAGE and the
 # notebook's NEMOCLAW_INSTALL_REF: NemoClaw requires CLI and images to be one release.
 #
@@ -29,13 +29,14 @@
 #
 #   docker build -t <registry>/vss-harness-hermes:<tag> .hermes
 
-ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:32d7ed6a6f1b682991818a2acaf5636d9fb066ae33265b011837b0ba601c0970
-ARG BUILDER_IMAGE=node:22-trixie-slim@sha256:db8a96a63e5264607ada2d206758876ebbed6a12be2ada7517793cbfb0c2a29c
+ARG BASE_IMAGE=ghcr.io/nvidia/nemoclaw/hermes-sandbox@sha256:26899bd091f7ad2d58ab7cf9fad33f1fcd065c10eb54f9cf1461a24e1c21ed1a
+ARG BUILDER_IMAGE=node:24.18.1-trixie-slim@sha256:ac39e4b5fcb2b1b34b20364fd58b2e898f3bb80731ee6f62a7536f9df3d6aadc
 # uv 0.12.10, by index digest (multi-arch) — for the wheel builds in vss-src
 # (the runtime uses the uv the base image ships).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572e6107f171d88d086682fd2500
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization
-ARG VSS_REF=01ecaf705c676123aadc77177143aa963338026f
+# develop at tags nightly-20260922-1 / dev-26.09.4
+ARG VSS_REF=4abf68ecd10f40a74bb1978b44407990415a1ef8
 
 # ── uv, for the vss-src wheel builds ───────────────────────────────────────────
 FROM ${UV_IMAGE} AS uv
@@ -54,7 +55,13 @@ COPY --from=uv /uv /usr/local/bin/uv
 # stage_vss_src.py) wins over the pinned fetch, so a local skill or CLI edit
 # reaches the image without a push. The Dockerfil[e] glob keeps this COPY
 # valid when nothing is staged — the Dockerfile itself always matches.
-COPY Dockerfil[e] .vss-sr[c] /opt/vss-src/
+# --chown=root:root: docker's COPY gives the files to root by default, kaniko
+# keeps the build context's owner. Built by the eval harness (kaniko, context
+# staged by a uid-10001 service) the directory arrived owned by 10001 while RUN
+# executes as root, and `git init` refused it: "detected dubious ownership in
+# repository at '/opt/vss-src'" (exit 128). Pinning the owner makes both
+# engines agree and keeps git's safe.directory check intact.
+COPY --chown=root:root Dockerfil[e] .vss-sr[c] /opt/vss-src/
 RUN rm -f /opt/vss-src/Dockerfile \
     && if [ -f /opt/vss-src/STAGED ]; then \
          echo "vss-src: pre-staged working-tree snapshot" && cat /opt/vss-src/STAGED; \
@@ -154,22 +161,23 @@ RUN set -eux; \
     # Skill discovery, same machinery as the OpenClaw plugin, same python
     # tool: the shipped set stays read-only under /opt/vss-skills/skills, and
     # sync_skills.py fills the active set from what `vss configure` records.
-    # Hermes loads skills from $HERMES_HOME/skills only, so that IS the
-    # active dir: /sandbox/.hermes/skills by default, seeded here with --all.
-    # A harness that relocates HERMES_HOME (Harbor's Hermes adapter uses
-    # /tmp/hermes, a fresh tmpfs under OpenShell) runs `vss-hermes-sync --all`
-    # with that HERMES_HOME before the agent; without it Hermes sees no VSS
-    # skills at all. `vss-hermes-sync` also re-selects after `vss configure`.
+    # Hermes loads skills from $HERMES_HOME/skills only, and every
+    # `hermes chat` first copies its bundled library (/opt/hermes/skills)
+    # into that dir. So the VSS set ships inside the bundle, under vss/:
+    # any HERMES_HOME -- the default /sandbox/.hermes or one a caller
+    # picks -- gets it with nothing run beforehand. `vss-hermes-sync`
+    # re-selects after `vss configure`; it owns $HERMES_HOME/skills/vss
+    # only, leaving Hermes' own skills alone.
     && mkdir -p /opt/vss-skills \
     && cp -R /opt/vss-assets/skills /opt/vss-skills/skills \
     && cp /opt/vss-assets/sync_skills.py /opt/vss-skills/sync_skills.py \
-    && mkdir -p /sandbox/.hermes/skills \
-    && chmod -R a+rX /opt/vss-skills \
-    && printf '#!/bin/sh\nactive="${HERMES_HOME:-/sandbox/.hermes}/skills"\nmkdir -p "$active"\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir "$active" "$@"\n' > /usr/local/bin/vss-hermes-sync \
+    && test ! -e /opt/hermes/skills/vss \
+    && python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /opt/hermes/skills/vss --all \
+    && chmod -R a+rX /opt/vss-skills /opt/hermes/skills/vss \
+    && printf '#!/bin/sh\nactive="${HERMES_HOME:-/sandbox/.hermes}/skills/vss"\nmkdir -p "$active"\nexec python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir "$active" "$@"\n' > /usr/local/bin/vss-hermes-sync \
     && chmod 0755 /usr/local/bin/vss-hermes-sync \
-    && python3 /opt/vss-skills/sync_skills.py --skills-dir /opt/vss-skills/skills --active-dir /sandbox/.hermes/skills --all \
-    && chown -R sandbox:sandbox /sandbox/.hermes/skills \
-    && su -s /bin/sh sandbox -c "vss-hermes-sync --all" \
+    # Prove Hermes' own launch sync seeds a fresh HERMES_HOME, as sandbox.
+    && su -s /bin/sh sandbox -c 'h=$(mktemp -d) && cd /opt/hermes && HERMES_HOME=$h /opt/hermes/.venv/bin/python3 -c "from tools.skills_sync import sync_skills; sync_skills(quiet=True)" && test -f $h/skills/vss/vss-ask-video/SKILL.md && HERMES_HOME=$h vss-hermes-sync --all && test -d $h/skills/github && rm -rf $h' \
     && cp /opt/vss-assets/workspace/*.md /sandbox/ \
     && for f in /opt/vss-assets/workspace/*.md; do chown sandbox:sandbox "/sandbox/$(basename "$f")"; done \
     && mv /opt/vss-assets/ngc-cli /usr/local/lib/ngc-cli \
@@ -179,7 +187,7 @@ RUN set -eux; \
     && ngc --version \
     && su -s /bin/sh sandbox -c "ngc --version" \
     && rm -rf /opt/vss-assets \
-    && test -f /sandbox/.hermes/skills/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
+    && test -f /opt/hermes/skills/vss/vss-ask-video/SKILL.md && test -f /sandbox/AGENTS.md \
     && rm -f /etc/profile.d/nemoclaw-rlimits.sh \
     && sed -i '/sandbox-rlimits/d; /NemoClaw sandbox resource limits/d' /etc/bash.bashrc \
     && ! grep -rq "sandbox-rlimits" /etc/profile.d /etc/bash.bashrc

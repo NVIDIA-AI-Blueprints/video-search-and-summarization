@@ -22,9 +22,10 @@ Derivations mirror NemoClaw's generator (scripts/generate-openclaw-config.mts):
 origins are unique([loopback, chat, portless]); allowInsecureAuth is
 scheme == http; device auth is disabled for a non-loopback UI host.
 
-Do not register remote UI origins here. Onboard rewrites CHAT_UI_URL to its
-loopback dashboard forward. Register the remote origin after onboard in
-deploy_nemoclaw.ipynb; keep the derivation below for callers whose URL survives.
+Onboard keeps the session's host in CHAT_UI_URL and rewrites only its port, so a
+remote origin arrives here intact and this is where it enters the config: nothing
+can add one afterwards, since `config set` refuses gateway.*. Section 3.5 of
+deploy_nemoclaw.ipynb only checks that what arrived is what the browser will send.
 """
 
 from __future__ import annotations

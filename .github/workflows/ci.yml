@@ -1462,6 +1462,42 @@ jobs:
       - name: Verify profile dependency closure over the container inventory
         run: python3 .github/scripts/release_set.py closure
 
+
+  # ---------------------------------------------------------------------------
+  # Job 11d: Helm chart render checks
+  # Renders the developer-profile charts and asserts what they emit: the VIOS
+  # sensor's peer endpoints name Services the same render creates (direct,
+  # SDRC and mixed-prefix installs, with mismatches refused), VST config
+  # timeouts and placeholders, the canonical ingress route table, and
+  # vssIngress.annotations on every profile. Uses the Helm preinstalled on the
+  # hosted runner; every profile dependency is a local file:// chart.
+  # ---------------------------------------------------------------------------
+  helm-render:
+    name: Helm Chart Render Checks
+    needs: prepare-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+
+      - name: Build developer-profile chart dependencies
+        run: |
+          helm version --short
+          for profile in deploy/helm/developer-profiles/*/; do
+            helm dependency build "$profile"
+          done
+
+      - name: Render checks
+        run: |
+          uv run --no-project --with pyyaml python deploy/helm/scripts/verify-vios-runtime.py
+          uv run --no-project --with pyyaml python deploy/helm/scripts/verify-ingress-routes.py
+          uvx --with pyyaml pytest -q deploy/tests
+
   # ---------------------------------------------------------------------------
   # Job 12: Wait for this commit's separate Build Dev Images workflow
   # ---------------------------------------------------------------------------

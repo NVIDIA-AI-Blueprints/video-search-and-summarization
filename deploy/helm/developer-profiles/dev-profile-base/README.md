@@ -126,16 +126,19 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`infra.redis.enabled`** | `true` | Set **`false`** to disable Redis only. |
 | **`vios.enabled`** | `true` | Master switch for the **`vios`** umbrella (all bundled **`vss-vios-*`** subcharts). Set **`false`** to omit the entire VST microservice stack from the release. |
 | **`vios.vss-vios-postgres.enabled`** | `true` | Set **`false`** to disable centralized DB. Storage sizing/class: subchart **`values.yaml`** or overrides under **`vios.vss-vios-postgres`**. |
-| **`vios.vss-vios-sensor.streamProcessorEndpoint`** | **`http://<release>-vss-vios-streamprocessing:30001`** | Sensor registers streams against streamprocessing directly (not **:10000**). |
+| **`vios.vss-vios-sensor.streamProcessorEndpoint`** | **`""`** (empty) | Sensor registers streams against streamprocessing directly (not **:10000**). Left empty, the sensor subchart derives the address itself: **`http://vss-vios-streamprocessing:30001`**, or **`http://<release>-vss-vios-streamprocessing:30001`** when **`global.useReleaseNamePrefix`** is **`true`**. Set a value only to point the sensor at an endpoint this chart does not render. |
+| **`vios.vss-vios-sensor.peerUseReleaseNamePrefix`** | **`{}`** | How the sensor names its derived peers (**`streamprocessing`**, **`sdrc`**) when that differs from **`global.useReleaseNamePrefix`**. A subchart cannot read another subchart's local **`useReleaseNamePrefix`**, and the sensor's own flag names only the sensor, so a peer's local override alone is **not** enough. See *Mixed release-name prefixes* below. Unset keys follow the global value, and an explicit **`false`** is honoured. |
 | **`vios.vss-vios-sensor.enabled`** | `true` | **`false`** to disable **vss-vios-sensor**. |
 | **`vios.vss-vios-sensor.persistence`** | Each of **`vstData`** and **`vstVideo`**: mount on, **`create: false`**, **`existingClaim`** empty by default | Controls whether **sensor** mounts two shared folders (**data** and **video**). **Typical setup:** leave **`existingClaim`** blank—Helm wires the pods to the PVCs created when **`vios.vstStorage.createSharedPvcs`** is **`true`**. **Custom PVCs:** set **`existingClaim`** to your claim name for that volume. **Disable a mount:** set that volume’s **`enabled`** to **`false`** (that path is not mounted). |
 | **`vios.vss-vios-streamprocessing.enabled`** | `true` | **`false`** to disable **vss-vios-streamprocessing**. |
+| **`vios.vss-vios-streamprocessing.downloadFilesTimeoutSecs`** | `120` | Base download timeout in seconds (**`download_files_timeout_secs`** in **`vst_config.json`**); a positive 32-bit integer, validated by the subchart **`values.schema.json`**. Paths that consume it directly time out at exactly this value; a pipeline that keeps reporting progress may extend its own budget incrementally, up to a ceiling of at least 600 seconds. Raise it for long videos, especially on the software encoding path. |
 | **`vios.vss-vios-streamprocessing.persistence`** | **`vstData`**, **`vstVideo`**, **`streamerVideos`**: same idea as sensor | **Streamprocessing** mounts up to **three** shared folders: VST **data**, VST **video**, and **streamer** uploads. Use blank **`existingClaim`** to use the shared PVCs from **`vios`** (when **`vios.vstStorage.createSharedPvcs`** is **`true`**), or set **`existingClaim`** / **`enabled`** per volume the same way as for **sensor**. |
 | **`vios.vss-vios-ingress.enabled`** | `true` | Deploys the in-cluster **VST ingress** (nginx). |
 | **`vios.vss-vios-ingress.externallyAccessibleIp`** | `""` | Hostname or IP address advertised to VST/nginx for external access. If unset, the subchart uses **`global.externalHost`**; if that is unset, it defaults to **`127.0.0.1`**. Override this value only when the VST ingress must use a hostname or IP that differs from **`global.externalHost`**. |
 | **`vssIngress.enabled`** | `false` in chart **`values.yaml`**; **`true`** in sample **`values-base.yaml`** | When **`true`**, renders **`templates/vss-ingress.yaml`**: one **`Ingress`** whose mounts come from the [canonical route table](../../services/common/README.md) — **`/`**, **`/api/chat`**, **`/api/agent`**, **`/api/vss-chat`**, and **`/api/proxy`** to **vss-agent-ui**; **`/api`**, **`/chat`**, **`/websocket`**, **`/static`** (and **`/docs`**, **`/redoc`**, **`/generate`**, **`/openapi.json`**) to **vss-agent**; **`/vst`** and **`/storage`** to **vss-vios-ingress**; **`/rtvi-vlm`** to RT-VLM; **`/phoenix`** to Phoenix; plus an optional **`phoenix.<host>/`** rule. A service this profile does not deploy is not mounted. No effect if **`global.externalHost`** and **`vssIngress.host`** are both empty. |
 | **`vssIngress.ingressClassName`** | `haproxy` | **`spec.ingressClassName`** on the **`Ingress`**. Must match an **`IngressClass`** that already exists (for example the class created by **HAProxy Kubernetes Ingress**). Use another name (e.g. **`nginx`**) if your controller uses a different class. |
 | **`vssIngress.host`** | `""` | Ingress hostname rule. If empty, **`global.externalHost`** is used. Set only when the Ingress hostname must differ from **`global.externalHost`**. |
+| **`vssIngress.annotations`** | `{}` | Extra annotations for the generated **`Ingress`**, for example a Traefik or NGINX rewrite middleware. Merged with the rewrite annotation the template generates. Supplying **`haproxy.org/path-rewrite`** here **replaces** the generated rewrite table for every backend rather than merging into it. See [VSS Ingress (`vssIngress`)](#vss-ingress-vssingress). |
 | **`vssIngress.vssUiPort`** | `3000` | Backend **`Service`** port for **vss-agent-ui** paths. |
 | **`vssIngress.vssAgentPort`** | `8000` | Backend **`Service`** port for **vss-agent** paths. |
 | **`vssIngress.vstIngressPort`** | `30888` | Backend **`Service`** port for **vss-vios-ingress** (**`/vst`**, **`/storage`**). |
@@ -172,6 +175,31 @@ Use the table below when you want to change behavior beyond the minimal **`value
 | **`nims.enabled`** | `true` | Master switch for the **`nims`** umbrella (**`helm/services/nims`**). When **`false`**, no **NIM** **`NIMService`** / **`NIMCache`** objects are installed. Use **`false`** with **`global.llmBaseUrl`**, **`global.vlmBaseUrl`**, **`global.llmName`** and **`global.vlmName`** for remote-only LLM/VLM. |
 | **`nims.gpuType`** | **`H100`** | Selects **`gpuProfiles`** tuning for **`nemotron`** / **`cosmos3`** **`nim-env`** ConfigMaps (**`H100`**, **`L40S`**, **`RTXPRO6000BW`**). |
 | **`nims.nemotron` / `nims.cosmos3`** | see **`values.yaml`** | Per-model **`enabled`**, images, resources, storage, and **`env`**. Default base enables **`nemotron`** only; **`cosmos3`** stays off because RT-VLM serves the VLM. |
+
+### Mixed release-name prefixes
+
+The sensor derives its stream-processing peer's Service name itself, but it cannot see that
+chart's local `useReleaseNamePrefix`. When a peer's naming differs from the global value, set
+**both** the peer chart's local flag and the sensor's matching `peerUseReleaseNamePrefix` entry.
+For example, prefixed names globally, with stream processing (and the sensor) unprefixed:
+
+```yaml
+global:
+  useReleaseNamePrefix: true
+vios:
+  vss-vios-streamprocessing:
+    useReleaseNamePrefix: false        # names the Service vss-vios-streamprocessing
+  vss-vios-sensor:
+    useReleaseNamePrefix: false        # names the sensor only
+    peerUseReleaseNamePrefix:
+      streamprocessing: false          # tells the sensor how its peer is named
+```
+
+Setting only `vss-vios-streamprocessing.useReleaseNamePrefix: false` is not enough, because the
+sensor would still call `<release>-vss-vios-streamprocessing`. The chart refuses that
+render and names the missing value. The same applies to `sdrc`
+(`infra.sdrc.useReleaseNamePrefix` with `peerUseReleaseNamePrefix.sdrc`) in profiles that set
+`global.vios.useSdrc`. An explicit `vss-vios-sensor.streamProcessorEndpoint` bypasses both.
 
 ### Remote LLM and VLM
 
@@ -284,7 +312,62 @@ vssIngress:
   host: ""   # omit to use global.externalHost
 ```
 
-**Using another controller** (for example NGINX Ingress): set **`vssIngress.ingressClassName`** to that controller’s **`IngressClass`** name. Path-based routing is standard **`Ingress`**; HAProxy-specific annotations are not required for the default template.
+**Using another controller** (for example NGINX or Traefik): set **`vssIngress.ingressClassName`** to that controller’s **`IngressClass`** name. Path **routing** is standard **`Ingress`** and works on any controller, but path **rewriting** is not. The template always emits an **`haproxy.org/path-rewrite`** annotation, and controllers other than HAProxy ignore it, so these prefixes are forwarded to the backend instead of being stripped:
+
+```text
+^/storage/(.*) -> /vst/storage/\1     ^/storage -> /vst/storage
+/rtvi-vlm/(.*) -> /\1                 /rtvi-vlm -> /
+/phoenix/(.*)  -> /\1                 /phoenix  -> /
+/llm/(.*)      -> /\1                 /llm      -> /
+```
+
+Without an equivalent rewrite, **`/rtvi-vlm/v1/models`** reaches RT-VLM as **`/rtvi-vlm/v1/models`** and returns 404. Supply your controller’s own rewrite through **`vssIngress.annotations`**.
+
+These annotations are applied to the **whole** **`Ingress`**, so whatever you supply must
+select the paths it rewrites and leave the other routes (**`/`**, **`/api`**, **`/vst`**,
+**`/openapi.json`**, …) untouched.
+
+**Traefik** — three of the four prefixes are stripped to the root and **`/storage`** is
+replaced, so it takes two middlewares chained in order. Create them in the release namespace:
+
+```yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: vss-strip-prefix
+spec:
+  stripPrefix:
+    prefixes: ["/rtvi-vlm", "/phoenix", "/llm"]   # only these paths are altered
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: vss-storage-path
+spec:
+  replacePathRegex:
+    regex: "^/storage(.*)"
+    replacement: "/vst/storage$1"
+```
+
+Then reference both, in order, replacing **`<NAMESPACE>`** with the release namespace:
+
+```yaml
+vssIngress:
+  enabled: true
+  ingressClassName: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: "<NAMESPACE>-vss-strip-prefix@kubernetescrd,<NAMESPACE>-vss-storage-path@kubernetescrd"
+```
+
+**NGINX** — **`nginx.ingress.kubernetes.io/rewrite-target`** cannot express this table on this
+**`Ingress`**. It applies one target to every path, while **`/storage`** needs a different target
+from the other three and most routes must not be rewritten at all; a capture-group target such as
+**`/$2`** additionally requires **`use-regex`** paths, which this chart does not emit (every path
+is **`Prefix`** or **`Exact`**). Route NGINX to the prefixes that need no rewriting and create a
+separate **`Ingress`** per rewrite group, each with its own **`rewrite-target`**, or use a
+controller whose middleware can be scoped per path.
+
+Setting **`haproxy.org/path-rewrite`** in **`vssIngress.annotations`** replaces the generated table for **every** backend, not just the one you meant to change; omit that key unless you intend to define all of the rules above yourself.
 
 **Important:** **`vssIngress`** only creates an **`Ingress`** resource. It does **not** install the HAProxy (or any) Ingress controller. If you also use a Helm chart that installs the **same** **`IngressClass`** (for example a bundled **`kubernetes-ingress`** subchart), disable **one** of the two installs—otherwise Helm reports an ownership conflict on the cluster **`IngressClass`** (often named **`haproxy`**). Prefer a **single** cluster-wide controller install and **`vssIngress.enabled: true`** on this release.
 

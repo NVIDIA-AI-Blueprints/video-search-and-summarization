@@ -136,27 +136,29 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "dev-profile-search.labels" . | nindent 4 }}
+  {{- /* timeout-client and timeout-tunnel are kept for continuity with earlier
+         releases, but inert: the controller reads them only from its own
+         ConfigMap, not from an Ingress annotation (haproxytech/kubernetes-ingress
+         documentation/annotations.md). Setting them cluster-wide is the only way
+         to raise them, and that is outside this chart. timeout-server does work at
+         this scope, and now lives on the Services that need it (vss-rtvi-cv,
+         vss-rtvi-embed, vss-rtvi-vlm, vss-agent) so a slow embedding call no
+         longer sets the ceiling for every other route on this origin. */}}
+  {{- $annotations := dict "haproxy.org/timeout-client" ($vi.timeoutClient | default "3600s") "haproxy.org/timeout-tunnel" ($vi.timeoutTunnel | default "3600s") }}
+  {{- with $vi.timeoutServer }}
+  {{- $_ := set $annotations "haproxy.org/timeout-server" . }}
+  {{- end }}
+  {{- /* vssIngress.annotations (e.g. a Traefik routing middleware) win over the
+         profile's own; the generated HAProxy rewrites are added unless the
+         caller supplies haproxy.org/path-rewrite, which replaces the table. */}}
+  {{- $annotations = merge (deepCopy ($vi.annotations | default dict)) $annotations }}
+  {{- if and (include "vss.ingress.hasPathRewrites" (dict "backends" $b)) (not (hasKey $annotations "haproxy.org/path-rewrite")) }}
+  {{- $_ := set $annotations "haproxy.org/path-rewrite" (printf "%s\n" (include "vss.ingress.pathRewrites" (dict "backends" $b))) }}
+  {{- end }}
+  {{- if $annotations }}
   annotations:
-    # Kept for continuity with earlier releases, but inert: the controller reads
-    # timeout-client and timeout-tunnel only from its own ConfigMap, not from an
-    # Ingress annotation (haproxytech/kubernetes-ingress
-    # documentation/annotations.md). Setting them cluster-wide is the only way
-    # to raise them, and that is outside this chart. timeout-server does work at
-    # this scope, and now lives on the Services that need it (vss-rtvi-cv,
-    # vss-rtvi-embed, vss-rtvi-vlm, vss-agent) so a slow embedding call no
-    # longer sets the ceiling for every other route on this origin.
-    haproxy.org/timeout-client: {{ $vi.timeoutClient | default "3600s" | quote }}
-    haproxy.org/timeout-tunnel: {{ $vi.timeoutTunnel | default "3600s" | quote }}
-    {{- with $vi.timeoutServer }}
-    haproxy.org/timeout-server: {{ . | quote }}
-    {{- end }}
-    {{- if include "vss.ingress.hasPathRewrites" (dict "backends" $b) }}
-    haproxy.org/path-rewrite: |
-      {{- include "vss.ingress.pathRewrites" (dict "backends" $b) | nindent 6 }}
-    {{- end }}
-    {{- with $vi.annotations }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
 spec:
   {{- $class := coalesce ($legacy.className | default "") $vi.ingressClassName $vi.className }}
   {{- if $class }}

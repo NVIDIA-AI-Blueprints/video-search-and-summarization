@@ -219,9 +219,9 @@ def check(base_url: str, timeout: float) -> str:
             ) from error
         if error.code == 503:
             raise IndeterminateError(
-                f"{url} returned 503: the deployment has no usable VSS_DEPLOYMENT_VERSION "
-                "(or legacy VSS_AGENT_VERSION) and no git tags to derive one from, so its "
-                "version cannot be determined."
+                f"{url} returned 503: the deployment reports no usable version -- its "
+                "nvidia-vss-core install carries none, and any VSS_DEPLOYMENT_VERSION override "
+                "is not valid Semantic Versioning 2.0.0."
             ) from error
         raise IndeterminateError(f"{url} returned HTTP {error.code} {error.reason}.") from error
     except (URLError, TimeoutError) as error:
