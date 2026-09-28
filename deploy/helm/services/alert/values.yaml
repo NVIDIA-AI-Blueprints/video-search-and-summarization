@@ -79,6 +79,10 @@ internalIp: ""
 rtviVlmModelToUse: ""
 # Inline YAML content for realtime-config.yml (always-on VLM alert rules). Leave "" for empty default.
 realtimeConfig: ""
+# Start the always_on_rules from realtime-config.yml when VIOS posts
+# camera_streaming to /api/v1/realtime/always-on. Off by default: only
+# profiles that wire that webhook in their sdrc config should enable it.
+alwaysOn: false
 
 # Base directory for media used during alert review (optional). Leave "" if not set.
 alertReviewMediaBaseDir: ""
