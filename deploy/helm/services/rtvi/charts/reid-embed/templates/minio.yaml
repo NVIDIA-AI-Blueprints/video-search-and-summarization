@@ -60,7 +60,7 @@ spec:
               value: {{ .Values.minio.rootUser | quote }}
             - name: MINIO_ROOT_PASSWORD
               value: {{ .Values.minio.rootPassword | quote }}
-          command:
+          args:
             - server
             - /data
             - --console-address
