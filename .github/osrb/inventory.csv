@@ -995,7 +995,7 @@ cffi,2.0.0,MIT,services/rtvi/rt-embed,python,lockfile;manifest,services/rtvi/rt-
 cffi,2.0.0,MIT,services/sdrc,python,lockfile,services/sdrc/uv.lock,runtime,no,no,no,declared-manifest,None
 cffi,2.0.0,MIT,services/vios,python,lockfile,services/vios/test/bdd_tests/poetry.lock,runtime,no,no,no,declared-manifest,None
 cffi,2.1.1,MIT-0,services/rtvi/rt-vlm,python,lockfile;manifest,services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/pdm.lock;services/rtvi/rt-vlm/docker/rtvi_vlm/py_deps/requirements.txt,runtime,no,no,no,declared-manifest,None
-cgr.dev/chainguard/minio,latest,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-mv3dt,container,compose,services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml,runtime,no,no,yes,container-image,Unknown
+cgr.dev/chainguard/minio,latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b,UNKNOWN,services/rtvi/rt-cv-3d/rt-cv-mv3dt,container,compose,services/rtvi/rt-cv-3d/rt-cv-mv3dt/docker/compose.yml,runtime,no,no,yes,container-image,Unknown
 chai,4.5.0,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 chalk,4.1.2,MIT,services/analytics/video-analytics-api,node,lockfile,services/analytics/video-analytics-api/test/package-lock.json,runtime,no,no,no,declared-manifest,None
 chalk,4.1.2,MIT,services/ui,node,lockfile,services/ui/package-lock.json,runtime,no,no,no,declared-manifest,None

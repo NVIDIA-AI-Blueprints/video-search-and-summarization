@@ -156,7 +156,7 @@ services:
       start_period: 5s
 
   reid-minio-mv3dt:
-    image: cgr.dev/chainguard/minio:latest
+    image: cgr.dev/chainguard/minio:latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
     profiles: ["reid-minio-mv3dt"]
     container_name: vss-reid-minio-mv3dt
     networks:
@@ -166,9 +166,10 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    command: minio server /minio_data --console-address ":${MINIO_CONSOLE_PORT:-9001}" --address ":${MINIO_PORT:-9000}"
+      MC_HOST_local: http://localhost:${MINIO_PORT:-9000}
+    command: server /data --console-address ":${MINIO_CONSOLE_PORT:-9001}" --address ":${MINIO_PORT:-9000}"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${MINIO_PORT:-9000}/minio/health/live"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 5s
       timeout: 3s
       retries: 5
