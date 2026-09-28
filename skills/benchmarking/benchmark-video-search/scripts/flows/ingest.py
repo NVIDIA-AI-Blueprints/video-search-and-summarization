@@ -13,12 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Ingest backends: the deprecated single PUT and the three-step agent flow.
+"""Ingest backends: VIOS direct upload, agent three-step, and legacy PUT.
 
-A third backend -- direct VST/VIOS -- is missing on purpose. The UI has already
-moved to it (ci-vss-oss commit 0bdfc8d, the eval's previous home) but its contract is not documented
-anywhere we can read, and guessing would produce an eval that indexes
-differently from the product.
+VIOS direct upload is the default. Its webhook fan-out matches the product UI,
+while the agent and legacy paths remain available for older baselines.
 """
 
 from __future__ import annotations
@@ -328,18 +326,18 @@ class VstDirectIngest:
     ``dev-profile-search/vios/configs/notification_config.json`` target
     ``mdx-embed-filtered-2025-01-01`` and its two siblings by name.
 
-    Two things are still worse here, and they are why this is not the default:
+    Two limitations need explicit checks despite this being the default:
 
     * **No completion proof.** ``/complete`` runs the embedding leg
       synchronously and returns ``chunks_processed``; the webhook fan-out is
       fire-and-forget and VIOS never reports the outcome to the uploader. The
-      readiness poll and the first query are all that confirm anything indexed,
-      so ``chunks_processed`` is ``None`` -- not zero -- and the run records
-      ``ingest_proof: "none"``.
-    * **Helm has webhooks off.** ``webhooks.enabled`` is true only in the Docker
-      search profile; the Helm chart ships the dummy item and false. On such a
-      deployment this backend uploads successfully and indexes nothing, and
-      without a chunk count nothing says so until the first query returns empty.
+      readiness poll and post-ingest index probe confirm that sources are
+      searchable, so ``chunks_processed`` is ``None`` -- not zero -- and the
+      run records ``ingest_proof: "none"``.
+    * **Webhook configuration varies by deployment.** Both Docker and Helm
+      search profiles enable webhooks, but generic VIOS chart defaults do not.
+      If the deployed config leaves them off, the post-ingest index probe
+      aborts instead of scoring empty results.
 
     :meth:`verify_anchor` remains as a cheap one-video sanity check, since a
     wrong anchor is silent and indistinguishable from broken retrieval.
@@ -379,7 +377,7 @@ class VstDirectIngest:
     def upload_url(self) -> str:
         return f"{self.vst_url}/vst/api/v1/storage/file"
 
-    def verify_anchor(self, sensor_id: str, timeout: int = COMPLETE_TIMEOUT) -> dict[str, Any]:
+    def verify_anchor(self, sensor_id: str, timeout: int = 30) -> dict[str, Any]:
         """Read back the timeline VIOS recorded for an uploaded video.
 
         The one check worth making before a whole run is scored. Same endpoint

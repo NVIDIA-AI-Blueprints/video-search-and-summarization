@@ -167,18 +167,17 @@ changes, which is the whole point of the design.
 ```
    dataset            ingest                    query                  score
  ┌──────────┐   ┌──────────────────┐   ┌────────────────────┐   ┌──────────────┐
- │ videos   │──▶│ agent-3step      │──▶│ cli                │──▶│ normalize    │
- │ queries  │   │ legacy-put       │   │                    │   │ → metrics    │
- │ ground   │   │                  │   │                    │   │              │
- │  truth   │   │ (webhook, vst-   │   │ (openclaw—pending) │   │ flows/       │
- └──────────┘   │  direct — later) │   └────────────────────┘   │  metrics.py  │
+ │ videos   │──▶│ vst-direct       │──▶│ cli                │──▶│ normalize    │
+ │ queries  │   │ (default)        │   │                    │   │ → metrics    │
+ │ ground   │   │ agent-3step      │   │                    │   │              │
+ │  truth   │   │ legacy-put       │   │ (openclaw—pending) │   │ flows/       │
+ └──────────┘   │                  │   └────────────────────┘   │  metrics.py  │
                 └──────────────────┘                            └──────────────┘
                   --ingest-flow            --query-flow
 ```
 
-Why the split: ingest and query are changing independently in the product, so
-each gets its own axis. Adding a new ingest flow (webhook, say) is one class
-plus one registry line — no metric or runner changes.
+Why the split: ingest and query change independently in the product, so each
+gets its own axis. The default `vst-direct` ingest uses VIOS webhooks; the
+`agent-3step` and `legacy-put` flows remain available for older baselines.
 
 ---
-

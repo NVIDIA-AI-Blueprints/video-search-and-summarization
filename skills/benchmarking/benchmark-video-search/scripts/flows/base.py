@@ -22,7 +22,7 @@ import shlex
 import shutil
 import subprocess
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -73,7 +73,7 @@ def base_record(video_path: Path) -> dict[str, Any]:
         "video_name": video_path.stem,
         "video_path": str(video_path),
         "file_size_mb": round(file_size_mb, 2) if file_size_mb is not None else None,
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -96,13 +96,13 @@ def elapsed_since(start: float) -> float:
 # =============================================================================
 
 #: The VSS checkout holding the ``vss`` CLI. Found by walking up to the directory
-#: containing ``services/agent`` rather than by counting path components: this
-#: skill sits five levels down (skills/benchmarking/<skill>/scripts/flows), and a
-#: fixed ``parents[N]`` silently resolved to ``skills/`` when the eval moved here
-#: from ci-vss-oss. Walking up survives the next move too.
+#: containing ``services/agent`` rather than by counting path components. For
+#: partial checkouts without that marker, the fallback is the actual repository
+#: root (five parents above ``flows/``); ``load_prompt`` then reports the missing
+#: agent source explicitly if live decomposition is requested.
 REPO_ROOT = next(
     (p for p in Path(__file__).resolve().parents if (p / "services/agent/pyproject.toml").exists()),
-    Path(__file__).resolve().parents[4],
+    Path(__file__).resolve().parents[5],
 )
 
 #: Kept as an alias: in ci-vss-oss the product was a submodule beside the eval,

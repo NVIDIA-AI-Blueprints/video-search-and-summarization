@@ -10,8 +10,10 @@ Runs `vss search run <path>` as a subprocess per query. Before the first query
 the script resolves the CLI, runs `vss --version` to catch a broken install,
 and points `~/.vss/config.json` at this deployment.
 
-With a dataset carrying decompositions it routes per query. Without them, every
-query uses `--search-path` (default `embed`).
+Live decomposition routes each query by default. Dataset-provided
+decompositions are used when live decomposition is disabled or unavailable;
+`--decompositions` explicitly replays a stored set. Without any decomposition,
+every query uses `--search-path` (default `embed`).
 
 Any non-zero exit **aborts the run**. There is no exit code meaning "this query
 failed but the rest are fine" — continuing would just manufacture zeros that

@@ -17,5 +17,6 @@ Detecting retrieval regressions between builds, comparing the four search paths 
 
 ## References: <br>
 - `references/dataset-format.md` — what a dataset file must contain <br>
+- `references/flags.md` — flags that change what a run means <br>
 - `references/reading-results.md` — metrics and the stage-latency breakdown <br>
 - `references/troubleshooting.md` — ingestion failures and CLI exit codes <br>

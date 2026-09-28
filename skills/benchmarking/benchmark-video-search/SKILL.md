@@ -1,6 +1,10 @@
 ---
 name: benchmark-video-search
-description: Measure retrieval quality and latency of a deployed VSS search profile — ingest a labelled dataset, run queries through the vss CLI across the embed/attribute/fusion/object paths, and report precision, recall, mAP, HIT@k and a per-stage latency breakdown.
+description: >-
+  Measure retrieval quality and latency of a deployed VSS search profile by
+  ingesting a labelled dataset and running the vss CLI across retrieval paths.
+  Use when the user asks to "benchmark video search", "compare search recall
+  between builds", or "profile search latency" on a deployed VSS profile.
 license: Apache-2.0
 metadata:
   version: "3.9.0"
@@ -24,23 +28,27 @@ the same path the product uses, since the agent adapter shells out to
 `vss search run <mode> --raw` for every search — so the numbers describe what
 ships rather than a REST endpoint that is being retired.
 
+Do not use this skill for a single video-search question; use
+`vss-search-archive`. It does not benchmark the OpenClaw chat route or the
+agent REST search endpoint.
+
 ## Routing
 
 | Situation | Action |
 |---|---|
-| No search profile deployed in this session | Deploy with `vss-deploy-profile -p search`, note the endpoint it returns, then return here |
+| No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the search profile, note its public endpoint, then return here |
 | User did not give an endpoint | Ask for it. Do not guess, and do not default to localhost |
 | User did not give a dataset | Ask which dataset and where its `--data-dir` is. Do not invent one |
 | Elasticsearch has no `mdx-*` indices | Ingestion has not completed. Run **Step 4**; do not report zero scores as a quality result |
-| User asks to reuse what is already ingested | Add `--skip-ingest`. Otherwise the default re-ingests |
+| User asks to reuse what is already ingested | Add `--skip-ingest`. It cannot be combined with `--clear` or `--only-dataset` |
 | User asks to analyse an existing result file | Skip to **Step 6**; read the JSON, run nothing |
 | Every query returns 0 hits | Stop. Diagnose with **Step 3** before reporting anything — this is nearly always missing indices, not poor retrieval |
 | Critic-filtered metrics are all `NA` | The critic never ran. Check the clip-URL prerequisite below before concluding anything about verification quality |
 
 ## The default run
 
-Unless the user says otherwise, this is the run. Ask which dataset; do not ask
-about the rest.
+Unless the user says otherwise, this is the run. Ask which dataset to use and,
+if missing, which deployment endpoint to target.
 
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
@@ -48,12 +56,13 @@ uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:
     --skip-existing --name RUN_NAME
 ```
 
-Three defaults, each load-bearing:
+Five defaults, each load-bearing:
 
 - **`--skip-existing`** is non-destructive and avoids duplicate uploads on a
   shared deployment. `--only-dataset` and `--clear` are explicit destructive
-  maintenance modes; use either only when the user requested deletion, include
-  `--confirm-delete`, and report the printed deletion inventory.
+  maintenance modes. Both require `--confirm-delete` in the same invocation;
+  there is no interactive prompt. Use either only when the user requested
+  deletion, and report the printed deletion inventory.
 - **Live decomposition is on by default.** The LLM origin is derived from
   `--endpoint` (same host, port 30081), so there is no flag to forget. Every
   query is decomposed the way the deployed agent decomposes it, and that choice
@@ -95,10 +104,11 @@ Three defaults, each load-bearing:
   Elasticsearch, and without this check an unindexed deployment scores 0.0
   across the board and reads as a retrieval collapse.
 
-  If the probe aborts a run, check `webhooks.enabled` (true in the Docker
-  search profile, **false** in the Helm chart) and that `RTVI_EMBED_MODEL`
-  matches the webhook's model string — RT-Embed answers a mismatch with HTTP
-  200 and `inference: false`. Fall back with `--ingest-flow agent-3step`.
+  If the probe aborts a run, check the deployed VIOS notification config and
+  that `RTVI_EMBED_MODEL` matches the webhook's model string — RT-Embed answers
+  a mismatch with HTTP 200 and `inference: false`. The Docker and Helm search
+  profiles enable webhooks; generic VIOS chart defaults may not. If the
+  deployed webhooks are disabled, use `--ingest-flow agent-3step`.
   Never pass `--skip-index-probe` on a run whose numbers you intend to quote.
 - **Concurrency stays at 1** (the script's default). Concurrent queries contend
   for the same VLM and embedding services, so per-stage latencies inflate and
@@ -117,14 +127,14 @@ says so.
 
 | Requirement | How to check |
 |---|---|
-| Search profile agent reachable | `curl -sf ${ENDPOINT}/health` returns 200 |
-| Unified origin routes the services | `curl -sf ${ORIGIN}/vst/api/v1/sensor/version` returns 200 (ORIGIN is usually the endpoint host on port 7777) |
+| Search profile agent reachable | `curl -sf --connect-timeout 5 --max-time 10 ${ENDPOINT}/health` returns 200 |
+| Unified origin routes the services | `curl -sf --connect-timeout 5 --max-time 10 ${ORIGIN}/vst/api/v1/sensor/version` returns 200 (ORIGIN is usually the endpoint host on port 7777) |
 | `vss` CLI runs from this checkout | `vss search run --help` exits 0 |
 | CLI points at the right origin | `vss configure show` reports the ORIGIN above |
 | Dataset present locally | `test -f ${DATA_DIR}/${DATASET}/dataset.json` — layout in `references/dataset-format.md` |
 | Python 3.10+ | `python3 --version` |
-| LLM reachable (else the run falls back and says so) | `curl -sf http://HOST:30081/v1/models` returns 200 |
-| ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
+| LLM reachable (else the run falls back and says so) | `curl -sf --connect-timeout 5 --max-time 10 http://HOST:30081/v1/models` returns 200 |
+| ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
 
 ## Step 1 — Configure the CLI
 
@@ -162,7 +172,7 @@ hits and every metric reads 0.0000 — which looks like catastrophic retrieval
 quality and is not.
 
 ```bash
-curl -s "http://HOST:7777/elasticsearch/_cat/indices?h=index,docs.count"
+curl -s --connect-timeout 5 --max-time 10 "http://HOST:7777/elasticsearch/_cat/indices?h=index,docs.count"
 ```
 
 Expect `mdx-embed-filtered-*`, `mdx-behavior-*` and `mdx-raw-*` with non-zero
@@ -171,29 +181,31 @@ is missing, only `embed` can score. If the indices are absent, go to Step 4.
 
 ## Step 4 — Ingest
 
-Three steps per video against the agent API: `POST /api/v1/videos` for an upload
-URL, the chunked upload, then `POST /api/v1/videos/{sensor_id}/complete`, which
-is what triggers perception.
+The default `vst-direct` flow uploads to VIOS and lets its webhooks trigger
+perception. It does not call the agent's `/complete` endpoint or receive a
+`chunks_processed` count. The runner waits for VST registration, then probes
+the search index before scoring. Use `--ingest-flow agent-3step` only when the
+deployment cannot run the webhook flow; see `references/troubleshooting.md`.
 
 ```bash
 uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:8000 \
     --data-dir /path/to/datasets --dataset DATASET --skip-download --skip-existing
 ```
 
-Expect this to be slow and occasionally noisy:
+Expect this to be slow while the webhook pipeline indexes the videos:
 
-- `POST /complete` returns 502 intermittently and is retried. A retry that
-  succeeds is a success — do not report it as a failure.
-- `Duplicate Camera id` from RT-CV does **not** mean the ingest failed;
-  embeddings still generate.
+- A registered source is not necessarily indexed. The post-ingest index probe
+  must pass before treating zero hits as a retrieval result.
+- If webhooks are disabled, select `--ingest-flow agent-3step` explicitly. That
+  flow calls `/complete`, which can return a transient 502 and is retried.
 - `--skip-existing` is the default: ingest what is missing and delete nothing.
 - `--only-dataset` deletes foreign sources only when explicitly requested with
   `--confirm-delete`; report its candidate inventory before it runs.
 - `--clear --confirm-delete` deletes **every** source including other people's.
   Use it only on explicit request.
 
-Then re-run Step 3. Indices are lazy; they appear after `/complete`, not after
-upload.
+Then re-run Step 3. Indices are lazy; they appear after webhook processing,
+not immediately after upload. See `references/flags.md` for ingest options.
 
 ## Step 5 — Run the benchmark
 
@@ -202,6 +214,10 @@ uv run --with requests python3 scripts/run_eval_flows.py --endpoint http://HOST:
     --data-dir /path/to/datasets --dataset DATASET --subset SUBSET \
     --skip-download --skip-ingest --name RUN_NAME
 ```
+
+`--skip-ingest` reuses an already-indexed dataset; it cannot be combined with
+`--clear` or `--only-dataset`. See `references/flags.md` before changing flags
+that affect run meaning.
 
 Decomposition needs no flag. An LLM turns the sentence into
 `{query, attributes, has_action, ...}` and that decides which path runs — the
@@ -242,6 +258,15 @@ State these alongside any number, because each one changes what it means:
 `references/reading-results.md` explains the stage-latency table and each stage
 name; `references/flags.md` covers which flags change what a run means; and
 `references/troubleshooting.md` covers ingestion failures and CLI exit codes.
+
+## Error handling
+
+A non-zero CLI exit aborts the run. A missing result envelope marks that
+query unanswered and aborts by default; `--tolerate-unanswered` permits an
+explicit partial run that excludes those queries from scoring. Never count
+them as misses. Diagnose an all-zero run with Step 3 before reporting quality.
+Critic-filtered `NA` means verification was not available, not zero quality. Use
+`references/troubleshooting.md` for the specific failure and recovery steps.
 
 ## Conventions
 

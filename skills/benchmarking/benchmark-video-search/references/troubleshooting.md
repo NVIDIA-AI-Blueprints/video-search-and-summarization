@@ -4,9 +4,17 @@ Ingestion failures, CLI exit codes, and the gaps this benchmark does not cover.
 
 ## Ingestion
 
-`--ingest-flow`, default **`agent-3step`**.
+`--ingest-flow` defaults to **`vst-direct`**.
 
-### `agent-3step` (default)
+### `vst-direct` (default)
+
+The runner uploads to VIOS, which fans the video out to perception services
+through webhooks. There is no `/complete` call or `chunks_processed` count.
+After upload, the runner waits for VST registration and probes the search index;
+registration alone does not prove that embedding or indexing finished. Check
+`webhooks.enabled` and the RT-Embed model mapping if the index probe fails.
+
+### `agent-3step` (explicit alternative)
 
 ```
 POST {agent}/api/v1/videos                     → {"url": ...}
@@ -31,16 +39,16 @@ pipeline internally, so it is not more reliable — just less observable.
 
 ### After ingest
 
-A 200 from `/complete` is **not** readiness — indexing continues afterwards.
-The script polls VST until every source registers before querying, because
-querying early returns empty results that look exactly like a retrieval
-regression.
+Neither a successful `vst-direct` upload nor a 200 from the optional
+`agent-3step` `/complete` call proves readiness. The runner polls VST for
+registration; for `vst-direct` it also probes index coverage before scoring.
+Querying early returns empty results that look like a retrieval regression.
 
 ### On a shared deployment
 
 ```bash
 --skip-existing    # do not re-upload what VST already lists
---clear            # ⚠️  deletes ALL videos on the endpoint, including others'
+--clear --confirm-delete  # deletes ALL sources; only on explicit request
 ```
 
 ---
@@ -50,13 +58,13 @@ regression.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Could not find a vss CLI` | none of the four sources resolved | the error lists each one and why; see [Getting a `vss` CLI](#getting-a-vss-cli) |
+| `Could not find a vss CLI` | none of the four sources resolved | follow the error's remedy: pass `--vss-repo-root` for a current checkout or install `vss` from that checkout |
 | `vss exited 4 ... does not expose` | CLI pointed at the agent port | let the script configure it, or `--vss-base-url http://host:7777` |
 | `vss exited 1 ... ModuleNotFoundError` | stale virtualenv | rebuild it, or use `--vss-repo-root` |
 | `vss exited 5` | nothing ingested | drop `--skip-ingest` |
 | `/complete` 502 | known flakiness | retried automatically; raise `--complete-retries` |
 | `Duplicate Camera id` | RTVI-CV already has that stream | treated as done — embeddings still generate |
-| Everything scores 0.0 | usually an empty index | check VST lists your sources |
+| Everything scores 0.0 | possibly empty or unscoped search indices | check Step 3's Elasticsearch index counts and the index-probe result; a VST listing alone is insufficient |
 | Header says `fallback_path` | routing is active; that is the path for unrouted queries | look at `planned_paths` |
 
 ---
@@ -64,29 +72,26 @@ regression.
 ## Known gaps
 
 - **`openclaw` query flow** — the full new UI flow end to end: chat → OpenClaw
-  agent → skill → CLI. It would measure **routing** quality (does the agent pick
-  the right path and attributes?) rather than the **retrieval** quality
-  everything here measures with the routing supplied. Needs a NemoClaw sandbox,
-  an LLM in the loop, and a decision about whether CI takes that dependency.
+  agent → skill → CLI. It would measure OpenClaw's skill selection and routing
+  in addition to CLI retrieval. This runner calls the deployment LLM for query
+  decomposition but bypasses OpenClaw. An end-to-end run needs a NemoClaw
+  sandbox and a decision about whether CI takes that dependency.
   Not called "agent" because the NAT agent behind `POST /api/v1/search` runs
   its own decomposition — a different decision-maker. That path was removed
-  from this script; `run_eval.py` still queries it.
-- **`vst-direct` / webhook ingest** — the UI has moved past `agent-3step`;
-  the contract is not documented yet, so the registry slot is deliberately empty.
-- **The route is supplied, never measured** — decompositions come from the
-  dataset, so every number here is retrieval quality *given a correct route*.
-  Whether the agent would pick that route is the `openclaw` gap above. How a
-  dataset's decompositions were produced therefore changes how its results
-  should be read; that belongs with the dataset, not here.
-- **Stage latency needs an unmerged branch** — `feat/search-core-output` in the
-  product repo adds the `timings` block. Without it the section is absent.
-- **Path coverage depends entirely on the dataset** — the script routes what it
-  is given, so a dataset whose queries are all action descriptions exercises
-  only `embed`, however many queries it has. Check the `Search paths:` line in
-  the summary before reading a per-path number as meaningful.
+  from this script; the legacy `run_eval.py` in the separate `ci-vss-oss`
+  repository still queries it and is not available in this checkout.
+- **Fixed-route replay differs from live routing** — dataset-provided
+  decompositions are used when live decomposition is off or unavailable, while
+  `--decompositions` explicitly replaces the live decomposer. Report which
+  mode ran.
+- **Stage latency depends on the deployed VSS version** — this PR adds the
+  `timings` block; a deployment without that code omits the section.
+- **Path coverage depends on the queries and their decompositions** — a set of
+  action-only queries can exercise only `embed`, however many queries it has.
+  Check the `Search paths:` line before reading per-path results.
 
-The reasoning behind each of these lives in the commit history and in comments
-at the relevant code — `flows/routing.py` for the routing rule, `flows/ingest.py`
+See `flows/routing.py` for the routing rule and `flows/ingest.py` for the ingest
+contracts.
 
 ## Every hit is `unverified` and critic-filtered metrics read `NA`
 
@@ -108,7 +113,7 @@ itself, the fetch fails, and every hit stays `unverified`.
 
 ```bash
 vss configure show | grep -i base_url
-docker exec vss-rtvi-vlm curl -sf -o /dev/null -w '%{http_code}\n' \
+docker exec vss-rtvi-vlm curl -sf --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}\n' \
     http://<HOST_LAN_IP>:7777/vst/api/v1/sensor/version
 ```
 

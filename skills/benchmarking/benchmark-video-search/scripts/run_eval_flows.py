@@ -38,8 +38,8 @@ Several defaults here look arbitrary and are load-bearing:
 
 Examples
 --------
-    # Defaults: agent-3step ingest + CLI queries. A dataset carrying
-    # decompositions routes per query; otherwise everything uses --search-path.
+    # Defaults: vst-direct ingest + live decomposition + CLI queries.
+    # Stored decompositions can pin routing for repeatable comparisons.
     python run_eval_flows.py --endpoint http://HOST:8000 --data-dir ~/datasets \
         --dataset warehouse --skip-download
 
@@ -67,7 +67,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -453,7 +453,7 @@ def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> 
         ours |= flows.name_variants(vf.name)
     if not ours:
         raise SystemExit(
-            f"ABORTED: no video files under {video_dir}, so every source looks foreign. "
+            f"ABORTED: no video files (.mp4 or .mkv) under {video_dir}, so every source looks foreign. "
             f"Refusing to delete the whole deployment -- pass --clear if that is what you meant."
         )
 
@@ -792,7 +792,7 @@ def run_evaluation(
         # Beside the script rather than relative to the caller's cwd: the old
         # default wrote to "eval/results/..." resolved from wherever you happened
         # to be, so the same command scattered results across directories.
-        name = run_name or f"{dataset}_{subset or 'default'}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+        name = run_name or f"{dataset}_{subset or 'default'}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
         output_file = str(RESULTS_DIR / f"{name}.json")
     out_path = Path(output_file)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1044,7 +1044,7 @@ def _summarize(
     if upload_stats and upload_stats.get("total_uploads"):
         summary["upload"] = upload_stats
 
-    summary["timestamp"] = datetime.now(UTC).isoformat()
+    summary["timestamp"] = datetime.now(timezone.utc).isoformat()
     return summary
 
 
