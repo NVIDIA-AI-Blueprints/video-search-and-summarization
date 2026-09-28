@@ -29,8 +29,9 @@
 {{- $behaviorEnabled := default false (dig "vss-behavior-analytics" "enabled" false $analytics) }}
 {{- $monitoringEnabled := default false (index (.Values.monitoring | default dict) "enabled") }}
 {{- $agentRoot := .Values.agent | default dict }}
-{{- $agentUmbrellaEnabled := default false (index $agentRoot "enabled") }}
-{{- $agentEnabled := and $agentUmbrellaEnabled (default true (dig "vss-agent" "enabled" true $agentRoot)) }}
+{{- $agentSubchart := index $agentRoot "vss-agent" | default dict }}
+{{- $agentUmbrellaOn := include "vss.ingress.enabled" (dict "vals" $agentRoot "default" true) }}
+{{- $agentEnabled := and $agentUmbrellaOn (include "vss.ingress.enabled" (dict "vals" $agentSubchart "default" true)) }}
 {{- $uiVals := index .Values "vss-agent-ui" | default dict }}
 {{- $uiEnabled := default false (index $uiVals "enabled") }}
 {{- $alertBridgeVals := index .Values "vss-alert-bridge" | default dict }}

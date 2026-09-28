@@ -626,20 +626,6 @@ kubectl port-forward -n <namespace> svc/prometheus 9090:9090
 | Grafana | `http://localhost:3000` |
 | Prometheus | `http://localhost:9090` |
 
-With [Alerts](#alerts) enabled:
-
-```bash
-kubectl port-forward -n <namespace> svc/vss-agent-ui 3000:3000
-kubectl port-forward -n <namespace> svc/vss-agent 8000:8000
-kubectl port-forward -n <namespace> svc/vss-alert-bridge 9080:9080
-```
-
-| UI | URL |
-| --- | --- |
-| Agent UI | `http://localhost:3000` |
-| Agent API | `http://localhost:8000` |
-| Alert bridge | `http://localhost:9080` |
-
 ## Monitoring
 
 Prometheus and Grafana come with the profile (**`monitoring.enabled`**, on by
