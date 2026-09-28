@@ -1176,6 +1176,10 @@ Other examples of general supported queries include:
 
 You can also ask the agent to generate a report about the video. Here is an example prompt to generate a report about the video:
 
+<Note>
+The screenshots below show the in-stack VSS Agent UI. In this workflow, VSS Agent provides a PDF report download and uses a Human in the Loop (HITL) dialog to review the VLM prompt. With NemoClaw, the summary or report appears directly in the chat UI. NemoClaw does not support HITL; any questions or requests for prompt details appear as ordinary inline chat messages, which you can answer in the conversation.
+</Note>
+
 ```bash
 Can you generate a report for this video?
 ```
@@ -1186,7 +1190,7 @@ Can you generate a report for this video?
 
 #### Human in the loop (HITL) prompt editing:
 
-When generating a report, the agent will prompt the user to review the vlm prompt for report generation.
+When generating a report in the VSS Agent UI, the agent prompts the user to review the VLM prompt for report generation.
 This allows the user to edit the vlm prompt for report generation to improve the specificity and accuracy of the report.
 
 ![Human in the loop prompt-editing flow diagram](/assets/images/agent-workflows/base_hitl_diagram.png)
