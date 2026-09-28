@@ -36,6 +36,8 @@
 #include <cstdlib>
 #endif
 
+using namespace nv_vms;
+
 DynamicRTSPServer*
 DynamicRTSPServer::createNew(UsageEnvironment& env, Port ourPort,
 			     UserAuthenticationDatabase* authDatabase,

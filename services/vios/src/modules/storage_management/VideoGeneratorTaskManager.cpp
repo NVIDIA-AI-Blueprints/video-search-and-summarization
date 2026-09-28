@@ -28,6 +28,7 @@
 #include <chrono>
 
 using namespace std;
+using namespace nv_vms;
 
 VideoGeneratorTaskManager::VideoGeneratorTaskManager() = default;
 

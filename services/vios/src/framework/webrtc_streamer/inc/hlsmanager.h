@@ -44,11 +44,11 @@ class HLSManager
     public:
         HLSManager();
         ~HLSManager();
-        VmsErrorCode startStream(std::map<std::string, std::string, std::less<>> opts, Json::Value &response);
-        VmsErrorCode stopStream(const string& peerid, Json::Value &response);
-        VmsErrorCode start(std::map<std::string, std::string, std::less<>> opts, Json::Value &response);
-        VmsErrorCode stop(const string peerid, Json::Value &response);
-        VmsErrorCode postToEventLoop(const string& task_name, std::map<std::string, std::string, std::less<>>& opts,
+        nv_vms::VmsErrorCode startStream(std::map<std::string, std::string, std::less<>> opts, Json::Value &response);
+        nv_vms::VmsErrorCode stopStream(const string& peerid, Json::Value &response);
+        nv_vms::VmsErrorCode start(std::map<std::string, std::string, std::less<>> opts, Json::Value &response);
+        nv_vms::VmsErrorCode stop(const string peerid, Json::Value &response);
+        nv_vms::VmsErrorCode postToEventLoop(const string& task_name, std::map<std::string, std::string, std::less<>>& opts,
                                     Json::Value& response, bool is_async = true, uint32_t timeout = 10);
         bool checkIfPeerPresent(const string& peerid);
     private:

@@ -166,12 +166,12 @@ public:
             {
                 LOG(info) << "Creating audio pipeline " << std::endl;
                 m_udpAudioClient->create_audio();
-                m_audioDataConsumer = std::static_pointer_cast<AudioDataConsumer>(m_udpAudioClient->getConsumer(UdpClient::UDP_AUDIO_TYPE));
+                m_audioDataConsumer = std::static_pointer_cast<AudioDataConsumer>(m_udpAudioClient->getConsumer(nv_vms::UdpClient::UDP_AUDIO_TYPE));
                 if (!m_audioDataConsumer)
                 {
                     m_audioDataConsumer.reset(new AudioDataConsumer());
                     m_audioDataConsumer->setAudioInfo (m_freq, m_bitsPerSample);
-                    m_udpAudioClient->setConsumer(m_audioDataConsumer, UdpClient::UDP_AUDIO_TYPE);
+                    m_udpAudioClient->setConsumer(m_audioDataConsumer, nv_vms::UdpClient::UDP_AUDIO_TYPE);
                 }
                 else
                 {
@@ -208,23 +208,23 @@ public:
 
     void setupClient (const std::map<std::string, std::string, std::less<>> &opts)
     {
-        UdpStream stream;
+        nv_vms::UdpStream stream;
         if ( opts.find("audio_port") != opts.end() )
         {
             stream.m_audioPort = stringToInt(opts.at("audio_port"));
-            stream.m_type = UdpClient::UDP_AUDIO_TYPE;
+            stream.m_type = nv_vms::UdpClient::UDP_AUDIO_TYPE;
         }
   
         m_udpAudioClient = UdpClientPool::getInstance()->addClient(m_streamid, stream);
         if (m_udpAudioClient)
         {
             m_udpAudioClient->create_audio();
-            m_udpAudioClient->setConsumer(m_audioDataConsumer, UdpClient::UDP_AUDIO_TYPE);
+            m_udpAudioClient->setConsumer(m_audioDataConsumer, nv_vms::UdpClient::UDP_AUDIO_TYPE);
             m_udpAudioClient->start();
         }
     }
 private:
-    std::shared_ptr<UdpClient>                          m_udpAudioClient;
+    std::shared_ptr<nv_vms::UdpClient>                          m_udpAudioClient;
     std::shared_ptr<AudioDataConsumer>                  m_audioDataConsumer;
     std::string                                    m_uri;
     int                                            m_freq;

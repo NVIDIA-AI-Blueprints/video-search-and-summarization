@@ -84,8 +84,8 @@ class NativeStreamProducer
             height = std::to_string(m_sourceHeight);
         }
         int getProfile() { return m_profile; }
-        bool getImageSettings(SensorImageSettingsValues& imageValues, SensorImageSettingsOptions& imageOptions);
-        void getEncodeSettings(SensorVideoEncoderSettingsValues& encoderValues, SensorEncoderSettingsOptions& encoderOptions);
+        bool getImageSettings(nv_vms::SensorImageSettingsValues& imageValues, nv_vms::SensorImageSettingsOptions& imageOptions);
+        void getEncodeSettings(nv_vms::SensorVideoEncoderSettingsValues& encoderValues, nv_vms::SensorEncoderSettingsOptions& encoderOptions);
 
         std::string getstate();
         void setQuality(const std::string&, const std::string& quality);

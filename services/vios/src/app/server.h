@@ -51,7 +51,7 @@ static const std::vector<std::string> g_deprecatedApis = {
 class VmsServer
 {
 public:
-    explicit VmsServer(ModuleId module_id = ModuleAll);
+    explicit VmsServer(nv_vms::ModuleId module_id = nv_vms::ModuleAll);
     ~VmsServer();
     int start();
     void start_webrtc();
@@ -72,7 +72,7 @@ private:
     void checkLibsSanity ();
 
 private:
-    ModuleId m_moduleId;
+    nv_vms::ModuleId m_moduleId;
     std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>>  m_func;
     std::shared_ptr<SensorManagementApis> m_senorManagementApis = nullptr;
     std::shared_ptr<PeerConnectionManagerApis> m_peerConnectionManagerApis = nullptr;

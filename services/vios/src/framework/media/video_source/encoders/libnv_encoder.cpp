@@ -72,6 +72,7 @@
 #include "config.h"
 
 using namespace std;
+using namespace nv_vms;
 
 // Set to minimum to improve latency
 constexpr int MIN_BUFS_OUTPUT_PLANE = 1;

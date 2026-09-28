@@ -31,7 +31,6 @@
 #include "utils.h"
 
 
-using namespace nv_vms;
 constexpr int MESSAGE_BUS_CLEANUP_INTERVAL = 20000;
 constexpr double MESSAGE_BUS_REQUEST_TIMEOUT = 10.0;
 

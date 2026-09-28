@@ -19,6 +19,7 @@
 #include "NotificationFactory.h"
 
 using namespace std;
+using namespace nv_vms;
 
 constexpr int DEFAULT_PULSE_TIME_IN_MS = 1000;
 

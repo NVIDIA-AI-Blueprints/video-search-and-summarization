@@ -33,7 +33,6 @@
 #define GET_WEBSOCKET_INSTANCE Websocket::getInstance
 inline constexpr std::chrono::seconds WS_SERVER_WATCH_DOG_INTERVAL{10};
 
-using namespace nv_vms;
 
 struct WebsocketData
 {

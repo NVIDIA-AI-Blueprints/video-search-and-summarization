@@ -33,6 +33,8 @@
 #include <thread>
 #include <vector>
 
+using namespace nv_vms;
+
 namespace {
 
 std::string compactCodec(std::string codec)

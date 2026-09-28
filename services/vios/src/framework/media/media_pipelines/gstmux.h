@@ -225,8 +225,8 @@ class VideoRecordUpdater
         static VideoRecordUpdater instance;
         return instance;
     }
-    void addToQueue(VideoRecordDBColumns record);
-    void addInsertToQueue(VideoRecordDBColumns record);
+    void addToQueue(nv_vms::VideoRecordDBColumns record);
+    void addInsertToQueue(nv_vms::VideoRecordDBColumns record);
     void start();
     void stop();
 
@@ -253,8 +253,8 @@ class VideoRecordUpdater
     void UpdateVideoRecordLoop();
     void logCombinedQueueSizeWarning(size_t& lastReportedSize);
 
-    std::queue<VideoRecordDBColumns> m_insertQueue;
-    std::queue<VideoRecordDBColumns> m_updateQueue;
+    std::queue<nv_vms::VideoRecordDBColumns> m_insertQueue;
+    std::queue<nv_vms::VideoRecordDBColumns> m_updateQueue;
     std::mutex m_queueMutex;
     std::condition_variable m_insertCv;
     std::condition_variable m_updateCv;

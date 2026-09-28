@@ -48,24 +48,24 @@ public:
     }
     ~NativeStreamMonitor();
 
-    void setDeviceManager(std::shared_ptr<DeviceManager> deviceMngr)
+    void setDeviceManager(std::shared_ptr<nv_vms::DeviceManager> deviceMngr)
     {
         m_deviceMngr = deviceMngr;
     }
 
-    void removeNativeStream(std::shared_ptr<StreamInfo> stream);
-    bool addNativeStream(std::shared_ptr<StreamInfo> stream, const string location);
+    void removeNativeStream(std::shared_ptr<nv_vms::StreamInfo> stream);
+    bool addNativeStream(std::shared_ptr<nv_vms::StreamInfo> stream, const string location);
     std::shared_ptr<NativeStreamProducer> getNativeStreamProducer(const string& stream_id);
     void registerDataCallback(std::string deviceId, shared_ptr<IMediaDataConsumer> consumer, ConsumerStreamType consumerStreamType);
     void deregisterDataCallback(shared_ptr<IMediaDataConsumer> consumer, std::string& deviceId, ConsumerStreamType consumerStreamType);
     string getVideoCodec(std::string& streamId);
-    void updateStreamSettings(std::string& streamId, SensorSettings& settings);
+    void updateStreamSettings(std::string& streamId, nv_vms::SensorSettings& settings);
     void updateSensorStatus(const string streamId);
 
 private:
     std::map<std::string, std::shared_ptr<NativeStreamProducer>>    m_nativeStreamProducer;
     std::mutex                                                      m_nativeStreamProducerLock;
-    std::shared_ptr<DeviceManager>                                  m_deviceMngr;
+    std::shared_ptr<nv_vms::DeviceManager>                                  m_deviceMngr;
 
     // Add a new NativeStreamProducer to the map
     void addNativeStreamProducer(const std::string& streamID, const std::shared_ptr<NativeStreamProducer>& nativeStream)

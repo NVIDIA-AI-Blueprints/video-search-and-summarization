@@ -23,6 +23,7 @@
 #include <dlfcn.h>
 
 using namespace std;
+using namespace nv_vms;
 
 const std::unordered_map<std::string, ModuleId> g_moduleMap =
 {

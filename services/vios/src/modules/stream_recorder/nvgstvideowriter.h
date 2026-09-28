@@ -51,7 +51,6 @@
 
 inline constexpr int SCHEDULER_THREAD_COUNT = 1;
 
-using namespace nv_vms;
 
 namespace nv_vms
 {

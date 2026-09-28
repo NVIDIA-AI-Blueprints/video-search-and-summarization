@@ -63,7 +63,7 @@ struct VideoGenerationParam {
 
 struct VideoGenerationTask {
     VideoGenerationParam params;
-    async::shared_task<VmsErrorCode> asyncTask;
+    async::shared_task<nv_vms::VmsErrorCode> asyncTask;
     VideoTaskStatus status;
     std::string errorMessage;
     std::chrono::steady_clock::time_point createdTime;
@@ -86,7 +86,7 @@ public:
     }
     
     std::string addTask(const VideoGenerationParam& params);
-    VmsErrorCode waitForTask(const std::string& taskId, std::string& outputFilePath);
+    nv_vms::VmsErrorCode waitForTask(const std::string& taskId, std::string& outputFilePath);
     VideoTaskStatus getTaskStatus(const std::string& taskId) noexcept;
     std::string getTaskError(const std::string& taskId) const noexcept;
     
@@ -104,5 +104,5 @@ private:
     mutable std::mutex m_tasksMutex;
     std::atomic<bool> m_isShuttingDown{false};
     
-    static VmsErrorCode executeVideoGeneration(const VideoGenerationParam& params);
+    static nv_vms::VmsErrorCode executeVideoGeneration(const VideoGenerationParam& params);
 };

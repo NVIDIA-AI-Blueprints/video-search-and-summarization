@@ -23,6 +23,7 @@
 #include "sensor_management.h"
 
 using namespace std;
+using namespace nv_vms;
 
 // Define missing sensor API constants
 constexpr const char* SENSOR_API = "/api/v1/sensor/*";

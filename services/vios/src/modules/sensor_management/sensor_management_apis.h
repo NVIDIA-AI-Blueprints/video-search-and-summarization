@@ -23,29 +23,28 @@
 #include "modules_apis.h"
 #include "testRTSP.h"
 
-using namespace nv_vms;
 
 class SensorManagementApis
 {
 public:
-    SensorManagementApis(std::shared_ptr<nv_vms::SensorManagement> sensorMgmt, std::shared_ptr<DeviceManager> deviceManager);
+    SensorManagementApis(std::shared_ptr<nv_vms::SensorManagement> sensorMgmt, std::shared_ptr<nv_vms::DeviceManager> deviceManager);
     const std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>> getHttpApi() { return m_func; };
-    VmsErrorCode getSensorInfoList(const Json::Value& req_info, Json::Value &response);
-    VmsErrorCode handleSensorConfiguration(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-    VmsErrorCode getVersion(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-    VmsErrorCode getSensorHelp(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
+    nv_vms::VmsErrorCode getSensorInfoList(const Json::Value& req_info, Json::Value &response);
+    nv_vms::VmsErrorCode handleSensorConfiguration(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
+    nv_vms::VmsErrorCode getVersion(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
+    nv_vms::VmsErrorCode getSensorHelp(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
 
-    VmsErrorCode handleSensorAPIrequest(const Json::Value& req_info, const Json::Value &in, Json::Value &response,
+    nv_vms::VmsErrorCode handleSensorAPIrequest(const Json::Value& req_info, const Json::Value &in, Json::Value &response,
                                         struct mg_connection *conn);
-    VmsErrorCode handleSensorAPI(const Json::Value& req_info, const Json::Value &in, Json::Value &response,
+    nv_vms::VmsErrorCode handleSensorAPI(const Json::Value& req_info, const Json::Value &in, Json::Value &response,
                                         struct mg_connection *conn);
-    VmsErrorCode handleSensorDebugAPI(const Json::Value& req_info, const Json::Value &in, Json::Value &response,
+    nv_vms::VmsErrorCode handleSensorDebugAPI(const Json::Value& req_info, const Json::Value &in, Json::Value &response,
                                         struct mg_connection *conn);
-    VmsErrorCode getSensorQosInfo(const Json::Value& req_info, Json::Value &response);
-    VmsErrorCode getAllSensorTimelines(const Json::Value& req_info, Json::Value &response);
+    nv_vms::VmsErrorCode getSensorQosInfo(const Json::Value& req_info, Json::Value &response);
+    nv_vms::VmsErrorCode getAllSensorTimelines(const Json::Value& req_info, Json::Value &response);
 
 private:
     std::map<std::string,HttpServerRequestHandler::httpFunction, std::less<>>  m_func;
     std::shared_ptr<nv_vms::SensorManagement> m_sensorManagement;
-    std::shared_ptr<DeviceManager> m_deviceManager;
+    std::shared_ptr<nv_vms::DeviceManager> m_deviceManager;
 };

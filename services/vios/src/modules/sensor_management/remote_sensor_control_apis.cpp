@@ -25,6 +25,7 @@
 #include "sensor_management_utils.h"
 
 using namespace std;
+using namespace nv_vms;
 
 RemoteSensorControlApis::RemoteSensorControlApis(std::shared_ptr<SensorManagement> sensorMgmt, std::shared_ptr<DeviceManager> deviceMngr): m_sensorManagement(sensorMgmt), m_deviceManager(deviceMngr)
 {

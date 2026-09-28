@@ -19,7 +19,6 @@
 #include "logger.h"
 #include <string.h>
 
-using namespace nv_vms;
 
 inline constexpr int DEFAULT_FPS_CAPTURE_INTERVAL_SEC = 5;  // 5 secs
 inline constexpr int DEFAULT_FPS_PUBLISH_INTERVAL_SEC = 60; // 60 secs

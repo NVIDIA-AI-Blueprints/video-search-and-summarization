@@ -31,7 +31,7 @@
 #include <optional>
 
 
-#define GET_SQLITE_INSTANCE Sqlite::getInstance
+#define GET_SQLITE_INSTANCE nv_vms::Sqlite::getInstance
 
 namespace nv_vms
 {

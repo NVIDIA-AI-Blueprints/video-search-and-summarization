@@ -25,19 +25,19 @@
 #include <jsoncpp/json/json.h>
 
 
-class LocalStreams : public ISensorControlInterface
+class LocalStreams : public nv_vms::ISensorControlInterface
 {
     public:
         LocalStreams() = default;
         virtual ~LocalStreams() = default;
 
         int connect();
-        int getSensorStreamInfo(std::vector<std::shared_ptr<SensorInfo>>& sensors);
-        int getSensorStreamInfo(std::shared_ptr<SensorInfo>& sensor);
+        int getSensorStreamInfo(std::vector<std::shared_ptr<nv_vms::SensorInfo>>& sensors);
+        int getSensorStreamInfo(std::shared_ptr<nv_vms::SensorInfo>& sensor);
         bool isServerOnline(const std::string & url) { return true; }
         bool transcodeIfNeeded(const std::string& filePath, const Json::Value& mediainfo, const Json::Value& keyFrameParseResult);
 
     private:
-        void addLocalStreams(std::vector<std::shared_ptr<SensorInfo>>& sensors);
-        bool isSensorExist(std::vector<std::shared_ptr<SensorInfo>>& sensors, const std::string &filepath);
+        void addLocalStreams(std::vector<std::shared_ptr<nv_vms::SensorInfo>>& sensors);
+        bool isSensorExist(std::vector<std::shared_ptr<nv_vms::SensorInfo>>& sensors, const std::string &filepath);
 };

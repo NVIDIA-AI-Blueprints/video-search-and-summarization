@@ -32,6 +32,7 @@
     } while(0)
 
 using namespace std;
+using namespace nv_vms;
 
 PeerConnectionManagerApis::PeerConnectionManagerApis()
 {

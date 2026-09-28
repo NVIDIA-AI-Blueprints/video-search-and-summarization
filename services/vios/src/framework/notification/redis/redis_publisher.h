@@ -24,7 +24,6 @@
 #include <fstream>
 #include <memory>
 
-using namespace nv_vms;
 
 typedef NvDsMsgApiHandle (*nvds_msgapi_connect_t) (char*, nvds_msgapi_connect_cb_t, char*);
 typedef NvDsMsgApiErrorType (*nvds_msgapi_send_t) (NvDsMsgApiHandle, char*, const uint8_t*, size_t);
@@ -33,7 +32,7 @@ typedef NvDsMsgApiErrorType (*nvds_msgapi_disconnect_t) (NvDsMsgApiHandle);
 /* Opaque handle to a dynamically loaded shared library (as returned by dlopen). */
 struct SharedLibraryHandle;
 
-class NvRedis : public INotificationInterface
+class NvRedis : public nv_vms::INotificationInterface
 {
 public:
     nvds_msgapi_connect_t nvds_msgapi_connect;

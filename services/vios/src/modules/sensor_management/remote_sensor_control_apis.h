@@ -23,12 +23,11 @@
 #include "datachannellistenerinterface.h"
 #include "webrtcDataChannel.h"
 
-using namespace nv_vms;
 
 class RemoteSensorControlApis
 {
     public:
-        RemoteSensorControlApis(std::shared_ptr<nv_vms::SensorManagement> sensorMgmt, std::shared_ptr<DeviceManager> deviceMngr);
+        RemoteSensorControlApis(std::shared_ptr<nv_vms::SensorManagement> sensorMgmt, std::shared_ptr<nv_vms::DeviceManager> deviceMngr);
         ~RemoteSensorControlApis()
         {
             LOG(info) << __PRETTY_FUNCTION__ << std::endl;
@@ -49,5 +48,5 @@ class RemoteSensorControlApis
     private:
         std::shared_ptr<nv_vms::SensorManagement> m_sensorManagement;
         std::map<std::string, remoteSensorFunc, std::less<>>  m_func;
-        std::shared_ptr<DeviceManager> m_deviceManager;
+        std::shared_ptr<nv_vms::DeviceManager> m_deviceManager;
 };
