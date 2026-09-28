@@ -17,10 +17,10 @@ For any commit on `develop`, these agree, and none is hand-written:
 
 | Surface | Reads | Example at develop head today |
 |---|---|---|
-| `GET /api/v1/version` on a deployment (the HAProxy edge, Compose and Helm) | `VSS_VERSION` in `containers.env` / `vssVersion` in the profile chart's values, stamped by CI | `3.3.0-rc0` |
+| `GET /api/v1/version` on a deployment (the HAProxy edge, Compose and Helm) | `VSS_VERSION` in `containers.env` / `vssVersion` in the profile chart's values, stamped from the tag | `3.3.0-rc0` |
 | `GET /api/v1/version` at the agent's own origin | installed `nvidia-vss-core` metadata | `3.3.0-rc0+tree.<sha>` (image) |
 | `vss --version` (CLI) | installed `nvidia-vss-cli` metadata | `3.3.0-rc0+tree.<sha>` (harness image), `3.3.0-rc0.dev.N+g<sha>` (checkout) |
-| `SKILL.md` `metadata.version` (skills) | the file, stamped by CI | `3.3.0-rc0` |
+| `SKILL.md` `metadata.version` (skills) | the file, stamped from the tag | `3.3.0-rc0` |
 
 "Agree" means the release line and pre-release match. The agent and CLI carry
 extra build metadata (`+tree.<sha>`, `+g<sha>`) that identifies *which build*;
@@ -59,7 +59,9 @@ same describe and `version_scheme = "no-guess-dev"`:
 | dirty tree | `…+g<sha>.d<date>` / `….dirty` | build metadata, kept |
 
 `vss_core.version.pep440_to_semver` does the rendering; precedence comes out
-right without a comparator (`3.3.0-rc0.dev.20` < `3.3.0-rc0` < `3.3.0`). The
+right without a comparator: `3.3.0-rc0` < `3.3.0-rc0.dev.20` < `3.3.0-rc1` < `3.3.0`
+(a build past `rc0` ranks after it — SemVer §11.4.4 — so `>=3.3.0-rc0` includes dev
+builds on the line). The
 wire contract stays strict SemVer 2.0.0 (`SEMVER_PATTERN`, duplicated
 byte-for-byte in `services/agent/scripts/check_vss_version.py`).
 
@@ -99,13 +101,13 @@ the version lives inside the image and is what the image reports.
 `GET /api/v1/version` on a deployment is answered by the **HAProxy edge**, on
 every profile, whether or not the agent is deployed — so a lean LVS stack, a
 warehouse profile with no agent route and a full base stack all report one.
-The edge returns `{"service":"vss","version":"<stamped>"}` from a value CI
-wrote into the deployment files from the git tag:
+The edge returns `{"service":"vss","version":"<stamped>"}` from a value
+stamped into the deployment files from the git tag:
 
 | Path | Where the value lives | How it reaches HAProxy |
 |---|---|---|
-| Compose | `deploy/docker/containers.env`: `VSS_VERSION="3.3.0-rc0"` (no `${…:-}` default, so no shell variable overrides it) | `compose.yml` passes `VSS_VERSION` into the `vss-haproxy-ingress` container; `haproxy.cfg.template` returns `%[env(VSS_VERSION)]` for `/api/v1/version` before `/api` is routed to the agent |
-| Helm | `values.yaml` of every chart that owns `templates/vss-ingress.yaml` (the four developer profiles, the three warehouse apps): `vssVersion: "3.3.0-rc0"` | the ingress template renders it into a `haproxy.org/frontend-config-snippet` `http-request return`, scoped to the ingress host |
+| Compose | `deploy/docker/containers.env`: `VSS_VERSION="3.3.0-rc0"` (no `${…:-}` default, so no shell variable overrides it) | `compose.yml` passes `VSS_VERSION` into the `vss-haproxy-ingress` container; `haproxy.cfg.template` returns it JSON-escaped (`%[env(VSS_VERSION),json]`) for `/api/v1/version` before `/api` is routed to the agent, and **503** — the agent's own contract for "no usable version" — when it is unset or empty (compose run without `--env-file containers.env`) |
+| Helm | `values.yaml` of every chart that owns `templates/vss-ingress.yaml` (the four developer profiles, the three warehouse apps): `vssVersion: "3.3.0-rc0"` | the ingress template renders it into a `haproxy.org/frontend-config-snippet` `http-request return`, scoped to the ingress host — and **only when the ingress has a host**: a hostless rule would answer for every host on a shared HAProxy controller, i.e. report this release's version for other deployments. A hostless install reports no edge version (404) instead |
 
 The agent's own `/api/v1/version` remains — reachable at the agent's origin and
 from a checkout — and reports the installed `nvidia-vss-core` version with its
@@ -137,29 +139,32 @@ field, from the nearest `v*` tag:
   (a chart that renders the route but declares no key fails the run — the
   field is required, never invented).
 
-`version-stamp.yml` runs it on every `v*` tag push and every merge to
-`develop` and **commits straight to `develop`**. Ordinary merges are no-ops;
-the number moves only when a tag moves the line. `develop` admits pushes only
-from the `vss-admins` team (ruleset *Protect develop*), so the workflow pushes
-with a fine-grained PAT of a member — repository secret
-`SKILLS_VERSION_PUSH_TOKEN`, sign-off from repository variables
-`SKILLS_VERSION_GIT_NAME` / `SKILLS_VERSION_GIT_EMAIL`. Without them it stops
-with a clear error and pushes nothing.
+**No bot writes these files.** After a new `v*` tag, a maintainer runs
+`python3 .github/scripts/stamp_versions.py` and lands the result in an ordinary
+reviewed PR; for a release, the same with `--version X.Y.Z` *before* the tag
+(below). There is no push token and no bypass of `develop`'s review rules —
+an earlier draft had a workflow pushing with an admin PAT, dropped because any
+workflow on any branch can read a repository secret.
 
 **The gate:** `stamp_versions.py --check` runs on every PR (`ci.yml`, job
 *Container Coordinates Golden*, on a full-depth checkout so the tags are
-reachable) and fails when any stamped field disagrees with the nearest `v*`
-tag, or a skill / ingress chart lacks its field. A hand edit therefore cannot
-merge; the fix is `python3 .github/scripts/stamp_versions.py`, never the
-number. One known cost: a PR opened before a new `v*` tag lands fails the gate
-until it is rebased onto develop — once per line. The compliance checker
-(`vss-playbook-compliance`) additionally accepts pre-release skill versions.
+reachable) and passes only when
+
+- every stamped field declares **the same** version — a hand edit to one file,
+  or a new skill / chart that copied an old number, fails; and
+- that version is **equal to or newer than** the nearest `v*` tag's (SemVer
+  precedence) — so after a new tag lands every PR fails until the stamp PR
+  merges, and a release PR stamping `3.3.0` passes while develop is still on
+  `v3.3.0rc0`.
+
+A skill or ingress chart without its field fails too. The fix is always the
+script, never the number. The compliance checker (`vss-playbook-compliance`)
+additionally accepts pre-release skill versions.
 
 ### Release order: stamp first, tag second
 
-Tags are immutable. The pipeline can make `develop` agree the moment a tag
-lands; it can never make the *tagged commit* agree afterwards. Release tags are
-cut by maintainers, so:
+Tags are immutable: nothing can make a *tagged commit* agree after the fact.
+Release tags are cut by maintainers, so:
 
 ```bash
 python3 .github/scripts/stamp_versions.py --version 3.3.0   # before the tag exists
@@ -168,24 +173,35 @@ git commit -s -am "chore(version): stamp 3.3.0 for the release"
 git tag -a v3.3.0 <that commit> && git push origin v3.3.0
 ```
 
-The tag-triggered run then finds the tagged tree already agreeing and does
-nothing. If a `v*` tag is pushed onto an unstamped commit, that tree ships
-skills and edge values saying the previous line forever. The run still stamps
-develop, and says so in three places: the **run's annotation** (Actions → the
-`Version Stamp` run for the tag; also on the tag commit's checks), the **run's
-step summary**, and the log. It does not fail and does not post elsewhere.
-Release deployments and harness images are then built from the develop commit
-the run pushed, not from the tag.
+The tagged commit then already carries `3.3.0` everywhere, and `--check`
+passes on it (equal to its own tag). Cutting the tag on an unstamped commit is
+the one way to ship a release whose files say the previous line; the gate
+cannot see a tag, so this order is the rule, and the release checklist step.
 
 ## Harness images (OpenClaw, Hermes)
 
 `.openclaw/Dockerfile` and `.hermes/Dockerfile` fetch one ref of this repo,
-`VSS_REF`: `develop` by default, a `v*` tag for a published image
-(`--build-arg VSS_REF=v3.3.0`), a commit sha for a reproducible rebuild. The
-two defaults must match and must be `develop` or a `v*` tag
-(`test_sync_skills.py`). The fetch is a `tree:0` partial clone with tags, so
-hatch-vcs versions the CLI wheels inside from the same describe and
-`vss --version` in the sandbox equals the deployment's answer for that commit.
+`VSS_REF`: `develop` by default for a local build, a `v*` tag or commit sha when
+asked for. The fetch is a `tree:0` partial clone with tags, so hatch-vcs
+versions the CLI wheels inside from the same describe and `vss --version` in
+the sandbox matches the deployment's release line for that commit.
+
+**On GHCR they are content-addressed like every other image.** Their
+`source_path` in `container-inventory.json` lists what they package —
+`[".openclaw", "skills", "libs/vss"]` and
+`[".hermes", "skills", "libs/vss", ".openclaw/workspace"]` — so a skill or CLI
+change rebuilds them and moves their `tree-<sha>`, and `build-dev-images.yml`
+passes `VSS_REF=<the commit being built>` so the image holds exactly the tree
+it is hashed from (an eval can name the skills it measured by that tag). A
+moving `develop` default alone would never change the Dockerfile, and the
+image would be reused stale.
+
+Both harness Dockerfiles, and every Dockerfile that declares
+`ARG VSS_PACKAGE_VERSION`, bake a version in. Their images also carry a
+`com.nvidia.vss.release_line` label, and the reuse path re-tags an existing
+image only when its tree **and** release line match: pushing a new `v*` tag
+costs one rebuild of those images, so the agent never keeps reporting
+`3.3.0-rc0` after `v3.3.0` on an unchanged tree.
 
 ## Docs
 
