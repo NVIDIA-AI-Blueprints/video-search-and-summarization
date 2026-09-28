@@ -356,7 +356,7 @@ def build_harbor_command(
         ]
     elif agent == "claude-code":
         agent_flags = [
-            "-a", "claude-code",
+            "-a", "agents.nv_claude_code:NvClaudeCode",
             "--model", model,
             "--ak", f"api_base={_api_base_v1(anthropic_base_url)}",
             "--ae", f"ANTHROPIC_API_KEY=${{{AGENT_ROUTE_API_KEY_ENV}}}",
