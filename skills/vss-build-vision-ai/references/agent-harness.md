@@ -77,8 +77,8 @@ to `${HOST_IP}:${VSS_AGENT_PORT}` — the agent this build removed — answering
 HTTP 502 in a UI that otherwise looks ready. Hold it out of the first `up`:
 
 ```bash
-docker compose -f "$BUILD_DIR/resolved.yml" rm -sf vss-ui \
-  && docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
+docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
+  && docker compose -f "$BUILD_DIR/resolved.yml" rm -sf vss-ui \
   && docker compose -f "$BUILD_DIR/resolved.yml" up -d --build \
     $(docker compose -f "$BUILD_DIR/resolved.yml" config --services | grep -vx vss-ui)
 ```
