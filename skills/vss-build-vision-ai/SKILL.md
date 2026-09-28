@@ -63,7 +63,7 @@ without requiring credentials, probing services, or changing files:
 | `scripts/resolve_service_graph.py` | This file and `references/composition.md`: enforce service ownership and derive analytics readiness targets. |
 | `scripts/render_warehouse_configurator_env.py` | `references/profiles/warehouse.md`: materialize the warehouse configurator environment. |
 | `scripts/validate_warehouse_env.py` | `references/profiles/warehouse.md`: enforce warehouse constraints that Compose cannot express. |
-| `scripts/stage_vss_src.py` | Harness-development utility used by `.openclaw/` and `.hermes/`; never run during a normal build or deployment. |
+| `scripts/stage_vss_src.py` | Snapshots a checkout into `.openclaw/` / `.hermes/` so the sandbox image is built from it instead of `develop`. Run only for a [harness source ref](#harness-source-ref), from that ref's worktree; never for a default build. |
 | `scripts/sync_skills.py` | Harness runtime utility used by `.openclaw/` and `.hermes/` to activate operation Skills; not part of the build workflow. |
 
 `scripts/tests/` contains CI-only contracts, `evals/` contains Skill evaluation
@@ -288,6 +288,38 @@ Two things still supersede the common tag, by design:
 - `VSS_CONTAINER_TAG_SUFFIX`, or the concrete SBSA tags
   [`references/sizing.md`](references/sizing.md) writes, which augment the
   common tag for the SBSA-suffixed services.
+
+### Harness source ref
+
+An input of its own, like the container image tag and independent of it: the
+revision of this repo the NemoClaw sandbox image is built from — its skills,
+the `vss` CLI, the OpenClaw/Hermes plugin and workspace docs. The sandbox
+Dockerfiles fetch `develop` by default, so without a ref a harness always gets
+develop's skills and CLI **whatever the checkout or the image tag says**.
+Applies only when Q3 selected NemoClaw.
+
+Take the ref from the first source that answers, and do not ask when one does:
+
+1. The request — "harness at `nightly-20260928`", "harness ref `v3.3.0`",
+   "deploy base with NemoClaw from `<tag or sha>`".
+2. `VSS_HARNESS_REF` already exported in the environment.
+3. Neither: select nothing. The sandbox builds from `develop`, nothing is
+   staged, and nothing below applies. This is the ordinary case.
+
+**Never derive it from the container image tag.** `3.4.0` or
+`develop-<sha12>` names images; a harness ref names a git revision. When a user
+wants both pinned they name both, and the summary shows both.
+
+A selected ref must resolve after `git fetch origin <ref>` to a commit
+(`git rev-parse --verify <ref>^{commit}`), and its `.openclaw/Dockerfile` must
+consume a staged snapshot (a `.vss-sr[c]` COPY) — refs from before staging
+existed cannot be built this way. Either failure is a blocker to report, never
+a silent fall back to `develop`. Build the harness from a worktree of that ref,
+staged with the ref's own `stage_vss_src.py`, with `VSS_REPO_DIR` pointing at
+the worktree — the exact commands are in
+[`references/agent-harness.md`](references/agent-harness.md#harness-source-ref).
+Name the ref and its resolved short sha in the Step 6 diagram and the final
+summary, next to the image tag.
 
 ### Harness selection — Q3
 

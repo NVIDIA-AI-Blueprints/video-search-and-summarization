@@ -241,6 +241,26 @@ stops rather than deploying a partially tagged stack.
 On GB300 and DGX Spark, SBSA-suffixed services run the `-sbsa` variant of the
 selected tag, so their images differ from the common tag by that suffix.
 
+## Harness source ref
+
+The NemoClaw sandbox image carries the operation Skills, the `vss` CLI and the
+OpenClaw plugin from one revision of this repository. It is built from
+`develop` by default, whatever image tag the stack runs. To build it from a
+nightly or a release instead, name the revision in the request:
+
+1. The request, for example *"deploy base with the NemoClaw harness at
+   `nightly-20260928`"*.
+2. `VSS_HARNESS_REF` already exported in your shell.
+3. Neither, in which case the harness builds from `develop`.
+
+The Skill checks out that revision alongside your checkout (under
+`_builds/<name>/harness-src`) and builds the sandbox from it, so the Skills,
+CLI and plugin all come from the one revision; `vss --version` inside the
+sandbox reports it. The ref is independent of the
+[container image tag](#container-image-tag): name both to pin both. Revisions
+older than staged harness builds are refused rather than silently replaced
+by `develop`.
+
 ## Agent harness
 
 When a developer-profile or custom build includes the in-stack VSS Agent, the
@@ -298,6 +318,14 @@ Use the vss-build-vision-ai skill to deploy a warehouse 3D profile with behavior
 
 ```text title="Build a custom stack"
 Use the vss-build-vision-ai skill to build a custom VSS stack for streaming object detection, video embeddings, and semantic search.
+```
+
+```text title="Deploy with a nightly harness"
+Use the vss-build-vision-ai skill to deploy the VSS base profile with the NemoClaw harness at nightly-20260928.
+```
+
+```text title="Pin images and harness to one release"
+Use the vss-build-vision-ai skill to deploy the VSS base profile with image tag 3.4.0 and the NemoClaw harness at v3.4.0.
 ```
 
 ```text title="Tear down"
