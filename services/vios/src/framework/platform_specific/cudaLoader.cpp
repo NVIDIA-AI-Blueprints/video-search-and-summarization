@@ -19,6 +19,8 @@
 #include <dlfcn.h>
 #include "logger.h"
 
+using namespace std;
+
 CudaLoader* CudaLoader::getInstance()
 {
     static CudaLoader instance;

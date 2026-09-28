@@ -37,7 +37,7 @@ VmsErrorCode loginUser(const Json::Value& req_info, const Json::Value &in, Json:
 VmsErrorCode addNewUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
 VmsErrorCode deleteUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
 VmsErrorCode logoutUser(const Json::Value& req_info, const Json::Value &in, Json::Value &response);
-VmsErrorCode addNewUser(string username, string vstUser, string password, bool createUser, Json::Value &response);
+VmsErrorCode addNewUser(std::string username, std::string vstUser, std::string password, bool createUser, Json::Value &response);
 VmsErrorCode handleUserCredentials(const Json::Value &data, Json::Value &response);
 
 private:

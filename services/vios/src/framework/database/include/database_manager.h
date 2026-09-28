@@ -48,54 +48,54 @@ public:
 
     virtual int insertRowEvent(EventDBColumns &row) { return -1; };
     virtual int insertRowSensorDetails(SensorDetailsDBColumns &row) { return -1; };
-    virtual SensorDetailsDBColumns readSensorDetails(string deviceId, string sensorId) { return SensorDetailsDBColumns(); };
-    virtual vector<SensorDetailsDBColumns> readSensorDetails(string deviceId) { return {}; };
-    virtual SensorDetailsDBColumns readSensorDetailsByLocation(string location) { return SensorDetailsDBColumns(); };
-    virtual int CountSensorDetails(string deviceId) { return -1; };
-    virtual int deleteSensorDetails(string sensorId) { return -1; };
+    virtual SensorDetailsDBColumns readSensorDetails(std::string deviceId, std::string sensorId) { return SensorDetailsDBColumns(); };
+    virtual std::vector<SensorDetailsDBColumns> readSensorDetails(std::string deviceId) { return {}; };
+    virtual SensorDetailsDBColumns readSensorDetailsByLocation(std::string location) { return SensorDetailsDBColumns(); };
+    virtual int CountSensorDetails(std::string deviceId) { return -1; };
+    virtual int deleteSensorDetails(std::string sensorId) { return -1; };
     virtual int insertRowVideoRecord(VideoRecordDBColumns &row) { return -1; };
-    virtual std::vector<VideoRecordDBColumns> readVideoRecord(string sensorId, int64_t startTime, int64_t endTime, const std::vector<string>& streamIds = std::vector<string>()) { return {}; };
-    virtual std::vector<VideoRecordDBColumns> readVideoRecordStreamIdBased(string streamId, int64_t startTime, int64_t endTime) { return {}; };
-    virtual std::vector<VideoRecordDBColumns> readVideoRecordSensorIdBased(string sensorId, int64_t startTime, int64_t endTime) { return {}; };
-    virtual std::vector<VideoRecordDBColumns> readVideoRecordUniqueIdBased(string id) { return {}; };
-    virtual std::vector<VideoRecordDBColumns> readVideoRecordSensorIdUniqueIdBased(string sensorId, string id) { return {}; };
-    virtual VideoRecordDBColumns readInProgressVideoRecord(string streamId, int64_t startTime) { return VideoRecordDBColumns(); };
-    virtual VideoRecordDBColumns readVideoRecordExactMatch(string streamId, int64_t startTime) { return VideoRecordDBColumns(); };
-    virtual VideoRecordDBColumns readVideoRecordExactMatchFilePath(string sensorId, string filePath, int64_t startTime) { return VideoRecordDBColumns(); };
+    virtual std::vector<VideoRecordDBColumns> readVideoRecord(std::string sensorId, int64_t startTime, int64_t endTime, const std::vector<std::string>& streamIds = std::vector<std::string>()) { return {}; };
+    virtual std::vector<VideoRecordDBColumns> readVideoRecordStreamIdBased(std::string streamId, int64_t startTime, int64_t endTime) { return {}; };
+    virtual std::vector<VideoRecordDBColumns> readVideoRecordSensorIdBased(std::string sensorId, int64_t startTime, int64_t endTime) { return {}; };
+    virtual std::vector<VideoRecordDBColumns> readVideoRecordUniqueIdBased(std::string id) { return {}; };
+    virtual std::vector<VideoRecordDBColumns> readVideoRecordSensorIdUniqueIdBased(std::string sensorId, std::string id) { return {}; };
+    virtual VideoRecordDBColumns readInProgressVideoRecord(std::string streamId, int64_t startTime) { return VideoRecordDBColumns(); };
+    virtual VideoRecordDBColumns readVideoRecordExactMatch(std::string streamId, int64_t startTime) { return VideoRecordDBColumns(); };
+    virtual VideoRecordDBColumns readVideoRecordExactMatchFilePath(std::string sensorId, std::string filePath, int64_t startTime) { return VideoRecordDBColumns(); };
     virtual int updateVideoRecordInDb(VideoRecordDBColumns &row) { return -1; };
     virtual int updateVideoRecordDurationBatch(const std::vector<VideoRecordDBColumns> &rows) { return -1; };
     virtual int insertRowVideoRecordSchedule(VideoRecordScheduleDBColumns &row) { return -1; };
-    virtual std::vector<VideoRecordScheduleDBColumns> readVideoRecordSchedules(string streamId = "") { return {}; };
-    virtual bool deleteVideoRecordSchedule(string streamId, string startTime, string endTime) { return false; };
-    virtual int deleteVideoRecordings(vector<string> &filePaths) { return -1; };
+    virtual std::vector<VideoRecordScheduleDBColumns> readVideoRecordSchedules(std::string streamId = "") { return {}; };
+    virtual bool deleteVideoRecordSchedule(std::string streamId, std::string startTime, std::string endTime) { return false; };
+    virtual int deleteVideoRecordings(std::vector<std::string> &filePaths) { return -1; };
     virtual std::vector<VideoRecordDBColumns> readRecordsInBatch(uint32_t &batchSize, bool excludeCloudScanned = false) { return {}; };
-    virtual std::vector<VideoRecordDBColumns> getVideoRecordFilePaths(string streamId, int64_t startTime, int64_t endTime) { return {}; };
-    virtual int deleteStreamDetailsUsingSensorId(string sensorId) { return -1; };
-    virtual int deleteRecordingStatusUsingSensorId(string sensorId) { return -1; };
-    virtual int deleteRowStream(string streamId) { return -1; };
-    virtual SensorStreamsDBColumns readSensorStreams(string streamId) { return SensorStreamsDBColumns(); };
+    virtual std::vector<VideoRecordDBColumns> getVideoRecordFilePaths(std::string streamId, int64_t startTime, int64_t endTime) { return {}; };
+    virtual int deleteStreamDetailsUsingSensorId(std::string sensorId) { return -1; };
+    virtual int deleteRecordingStatusUsingSensorId(std::string sensorId) { return -1; };
+    virtual int deleteRowStream(std::string streamId) { return -1; };
+    virtual SensorStreamsDBColumns readSensorStreams(std::string streamId) { return SensorStreamsDBColumns(); };
     virtual int insertRowStream(SensorStreamsDBColumns &row) { return -1; };
-    virtual vector<SensorStreamsDBColumns> readAllStreamsForGivenSensorID(string sensorId) { return {}; };
-    virtual vector<SensorInfoDBColumns> readSensorInfo(string sensorId) { return {}; };
-    virtual string readStreamProperty(string streamId, string property) { return ""; };
+    virtual std::vector<SensorStreamsDBColumns> readAllStreamsForGivenSensorID(std::string sensorId) { return {}; };
+    virtual std::vector<SensorInfoDBColumns> readSensorInfo(std::string sensorId) { return {}; };
+    virtual std::string readStreamProperty(std::string streamId, std::string property) { return ""; };
     virtual std::vector<VideoRecordDBColumns> getRecordedVideoSize() { return {}; };
-    virtual bool checkVideoRecordExists(string streamId) { return false; };
+    virtual bool checkVideoRecordExists(std::string streamId) { return false; };
     virtual std::vector<VideoRecordDBColumns> getAllDisconnectedSensorId() { return {}; };
-    virtual UserDetailsDBColumns getUserDetail(const string username) { return UserDetailsDBColumns(); };
+    virtual UserDetailsDBColumns getUserDetail(const std::string username) { return UserDetailsDBColumns(); };
     virtual int setUserDetail(UserDetailsDBColumns &row) { return -1; };
-    virtual std::vector<UserSessionsDBColumns> getUserSessions(const string username) { return {}; };
-    virtual int deleteUserSession(const string username, const string sessionId) { return -1; };
+    virtual std::vector<UserSessionsDBColumns> getUserSessions(const std::string username) { return {}; };
+    virtual int deleteUserSession(const std::string username, const std::string sessionId) { return -1; };
     virtual int setUserSession(UserSessionsDBColumns &row) { return -1; };
     virtual void deleteExpiredUserSessions() { /* Default no-op: backends without user session support have nothing to expire */ };
     virtual std::vector<UserSessionsDBColumns> getAllSessions() { return {}; };
-    virtual int deleteUserDetails(const string username) { return -1; };
-    virtual void extendSession(const string username, const string sessionId) { /* Default no-op; concrete database backends override this. */ };
+    virtual int deleteUserDetails(const std::string username) { return -1; };
+    virtual void extendSession(const std::string username, const std::string sessionId) { /* Default no-op; concrete database backends override this. */ };
     virtual std::string getLocalDeviceId() { return ""; };
     virtual std::string getLocalDeviceName() { return ""; };
-    virtual int setLocalDeviceId(const string deviceId) { return -1; };
-    virtual int setLocalDeviceName(const string &deviceName, const string &deviceId) { return -1; };
+    virtual int setLocalDeviceId(const std::string deviceId) { return -1; };
+    virtual int setLocalDeviceName(const std::string &deviceName, const std::string &deviceId) { return -1; };
     virtual std::string getLocalDeviceLocation() { return ""; };
-    virtual int setLocalDeviceLocation(const string &deviceLocation, const string &deviceId) { return -1; };
+    virtual int setLocalDeviceLocation(const std::string &deviceLocation, const std::string &deviceId) { return -1; };
     virtual std::vector<VideoFileInfo> getFileList(std::string sensorId, int64_t t1, int64_t t2,
                                                    size_t maxFiles = 0, bool accurate = false) { return {}; };
 
@@ -104,34 +104,34 @@ public:
     virtual std::vector<VideoFileInfo> getNextFileList(std::string streamId, int64_t t1) { return {}; };
     virtual VideoFileInfo getInProgressRecordFile(std::string streamId, int64_t startTime) { return VideoFileInfo(); };
     virtual VideoFileInfo getRecordFileInfo(std::string streamId, int64_t startTime) { return VideoFileInfo(); };
-    virtual int getAllStreams(std::vector<shared_ptr<StreamInfo>> &streamInfo, const std::string &deviceId) { return -1; };
-    virtual int getAllSensors(vector<shared_ptr<SensorInfo>> &deviceInfo, const std::string &deviceId) { return -1; };
-    virtual bool isSensorExists(const shared_ptr<SensorInfo> &in_device, const std::string &deviceId) { return false; };
-    virtual shared_ptr<SensorInfo> findExistingSensor(const shared_ptr<SensorInfo> &in_device, const std::string &deviceId) { return nullptr; };
-    virtual shared_ptr<SensorInfo> searchSensorAndGetSensorInfo(const string &searchSensorId, const std::string &deviceId) { return {}; };
+    virtual int getAllStreams(std::vector<std::shared_ptr<StreamInfo>> &streamInfo, const std::string &deviceId) { return -1; };
+    virtual int getAllSensors(std::vector<std::shared_ptr<SensorInfo>> &deviceInfo, const std::string &deviceId) { return -1; };
+    virtual bool isSensorExists(const std::shared_ptr<SensorInfo> &in_device, const std::string &deviceId) { return false; };
+    virtual std::shared_ptr<SensorInfo> findExistingSensor(const std::shared_ptr<SensorInfo> &in_device, const std::string &deviceId) { return nullptr; };
+    virtual std::shared_ptr<SensorInfo> searchSensorAndGetSensorInfo(const std::string &searchSensorId, const std::string &deviceId) { return {}; };
     virtual std::vector<VideoRecordDBColumns> getAllVideoRecordFilePaths() { return {}; };
-    virtual std::vector<VideoRecordDBColumns> getVideoRecordFilePathsSensorIdBased(string sensorId, int64_t startTime, int64_t endTime) { return {}; };
-    virtual std::vector<VideoRecordDBColumns> getVideoRecordFilePathsIdBased(string id) { return {}; };
+    virtual std::vector<VideoRecordDBColumns> getVideoRecordFilePathsSensorIdBased(std::string sensorId, int64_t startTime, int64_t endTime) { return {}; };
+    virtual std::vector<VideoRecordDBColumns> getVideoRecordFilePathsIdBased(std::string id) { return {}; };
     virtual int setDbVersion(DbDetailsColumns &row) { return -1; };
     virtual DbDetailsColumns getDbVersion() { return DbDetailsColumns(); };
-    virtual int updateFileProtectionInDb(bool fileProtection, string filePath) { return -1; };
-    virtual int updateFilesProtectionInDb(bool fileProtection, const std::vector<string>& filePaths) { return -1; };
+    virtual int updateFileProtectionInDb(bool fileProtection, std::string filePath) { return -1; };
+    virtual int updateFilesProtectionInDb(bool fileProtection, const std::vector<std::string>& filePaths) { return -1; };
     virtual int resetProtectedFlagsInDb() { return -1; };
     virtual std::vector<VideoRecordDBColumns> getProtectedFilesFromDB() { return {}; };
     virtual void createDatabaseTables() { /* No-op default: backends without a fixed schema have no tables to create. */ };
-    virtual VmsErrorCode getMainStreamFromDB(shared_ptr<StreamInfo> &mainStream, const SensorDetailsDBColumns &sensorDetails) { return VmsErrorCode::NoError; };
-    virtual VmsErrorCode getSubStreamFromDB(shared_ptr<StreamInfo> &subStream, const SensorStreamsDBColumns &streamDetails, const string device_name) { return VmsErrorCode::NoError; };
-    virtual VmsErrorCode getSensorInfoFromDB(shared_ptr<SensorInfo> &deviceInfo, const SensorDetailsDBColumns &sensorDetails) { return VmsErrorCode::NoError; };
+    virtual VmsErrorCode getMainStreamFromDB(std::shared_ptr<StreamInfo> &mainStream, const SensorDetailsDBColumns &sensorDetails) { return VmsErrorCode::NoError; };
+    virtual VmsErrorCode getSubStreamFromDB(std::shared_ptr<StreamInfo> &subStream, const SensorStreamsDBColumns &streamDetails, const std::string device_name) { return VmsErrorCode::NoError; };
+    virtual VmsErrorCode getSensorInfoFromDB(std::shared_ptr<SensorInfo> &deviceInfo, const SensorDetailsDBColumns &sensorDetails) { return VmsErrorCode::NoError; };
     virtual uint64_t getTotalCurrentRecordSize() { return 0; };
-    virtual int setRecordingStatus(const std::string &streamId, RecordState new_status, const std::optional<string> &sensorId) { return -1; };
-    virtual VmsErrorCode getRecordingStatus(std::map<std::string, RecordingStatusDBColumns, std::less<>> &allStatus, const std::optional<string> &streamId) { return VmsErrorCode::NoError; };
-    virtual vector<SensorDetailsDBColumns> readAllSensorSatus(string deviceId) { return {}; }
-    virtual VmsErrorCode getSensorIdsWithRecordingTimelines(std::unordered_set<string> &sensorIds) { return VmsErrorCode::NoError; };
-    virtual int updateStreamInfo(string streamId, string proxyUrl, string replayUrl, std::pair<StreamStatus, string> status) { return -1; };
-    virtual vector<SensorStreamsDBColumns> readAllStreams() { return {}; };
+    virtual int setRecordingStatus(const std::string &streamId, RecordState new_status, const std::optional<std::string> &sensorId) { return -1; };
+    virtual VmsErrorCode getRecordingStatus(std::map<std::string, RecordingStatusDBColumns, std::less<>> &allStatus, const std::optional<std::string> &streamId) { return VmsErrorCode::NoError; };
+    virtual std::vector<SensorDetailsDBColumns> readAllSensorSatus(std::string deviceId) { return {}; }
+    virtual VmsErrorCode getSensorIdsWithRecordingTimelines(std::unordered_set<std::string> &sensorIds) { return VmsErrorCode::NoError; };
+    virtual int updateStreamInfo(std::string streamId, std::string proxyUrl, std::string replayUrl, std::pair<StreamStatus, std::string> status) { return -1; };
+    virtual std::vector<SensorStreamsDBColumns> readAllStreams() { return {}; };
     virtual int updateObjectIdInDb(const std::string& objectId, const std::string& filePath) { return -1; };
     virtual int updateFileProtectionAndObjectIdInDb(bool fileProtection, const std::string& objectId, const std::string& filePath) { return -1; };
-    virtual string searchSensorFileIdBased(const string &id) { return {}; };
+    virtual std::string searchSensorFileIdBased(const std::string &id) { return {}; };
     
     // Temp Files operations
     virtual int insertTempFileRecord(nv_vms::TempFilesDBColumns &row) { return -1; };
@@ -150,7 +150,7 @@ public:
     virtual int queryCrashedRecordings(std::vector<VideoRecordDBColumns> &rows) { return 0; };
 
 #ifdef UNIT_TEST
-    virtual vector<VideoRecordDBColumns> getLastRecordVideoRecord(string streamId)
+    virtual std::vector<VideoRecordDBColumns> getLastRecordVideoRecord(std::string streamId)
     {
         return {};
     };

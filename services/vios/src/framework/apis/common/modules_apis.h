@@ -19,53 +19,52 @@
 #include <string>
 #include "logger.h"
 
-using namespace std;
 
 namespace vst_rtsp
 {
-    int addStream(const string& id, const string& name, string& url, string& vodUrl);
-    int removeStream(const string& id);
+    int addStream(const std::string& id, const std::string& name, std::string& url, std::string& vodUrl);
+    int removeStream(const std::string& id);
     Json::Value activeClientSessions();
-    string rtspUrlPrefix(const string& id = "");
-    string rtspOriginalUrlPrefix(const string& id = "");
-    int removeServerMediaSession(const string& id);
-    int updateUser(const string& username);
-    int addUser(const string& username, const string& passwordHash);
-    int removeUser(const string& username);
-    string rtspServerDomainPrefix(const string& id = "");
-    string vodServerDomainPrefix(const string& id = "");
+    std::string rtspUrlPrefix(const std::string& id = "");
+    std::string rtspOriginalUrlPrefix(const std::string& id = "");
+    int removeServerMediaSession(const std::string& id);
+    int updateUser(const std::string& username);
+    int addUser(const std::string& username, const std::string& passwordHash);
+    int removeUser(const std::string& username);
+    std::string rtspServerDomainPrefix(const std::string& id = "");
+    std::string vodServerDomainPrefix(const std::string& id = "");
 }
 
 namespace vst_recorder
 {
-    int addStream(const string& id, const string& url);
-    int removeStream(const string& id);
+    int addStream(const std::string& id, const std::string& url);
+    int removeStream(const std::string& id);
 }
 
 namespace vst_storage
 {
-    int addOrRemoveFileInProtectList(const string& filePath, const bool& addOrRemove);
-    int addOrRemoveFilesInProtectList(const std::vector<string>& filePaths, const bool& addOrRemove);
+    int addOrRemoveFileInProtectList(const std::string& filePath, const bool& addOrRemove);
+    int addOrRemoveFilesInProtectList(const std::vector<std::string>& filePaths, const bool& addOrRemove);
     int updateStorageSize(const size_t& size, const bool& addOrRemove);
     int doAging(const size_t& bytesToReserve);
-    int deleteMediaFile(const string& filePath);
+    int deleteMediaFile(const std::string& filePath);
     // Delete every file backing the given stream (regardless of time range) and
     // cascade the sensor-side cleanup through StorageManagement::deleteSensorDetails.
     // Used by the proxy/delete handler so file-type sensor delete clears the upload
     // from disk. Returns 0 on success.
-    int deleteFilesByStream(const string& streamId);
+    int deleteFilesByStream(const std::string& streamId);
     bool checkStorageCapacity(const size_t& size);
 }
 
 namespace vst_replaystream
 {
-    int addStream(const string& id, const string& url);
-    int removeStream(const string& id);
-    int removeSensor(const string& sensorId);
+    int addStream(const std::string& id, const std::string& url);
+    int removeStream(const std::string& id);
+    int removeSensor(const std::string& sensorId);
 }
 
 namespace vst_sensor
 {
-    int deleteSensor(const string& sensorId);
-    int deleteStream(const string& streamId);
+    int deleteSensor(const std::string& sensorId);
+    int deleteStream(const std::string& streamId);
 }

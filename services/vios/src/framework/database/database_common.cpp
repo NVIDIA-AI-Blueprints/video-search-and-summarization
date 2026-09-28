@@ -19,6 +19,8 @@
 #include "utils.h"
 #include <unordered_set>
 
+using namespace std;
+
 void videoRecordHelper(VideoRecordDBColumns &row, unordered_map<string, string> &entries)
 {
     for (auto column : entries)

@@ -22,6 +22,8 @@
 #include <ctime>
 #include <iomanip>
 
+using namespace std;
+
 constexpr int MSG_EXPIRY_HOURS = 1;
 
 namespace   {

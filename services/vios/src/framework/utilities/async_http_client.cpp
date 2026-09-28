@@ -21,6 +21,8 @@
 
 #include "logger.h"
 
+using namespace std;
+
 namespace
 {
 constexpr long DEFAULT_POLL_TIMEOUT_MS = 1000;

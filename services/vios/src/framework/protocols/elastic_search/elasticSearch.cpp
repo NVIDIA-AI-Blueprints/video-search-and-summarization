@@ -17,6 +17,8 @@
 
 #include "elasticSearch.h"
 
+using namespace std;
+
 string elasticSearch::getExactQueryString(const SearchParams& inData, Json::Value source, bool use_id /*false*/)
 {
     nv_vms::DeviceConfig config =  GET_CONFIG();

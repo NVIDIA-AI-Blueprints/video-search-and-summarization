@@ -17,6 +17,8 @@
 
 #include "nvsurfacepool.h"
 
+using namespace std;
+
 #if defined(AARCH64_PLATFORM)
 constexpr int OUTPUT_PLANE_NUM_BUFFERS = 19;
 #else

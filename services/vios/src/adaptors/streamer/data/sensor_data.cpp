@@ -24,6 +24,8 @@
 
 #include <memory>
 
+using namespace std;
+
 extern "C" ISensorDiscoveryInterface* createObject()
 {
     return std::make_unique<SensorDataCollector>().release();

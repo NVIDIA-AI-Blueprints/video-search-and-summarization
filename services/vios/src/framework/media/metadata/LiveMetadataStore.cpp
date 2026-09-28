@@ -19,6 +19,8 @@
 #include "logger.h"
 #include "NotificationFactory.h"
 
+using namespace std;
+
 // Nested listener implementation
 LiveMetadataStore::NotificationListener::NotificationListener(LiveMetadataStore* parent)
     : m_parent(parent)

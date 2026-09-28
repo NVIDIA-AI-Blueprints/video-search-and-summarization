@@ -40,6 +40,8 @@
 #include <string>
 #include <thread>
 
+using namespace std;
+
 namespace {
 
 bool parsePath(std::string path, std::string& token, std::string& fileName)

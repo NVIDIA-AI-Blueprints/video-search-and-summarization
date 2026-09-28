@@ -31,7 +31,7 @@ class RemoteSensorControlApis
         RemoteSensorControlApis(std::shared_ptr<nv_vms::SensorManagement> sensorMgmt, std::shared_ptr<DeviceManager> deviceMngr);
         ~RemoteSensorControlApis()
         {
-            LOG(info) << __PRETTY_FUNCTION__ << endl;
+            LOG(info) << __PRETTY_FUNCTION__ << std::endl;
         }
         RemoteSensorControlApis(const RemoteSensorControlApis&) = default;
         RemoteSensorControlApis& operator=(const RemoteSensorControlApis&) = default;

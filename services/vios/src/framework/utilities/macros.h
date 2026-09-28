@@ -23,7 +23,7 @@
 #define CURL_CHECK_ERROR(api_name, err_code, ret_value) \
     if( err_code ) \
     { \
-        LOG(error) << "Curl api '" << #api_name << "' failed with error:" << err_code << endl; \
+        LOG(error) << "Curl api '" << #api_name << "' failed with error:" << err_code << std::endl; \
         curl_easy_cleanup(curl); \
         return ret_value; \
     }
@@ -31,7 +31,7 @@
 #define CURL_CHECK_ERROR2(api_name, err_code) \
     if( err_code ) \
     { \
-        LOG(error) << "Curl api '" << #api_name << "' failed with error:" << err_code << endl; \
+        LOG(error) << "Curl api '" << #api_name << "' failed with error:" << err_code << std::endl; \
         curl_easy_cleanup(curl); \
         return; \
     }
@@ -39,7 +39,7 @@
 #define CURL_CHECK_ERROR_WITHOUT_CLEANUP(api_name, err_code, ret_value) \
     if( err_code ) \
     { \
-        LOG(error) << "Curl api '" << #api_name << "' failed with error:" << err_code << endl; \
+        LOG(error) << "Curl api '" << #api_name << "' failed with error:" << err_code << std::endl; \
         return ret_value; \
     }
 
@@ -47,7 +47,7 @@
     { \
         int xmlErr = xmlTextWriterStartElement(writer, name); \
         if (xmlErr < 0) { \
-            LOG(error) << "xmlTextWriterStartElement for '" << #name << "' failed with error:" << xmlErr << endl; \
+            LOG(error) << "xmlTextWriterStartElement for '" << #name << "' failed with error:" << xmlErr << std::endl; \
         } \
     }
 
@@ -55,7 +55,7 @@
     { \
         int xmlErr = xmlTextWriterWriteElement(writer, name, content); \
         if (xmlErr < 0) { \
-            LOG(error) << "xmlTextWriterWriteElement for '" << #name << "' failed with error:" << xmlErr << endl; \
+            LOG(error) << "xmlTextWriterWriteElement for '" << #name << "' failed with error:" << xmlErr << std::endl; \
         } \
     }
 
@@ -63,7 +63,7 @@
     { \
         int xmlErr = xmlTextWriterEndElement(writer); \
         if (xmlErr < 0) { \
-            LOG(error) << "xmlTextWriterEndElement failed with error:" << xmlErr << endl; \
+            LOG(error) << "xmlTextWriterEndElement failed with error:" << xmlErr << std::endl; \
         } \
     }
 
@@ -71,7 +71,7 @@
     { \
         int xmlErr = xmlTextWriterWriteString(writer, content); \
         if (xmlErr < 0) { \
-            LOG(error) << "xmlTextWriterWriteString failed with error:" << xmlErr << endl; \
+            LOG(error) << "xmlTextWriterWriteString failed with error:" << xmlErr << std::endl; \
         } \
     }
 
@@ -82,6 +82,6 @@
     { \
         int xmlErr = xmlTextWriterEndDocument(writer); \
         if (xmlErr < 0) { \
-            LOG(error) << "xmlTextWriterEndDocument failed with error:" << xmlErr << endl; \
+            LOG(error) << "xmlTextWriterEndDocument failed with error:" << xmlErr << std::endl; \
         } \
     }

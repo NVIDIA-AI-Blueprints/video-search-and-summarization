@@ -23,7 +23,6 @@
 #include "media_adaptor_loader.h"
 #include "vms_media_interface.h"
 
-using namespace std;
 
 class IVstModule;
 
@@ -62,15 +61,15 @@ class ModuleLoader
 
         int initialize(ModuleId module_id = ModuleAll);
         void deInitialize();
-        string getDeviceId();
-        string getDeviceType();
+        std::string getDeviceId();
+        std::string getDeviceType();
         std::shared_ptr<DeviceManager> getDeviceManagerObject();
 #ifdef UNIT_TEST
         /** For unit tests only: set DeviceManager so StreamMonitor/QosRtspClient get a valid instance. */
         void setDeviceManagerForTest(std::shared_ptr<DeviceManager> dm);
 #endif
         ModuleId getModuleId(const std::string& moduleName);
-        string getModuleIdAsString(ModuleId module_id);
+        std::string getModuleIdAsString(ModuleId module_id);
 
         IVstModule* getRtspServerMgmtInstance()
         {

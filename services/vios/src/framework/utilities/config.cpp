@@ -38,6 +38,7 @@
 
 
 using namespace nv_vms;
+using namespace std;
 
 constexpr const char* WEBROOT_PATH = "./webroot";
 

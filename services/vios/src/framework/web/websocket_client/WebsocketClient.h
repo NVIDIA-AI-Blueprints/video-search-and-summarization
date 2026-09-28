@@ -53,7 +53,7 @@ public:
 private:
     WebsocketClient();
     ~WebsocketClient();
-    void fillResponseAndNotify(Json::Value &response, string requestId);
+    void fillResponseAndNotify(Json::Value &response, std::string requestId);
     void websocketClientMonitorTask();
     void checkPendingRequests();
     void parseRemoteAddress();
@@ -69,7 +69,7 @@ private:
     std::map<std::string, httpFunction, std::less<>> m_callbackMap;
     std::mutex m_callbackMapMutex;
     // CallerList map and its mutex. It waits for WS response and notifies the caller.
-    std::map<string, std::shared_ptr<MessageObject>, std::less<>> m_callerList;
+    std::map<std::string, std::shared_ptr<MessageObject>, std::less<>> m_callerList;
     std::mutex m_callerListMutex;
     // Watchdog to clear stale pending requests
     std::unique_ptr<Bosma::Scheduler> m_watchdog;

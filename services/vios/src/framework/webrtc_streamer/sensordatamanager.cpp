@@ -18,6 +18,8 @@
 #include "sensordatamanager.h"
 #include "NotificationFactory.h"
 
+using namespace std;
+
 constexpr int DEFAULT_PULSE_TIME_IN_MS = 1000;
 
 MetaDataSchedule::MetaDataSchedule(const string& sensor_id, vector<shared_ptr<SensorMetadata>> data,

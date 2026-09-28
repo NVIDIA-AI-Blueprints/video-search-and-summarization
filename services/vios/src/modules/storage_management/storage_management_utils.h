@@ -27,7 +27,6 @@
 #include "database.h"
 #include "unified_storage_types.h"
 
-using namespace std;
 
 // Forward declaration
 namespace nv_vms {
@@ -43,7 +42,7 @@ struct VideoFileProcessingParams {
     bool get_accurate = false;
     std::vector<std::pair<std::string, std::string>> remoteLocalPairs;
     // Additional processed parameters
-    string input_file_path;
+    std::string input_file_path;
     int64_t file_start_time = 0;
     int64_t relative_start_sec = 0;
     int64_t relative_end_sec = 0;

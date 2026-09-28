@@ -26,6 +26,8 @@
 #include <utility>
 #include <vector>
 
+using namespace std;
+
 namespace
 {
     // Prefetch tuning (constants, not config, to keep the change self-contained).

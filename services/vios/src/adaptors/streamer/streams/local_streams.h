@@ -24,7 +24,6 @@
 #include <vector>
 #include <jsoncpp/json/json.h>
 
-using namespace std;
 
 class LocalStreams : public ISensorControlInterface
 {
@@ -33,12 +32,12 @@ class LocalStreams : public ISensorControlInterface
         virtual ~LocalStreams() = default;
 
         int connect();
-        int getSensorStreamInfo(vector<shared_ptr<SensorInfo>>& sensors);
-        int getSensorStreamInfo(shared_ptr<SensorInfo>& sensor);
-        bool isServerOnline(const string & url) { return true; }
-        bool transcodeIfNeeded(const string& filePath, const Json::Value& mediainfo, const Json::Value& keyFrameParseResult);
+        int getSensorStreamInfo(std::vector<std::shared_ptr<SensorInfo>>& sensors);
+        int getSensorStreamInfo(std::shared_ptr<SensorInfo>& sensor);
+        bool isServerOnline(const std::string & url) { return true; }
+        bool transcodeIfNeeded(const std::string& filePath, const Json::Value& mediainfo, const Json::Value& keyFrameParseResult);
 
     private:
-        void addLocalStreams(vector<shared_ptr<SensorInfo>>& sensors);
-        bool isSensorExist(vector<shared_ptr<SensorInfo>>& sensors, const string &filepath);
+        void addLocalStreams(std::vector<std::shared_ptr<SensorInfo>>& sensors);
+        bool isSensorExist(std::vector<std::shared_ptr<SensorInfo>>& sensors, const std::string &filepath);
 };

@@ -27,7 +27,7 @@ class GstNvDecoder
         virtual int create(bool blocking = false) { return 0; }
         virtual void destroy(bool expect_result) = 0;
         virtual bool pause() = 0;
-        virtual string getstate() = 0;
+        virtual std::string getstate() = 0;
         virtual bool isPlaying() = 0;
         virtual bool getError() = 0;
 };

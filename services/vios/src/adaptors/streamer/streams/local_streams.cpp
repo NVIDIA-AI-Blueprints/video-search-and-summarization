@@ -23,6 +23,8 @@
 #include "modules_apis.h"
 #include <cmath>
 
+using namespace std;
+
 extern "C" ISensorControlInterface* createObject()
 {
     return new LocalStreams;

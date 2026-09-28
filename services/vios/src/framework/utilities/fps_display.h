@@ -40,7 +40,7 @@ class FPSDisplay
         }
         ~FPSDisplay() = default;
 
-        void       displayFPS           (unsigned long pts_in_ms, string peerId_streamId);
+        void       displayFPS           (unsigned long pts_in_ms, std::string peerId_streamId);
         double     getAvgFPS            () { return m_avgFPS; }
         int        getInstFPS           () { return m_instFPS; }
 
@@ -53,7 +53,7 @@ class FPSDisplay
         struct timeval                                  m_prevCaptureTime {0, 0};
         struct timeval                                  m_prevPublishTime {0, 0};
         std::vector<double>                             m_fpsVector;
-        string                                          m_fpsValues;
+        std::string                                          m_fpsValues;
         int                                             m_fpsCaptureIntervalSecs {0};
         int                                             m_fpsPublishIntervalSecs {0};
         double                                          m_avgFPS {0.0};

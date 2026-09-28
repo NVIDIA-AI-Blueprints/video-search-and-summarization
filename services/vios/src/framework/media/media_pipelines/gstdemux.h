@@ -93,20 +93,20 @@ namespace nv_vms
                 , m_isError(false)
                 , m_isEOS(false)
             {
-                LOG(info) << "::GstDeMux filename:" << filename << ", m_mediaType:" << mediaTypeAsString(m_mediaType) << endl;
+                LOG(info) << "::GstDeMux filename:" << filename << ", m_mediaType:" << mediaTypeAsString(m_mediaType) << std::endl;
                 updateFileMetadata(filename);
                 m_loop = GET_CONFIG().nv_streamer_loop_playback == true ? true : false;
             }
 
             ~GstDeMux ()
             {
-                LOG(info) << "~GstDeMux filename:" << m_filename << ", m_sessionId:" << m_sessionId << endl;
+                LOG(info) << "~GstDeMux filename:" << m_filename << ", m_sessionId:" << m_sessionId << std::endl;
             }
 
-            vector<async::task<bool>> m_vodTasks;
+            std::vector<async::task<bool>> m_vodTasks;
             bool isCreated() { return m_pipeline != nullptr; }
-            string getFilename() { return m_filename; }
-            void setUrlParams(const string& url_params);
+            std::string getFilename() { return m_filename; }
+            void setUrlParams(const std::string& url_params);
             bool setFileSource();
             void setGstClock(GstClock* global_clock, GstClockTime base_time);
             GstFlowReturn processNewSampleFromSink(GstElement * appsink);
@@ -127,9 +127,9 @@ namespace nv_vms
             void resetActualStartTime() { m_actualStartTime = 0; }
             double getFrameRate() { return m_frameRate; }
             int getFrameCount() { return m_frameCount; }
-            string getContainerFormat() { return m_containerFormat; }
-            string getVideoCodec() { return m_videoCodec; }
-            string getAudioCodec() { return m_audioCodec; }
+            std::string getContainerFormat() { return m_containerFormat; }
+            std::string getVideoCodec() { return m_videoCodec; }
+            std::string getAudioCodec() { return m_audioCodec; }
             int getSampleRate() { return m_sampleRate; }
             int getChannels() { return m_channels; }
             /* Thread-safe snapshot read. Returns a value-copy so the
@@ -137,17 +137,17 @@ namespace nv_vms
              * Writer is on_pad_added_internal() on the GStreamer
              * streaming thread; reader is NvMediaSource::getAacParams()
              * on the live555 task-scheduler thread. */
-            string getAudioCodecData()
+            std::string getAudioCodecData()
             {
                 std::lock_guard<std::mutex> guard(m_audioCodecDataMutex);
                 return m_audioCodecData;
             }
             void on_pad_added_internal (GstElement *demux, GstPad *pad);
-            void registerDataCallback(std::string peerid, shared_ptr<IMediaDataConsumer> consumer);
-            void deregisterDataCallback(shared_ptr<IMediaDataConsumer> consumer, std::string& peerid);
+            void registerDataCallback(std::string peerid, std::shared_ptr<IMediaDataConsumer> consumer);
+            void deregisterDataCallback(std::shared_ptr<IMediaDataConsumer> consumer, std::string& peerid);
             void insertFrameId(std::vector<uint8_t>& content);
             void checkEarlyFramesAndSynchronize();
-            void updateFileMetadata(const string& filename);
+            void updateFileMetadata(const std::string& filename);
             void setMaxFrameCount(int maxFrameCount) { m_maxFrameCount = maxFrameCount; }
             void setSessionId(std::string session_id) { m_sessionId = session_id; }
             std::string getSessionId() { return m_sessionId; }
@@ -163,9 +163,9 @@ namespace nv_vms
             int create_video_pipeline ();
             int create_audio_pipeline ();
             int updateFileList();
-            string getNextFile();
-            string getFirstAvailableFile();
-            int get_keyframe_interval_from_db (string file_location);
+            std::string getNextFile();
+            std::string getFirstAvailableFile();
+            int get_keyframe_interval_from_db (std::string file_location);
 
             // Cloud storage initialization methods
             bool initUnifiedStorageReader();
@@ -174,9 +174,9 @@ namespace nv_vms
         private:
             std::string             m_filename;
             eMediaType              m_mediaType;
-            string                  m_sensorId;
-            string                  m_urlParams;
-            string                  m_sessionId;
+            std::string                  m_sensorId;
+            std::string                  m_urlParams;
+            std::string                  m_sessionId;
             std::vector<VideoFileInfo> m_fileNameArray;
             GstElement*             m_pipeline = nullptr;
             GstElement*             m_source = nullptr;
@@ -194,15 +194,15 @@ namespace nv_vms
             cbData                  m_callbackData;
             guint                   m_bus_watch_id;
             bool                    m_is_playbin_created;
-            string                  m_containerFormat;
-            string                  m_videoCodec;
-            string                  m_audioCodec;
+            std::string                  m_containerFormat;
+            std::string                  m_videoCodec;
+            std::string                  m_audioCodec;
             double                  m_frameRate = DEFAULT_FRAMERATE;
             int                     m_frameCount = 0;
             int                     m_sampleRate = 0;
             int                     m_channels = 0;
             int                     m_bitsPerSample = 0;
-            string                  m_audioCodecData;  // see getAudioCodecData()
+            std::string                  m_audioCodecData;  // see getAudioCodecData()
             std::mutex              m_audioCodecDataMutex;  // guards m_audioCodecData (writer in on_pad_added_internal, reader in getAudioCodecData())
             int64_t                 m_frameId;
             int64_t                 m_idealFrameInterval = 0;
@@ -215,7 +215,7 @@ namespace nv_vms
             size_t                  m_currentFileIndex = 0;
             int64_t                 m_epochStartTime{0};
             int64_t                 m_epochEndTime{0};
-            string                  m_prevFileName;
+            std::string                  m_prevFileName;
             uint64_t                m_actualStartTime = 0;
             uint64_t                m_fileEndTime = 0;
             /* Written by setGstClock() from the RtspSyncPlayback management

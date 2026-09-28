@@ -24,6 +24,7 @@
 #include "cmdline_parser.h"
 using grpc::Status;
 using grpc::StatusCode;
+using namespace std;
 
 #ifdef USE_GRPC_SERVER
 using grpc::ServerBuilder;

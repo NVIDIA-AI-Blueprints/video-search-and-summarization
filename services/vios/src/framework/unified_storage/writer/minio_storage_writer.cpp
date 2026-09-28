@@ -30,6 +30,8 @@
 #include "minio-cpp/client.h"
 #include "minio-cpp/credentials.h"
 
+using namespace std;
+
 namespace nv_vms
 {
 

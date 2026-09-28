@@ -28,6 +28,8 @@
 #include <cerrno>
 #include <memory>
 
+using namespace std;
+
 constexpr int MAX_HALO_SAFETY_DATA_SIZE = 16;
 constexpr int DEFAULT_HALO_SAFETY_PORT = 12345;
 constexpr const char* DEFAULT_HALO_SAFETY_PROXIMITY_CLASS = "Forklift";

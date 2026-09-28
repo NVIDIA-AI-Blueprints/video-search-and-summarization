@@ -22,6 +22,8 @@
 #include "ReplayPeerConnection.h"
 #include "sensor_management.h"
 
+using namespace std;
+
 // Define missing sensor API constants
 constexpr const char* SENSOR_API = "/api/v1/sensor/*";
 constexpr const char* SENSOR_DATA_API = "/api/v1/sensor/data/*";
