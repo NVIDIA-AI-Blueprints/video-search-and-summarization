@@ -91,12 +91,12 @@
       ]
     },
     {
-      "query": "Get the sensor id for the uploaded sample warehouse video (reuse the `sensorId` captured from the step-1 upload response - stale `warehouse_<N>` duplicates can also be online with their own timelines, so do not re-resolve by bare name), fetch its recording timelines, pick a valid 2-second window, and download an mp4 clip for that window to disk - use the direct-download endpoint `GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=...&container=mp4&disableAudio=true` (it streams the mp4 bytes to save to disk; this is the direct variant, NOT the `/url` variant which only returns a JSON link).",
+      "query": "Get the sensor id for the uploaded sample warehouse video (reuse the `sensorId` captured from the step-1 upload response - stale `warehouse_<N>` duplicates can also be online with their own timelines, so do not re-resolve by bare name), fetch its recording timelines, pick a valid 2-second window, and download an mp4 clip for that window to disk - use the direct-download endpoint `GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=...&container=mp4&disableAudio=true` (it streams the mp4 bytes to save to disk; this is the direct variant, NOT the `/url` variant which only returns a JSON link). Confirm the saved file is an MP4 container. If `file` is not installed, dump the header bytes and show the `ftyp` box with an `mp4` brand; do not stop at `file: command not found`.",
       "checks": [
         "The chosen `startTime` and `endTime` both fall within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
-        "The agent's clip download `GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=...&container=mp4&disableAudio=true` returned HTTP 200 with a content-type starting with `video/`. Read this from the agent's OWN download response in its trajectory - do NOT re-issue the GET, because VST lazily re-renders (NVENC) the clip on every request and a fresh download can take tens of seconds and time the grader out. The valid on-disk MP4 verified by the size and `file`-type checks below is that same download and corroborates the 200 / `video/` response.",
+        "The agent's clip download `GET /vst/api/v1/storage/file/<streamId>?startTime=...&endTime=...&container=mp4&disableAudio=true` returned HTTP 200 with a content-type starting with `video/`. Read this from the agent's OWN download response in its trajectory - do NOT re-issue the GET, because VST lazily re-renders (NVENC) the clip on every request and a fresh download can take tens of seconds and time the grader out. The valid on-disk MP4 verified by the size and container-type checks below is that same download and corroborates the 200 / `video/` response.",
         "The downloaded file is greater than 1000 bytes",
-        "`file <downloaded>` reports an MP4 / ISO Media container"
+        "The downloaded file is an MP4 / ISO Media container: either `file <downloaded>` reports MP4 or ISO Media, or a header byte dump shows the `ftyp` box and an `mp4` brand. `file: command not found` with no header dump does not pass"
       ]
     },
     {
@@ -109,12 +109,12 @@
       ]
     },
     {
-      "query": "Get the sensor id for the uploaded sample warehouse video (reuse the `sensorId` captured from the step-1 upload response - stale `warehouse_<N>` duplicates can also be online with their own timelines, so do not re-resolve by bare name), fetch its recording timelines, pick a valid timestamp, and download a JPEG snapshot at that time to disk - use the direct-download endpoint `GET /vst/api/v1/replay/stream/<streamId>/picture?startTime=...` with a `streamId: <id>` header (it returns the JPEG bytes to save to disk; this is the direct variant, NOT the `/picture/url` variant which only returns a JSON link).",
+      "query": "Get the sensor id for the uploaded sample warehouse video (reuse the `sensorId` captured from the step-1 upload response - stale `warehouse_<N>` duplicates can also be online with their own timelines, so do not re-resolve by bare name), fetch its recording timelines, pick a valid timestamp, and download a JPEG snapshot at that time to disk - use the direct-download endpoint `GET /vst/api/v1/replay/stream/<streamId>/picture?startTime=...` with a `streamId: <id>` header (it returns the JPEG bytes to save to disk; this is the direct variant, NOT the `/picture/url` variant which only returns a JSON link). Confirm the saved file is a JPEG. If `file` is not installed, dump the header bytes and show the JPEG start marker; do not stop at `file: command not found`.",
       "checks": [
         "The chosen `startTime` falls within one {startTime, endTime} range returned by GET /vst/api/v1/storage/<streamId>/timelines",
-        "The agent's snapshot download `GET /vst/api/v1/replay/stream/<streamId>/picture?startTime=...` with a `streamId: <id>` header returned HTTP 200 with content-type `image/jpeg`. Read this from the agent's OWN download response in its trajectory - do NOT re-issue the GET, because VST lazily re-renders the snapshot on every request. The valid on-disk JPEG verified by the size and `file`-type checks below is that same download and corroborates the 200 / `image/jpeg` response.",
+        "The agent's snapshot download `GET /vst/api/v1/replay/stream/<streamId>/picture?startTime=...` with a `streamId: <id>` header returned HTTP 200 with content-type `image/jpeg`. Read this from the agent's OWN download response in its trajectory - do NOT re-issue the GET, because VST lazily re-renders the snapshot on every request. The valid on-disk JPEG verified by the size and container-type checks below is that same download and corroborates the 200 / `image/jpeg` response.",
         "The downloaded file is greater than 2000 bytes",
-        "`file <downloaded>` reports a JPEG image"
+        "The downloaded file is a JPEG image: either `file <downloaded>` reports JPEG, or a header byte dump shows the JPEG start marker `ff d8`. `file: command not found` with no header dump does not pass"
       ]
     },
     {
