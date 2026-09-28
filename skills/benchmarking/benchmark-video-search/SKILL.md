@@ -28,9 +28,13 @@ the same path the product uses, since the agent adapter shells out to
 `vss search run <mode> --raw` for every search — so the numbers describe what
 ships rather than a REST endpoint that is being retired.
 
-Do not use this skill for a single video-search question; use
-`vss-search-archive`. It does not benchmark the OpenClaw chat route or the
-agent REST search endpoint.
+## When not to use this skill
+
+- For a single video-search question, use `vss-search-archive`.
+- For an end-to-end benchmark of the OpenClaw chat route, this runner does not
+  measure that path; do not present CLI timings as chat timings.
+- For a historical benchmark of the retired agent REST search endpoint, use
+  the external legacy `run_eval.py` noted in `references/troubleshooting.md`.
 
 ## Routing
 
