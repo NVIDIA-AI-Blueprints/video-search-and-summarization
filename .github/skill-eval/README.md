@@ -52,15 +52,65 @@ Manual runs configure both routes without changing the coordinator or judge:
 | `coding_model` | Independent coding model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
 | `operational_harness` | Operational runtime: `claude-code`, `codex`, or `nemoclaw` |
 | `operational_model` | Independent operational model from [`inference.nvidia.com`](https://inference.nvidia.com/); a blank value preserves its configured default |
+| `coding_deployment` | `nvidia-inference` (default) or `local-nim` for coding/setup |
+| `operational_deployment` | Independent `nvidia-inference` (default) or `local-nim` for operational tasks |
+| `spark_runner` | Run on Brev external node `extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8` (`Spark-ba-WiFi`); default false |
 
-The runner owns credentials. NVIDIA inference uses the fixed public
-`https://inference.nvidia.com/` source; manual runs cannot redirect a runner
-credential to another host. A blank model preserves the configured model, and
-neither route inherits a model override from the other. For NemoClaw, the
-operational values are passed to Build Vision AI as `NEMOCLAW_MODEL` and the
-fixed `NEMOCLAW_ENDPOINT_URL`; Build Vision AI's `custom` adapter name denotes
-that OpenAI-compatible NVIDIA inference endpoint. The setup task itself uses
-the independently selected coding route.
+
+The runner owns credentials. Hosted routes use the fixed
+`https://inference-api.nvidia.com/v1` endpoint. Local routes use a temporary
+worker-local credential, never the hosted inference key. No arbitrary endpoint
+input is exposed. Coordinator and judge routing stays unchanged.
+
+### Local NIM lifecycle
+
+Select `local-nim` independently for either role. Provide a model-specific NIM
+ID (`publisher/model`, optionally prefixed by `nvidia_nim/`) and configure
+`NGC_CLI_API_KEY` or `NGC_API_KEY` on the coordinator. Proprietary hosted-only
+models cannot run locally. The worker authenticates to `nvcr.io`, discovers
+released model-specific NIM tags, selects the newest release with a Linux image
+matching the worker CPU architecture, and pins its digest. Qwen3-32B on ARM64
+also resolves its documented `qwen3-32b-dgx-spark` packaging variant. There is
+no fallback to a different model, a model-free container, or hosted inference.
+A missing image, incompatible architecture, registry access failure, and
+startup failure are distinct errors. This checks architecture only; it does
+not estimate GPU capacity, memory, disk, or combined VSS/inference demand.
+
+After the existing first-task Docker reset, the worker starts one NIM per
+unique selected local model. Identical coding and operational models share
+one container and endpoint; later tasks reuse that deployment. Different
+models run as separate containers. A pinned LiteLLM protocol adapter provides
+Anthropic Messages, OpenAI Responses, and Chat Completions for the harnesses,
+with startup smoke requests for each selected protocol. It runs on the same
+worker as VSS. NemoClaw receives the worker's routable address rather than the
+sandbox's loopback address.
+
+Startup is bounded to 1,400 seconds within the existing environment deadline;
+cold downloads may exceed this and fail explicitly. The worker needs access
+to NGC, Docker Hub (`python:3.12-slim`), and PyPI (`litellm[proxy]==1.103.0`).
+The adapter uses authenticated port 18400; NIM ports 18410+ bind to loopback.
+Job-owned containers are removed when the leg ends or is cancelled. The next
+first-task Docker reset reconciles leftovers after an uncatchable SIGKILL.
+Weights persist under `~/.cache/skill-eval-nim-models/`, outside Docker volumes.
+Sanitized image/tag/digest, model, architecture, startup errors, and bounded
+container logs appear in each trial's `artifacts/local-nim` directory (under
+Harbor's collected `/logs/artifacts` tree). `model-deployments.json` records
+role choices and the actual worker at the leg results root.
+
+### Spark selection
+
+The checkbox selects the **Brev execution worker**, not the GitHub Actions
+coordinator. `run_leg.py` resolves the registered node by external node ID
+(or the supplied name on older Brev versions), then holds the existing
+per-worker lock across all tasks and NIM cleanup. Missing/disconnected nodes
+or conflicting explicit instance overrides fail; no other worker is selected.
+The coordinator needs its Brev SSH alias configured, just as for other
+registered workers. Spark must report ARM64. Existing GPU/memory/disk guards
+are bypassed for this explicit Spark override; normal pool runs retain their
+existing VSS resource checks. The spec's platform label remains the requested
+scenario, while `machine.txt` records where it actually ran. Selecting Spark
+does not rewrite a spec's deployment instructions or guarantee that all VSS
+images in that scenario support ARM64.
 
 ### API keys (`/home/ubuntu/eval-coordinator/.env` on the runner)
 

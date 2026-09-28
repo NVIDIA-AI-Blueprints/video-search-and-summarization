@@ -14,6 +14,7 @@ CODING_RUNTIMES = ("claude-code", "codex")
 NVIDIA_INFERENCE_PROVIDER = "nvidia-inference"
 NVIDIA_INFERENCE_SOURCE_URL = "https://inference.nvidia.com/"
 NVIDIA_INFERENCE_API_BASE_URL = "https://inference-api.nvidia.com/v1"
+LOCAL_NIM_PROVIDER = "local-nim"
 ROLES = ("coding", "operational")
 
 
@@ -58,6 +59,9 @@ def resolve_model_config(
     )
     runtime = _first(env.get(f"{prefix}_HARNESS"), runtime_default)
     requested_model = _first(env.get(f"{prefix}_MODEL"))
+    deployment = _first(env.get(f"{prefix}_DEPLOYMENT"), NVIDIA_INFERENCE_PROVIDER)
+    if deployment not in {NVIDIA_INFERENCE_PROVIDER, LOCAL_NIM_PROVIDER}:
+        raise ValueError(f"unsupported {role} deployment {deployment!r}")
     route_api_key = _first(env.get(f"{prefix}_API_KEY"))
 
     allowed_runtimes = CODING_RUNTIMES if role == "coding" else RUNTIMES
@@ -96,6 +100,14 @@ def resolve_model_config(
             f"{prefix}_MODEL is required because the selected harness has "
             "no configured default model"
         )
+    if deployment == LOCAL_NIM_PROVIDER:
+        from local_nim import validate_model_id
+        validate_model_id(model)
+        if not _first(env.get("NGC_CLI_API_KEY"), env.get("NGC_API_KEY")):
+            raise ValueError("local-nim requires NGC_CLI_API_KEY or NGC_API_KEY")
+        # Filled with a per-leg credential by run_leg; never send a hosted key.
+        endpoint_url = "http://127.0.0.1:18400/v1"
+        api_key = "local-nim"
     if not api_key:
         raise ValueError(
             f"no API key is configured; set {credential_name} on the runner"
@@ -104,7 +116,7 @@ def resolve_model_config(
     return SkillEvalModelConfig(
         role=role,
         runtime=runtime,
-        provider=NVIDIA_INFERENCE_PROVIDER,
+        provider=deployment,
         model=model,
         endpoint_url=endpoint_url.rstrip("/"),
         api_key=api_key,

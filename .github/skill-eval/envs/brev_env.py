@@ -193,7 +193,8 @@ class BrevEnvironment(BaseEnvironment):
                     f"Brev instance '{self._instance_name}' not found "
                     f"(is it deleted? wrong org?)"
                 )
-            await _check_instance_matches(instance, requirements)
+            if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") != "true":
+                await _check_instance_matches(instance, requirements)
         else:
             raise RuntimeError(
                 "No BREV_INSTANCE set and no `brev_instance` in task.toml "
@@ -226,7 +227,12 @@ class BrevEnvironment(BaseEnvironment):
         # the checks catch silent regressions (e.g. a driver downgrade or
         # a box where the big volume mounts on /ephemeral and / is only
         # ~100 GB — which OOMs on local NIM pulls).
-        await _check_live_resources(self._instance_name, requirements)
+        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+            result = await _run_brev_exec(self._instance_name, "uname -m", timeout=30)
+            if result.return_code or (result.stdout or "").strip() not in {"aarch64", "arm64"}:
+                raise RuntimeError("Selected Spark worker must have arm64 architecture")
+        else:
+            await _check_live_resources(self._instance_name, requirements)
 
         preserve_deployment = (
             os.environ.get("SKILL_EVAL_PRESERVE_DEPLOYMENT") == "1"
@@ -382,7 +388,7 @@ class BrevEnvironment(BaseEnvironment):
             ("RTSP_SAMPLE_URL", _resolve_rtsp_sample_url()),
         ]
         for key in (
-            "NGC_CLI_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
+            "NGC_CLI_API_KEY", "NGC_API_KEY", "NVIDIA_API_KEY", "HF_TOKEN",
             "LLM_REMOTE_URL", "LLM_REMOTE_MODEL",
             "VLM_REMOTE_URL", "VLM_REMOTE_MODEL",
             # The Build Vision AI provisioning task owns host-side NemoClaw
@@ -551,8 +557,32 @@ class BrevEnvironment(BaseEnvironment):
         # env provider. The previous `_ensure_prerequisite_deployed`
         # hook + `/tmp/skill-eval/active-deploy.txt` marker are gone.
 
+        if os.environ.get("SKILL_EVAL_LOCAL_NIM_PLAN"):
+            await self._start_local_nims()
         self._started = True
         logger.info("Brev instance %s is reachable", self._instance_name)
+
+    async def _start_local_nims(self) -> None:
+        """Start after Docker reset; reuse the same services across role changes."""
+        plan = json.loads(os.environ["SKILL_EVAL_LOCAL_NIM_PLAN"])
+        # Validate the owner without creating coordinator-side directories.
+        import re
+        if not re.fullmatch(r"[a-f0-9]{24}", plan["owner"]):
+            raise ValueError("Invalid local NIM owner")
+        remote = f"/tmp/skill-eval-nim-{plan['owner']}"
+        await self.upload_file(Path(__file__).resolve().parents[1] / "local_nim.py", remote + ".py")
+        with tempfile.TemporaryDirectory() as directory:
+            local = Path(directory) / "plan.json"
+            local.write_text(json.dumps(plan))
+            local.chmod(0o600)
+            await self.upload_file(local, remote + ".json")
+        result = await _run_brev_exec(
+            self._instance_name,
+            f"chmod 600 {remote}.json && python3 {remote}.py start --plan {remote}.json",
+            timeout=1500,
+        )
+        if result.return_code:
+            raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
 
     async def _reset_docker_runtime(self) -> None:
         """Wipe the warm-pool box's docker runtime before the trial.

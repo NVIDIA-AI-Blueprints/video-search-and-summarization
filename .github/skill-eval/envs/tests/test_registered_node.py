@@ -271,3 +271,52 @@ class ClaudeTaskScratchCleanup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class LocalNimStartupOrder(unittest.IsolatedAsyncioTestCase):
+    async def test_spark_starts_nim_after_reset_without_capacity_checks(self):
+        events = []
+
+        async def record_reset():
+            events.append("reset")
+
+        async def record_nim():
+            events.append("nim")
+
+        async def execute(instance, command, **kwargs):
+            return brev_env.ExecResult(
+                stdout="aarch64" if command == "uname -m" else "harbor-ready",
+                return_code=0,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            env = brev_env.BrevEnvironment()
+            env.environment_dir = Path(directory) / "step-1" / "environment"
+            env.environment_dir.mkdir(parents=True)
+            with (
+                mock.patch.dict(os.environ, {
+                    "SKILLS_EVAL_SPARK_RUNNER": "true",
+                    "SKILL_EVAL_LOCAL_NIM_PLAN": "{}",
+                    "SKILL_EVAL_PRESERVE_DEPLOYMENT": "0",
+                }),
+                mock.patch.object(env, "_read_task_metadata", return_value={}),
+                mock.patch.object(env, "_resolve_instance_name", return_value="Spark-ba-WiFi"),
+                mock.patch.object(brev_env, "_find_brev_instance", new=mock.AsyncMock(return_value={"_registered": True})),
+                mock.patch.object(brev_env, "_check_instance_matches", new=mock.AsyncMock()) as matches,
+                mock.patch.object(brev_env, "_check_live_resources", new=mock.AsyncMock()) as resources,
+                mock.patch.object(brev_env, "_run_brev_exec", side_effect=execute),
+                mock.patch.object(env, "_reset_docker_runtime", side_effect=record_reset),
+                mock.patch.object(env, "_purge_host_data_dirs", new=mock.AsyncMock()),
+                mock.patch.object(env, "_probe_bind_mount", new=mock.AsyncMock()),
+                mock.patch.object(env, "_sync_repo_to_pr_head", new=mock.AsyncMock()),
+                mock.patch.object(env, "_start_local_nims", side_effect=record_nim),
+            ):
+                await env.start(False)
+                matches.assert_not_called()
+                resources.assert_not_called()
+                self.assertEqual(events, ["reset", "nim"])
+                self.assertTrue(env._started)
+
+
+if __name__ == "__main__":
+    unittest.main()

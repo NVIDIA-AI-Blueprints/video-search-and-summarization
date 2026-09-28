@@ -33,6 +33,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -1561,6 +1562,61 @@ def cleanup_deferred_agent_run(instance: str, marker: str) -> None:
         )
 
 
+def spark_instance() -> str:
+    """Resolve the operator-selected external node, never a cloud fallback."""
+    from local_nim import SPARK_NODE_ID, SPARK_NODE_NAME
+
+    def node_id(node: dict) -> str | None:
+        return node.get("external_node_id") or node.get("id")
+
+    nodes = _list_registered_nodes()
+    matches = [node for node in nodes if node_id(node) == SPARK_NODE_ID]
+    if not matches:
+        matches = [
+            node
+            for node in nodes
+            if (node.get("name") or "").casefold() == SPARK_NODE_NAME.casefold()
+        ]
+        if any(node_id(node) and node_id(node) != SPARK_NODE_ID for node in matches):
+            raise ValueError("Spark node name now belongs to a different Brev node ID")
+    if len(matches) != 1 or (matches[0].get("status") or "").lower() != "connected":
+        raise ValueError(
+            f"Spark worker {SPARK_NODE_NAME} ({SPARK_NODE_ID}) is missing or disconnected"
+        )
+    return matches[0]["name"]
+
+
+def cleanup_local_nims(instance: str, owner: str) -> None:
+    # Use the same transport as Harbor (registered nodes use SSH). The file
+    # is uploaded before start, so cleanup also covers interrupted readiness.
+    command = f"python3 /tmp/skill-eval-nim-{owner}.py cleanup --owner {owner}"
+    result = subprocess.run(
+        [
+            "uvx",
+            "--python",
+            sys.executable,
+            "--from",
+            HARBOR_REQUIREMENT,
+            "python",
+            "-c",
+            "import asyncio,sys; from envs.brev_env import _run_brev_exec; "
+            "r=asyncio.run(_run_brev_exec(sys.argv[1],sys.argv[2],timeout=90)); "
+            "print(r.stdout or ''); print(r.stderr or '',file=sys.stderr); sys.exit(r.return_code)",
+            instance,
+            command,
+        ],
+        cwd=REPO_ROOT,
+        env=harbor_env(instance),
+        timeout=120,
+        check=False,
+    )
+    if result.returncode:
+        print(
+            "[run-leg] local NIM cleanup failed; next worker reset will reconcile containers",
+            file=sys.stderr,
+        )
+
+
 def run_invocations(
     invocations: list[HarborInvocation],
     instance: str,
@@ -1572,7 +1628,99 @@ def run_invocations(
     model_routes: SkillEvalModelRoutes,
     work_deadline: float | None = None,
 ) -> int:
+    from local_nim import PROXY_PORT
+
+    routes = [
+        r
+        for r in (model_routes.coding, model_routes.operational)
+        if r.provider == "local-nim"
+    ]
+    if not routes:
+        return _run_invocations(
+            invocations,
+            instance,
+            results_root,
+            scratch,
+            spec_stem,
+            platform,
+            harbor_timeout_sec,
+            model_routes,
+            work_deadline,
+        )
+    owner = hashlib.sha256(str(results_root).encode()).hexdigest()[:24]
+    token = "sk-" + secrets.token_hex(24)
+    plan = {
+        "owner": owner,
+        "token": token,
+        "routes": [
+            {"role": r.role, "model": r.model, "runtime": r.runtime} for r in routes
+        ],
+    }
+
+    def local_route(route):
+        return (
+            dataclasses.replace(
+                route, api_key=token, endpoint_url=f"http://127.0.0.1:{PROXY_PORT}/v1"
+            )
+            if route.provider == "local-nim"
+            else route
+        )
+
+    resolved = SkillEvalModelRoutes(
+        coding=local_route(model_routes.coding),
+        operational=local_route(model_routes.operational),
+    )
+    results_root.mkdir(parents=True, exist_ok=True)
+    (results_root / "model-deployments.json").write_text(
+        json.dumps(
+            {
+                "worker": instance,
+                "routes": [
+                    {"role": r.role, "deployment": r.provider, "model": r.model}
+                    for r in (resolved.coding, resolved.operational)
+                ],
+            },
+            indent=2,
+        )
+    )
+    try:
+        return _run_invocations(
+            invocations,
+            instance,
+            results_root,
+            scratch,
+            spec_stem,
+            platform,
+            harbor_timeout_sec,
+            resolved,
+            work_deadline,
+            nim_plan=plan,
+        )
+    finally:
+        try:
+            cleanup_local_nims(instance, owner)
+        except Exception as exc:
+            print(
+                f"[run-leg] local NIM cleanup failed: {type(exc).__name__}",
+                file=sys.stderr,
+            )
+
+
+def _run_invocations(
+    invocations: list[HarborInvocation],
+    instance: str,
+    results_root: Path,
+    scratch: Path,
+    spec_stem: str,
+    platform: str,
+    harbor_timeout_sec: int,
+    model_routes: SkillEvalModelRoutes,
+    work_deadline: float | None = None,
+    nim_plan: dict | None = None,
+) -> int:
     env = harbor_env(instance)
+    if nim_plan is not None:
+        env["SKILL_EVAL_LOCAL_NIM_PLAN"] = json.dumps(nim_plan)
 
     results_root.mkdir(parents=True, exist_ok=True)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
@@ -1620,8 +1768,8 @@ def run_invocations(
             {
                 "NEMOCLAW_POLICY_MODE": os.environ.get("NEMOCLAW_POLICY_MODE", "skip"),
                 # Build Vision AI calls an OpenAI-compatible endpoint a
-                # "custom" provider. The endpoint itself is always the fixed
-                # public NVIDIA inference route resolved by model_config.py.
+                # "custom" provider. For local NIM the worker replaces the
+                # loopback URL with its routable host address during start().
                 "NEMOCLAW_PROVIDER": "custom",
                 "NEMOCLAW_ENDPOINT_URL": operational_config.endpoint_url,
                 "NEMOCLAW_MODEL": operational_config.model,
@@ -1724,8 +1872,10 @@ def run_invocations(
             # The parent ANTHROPIC_* values therefore remain the coordinator's
             # verifier route rather than being replaced by the evaluated route.
             invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
-            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = _api_base_v1(
-                invocation_base_url
+            invocation_env[AGENT_ROUTE_BASE_URL_ENV] = (
+                invocation_base_url.removesuffix("/v1")
+                if invocation_config.provider == "local-nim"
+                else _api_base_v1(invocation_base_url)
             )
         elif invocation_agent == "codex":
             invocation_env[AGENT_ROUTE_API_KEY_ENV] = invocation_config.api_key
@@ -1917,7 +2067,12 @@ def main(argv: list[str] | None = None) -> int:
         effective_lock_timeout = min(args.lock_timeout_sec, max_lock_wait)
         # Pin precedence: CLI/--instance (incl. BREV_INSTANCE env default)
         # > task.toml brev_instance > pool selection.
-        pinned = args.instance or metadata.get("brev_instance") or None
+        if os.environ.get("SKILLS_EVAL_SPARK_RUNNER") == "true":
+            pinned = spark_instance()
+            if args.instance and args.instance.casefold() != pinned.casefold():
+                raise ValueError("--instance conflicts with the selected Spark worker")
+        else:
+            pinned = args.instance or metadata.get("brev_instance") or None
         if pinned:
             print(f"[run-leg] pinned instance: {pinned} (pool selection skipped)",
                   flush=True)
