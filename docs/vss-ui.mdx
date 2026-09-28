@@ -823,7 +823,7 @@ Both toggles are enabled by default. Disable either to filter the view.
 * **Add RTSP** - Opens the RTSP stream configuration dialog for adding live camera feeds
 
 <Note>
-These buttons may appear disabled (grayed out) if the deployment does not support the respective features. A disabled **Upload Video** button indicates that video file uploads are not enabled in the current deployment configuration. Similarly, a disabled **Add RTSP** button indicates that RTSP stream management is not supported in this deployment.
+The toolbar hides **Upload Video** when `NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE=false` and hides **Add RTSP** when `NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE=false`. For example, the alerts profile shows **Add RTSP** without **Upload Video**, while the video summarization (`lvs`) profile enables both. Use a profile with video upload enabled to summarize an uploaded file through the UI.
 </Note>
 
 #### Streams Grid
