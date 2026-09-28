@@ -1565,8 +1565,10 @@ class VideoFileFrameGetter:
                         fs._chunk.end_pts = min(self._last_frame_pts, fs._chunk.end_pts)
 
                     end_time = fs._chunk.end_pts / 1e9
-                    if fs_data.cached_pts and (self._live_stream_ntp_epoch or self._sei_base_time):
-                        # The final sampled frame can precede the nominal chunk boundary.
+                    if not self._enable_audio and fs_data.cached_pts and (
+                        self._live_stream_ntp_epoch or self._sei_base_time
+                    ):
+                        # Video can finish early; audio may extend to the nominal boundary.
                         end_time = min(end_time, max(fs_data.cached_pts))
                     fs._chunk.start_ntp = get_timestamp_str(base_time + fs._chunk.start_pts / 1e9)
                     fs._chunk.end_ntp = get_timestamp_str(base_time + end_time)

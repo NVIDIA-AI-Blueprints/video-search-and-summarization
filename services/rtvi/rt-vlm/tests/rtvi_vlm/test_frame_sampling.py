@@ -13,6 +13,8 @@
 from threading import Lock
 from unittest.mock import patch
 
+import pytest
+
 from common.chunk_info import ChunkInfo
 from utils.media_file_info import MediaFileInfo
 from vlm_pipeline.video_file_frame_getter import (
@@ -107,7 +109,17 @@ def test_fixed_file_subrange_keeps_pts_selection():
     ]
 
 
-def test_live_chunk_ntp_ends_at_last_selected_frame():
+@pytest.mark.parametrize(
+    "audio_mode, expected_end, expected_transcripts, expected_audio_frames",
+    [
+        (None, "2024-09-28T09:00:09.000Z", 0, 0),
+        ("asr", "2024-09-28T09:00:10.000Z", 1, 0),
+        ("vlm", "2024-09-28T09:00:10.000Z", 0, 1),
+    ],
+)
+def test_live_chunk_ntp_covers_delivered_media(
+    audio_mode, expected_end, expected_transcripts, expected_audio_frames
+):
     chunk = ChunkInfo(
         file="rtsp://localhost/live",
         start_pts=0,
@@ -129,17 +141,35 @@ def test_live_chunk_ntp_ends_at_last_selected_frame():
     getter._live_stream_ntp_epoch = 1_727_514_000_000_000_000
     getter._live_stream_ntp_pts = 0
     getter._sei_base_time = None
-    getter._enable_audio = False
+    getter._enable_audio = audio_mode is not None
+    getter._use_vlm_audio = audio_mode == "vlm"
+    getter._live_stream_audio_transcripts_lock = Lock()
+    getter._audio_frames_lock = Lock()
+    getter._live_stream_chunk_overlap_duration = 0
+    getter._cached_transcripts = (
+        [{"start": 9_500_000_000, "end": 9_700_000_000, "transcript": "speech"}]
+        if audio_mode == "asr"
+        else []
+    )
+    getter._cached_audio_frames = (
+        [{"start": 9.5, "end": 9.7, "audio": object()}] if audio_mode == "vlm" else []
+    )
     getter._err_msg_lock = Lock()
     getter._err_msg = None
     getter._timestamp_filter = None
     reported = []
-    getter._live_stream_chunk_decoded_callback = lambda chunk, *_: reported.append(chunk)
+    getter._live_stream_chunk_decoded_callback = (
+        lambda chunk, _frames, _pts, transcripts, _err, _start, _end, audio: reported.append(
+            (chunk, transcripts, audio)
+        )
+    )
 
     with patch.dict("os.environ", {"CHOOSE_FSELECT": "false"}):
         getter._process_finished_chunks(current_pts=9_000_000_000)
 
     assert len(reported) == 1
     assert chunk.end_pts == 10_000_000_000  # The next chunk still uses the same boundary.
-    assert chunk.end_ntp == "2024-09-28T09:00:09.000Z"
-    assert chunk.end_ntp_float == 1_727_514_009.0
+    assert len(reported[0][1]) == expected_transcripts
+    assert len(reported[0][2]) == expected_audio_frames
+    assert chunk.end_ntp == expected_end
+    assert chunk.end_ntp_float == (1_727_514_010.0 if audio_mode else 1_727_514_009.0)
