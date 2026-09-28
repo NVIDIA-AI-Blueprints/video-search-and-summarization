@@ -194,32 +194,6 @@ OPENSHELL_RTXPRO6000_LABELS: tuple[str, ...] = (
     "gpu-rtxpro6000bw",
     "openshell-rtxpro6000-active",
 )
-OPENSHELL_A16_LABELS: tuple[str, ...] = (
-    "vss-skill-eval-gpu",
-    OPENSHELL_RUNNER_LABEL,
-    "openshell",
-    "a16",
-    "gpu-a16",
-    "gpu-nvidia-a16",
-    # Measured usable VRAM is 15356 MiB. run_leg compares nvidia-smi MiB
-    # against min_vram_gb*1000, so 16 GB does not fit; do not advertise 16.
-    "vram-15gb",
-    "video-codec",
-    "openshell-a16-active",
-)
-OPENSHELL_A40_LABELS: tuple[str, ...] = (
-    "vss-skill-eval-gpu",
-    OPENSHELL_RUNNER_LABEL,
-    "openshell",
-    "a40",
-    "gpu-a40",
-    "gpu-nvidia-a40",
-    # Measured usable VRAM is 46068 MiB. run_leg compares nvidia-smi MiB
-    # against min_vram_gb*1000, so 48 GB does not fit; do not advertise 48.
-    "vram-46gb",
-    "video-codec",
-    "openshell-a40-active",
-)
 OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
@@ -262,8 +236,6 @@ PLATFORM_LABELS: dict[str, str | None] = {
     "H200": "gpu-h200",
     "L40S": "gpu-l40s",
     "RTXPRO6000BW": "gpu-rtxpro6000bw",
-    "A16": "gpu-a16",
-    "A40": "gpu-a40",
     "DGX-SPARK": "gpu-dgx-spark",
     "IGX-THOR": "gpu-igx-thor",
     "ANY": None,
@@ -287,23 +259,10 @@ class OpenShellCohort(NamedTuple):
 # a GPU count and takes whichever guest claims the labels, and the
 # guest's own card decides `HARDWARE_PROFILE`; see
 # `openshell_requirements`. Capacity is runner capacity,
-# not GPU count: 8 A16 VMs, 4 one-GPU A40 VMs, 2 two-GPU A40 VMs, 8 one-GPU
-# H200 VMs, 4 two-GPU H200 VMs, 8 one-GPU L40S VMs, 4 two-GPU L40S VMs, and
-# 4 two-GPU RTX PRO 6000 VMs. H200 has no NVENC; do not give it RTX PRO 6000
-# labels.
+# not GPU count: 8 one-GPU H200 VMs, 4 two-GPU H200 VMs, 8 one-GPU L40S VMs,
+# 4 two-GPU L40S VMs, and 4 two-GPU RTX PRO 6000 VMs. H200 has no NVENC; do
+# not give it RTX PRO 6000 labels.
 OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
-    OpenShellCohort(
-        "a16-1g", "A16", "A16", 1, 15, 8,
-        (*OPENSHELL_A16_LABELS, "gpus-1"),
-    ),
-    OpenShellCohort(
-        "a40-1g", "A40", "A40", 1, 46, 4,
-        (*OPENSHELL_A40_LABELS, "gpus-1"),
-    ),
-    OpenShellCohort(
-        "a40-2g", "A40", "A40", 2, 46, 2,
-        (*OPENSHELL_A40_LABELS, "gpus-2"),
-    ),
     OpenShellCohort(
         "h200-1g", "H200", "H200", 1, 141, 8,
         (*OPENSHELL_H200_LABELS, "gpus-1"),
@@ -443,14 +402,6 @@ def runs_on_labels(
             labels = list(OPENSHELL_RTXPRO6000_LABELS)
             labels.append("gpus-2" if count >= 2 else "gpus-1")
             return labels
-        if platform == "A16":
-            if count != 1:
-                return list(SKIP_RUNNER)
-            return [*OPENSHELL_A16_LABELS, "gpus-1"]
-        if platform == "A40":
-            if count not in (1, 2):
-                return list(SKIP_RUNNER)
-            return [*OPENSHELL_A40_LABELS, f"gpus-{count}"]
         if platform == "H200":
             if count not in (1, 2):
                 return list(SKIP_RUNNER)

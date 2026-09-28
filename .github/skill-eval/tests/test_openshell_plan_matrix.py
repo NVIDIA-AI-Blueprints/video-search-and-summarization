@@ -65,30 +65,21 @@ class OpenshellGpuFleet(unittest.TestCase):
             "supported_hardware_profiles": list(profiles),
         }
 
-    def test_a16_and_a40_labels_are_cohort_specific(self):
-        a16 = plan_matrix.runs_on_labels("A16", {"gpu_count": 1})
-        self.assertIn("openshell-a16-active", a16)
-        self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, a16)
-        self.assertIn("gpu-nvidia-a16", a16)
-        self.assertIn("vram-15gb", a16)
-        self.assertNotIn("vram-16gb", a16)
-        self.assertIn("gpus-1", a16)
+    def test_retired_a16_and_a40_are_not_placed(self):
         self.assertEqual(
-            plan_matrix.runs_on_labels("A16", {"gpu_count": 2}),
+            plan_matrix.runs_on_labels("A16", {"gpu_count": 1}),
+            list(plan_matrix.SKIP_RUNNER),
+        )
+        self.assertEqual(
+            plan_matrix.runs_on_labels("A40", {"gpu_count": 1}),
+            list(plan_matrix.SKIP_RUNNER),
+        )
+        self.assertEqual(
+            plan_matrix.runs_on_labels("A40", {"gpu_count": 2}),
             list(plan_matrix.SKIP_RUNNER),
         )
 
-        a40_1g = plan_matrix.runs_on_labels("A40", {"gpu_count": 1})
-        a40_2g = plan_matrix.runs_on_labels("A40", {"gpu_count": 2})
-        self.assertIn("openshell-a40-active", a40_1g)
-        self.assertIn("gpu-nvidia-a40", a40_2g)
-        self.assertIn("vram-46gb", a40_1g)
-        self.assertIn("vram-46gb", a40_2g)
-        self.assertNotIn("vram-48gb", a40_1g)
-        self.assertNotIn("vram-48gb", a40_2g)
-        self.assertIn("gpus-1", a40_1g)
-        self.assertIn("gpus-2", a40_2g)
-
+    def test_h200_and_l40s_labels_are_cohort_specific(self):
         h200 = plan_matrix.runs_on_labels("H200", {"gpu_count": 1})
         self.assertIn("openshell-h200-active", h200)
         self.assertIn(plan_matrix.OPENSHELL_RUNNER_LABEL, h200)
@@ -124,9 +115,6 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(
             {cohort.name: cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS},
             {
-                "a16-1g": 8,
-                "a40-1g": 4,
-                "a40-2g": 2,
                 "h200-1g": 8,
                 "h200-2g": 4,
                 "l40s-1g": 8,
@@ -136,7 +124,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         )
         self.assertEqual(
             sum(cohort.capacity for cohort in plan_matrix.OPENSHELL_COHORTS),
-            42,
+            28,
         )
 
     def test_openshell_job_labels_are_not_sku_specific(self):
@@ -171,8 +159,6 @@ class OpenshellGpuFleet(unittest.TestCase):
             "gpus-1",
         )
         for labels in (
-            plan_matrix.OPENSHELL_A16_LABELS,
-            plan_matrix.OPENSHELL_A40_LABELS,
             plan_matrix.OPENSHELL_H200_LABELS,
             plan_matrix.OPENSHELL_L40S_LABELS,
             plan_matrix.OPENSHELL_RTXPRO6000_LABELS,
@@ -341,7 +327,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(requirements.get("supported_hardware_profiles"), ["A16"])
 
     def test_hardware_profile_identity_is_never_substituted(self):
-        for profile in ("A16", "A40", "H200", "L40S", "RTXPRO6000BW"):
+        for profile in ("H200", "L40S", "RTXPRO6000BW"):
             self.assertEqual(plan_matrix.hardware_profile_for(profile), profile)
 
     def test_harness_only_diff_emits_count_only_smoke_leg(self):
