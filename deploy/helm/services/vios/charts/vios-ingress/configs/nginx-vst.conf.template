@@ -56,6 +56,34 @@ http {
     
     client_max_body_size {{ .Values.clientMaxBodySize | default "25G" }};
 
+    # Every redirect nginx generates here must be RELATIVE.
+    #
+    # nginx absolutises a Location beginning with "/" into scheme://host:port/,
+    # and the port it substitutes is this listener's (30888) rather than the one
+    # the client actually reached. So the `return 301 /vst/` below answers a
+    # request that arrived on the ingress with http://<Host>:30888/vst/ -- off
+    # the ingress origin and onto an internal Service port, which defeats the
+    # point of a single front door. Where TLS terminates at the ingress or above
+    # it that header is also plain http from an https page, so a browser blocks
+    # it as mixed content on top of being unable to reach it.
+    #
+    # A relative Location resolves against the request URL (RFC 7231 7.1.2) and
+    # is therefore correct on every origin without this server being told the
+    # external scheme, host or port -- which matters more here than in compose,
+    # because the Ingress hostname is not known to this chart. Set at http level
+    # because it governs nginx's directory-slash redirect as well as the
+    # explicit return above.
+    #
+    # port_in_redirect and server_name_in_redirect are deliberately not set:
+    # nginx consults them only while building an absolute Location, so they are
+    # unreachable with this off, and port_in_redirect alone still leaks the
+    # scheme.
+    #
+    # Kept in step with the compose configs under
+    # deploy/docker/services/vios/configs/ by
+    # .github/scripts/check_nginx_relative_redirects.py.
+    absolute_redirect off;
+
     # WebSocket proxy settings
     map $http_upgrade $connection_upgrade {
         default upgrade;

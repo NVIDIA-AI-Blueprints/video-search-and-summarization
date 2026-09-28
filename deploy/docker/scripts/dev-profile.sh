@@ -99,6 +99,70 @@ function get_nvidia_smi_gpu_count() {
   echo "${_count}"
 }
 
+# ===== Brev secure links =====
+#
+# Brev publishes a fixed set of secure links when an environment is created; it
+# does not open arbitrary ports on demand. Which public port reaches which host
+# port under which FQDN is recorded in the environment context file, and on the
+# instance that file is the only authoritative source for it.
+#
+# Nothing about a link is derivable from BREV_ENV_ID. A real instance serves
+# `jupyter-<id>.gobrev.dev` on 443 forwarding to host port 8888: the label is a
+# name chosen at provisioning rather than a port, the domain is none of the ones
+# a template would offer, and the host port is not the gateway's default. No
+# `<port>-<id>.<domain>` template produces any of the three.
+#
+# Guessing is worse than declining to guess. VSS_PUBLIC_HOST feeds the gateway's
+# Host allowlist, so a wrong value does not degrade -- it rejects every request
+# with `x-vss-gateway-deny: unknown-host`, long after this script has exited and
+# reported success.
+brev_environment_context_default_path="/etc/brev/environment-context.json"
+
+# Path to the Brev environment context, or non-zero when there is none to read.
+function get_brev_environment_context_path() {
+  local _path="${BREV_ENVIRONMENT_CONTEXT_PATH:-${brev_environment_context_default_path}}"
+  [[ -n "${_path}" && -r "${_path}" ]] || return 1
+  printf '%s\n' "${_path}"
+}
+
+# Emit one "<public_port> <destination_port> <fqdn>" line per published secure
+# link that can carry HTTP, https links first.
+#
+# The SSH link is excluded: destination port 22 is a raw TCP forward, not an HTTP
+# origin. A context file describing a different environment than BREV_ENV_ID is
+# rejected outright rather than half-trusted -- a stale or copied file is exactly
+# the case where a plausible-looking wrong hostname would be minted.
+# Return codes: 1 no readable context, 2 no jq, 3 the context did not parse.
+function get_brev_secure_links() {
+  local _env_id="${1:-}"
+  local _path _links _rc=0
+  _path="$(get_brev_environment_context_path)" || return 1
+  command -v jq >/dev/null 2>&1 || return 2
+  _links="$(jq -r --arg env_id "${_env_id}" '
+    if ($env_id != "" and (.environment_id // "") != "" and .environment_id != $env_id)
+    then empty
+    else
+      (.ports // [])
+      | map(select(type == "object"))
+      | map(select(
+          (.fqdn // "" | type == "string") and (.fqdn // "") != ""
+          and (.public_port | type) == "number"
+          and (.destination_port | type) == "number"
+          and .destination_port != 22
+        ))
+      | sort_by(
+          (if .public_port == 443 then 0 elif .public_port == 80 then 1 else 2 end),
+          .public_port,
+          .destination_port
+        )
+      | .[]
+      | "\(.public_port) \(.destination_port) \(.fqdn)"
+    end
+  ' "${_path}" 2>/dev/null)" || _rc=3
+  [[ "${_rc}" -eq 0 ]] || return "${_rc}"
+  printf '%s\n' "${_links}"
+}
+
 # Returns success when the detected dotted version is at least the required
 # version. NVIDIA driver versions are numeric and compare correctly with
 # version sort (for example, 595.58.03 > 595.57.99).
@@ -109,6 +173,240 @@ function version_is_at_least() {
   [[ -n "${_detected}" ]] && [[ -n "${_required}" ]] || return 1
   _lowest="$(printf '%s\n%s\n' "${_required}" "${_detected}" | sort -V | head -n1)"
   [[ "${_lowest}" == "${_required}" ]]
+}
+
+
+# ===== Single-GPU device clamp =====
+#
+# The device indices committed in the profile env files describe the GPU layout
+# each profile was validated on: alerts puts the LLM, the VLM and RT-VLM on
+# device 1 and keeps device 0 for RT-CV, search splits RT-CV + RT-VLM on 0 from
+# RT-Embed + the LLM on 1, warehouse goes as far as device 2. Compose passes
+# those straight into `device_ids`, and asking for an index the host does not
+# have is a hard container-start failure, not a fallback -- the stack never comes
+# up on a single-GPU host.
+#
+# Capacity is not the problem being solved here: the LLM and the VLM co-resident
+# on one card measured 71 GiB of 96 GiB in use, so collapsing placement onto a
+# device that exists genuinely runs. What breaks is the *selection* of an index
+# that is not there.
+#
+# Two properties this deliberately keeps:
+#
+#   * A host with at least as many GPUs as the profile's highest index needs
+#     clamps nothing, so every already-validated multi-GPU layout renders
+#     byte-identically. The clamp is dormant there by construction, not by a
+#     hardware-profile special case.
+#   * A GPU count of 0 -- no nvidia-smi, a CI or dry-run host with no GPU --
+#     leaves placement alone. An unknown count must never silently rewrite it.
+#
+# Every remap is logged. A quiet remap that moves a model to a different GPU is
+# barely better than the crash, because the next person to read a bug report
+# cannot tell where the model actually ran.
+
+# GPU count the placement decisions are made against. VSS_GPU_COUNT overrides
+# the nvidia-smi probe so both the single-GPU and the multi-GPU branch are
+# reachable on any host, including a CI runner with no GPU at all -- the same
+# role SKIP_HARDWARE_CHECK plays for the hardware-profile match. It is a test
+# hook: deploying never needs it, and setting it does not change placement on a
+# host that already has enough GPUs.
+function get_deployment_gpu_count() {
+  if [[ "${VSS_GPU_COUNT:-}" =~ ^[0-9]+$ ]]; then
+    echo "${VSS_GPU_COUNT}"
+    return
+  fi
+  get_nvidia_smi_gpu_count
+}
+
+# Every key a profile may use to place a service on a GPU. The clamp walks this
+# list, and .github/scripts/check_gpu_device_clamp.py fails the build when a
+# profile commits an index above 0 under a key that is missing from it -- a new
+# placement key that nothing clamps is how this defect reaches a single-GPU host
+# in the first place.
+DEVICE_ID_KEYS=(
+  'LLM_DEVICE_ID'
+  'VLM_DEVICE_ID'
+  'SHARED_LLM_VLM_DEVICE_ID'
+  'RT_VLM_DEVICE_ID'
+  'RT_CV_DEVICE_ID'
+  'RT_EMBED_DEVICE_ID'
+  'FIXED_SHARED_DEVICE_IDS'
+)
+
+# Keys that name GPUs the LLM and VLM must stay OFF, rather than GPUs they run
+# on. Clamping these would be wrong (see clamp_device_ids_to_gpu_count), so they
+# are listed separately and filtered instead.
+# shellcheck disable=SC2034  # read by .github/scripts/check_gpu_device_clamp.py
+DEVICE_RESERVATION_KEYS=(
+  'RESERVED_DEVICE_IDS'
+)
+
+# Effective placement after the clamp. Everything downstream -- LLM/VLM mode
+# derivation, the reserved-device validation, the generated.env writes -- reads
+# these rather than the profile files, so there is one answer per run.
+gpu_count=0
+device_clamp_applied="false"
+shared_llm_vlm_device_id=""
+rt_vlm_device_id=""
+rt_cv_device_id=""
+rt_embed_device_id=""
+fixed_shared_device_ids=""
+reserved_device_ids=""
+
+# Fold one index onto the last device the host has. Non-numeric values and an
+# unknown GPU count pass through untouched.
+function clamp_device_index() {
+  local _index="${1}" _gpu_count="${2}"
+  if [[ ! "${_index}" =~ ^[0-9]+$ ]] || [[ ! "${_gpu_count}" =~ ^[0-9]+$ ]] || (( _gpu_count <= 0 )); then
+    echo "${_index}"
+    return
+  fi
+  if (( _index >= _gpu_count )); then
+    echo "$(( _gpu_count - 1 ))"
+  else
+    echo "${_index}"
+  fi
+}
+
+# Clamp every entry of a comma-separated device list, dropping the duplicates
+# the clamp creates. FIXED_SHARED_DEVICE_IDS='0,1' becomes '0' on one GPU rather
+# than '0,0', which is what keeps the LLM/VLM mode derivation reading it as a
+# single shared device.
+function clamp_device_index_list() {
+  local _list="${1}" _gpu_count="${2}"
+  local _entry _clamped _out=""
+  local -a _entries
+  IFS=',' read -ra _entries <<< "${_list}"
+  for _entry in "${_entries[@]}"; do
+    [[ -n "${_entry}" ]] || continue
+    _clamped="$(clamp_device_index "${_entry}" "${_gpu_count}")"
+    case ",${_out}," in *",${_clamped},"*) continue ;; esac
+    _out="${_out:+${_out},}${_clamped}"
+  done
+  echo "${_out}"
+}
+
+# Drop entries naming a device the host does not have, and de-duplicate.
+function filter_existing_device_ids() {
+  local _list="${1}" _gpu_count="${2}"
+  local _entry _out=""
+  local -a _entries
+  IFS=',' read -ra _entries <<< "${_list}"
+  for _entry in "${_entries[@]}"; do
+    [[ -n "${_entry}" ]] || continue
+    if [[ "${_entry}" =~ ^[0-9]+$ ]] && [[ "${_gpu_count}" =~ ^[0-9]+$ ]] && (( _gpu_count > 0 )) && (( _entry >= _gpu_count )); then
+      continue
+    fi
+    case ",${_out}," in *",${_entry},"*) continue ;; esac
+    _out="${_out:+${_out},}${_entry}"
+  done
+  echo "${_out}"
+}
+
+function count_device_ids() {
+  local _list="${1}"
+  local _entry _count=0
+  local -a _entries
+  IFS=',' read -ra _entries <<< "${_list}"
+  for _entry in "${_entries[@]}"; do
+    [[ -n "${_entry}" ]] && ((_count++))
+  done
+  echo "${_count}"
+}
+
+# Highest device index the profile commits anywhere. The profile implicitly
+# requires that many GPUs plus one; nothing declares it, so it is derived.
+function get_profile_max_device_index() {
+  local _max=0 _key _value _entry
+  local -a _env_files=("$@")
+  local -a _entries
+  for _key in "${DEVICE_ID_KEYS[@]}"; do
+    _value="$(get_env_value_from_files "${_key}" "${_env_files[@]}")"
+    _value="${_value// /}"
+    IFS=',' read -ra _entries <<< "${_value}"
+    for _entry in "${_entries[@]}"; do
+      [[ "${_entry}" =~ ^[0-9]+$ ]] || continue
+      (( _entry > _max )) && _max="${_entry}"
+    done
+  done
+  echo "${_max}"
+}
+
+# Clamp one index and say so on stderr; stdout carries the value for capture.
+function clamp_and_log_device_index() {
+  local _key="${1}" _value="${2}"
+  local _clamped
+  _clamped="$(clamp_device_index "${_value}" "${gpu_count}")"
+  if [[ "${_clamped}" != "${_value}" ]]; then
+    echo "[WARNING]   ${_key}: device ${_value} does not exist here, using device ${_clamped}" >&2
+  fi
+  echo "${_clamped}"
+}
+
+# Resolve the profile's committed placement against the GPUs this host has, and
+# publish the result in the globals above. Must run before anything derives
+# LLM/VLM mode or validates a reservation, since both read device indices.
+function clamp_device_ids_to_gpu_count() {
+  local -a _env_files=("$@")
+  local _max_index _last_device _reserved_before _reserved_kept
+
+  gpu_count="$(get_deployment_gpu_count)"
+  device_clamp_applied="false"
+
+  shared_llm_vlm_device_id="$(get_env_value_from_files "SHARED_LLM_VLM_DEVICE_ID" "${_env_files[@]}")"
+  rt_vlm_device_id="$(get_env_value_from_files "RT_VLM_DEVICE_ID" "${_env_files[@]}")"
+  rt_cv_device_id="$(get_env_value_from_files "RT_CV_DEVICE_ID" "${_env_files[@]}")"
+  rt_embed_device_id="$(get_env_value_from_files "RT_EMBED_DEVICE_ID" "${_env_files[@]}")"
+  fixed_shared_device_ids="$(get_env_value_from_files "FIXED_SHARED_DEVICE_IDS" "${_env_files[@]}")"
+  fixed_shared_device_ids="${fixed_shared_device_ids// /}"
+  reserved_device_ids="$(get_env_value_from_files "RESERVED_DEVICE_IDS" "${_env_files[@]}")"
+  reserved_device_ids="${reserved_device_ids// /}"
+
+  _max_index="$(get_profile_max_device_index "${_env_files[@]}")"
+
+  if (( gpu_count <= 0 )); then
+    echo "[INFO] GPU count unavailable from nvidia-smi; keeping the committed device placement as-is."
+    return
+  fi
+  if (( _max_index < gpu_count )); then
+    return
+  fi
+
+  device_clamp_applied="true"
+  _last_device=$(( gpu_count - 1 ))
+  echo "[WARNING] This profile's committed placement uses device indices up to ${_max_index}, so it assumes $(( _max_index + 1 )) GPU(s); this host has ${gpu_count}."
+  echo "[WARNING] Remapping every index >= ${gpu_count} onto device ${_last_device}. Services that were on separate GPUs will now share one:"
+
+  llm_device_id="$(clamp_and_log_device_index "LLM_DEVICE_ID" "${llm_device_id}")"
+  vlm_device_id="$(clamp_and_log_device_index "VLM_DEVICE_ID" "${vlm_device_id}")"
+  shared_llm_vlm_device_id="$(clamp_and_log_device_index "SHARED_LLM_VLM_DEVICE_ID" "${shared_llm_vlm_device_id}")"
+  rt_vlm_device_id="$(clamp_and_log_device_index "RT_VLM_DEVICE_ID" "${rt_vlm_device_id}")"
+  rt_cv_device_id="$(clamp_and_log_device_index "RT_CV_DEVICE_ID" "${rt_cv_device_id}")"
+  rt_embed_device_id="$(clamp_and_log_device_index "RT_EMBED_DEVICE_ID" "${rt_embed_device_id}")"
+
+  local _fixed_shared_before="${fixed_shared_device_ids}"
+  fixed_shared_device_ids="$(clamp_device_index_list "${fixed_shared_device_ids}" "${gpu_count}")"
+  if [[ "${fixed_shared_device_ids}" != "${_fixed_shared_before}" ]]; then
+    echo "[WARNING]   FIXED_SHARED_DEVICE_IDS: '${_fixed_shared_before}' -> '${fixed_shared_device_ids}'"
+  fi
+
+  # RESERVED_DEVICE_IDS means "keep the LLM and VLM off these GPUs, the
+  # perception services need them". Clamping it would be backwards -- folding
+  # alerts' reservation of device 0 onto device 0 leaves the models nowhere to
+  # go, and the run dies on "Device ID 0 is reserved" instead of the crash it
+  # replaced. So drop entries for devices that do not exist, and drop the
+  # reservation outright once it would cover every GPU the host has: on one GPU
+  # there is no other device to reserve one *from*.
+  _reserved_before="${reserved_device_ids}"
+  _reserved_kept="$(filter_existing_device_ids "${reserved_device_ids}" "${gpu_count}")"
+  if (( $(count_device_ids "${_reserved_kept}") >= gpu_count )); then
+    reserved_device_ids=""
+  else
+    reserved_device_ids="${_reserved_kept}"
+  fi
+  if [[ "${reserved_device_ids}" != "${_reserved_before}" ]]; then
+    echo "[WARNING]   RESERVED_DEVICE_IDS: '${_reserved_before}' -> '${reserved_device_ids}' (a reservation covering every GPU cannot be honored)"
+  fi
 }
 
 # Returns the indices of GPUs whose product name matches the requested hardware
@@ -387,81 +685,6 @@ function get_remote_model_name() {
   return 0
 }
 
-# Resolve the secure link Brev publishes for a destination port.
-#
-# Brev's environment context file is the source of truth: it lists one entry per
-# exposed port with its fqdn and public_port. Read the fqdn from it — never build
-# one from a pattern. The domain varies per instance (gobrev.dev, brevlab.com,
-# apps.run.brev.nvidia.com, ...) and a constructed hostname that happens to be
-# wrong is indistinguishable from a missing link: Brev's edge answers
-# 404 route_not_found for both, and the same wrong hostname lands in
-# VSS_PUBLIC_HOST, so HAProxy's known_host ACL then rejects the *correct* URL too.
-#
-# Key names are matched loosely so a schema tweak degrades to "no link found"
-# (which is reported) rather than a wrong hostname (which is not).
-#
-# Arguments:
-#   $1 destination port on the instance
-# Outputs: BREV_LINK_FQDN / BREV_LINK_PUBLIC_PORT on success; BREV_CONTEXT_PROBLEM
-#          when the context file itself is the reason, empty when the file was
-#          read fine and simply publishes no link for this port. Returns non-zero
-#          either way. These are globals rather than stdout on purpose: a caller
-#          using $(...) would run this in a subshell and lose the reason, and
-#          reporting "no link published" for an unreadable file is the confusion
-#          this whole function exists to avoid.
-function brev_link_for_port() {
-  local _port="${1}"
-  local _ctx _raw _result
-  _ctx="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
-  BREV_CONTEXT_PROBLEM=""
-  BREV_LINK_FQDN=""
-  BREV_LINK_PUBLIC_PORT=""
-
-  if [[ ! "${_port}" =~ ^[0-9]+$ ]]; then
-    BREV_CONTEXT_PROBLEM="'${_port}' is not a port number"
-    return 1
-  fi
-  if ! command -v jq >/dev/null 2>&1; then
-    BREV_CONTEXT_PROBLEM="jq is required to read ${_ctx}"
-    return 1
-  fi
-
-  if [[ -r "${_ctx}" ]]; then
-    _raw="$(cat "${_ctx}" 2>/dev/null)"
-  elif [[ -e "${_ctx}" ]]; then
-    # /etc/brev is 0700 root:root on Brev images and this script usually runs as
-    # the instance user. Passwordless sudo is the norm there, so retry through it
-    # rather than reporting a link that is actually published.
-    if ! _raw="$(sudo -n cat "${_ctx}" 2>/dev/null)"; then
-      BREV_CONTEXT_PROBLEM="${_ctx} is not readable by $(id -un) and \`sudo -n cat\` failed"
-      return 1
-    fi
-  else
-    BREV_CONTEXT_PROBLEM="${_ctx} does not exist"
-    return 1
-  fi
-
-  # A jq failure means the file is not the JSON we expect; that is a different
-  # problem from a port with no link, and the caller reports them differently.
-  if ! _result="$(printf '%s' "${_raw}" | jq -r --arg p "${_port}" '
-    first(
-      .ports[]?
-      | select(((.destination_port // .destinationPort // .target_port // .port) | tostring) == $p)
-      | select((.fqdn // .hostname // .host // "") != "")
-      | "\((.fqdn // .hostname // .host) | sub("^[a-zA-Z]+://"; "") | split("/")[0]) \(.public_port // .publicPort // 443)"
-    ) // empty' 2>/dev/null)"; then
-    BREV_CONTEXT_PROBLEM="${_ctx} is not valid JSON, or does not have the expected shape"
-    return 1
-  fi
-  if [[ -z "${_result}" ]]; then
-    return 1
-  fi
-
-  BREV_LINK_FQDN="${_result%% *}"
-  BREV_LINK_PUBLIC_PORT="${_result##* }"
-  return 0
-}
-
 function get_env_value() {
   local _env_file="${1}"
   local _var_name="${2}"
@@ -716,7 +939,6 @@ function usage() {
   echo "                                     - IGX-THOR"
   echo "                                     - AGX-THOR"
   echo "                                     - OTHER"
-  echo "                                   • RTXPRO4500BW is only valid for alerts with a remote LLM"
   echo "                                   • DGX-SPARK, IGX-THOR, and AGX-THOR only valid when profile is base or alerts"
   echo "                                   • profile search additionally supported on DGX-SPARK and AGX-THOR (not IGX-THOR):"
   echo "                                     VLM must be remote (--use-remote-vlm); LLM defaults to remote, pass"
@@ -1013,13 +1235,13 @@ function process_args() {
       if ! contains_element "vlm-device-id" "${options_provided[@]}"; then
         vlm_device_id="$(get_env_value_from_files "VLM_DEVICE_ID" "${_profile_env}" "${_profile_overrides_env}")"
       fi
-      local _fixed_shared_raw _fixed_shared_norm _reserved_raw _reserved_norm
-      _fixed_shared_raw="$(get_env_value_from_files "FIXED_SHARED_DEVICE_IDS" "${_profile_env}" "${_profile_overrides_env}")"
-      _fixed_shared_raw="${_fixed_shared_raw// /}"
-      _fixed_shared_norm=",${_fixed_shared_raw},"
-      _reserved_raw="$(get_env_value_from_files "RESERVED_DEVICE_IDS" "${_profile_env}" "${_profile_overrides_env}")"
-      _reserved_raw="${_reserved_raw// /}"
-      _reserved_norm=",${_reserved_raw},"
+      # Resolve the committed placement against the GPUs this host actually has
+      # before anything reads a device index. Mode derivation, the reserved-device
+      # validation and every generated.env write below depend on it, so a clamp
+      # applied later would leave them disagreeing about where a model runs.
+      clamp_device_ids_to_gpu_count "${_profile_env}" "${_profile_overrides_env}"
+      local _fixed_shared_norm=",${fixed_shared_device_ids},"
+      local _reserved_norm=",${reserved_device_ids},"
       if ! contains_element "llm-model-type" "${options_provided[@]}"; then
         llm_model_type="$(get_env_value_from_files "LLM_MODEL_TYPE" "${_profile_env}" "${_profile_overrides_env}")"
       fi
@@ -1033,22 +1255,6 @@ function process_args() {
         echo "[ERROR] Invalid hardware-profile: ${hardware_profile}. Must be one of: H100, GB300, L40S, RTXPRO4500BW, RTXPRO6000BW, DGX-SPARK, IGX-THOR, AGX-THOR, OTHER"
         ((_all_good++))
       fi
-
-      # RTX PRO 4500 Blackwell is validated only for Alerts with a remote LLM.
-      # Keep this policy outside SKIP_HARDWARE_CHECK: that escape hatch skips
-      # host probing in CI, not unsupported profile/model combinations.
-      case "${hardware_profile}" in
-        RTXPRO4500BW)
-          if [[ "${profile}" != "alerts" ]]; then
-            echo "[ERROR] Hardware profile 'RTXPRO4500BW' is only valid for profile alerts, not '${profile}'"
-            ((_all_good++))
-          fi
-          if ! contains_element "use-remote-llm" "${options_provided[@]}"; then
-            echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires --use-remote-llm with LLM_ENDPOINT_URL"
-            ((_all_good++))
-          fi
-          ;;
-      esac
 
       # FIRST pass over the remote predicates. Computed here because GB300
       # placement below needs them, and that must happen before the edge search
@@ -1157,26 +1363,6 @@ function process_args() {
           echo "[ERROR] Hardware profile '${hardware_profile}' does not match any detected NVIDIA GPU."
           ((_all_good++))
         fi
-
-        case "${hardware_profile}" in
-          RTXPRO4500BW)
-            local _gpu_count
-            _gpu_count="$(get_nvidia_smi_gpu_count)"
-            if [[ "${_gpu_count}" -lt 2 ]]; then
-              echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires at least 2 NVIDIA GPUs; detected ${_gpu_count}."
-              ((_all_good++))
-            fi
-
-            local _minimum_driver_version="595.58.03"
-            local _driver_version
-            _driver_version="$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1)"
-            _driver_version="${_driver_version//[[:space:]]/}"
-            if ! version_is_at_least "${_driver_version}" "${_minimum_driver_version}"; then
-              echo "[ERROR] Hardware profile 'RTXPRO4500BW' requires NVIDIA driver ${_minimum_driver_version} or newer; detected ${_driver_version:-unknown}."
-              ((_all_good++))
-            fi
-            ;;
-        esac
       fi
 
       # DGX-SPARK, IGX-THOR, AGX-THOR (edge_hardware_profiles): only valid for base and alerts,
@@ -1391,12 +1577,11 @@ function process_args() {
       # deployment GPU, so it intentionally supersedes profile reservations.
       if [[ "${hardware_profile}" != "GB300" ]] && ! contains_element "${hardware_profile}" "${edge_hardware_profiles[@]}"; then
         if [[ -n "${profile}" ]] && [[ -f "${deployment_directory}/developer-profiles/dev-profile-${profile}/.env" ]]; then
-          local _profile_env_reserved="${deployment_directory}/developer-profiles/dev-profile-${profile}/.env"
-          local _profile_overrides_env_reserved="${deployment_directory}/developer-profiles/dev-profile-${profile}/overrides.env"
-          local _reserved_raw
-          _reserved_raw="$(get_env_value_from_files "RESERVED_DEVICE_IDS" "${_profile_env_reserved}" "${_profile_overrides_env_reserved}")"
-          _reserved_raw="${_reserved_raw// /}"  # normalize: remove spaces so "0, 1" matches id "0" and "1"
-          local _reserved_norm=",${_reserved_raw},"
+          # The effective reservation, not the committed one: on a host with
+          # fewer GPUs than the profile assumes the reservation has already been
+          # relaxed, and re-reading the file here would reject the placement the
+          # clamp just chose.
+          local _reserved_norm=",${reserved_device_ids},"
           if [[ "${llm_mode}" != "remote" ]] && [[ -n "${llm_device_id}" ]]; then
             if [[ "${_reserved_norm}" == *",${llm_device_id},"* ]]; then
               echo "[ERROR] Device ID ${llm_device_id} is reserved and cannot be assigned to LLM or VLM for this profile"
@@ -1526,7 +1711,7 @@ function process_args() {
       # that layout, so fail fast instead of a broken deployment.
       if [[ "${profile}" == "search" ]] && [[ "${hardware_profile}" != "GB300" ]] && [[ -n "${BREV_ENV_ID:-}" ]] && [[ "${vlm_mode}" != "remote" ]]; then
         local _brev_gpu_count
-        _brev_gpu_count="$(get_nvidia_smi_gpu_count)"
+        _brev_gpu_count="$(get_deployment_gpu_count)"
         if [[ "${_brev_gpu_count}" =~ ^[0-9]+$ ]] && [[ "${_brev_gpu_count}" -gt 0 ]] && [[ "${_brev_gpu_count}" -lt 2 ]]; then
           echo "[ERROR] Search deploys a local RT-VLM and needs at least 2 GPUs, but this Brev environment has ${_brev_gpu_count} GPU(s). Pass --use-remote-vlm with VLM_ENDPOINT_URL to run search here."
           ((_all_good++))
@@ -1696,6 +1881,12 @@ function state_up() {
 
   # Copy overrides.env to generated.env. The stable .env is passed separately to Compose.
   cp "${_overrides_env}" "${_generated_env}"
+  # generated.env ends up holding NGC_CLI_API_KEY, so its mode cannot be left to
+  # chance. `cp` onto an existing file keeps that file's mode, but creating a
+  # fresh one applies the umask -- 0664 under the common 002 -- and `down`
+  # removes the file, so a teardown followed by a deploy is exactly the path
+  # that yields a world-readable copy of the key.
+  chmod 600 "${_generated_env}"
   echo "[INFO] Copied ${_overrides_env} to ${_generated_env}"
 
   ensure_generated_env_trailing_newline() {
@@ -1744,6 +1935,32 @@ function state_up() {
     fi
     echo "[INFO] Set ${var_name}=${display_value}"
   }
+
+  # Push the clamped placement into generated.env. Compose reads the profile's
+  # stable .env too, and generated.env is the last --env-file, so this is where
+  # a corrected index has to land to win interpolation. Only keys whose value
+  # actually moved are written, which is what keeps a host with enough GPUs
+  # producing a byte-identical generated.env: nothing is emitted at all.
+  # LLM_DEVICE_ID / VLM_DEVICE_ID are not listed -- they are written further down
+  # from the same clamped shell variables.
+  if [[ "${device_clamp_applied}" == "true" ]]; then
+    local _clamp_key _clamp_committed _clamp_effective
+    for _clamp_key in SHARED_LLM_VLM_DEVICE_ID RT_VLM_DEVICE_ID RT_CV_DEVICE_ID RT_EMBED_DEVICE_ID FIXED_SHARED_DEVICE_IDS RESERVED_DEVICE_IDS; do
+      _clamp_committed="$(get_env_value_from_files "${_clamp_key}" "${_source_env}" "${_overrides_env}")"
+      _clamp_committed="${_clamp_committed// /}"
+      case "${_clamp_key}" in
+        SHARED_LLM_VLM_DEVICE_ID) _clamp_effective="${shared_llm_vlm_device_id}" ;;
+        RT_VLM_DEVICE_ID) _clamp_effective="${rt_vlm_device_id}" ;;
+        RT_CV_DEVICE_ID) _clamp_effective="${rt_cv_device_id}" ;;
+        RT_EMBED_DEVICE_ID) _clamp_effective="${rt_embed_device_id}" ;;
+        FIXED_SHARED_DEVICE_IDS) _clamp_effective="${fixed_shared_device_ids}" ;;
+        RESERVED_DEVICE_IDS) _clamp_effective="${reserved_device_ids}" ;;
+      esac
+      if [[ "${_clamp_committed}" != "${_clamp_effective}" ]]; then
+        set_env_var "${_clamp_key}" "${_clamp_effective}"
+      fi
+    done
+  fi
 
   # Set the required environment variables
   set_env_var "VSS_APPS_DIR" "${deployment_directory}"
@@ -2014,9 +2231,9 @@ function state_up() {
     # IGX-THOR/AGX-THOR are handled in the hw sub-block below.
     if [[ "${hardware_profile}" != "IGX-THOR" ]] && [[ "${hardware_profile}" != "AGX-THOR" ]]; then
       if [[ "${vlm_mode}" == "local_shared" ]]; then
-        local _shared_rt_dev_id
-        _shared_rt_dev_id="$(get_env_value_from_files "SHARED_LLM_VLM_DEVICE_ID" "${_source_env}" "${_overrides_env}")"
-        set_env_var "RT_VLM_DEVICE_ID" "${_shared_rt_dev_id:-${vlm_device_id}}"
+        # Clamped value, not the committed one: on a host with fewer GPUs than
+        # the profile assumes, the shared device has already been moved.
+        set_env_var "RT_VLM_DEVICE_ID" "${shared_llm_vlm_device_id:-${vlm_device_id}}"
       elif [[ "${vlm_mode}" == "remote" ]]; then
         set_env_var "RT_VLM_DEVICE_ID" "0"
       else

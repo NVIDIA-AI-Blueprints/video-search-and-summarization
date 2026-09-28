@@ -23,12 +23,15 @@ service:
   type: ClusterIP
 
 # Edge guard for the public /elasticsearch ingress mount, rendered as a
-# backend-config-snippet on this Service. Mirrors the Docker edge exactly, which
-# means it is NOT a read-only endpoint: it denies PUT/DELETE, cluster-admin
-# paths and the two-segment mutating operations, and allows a PUT to a
-# unified-memory document path, but POST is allowed — so _bulk, _reindex and
-# /<index>/_doc still reach Elasticsearch. Disable only where an entirely
-# unguarded Elasticsearch on the public origin is acceptable.
+# backend-config-snippet on this Service. Mirrors the Docker edge exactly: an
+# allowlist of (method, path) pairs — the query endpoints (_search, _msearch,
+# _count, _mget, _field_caps), index metadata, _cat/*, _cluster/health, and one
+# PUT to a unified-memory document path. Everything else is denied, _bulk,
+# _reindex, _scripts/<id> and /<index>/_doc included. POST is served only
+# because the query endpoints carry their query in the request body, not as a
+# write grant. Disable only where an entirely unguarded Elasticsearch on the
+# public origin is acceptable — the cluster runs with security disabled, so
+# this guard is the only authorisation control in front of it.
 ingressGuard:
   enabled: true
   # Interpolated into an HAProxy path_reg; a value carrying regex metacharacters

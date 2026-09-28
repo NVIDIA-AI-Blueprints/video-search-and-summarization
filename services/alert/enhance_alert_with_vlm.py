@@ -137,7 +137,7 @@ WATCHDOG_MARGIN_SECONDS = 5.0
 # whole grace period.
 CLIENT_CLOSE_TIMEOUT = 5.0
 from utils.process_supervisor import DRAIN_SECONDS, ProcessSupervisor
-from utils.url_transformer import transform_video_url, is_vlm_local
+from utils.url_transformer import transform_video_url, is_vlm_local, rewrite_to_internal_url
 from mdx.utils.elastic_ready import generate_alert_fingerprint, generate_incident_fingerprint
 from utils.logging_config import setup_logging, get_logger, enforce_log_level
 from utils.schema_util import protobuf_anomalies_to_json_string_list
@@ -1911,7 +1911,9 @@ class AnomalyEnhancer(
 
                 vlm_video_url, storage_video_url = self._transform_video_urls(video_url)
 
-                if not self.validate_video_url(video_url):
+                # Checked from inside the deployment, so on the inside origin:
+                # VST mints these on the public one, which need not resolve here.
+                if not self.validate_video_url(rewrite_to_internal_url(video_url)):
                     self._handle_url_validation_failure(
                         message, storage_video_url, worker_start_time, latency,
                         span_handle=span_handle,
@@ -2302,13 +2304,21 @@ class AnomalyEnhancer(
     def _transform_video_urls(self, video_url: str) -> tuple:
         """Return ``(vlm_video_url, storage_video_url)`` for the consumers.
 
-        VLM needs the external URL only in remote mode; ES/UI always needs
-        the external URL.
+        ES/UI is read from outside the deployment, so its copy keeps the origin
+        VST minted. A local VLM fetches the bytes from inside, so it is pointed
+        back at ``VST_INTERNAL_URL`` instead of following the public origin out
+        of the network -- which is what breaks when that origin is a TLS host
+        terminating upstream, or a name the container's resolver does not know.
+
+        The outward substitution still runs for a deployment that mints on
+        ``INTERNAL_IP``: there it is the thing that repairs the URL, and once
+        the origin is public it is a no-op.
         """
         if self.url_transform_enabled:
+            external_url = transform_video_url(video_url, to_external=True)
             return (
-                transform_video_url(video_url, to_external=not is_vlm_local()),
-                transform_video_url(video_url, to_external=True),
+                rewrite_to_internal_url(video_url) if is_vlm_local() else external_url,
+                external_url,
             )
         return video_url, video_url
 

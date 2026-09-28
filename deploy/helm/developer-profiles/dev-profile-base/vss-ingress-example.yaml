@@ -78,6 +78,13 @@ spec:
             name: <RELEASE_NAME>-vss-agent
             port:
               number: 8000
+      - path: /v1
+        pathType: Prefix
+        backend:
+          service:
+            name: <RELEASE_NAME>-vss-agent
+            port:
+              number: 8000
       - path: /websocket
         pathType: Prefix
         backend:
