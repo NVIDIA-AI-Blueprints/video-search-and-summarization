@@ -354,7 +354,11 @@ def start(plan: dict):
             "NGC_API_KEY",
         ]
         parser_args = tool_parser_args(item["model"])
-        if parser_args:
+        if "-dgx-spark@" in item["image"]:
+            # The 1.14 DGX Spark variants enable tool calls with this switch;
+            # they do not consume the standard NIM_PASSTHROUGH_ARGS setting.
+            nim_args.extend(("-e", "TOOL_CALL_PARSER=1"))
+        elif parser_args:
             nim_args.extend(("-e", f"NIM_PASSTHROUGH_ARGS={parser_args}"))
         nim_args.extend((
             "-p",
