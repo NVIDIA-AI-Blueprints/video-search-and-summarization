@@ -8,7 +8,7 @@ Two files per dataset, under `<--data-dir>/<--dataset>/`:
 
 ```
 <data-dir>/warehouse/dataset.json     queries, ground truth, decompositions
-<data-dir>/warehouse/videos/          the .mp4 files to ingest
+<data-dir>/warehouse/videos/          the .mp4 or .mkv files to ingest
 ```
 
 `--data-dir` defaults to `~/.cache/vss-devx-search` (where DSS downloads land;
@@ -21,7 +21,8 @@ one `videos/` directory.**
 ### Two supported shapes
 
 **Legacy** — the value *is* the ground-truth segment list. Every existing
-dataset. Works as-is, but every query uses one fixed retrieval path:
+dataset works as-is. The default live decomposer can still route each query;
+`--no-decompose` uses one fixed retrieval path:
 
 ```json
 {"queries": {
@@ -33,7 +34,8 @@ dataset. Works as-is, but every query uses one fixed retrieval path:
 }}
 ```
 
-**Extended** — adds the decomposition, which is what enables per-query routing:
+**Extended** — carries a stored decomposition for per-query routing when live
+decomposition is off or unavailable:
 
 ```json
 {"schema_version": 2,
@@ -56,8 +58,9 @@ dataset. Works as-is, but every query uses one fixed retrieval path:
 ```
 
 Both load. The script normalizes them, so the scoring code never learns which
-form it came from. **Note `run_eval.py` cannot read the extended shape** — it
-expects the value to be the segment list.
+form it came from. The legacy `run_eval.py` in the separate `ci-vss-oss`
+repository cannot read the extended shape; use this skill's `run_eval_flows.py`
+for it.
 
 ### Why decompositions exist
 
@@ -66,8 +69,11 @@ does not — it takes an already-structured request. So feeding raw natural
 language to the CLI would compare *"decomposed then retrieved"* against
 *"retrieved raw"*, which is not a retrieval comparison at all.
 
-The decomposition is what the agent would have produced. Its contract is
-`QUERY_DECOMPOSITION_PROMPT` in `vss_agents/tools/search.py`:
+Live decomposition uses the deployed LLM and replaces a stored decomposition
+for that query. Run with `--no-decompose` to replay the dataset's stored route
+for comparisons. The contract is
+`QUERY_DECOMPOSITION_PROMPT` in
+`services/agent/packages/vss_agents/src/vss_agents/tools/search.py`:
 
 | field | meaning |
 |---|---|
@@ -104,4 +110,3 @@ leg re-ranks by appearance. A decomposition missing `has_action` routes to
 > detected person, so it ranks nothing.
 
 ---
-
