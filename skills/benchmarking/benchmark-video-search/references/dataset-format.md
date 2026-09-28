@@ -11,10 +11,11 @@ Two files per dataset, under `<--data-dir>/<--dataset>/`:
 <data-dir>/warehouse/videos/          the .mp4 or .mkv files to ingest
 ```
 
-`--data-dir` defaults to `~/.cache/vss-devx-search` (where DSS downloads land;
-honours `XDG_CACHE_HOME`). It used to be `/tmp/vss-devx-search` — if you have
-data there, run `mkdir -p ~/.cache && mv /tmp/vss-devx-search ~/.cache/vss-devx-search`
-rather than re-downloading.
+`--data-dir` defaults to `$XDG_CACHE_HOME/vss-devx-search` when that variable
+is set, otherwise `~/.cache/vss-devx-search` (where DSS downloads land).
+It used to be `/tmp/vss-devx-search` — if you have data
+there, create the selected cache directory and move the old folder into it,
+or pass `--data-dir /tmp/vss-devx-search` directly rather than re-downloading.
 `--subset` selects a different JSON file in the same folder; **all subsets share
 one `videos/` directory.**
 
