@@ -563,14 +563,19 @@ revision: a worktree of the ref, staged with that ref's own script, as
 REF="<ref>"                                        # e.g. nightly-20260928, v3.3.0, a sha
 SRC="$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/harness-src"
 
-# A tag lands as a local tag; a branch or sha only in FETCH_HEAD, cleared first
-# so a stale one from an earlier fetch cannot pass for this ref.
-rm -f "$(git -C "$REPO" rev-parse --git-path FETCH_HEAD)"
-git -C "$REPO" fetch -q origin "refs/tags/$REF:refs/tags/$REF" 2>/dev/null \
-  || git -C "$REPO" fetch -q origin "$REF" 2>/dev/null || true
-COMMIT="$(git -C "$REPO" rev-parse --verify -q "$REF^{commit}" \
-  || git -C "$REPO" rev-parse --verify -q "FETCH_HEAD^{commit}")" \
-  || { echo "harness ref $REF does not resolve" >&2; exit 1; }
+# Resolve REF to what origin has *now*, never to a stale local copy: a tag is
+# force-fetched (`+`, so a moved tag updates the local one), a branch or full sha
+# is read from the FETCH_HEAD of that same fetch, and only a sha the remote will
+# not serve by name (an abbreviated one) falls back to the local object store.
+COMMIT=""
+if git -C "$REPO" fetch -q origin "+refs/tags/$REF:refs/tags/$REF" 2>/dev/null; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "refs/tags/$REF^{commit}" || true)"
+elif git -C "$REPO" fetch -q origin "$REF" 2>/dev/null; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "FETCH_HEAD^{commit}" || true)"
+elif [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]]; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "$REF^{commit}" || true)"
+fi
+[ -n "${COMMIT:-}" ] || { echo "harness ref $REF does not resolve" >&2; exit 1; }
 git -C "$REPO" show "$COMMIT:.openclaw/Dockerfile" | grep -q 'vss-sr\[c\]' \
   || { echo "$REF predates staged harness builds" >&2; exit 1; }
 
