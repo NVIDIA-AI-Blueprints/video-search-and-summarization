@@ -384,7 +384,10 @@ Also configure, outside `global`:
 
 `global.gitRef` and `global.sampleVideoDataset` only matter for the bundled
 sample datasets under `calibration/sample-data/`; once the three
-`calibration-import` source keys above are overridden, both are unused.
+`calibration-import` source keys above are overridden, both are unused except
+for `vios.vss-vios-nvstreamer.ngcVideoSeed.dataset`, which still follows
+`sampleVideoDataset` — set `ngcVideoSeed.enabled=false` if not using the
+sample video seed.
 
 ### 4. Post-install validation
 
