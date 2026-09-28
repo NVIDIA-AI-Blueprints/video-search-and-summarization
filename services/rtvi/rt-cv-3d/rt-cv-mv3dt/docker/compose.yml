@@ -65,7 +65,7 @@ services:
     volumes:
       - ${MODELS_DIR:?set MODELS_DIR in docker/.env}/mtmc:/opt/storage
       - ${MODELS_DIR}/mv3dt/BodyPose3DNet:/opt/storage/BodyPose3DNet
-      - ${MODELS_DIR}/reid:/opt/storage/reid:ro
+      - ${MODELS_DIR}/reid:/opt/storage/reid
       - ../generated/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/configs:ro
       - ../generated/camInfo:/tmp/camInfo:ro
       - ./init-scripts/ds-start-mv3dt.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start-mv3dt.sh:ro
