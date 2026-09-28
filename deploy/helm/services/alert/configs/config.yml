@@ -166,10 +166,11 @@ alert_agent:
     use_verdict: false
   enrichment:
     enabled: false
-  # Intentional deployment-specific behavior: Helm keeps this disabled for the
-  # dev alerts real-time profile, while Docker Compose sets
-  # ALERT_AGENT_ALWAYS_ON=true. This difference is expected; do not align them.
-  always_on: false
+  # Docker Compose sets ALERT_AGENT_ALWAYS_ON=true; Helm defaults this off so the
+  # dev alerts real-time profile keeps its existing behaviour. Profiles that wire
+  # the VIOS always-on webhook (see a profile's configs/sdrc/config.yml,
+  # WDM_WL_ADD_URL: /api/v1/realtime/always-on) can opt in with alwaysOn: true.
+  always_on: {{ .Values.alwaysOn | default false }}
   # OpenTelemetry tracing. On Kubernetes the switch is tracing.enabled in
   # values.yaml -- there is no host env var to set; the chart renders
   # ENABLE_OTEL_MONITORING into the pod from it. This block is the tuning,
