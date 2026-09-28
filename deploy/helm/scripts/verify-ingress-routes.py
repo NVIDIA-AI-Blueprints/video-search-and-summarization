@@ -30,7 +30,18 @@ What this asserts, and nothing more:
   6. the host-less east-west rule is absent by default, and carries only the
      RTVI mounts when global.rtviInternalIngress.enabled turns it on;
   7. the hand-applied vss-ingress-example*.yaml pair still describes the same
-     mounts the chart renders.
+     mounts the chart renders, and the same path-rewrite destinations. The
+     destinations matter separately: check 3 compares the rendered annotation
+     against the table it was generated from, so it cannot disagree with it,
+     and the examples are the only independently maintained record of what
+     each rewrite should produce.
+
+It reads only the Ingress objects of templates/vss-ingress.yaml. Per-backend
+behaviour that lives in a Service annotation -- `backend-config-snippet` is
+Service-scoped in this controller, and the VIOS `Location` rewrite, the
+Elasticsearch guard and the RT-CV stream affinity all ride there -- is outside
+what this can see, and is asserted against a real controller by
+.github/scripts/test_helm_ingress_live.py instead.
 
 It does NOT check parity with the Docker edge (haproxy.cfg.template): that
 config is aligned to this table separately and still carries Docker-only routes.
@@ -38,6 +49,15 @@ config is aligned to this table separately and still carries Docker-only routes.
 Usage: python3 deploy/helm/scripts/verify-ingress-routes.py [--verbose]
 (location-independent: all paths resolve relative to this file)
 Requires: helm, PyYAML, and `helm dependency build` already run per profile.
+
+Re-run `helm dependency build` after ANY edit under services/common. A profile
+renders that chart from its vendored charts/common-*.tgz, so an un-vendored edit
+is invisible here and this exits 0 against the previous table -- a false green,
+not an error.
+
+CI runs this as the first pass of .github/workflows/helm-ingress-live.yml, ahead
+of the kind cluster the live controller test needs, so a rendering regression
+fails in seconds rather than after a spin-up.
 """
 
 from __future__ import annotations
@@ -135,6 +155,23 @@ def mounted_paths(ingresses: list[dict]) -> set[str]:
     return found
 
 
+def rewrite_mount(src: str) -> str:
+    """The mount a rewrite rule's regex applies to: `^/vios$` -> `/vios`."""
+    return src.removeprefix("^").removesuffix("/(.*)").removesuffix("$")
+
+
+def rewrite_pairs(ingresses: list[dict]) -> dict[str, str]:
+    """The `haproxy.org/path-rewrite` rules of a render, as src -> dst."""
+    pairs: dict[str, str] = {}
+    for ing in ingresses:
+        annotations = ing["metadata"].get("annotations") or {}
+        for line in annotations.get("haproxy.org/path-rewrite", "").splitlines():
+            if line.strip():
+                src, dst = line.split()
+                pairs[src] = dst
+    return pairs
+
+
 def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
     fails: list[str] = []
     by_path = {r["path"]: r for r in rows}
@@ -144,8 +181,13 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
     for ing in ingresses:
         annotations = ing["metadata"].get("annotations") or {}
         # Each rewriting route contributes a pair: the capture form and the
-        # bare form. Both destinations matter -- a wrong one silently sends the
-        # backend a path it does not serve.
+        # bare-root form. Both destinations matter -- a wrong one silently
+        # sends the backend a path it does not serve. Both are `^`-anchored,
+        # and that is asserted rather than tolerated: a path-rewrite rule
+        # replaces the whole path wherever its regex matches, and every rule in
+        # the annotation runs in order against the output of the one above, so
+        # an unanchored `/alerts/(.*)` fires a second time on the result of the
+        # `/alert-bridge` strip and eats alert-bridge's own /api/v1/alerts.
         rewrites = {}
         for line in annotations.get("haproxy.org/path-rewrite", "").splitlines():
             if line.strip():
@@ -177,7 +219,12 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                         f"{profile}: mounts {path} as {entry['pathType']}, "
                         f"table says {row['pathType']}"
                     )
-                if re.fullmatch(r"/v\d+(/.*)?", path):
+                # A versioned mount is profile-dependent only when it exposes
+                # a profile-specific backend (the original failure was /v1
+                # pointing directly at whichever VLM that profile used).
+                # The agent's own /v1 API is canonical across every profile
+                # and carries interactive chat/HITL endpoints.
+                if row["key"] != "agent" and re.fullmatch(r"/v\d+(/.*)?", path):
                     fails.append(
                         f"{profile}: mounts {path} at the origin root -- the mount a "
                         f"caller cannot resolve without knowing the profile"
@@ -185,10 +232,9 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                 if path in strips:
                     mounted_strip.add(path)
                     to = "" if row["rewrite"] == "strip" else row["rewrite"]
-                    anchor = "^" if row.get("anchored", False) else ""
                     for src, want in (
-                        (f"{anchor}{path}/(.*)", f"{to}/\\1"),
-                        (f"{anchor}{path}", to or "/"),
+                        (f"^{path}/(.*)", f"{to}/\\1"),
+                        (f"^{path}$", to or "/"),
                     ):
                         got = rewrites.get(src)
                         if got is None:
@@ -200,9 +246,7 @@ def check_profile(profile: str, rows: list[dict], verbose: bool) -> list[str]:
                                 f"{profile}: {src!r} rewrites to {got!r}, table says {want!r}"
                             )
 
-        surplus = {
-            src.removeprefix("^").replace("/(.*)", "") for src in rewrites
-        } - mounted_strip
+        surplus = {rewrite_mount(src) for src in rewrites} - mounted_strip
         if surplus:
             fails.append(f"{profile}: rewritten but not mounted: {sorted(surplus)}")
 
@@ -265,24 +309,56 @@ def check_cli_parity(rows: list[dict]) -> list[str]:
     return []
 
 
-def check_examples(main_paths: dict[str, set]) -> list[str]:
-    """The hand-applied examples must describe the same mounts as the chart."""
+def check_examples(
+    main_paths: dict[str, set], main_rewrites: dict[str, dict[str, str]]
+) -> list[str]:
+    """The hand-applied examples must describe the same mounts as the chart.
+
+    Mounts *and* rewrite destinations. Check 3 above compares the rendered
+    annotation to the shared table, but the annotation is generated from that
+    table, so the two agree by construction and a wrong destination in the
+    table satisfies both sides of the comparison. The examples are the only
+    independently written record of what each rewrite should produce, which
+    makes them the only thing here that can contradict the table. Without this,
+    changing `/storage`'s destination to `/vst/storage-wrong` renders a real
+    misroute and every static check in this repository still passes -- verified
+    by mutation, which is the only reason to trust the check that follows.
+    """
     fails = []
     for profile, rendered in main_paths.items():
         files = sorted((PROFILES_DIR / profile).glob("vss-ingress-example*.yaml"))
         if not files:
             continue  # not every profile ships a manual example
         documented: set = set()
+        documented_rewrites: dict[str, str] = {}
         for f in files:
             for doc in yaml.safe_load_all(f.read_text()):
                 if doc and doc.get("kind") == "Ingress":
                     for rule in doc["spec"]["rules"]:
                         documented |= {p["path"] for p in rule["http"]["paths"]}
+                    documented_rewrites.update(rewrite_pairs([doc]))
         if documented != rendered:
             fails.append(
                 f"{profile}: vss-ingress-example*.yaml is stale -- missing "
                 f"{sorted(rendered - documented)}, extra {sorted(documented - rendered)}. "
                 f"Regenerate from `helm template` (see the header in those files)."
+            )
+        expected = main_rewrites.get(profile, {})
+        if documented_rewrites != expected:
+            differing = sorted(
+                set(documented_rewrites) | set(expected),
+                key=str,
+            )
+            detail = ", ".join(
+                f"{src}: example says {documented_rewrites.get(src)!r}, "
+                f"chart renders {expected.get(src)!r}"
+                for src in differing
+                if documented_rewrites.get(src) != expected.get(src)
+            )
+            fails.append(
+                f"{profile}: vss-ingress-example*.yaml path-rewrite rules disagree "
+                f"with the chart -- {detail}. One of the two is wrong; a rewrite "
+                f"destination the backend does not serve is a silent misroute."
             )
     return fails
 
@@ -292,13 +368,16 @@ def main() -> int:
     rows = canonical_table()
     failures = check_cli_parity(rows)
     main_paths: dict[str, set] = {}
+    main_rewrites: dict[str, dict[str, str]] = {}
 
     for profile in PROFILES:
         failures += check_profile(profile, rows, verbose)
-        main_paths[profile] = mounted_paths(render(profile, []))
+        rendered = render(profile, [])
+        main_paths[profile] = mounted_paths(rendered)
+        main_rewrites[profile] = rewrite_pairs(rendered)
 
     failures += check_disabled(verbose)
-    failures += check_examples(main_paths)
+    failures += check_examples(main_paths, main_rewrites)
 
     if failures:
         print("\n".join("FAIL " + f for f in failures))

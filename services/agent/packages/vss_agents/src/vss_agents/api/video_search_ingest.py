@@ -88,7 +88,15 @@ def create_video_search_ingest_router(
             "Deprecated: streamed PUT upload to VST in a single request. "
             "Prefer the universal three-step flow: "
             "POST /api/v1/videos → chunked POST to VST → "
-            "POST /api/v1/videos/{sensor_id}/complete."
+            "POST /api/v1/videos/{sensor_id}/complete.\n\n"
+            "A 200 does not always mean the video is searchable. Where another "
+            "party already registered the asset with RTVI-Embed — VIOS "
+            "streamprocessing's stream/add webhook does this on the search "
+            "profiles — generation runs there asynchronously and this response "
+            "returns as soon as the upload lands, with "
+            "``chunks_processed: null``. Clients that search straight after "
+            "uploading must poll until the embeddings appear; only a numeric "
+            "``chunks_processed`` means generation finished within this request."
         ),
         tags=["Video Ingest (deprecated)"],
         deprecated=True,

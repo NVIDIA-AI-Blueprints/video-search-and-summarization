@@ -21,6 +21,45 @@ metadata:
   labels:
     app.kubernetes.io/name: vss-vios-ingress
     app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    # A caller that follows the /vios alias's redirect has to stay on /vios.
+    #
+    # VST answers GET /vst with `301 Location: /vst/` -- it serves its whole
+    # surface under /vst/, and the trailing slash is what makes the UI's
+    # relative asset paths resolve. But the mount's `^/vios$ /vst` rewrite has
+    # already turned /vios into /vst by the time nginx sees it, so nginx cannot
+    # know the caller said /vios. Measured on a live controller: /vios answered
+    # `301 Location: /vst/` here where the Docker edge answered `/vios/`, so the
+    # alias delivered its callers onto the prefix it exists to replace.
+    #
+    # Mirrors the identical `replace-header` in
+    # deploy/docker/services/infra/haproxy/haproxy.cfg.template, including its
+    # anchoring on a RELATIVE Location -- which the VIOS nginx configs guarantee
+    # (absolute_redirect off). An absolute one would not match, deliberately:
+    # this renames a path, it is not a second place that repairs an origin.
+    #
+    # The ACL is not optional, and the controller's own guard cannot stand in
+    # for it. The controller conditions each annotation-derived rule on
+    # `{ var(txn.path_match) -m dom <rule-id> }`, but it builds one rule-ID list
+    # per *Ingress* and stamps it onto every route of that Ingress
+    # (pkg/ingress/ingress.go). /vst, /storage and /vios share this backend and
+    # that list, so without the ACL the rewrite would move a /vst caller onto
+    # /vios too.
+    #
+    # `var(txn.path)` rather than `path`: the controller sets that variable in
+    # the frontend ahead of its rewrites (REQ_SET_VAR sorts before
+    # REQ_PATH_REWRITE in pkg/haproxy/rules/types.go), so it still holds what
+    # the client sent where `path` here is already /vst.
+    #
+    # /storage keeps leaking `/vst/storage/` on purpose: the Docker edge guards
+    # its rule on /vios alone too, and the two edges agreeing is what the shared
+    # route table is for. /alerts and /video-summarization need nothing -- they
+    # strip to `/`, so a relative Location from those backends carries no prefix
+    # to rename.
+    haproxy.org/backend-config-snippet: |
+      acl vss_alias_vios var(txn.path) -m str /vios
+      acl vss_alias_vios var(txn.path) -m beg /vios/
+      http-response replace-header Location ^/vst(/.*)?$ /vios\1 if vss_alias_vios
 spec:
   type: {{ .Values.service.type }}
   ports:

@@ -51,7 +51,14 @@ MOUNT = "/llm"
 
 # The route is only useful if the prefix comes off: the NIM serves /v1/..., so
 # <origin>/llm/v1/chat/completions has to arrive as /v1/chat/completions.
-EXPECTED_REWRITES = {f"{MOUNT}/(.*)": r"/\1", MOUNT: "/"}
+#
+# Both sources are `^`-anchored and the bare-root form is `$`-terminated,
+# because that is what the canonical table renders for every rewriting route
+# (`vss.ingress.pathRewriteRows`). `replace-path` substitutes the WHOLE path
+# wherever its regex matches, and the rules run in order against the previous
+# rule's output, so an unanchored `/llm/(.*)` would fire on any path that merely
+# contains the prefix and discard everything ahead of it.
+EXPECTED_REWRITES = {f"^{MOUNT}/(.*)": r"/\1", f"^{MOUNT}$": "/"}
 
 helm_required = unittest.skipUnless(
     shutil.which("helm"), "helm is not installed; chart rendering cannot be checked"

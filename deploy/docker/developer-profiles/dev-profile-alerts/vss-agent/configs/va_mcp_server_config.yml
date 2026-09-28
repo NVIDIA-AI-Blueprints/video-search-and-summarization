@@ -16,12 +16,12 @@
 functions:
   vst_sensor_list:
     _type: vst.sensor_list
-    vst_internal_url: http://vst-ingress:30888
+    vst_internal_url: ${VST_INTERNAL_URL}
 
 function_groups:
   video_analytics:
     _type: video_analytics
-    es_url: "http://elasticsearch:9200"
+    es_url: "${ELASTIC_SEARCH_ENDPOINT}"
     index_prefix: "mdx-"
     vlm_verified: true
     vst_sensor_list_tool: vst_sensor_list

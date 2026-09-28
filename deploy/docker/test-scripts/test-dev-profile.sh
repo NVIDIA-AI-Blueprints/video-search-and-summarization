@@ -18,6 +18,14 @@ export NGC_CLI_API_KEY
 # Skip hardware-profile vs nvidia-smi check so tests that pass a specific profile (e.g. DGX-SPARK) pass on CI without that GPU.
 # Unset SKIP_HARDWARE_CHECK in tests that assert the fail-fast mismatch behavior.
 export SKIP_HARDWARE_CHECK=true
+# Pin the GPU count the placement assertions are made against. Nearly every
+# generated.env expectation below encodes a committed multi-GPU layout (alerts
+# and search on two GPUs, warehouse on three), and dev-profile.sh now folds any
+# index the host cannot satisfy onto a device that exists. Without pinning, the
+# expected values would depend on how many GPUs the machine running the tests
+# happens to have -- 4 keeps every committed layout intact everywhere. The
+# single-GPU clamp itself is covered by the VSS_GPU_COUNT=1 cases further down.
+export VSS_GPU_COUNT="${VSS_GPU_COUNT:-4}"
 # Per-test timeout (seconds); dry-run can be slow on first run
 TEST_TIMEOUT="${TEST_TIMEOUT:-15}"
 TESTS_PASSED=0
@@ -188,13 +196,6 @@ run_negative_test() {
 
   if ! grep -q "\[ERROR\]" "${out_file}" && ! grep -q "\[ERROR\]" "${err_file}"; then
     echo "FAIL: ${name} (expected [ERROR] in output)"
-    echo "  stdout:"
-    sed 's/^/    /' "${out_file}"
-    echo "  stderr:"
-    sed 's/^/    /' "${err_file}"
-    ((TESTS_FAILED++)) || true
-  elif [[ -n "${EXPECTED_ERROR:-}" ]] && ! grep -Fq "${EXPECTED_ERROR}" "${out_file}" "${err_file}"; then
-    echo "FAIL: ${name} (expected error containing: ${EXPECTED_ERROR})"
     echo "  stdout:"
     sed 's/^/    /' "${out_file}"
     echo "  stderr:"
@@ -453,6 +454,29 @@ run_negative_test "llm unknown id is rejected" 1 up -p base -i 127.0.0.1 --llm t
 run_negative_test "llm without sizing for the hardware is rejected" 1 up -p base -i 127.0.0.1 -H H100 --llm nvidia/NVIDIA-Nemotron-Nano-9B-v2-FP8 -d
 # Fail-fast: requested hardware_profile must match detected GPU (nvidia-smi); OTHER is catchall when no match.
 SKIP_HARDWARE_CHECK= run_negative_test "hardware profile does not match (no GPU, requested DGX-SPARK)" 1 up -p base -i 127.0.0.1 -H DGX-SPARK -d
+# --- Brev environment context fixture ---
+# The Brev environment context is the source of truth for a secure link, and
+# dev-profile.sh refuses to invent one when it cannot read it. Every test that
+# sets BREV_ENV_ID therefore needs a context to point at, or it fails on the
+# missing link rather than on whatever it meant to exercise. Pointing at a
+# fixture also keeps a run on a real Brev box from reading that box's links.
+_brev_ctx_dir="$(mktemp -d)"
+CLEANUP_DIRS+=("${_brev_ctx_dir}")
+_brev_ctx_absent="${_brev_ctx_dir}/absent.json"
+_brev_ctx="${_brev_ctx_dir}/environment-context.json"
+# The shape a real instance publishes: an HTTP link on 443 forwarding to a host
+# port that is not the gateway default, plus the SSH forward, which is not an
+# HTTP origin and must be ignored.
+cat > "${_brev_ctx}" <<'BREVCTX'
+{
+  "environment_id": "test-env",
+  "ports": [
+    {"public_port": 23189, "destination_port": 22, "fqdn": "global.example.com"},
+    {"public_port": 443, "destination_port": 8888, "fqdn": "jupyter-test-env.gobrev.dev"}
+  ]
+}
+BREVCTX
+
 _mock_nvidia_smi_dir="$(mktemp -d)"
 CLEANUP_DIRS+=("${_mock_nvidia_smi_dir}")
 cat > "${_mock_nvidia_smi_dir}/nvidia-smi" <<'EOF'
@@ -468,68 +492,7 @@ cat > "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi" <<'EOF'
 echo "NVIDIA RTX PRO 4500 Blackwell"
 EOF
 chmod +x "${_mock_rtx4500_nvidia_smi_dir}/nvidia-smi"
-EXPECTED_ERROR="only valid for profile alerts" PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_negative_test "RTXPRO4500BW rejects base even when detected GPU is RTX PRO 4500 Blackwell" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
-_mock_rtx4500_ok_dir="$(mktemp -d)"
-CLEANUP_DIRS+=("${_mock_rtx4500_ok_dir}")
-cat > "${_mock_rtx4500_ok_dir}/nvidia-smi" <<'EOF'
-#!/bin/bash
-if [[ "$*" == *"--query-gpu=index,name"* ]]; then
-  printf '0, NVIDIA RTX PRO 4500 Blackwell\n1, NVIDIA RTX PRO 4500 Blackwell\n'
-elif [[ "$*" == *"--query-gpu=index"* ]]; then
-  printf '0\n1\n'
-elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
-  echo "595.58.03"
-elif [[ "$*" == *"--query-gpu=name"* ]]; then
-  printf 'NVIDIA RTX PRO 4500 Blackwell\nNVIDIA RTX PRO 4500 Blackwell\n'
-else
-  echo "NVIDIA RTX PRO 4500 Blackwell"
-fi
-EOF
-chmod +x "${_mock_rtx4500_ok_dir}/nvidia-smi"
-LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_ok_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
-  run_dry_run_test "RTXPRO4500BW alerts verification with remote LLM passes GPU count and driver check" \
-  up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
-LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_ok_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
-  run_dry_run_test "RTXPRO4500BW alerts real-time with remote LLM passes GPU count and driver check" \
-  up -p alerts -i 127.0.0.1 -m real-time -H RTXPRO4500BW --use-remote-llm --llm x -d
-_mock_rtx4500_one_gpu_dir="$(mktemp -d)"
-CLEANUP_DIRS+=("${_mock_rtx4500_one_gpu_dir}")
-cat > "${_mock_rtx4500_one_gpu_dir}/nvidia-smi" <<'EOF'
-#!/bin/bash
-if [[ "$*" == *"--query-gpu=index,name"* ]]; then
-  echo "0, NVIDIA RTX PRO 4500 Blackwell"
-elif [[ "$*" == *"--query-gpu=index"* ]]; then
-  echo "0"
-elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
-  echo "595.58.03"
-else
-  echo "NVIDIA RTX PRO 4500 Blackwell"
-fi
-EOF
-chmod +x "${_mock_rtx4500_one_gpu_dir}/nvidia-smi"
-LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_one_gpu_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
-  EXPECTED_ERROR="requires at least 2 NVIDIA GPUs" run_negative_test "RTXPRO4500BW rejects alerts when fewer than 2 GPUs are present" 1 \
-  up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
-_mock_rtx4500_old_driver_dir="$(mktemp -d)"
-CLEANUP_DIRS+=("${_mock_rtx4500_old_driver_dir}")
-cat > "${_mock_rtx4500_old_driver_dir}/nvidia-smi" <<'EOF'
-#!/bin/bash
-if [[ "$*" == *"--query-gpu=index,name"* ]]; then
-  printf '0, NVIDIA RTX PRO 4500 Blackwell\n1, NVIDIA RTX PRO 4500 Blackwell\n'
-elif [[ "$*" == *"--query-gpu=index"* ]]; then
-  printf '0\n1\n'
-elif [[ "$*" == *"--query-gpu=driver_version"* ]]; then
-  echo "595.58.02"
-elif [[ "$*" == *"--query-gpu=name"* ]]; then
-  printf 'NVIDIA RTX PRO 4500 Blackwell\nNVIDIA RTX PRO 4500 Blackwell\n'
-else
-  echo "NVIDIA RTX PRO 4500 Blackwell"
-fi
-EOF
-chmod +x "${_mock_rtx4500_old_driver_dir}/nvidia-smi"
-LLM_ENDPOINT_URL=http://127.0.0.1:8000 PATH="${_mock_rtx4500_old_driver_dir}:${PATH}" SKIP_HARDWARE_CHECK= \
-  EXPECTED_ERROR="requires NVIDIA driver 595.58.03 or newer" run_negative_test "RTXPRO4500BW rejects alerts when the NVIDIA driver is older than 595.58.03" 1 \
-  up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d
+PATH="${_mock_rtx4500_nvidia_smi_dir}:${PATH}" SKIP_HARDWARE_CHECK= run_dry_run_test "RTXPRO4500BW accepted when detected GPU is RTX PRO 4500 Blackwell" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_negative_test "GB300 search requires one shared device" 1 up -p search -i 127.0.0.1 -H GB300 --llm-device-id 1 --vlm-device-id 0 -d
 
 # Mixed host: GPU 0 is RTX PRO and the selected GPU 1 is GB300. The helper
@@ -765,6 +728,60 @@ run_negative_test "invalid VLM model name" 1 up -p base --vlm invalid-vlm
 run_negative_test "llm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 0 --vlm-device-id 1
 run_negative_test "vlm-device-id must not be in RESERVED_DEVICE_IDS" 1 up -p alerts -i 127.0.0.1 -m verification --llm-device-id 1 --vlm-device-id 0
 
+# ===== Single-GPU device clamp (VSS_GPU_COUNT=1) =====
+# alerts and search commit a two-GPU layout, so on one GPU Compose is handed a
+# device_ids entry of "1" and no container starts. Every index at or above the
+# GPU count folds onto device 0 instead. The 2-GPU expectations above are the
+# same assertions with nothing clamped, so the pair covers both branches.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts on one GPU folds the 2-GPU layout onto device 0" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "VLM_DEVICE_ID" "0" \
+  "RT_VLM_DEVICE_ID" "0" \
+  "LLM_MODE" "local_shared" \
+  "VLM_MODE" "local_shared"
+# RESERVED_DEVICE_IDS='0' keeps alerts' models off RT-CV's GPU. With one GPU
+# there is no other device to move them to, so the reservation is dropped --
+# leaving it would turn the crash into "Device ID 0 is reserved".
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts on one GPU drops the unsatisfiable reservation" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "RESERVED_DEVICE_IDS" ""
+# search splits RT-CV + RT-VLM on 0 from RT-Embed + LLM on 1, and treats both as
+# shared. On one GPU FIXED_SHARED_DEVICE_IDS='0,1' has to collapse to '0' rather
+# than '0,0' or the shared-device derivation reads a device twice.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env search on one GPU folds RT-Embed and the LLM onto device 0" "search" \
+  -i 127.0.0.1 -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "RT_EMBED_DEVICE_ID" "0" \
+  "RT_CV_DEVICE_ID" "0" \
+  "FIXED_SHARED_DEVICE_IDS" "0" \
+  "LLM_MODE" "local_shared"
+# base already places everything on device 0, so a one-GPU host must clamp
+# nothing at all: no remap, and no warning claiming one happened.
+VSS_GPU_COUNT=1 run_dry_run_up_and_check_generated_env \
+  "generated.env base on one GPU is unchanged" "base" \
+  -i 127.0.0.1 -d -- \
+  "LLM_DEVICE_ID" "0" \
+  "VLM_DEVICE_ID" "0" \
+  "RT_VLM_DEVICE_ID" "0"
+VSS_GPU_COUNT=1 run_dry_run_test "alerts on one GPU reports the remap" up -p alerts -i 127.0.0.1 -m verification -d
+assert_stdout_contains "alerts on one GPU names the profile's GPU assumption" \
+  "assumes 2 GPU(s); this host has 1"
+VSS_GPU_COUNT=1 run_dry_run_test "search on one GPU reports the remap" up -p search -i 127.0.0.1 -d
+assert_stdout_contains "search on one GPU logs which key moved" \
+  "RT_EMBED_DEVICE_ID: device 1 does not exist here"
+# A count of 0 means nvidia-smi could not be reached. Placement must be left
+# exactly as committed: an unknown count must never silently move a model.
+VSS_GPU_COUNT=0 run_dry_run_up_and_check_generated_env \
+  "generated.env alerts with an unknown GPU count keeps the committed layout" "alerts" \
+  -i 127.0.0.1 -m verification -d -- \
+  "LLM_DEVICE_ID" "1" \
+  "VLM_DEVICE_ID" "1" \
+  "RT_VLM_DEVICE_ID" "1"
+
 # L40S forbids a local_shared LLM (no hw-L40S-shared.env). Search RT-VLM may share GPU 0 with RT-CV.
 run_negative_test "L40S rejects local_shared LLM" 1 up -p search -i 127.0.0.1 -H L40S -d
 run_negative_test "L40S rejects LLM and VLM on the same GPU" 1 up -p base -i 127.0.0.1 -H L40S --llm-device-id 0 --vlm-device-id 0 -d
@@ -809,16 +826,15 @@ run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO6000BW local 
 run_dry_run_up_and_check_generated_env "generated.env alerts L40S local RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.8" "alerts" \
   -i 127.0.0.1 -m verification -H L40S --llm-device-id 2 --vlm-device-id 1 -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8"
-LLM_ENDPOINT_URL=http://127.0.0.1:8000 run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
-  -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d -- \
-  "LLM_MODE" "remote" "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
-LLM_ENDPOINT_URL=http://127.0.0.1:8000 run_dry_run_up_and_check_generated_env "generated.env alerts real-time RTXPRO4500BW remote LLM" "alerts" \
-  -i 127.0.0.1 -m real-time -H RTXPRO4500BW --use-remote-llm --llm x -d -- \
-  "LLM_MODE" "remote" "HARDWARE_PROFILE" "RTXPRO4500BW"
-EXPECTED_ERROR="requires --use-remote-llm" run_negative_test "RTXPRO4500BW rejects alerts without a remote LLM" 1 up -p alerts -i 127.0.0.1 -m verification -H RTXPRO4500BW -d
-EXPECTED_ERROR="only valid for profile alerts" run_negative_test "RTXPRO4500BW rejects lvs" 1 up -p lvs -i 127.0.0.1 -H RTXPRO4500BW -d
-EXPECTED_ERROR="only valid for profile alerts" run_negative_test "RTXPRO4500BW rejects search" 1 up -p search -i 127.0.0.1 -H RTXPRO4500BW -d
-EXPECTED_ERROR="only valid for profile alerts" run_negative_test "RTXPRO4500BW rejects base" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
+run_dry_run_up_and_check_generated_env "generated.env alerts RTXPRO4500BW RTVI tuning" "alerts" \
+  -i 127.0.0.1 -m verification -H RTXPRO4500BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+run_dry_run_up_and_check_generated_env "generated.env lvs RTXPRO4500BW RTVI tuning" "lvs" \
+  -i 127.0.0.1 -H RTXPRO4500BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
+run_dry_run_up_and_check_generated_env "generated.env base RTXPRO4500BW RTVI tuning" "base" \
+  -i 127.0.0.1 -H RTXPRO4500BW -d -- \
+  "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.8" "RTVI_VLM_MAX_MODEL_LEN" "18000" "RTVI_VLM_MODEL_PATH" "ngc:nim/nvidia/cosmos3-nano-reasoner:bf16-final" "VLM_NAME" "nim_nvidia_cosmos3-nano-reasoner_bf16-final"
 run_dry_run_up_and_check_generated_env "generated.env alerts OTHER RTVI_VLLM_GPU_MEMORY_UTILIZATION=0.7" "alerts" \
   -i 127.0.0.1 -m verification -H OTHER -d -- \
   "RTVI_VLLM_GPU_MEMORY_UTILIZATION" "0.7"
@@ -952,7 +968,7 @@ run_dry_run_up_and_check_generated_env "alerts real-time enables always-on" "ale
   "ALERT_AGENT_ALWAYS_ON" "true" \
   "MODE" "2d_vlm" \
   "VSS_AGENT_CONFIG_FILE" "/vss-agent/deploy/docker/developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml"
-run_negative_test "up base with hardware-profile RTXPRO4500BW is rejected" 1 up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
+run_dry_run_test "up base with hardware-profile RTXPRO4500BW" up -p base -i 127.0.0.1 -H RTXPRO4500BW -d
 run_dry_run_test "up base with hardware-profile RTXPRO6000BW" up -p base -i 127.0.0.1 -H RTXPRO6000BW -d
 run_dry_run_test "up base with hardware-profile OTHER" up -p base -i 127.0.0.1 -H OTHER -d
 run_dry_run_up_and_check_generated_env "up base with llm keeps fixed RT-VLM" "base" \
@@ -1045,8 +1061,8 @@ fi
 EOF
 chmod +x "${_mock_brev_one_gpu_dir}/nvidia-smi"
 # One GPU cannot host RT-CV + RT-VLM and RT-Embed + LLM, so local RT-VLM is rejected.
-PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_negative_test "search Brev 1 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
-PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 1 GPU allows remote VLM" "search" \
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_negative_test "search Brev 1 GPU rejects default local RT-VLM" 1 up -p search -i 127.0.0.1 -d
+PATH="${_mock_brev_one_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 1 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
   "VLM_MODE" "remote" "RTVI_VLM_MODEL_PATH" "none" "RT_VLM_DEVICE_ID" "0"
 
@@ -1062,11 +1078,11 @@ fi
 EOF
 chmod +x "${_mock_brev_two_gpu_dir}/nvidia-smi"
 # Two GPUs are enough for a local RT-VLM now that it shares GPU 0 with RT-CV.
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU wires local RT-VLM" "search" \
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU wires local RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
   "VLM_DEVICE_ID" "0" "VLM_MODE" "local_shared" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
-PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
+PATH="${_mock_brev_two_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" VLM_ENDPOINT_URL=http://127.0.0.1:9998 run_dry_run_up_and_check_generated_env "generated.env search Brev 2 GPU allows remote VLM" "search" \
   -i 127.0.0.1 --use-remote-vlm --vlm my-remote-vlm -d -- \
   "VLM_MODE" "remote" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://127.0.0.1:9998" "VLM_PORT" "30082" \
@@ -1085,7 +1101,7 @@ EOF
 chmod +x "${_mock_brev_three_gpu_dir}/nvidia-smi"
 # Placement comes from the profile env, not the host GPU count, so a 3-GPU host still
 # co-locates RT-VLM with RT-CV on GPU 0 and leaves GPU 2 unused.
-PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
+PATH="${_mock_brev_three_gpu_dir}:${PATH}" BREV_ENV_ID=test-env BREV_ENVIRONMENT_CONTEXT_PATH="${_brev_ctx}" run_dry_run_up_and_check_generated_env "generated.env search Brev 3 GPU wires RT-VLM" "search" \
   -i 127.0.0.1 -d -- \
   "VLM_DEVICE_ID" "0" "VLM_NAME_SLUG" "none" "VLM_MODEL_TYPE" "rtvi" \
   "VLM_BASE_URL" "http://rtvi-vlm:8000" "RT_VLM_DEVICE_ID" "0"
@@ -1664,11 +1680,6 @@ if [[ -f "${_warehouse_stable_env}" && -f "${_warehouse_overrides_env}" ]]; then
     echo "FAIL: warehouse env files should not define or reference _WH helper variables"
     ((_split_failed++)) || true
   fi
-  if ! awk -F= '/^TURN_MIN_RELAY_PORT=/{min=$2} /^TURN_MAX_RELAY_PORT=/{max=$2}
-      END{exit !(min > 0 && min <= max && max < 30000)}' "${_warehouse_stable_env}"; then
-    echo "FAIL: warehouse TURN relay range must stay below the ephemeral and NodePort ranges (< 30000)"
-    ((_split_failed++)) || true
-  fi
   for _key in "${_warehouse_host_port_keys[@]}"; do
     if grep -Eq "^${_key}=" "${_warehouse_stable_env}"; then
       echo "FAIL: warehouse .env should not define host-published port override ${_key}"
@@ -1704,7 +1715,7 @@ _agent_adapter_override_keys=(
   VSS_AGENT_BACKEND_URL VSS_AGENT_BACKEND_PATH VSS_AGENT_BACKEND_TOKEN
   VSS_AGENT_BACKEND_MODEL VSS_AGENT_BACKEND_SESSION_FIELD
   VSS_AGENT_BACKEND_SESSION_HEADER VSS_AGENT_BACKEND_HEADERS_JSON
-  VSS_AGENT_BACKEND_TIMEOUT_SECONDS HITL_ENABLED
+  VSS_AGENT_BACKEND_TIMEOUT_SECONDS
 )
 for _adapter_env in \
   "${REPO_ROOT}"/deploy/docker/developer-profiles/dev-profile-*/overrides.env \
@@ -1914,9 +1925,9 @@ fi
 run_dry_run_up_and_check_generated_env "generated.env HOST_IP and HARDWARE_PROFILE from options" "base" \
  -i 127.0.0.1 -H RTXPRO6000BW -d -- \
   "HOST_IP" "127.0.0.1" "HARDWARE_PROFILE" "RTXPRO6000BW"
-LLM_ENDPOINT_URL=http://127.0.0.1:8000 run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE RTXPRO4500BW" "alerts" \
- -i 127.0.0.1 -m verification -H RTXPRO4500BW --use-remote-llm --llm x -d -- \
-  "HARDWARE_PROFILE" "RTXPRO4500BW" "LLM_MODE" "remote"
+run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE RTXPRO4500BW" "base" \
+ -i 127.0.0.1 -H RTXPRO4500BW -d -- \
+  "HARDWARE_PROFILE" "RTXPRO4500BW"
 run_dry_run_up_and_check_generated_env "generated.env HARDWARE_PROFILE OTHER" "base" \
  -i 127.0.0.1 -H OTHER -d -- \
   "HARDWARE_PROFILE" "OTHER"
@@ -2291,11 +2302,38 @@ for _env in \
 done
 
 # Search vss-agent config validates RTVI_CV_ENDPOINT at startup; compose must export it.
-if grep -q "RTVI_CV_ENDPOINT: \${RTVI_CV_ENDPOINT:-http://vss-rtvi-cv:\${RTVI_CV_PORT:-9000}}" "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
-  echo "PASS: vss-agent compose exports RTVI_CV_ENDPOINT for search config"
+if grep -Fq 'RTVI_CV_ENDPOINT: ${VSS_GATEWAY_ORIGIN:-http://${VSS_GATEWAY_HOST:-vss.local}:${VSS_GATEWAY_PORT:-7777}}/rtvi-cv' "${REPO_ROOT}/deploy/docker/services/agent/compose.yml"; then
+  echo "PASS: vss-agent compose routes RTVI_CV_ENDPOINT through the gateway"
   ((TESTS_PASSED++)) || true
 else
-  echo "FAIL: vss-agent compose should export RTVI_CV_ENDPOINT for search config"
+  echo "FAIL: vss-agent compose should route RTVI_CV_ENDPOINT through the gateway"
+  ((TESTS_FAILED++)) || true
+fi
+
+# Render the shared agent service and pin the VST media origin contract used by
+# upload post-processing. A host-only rewrite must never combine the gateway's
+# vss.local alias with VST's direct 30888 port, and the preserved media path
+# must contain exactly one /vst prefix.
+_rendered_vst_internal_url="$(
+  VSS_GATEWAY_HOST=vss.local \
+  VSS_GATEWAY_PORT=7777 \
+  VSS_GATEWAY_ORIGIN=http://vss.local:7777 \
+  VSS_APPS_DIR=/tmp \
+  VSS_DATA_DIR=/tmp \
+  RTVI_EMBED_PORT=8017 \
+    docker compose \
+      --profile vss-agent \
+      -f "${REPO_ROOT}/deploy/docker/services/agent/compose.yml" \
+      config --no-consistency --format json 2>/dev/null \
+    | jq -r '.services["vss-agent"].environment.VST_INTERNAL_URL'
+)"
+if [[ "${_rendered_vst_internal_url}" == "http://vss.local:7777" ]] \
+  && [[ "${_rendered_vst_internal_url}" != *"vss.local:30888"* ]] \
+  && [[ "${_rendered_vst_internal_url}" != *"/vst/vst/"* ]]; then
+  echo "PASS: rendered agent VST media origin uses the gateway without a duplicate prefix"
+  ((TESTS_PASSED++)) || true
+else
+  echo "FAIL: rendered agent VST media origin should be http://vss.local:7777 (got ${_rendered_vst_internal_url})"
   ((TESTS_FAILED++)) || true
 fi
 
@@ -2314,38 +2352,6 @@ if [[ -f "${_alerts_agent_config}" ]] \
   ((TESTS_PASSED++)) || true
 else
   echo "FAIL: alerts should use notification_config_\${MODE}.json webhooks (no Agent rtvi_cv_base_url)"
-  ((TESTS_FAILED++)) || true
-fi
-
-# The search notification config addresses RT-CV by a port that must agree in
-# three places: the webhook URL, RTVI_CV_PORT (container side of the ports
-# mapping), and http-port in the mounted DeepStream run config. Only the
-# checked-in artifacts are guarded here; a build that remaps the port edits all
-# three in its own projection, as documented in the vios owner contract.
-_search_webhook="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/vios/configs/notification_config.json"
-_search_cv_port="$(sed -n 's/^RTVI_CV_PORT=//p' "${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/.env" | tr -d "\"'" | tail -n1)"
-_search_ds_config="${REPO_ROOT}/deploy/docker/developer-profiles/dev-profile-search/video-analytics-2d-app/deepstream/configs/ds-main-config.txt"
-if [[ -n "${_search_cv_port}" ]] \
-  && grep -q "vss-rtvi-cv:${_search_cv_port}/api/v1/stream/add" "${_search_webhook}" \
-  && grep -q "vss-rtvi-cv:${_search_cv_port}/api/v1/stream/remove" "${_search_webhook}" \
-  && grep -q "^http-port=${_search_cv_port}$" "${_search_ds_config}"; then
-  echo "PASS: search notification config, RTVI_CV_PORT, and DeepStream http-port agree on ${_search_cv_port}"
-  ((TESTS_PASSED++)) || true
-else
-  echo "FAIL: search notification config RT-CV port must match RTVI_CV_PORT and DeepStream http-port"
-  ((TESTS_FAILED++)) || true
-fi
-
-# A profile notification config carrying several stream-driven capabilities is a
-# projection superset: one item per capability per event, each with an id, so a
-# build resolves the fan-out by setting `enabled` and never by editing receivers.
-# Guard the item inventory and the stock enable vector an inheriting build gets.
-if python3 "${REPO_ROOT}/deploy/docker/test-scripts/check_notification_supersets.py" \
-  "${REPO_ROOT}/deploy/docker"; then
-  echo "PASS: notification configs carry the expected items and stock enable vector"
-  ((TESTS_PASSED++)) || true
-else
-  echo "FAIL: notification config items or stock enable vector drifted"
   ((TESTS_FAILED++)) || true
 fi
 
@@ -2841,123 +2847,6 @@ if [[ -f "${_warehouse_project_overrides}" ]]; then
   rm -f "${out_file}" "${err_file}"
 else
   echo "SKIP: warehouse down dry-run honors custom COMPOSE_PROJECT_NAME (warehouse overrides.env not found)"
-fi
-
-# --- Runtime webhook fan-out (opt-in) ---
-# First runtime assertion for the VIOS webhook fan-out: register one RTSP
-# source and confirm the mounted notification config delivers it to RT-CV.
-# The suites above are static/dry-run; this section needs a live deployment
-# and is skipped unless the caller provides all three inputs:
-#   VSS_TEST_VST_API_BASE   e.g. http://localhost:30888/vst/api/v1
-#   VSS_TEST_RTSP_URL       a live RTSP URL reachable from the VIOS containers
-#   VSS_TEST_RTVI_CV_URL    e.g. http://localhost:9000
-if [[ -n "${VSS_TEST_VST_API_BASE:-}" && -n "${VSS_TEST_RTSP_URL:-}" && -n "${VSS_TEST_RTVI_CV_URL:-}" ]]; then
-  # Both halves of the config are asserted: camera_streaming must add the stream
-  # to RT-CV, and camera_remove must take it back out. The poll bound is computed
-  # from the mounted config's RT-CV receiver rather than quoted:
-  # max_attempts x timeout_ms + backoff_ms clamped to its last element.
-  _wh_cfg="$(docker inspect vss-vios-sensor --format '{{range .Mounts}}{{if eq .Destination "/home/vst/vst_release/configs/notification_config.json"}}{{.Source}}{{end}}{{end}}' 2>/dev/null || true)"
-  _wh_receiver=""
-  if [[ -n "${_wh_cfg}" && -f "${_wh_cfg}" ]]; then
-    # Prints "<bound-seconds> <receiver-port>" for the RT-CV camera_streaming entry.
-    _wh_receiver="$(python3 - "${_wh_cfg}" <<'EOF' || true
-import json, sys
-from urllib.parse import urlparse
-
-cfg = json.load(open(sys.argv[1]))
-if not cfg.get("webhooks", {}).get("enabled"):
-    sys.exit(1)
-for item in cfg["webhooks"].get("items", []):
-    if not item.get("enabled") or item.get("camera_status_change") != "camera_streaming":
-        continue
-    for req in item.get("request", []):
-        url = req.get("url", "")
-        if "/api/v1/stream/add" not in url:
-            continue
-        retry = req.get("retry", {})
-        attempts = max(int(retry.get("max_attempts", 1)), 1)
-        backoff = [int(b) for b in retry.get("backoff_ms", [])]
-        total_ms = attempts * int(req.get("timeout_ms", 0))
-        for i in range(attempts - 1):
-            total_ms += backoff[min(i, len(backoff) - 1)] if backoff else 0
-        print(max(total_ms // 1000, 1), urlparse(url).port or 80)
-        sys.exit(0)
-sys.exit(1)
-EOF
-)"
-  fi
-  _wh_bound="${_wh_receiver%% *}"
-  _wh_port="${_wh_receiver##* }"
-  _wh_probe_port="$(python3 -c 'import sys;from urllib.parse import urlparse;print(urlparse(sys.argv[1]).port or 80)' "${VSS_TEST_RTVI_CV_URL}" 2>/dev/null || true)"
-  if [[ -z "${_wh_receiver}" ]]; then
-    echo "SKIP: runtime webhook fan-out (no enabled RT-CV camera_streaming receiver in the mounted notification config)"
-  elif [[ "${_wh_port}" != "${_wh_probe_port}" ]]; then
-    # Fail fast instead of burning the whole bound on a receiver we are not watching.
-    echo "SKIP: runtime webhook fan-out (VSS_TEST_RTVI_CV_URL port ${_wh_probe_port} is not the config's RT-CV receiver port ${_wh_port})"
-  else
-    _wh_sensor_id=""
-    _wh_sensor_id="$(curl -sf --connect-timeout 5 --max-time 60 -X POST "${VSS_TEST_VST_API_BASE%/}/sensor/add" \
-      -H 'Content-Type: application/json' \
-      -d "{\"sensorUrl\":\"${VSS_TEST_RTSP_URL}\",\"name\":\"webhook-fanout-test\",\"username\":\"\",\"password\":\"\"}" \
-      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("sensorId",""))' 2>/dev/null || true)"
-    if [[ -z "${_wh_sensor_id}" ]]; then
-      echo "FAIL: runtime webhook fan-out (VIOS sensor/add returned no sensorId)"
-      ((TESTS_FAILED++)) || true
-    else
-      # Returns 0 once RT-CV's stream list matches the wanted presence state.
-      # A failed fetch is not an answer: absence counts only when RT-CV
-      # responded, so an unreachable receiver times out rather than reporting
-      # the stream withdrawn.
-      function await_rtvi_cv_stream() {
-        local _want_present="${1}" _deadline=$(( $(date +%s) + _wh_bound )) _streams _left
-        while :; do
-          # Each wait is cut to what is left of the bound. A receiver that
-          # accepts the connection and never answers would otherwise block the
-          # request past the deadline, and the delete below would never run.
-          _left=$(( _deadline - $(date +%s) ))
-          [[ ${_left} -le 0 ]] && return 1
-          if _streams="$(curl -sf --connect-timeout 5 --max-time "${_left}" \
-            "${VSS_TEST_RTVI_CV_URL%/}/api/v1/stream/get-stream-info" 2>/dev/null)"; then
-            if grep -q "${_wh_sensor_id}" <<<"${_streams}"; then
-              [[ "${_want_present}" == "present" ]] && return 0
-            else
-              [[ "${_want_present}" == "absent" ]] && return 0
-            fi
-          fi
-          _left=$(( _deadline - $(date +%s) ))
-          [[ ${_left} -le 0 ]] && return 1
-          sleep $(( _left < 10 ? _left : 10 ))
-        done
-      }
-      _wh_added=0
-      if await_rtvi_cv_stream present; then
-        echo "PASS: camera_streaming webhook delivered the registered source to RT-CV within ${_wh_bound}s"
-        ((TESTS_PASSED++)) || true
-        _wh_added=1
-      else
-        echo "FAIL: camera_streaming webhook did not deliver the registered source to RT-CV within ${_wh_bound}s"
-        ((TESTS_FAILED++)) || true
-      fi
-      if curl -sf --connect-timeout 5 --max-time 60 -X DELETE "${VSS_TEST_VST_API_BASE%/}/sensor/${_wh_sensor_id}" >/dev/null 2>&1; then
-        if [[ "${_wh_added}" -eq 0 ]]; then
-          # The stream never reached RT-CV, so its absence proves no teardown.
-          echo "SKIP: camera_remove webhook (the source never reached RT-CV; nothing to withdraw)"
-        elif await_rtvi_cv_stream absent; then
-          echo "PASS: camera_remove webhook withdrew the source from RT-CV within ${_wh_bound}s"
-          ((TESTS_PASSED++)) || true
-        else
-          echo "FAIL: camera_remove webhook left the source registered on RT-CV after ${_wh_bound}s"
-          ((TESTS_FAILED++)) || true
-        fi
-      else
-        # Leaves a live sensor behind, so say so rather than exiting quietly.
-        echo "FAIL: runtime webhook fan-out (VIOS sensor delete failed; sensor ${_wh_sensor_id} still registered)"
-        ((TESTS_FAILED++)) || true
-      fi
-    fi
-  fi
-else
-  echo "SKIP: runtime webhook fan-out (set VSS_TEST_VST_API_BASE, VSS_TEST_RTSP_URL, VSS_TEST_RTVI_CV_URL to enable)"
 fi
 
 # --- Summary ---

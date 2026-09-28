@@ -19,7 +19,7 @@ import os
 import pytest
 from unittest.mock import patch
 
-from utils.url_transformer import transform_video_url, is_vlm_local
+from utils.url_transformer import transform_video_url, is_vlm_local, rewrite_to_internal_url
 
 
 class TestTransformVideoUrl:
@@ -75,6 +75,73 @@ class TestTransformVideoUrl:
         url = "http://localhost:8080/api/localhost/video.mp4"
         result = transform_video_url(url, to_external=True)
         assert result == "http://203.0.113.5:8080/api/203.0.113.5/video.mp4"
+
+
+class TestRewriteToInternalUrl:
+    """Tests for rewrite_to_internal_url function."""
+
+    @patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst-ingress:30888"})
+    def test_public_origin_is_replaced(self):
+        """A URL minted on the public origin becomes fetchable from inside."""
+        url = "http://203.0.113.5:7777/vst/storage/temp_files/clip.mp4"
+        result = rewrite_to_internal_url(url)
+        assert result == "http://vst-ingress:30888/vst/storage/temp_files/clip.mp4"
+
+    @patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst-ingress:30888"})
+    def test_https_public_origin_is_replaced(self):
+        """Scheme is taken from the internal URL, not carried over.
+
+        This is the case the substitution in transform_video_url cannot serve:
+        TLS terminating upstream means neither the host nor the scheme is usable
+        from in-network, and there is no INTERNAL_IP substring to swap.
+        """
+        url = "https://vss.example.com/vst/storage/temp_files/clip.mp4"
+        result = rewrite_to_internal_url(url)
+        assert result == "http://vst-ingress:30888/vst/storage/temp_files/clip.mp4"
+
+    @patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst-ingress:30888"})
+    def test_query_and_path_are_preserved(self):
+        """Only scheme and authority change."""
+        url = "https://vss.example.com/vst/storage/f.mp4?expiry=600&overlay=true"
+        result = rewrite_to_internal_url(url)
+        assert result == "http://vst-ingress:30888/vst/storage/f.mp4?expiry=600&overlay=true"
+
+    @patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst-ingress:30888/"})
+    def test_trailing_slash_on_internal_url(self):
+        """A configured internal URL with a trailing slash does not double it."""
+        url = "http://203.0.113.5:7777/vst/storage/clip.mp4"
+        result = rewrite_to_internal_url(url)
+        assert result == "http://vst-ingress:30888/vst/storage/clip.mp4"
+
+    @patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst-ingress:30888"})
+    def test_already_internal_is_idempotent(self):
+        """Rewriting a URL that is already internal changes nothing."""
+        url = "http://vst-ingress:30888/vst/storage/clip.mp4"
+        assert rewrite_to_internal_url(url) == url
+
+    @patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst-ingress:30888"})
+    def test_non_vst_path_is_left_alone(self):
+        """VST does not serve it, so pointing it at VST would break the fetch."""
+        url = "http://203.0.113.5:7777/other/thing.mp4"
+        assert rewrite_to_internal_url(url) == url
+
+    @patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst-ingress:30888"})
+    def test_relative_url_is_left_alone(self):
+        """No authority to replace, and no basis for choosing one."""
+        url = "/vst/storage/clip.mp4"
+        assert rewrite_to_internal_url(url) == url
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_unconfigured_internal_url_is_a_no_op(self):
+        """Without VST_INTERNAL_URL there is nothing to re-anchor on."""
+        os.environ.pop("VST_INTERNAL_URL", None)
+        url = "http://203.0.113.5:7777/vst/storage/clip.mp4"
+        assert rewrite_to_internal_url(url) == url
+
+    @patch.dict(os.environ, {"VST_INTERNAL_URL": "http://vst-ingress:30888"})
+    def test_empty_url(self):
+        """An empty URL stays empty rather than becoming a bare origin."""
+        assert rewrite_to_internal_url("") == ""
 
 
 class TestIsVlmLocal:
