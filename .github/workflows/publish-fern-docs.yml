@@ -63,6 +63,10 @@ concurrency:
 jobs:
   publish:
     name: Publish
+    # `release: published` also fires for GitHub pre-releases (v3.4.0rc0), which
+    # name no published image; skip them rather than fail the vX.Y.Z check below.
+    # A manual run naming a pre-release tag still fails there, loudly.
+    if: ${{ github.event_name != 'release' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
