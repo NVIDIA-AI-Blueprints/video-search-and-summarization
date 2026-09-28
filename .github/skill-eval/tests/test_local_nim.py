@@ -70,6 +70,21 @@ def test_architecture_mismatch_rejected_without_deployment(monkeypatch):
         nim.resolve_image("nvidia/test", "arm64", "secret")
 
 
+def test_exited_nim_reports_oom_without_waiting_for_timeout(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise urllib.error.URLError("connection refused")
+
+    def docker(*args, **kwargs):
+        if args[0] == "inspect":
+            return subprocess.CompletedProcess(args, 0, "false true 1\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "CUDA out of memory")
+
+    monkeypatch.setattr(nim, "request_json", unavailable)
+    monkeypatch.setattr(nim, "docker", docker)
+    with pytest.raises(nim.NimError, match="CUDA out of memory"):
+        nim.wait_ready("http://127.0.0.1:18410/v1/health/ready", "", 1800, "nim")
+
+
 @pytest.mark.parametrize(
     "code,message",
     [
@@ -134,7 +149,7 @@ def test_two_roles_deploy_one_nim_and_one_adapter(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setattr(nim.platform, "machine", lambda: "aarch64")
     monkeypatch.setattr(nim, "publish", lambda root: None)
-    monkeypatch.setattr(nim, "wait_ready", lambda *a: {})
+    monkeypatch.setattr(nim, "wait_ready", lambda *a, **kw: {})
     real_request = nim.request_json
 
     def request(url, *args):

@@ -229,7 +229,7 @@ def owner_paths(owner: str):
     return root
 
 
-def wait_ready(url: str, token: str, timeout: int = 900):
+def wait_ready(url: str, token: str, timeout: int = 900, container: str | None = None):
     deadline = min(time.monotonic() + timeout, _START_DEADLINE or float("inf"))
     while time.monotonic() < deadline:
         try:
@@ -239,9 +239,24 @@ def wait_ready(url: str, token: str, timeout: int = 900):
                 raise NimError(
                     f"Local inference authentication failed: HTTP {exc.code}"
                 ) from None
-            time.sleep(3)
         except (urllib.error.URLError, TimeoutError, OSError):
-            time.sleep(3)
+            pass
+        if container:
+            state = docker(
+                "inspect", "--format", "{{.State.Running}} {{.State.OOMKilled}} {{.State.ExitCode}}",
+                container, check=False,
+            )
+            if state.returncode or not state.stdout.startswith("true "):
+                logs = docker("logs", "--tail", "40", container, check=False)
+                detail = (logs.stderr or logs.stdout or state.stderr or "")[-2500:]
+                for name in ("NGC_API_KEY", "NGC_CLI_API_KEY"):
+                    if os.environ.get(name):
+                        detail = detail.replace(os.environ[name], "[REDACTED]")
+                raise NimError(
+                    f"Local NIM container stopped before readiness "
+                    f"(state={state.stdout.strip() or 'missing'}): {detail}"
+                )
+        time.sleep(3)
     raise NimError(f"Local NIM readiness timed out: {url}")
 
 
@@ -350,7 +365,7 @@ def start(plan: dict):
         ))
         docker(*nim_args)
         base = f"http://127.0.0.1:{port}/v1"
-        wait_ready(f"{base}/health/ready", "", 1800)
+        wait_ready(f"{base}/health/ready", "", 1800, container=name)
         served, _ = request_json(f"{base}/models")
         names = [m["id"] for m in served.get("data", [])]
         # The model-specific repository establishes identity; the server's
