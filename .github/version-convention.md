@@ -27,6 +27,18 @@ extra build metadata (`+tree.<sha>`, `+g<sha>`) that identifies *which build*;
 the stamped fields carry none, because their identity is the commit they ship
 in.
 
+**One bounded exception, by design: the release window.** Tags are immutable,
+so a release's stamped fields must land *before* its tag (see
+[Release order](#release-order-stamp-first-tag-second)). Between merging the
+release stamp PR (`3.3.0`) and pushing `v3.3.0` onto that merge commit, the
+stamped fields lead: skills and the edge say `3.3.0` while a checkout of that
+commit still describes to `3.3.0-rc0.dev.N`. The window closes the moment the
+tag is pushed — on the tagged commit everything agrees — and it can only open
+on the one commit the release manager is about to tag. It never runs the other
+way: `--check` fails any PR whose fields fall *behind* the nearest tag. The
+alternative that would remove the window (tag first, stamp after) leaves the
+immutable release tree disagreeing with its own tag forever, which is worse.
+
 ## Tags
 
 | Tag | Meaning | Who pushes it |
@@ -169,9 +181,15 @@ Release tags are cut by maintainers, so:
 ```bash
 python3 .github/scripts/stamp_versions.py --version 3.3.0   # before the tag exists
 git commit -s -am "chore(version): stamp 3.3.0 for the release"
-# land that commit on develop, then
-git tag -a v3.3.0 <that commit> && git push origin v3.3.0
+# land that commit on develop, then -- immediately, before anything else merges:
+git fetch origin develop
+git tag -a v3.3.0 <that merge commit> -m "VSS 3.3.0" && git push origin v3.3.0
 ```
+
+Tag the stamp PR's **merge commit**, straight after it lands: that is the
+whole release window above, and it closes on the push. Hold other merges to
+`develop` until the tag is pushed, so the tag lands on the stamp commit and no
+other commit ever carries the release stamp untagged.
 
 The tagged commit then already carries `3.3.0` everywhere, and `--check`
 passes on it (equal to its own tag). Cutting the tag on an unstamped commit is
