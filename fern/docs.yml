@@ -289,7 +289,6 @@ navigation:
       - section: "VSS Agents"
         slug: vss-agents
         path: ../docs/VSS-Agents.mdx
-        hidden: true
         contents:
           - section: "Agent Overview"
             slug: agent-overview
