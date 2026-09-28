@@ -151,6 +151,29 @@ class HarborCommand(unittest.TestCase):
             str(run_leg.HARBOR_VERIFIER_TIMEOUT_MULTIPLIER),
         )
 
+    def test_local_nim_gets_cold_start_budget(self):
+        invocation = run_leg.HarborInvocation(
+            harbor_root=Path("/tmp/datasets/base"),
+            include_task_name="rtxpro6000bw",
+            chain_key="base_rtxpro6000bw",
+        )
+        cmd = run_leg.build_harbor_command(
+            invocation, Path("/tmp/results"), "meta/test", "http://localhost:18400/v1",
+            local_nim=True,
+        )
+        self.assertEqual(
+            cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
+            str(run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER),
+        )
+        self.assertLess(
+            600 * run_leg.LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+            + run_leg.HARBOR_AGENT_SETUP_BUDGET_SEC
+            + run_leg.HARBOR_AGENT_BUDGET_SEC
+            + run_leg.HARBOR_VERIFIER_BUDGET_SEC
+            + run_leg.HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC,
+            run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
+        )
+
     def test_build_command_codex_agent(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/alerts_cv"),

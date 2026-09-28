@@ -81,6 +81,10 @@ AGENT_ROUTE_BASE_URL_ENV = "SKILL_EVAL_AGENT_ROUTE_BASE_URL"
 # environment before this wrapper intervenes.
 HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
+# Cold local NIMs download both the image and model weights before Harbor can
+# install its agent. Give that environment phase room without extending hosted
+# inference jobs.
+LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 6.0
 NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 # Deploy steps pull container images and model weights before the scenario's
 # own work starts, so a one-hour scenario budget left them finishing at
@@ -329,10 +333,12 @@ def build_harbor_command(
     anthropic_base_url: str,
     agent: str = "claude-code",
     agent_timeout_multiplier: float = HARBOR_AGENT_TIMEOUT_MULTIPLIER,
+    local_nim: bool = False,
 ) -> list[str]:
     environment_import_path = "envs.brev_env:BrevEnvironment"
     environment_build_timeout_multiplier = (
-        HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+        LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
+        if local_nim else HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER
     )
     if agent == "codex":
         # Custom NvCodex subclass (agents/nv_codex.py) keeps the full
@@ -1863,6 +1869,7 @@ def _run_invocations(
             invocation_model,
             invocation_base_url,
             invocation_agent,
+            local_nim=nim_plan is not None,
             **command_kwargs,
         )
         invocation_env = env.copy()

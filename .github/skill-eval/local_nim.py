@@ -32,6 +32,7 @@ from pathlib import Path
 PROXY_PORT = 18400
 LITELLM_VERSION = "1.103.0"
 LABEL = "vss.skill-eval.nim-owner"
+STARTUP_BUDGET_SEC = 3300
 _START_DEADLINE: float | None = None
 SPARK_NODE_ID = "extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8"
 SPARK_NODE_NAME = "Spark-ba-WiFi"
@@ -80,7 +81,7 @@ def request_json(url: str, headers: dict | None = None, payload: dict | None = N
     timeout = 60
     if _START_DEADLINE is not None:
         if time.monotonic() >= _START_DEADLINE:
-            raise NimError("Local NIM startup exceeded its 1,400-second budget")
+            raise NimError(f"Local NIM startup exceeded its {STARTUP_BUDGET_SEC:,}-second budget")
         timeout = min(timeout, max(1, int(_START_DEADLINE - time.monotonic())))
     with urllib.request.urlopen(request, timeout=timeout) as response:
         raw = response.read()
@@ -194,7 +195,7 @@ def docker(
     if _START_DEADLINE is not None:
         timeout = min(timeout, max(1, int(_START_DEADLINE - time.monotonic())))
         if time.monotonic() >= _START_DEADLINE:
-            raise NimError("Local NIM startup exceeded its 1,400-second budget")
+            raise NimError(f"Local NIM startup exceeded its {STARTUP_BUDGET_SEC:,}-second budget")
     result = subprocess.run(
         ["docker", *args],
         input=input_text,
@@ -298,7 +299,7 @@ def start(plan: dict):
                 input_text=key,
             )
             for item in resolved:
-                docker("pull", item["image"], timeout=900)
+                docker("pull", item["image"], timeout=1500)
         finally:
             if old is None:
                 os.environ.pop("DOCKER_CONFIG", None)
@@ -336,7 +337,7 @@ def start(plan: dict):
             item["image"],
         )
         base = f"http://127.0.0.1:{port}/v1"
-        wait_ready(f"{base}/health/ready", "", 900)
+        wait_ready(f"{base}/health/ready", "", 1800)
         served, _ = request_json(f"{base}/models")
         names = [m["id"] for m in served.get("data", [])]
         # The model-specific repository establishes identity; the server's
@@ -522,7 +523,7 @@ def main():
     root = owner_paths(plan["owner"])
     pid_file = root / "startup.pid"
     pid_file.write_text(str(os.getpid()))
-    _START_DEADLINE = time.monotonic() + 1400
+    _START_DEADLINE = time.monotonic() + STARTUP_BUDGET_SEC
     try:
         start(plan)
         try:
