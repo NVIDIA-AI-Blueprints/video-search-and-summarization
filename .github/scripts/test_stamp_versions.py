@@ -223,6 +223,52 @@ class MainTest(unittest.TestCase):
             self.assertEqual(sv.main(["--repo-root", tmp]), 2)
 
 
+class CheckGateTest(unittest.TestCase):
+    """--check: every field agrees, and that version is >= the nearest v* tag's."""
+
+    def _repo(self, tmp: str, tag: str) -> Path:
+        repo = make_repo(tmp, "vss-a", "vss-b", charts=("dev-profile-a", "warehouse-x"))
+        git(repo, "tag", tag)
+        return repo
+
+    def test_equal_to_the_tag_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._repo(tmp, "v3.3.0rc0")
+            sv.main(["--repo-root", tmp])
+            self.assertEqual(sv.main(["--repo-root", tmp, "--check"]), 0)
+
+    def test_newer_than_the_tag_passes(self):
+        """The release PR stamps 3.3.0 while develop is still on v3.3.0rc0."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._repo(tmp, "v3.3.0rc0")
+            sv.main(["--repo-root", tmp, "--version", "3.3.0"])
+            self.assertEqual(sv.main(["--repo-root", tmp, "--check"]), 0)
+
+    def test_older_than_the_tag_fails(self):
+        """After a new tag lands, the gate fails until the stamp PR lands."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self._repo(tmp, "v3.4.0rc0")
+            sv.main(["--repo-root", tmp, "--version", "3.3.0"])
+            self.assertEqual(sv.main(["--repo-root", tmp, "--check"]), 1)
+
+    def test_mixed_values_fail_even_when_all_are_new_enough(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._repo(tmp, "v3.3.0rc0")
+            sv.main(["--repo-root", tmp, "--version", "3.3.0"])
+            env = repo / sv.CONTAINERS_ENV
+            env.write_text(env.read_text().replace('VSS_VERSION="3.3.0"', 'VSS_VERSION="3.4.0"'))
+            self.assertEqual(sv.main(["--repo-root", tmp, "--check"]), 1)
+
+    def test_semver_precedence(self):
+        ordered = ["3.2.1", "3.3.0-rc0", "3.3.0-rc0.dev.20", "3.3.0-rc1", "3.3.0", "3.3.1-rc0", "3.3.1", "3.10.0"]
+        shuffled = [ordered[i] for i in (7, 2, 5, 0, 4, 1, 6, 3)]
+        self.assertEqual(sorted(shuffled, key=sv.semver_key), ordered)
+        self.assertEqual(sv.semver_key("3.3.0+tree.abc"), sv.semver_key("3.3.0"))
+        # numeric identifiers rank below alphanumeric ones, and compare as numbers
+        self.assertLess(sv.semver_key("1.0.0-2"), sv.semver_key("1.0.0-10"))
+        self.assertLess(sv.semver_key("1.0.0-10"), sv.semver_key("1.0.0-alpha"))
+
+
 class RepositoryWiringTest(unittest.TestCase):
     """The stamped fields are only worth stamping if the edges read them."""
 
@@ -231,7 +277,9 @@ class RepositoryWiringTest(unittest.TestCase):
     def test_compose_edge_returns_the_stamped_version(self):
         template = (self.ROOT / "deploy/docker/services/infra/haproxy/haproxy.cfg.template").read_text()
         self.assertIn("acl p_api_version path /api/v1/version", template)
-        self.assertIn('lf-string \'{"service":"vss","version":"%[env(VSS_VERSION)]"}\' if h_main p_api_version', template)
+        self.assertIn('lf-string \'{"service":"vss","version":"%[env(VSS_VERSION),json]"}\' if h_main p_api_version', template)
+        # Unset or empty answers 503, like the agent, instead of a 200 with no version.
+        self.assertIn("if h_main p_api_version !version_set", template)
         # The return must be evaluated before /api is routed to the agent.
         self.assertLess(template.index("p_api_version"), template.index("use_backend bk_vss_agent if h_main p_api"))
         compose = (self.ROOT / "deploy/docker/services/infra/haproxy/compose.yml").read_text()
