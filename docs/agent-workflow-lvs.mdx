@@ -109,18 +109,18 @@ What the agent does:
 To operate the video summarization and report generation workflow from your agent, install the `vss-manage-video-io-storage`, `vss-summarize-video`, and `vss-generate-video-report` skills as described in [Agent Skills](/vss/vision-agent/agent-skills).
 Your agent can then upload videos, summarize them, and generate reports through VSS with natural-language prompts, without requiring manual interaction with the UI.
 
-Upload a video through the `vss-manage-video-io-storage` skill.
+Upload a video through the `vss-manage-video-io-storage` skill. The skill uploads the file to VST and confirms it is registered in Video IO & Storage (VIOS).
 
-**Upload a video to VIOS**
+**Upload a video to VST**
 
-```text title="Upload a video to VIOS"
-Upload warehouse_sample.mp4 to VIOS.
+```text title="Upload a video to VST"
+Upload warehouse_sample.mp4 to VST.
 ```
 
 What the agent does:
 
 1. Loads the `vss-manage-video-io-storage` skill and verifies that VIOS is reachable.
-2. Uploads the video file to VIOS.
+2. Uploads the video file to VST.
 3. Confirms that VIOS lists the new video.
 
 #### Step 3: Summarize a Video and Generate Reports
@@ -719,7 +719,7 @@ Use natural language prompts in the chat interface. The agent routes the request
 
 #### Step 2: Upload a video
 
-In the video management tab, drag and drop the video `warehouse_sample.mp4` into the upload area.
+In the Video Management tab, drag and drop `warehouse_sample.mp4` into the upload area. The VSS UI uploads the file to VST and waits for it to appear in the video list.
 
 <Frame>
   <img src="/assets/images/agent-workflows/lvs_upload_video.png" alt="Video Management tab with upload area" />
