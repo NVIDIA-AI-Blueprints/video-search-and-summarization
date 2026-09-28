@@ -31,6 +31,14 @@ embedding model`.
 deployment work unless the request deploys, operates, integrates, or customizes
 RT-Embed.
 
+## When to Use
+
+- Deploy, size, upgrade, roll back, or tear down standalone RT-Embed (Cosmos-Embed1 or a custom/BYOM model)
+- Call RT-Embed's `/v1` API for text/video embeddings, live streams, model listing, health, metrics
+- Wire RT-Embed into another service with Redis, Kafka, OpenTelemetry, auth, or storage
+- Add or validate a custom/BYOM embedding backend
+- Debug RT-Embed readiness, model/cache startup, or Redis/Kafka reachability
+
 ## Service Snapshot
 
 - **Skill:** `vss-deploy-video-embedding`.

@@ -10,7 +10,7 @@
       }
     }
   },
-  "env": "A stock RTX PRO 6000 Blackwell host with two GPUs, Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. Covers VDR row 2, \"Use the vss-build-vision-ai skill to add real-time VLM alerting and summarization\" - the prompts are the slide's verbatim. Query 1 stands the vision agent up so query 2 has a running deployment to extend.\n\nWrite query 1's artifacts under `_builds/vdr-2-base/` and query 2's under `_builds/vdr-2-alerting-summarization/`. For both, bring the stack up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes. No agent harness: answer the harness question with no - the developer drives the build from their own coding agent with the `vss` CLI.",
+  "env": "A stock RTX PRO 6000 Blackwell host with two GPUs, Docker, NVIDIA Container Toolkit, NGC credentials, and the VSS repository at `{{repo_root}}`. The prompts are verbatim from the VDR slide. Query 1 stands a deployment up; query 2 extends it.\n\nWrite query 1's artifacts under `_builds/vdr-2-base/` and query 2's under `_builds/vdr-2-alerting-summarization/`. For both, bring the stack up with a detached `docker compose ... up -d` from the validated `resolved.yml` as soon as validation passes. No agent harness: answer the harness question with no - the developer drives the build from their own coding agent with the `vss` CLI.",
   "expects": [
     {
       "artifact_expected": false,

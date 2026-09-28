@@ -11,6 +11,13 @@ metadata:
 
 Deploy, debug, and operate the RTVI-CV detection / tracking 2D microservice and drive its REST API.
 
+## When to Use
+
+- Deploy, tear down, or debug the RTVI-CV 2D microservice ("deploy rtvi-cv", "start warehouse 2d", "stop the perception container", "rtvi-cv won't start")
+- Manage streams or call the RTVI-CV REST API on an already-running instance (add/remove/list streams, health checks, metrics, embeddings)
+
+Not for VLM, embedding, or analytics — use the matching `vss-*` skill.
+
 ## Prerequisites
 
 - Active VSS deployment reachable on `$HOST_IP` (see `vss-build-vision-ai` and `references/`).

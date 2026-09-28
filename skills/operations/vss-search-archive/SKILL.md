@@ -22,6 +22,13 @@ differs. Source ingestion and deletion are Agent-backed **when the deployment ha
 an agent `/api` route**; on a build without one, they belong to
 `vss-manage-video-io-storage` `references/provision-vios-source.md`.
 
+## When to Use
+
+- Search archived VSS video by natural-language or similarity query
+- Ingest a source for search, or delete a previously ingested source (Agent-backed when an agent `/api` route exists)
+
+Not for visual Q&A, live captioning, or video summarization.
+
 ## Hard boundaries
 
 - Run the project-local CLI on the host. Never use `docker exec`, `kubectl
@@ -203,7 +210,12 @@ The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot
 availability. Treat boolean `criteria_met` values as critic evidence only.
 
-1. Format nonempty results without raw JSON:
+1. Format nonempty results without raw JSON. The final reply is user-facing,
+   not a diagnostic trace: identify a hit by the source name the user supplied
+   or its display filename, never a raw `sensor_id` or stream UUID. Never expose
+   a job ID, model or service name, endpoint, CLI flag, or implementation terms
+   such as "VLM" or "critic". Say "visual verification" when it is relevant,
+   and report only its `confirmed`, `rejected`, or `unverified` result.
 
 ```text
 ## Video Search Results

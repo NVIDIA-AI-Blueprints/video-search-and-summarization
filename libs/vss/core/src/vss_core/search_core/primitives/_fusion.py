@@ -393,6 +393,7 @@ def embed_output_to_search_results(embed_output: EmbedSearchOutput) -> list[Sear
                 start_time=_coerce_str(item.start_time),
                 end_time=_coerce_str(item.end_time),
                 sensor_id=_coerce_str(item.sensor_id),
+                sensor_id_raw=_coerce_str(item.sensor_id_raw),
                 screenshot_url=_coerce_str(item.screenshot_url),
                 similarity=_coerce_float(item.similarity_score),
             )
@@ -502,7 +503,7 @@ def fuse_ranked_union(
     weights: dict[str, float],
     rrf_k: int,
 ) -> list[SearchResult]:
-    """Dispatch candidate-union fusion using the configured rank method."""
+    """Dispatch weighted or legacy equal-weight candidate-union fusion."""
     if method == "weighted_rrf":
         effective_weights = weights
     elif method == "rrf":

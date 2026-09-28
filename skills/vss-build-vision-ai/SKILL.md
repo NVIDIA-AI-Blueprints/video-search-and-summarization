@@ -15,6 +15,12 @@ metadata:
 
 **Two ways in:** **guided intake** (state an open intent like "build a vision agent" / "add vision capabilities" and the skill walks you through capability selection) or **prompt-driven** (name the capability or profile directly). Both land on the same routing and composition flow.
 
+## When to Use
+
+- Compose and deploy a self-contained vision application stack — a stock developer profile (`base`, `alerts`, `lvs`, `search`) or the `warehouse` industry profile — not a single microservice on its own
+- Extend or customize that stack as a delta overlay on a developer profile Foundation
+- Change a build's lifecycle: install the NemoClaw/OpenClaw/Hermes harness on it, resize it, or tear it down. Operating the running stack (search, Q&A, summaries, alerts, reports) is not this skill — see below
+
 ## Do Not Use This Skill For
 
 - Operating an already-running deployment: search, summarize, VIOS, alerts,
@@ -60,7 +66,7 @@ without requiring credentials, probing services, or changing files:
 | `scripts/stage_vss_src.py` | Harness-development utility used by `.openclaw/` and `.hermes/`; never run during a normal build or deployment. |
 | `scripts/sync_skills.py` | Harness runtime utility used by `.openclaw/` and `.hermes/` to activate operation Skills; not part of the build workflow. |
 
-`scripts/tests/` contains CI-only contracts, `eval/` contains Skill evaluation
+`scripts/tests/` contains CI-only contracts, `evals/` contains Skill evaluation
 specifications, and `config/skillspector-baseline.yml` is scanner-maintenance
 configuration. Agents must not load or execute those files as workflow steps.
 

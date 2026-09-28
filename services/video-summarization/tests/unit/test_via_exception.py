@@ -53,6 +53,19 @@ def test_via_exception_with_custom_status():
 
 
 @pytest.mark.unit
+def test_via_exception_with_job_failure_context():
+    exc = ViaException(
+        "Aggregation was empty",
+        code="AggregationFailed",
+        status_code=502,
+        job_id="job-123",
+        failed_stage="aggregation",
+    )
+    assert exc.job_id == "job-123"
+    assert exc.failed_stage == "aggregation"
+
+
+@pytest.mark.unit
 def test_via_exception_bad_request():
     """Test ViaException for 400 Bad Request."""
     exc = ViaException("Bad request data", code="BadRequest", status_code=400)

@@ -112,13 +112,13 @@ validate_reid_settings() {
     exit 1
   }
   [ -n "${MODELS_DIR:-}" ] || { echo "ERROR: MODELS_DIR is required when REID_ENABLED=1" >&2; exit 1; }
-  local model
-  for model in reid_model.onnx reid_model.onnx_b64_gpu0_fp32.engine; do
-    [ -r "$MODELS_DIR/reid/$model" ] || {
-      echo "ERROR: required ReID model is missing or unreadable: $MODELS_DIR/reid/$model" >&2
-      exit 1
-    }
-  done
+  # Only the ONNX is a prerequisite. TensorRT writes the ReID engine plan next
+  # to it on the first perception run, exactly as it does for the RT-DETR
+  # engine below, so requiring the plan here would reject a correct tree.
+  [ -r "$MODELS_DIR/reid/reid_model.onnx" ] || {
+    echo "ERROR: required ReID model is missing or unreadable: $MODELS_DIR/reid/reid_model.onnx" >&2
+    exit 1
+  }
 }
 validate_reid_settings
 
@@ -412,7 +412,9 @@ if [ "$REID_ENABLED" = 1 ]; then
   set_yaml_scalar "$TRACKER_STAGED" ReIDService servicePort "$REID_SERVICE_PORT"
   set_yaml_scalar "$TRACKER_STAGED" ReIDService operateOnClassIds '[0]'
   echo "   ReID enabled: ${REID_DIMENSION}-D features -> ${REID_SERVICE_HOST}:${REID_SERVICE_PORT} (topic $REID_INPUT_TOPIC)"
-  echo "   ReID models: $MODELS_DIR/reid/reid_model.onnx + reid_model.onnx_b64_gpu0_fp32.engine"
+  echo "   ReID model: $MODELS_DIR/reid/reid_model.onnx"
+  [ -r "$MODELS_DIR/reid/reid_model.onnx_b64_gpu0_fp32.engine" ] || \
+    echo "   ReID engine: not built yet; perception builds it on first run (minutes)"
 else
   # Older/custom tracker configs may omit these optional blocks entirely. If a
   # switch exists, force it off; absence already means the service is disabled.

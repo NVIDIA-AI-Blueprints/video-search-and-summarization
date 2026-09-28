@@ -354,7 +354,7 @@ The webhook accepts VSS incident payloads via `POST /webhook/alert-notify`. The 
 
 | Slack Field | Source Path | Description |
 |---|---|---|
-| **Verdict** | `info.verdict` | Alert verdict: confirmed, rejected, verification-failed, not-confirmed |
+| **Verdict** | `info.verdict` | Alert verdict: confirmed, rejected, verification-failed (or empty on a freestyle deploy) |
 | **Category** | `category` | Alert category (e.g. `protective_hat_violation`) |
 | **Sensor ID** | `sensorId` | Sensor identity on the incident — usually the sensor **name** (RT-VLM precedence `camera_id` → `sensor_name` → stream id); a VIOS UUID only when the rule was created without `sensor_name` |
 | **Place** | `place.name` | Human-readable location name |

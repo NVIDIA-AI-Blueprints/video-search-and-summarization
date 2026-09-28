@@ -1172,9 +1172,13 @@ Other examples of general supported queries include:
   <img src="/assets/images/agent-workflows/base_query_sensor_list.png" alt="Query: List all available sensors" />
 </Frame>
 
-### Generate a report
+### Generate a report with the in-stack VSS Agent
 
 You can also ask the agent to generate a report about the video. Here is an example prompt to generate a report about the video:
+
+<Note>
+The screenshots below show the in-stack VSS Agent UI. In this workflow, VSS Agent provides a PDF report download and uses a Human in the Loop (HITL) dialog to review the VLM prompt. With NemoClaw's OpenClaw runtime, the summary or report appears directly in the OpenClaw chat UI. HITL happens in that chat: the agent asks for prompt details inline, and you answer in the conversation. The VSS Agent's structured HITL dialogs are not available through an external VSS UI connected to NemoClaw.
+</Note>
 
 ```bash
 Can you generate a report for this video?
@@ -1186,7 +1190,7 @@ Can you generate a report for this video?
 
 #### Human in the loop (HITL) prompt editing:
 
-When generating a report, the agent will prompt the user to review the vlm prompt for report generation.
+When generating a report in the VSS Agent UI, the agent prompts the user to review the VLM prompt for report generation.
 This allows the user to edit the vlm prompt for report generation to improve the specificity and accuracy of the report.
 
 ![Human in the loop prompt-editing flow diagram](/assets/images/agent-workflows/base_hitl_diagram.png)

@@ -229,7 +229,7 @@ services:
 
   # DCGM Exporter - GPU metrics collection
   dcgm-exporter:
-    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.0-4.1.0-ubuntu22.04
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:4.2.3-4.1.3-ubuntu22.04
     runtime: nvidia
     ports:
       - "${DCGM_EXPORTER_PORT:-9400}:9400"
