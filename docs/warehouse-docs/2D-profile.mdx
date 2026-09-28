@@ -169,14 +169,18 @@ The Blueprint supports several levels of customization:
 
 ### Adding New Cameras or Custom Datasets
 
+<Note>
+For 2D processing in image coordinates, calibration is not required unless you want to configure tripwires or regions of interest (ROIs). If you do not need either, skip the calibration files and Steps 3–4 below, and deploy your selected 2D profile using [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint).
+</Note>
+
 <Info>
 Recorded videos and live RTSP streams must be encoded without B-frames and have a resolution of `1920 x 1080`.
 
 To check for and remove B-frames, see [the FAQ guidance](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/operations-monitoring-troubleshooting-faq-known-limitations/faq#my-videos-produce-incorrect-timestamps-for-messages-or-are-processed-over-an-extended-duration).
 
-For custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
+For Auto Calibration with custom video inputs, provide time-synchronized MP4 videos encoded without B-frames that are at least 60 seconds long and all videos should have the same duration.
 
-The tracklet-based AMC method relies heavily on moving people in the input videos. Ensure that the videos contain a sufficient number of clearly visible moving people.
+If using the tracklet-based AMC method, ensure that the videos contain a sufficient number of clearly visible moving people.
 </Info>
 
 #### Step 1: Prepare video sources
@@ -288,7 +292,7 @@ To use a custom dataset:
 
 * Place the video files in `$VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET/`.
 
-* Add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. If you already have a calibration, add `calibration.json` to the same directory. Otherwise, generate it in Step 3. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
+* If calibration is needed, add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. If you already have a calibration, add `calibration.json` to the same directory. Otherwise, generate it in Step 3. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
 
 <Note>
 Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2d-warehouse-detection) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
