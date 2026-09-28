@@ -226,7 +226,7 @@ _SLUG = f"vss-build-vision-ai__{_STEM}__RTXPRO6000BW"
 _LEG = {
     "eval_kind": "eval",
     "eval_skill": "vss-build-vision-ai",
-    "eval_spec_path": f"skills/vss-build-vision-ai/eval/{_STEM}.json",
+    "eval_spec_path": f"skills/vss-build-vision-ai/evals/{_STEM}.json",
     "eval_platform": "RTXPRO6000BW",
     "eval_slug": _SLUG,
     "eval_spec_stem": _STEM,

@@ -45,7 +45,7 @@ Usage from the repository root:
         --rtcv-skill-dir skills/deployment/vss-deploy-detection-tracking-2d \\
         --rtembed-skill-dir skills/deployment/vss-deploy-video-embedding \\
         --summarize-skill-dir skills/operations/vss-summarize-video \\
-        --spec skills/vss-build-vision-ai/eval/vdr_1_quickstart_vision_agent.json
+        --spec skills/vss-build-vision-ai/evals/vdr_1_quickstart_vision_agent.json
 """
 from __future__ import annotations
 
@@ -465,7 +465,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--spec", default=None,
-        help="Path to the eval spec JSON (default: <skill-dir>/eval/vdr_1_quickstart_vision_agent.json)",
+        help="Path to the eval spec JSON (default: <skill-dir>/evals/vdr_1_quickstart_vision_agent.json)",
     )
     parser.add_argument(
         "--platform", default=None,
@@ -512,7 +512,7 @@ def main() -> None:
     spec_path = (
         Path(args.spec)
         if args.spec
-        else (skill_dir / "eval" / "vdr_1_quickstart_vision_agent.json")
+        else (skill_dir / "evals" / "vdr_1_quickstart_vision_agent.json")
     )
     if not spec_path.exists():
         print(f"spec not found: {spec_path}", file=sys.stderr)
