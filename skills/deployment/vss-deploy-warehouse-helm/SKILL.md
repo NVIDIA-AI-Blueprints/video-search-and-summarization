@@ -10,6 +10,11 @@ metadata:
 ---
 # VSS Warehouse — Helm Deploy
 
+## When to Use
+
+- Deploy, upgrade, or size the VSS warehouse blueprint (2D / 3D / MV3DT) on Kubernetes via Helm
+- Compute a GPU-aware `NUM_STREAMS` cap for a warehouse Helm install so it matches what the perception pipeline can sustain
+
 Do not use this skill for:
 
 - Docker Compose warehouse deployment — use `vss-build-vision-ai`'s

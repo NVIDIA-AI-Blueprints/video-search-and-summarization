@@ -11,6 +11,15 @@ metadata:
 
 Stand up the RT-VLM dense-captioning microservice on its own and exercise every endpoint it exposes (file upload, generate_captions, stream add/delete, chat-completions, Kafka topics).
 
+## When to Use
+
+- Deploy standalone RT-VLM dense captioning when no full VSS profile is running
+- Generate dense captions for an uploaded file or RTSP stream via the RT-VLM REST API
+- Manage RT-VLM stream lifecycle (add/get-info/delete) or call chat-completions against it
+- Wire RT-VLM to Kafka/ELK/VIOS or sibling model services
+
+Not for deploying a full VSS profile (use `vss-build-vision-ai`) or ingesting video for search (video-search ingestion is a separate path).
+
 ## Prerequisites
 
 For standalone RT-VLM deployment:

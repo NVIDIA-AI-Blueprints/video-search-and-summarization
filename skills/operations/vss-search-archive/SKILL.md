@@ -22,6 +22,13 @@ differs. Source ingestion and deletion are Agent-backed **when the deployment ha
 an agent `/api` route**; on a build without one, they belong to
 `vss-manage-video-io-storage` `references/provision-vios-source.md`.
 
+## When to Use
+
+- Search archived VSS video by natural-language or similarity query
+- Ingest a source for search, or delete a previously ingested source (Agent-backed when an agent `/api` route exists)
+
+Not for visual Q&A, live captioning, or video summarization.
+
 ## Hard boundaries
 
 - Run the project-local CLI on the host. Never use `docker exec`, `kubectl
