@@ -367,7 +367,7 @@ def reuse_entries(
                 for root in inventory.get("first_party_registry_roots", [])
                 if root.startswith("ghcr.io/")
             ]
-            tree_sha = tree_reader(repo_root, str(entry.get("source_path") or ""))
+            tree_sha = tree_reader(repo_root, source_path_label(source_paths_of(entry.get("source_path"))))
             if len(ghcr_roots) == 1 and tree_sha:
                 repository = entry.get("repository", name)
                 coordinates = [

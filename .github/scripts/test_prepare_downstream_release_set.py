@@ -14,6 +14,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import prepare_downstream_release_set as module  # noqa: E402
+from release_set import load_inventory  # noqa: E402
 from prepare_downstream_release_set import (  # noqa: E402
     candidate_container_tag,
     downstream_relevant,
@@ -115,6 +116,25 @@ class DownstreamGateTest(unittest.TestCase):
     def test_unrelated_change_does_not_run(self):
         run, _ = downstream_relevant(["docs/readme.md", "skills/x/SKILL.md"], INVENTORY)
         self.assertFalse(run)
+
+    def test_list_source_paths_in_the_real_inventory_trigger_their_images(self):
+        """Every path of a list source_path watches for its image, and a path
+        shared by several images names all of them (the real inventory)."""
+        inventory = load_inventory(Path(__file__).resolve().parents[2])
+        cases = {
+            "services/agent/app.py": {"vss-agent"},
+            "libs/vss/cli/src/vss_cli/configure.py": {"vss-agent", "vss-harness-openclaw", "vss-harness-hermes"},
+            "services/ui/package.json": {"vss-agent-ui"},
+            "LICENSE": {"vss-agent-ui"},
+            "libs/analytics/spatialai-data-utils/release/pyproject.toml": {"vss-configurator"},
+            "skills/operations/vss-summarize-video/SKILL.md": {"vss-harness-openclaw", "vss-harness-hermes"},
+        }
+        for changed, images in cases.items():
+            with self.subTest(changed=changed):
+                run, why = downstream_relevant([changed], inventory)
+                self.assertTrue(run, why)
+                for image in images:
+                    self.assertIn(image, why)
 
     def test_unresolvable_diff_runs_rather_than_skips(self):
         run, why = downstream_relevant(None, INVENTORY)
