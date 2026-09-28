@@ -75,6 +75,7 @@ incidents, analytics sensors or metrics is not an MCP or Agent request.
 | `ENABLE_AUDIO` | Enable audio-aware flows. (Result critique has no build-time flag; it is chosen per request via the agent's `use_critic` option.) |
 | `VSS_AGENT_REPORTS_BASE_URL`, `VSS_AGENT_EXTERNAL_URL` | Generate externally reachable links. |
 | `VSS_UI_HOST_PORT` | Publish the Web UI (public-ingress knobs live with the Ingress owner, `ingress.md`). |
+| `VSS_CHAT_COMPLETION_URL` | Retarget both Web UI chat surfaces. Set it empty on a build with no agent and no harness, so they report no backend instead of calling the removed agent (`agent-harness.md`). |
 
 ## Sources
 

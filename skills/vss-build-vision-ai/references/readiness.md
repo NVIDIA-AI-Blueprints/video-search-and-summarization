@@ -16,7 +16,11 @@ so keep the count guard in the same snippet as the state guard:
 
 ```bash
 BUILD_DIR="_builds/<name>"
-expected=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l)
+# How many services this deploy deliberately held back. 0 on every build except
+# one deferring vss-ui for the harness (agent-harness.md, "Start vss-ui last");
+# never a way to excuse a service that failed to start.
+DEFERRED=0
+expected=$(( $(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l) - DEFERRED ))
 actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -q | wc -l)
 if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
   echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
@@ -45,6 +49,10 @@ jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
 fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
 failure even though `up -d` returned 0.
 
+A deferred service is not exempt, only late. The deferring pass sets `DEFERRED`
+to the held-back count; run this whole gate again at `DEFERRED=0` once the
+service starts, and declare nothing done before that second pass.
+
 > **Warehouse needs a data-plane check, not just Gate 0.** Every container can
 > report `Up` while zero streams are processed, and Gate 0 cannot see it. Run the
 > liveness checks in [`profiles/warehouse.md`](profiles/warehouse.md) before
@@ -59,6 +67,10 @@ REST API, UI, inference NIMs, etc., on the ports the profile actually opens).
 Run those `curl` checks with a generous deadline (15 min is reasonable for cold
 NIM warmup) and only declare the deploy done once every documented endpoint
 returns the expected success exit code.
+
+Every profile's list includes the UI on `:3000`. On a build deferring `vss-ui`
+that probe belongs to the second pass, not this one — running it early reports a
+deliberate deferral as a failed deploy.
 
 **Agent gate — only when the build includes the VSS Agent.** Stock profiles run
 `vss-agent`, so it must answer on `:8000/health`; a headless delta prunes it (no

@@ -69,6 +69,37 @@ gateway — what `host.docker.internal` resolves to inside the container. If the
 checked-out notebook lacks section 3.5's relay, stop and report the checkout as
 incompatible; a loopback-only forward cannot serve the containerized UI.
 
+### Start `vss-ui` last
+
+The gateway token does not exist until onboarding, so a `vss-ui` started with
+the rest of the project runs with the adapter off, and its chat surfaces resolve
+to `${HOST_IP}:${VSS_AGENT_PORT}` — the agent this build removed — answering
+HTTP 502 in a UI that otherwise looks ready. Hold it out of the first `up`:
+
+```bash
+docker compose -f "$BUILD_DIR/resolved.yml" pull --ignore-buildable \
+  && docker compose -f "$BUILD_DIR/resolved.yml" up -d --build \
+    $(docker compose -f "$BUILD_DIR/resolved.yml" config --services | grep -vx vss-ui)
+```
+
+The `pull` stays unfiltered, exactly as [`deployment.md`](deployment.md) has it:
+only the *start* is deferred, and fetching the UI image here is what keeps the
+deferral's cost to the seconds its container takes to come up later.
+
+Naming services keeps [`deployment.md`](deployment.md)'s contract intact — still
+only `-f resolved.yml`, no `--env-file`, no `--profile`. The readiness gate then
+runs one container short; [`readiness.md`](readiness.md) Gate 0 covers that.
+
+**Defer it only on this shape:** the adapter this run is about to wire to the
+NemoClaw relay, *and* at least one chat surface on — read those back from
+`resolved.yml` (`NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR` not `false`, or
+`NEXT_PUBLIC_ENABLE_CHAT_TAB` true) rather than from the compose defaults.
+Anything else deploys with the project: a build with no adapter has no relay to
+wait for, one that kept `vss-agent` already gates on its `depends_on`
+healthcheck, and an adapter aimed at a harness the user already runs has no
+marker to wait on — that `VSS_AGENT_BACKEND_URL` was supplied, not produced
+here, so `VSS_AGENT_ADAPTER_ENABLED` alone is not the trigger.
+
 Before onboarding, select the dashboard port (default `18789`) and the relay
 port (default `18790`, must differ) and export them with the adapter flag. The
 notebook derives `AGENT_DASHBOARD_PORT` and `AGENT_DASHBOARD_RELAY_PORT` from
@@ -94,9 +125,21 @@ default:
 
 Leave `VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default. The
 token does not exist until onboarding. Capture it without printing it, keep it
-only in the ignored build artifacts, then repeat Step 8 and recreate `vss-ui`
-from the regenerated `resolved.yml`. Confirm the container has the four
-corresponding `AGENT_*` values without printing the token.
+only in the ignored build artifacts, then repeat Step 8 and bring the service up
+from the regenerated `resolved.yml` — only after the bring-up's relay marker
+below proves the gateway answers on `<relay-port>`:
+
+```bash
+docker compose -f "$BUILD_DIR/resolved.yml" up -d vss-ui
+```
+
+`up`, never `start`: it creates the container on the deferred path and recreates
+one whose environment is now stale, which is precisely what `start` declines to
+do — leaving the adapter off and the 502 in place. Installing the harness onto an
+already-deployed build has no `$BUILD_DIR` at all (Steps 5-8 were skipped), so
+recreate `vss-ui` there from the Compose file that project was deployed from.
+Confirm the container has the four corresponding `AGENT_*` values without
+printing the token.
 
 This restores the chat sidebar and Chat tab. It does not restore the Search tab
 or the ingress `/api`, `/chat`, `/websocket` routes, which address the in-stack
@@ -147,6 +190,24 @@ Step 8 fails with no `resolved.yml`.
 Management tabs address Alert Bridge, Kibana, and VST directly. An explicit
 "headless" request drops it as well — honour that, and report the loss of those
 three tabs.
+
+**Retire the chat surfaces when nothing will serve them.** On a `no` — agent
+removed, no adapter to wire — the sidebar still ships on by default and its
+target still resolves to the removed agent's port, so the UI presents a chat box
+that answers HTTP 502. Put both in `_builds/<name>/override.env`:
+
+| Variable | Value |
+|---|---|
+| `NEXT_PUBLIC_ENABLE_CHAT_SIDEBAR` | `false` |
+| `VSS_CHAT_COMPLETION_URL` | empty — assign nothing after the `=` |
+
+The first hides the dead surface; the second empties both
+`*_HTTP_CHAT_COMPLETION_URL` values, so chat re-enabled on such a build fails
+inside `pages/api/vss-chat.ts` instead of calling a service the build does not
+have. What it buys is the absent call, not the wording: the browser composes its
+own text from the status code, so the screen still reads `backend returned HTTP
+503`. Report the sidebar as retired. Neither value belongs on a `yes`, where the
+adapter serves both surfaces.
 
 ### What the removal costs, and what it does not
 
@@ -241,10 +302,11 @@ deployment answers. Run the steps in this order and no other:
 
 | # | Step | Why here |
 |---|---|---|
-| 1 | Deploy `resolved.yml` | nothing to point a harness at yet |
+| 1 | Deploy `resolved.yml`, less a deferred `vss-ui` ([Start `vss-ui` last](#start-vss-ui-last)) | nothing to point a harness at yet |
 | 2 | Readiness gate ([`readiness.md`](readiness.md)) | a harness pointed at a half-warm stack reports failures that are not its own |
 | 3 | Resolve the origin | `http://$HOST_IP:$HAPROXY_HOST_PORT` from the deployed build |
 | 4 | Bring up the harness | consumes that origin |
+| 5 | Wire the token, then `up -d vss-ui` | the only point at which its chat config exists |
 
 Skipping the readiness gate is the common failure: onboarding succeeds, the
 first call from the sandbox fails, and the cause looks like the harness.
@@ -499,14 +561,25 @@ uv run --isolated --no-project --python 3.12 \
   python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
     --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
     --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
+    --require-output "Docker-reachable gateway: ws://host.docker.internal:${NEMOCLAW_DASHBOARD_RELAY_PORT}" \
     --echo-output \
   2>&1 | tee "$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/nemoclaw-setup.log"
 ```
 
+**The second marker is the UI's gate.** Section 3.5 prints it only once the
+relay answers `/health` on the bind it chose, and off Brev a relay that never
+comes up is otherwise a `WARNING:` on a run that still exits 0 — which would
+wire `VSS_AGENT_BACKEND_URL` to a port nothing serves. Take the check from the
+marker rather than a `curl` of your own: the bind differs per host (`0.0.0.0` on
+Brev, Docker's host-gateway address elsewhere), and `<dashboard-port>` is
+loopback-only, so it proves the forward rather than what the container reaches.
+Drop the marker on a build that is not deferring `vss-ui`: off Brev no relay is
+started without the adapter, so requiring it would fail a correct run.
+
 **Take the status from the notebook, not from `tee`.** Keep `pipefail` set, or
 read `${PIPESTATUS[0]}` on the line right after the pipeline. Non-zero is a
-blocker: report it with the log path and stop, rather than going on to the UI
-link.
+blocker: report it with the log path and stop — never start `vss-ui` against a
+harness whose bring-up failed.
 
 **`--echo-output` is what puts the notebook's output in the log.** Without it the
 runner keeps every output in memory, prints one summary line, and discards the

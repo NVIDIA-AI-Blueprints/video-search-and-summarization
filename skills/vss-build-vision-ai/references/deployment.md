@@ -93,7 +93,9 @@ Deploy with **only** `-f "$BUILD_DIR/resolved.yml"` (plus optional
 build's own `override.env` — and do **not** pass `--profile`: `resolved.yml` is
 already self-contained, and re-reading any env file or supplying a profile flag
 re-injects `COMPOSE_PROFILES`/`FOUNDATION` and breaks the runtime deploy
-contract.
+contract. Naming services on `up` is not part of that prohibition and stays
+within the contract — it is how a build defers `vss-ui` for the harness
+([`agent-harness.md`](agent-harness.md#start-vss-ui-last)).
 
 `COMPOSE_PROFILES` has already filtered the source graph during resolution, and
 `docker compose config` baked the project `name`, each service `env_file`, and
