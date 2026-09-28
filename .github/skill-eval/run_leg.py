@@ -82,9 +82,9 @@ AGENT_ROUTE_BASE_URL_ENV = "SKILL_EVAL_AGENT_ROUTE_BASE_URL"
 HARBOR_BASE_PHASE_TIMEOUT_SEC = 600
 HARBOR_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 3.0
 # Cold local NIMs download both the image and model weights before Harbor can
-# install its agent. Give that environment phase room without extending hosted
-# inference jobs.
-LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 6.0
+# install its agent. DGX Spark Qwen3-32B weights can take over 30 minutes to
+# download, so give that environment phase room without extending hosted jobs.
+LOCAL_NIM_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 NEMOCLAW_ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = 10.0
 # Deploy steps pull container images and model weights before the scenario's
 # own work starts, so a one-hour scenario budget left them finishing at
@@ -134,12 +134,9 @@ HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC = (
 MIN_HARBOR_BACKSTOP_SEC = (
     HARBOR_PHASE_BUDGET_SEC + HARBOR_CLEANUP_RECOVERY_HEADROOM_SEC
 )
-# Stay strictly above the minimum rather than making the validation boundary
-# itself the default.  The round 230-minute backstop leaves another 32 minutes
-# for scheduling jitter and bounded teardown that does not transfer files -
-# the same headroom the 200-minute backstop gave before the agent phase grew
-# to 90 minutes.
-DEFAULT_HARBOR_TIMEOUT_SEC = 13_800
+# Stay above the local-NIM phase total too, with room for scheduling jitter
+# and bounded teardown that does not transfer files.
+DEFAULT_HARBOR_TIMEOUT_SEC = 17_400
 
 # A single remote agent command must not be killed by Brev before Harbor's own
 # agent deadline can fire and drive normal artifact/environment cleanup.

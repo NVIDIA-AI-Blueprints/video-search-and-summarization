@@ -32,7 +32,7 @@ from pathlib import Path
 PROXY_PORT = 18400
 LITELLM_VERSION = "1.103.0"
 LABEL = "vss.skill-eval.nim-owner"
-STARTUP_BUDGET_SEC = 3300
+STARTUP_BUDGET_SEC = 5400
 _START_DEADLINE: float | None = None
 SPARK_NODE_ID = "extnode-3I3rYbpIyfB6TcEXWk2k0wabSR8"
 SPARK_NODE_NAME = "Spark-ba-WiFi"
@@ -369,7 +369,7 @@ def start(plan: dict):
         ))
         docker(*nim_args)
         base = f"http://127.0.0.1:{port}/v1"
-        wait_ready(f"{base}/health/ready", "", 1800, container=name)
+        wait_ready(f"{base}/health/ready", "", 4800, container=name)
         served, _ = request_json(f"{base}/models")
         names = [m["id"] for m in served.get("data", [])]
         # The model-specific repository establishes identity; the server's

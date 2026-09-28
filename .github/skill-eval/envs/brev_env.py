@@ -579,7 +579,7 @@ class BrevEnvironment(BaseEnvironment):
         result = await _run_brev_exec(
             self._instance_name,
             f"chmod 600 {remote}.json && python3 {remote}.py start --plan {remote}.json",
-            timeout=3400,
+            timeout=5500,
         )
         if result.return_code:
             raise RuntimeError(f"Local NIM deployment failed: {(result.stderr or result.stdout or '')[-2000:]}")
