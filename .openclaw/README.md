@@ -85,8 +85,9 @@ from the image that Dockerfile produces, which NemoClaw publishes to
 `ghcr.io/nvidia/nemoclaw/openclaw-sandbox`.
 
 From a clean build context, the build fetches one ref of this repo (`VSS_REF`:
-`develop` by default, a `v*` release tag for a published image) to package the
-operational skills and build the CLI wheels — versioned by `hatch-vcs` from the
+`develop` by default; CI builds the GHCR image with `VSS_REF=<commit being built>`,
+and a rebuild is triggered by changes under `.openclaw/`, `skills/` or `libs/vss`)
+to package the operational skills and build the CLI wheels — versioned by `hatch-vcs` from the
 nearest `v*` tag, so `vss --version` in the sandbox matches the agent's
 `GET /api/v1/version` for that commit. The plugin is compiled in a separate builder
 stage. The final image contains the installed plugin, skills, workspace

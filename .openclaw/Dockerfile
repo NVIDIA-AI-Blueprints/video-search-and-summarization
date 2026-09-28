@@ -47,12 +47,13 @@ ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:2bb3ebca0a796a155094a27773d290c4b074572
 # NGC host. Same version prerequisites.md pins for a host install.
 ARG NGC_CLI_VERSION=4.10.0
 # Skills and the vss CLI: one ref of this repo. The default is the moving
-# `develop` branch, so a plain build tracks the latest merged skills and CLI;
-# a published harness image is built with --build-arg VSS_REF=<v* tag> — the
-# release line the agent images and the skills carry — so an eval can say
-# exactly which it measured, and a commit sha still works for a reproducible
-# rebuild. Whatever the ref, its operation skills must declare `vss-requires`
-# in their SKILL.md frontmatter (staging fails loudly otherwise) and its CLI
+# `develop` branch, so a plain local build tracks the latest merged skills and
+# CLI. The GHCR image is built by build-dev-images.yml with
+# --build-arg VSS_REF=<the commit being built>, and skills/ and libs/vss are in
+# this image's source_path (container-inventory.json), so a skill or CLI change
+# rebuilds it and its tree-<sha> tag names exactly what it carries; a v* tag or
+# a sha works for a manual reproducible build. Whatever the ref, its operation
+# skills must declare `vss-requires` in their SKILL.md frontmatter (staging fails loudly otherwise) and its CLI
 # library must live at libs/vss (the wheel build below fails loudly on older
 # layouts). Keep in lockstep with ../.hermes/Dockerfile.
 ARG VSS_REPO=https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization

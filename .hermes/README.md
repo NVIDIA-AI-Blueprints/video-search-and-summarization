@@ -66,8 +66,9 @@ git archive HEAD:.hermes | docker build -t <registry>/vss-harness-hermes:<tag> -
 Provision panel lists this Dockerfile next to the OpenClaw one.
 
 From a clean build context, the build packages skills and CLI wheels from one
-ref of this repo (`VSS_REF`: `develop` by default, a `v*` release tag for a
-published image). The wheels are versioned by `hatch-vcs` from the nearest `v*`
+ref of this repo (`VSS_REF`: `develop` by default; CI builds the GHCR image
+with `VSS_REF=<commit being built>`, and a rebuild is triggered by changes under
+`.hermes/`, `skills/`, `libs/vss` or `.openclaw/workspace`). The wheels are versioned by `hatch-vcs` from the nearest `v*`
 tag, so `vss --version` in the sandbox matches the agent's `GET /api/v1/version`
 for that commit. Only the installed CLI, skills, workspace instructions, and
 runtime helpers enter the final image; its build-stage source checkout does
