@@ -110,7 +110,10 @@ def pep440_to_semver(version: str) -> str | None:
     distance become the pre-release identifiers ``rc0.dev.20`` and the local
     segment becomes build metadata, giving ``3.3.0-rc0.dev.20+g73f724482``.
     Precedence comes out in the right order without a comparator:
-    ``3.3.0-rc0.dev.20`` < ``3.3.0-rc0`` < ``3.3.0``.
+    ``3.3.0-rc0`` < ``3.3.0-rc0.dev.20`` < ``3.3.0-rc1`` < ``3.3.0`` -- a build
+    20 commits past ``rc0`` ranks after ``rc0`` (a longer pre-release outranks
+    its own prefix, SemVer 2.0.0 section 11.4.4), matching PEP 440, and below
+    the next pre-release and the release.
 
     A version already in strict SemVer is returned unchanged.
     """

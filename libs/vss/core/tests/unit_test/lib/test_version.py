@@ -67,26 +67,37 @@ def test_pep440_becomes_semver(pep440: str, expected: str) -> None:
     assert SEMVER_PATTERN.fullmatch(expected)
 
 
+def _semver_key(version: str) -> tuple:
+    """SemVer 2.0.0 section 11 precedence, build metadata ignored (test oracle)."""
+    core = version.split("+", 1)[0]
+    release, _, pre = core.partition("-")
+    numbers = tuple(int(part) for part in release.split("."))
+    if not pre:
+        return (*numbers, 1, ())
+    return (*numbers, 0, tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split(".")))
+
+
 def test_semver_precedence_orders_the_rendered_forms() -> None:
-    """dev builds < the pre-release < the release, by the SemVer rules alone.
+    """The pre-release < dev builds past it < the next pre-release < the release.
 
     Pre-release identifiers compare left to right, numerically when numeric,
-    and a longer set of identifiers ranks higher than its prefix; a version
-    with no pre-release ranks above every pre-release. ``rc0`` beats
-    ``rc0.dev.20`` under the *first* of those, so the check is done on the
-    identifier lists rather than by string comparison.
+    and a longer set of identifiers ranks *higher* than its own prefix
+    (SemVer 2.0.0 section 11.4.4): ``rc0.dev.20`` is after ``rc0``, as PEP 440
+    also has it. A version with no pre-release ranks above every pre-release.
     """
-
-    def identifiers(version: str) -> list[str]:
-        pre = version.split("+", 1)[0].split("-", 1)
-        return pre[1].split(".") if len(pre) == 2 else []
-
-    assert identifiers("3.3.0-rc0.dev.20+g73f724482") == ["rc0", "dev", "20"]
-    assert identifiers("3.3.0-rc0") == ["rc0"]
-    assert identifiers("3.3.0") == []
-    # rc0.dev.20 is rc0 with extra identifiers -> ranks below rc0 (prefix rule).
-    assert identifiers("3.3.0-rc0.dev.20")[:1] == identifiers("3.3.0-rc0")
-    assert len(identifiers("3.3.0-rc0.dev.20")) > len(identifiers("3.3.0-rc0"))
+    rendered = [
+        pep440_to_semver(v)
+        for v in ("3.3.0rc0", "3.3.0rc0.post1.dev2+gaaaaaaa", "3.3.0rc0.post1.dev20+g73f724482", "3.3.0rc1", "3.3.0")
+    ]
+    assert rendered == [
+        "3.3.0-rc0",
+        "3.3.0-rc0.dev.2+gaaaaaaa",
+        "3.3.0-rc0.dev.20+g73f724482",
+        "3.3.0-rc1",
+        "3.3.0",
+    ]
+    shuffled = [rendered[i] for i in (4, 2, 0, 3, 1)]
+    assert sorted(shuffled, key=_semver_key) == rendered
 
 
 @pytest.mark.parametrize(
