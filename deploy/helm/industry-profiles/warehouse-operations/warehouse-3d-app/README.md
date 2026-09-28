@@ -352,7 +352,11 @@ base URL each `fileName` is fetched from. Keep **`calibration-import.requireCali
 and **`requireImages`** at their default `true` once real sources are set, so a
 broken URL fails the Job instead of deploying with no calibration. Each
 `camera_name` registered above must match the corresponding sensor name in
-`calibration.json` — the importer doesn't check this for you.
+`calibration.json` — the importer doesn't check this for you. This repoints
+what's uploaded to the video analytics API only — the 3D perception pod reads
+its own copy from
+`deploy/helm/services/rtvi/charts/rtvi-cv/files/warehouse-standalone-3d/calibration/calibration.json`;
+replace that file too (before `helm dependency update`) so perception matches.
 
 Also configure, outside `global`:
 
@@ -362,14 +366,17 @@ Also configure, outside `global`:
   synthetic Sparse4D model/anchor/label set: no error, just wrong results.
 - **Stream count** — set to the number of sensors registered under
   `global.cameraInfo.sensors`/`sensorsFile`, by running
-  `scripts/compute_stream_cap.py --mode 3d --num-streams <N>` (see
-  [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and layering the
-  generated file in. Left at the default 4, sensors past the 4th are dropped
-  silently.
+  `deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode 3d --num-streams <N>`
+  (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and
+  layering the generated file in. Left at the default 4, sensors past the 4th
+  are dropped silently.
 
 `global.gitRef` and `global.sampleVideoDataset` only matter for the bundled
 sample datasets under `calibration/sample-data/`; once the three
-`calibration-import` source keys above are overridden, both are unused.
+`calibration-import` source keys above are overridden, both are unused except
+for `vios.vss-vios-nvstreamer.ngcVideoSeed.dataset`, which still follows
+`sampleVideoDataset` — set `ngcVideoSeed.enabled=false` if not using the
+sample video seed.
 
 ### 4. Post-install validation
 

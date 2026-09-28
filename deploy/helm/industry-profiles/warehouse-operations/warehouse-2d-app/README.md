@@ -357,8 +357,10 @@ Unlike 3D/MV3DT, calibration is optional here: 2D detection/tracking runs
 directly on the camera stream in image (pixel) coordinates, with no
 calibration required. Calibration is only needed for ROI/tripwire events in
 behavior-analytics. If you don't need those, set
-**`calibration-import.enabled=false`** (and `requireCalibration`/`requireImages`
-follow — they only matter while the Job runs) and skip straight to install.
+**`calibration-import.enabled=false`** and clear
+**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** —
+otherwise behavior-analytics' initContainer polls that URL for calibration
+the disabled Job never uploads, times out, and the pod never becomes ready.
 
 If you do need ROI/tripwire, override **`calibration-import.calibrationFileSource`**,
 **`imageMetadataFileSource`**, and **`imageBaseSource`** to point at your own
@@ -375,10 +377,10 @@ Also configure, outside `global`:
 
 - **Stream count** — set to the number of sensors registered under
   `global.cameraInfo.sensors`/`sensorsFile`, by running
-  `scripts/compute_stream_cap.py --mode 2d --num-streams <N>` (see
-  [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and layering the
-  generated file in. Left at the default 3, sensors past the 3rd are dropped
-  silently.
+  `deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode 2d --num-streams <N>`
+  (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and
+  layering the generated file in. Left at the default 3, sensors past the 3rd
+  are dropped silently.
 
 `global.gitRef` and `global.sampleVideoDataset` only matter for the bundled
 sample datasets under `calibration/sample-data/`; once the three
