@@ -43,6 +43,10 @@ SOURCE_IGNORE_FILENAME = ".ignore_source_code_check"
 SOURCE_TREE_SHA_LABEL = "com.nvidia.vss.source_tree_sha"
 SOURCE_PATH_LABEL = "com.nvidia.vss.source_path"
 IMAGE_NAME_LABEL = "com.nvidia.vss.image_name"
+# The release line (nearest v* tag, SemVer) the image was built on. Images
+# that bake a version in (VSS_PACKAGE_VERSION, or the harness VSS_REF fetch)
+# must not be reused across it: ghcr_image_guard.py reuse compares it.
+RELEASE_LINE_LABEL = "com.nvidia.vss.release_line"
 
 TAG_COMMIT_RE = re.compile(
     r"(?:^|[-_/])(?P<sha>[0-9a-f]{7,40})(?:$|[+._-])", re.IGNORECASE
@@ -578,6 +582,7 @@ class ImageManifestLabels:
     source_tree_sha: str
     source_path: str | None
     image_name: str | None
+    release_line: str | None = None
 
 
 _INDEX_ACCEPT = (
@@ -863,6 +868,7 @@ def read_image_manifest_labels(
             source_tree_sha=tree,
             source_path=labels.get(SOURCE_PATH_LABEL),
             image_name=labels.get(IMAGE_NAME_LABEL),
+            release_line=labels.get(RELEASE_LINE_LABEL),
         ),
         None,
         False,

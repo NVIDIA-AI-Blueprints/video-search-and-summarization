@@ -75,6 +75,7 @@ def reuse_decision(
     labels: ImageManifestLabels | None,
     reason: str | None,
     expected_tree_sha: str,
+    expected_release_line: str | None = None,
 ) -> tuple[bool, str]:
     """Return ``(reuse, message)`` for the content-addressed re-tag path.
 
@@ -85,8 +86,18 @@ def reuse_decision(
     Fail-*open* to a rebuild: a missing content tag, a mislabelled one, or any
     fetch error just means "no safe shortcut — build normally". Unlike
     preflight, this can never fail the job; the worst case is the status quo.
+
+    When ``expected_release_line`` is given -- the image bakes a version in --
+    the published image must also carry that release line: an identical tree
+    built before a new v* tag reports the previous line, so pushing a tag costs
+    one rebuild of those images. A missing label is a mismatch (rebuild).
     """
     if labels and labels.source_tree_sha == expected_tree_sha:
+        if expected_release_line and labels.release_line != expected_release_line:
+            return False, (
+                f"same content but built on release line {labels.release_line or '<unlabelled>'}, "
+                f"now {expected_release_line}; rebuilding so the image reports the current line"
+            )
         return True, "content-addressed image already published; re-tagging instead of rebuilding"
     detail = labels.source_tree_sha if labels else f"<no label: {reason}>"
     return False, f"no reusable image for this content ({detail}); building"
@@ -144,9 +155,30 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     return 1 if action == "fail" else 0
 
 
+def bakes_release_line(dockerfile: str | None) -> bool:
+    """Whether an image built from ``dockerfile`` carries a version inside it.
+
+    True for Dockerfiles that declare ``ARG VSS_PACKAGE_VERSION`` (the stamped
+    Python packages) or ``ARG VSS_REF`` (the harness images, whose CLI wheels
+    hatch-vcs versions from the fetched ref). Only those need a rebuild when the
+    release line moves; every other image keeps reusing on tree alone.
+    """
+    if not dockerfile:
+        return False
+    try:
+        text = Path(dockerfile).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(
+        line.strip().startswith(("ARG VSS_PACKAGE_VERSION", "ARG VSS_REF"))
+        for line in text.splitlines()
+    )
+
+
 def cmd_reuse(args: argparse.Namespace) -> int:
     labels, reason, _ = read_image_manifest_labels(args.ref)
-    reuse, message = reuse_decision(labels, reason, args.expect_tree_sha)
+    release_line = args.expect_release_line if bakes_release_line(args.dockerfile) else None
+    reuse, message = reuse_decision(labels, reason, args.expect_tree_sha, release_line)
     print(f"{args.ref}: {message}")
     _emit_output("reuse", "true" if reuse else "false")
     return 0
@@ -178,6 +210,11 @@ def main() -> int:
     )
     reuse.add_argument("--ref", required=True, help="registry/name:content-tag")
     reuse.add_argument("--expect-tree-sha", required=True)
+    reuse.add_argument(
+        "--expect-release-line",
+        help="release line the image must carry to be reused (applied only when --dockerfile bakes one in)",
+    )
+    reuse.add_argument("--dockerfile", help="the image's Dockerfile, to decide whether it bakes a version in")
 
     verify = sub.add_parser("verify", help="verify pushed labels match the source")
     verify.add_argument("--ref", required=True)
