@@ -617,6 +617,101 @@ def _content_repo() -> Path:
     return root
 
 
+def _versioned_repo() -> tuple[Path, list[dict]]:
+    """A repo with one version-carrying image (ARG VSS_PACKAGE_VERSION) and one plain image."""
+    root = Path(tempfile.mkdtemp())
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    for path, dockerfile in (
+        ("services/agent", "FROM scratch\nARG VSS_PACKAGE_VERSION=0.0.0+local\n"),
+        ("services/ui", "FROM scratch\n"),
+    ):
+        d = root / path
+        d.mkdir(parents=True)
+        (d / "Dockerfile").write_text(dockerfile)
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "init"], check=True)
+    images = [
+        {"name": "vss-agent", "source_path": "services/agent", "dockerfile": "services/agent/Dockerfile",
+         "strategy": "build", "ghcr_build": True},
+        {"name": "vss-agent-ui", "source_path": "services/ui", "dockerfile": "services/ui/Dockerfile",
+         "strategy": "build", "ghcr_build": True},
+    ]
+    return root, images
+
+
+def _reader(line: str | None):
+    """A label reader returning a published image on ``line`` (None: unreadable)."""
+    def read(_ref: str):
+        if line is None:
+            return None, "network error", False
+        return dci.ImageManifestLabels(
+            source_tree_sha="a" * 40, source_path=None, image_name=None, release_line=line
+        ), None, False
+    return read
+
+
+class StaleReleaseLineTest(unittest.TestCase):
+    """A v* tag lands on an already-built commit, so no path changes: the
+    version-carrying images must still be rebuilt once for the new line."""
+
+    def test_image_on_the_previous_line_is_added(self):
+        repo, images = _versioned_repo()
+        _, added = dci.add_stale_release_lines(images, [], repo, "HEAD", _reader("3.3.0-rc0"), "Org", "3.3.0")
+        self.assertEqual(added, ["vss-agent"])
+
+    def test_image_on_the_current_line_is_not_added(self):
+        repo, images = _versioned_repo()
+        selected, added = dci.add_stale_release_lines(images, [], repo, "HEAD", _reader("3.3.0"), "Org", "3.3.0")
+        self.assertEqual((selected, added), ([], []))
+
+    def test_images_that_bake_no_version_are_never_added(self):
+        repo, images = _versioned_repo()
+        _, added = dci.add_stale_release_lines(images, [], repo, "HEAD", _reader("1.0.0"), "Org", "3.3.0")
+        self.assertNotIn("vss-agent-ui", added)
+
+    def test_unreadable_or_unlabelled_image_fails_open_to_a_rebuild(self):
+        repo, images = _versioned_repo()
+        _, added = dci.add_stale_release_lines(images, [], repo, "HEAD", _reader(None), "Org", "3.3.0")
+        self.assertEqual(added, ["vss-agent"])
+
+    def test_already_selected_images_are_not_reread(self):
+        repo, images = _versioned_repo()
+        seen: list[str] = []
+
+        def read(ref: str):
+            seen.append(ref)
+            return None, "x", False
+
+        selected, added = dci.add_stale_release_lines(images, [images[0]], repo, "HEAD", read, "Org", "3.3.0")
+        self.assertEqual((seen, added, len(selected)), ([], [], 1))
+
+    def test_reads_the_content_tag_it_would_reuse(self):
+        repo, images = _versioned_repo()
+        seen: list[str] = []
+
+        def read(ref: str):
+            seen.append(ref)
+            return None, "x", False
+
+        dci.add_stale_release_lines(images, [], repo, "HEAD", read, "Org", "3.3.0")
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0].startswith("ghcr.io/org/vss/vss-agent:tree-"))
+
+    def test_the_real_version_carrying_images(self):
+        """vss-agent and both harness images bake a version in; e.g. the UI does not."""
+        repo = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo)
+        baking = {
+            entry["name"]
+            for entry in inventory["images"]
+            if entry.get("ghcr_build") and dci.bakes_release_line(str(repo / entry.get("dockerfile", "")))
+        }
+        self.assertLessEqual({"vss-agent", "vss-harness-openclaw", "vss-harness-hermes"}, baking)
+        self.assertNotIn("vss-agent-ui", baking)
+
+
 class ContentTagGapTest(unittest.TestCase):
     """A path diff says the source did not change; it cannot say the content
     tag was ever published. The post-merge retag sources from tree-<sha>, so a

@@ -35,6 +35,9 @@ from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_container_tag_source import (  # noqa: E402
+    ImageManifestLabels,
+    bakes_release_line,
+    read_image_manifest_labels,
     source_path_label,
     source_paths_of,
     source_tree_sha,
@@ -264,16 +267,56 @@ def content_tag_missing(
     paths = source_paths_of(entry.get("source_path"))
     if not paths:
         return False
-    tree_sha = source_tree_sha(repo, commit, paths)
-    if tree_sha is None:
+    reference = content_reference(entry, repo, commit, owner)
+    if reference is None:
         return True
-    repository = entry.get("repository", entry["name"])
-    tag_suffix = entry.get("tag_suffix", "")
-    reference = (
-        f"ghcr.io/{owner.lower()}/vss/{repository}:"
-        f"tree-{tree_sha}{tag_suffix}"
-    )
     return probe(reference) is not True
+
+
+def content_reference(entry: dict, repo: Path, commit: str, owner: str) -> str | None:
+    """``ghcr.io/<owner>/vss/<repository>:tree-<sha><suffix>`` for the current tree."""
+    tree_sha = source_tree_sha(repo, commit, source_paths_of(entry.get("source_path")))
+    if tree_sha is None:
+        return None
+    repository = entry.get("repository", entry["name"])
+    return f"ghcr.io/{owner.lower()}/vss/{repository}:tree-{tree_sha}{entry.get('tag_suffix', '')}"
+
+
+LabelReader = Callable[[str], "tuple[ImageManifestLabels | None, str | None, bool]"]
+
+
+def add_stale_release_lines(
+    buildable: list[dict],
+    selected: list[dict],
+    repo: Path,
+    commit: str,
+    reader: LabelReader,
+    owner: str,
+    release_line: str,
+) -> tuple[list[dict], list[str]]:
+    """Add version-carrying images whose published image is on another release line.
+
+    An image whose Dockerfile bakes the version in (``ARG VSS_PACKAGE_VERSION``,
+    or the harness images' ``ARG VSS_REF``) is only correct on the line it was
+    built on. A ``v*`` tag is usually pushed onto a commit that is already
+    built, so no source path changes and neither a path diff nor a comparison
+    with the parent commit notices: the agent would keep reporting 3.3.0-rc0
+    after v3.3.0. So read the ``com.nvidia.vss.release_line`` label of the
+    content tag this build would reuse, and pull the image in when it differs.
+
+    Fails **open**, like the content-tag gap check: an unreadable or unlabelled
+    image is rebuilt. One rebuild per image per new tag.
+    """
+    have = {entry["name"] for entry in selected}
+    added = []
+    for entry in buildable:
+        if entry["name"] in have or not bakes_release_line(str(repo / entry.get("dockerfile", ""))):
+            continue
+        reference = content_reference(entry, repo, commit, owner)
+        labels = reader(reference)[0] if reference else None
+        if labels is None or labels.release_line != release_line:
+            added.append(entry)
+    return selected + added, [entry["name"] for entry in added]
 
 
 def _format_build_args(build_args: dict | None) -> str:
@@ -351,6 +394,11 @@ def main() -> int:
         help="GHCR owner; enables the content-tag gap check when set.",
     )
     parser.add_argument("--commit", default=os.environ.get("GITHUB_SHA", "HEAD"))
+    parser.add_argument(
+        "--release-line",
+        default="",
+        help="current release line; rebuilds version-carrying images published on another one.",
+    )
     args = parser.parse_args()
     repo_root = args.repo_root.resolve()
 
@@ -381,6 +429,16 @@ def main() -> int:
             selection_reason += (
                 f"; no published content tag for {', '.join(backfilled)}"
             )
+        if args.release_line:
+            entries, relined = add_stale_release_lines(
+                buildable, entries, repo_root, args.commit,
+                read_image_manifest_labels, args.owner, args.release_line,
+            )
+            if relined:
+                selection_reason += (
+                    f"; published on another release line than {args.release_line}: "
+                    f"{', '.join(relined)}"
+                )
     matrix = to_matrix(entries)
     split_matrices = split_build_matrices(entries)
     print(

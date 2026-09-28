@@ -197,11 +197,26 @@ moving `develop` default alone would never change the Dockerfile, and the
 image would be reused stale.
 
 Both harness Dockerfiles, and every Dockerfile that declares
-`ARG VSS_PACKAGE_VERSION`, bake a version in. Their images also carry a
-`com.nvidia.vss.release_line` label, and the reuse path re-tags an existing
-image only when its tree **and** release line match: pushing a new `v*` tag
-costs one rebuild of those images, so the agent never keeps reporting
-`3.3.0-rc0` after `v3.3.0` on an unchanged tree.
+`ARG VSS_PACKAGE_VERSION`, bake a version in (today: `vss-agent`,
+`vss-harness-openclaw`, `vss-harness-hermes`). Their images carry a
+`com.nvidia.vss.release_line` label, and two rules keep it current:
+
+- the reuse path re-tags an existing image only when its tree **and** release
+  line match;
+- a `v*` tag is usually pushed onto a commit that is already built, so no path
+  changes and change detection would never select those images. The detector
+  therefore reads the label of each one's published `tree-<sha>` image and
+  pulls it into the build when the label is another line, missing, or
+  unreadable (fail-open, like the content-tag gap check).
+
+Pushing a new tag costs one rebuild of exactly those images on the next develop
+build, so the agent never keeps reporting `3.3.0-rc0` after `v3.3.0`.
+
+**Deploying a harness from a specific revision** (a nightly or a release
+rather than `develop`) is the vss-build-vision-ai skill's *harness source ref*:
+it builds the sandbox from a worktree of that ref staged with
+`stage_vss_src.py`, so the skills, CLI and plugin all come from the one
+revision — see `skills/vss-build-vision-ai/references/agent-harness.md`.
 
 ## Docs
 

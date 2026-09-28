@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_container_tag_source import (  # noqa: E402
+    bakes_release_line,
     ImageManifestLabels,
     read_image_manifest_labels,
 )
@@ -153,26 +154,6 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     print(f"{args.ref}: {message}")
     _emit_output("skip", "true" if action == "skip" else "false")
     return 1 if action == "fail" else 0
-
-
-def bakes_release_line(dockerfile: str | None) -> bool:
-    """Whether an image built from ``dockerfile`` carries a version inside it.
-
-    True for Dockerfiles that declare ``ARG VSS_PACKAGE_VERSION`` (the stamped
-    Python packages) or ``ARG VSS_REF`` (the harness images, whose CLI wheels
-    hatch-vcs versions from the fetched ref). Only those need a rebuild when the
-    release line moves; every other image keeps reusing on tree alone.
-    """
-    if not dockerfile:
-        return False
-    try:
-        text = Path(dockerfile).read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return any(
-        line.strip().startswith(("ARG VSS_PACKAGE_VERSION", "ARG VSS_REF"))
-        for line in text.splitlines()
-    )
 
 
 def cmd_reuse(args: argparse.Namespace) -> int:

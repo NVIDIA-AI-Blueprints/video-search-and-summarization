@@ -118,13 +118,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # --release-line: a v* tag is usually pushed onto an already-built
+      # commit, so no path changes; the detector reads each version-carrying
+      # image's release_line label and rebuilds the ones on an older line.
       - name: Resolve changed images
         id: detect
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 .github/scripts/detect_changed_images.py \
             --event-name "${{ github.event_name }}" \
             --ref-name "${{ github.ref_name }}" \
             --before "${{ github.event.before }}" \
+            --release-line "${{ steps.release.outputs.line }}" \
             --base-branch develop > detection.json
           cat detection.json
           {

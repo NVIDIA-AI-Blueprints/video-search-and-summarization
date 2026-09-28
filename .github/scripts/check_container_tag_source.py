@@ -359,6 +359,26 @@ def source_paths_of(value: object) -> list[str]:
     return [path for path in paths if path]
 
 
+def bakes_release_line(dockerfile: str | None) -> bool:
+    """Whether an image built from ``dockerfile`` carries a version inside it.
+
+    True for Dockerfiles that declare ``ARG VSS_PACKAGE_VERSION`` (the stamped
+    Python packages) or ``ARG VSS_REF`` (the harness images, whose CLI wheels
+    hatch-vcs versions from the fetched ref). Only those need a rebuild when the
+    release line moves; every other image keeps reusing on tree alone.
+    """
+    if not dockerfile:
+        return False
+    try:
+        text = Path(dockerfile).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(
+        line.strip().startswith(("ARG VSS_PACKAGE_VERSION", "ARG VSS_REF"))
+        for line in text.splitlines()
+    )
+
+
 def source_path_label(paths: Iterable[str | Path]) -> str:
     """The ``com.nvidia.vss.source_path`` label: the paths in declared order."""
     return ",".join(Path(str(path)).as_posix() for path in paths)
