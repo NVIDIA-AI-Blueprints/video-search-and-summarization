@@ -33,14 +33,14 @@ public:
 
     virtual void AddSink(webrtc::AudioTrackSinkInterface *sink) override
     {
-        LOG(info) << "NvGstAudioSource::AddSink " << endl;
+        LOG(info) << "NvGstAudioSource::AddSink " << std::endl;
         m_gstdecoder->appendWebrtcSink(sink);
         m_sinks.push_back(sink);
     }
 
     virtual void RemoveSink(webrtc::AudioTrackSinkInterface *sink) override
     {
-        LOG(info) << "NvGstAudioSource::RemoveSink " << endl;
+        LOG(info) << "NvGstAudioSource::RemoveSink " << std::endl;
         m_gstdecoder->removeWebrtcSink(sink);
         m_sinks.remove(sink);
     }
@@ -51,19 +51,19 @@ public:
         m_gstdecoder.reset(new GstNvAudioDecoder(uri, opts));
         if (m_gstdecoder->create() == -1)
         {
-            LOG(error) << "Error in Creating Audio Decoder Pipeline" << endl;
+            LOG(error) << "Error in Creating Audio Decoder Pipeline" << std::endl;
             throw std::invalid_argument( "Error in Creating Audio Decoder Pipeline" );
         }
     }
 
     virtual ~NvGstAudioSource()
     {
-        LOG(info) << __METHOD_NAME__ <<  endl;
+        LOG(info) << __METHOD_NAME__ <<  std::endl;
         m_gstdecoder->destroy();
     }
 
 private:
-    shared_ptr<GstNvAudioDecoder>                  m_gstdecoder = nullptr;
+    std::shared_ptr<GstNvAudioDecoder>                  m_gstdecoder = nullptr;
     std::string                                    m_uri;
     std::list<webrtc::AudioTrackSinkInterface *>   m_sinks;
 };

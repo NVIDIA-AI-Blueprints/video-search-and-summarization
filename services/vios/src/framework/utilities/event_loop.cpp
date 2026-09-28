@@ -23,6 +23,8 @@
 #include <assert.h>
 #include <chrono>
 
+using namespace std;
+
 constexpr int MSG_EXIT_EVENT_LOOP = 1;
 constexpr int MSG_POST_USER_DATA = 2;
 constexpr int MSG_POST_EVENT_ALIVE = 3;

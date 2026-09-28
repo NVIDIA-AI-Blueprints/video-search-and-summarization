@@ -36,6 +36,8 @@
 #include <system_error>
 #include <vector>
 
+using namespace std;
+
 namespace {
 
 constexpr guint64 MAX_APP_SRC_BYTES = 4U * 1024U * 1024U;

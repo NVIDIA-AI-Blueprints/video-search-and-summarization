@@ -46,17 +46,17 @@ class WebsocketApis
     void handleSensorSettings(const Json::Value &receivedData, Json::Value &response);
     void handleSensorRemove(const Json::Value &receivedData, Json::Value &response);
     void handleSensorStatus(const Json::Value &receivedData, Json::Value &response);
-    void getIceServers(const Json::Value& receivedData, string api, Json::Value &response);
-    void streamStart(const Json::Value& receivedData, string api, Json::Value &response, struct mg_connection *conn);
-    void streamStop(const Json::Value& receivedData, string api, Json::Value &response);
-    void setAnswer(const Json::Value& receivedData, string api, Json::Value &response);
-    void postIceCandidate(const Json::Value& receivedData, string api, Json::Value &response);
-    void getConfiguration(const Json::Value& receivedData, string api, Json::Value &response);
+    void getIceServers(const Json::Value& receivedData, std::string api, Json::Value &response);
+    void streamStart(const Json::Value& receivedData, std::string api, Json::Value &response, struct mg_connection *conn);
+    void streamStop(const Json::Value& receivedData, std::string api, Json::Value &response);
+    void setAnswer(const Json::Value& receivedData, std::string api, Json::Value &response);
+    void postIceCandidate(const Json::Value& receivedData, std::string api, Json::Value &response);
+    void getConfiguration(const Json::Value& receivedData, std::string api, Json::Value &response);
     void setRAGStatus(const Json::Value& req_info, Json::Value &response);
     void setRAGEndpoint(const Json::Value& req_info, Json::Value &response);
     void handleWsDisconnect(struct mg_connection *conn);
-    void getStreamQuery(const Json::Value& req_info, string api, Json::Value &response);
-    void getStreamStatus(const Json::Value& req_info, string api, Json::Value &response);
+    void getStreamQuery(const Json::Value& req_info, std::string api, Json::Value &response);
+    void getStreamStatus(const Json::Value& req_info, std::string api, Json::Value &response);
     private:
         std::map<std::string,WebsocketServerRequestHandler::httpFunction, std::less<>>  m_func;
         std::shared_ptr<DeviceManager> m_deviceManager;

@@ -71,6 +71,8 @@
 #include "cudaLoader.h"
 #include "config.h"
 
+using namespace std;
+
 // Set to minimum to improve latency
 constexpr int MIN_BUFS_OUTPUT_PLANE = 1;
 constexpr int DQBUF_WAIT_ON_ERROR = 1000;  //in msecs

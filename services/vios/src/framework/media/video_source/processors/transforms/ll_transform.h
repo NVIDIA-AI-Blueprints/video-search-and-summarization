@@ -28,7 +28,6 @@
 #include "nvbufsurface.h"
 #include "video_resolution.h"
 
-using namespace std;
 
 class NvLLTransform : public IMediaDataConsumer
 {
@@ -46,7 +45,7 @@ public:
     void setOriginalFrameSize() override;
     void setIPCMeta () override;
     /* Update start time for overlay */
-    void updateStartTime(string start_time) override;
+    void updateStartTime(std::string start_time) override;
     void reset() override;
     void onLastFrame() override;
 
@@ -55,13 +54,13 @@ private:
 
     std::thread                                    m_transformThread;
     std::atomic<bool>                              m_stop {false};
-    shared_ptr<NvSurfacePool>                      m_surfacePool = nullptr;
+    std::shared_ptr<NvSurfacePool>                      m_surfacePool = nullptr;
 
     /* Data structure related to Queue */
     std::queue<std::shared_ptr<RawFrameParams>> m_queue;
     std::mutex                                     m_queueLock;
     std::condition_variable                        m_condVar;
-    atomic<bool>                                   m_flowData {false};
+    std::atomic<bool>                                   m_flowData {false};
     int                                            m_width = WIDTH_1080p;
     int                                            m_height = HEIGHT_1080p;
     int                                            m_sourceWidth = WIDTH_1080p;

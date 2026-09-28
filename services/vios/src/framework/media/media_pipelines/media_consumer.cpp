@@ -19,6 +19,8 @@
 #include "logger.h"
 #include "mm_utils.h"
 
+using namespace std;
+
 bool IMediaDataConsumer::isSpsAvailable()
 {
     return m_spsCfg.empty() ? false : true;

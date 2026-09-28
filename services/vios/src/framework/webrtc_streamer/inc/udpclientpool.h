@@ -30,9 +30,8 @@
 
 constexpr const char* DEFAULT_UDP_PORT_RANGE = "31000-31200";
 
-using namespace std;
 
-typedef std::map<string, shared_ptr<nv_vms::UdpClient>> udpClientMap;
+typedef std::map<std::string, std::shared_ptr<nv_vms::UdpClient>> udpClientMap;
 class UdpClientPool
 {
     public:
@@ -43,19 +42,19 @@ class UdpClientPool
         }
         UdpClientPool()
         {
-            string udp_port_range = GET_CONFIG().rtp_udp_port_range;
+            std::string udp_port_range = GET_CONFIG().rtp_udp_port_range;
             if (udp_port_range.empty())
             {
                 udp_port_range = DEFAULT_UDP_PORT_RANGE;
             }
-            vector<string> port_range = splitString(udp_port_range, "-");
+            std::vector<std::string> port_range = splitString(udp_port_range, "-");
             int startPortIndex = stringToInt(port_range[0], 31000);
             int endPortIndex = stringToInt(port_range[1], 31200);
             for (int pt = startPortIndex; pt < endPortIndex; pt++)
             {
                 m_udpPortList.insert({pt, false});
             }
-            LOG(info) << "UDP port range = " << port_range[0] << "-" << port_range[1] << endl;
+            LOG(info) << "UDP port range = " << port_range[0] << "-" << port_range[1] << std::endl;
 
             if (GET_CONFIG().webrtc_port_range != Json::nullValue)
             {
@@ -67,7 +66,7 @@ class UdpClientPool
                     {
                         m_webrtcUdpPortList.insert({pt, false});
                     }
-                    LOG(info) << "Webrtc port range min:"<< webrtc_minPort <<", max:"<< webrtc_maxPort << endl;
+                    LOG(info) << "Webrtc port range min:"<< webrtc_minPort <<", max:"<< webrtc_maxPort << std::endl;
                 }
             }
         }
@@ -82,10 +81,10 @@ class UdpClientPool
             return m_clientList;
         }
 
-        shared_ptr<nv_vms::UdpClient> addClient(const string& id, nv_vms::UdpStream& stream)
+        std::shared_ptr<nv_vms::UdpClient> addClient(const std::string& id, nv_vms::UdpStream& stream)
         {
             std::lock_guard<std::mutex> guard(m_clientLock);
-            shared_ptr<nv_vms::UdpClient> client = nullptr;
+            std::shared_ptr<nv_vms::UdpClient> client = nullptr;
             udpClientMap::iterator it = m_clientList.find(id);
             if (it == m_clientList.end())
             {
@@ -94,12 +93,12 @@ class UdpClientPool
                 {
                     if (stream.m_videoPort == 0)
                     {
-                        LOG(warning) << "Video port is not provided, using available udp port" << endl;
+                        LOG(warning) << "Video port is not provided, using available udp port" << std::endl;
                         stream.m_videoPort = getUdpPort();
                     }
                     if (stream.m_type == nv_vms::UdpClient::UDP_VIDEO_AUDIO_TYPE && stream.m_audioPort == 0)
                     {
-                        LOG(warning) << "Audio port is not provided, using available udp port" << endl;
+                        LOG(warning) << "Audio port is not provided, using available udp port" << std::endl;
                         stream.m_audioPort = getUdpPort();
                     }
                     client.reset(new nv_vms::GstUDPVideoClient(id, stream));
@@ -108,14 +107,14 @@ class UdpClientPool
                 {
                     if (stream.m_audioPort == 0)
                     {
-                        LOG(warning) << "Audio port is not provided, using available udp port" << endl;
+                        LOG(warning) << "Audio port is not provided, using available udp port" << std::endl;
                         stream.m_audioPort = getUdpPort();
                     }
                     client.reset(new nv_vms::GstUDPAudioClient(id, stream));
                 }
                 else
                 {
-                    LOG(error) << "Unsupported media type" << endl;
+                    LOG(error) << "Unsupported media type" << std::endl;
                     return nullptr;
                 }
             }
@@ -125,12 +124,12 @@ class UdpClientPool
                 m_clientList.insert({id, client});
                 LOG(info) << "Added udp Client:" << client << ", id:" << id
                           <<" video port: "<< stream.m_videoPort
-                          <<" audio port: "<< stream.m_audioPort << endl;
+                          <<" audio port: "<< stream.m_audioPort << std::endl;
             }
             return client;
         }
 
-        void removeClient(const string& id)
+        void removeClient(const std::string& id)
         {
             std::lock_guard<std::mutex> guard(m_clientLock);
             udpClientMap::iterator it = m_clientList.find(id);
@@ -147,13 +146,13 @@ class UdpClientPool
             }
         }
 
-        shared_ptr<nv_vms::UdpClient> getClient(const string& id, const string& media)
+        std::shared_ptr<nv_vms::UdpClient> getClient(const std::string& id, const std::string& media)
         {
             std::lock_guard<std::mutex> guard(m_clientLock);
             udpClientMap::iterator it = m_clientList.find(id);
             if (it != m_clientList.end())
             {
-                shared_ptr<nv_vms::UdpClient> client = it->second;
+                std::shared_ptr<nv_vms::UdpClient> client = it->second;
                 if (client->getType() == media ||
                    (client->getType() == nv_vms::UdpClient::UDP_VIDEO_AUDIO_TYPE))
                 {
@@ -163,13 +162,13 @@ class UdpClientPool
             return nullptr;
         }
 
-        bool isClientExist(const string& id, const string& media)
+        bool isClientExist(const std::string& id, const std::string& media)
         {
             std::lock_guard<std::mutex> guard(m_clientLock);
             udpClientMap::iterator it = m_clientList.find(id);
             if(it != m_clientList.end())
             {
-                shared_ptr<nv_vms::UdpClient> client = it->second;
+                std::shared_ptr<nv_vms::UdpClient> client = it->second;
                 if (client->getType() == media || 
                    (client->getType() == nv_vms::UdpClient::UDP_VIDEO_AUDIO_TYPE))
                 {
@@ -198,7 +197,7 @@ class UdpClientPool
                     }
                     else if (ret < 0)
                     {
-                        LOG(error) << "checkIfPortAvailable failed with error:" << ret << endl;
+                        LOG(error) << "checkIfPortAvailable failed with error:" << ret << std::endl;
                         return -1;
                     }
                 }
@@ -207,7 +206,7 @@ class UdpClientPool
 
             if (availablePort == -1)
             {
-                LOG(error) << "Port is not available at this moment" << endl;
+                LOG(error) << "Port is not available at this moment" << std::endl;
                 return -1;
             }
             m_udpPortList[availablePort] = true;
@@ -232,7 +231,7 @@ class UdpClientPool
                     }
                     else if (ret < 0)
                     {
-                        LOG(error) << "checkIfPortAvailable failed with error:" << ret << endl;
+                        LOG(error) << "checkIfPortAvailable failed with error:" << ret << std::endl;
                         return -1;
                     }
                 }
@@ -241,7 +240,7 @@ class UdpClientPool
 
             if (availablePort == -1)
             {
-                LOG(error) << "Webrtc Port is not available at this moment" << endl;
+                LOG(error) << "Webrtc Port is not available at this moment" << std::endl;
                 return -1;
             }
             m_webrtcUdpPortList[availablePort] = true;
@@ -293,7 +292,7 @@ class UdpClientPool
             std::lock_guard<std::mutex> guard(m_clientLock);
             for(const auto &it : m_clientList)
             {
-                shared_ptr<nv_vms::UdpClient> client = it.second;
+                std::shared_ptr<nv_vms::UdpClient> client = it.second;
                 client.reset();
             }
             m_clientList.clear();

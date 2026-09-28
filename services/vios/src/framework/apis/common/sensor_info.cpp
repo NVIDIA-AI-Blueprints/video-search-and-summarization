@@ -23,6 +23,8 @@
 #include "sensor_control.h"
 #include "nvsoap.h"
 
+using namespace std;
+
 SensorInfo::SensorInfo() :
         id("")
         ,sensorId("")

@@ -34,6 +34,7 @@ struct SharedLibrary;
 }
 
 using namespace nv_vms;
+using namespace std;
 
 static void writeToFile(const string data)
 {

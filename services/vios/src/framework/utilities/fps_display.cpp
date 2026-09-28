@@ -20,6 +20,8 @@
 #include <tuple>
 #include <string>
 
+using namespace std;
+
 static inline std::tuple<std::string, std::string, std::string>parseStreamIdPeerId(const std::string& peerId_streamId) {
     // Case 1: recording_cam_name
     const string recording_prefix = "recording_";

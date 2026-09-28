@@ -17,13 +17,15 @@
 
 #include <MessageBus.h>
 
-#define SET_VMS_ERROR(err_code, value) { std::pair<string, string> err = getCameraErrorCodeString(err_code); \
+using namespace std;
+
+#define SET_VMS_ERROR(err_code, value) { std::pair<std::string, std::string> err = getCameraErrorCodeString(err_code); \
                                         value["error_code"] = err.first; \
                                         value["error_message"] = err.second; }
 
-#define SET_VMS_ERROR2(err_code, value, message) { std::pair<string, string> err = getCameraErrorCodeString(err_code); \
+#define SET_VMS_ERROR2(err_code, value, message) { std::pair<std::string, std::string> err = getCameraErrorCodeString(err_code); \
                                         value["error_code"] = err.first; \
-                                        string msg(message); \
+                                        std::string msg(message); \
                                         if (msg.empty()) {value["error_message"] = err.second;} else {value["error_message"] = msg;} }
 
 bool MessageBus::sendMessage(const string& clientId, const string& message, std::shared_ptr<MessageObject> messageObj)

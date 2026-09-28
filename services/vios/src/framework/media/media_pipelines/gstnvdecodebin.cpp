@@ -23,6 +23,8 @@
 #include "nvhwdetection.h"
 #include "gstnvvideodecoder.h"
 
+using namespace std;
+
 constexpr int  GST_DEBUG_PROBE_BUFFER_COUNT = 10;
 constexpr gint DECODER_EXTRA_SURFACES       = 6;
 constexpr gint CUDA_DEC_MEM_TYPE_DEVICE     = 0;

@@ -21,6 +21,8 @@
 #include "vst_common.h"
 #include "streamrecorder.h"
 
+using namespace std;
+
 static string StreamTypeToString(StreamType streamType)
 {
     switch (streamType)

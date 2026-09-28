@@ -20,6 +20,7 @@
 #include "unified_local_storage_writer.h"
 
 using namespace nv_vms;
+using namespace std;
 
 // UnifiedStorageWriterFactory implementation
 std::unique_ptr<UnifiedStorageWriter> UnifiedStorageWriterFactory::createWriter(StorageType type)

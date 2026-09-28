@@ -26,7 +26,6 @@
 #include <atomic>
 #include <logger.h>
 
-using namespace std;
 
 enum RecordState
 {
@@ -57,8 +56,8 @@ enum EventType
 
 struct FrameInfo
 {
-    string               codec;
-    string               mediaType;
+    std::string               codec;
+    std::string               mediaType;
     bool                 isIDR;
     size_t               size;
     std::vector<uint8_t> content;
@@ -82,17 +81,17 @@ struct FrameInfo
     }
 };
 
-const string recording_off            = "off";
-const string recording_on_schedule    = "schedule";
-const string recording_on_user        = "user";
-const string recording_on_event       = "event";
-const string recording_on_alwaysON    = "alwaysOn";
-const string recording_error          = "error";
-const string recording_status_unknown = "statusUnknown";
+const std::string recording_off            = "off";
+const std::string recording_on_schedule    = "schedule";
+const std::string recording_on_user        = "user";
+const std::string recording_on_event       = "event";
+const std::string recording_on_alwaysON    = "alwaysOn";
+const std::string recording_error          = "error";
+const std::string recording_status_unknown = "statusUnknown";
 
 namespace
 {
-    inline string translateRecordStateToString(RecordState value)
+    inline std::string translateRecordStateToString(RecordState value)
     {
         switch(value)
         {
@@ -121,10 +120,10 @@ public:
     void setRecordingState(RecordState record_state);
     int onEvent();
     void setError(bool is_error);
-    void setDeviceId (string deviceId) { m_deviceId = deviceId; }
+    void setDeviceId (std::string deviceId) { m_deviceId = deviceId; }
     void setPlaying (bool playing)
     { 
-        LOG(info) << "Setting playing state = " << playing << " for " << m_deviceId << endl;
+        LOG(info) << "Setting playing state = " << playing << " for " << m_deviceId << std::endl;
         m_isPlaying = playing;
     }
     bool isDropFrame(FrameInfo& frame);

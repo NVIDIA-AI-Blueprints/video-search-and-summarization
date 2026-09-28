@@ -27,6 +27,8 @@
 #include "logger.h"
 #include "utils.h"
 
+using namespace std;
+
 namespace
 {
 constexpr int64_t DEFAULT_RETRY_BACKOFF_MS = 1000;

@@ -38,6 +38,7 @@
 #define checkRuntime(call)  check_runtime(call, #call, __LINE__, __FILE__)
 
 using namespace std::chrono_literals;
+using namespace std;
 constexpr int MAX_DISPLAY_LEN = 64;
 constexpr const char* MATCH = "MATCH";
 constexpr const char* UNMATCH = "UNMATCH";
