@@ -126,17 +126,7 @@ class HarborCommand(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--include-task-name") + 1], "rtxpro6000bw")
         self.assertEqual(cmd[cmd.index("-a") + 1], "claude-code")
         self.assertEqual(cmd[cmd.index("--model") + 1], "aws/anthropic/bedrock-claude-opus-4-6")
-        self.assertEqual(
-            cmd[cmd.index("--ak") + 1],
-            "api_base=https://inference-api.nvidia.com/v1",
-        )
-        agent_env = [cmd[index + 1] for index, part in enumerate(cmd) if part == "--ae"]
-        self.assertIn(
-            "ANTHROPIC_API_KEY=${SKILL_EVAL_AGENT_ROUTE_API_KEY}", agent_env
-        )
-        self.assertIn(
-            "ANTHROPIC_BASE_URL=${SKILL_EVAL_AGENT_ROUTE_BASE_URL}", agent_env
-        )
+        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
         self.assertEqual(cmd[cmd.index("-o") + 1], "/tmp/results")
         self.assertEqual(
             cmd[cmd.index("--environment-build-timeout-multiplier") + 1],
@@ -171,19 +161,9 @@ class HarborCommand(unittest.TestCase):
         # passes the values only to the agent; no credential value lands here.
         self.assertEqual(cmd[cmd.index("-a") + 1], "agents.nv_codex:NvCodex")
         self.assertEqual(cmd[cmd.index("--model") + 1], "openai/openai/gpt-5-codex")
-        self.assertEqual(
-            cmd[cmd.index("--ak") + 1],
-            "api_base=https://inference-api.nvidia.com/v1",
-        )
-        agent_env = [cmd[index + 1] for index, part in enumerate(cmd) if part == "--ae"]
-        self.assertEqual(
-            agent_env,
-            [
-                "OPENAI_API_KEY=${SKILL_EVAL_AGENT_ROUTE_API_KEY}",
-                "OPENAI_BASE_URL=${SKILL_EVAL_AGENT_ROUTE_BASE_URL}",
-            ],
-        )
-        self.assertFalse(any("coding-secret" in part for part in cmd))
+        self.assertEqual(cmd[cmd.index("--ak") + 1], "api_base=https://inference-api.nvidia.com/v1")
+        # The key must never be passed on the command line.
+        self.assertFalse(any("OPENAI_API_KEY" in part for part in cmd))
         self.assertNotIn("CLAUDE_CODE_DISABLE_THINKING=1", cmd)
 
     def test_build_command_nemoclaw_reuses_standard_dispatch(self):
@@ -816,7 +796,6 @@ class RunInvocations(unittest.TestCase):
                 rc = run_leg.run_invocations(
                     [invocation], "vss-eval-box", root / "results", root / "scratch",
                     "build", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
-                    self.config(env),
                 )
 
         self.assertEqual(rc, 0)
@@ -973,7 +952,6 @@ class RunInvocations(unittest.TestCase):
                 rc = run_leg.run_invocations(
                     invocations, "vss-eval-box", root / "results", root / "scratch",
                     "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
-                    self.config(env),
                 )
 
         self.assertEqual(rc, 0)
@@ -1379,7 +1357,6 @@ class RunInvocations(unittest.TestCase):
                 rc = run_leg.run_invocations(
                     [invocation], "vss-eval-box", root / "results", root / "scratch",
                     "alerts", "L40S", run_leg.DEFAULT_HARBOR_TIMEOUT_SEC,
-                    self.config(env),
                 )
 
             self.assertEqual(rc, 1)
@@ -2151,8 +2128,7 @@ class TheHeartbeatNamesTheRightPhase(unittest.TestCase):
             ), mock.patch.object(
                 run_leg, "run_invocations", side_effect=SystemExit(0)
             ), mock.patch.object(leg_timing, "start_heartbeat",
-                                 return_value=(mock.Mock(), mock.Mock())), \
-                 mock.patch.dict(run_leg.os.environ, RunInvocations.ENV, clear=False):
+                                 return_value=(mock.Mock(), mock.Mock())):
                 run_leg.main([
                     "--dataset-root", str(Path(tmp) / "dataset"),
                     "--results-root", str(Path(tmp) / "results"),

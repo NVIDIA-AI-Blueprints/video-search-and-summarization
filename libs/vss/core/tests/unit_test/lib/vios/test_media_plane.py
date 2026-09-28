@@ -253,6 +253,21 @@ async def test_list_honors_environment_proxy(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
+async def test_count_documents_honors_environment_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Elasticsearch readiness uses the same proxy contract as VIOS calls."""
+    session_options: dict[str, Any] = {}
+
+    def client_session(**kwargs: Any) -> _Session:
+        session_options.update(kwargs)
+        return _Session({"/_count": {"count": 3}}, [])
+
+    monkeypatch.setattr(vios.aiohttp, "ClientSession", client_session)
+
+    assert await vios.count_documents("https://es.test", "mdx-*", "sensor.id.keyword", "cam") == 3
+    assert session_options["trust_env"] is True
+
+
+@pytest.mark.asyncio
 async def test_list_joins_streams_and_filters_by_provenance(vios_http) -> None:
     configure, _, _ = vios_http
     configure(
@@ -1037,6 +1052,24 @@ def test_a_window_spanning_two_segments_is_refused() -> None:
     """VIOS rejects a range crossing a gap; catching it here says why."""
     with pytest.raises(vios.VIOSInvalidInputError, match="not inside a single recorded segment"):
         vios.resolve_window(GAPPED, "2025-01-01T12:05:00.000Z", "2025-01-01T13:05:00.000Z", "video")
+
+
+def test_rebased_interval_must_have_positive_duration() -> None:
+    with pytest.raises(vios.VIOSInvalidInputError, match="must be after"):
+        vios.rebase_interval_to_segments(
+            "2025-01-01T00:00:20.000Z",
+            "2025-01-01T00:00:10.000Z",
+            GAPPED,
+        )
+
+
+def test_rebased_interval_cannot_cross_a_recording_gap() -> None:
+    with pytest.raises(vios.VIOSInvalidInputError, match="single recorded segment"):
+        vios.rebase_interval_to_segments(
+            "2025-01-01T00:09:00.000Z",
+            "2025-01-01T00:11:00.000Z",
+            GAPPED,
+        )
 
 
 def test_a_window_inside_the_later_segment_is_accepted() -> None:

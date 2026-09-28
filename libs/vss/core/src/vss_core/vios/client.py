@@ -179,6 +179,42 @@ def map_interval_to_timeline(
     )
 
 
+def rebase_interval_to_segments(
+    start_timestamp: str,
+    end_timestamp: str,
+    segments: list[tuple[str, str]],
+) -> tuple[str, str]:
+    """Rebase an interval and require the result to fit one recorded segment.
+
+    Unlike :func:`map_interval_to_timeline`, this is a strict command-boundary
+    helper: malformed or non-positive source ranges and ranges that would be
+    truncated, land in a gap, or cross a gap are caller errors.
+    """
+    if not segments:
+        raise VIOSInvalidInputError("cannot rebase: no recorded timeline for this sensor")
+    try:
+        source_start = iso8601_to_datetime(start_timestamp)
+        source_end = iso8601_to_datetime(end_timestamp)
+    except (TypeError, ValueError) as exc:
+        raise VIOSInvalidInputError(
+            "--rebase-from and --rebase-from-end must be ISO-8601 timestamps"
+        ) from exc
+    duration = source_end - source_start
+    if duration.total_seconds() <= 0:
+        raise VIOSInvalidInputError("--rebase-from-end must be after --rebase-from")
+
+    timeline_start, timeline_end = segments[0][0], segments[-1][1]
+    mapped_start_text = map_timestamp_to_timeline(start_timestamp, timeline_start, timeline_end)
+    mapped_start = iso8601_to_datetime(mapped_start_text)
+    mapped_end = mapped_start + duration
+    return resolve_window(
+        segments,
+        _isoformat(mapped_start),
+        _isoformat(mapped_end),
+        "video",
+    )
+
+
 async def get_timelines_map(
     vst_internal_url: str,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
@@ -725,6 +761,45 @@ async def _get_json(url: str, timeout_seconds: float, what: str) -> object:
     except _VST_BOUNDARY_ERRORS as e:
         raise VSTError(f"Failed to read {what} after retrying transport errors", e) from e
     return None  # unreachable; satisfies mypy
+
+
+async def count_documents(
+    es_url: str,
+    index: str,
+    field: str,
+    value: str,
+    timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+) -> int:
+    """``POST {es_url}/{index}/_count`` with a term query → document count.
+
+    A read-only readiness/cleanup probe for the search indexes: counts
+    documents in one Elasticsearch index matching one ``field=value`` term. Used by
+    ``vss vios readiness`` so the skill can tell ingest-ready (count > 0) from
+    delete-clean (count == 0) without hand-rolling ``curl`` against ES. A 404
+    (index not yet created) counts as 0, not an error -- a lazy index that has
+    not been populated is the same as empty for readiness purposes.
+    """
+    url = f"{es_url.rstrip('/')}/{index}/_count"
+    body = {"query": {"term": {field: value}}}
+    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session, session.post(
+            url, json=body
+        ) as response:
+            if response.status == 404:
+                return 0
+            if response.status != 200:
+                raise VSTError(f"Elasticsearch _count on {index} returned status {response.status}")
+            try:
+                payload = json.loads(await response.text())
+            except Exception as e:
+                raise VSTError(f"Error parsing ES _count on {index}: {e}") from e
+            count = payload.get("count") if isinstance(payload, dict) else None
+            if not isinstance(count, int):
+                raise VSTError(f"ES _count on {index} returned non-integer count: {count!r}")
+            return count
+    except _VST_BOUNDARY_ERRORS as e:
+        raise VSTError(f"Failed to reach Elasticsearch for _count on {index}", e) from e
 
 
 async def list_sensors(
