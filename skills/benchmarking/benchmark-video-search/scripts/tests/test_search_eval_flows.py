@@ -1070,6 +1070,27 @@ def test_vst_direct_checks_the_anchor_instead_of_assuming_it(monkeypatch: Any) -
     assert bad["matches_expected_anchor"] is False
 
 
+def test_vst_direct_anchor_read_uses_a_short_timeout(monkeypatch: Any) -> None:
+    import requests
+
+    seen_timeouts: list[int] = []
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {}
+
+    def fake_get(_url: str, *, timeout: int) -> _Resp:
+        seen_timeouts.append(timeout)
+        return _Resp()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    flows.VstDirectIngest("https://host:30888").verify_anchor("abc-123")
+    assert seen_timeouts == [30]
+
+
 def test_the_probe_gate_reads_a_flag_not_a_prose_string() -> None:
     """The regression that made this whole guard dead code.
 
@@ -1707,7 +1728,7 @@ _F = "%Y-%m-%dT%H:%M:%SZ"
 def _window(video: str, start_s: int, length_s: int = 5) -> dict[str, str]:
     import datetime
 
-    base = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC) + datetime.timedelta(seconds=start_s)
+    base = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(seconds=start_s)
     return {
         "video_name": video,
         "start_time": base.strftime(_F),
