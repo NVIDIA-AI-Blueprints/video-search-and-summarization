@@ -125,6 +125,7 @@ def test_harness_protocols_translate_to_nim_chat_completions(
         "stream": stream,
     }
     if tool_call:
+        args["tool_choice"] = "auto"
         schema = {"type": "object", "properties": {}}
         if protocol == "messages":
             args["tools"] = [

@@ -75,6 +75,13 @@ def unique_models(routes: list[dict]) -> list[str]:
     return list(dict.fromkeys(validate_model_id(r["model"]) for r in routes))
 
 
+def tool_parser_args(model: str) -> str | None:
+    """Enable tool calling for known vLLM-backed model-specific NIMs."""
+    if model.startswith(("meta/llama-3.1-", "meta/llama-3.3-")):
+        return "--enable-auto-tool-choice --tool-call-parser llama3_json"
+    return None
+
+
 def request_json(url: str, headers: dict | None = None, payload: dict | None = None):
     body = None if payload is None else json.dumps(payload).encode()
     request = urllib.request.Request(url, data=body, headers=headers or {})
@@ -318,7 +325,7 @@ def start(plan: dict):
         )
         cache.mkdir(parents=True, exist_ok=True)
         cache.chmod(0o1777)
-        docker(
+        nim_args = [
             "run",
             "-d",
             "--name",
@@ -330,12 +337,18 @@ def start(plan: dict):
             "--shm-size=16g",
             "-e",
             "NGC_API_KEY",
+        ]
+        parser_args = tool_parser_args(item["model"])
+        if parser_args:
+            nim_args.extend(("-e", f"NIM_PASSTHROUGH_ARGS={parser_args}"))
+        nim_args.extend((
             "-p",
             f"127.0.0.1:{port}:8000",
             "-v",
             f"{cache}:/opt/nim/.cache",
             item["image"],
-        )
+        ))
+        docker(*nim_args)
         base = f"http://127.0.0.1:{port}/v1"
         wait_ready(f"{base}/health/ready", "", 1800)
         served, _ = request_json(f"{base}/models")
@@ -390,17 +403,55 @@ def start(plan: dict):
     # API cannot produce an apparently successful deployment.
     for route in plan["routes"]:
         runtime = route["runtime"]
+        schema = {"type": "object", "properties": {}}
         if runtime == "claude-code":
             path, body = (
                 "messages",
-                {"messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 16},
+                {
+                    "messages": [{"role": "user", "content": "Say OK"}],
+                    "max_tokens": 16,
+                    "tools": [
+                        {
+                            "name": "probe",
+                            "description": "Check status",
+                            "input_schema": schema,
+                        }
+                    ],
+                    "tool_choice": {"type": "auto"},
+                },
             )
         elif runtime == "codex":
-            path, body = "responses", {"input": "Say OK", "max_output_tokens": 16}
+            path, body = "responses", {
+                "input": "Say OK",
+                "max_output_tokens": 16,
+                "tools": [
+                    {
+                        "type": "function",
+                        "name": "probe",
+                        "description": "Check status",
+                        "parameters": schema,
+                    }
+                ],
+                "tool_choice": "auto",
+            }
         else:
             path, body = (
                 "chat/completions",
-                {"messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 16},
+                {
+                    "messages": [{"role": "user", "content": "Say OK"}],
+                    "max_tokens": 16,
+                    "tools": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "probe",
+                                "description": "Check status",
+                                "parameters": schema,
+                            },
+                        }
+                    ],
+                    "tool_choice": "auto",
+                },
             )
         request_json(
             f"http://127.0.0.1:{PROXY_PORT}/v1/{path}",

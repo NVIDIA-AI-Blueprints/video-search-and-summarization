@@ -56,6 +56,14 @@ def test_spark_packaging_keeps_model_identity(monkeypatch):
     assert "/nim/qwen/qwen3-32b-dgx-spark/" in calls[-1]
 
 
+def test_llama_nim_enables_documented_tool_parser():
+    expected = "--enable-auto-tool-choice --tool-call-parser llama3_json"
+    assert nim.tool_parser_args("meta/llama-3.1-8b-instruct") == expected
+    assert nim.tool_parser_args("meta/llama-3.1-8b-instruct-dgx-spark") == expected
+    assert nim.tool_parser_args("meta/llama-3.3-70b-instruct") == expected
+    assert nim.tool_parser_args("qwen/qwen3-32b") is None
+
+
 def test_architecture_mismatch_rejected_without_deployment(monkeypatch):
     registry(monkeypatch, arch="amd64")
     with pytest.raises(nim.NimError, match="supports linux/arm64"):
