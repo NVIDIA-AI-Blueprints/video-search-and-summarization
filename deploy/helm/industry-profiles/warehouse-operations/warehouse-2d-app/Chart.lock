@@ -1,4 +1,7 @@
 dependencies:
+- name: common
+  repository: file://../../../services/common
+  version: 3.3.0
 - name: vios
   repository: file://../../../services/vios
   version: 3.3.0
@@ -29,5 +32,5 @@ dependencies:
 - name: monitoring
   repository: file://../../../services/monitoring
   version: 3.3.0
-digest: sha256:9b676933b23555e17a114c99b97d677d1ec1867a5060093e5dd3e7652cd5450b
-generated: "2026-08-19T11:42:30.605768+05:30"
+digest: sha256:93358de8309354453cfa46339658da294d2d368626a047360a9e03e39760fe11
+generated: "2026-09-28T12:40:00.991421729-07:00"
