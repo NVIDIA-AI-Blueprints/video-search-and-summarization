@@ -524,6 +524,7 @@ if you choose another name, use it consistently in every `--env-file` argument.
 Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
+cd deploy/docker
 PROFILE=base
 cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"

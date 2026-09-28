@@ -289,33 +289,6 @@ the connection carries the gateway token and alert contents. Use `ws://` only fo
 
 ### Manually
 
-#### Direct Docker Compose Overrides
-
-When invoking Docker Compose directly, apply all of the following settings in
-`developer-profiles/dev-profile-alerts/user-overrides.env`:
-
-```ini
-MODE=2d_vlm
-ALERT_AGENT_ALWAYS_ON=true
-COMPOSE_PROFILES=${COMPOSE_PROFILES_VLM}
-RTVI_VLM_MESSAGE_BUS=kafka
-RTVI_VLM_KAFKA_ENABLED=true
-NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_REALTIME_ALERTS=true
-NEXT_PUBLIC_ALERTS_TAB_MANAGE_ALERTS_SUB_TAB_ENABLE_CV_ALERTS_VERIFICATION=false
-```
-
-In RT-VLM 26.08.2, `MESSAGE_BUS` is the startup source of truth for
-generated-message publishing. The packaged Compose variable
-`RTVI_VLM_MESSAGE_BUS=kafka` sets it explicitly.
-`RTVI_VLM_KAFKA_ENABLED=true` is retained only as the legacy compatibility
-field while Compose still forwards it. Later `--env-file` arguments take
-precedence over earlier arguments; therefore, changes to `overrides.env` made
-after it has been copied do not affect a command that reads
-`user-overrides.env`.
-`VSS_CONTAINER_REGISTRY` (default `ghcr.io/nvidia-ai-blueprints/vss`) and
-`VSS_CONTAINER_TAG` (default `develop-latest`) are defined in
-`deploy/docker/containers.env`.
-
 #### Step 1: Deploy with Docker Compose
 
 <Note>
@@ -329,6 +302,10 @@ after it has been copied do not affect a command that reads
 # Set NGC CLI API key
 export NGC_CLI_API_KEY='your_ngc_api_key'
 
+# Authenticate Docker for gated NIM and other nvcr.io images. The managed VSS
+# images on ghcr.io are public and do not require a registry login.
+printf '%s' "$NGC_CLI_API_KEY" | \
+  docker login nvcr.io --username '$oauthtoken' --password-stdin
 ```
 
 See [Configuration](/vss/system-components/configuration) for common variables,
@@ -344,6 +321,7 @@ if you choose another name, use it consistently in every `--env-file` argument.
 Repeat the copy only when you want to discard prior layout changes:
 
 ```bash
+cd deploy/docker
 PROFILE=alerts
 cp "developer-profiles/dev-profile-${PROFILE}/overrides.env" \
   "developer-profiles/dev-profile-${PROFILE}/user-overrides.env"
