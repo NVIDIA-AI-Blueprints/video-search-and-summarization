@@ -4157,15 +4157,15 @@ NvOsdLibs::NvOsdLibs()
     const char* lib_path;
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libllosd.so");
-    handle_nvCuLib = dlopen(lib_path, RTLD_LAZY);
+    handle_nvCuLib = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!handle_nvCuLib)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libllosd.so");
-        handle_nvCuLib = dlopen(lib_path, RTLD_LAZY);
+        handle_nvCuLib = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libllosd.so");
-    handle_nvCuLib = dlopen(lib_path, RTLD_LAZY);
+    handle_nvCuLib = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!handle_nvCuLib)
     {
@@ -4190,15 +4190,15 @@ NvOsdLibs::NvOsdLibs()
     }
 #if defined(AARCH64_PLATFORM)
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_ARCH64, "libgstcuosdmeta.so");
-    handle_nvCuosdmetaLib = dlopen(lib_path, RTLD_LAZY);
+    handle_nvCuosdmetaLib = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     if (!handle_nvCuosdmetaLib)
     {
         lib_path = CONCATENATE_STRINGS(RELATIVE_PREBUILT_LIBRARY_PATH_ARCH64, "libgstcuosdmeta.so");
-        handle_nvCuosdmetaLib = dlopen(lib_path, RTLD_LAZY);
+        handle_nvCuosdmetaLib = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
     }
 #else
     lib_path = CONCATENATE_STRINGS(ABSOLUTE_PREBUILT_LIBRARY_PATH_X86_64, "libgstcuosdmeta.so");
-    handle_nvCuosdmetaLib = dlopen(lib_path, RTLD_LAZY);
+    handle_nvCuosdmetaLib = static_cast<SharedLibraryHandle*>(dlopen(lib_path, RTLD_LAZY));
 #endif
     if (!handle_nvCuosdmetaLib)
     {
