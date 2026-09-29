@@ -491,5 +491,38 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertIn("openshell/skills_eval_agent.py", rest)
 
 
+class ManualSkillsFilter(unittest.TestCase):
+    def test_category_name_enumerates_nested_deployment_specs(self):
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        os.environ["MANUAL_SKILLS_FILTER"] = "deployment"
+        try:
+            files = plan_matrix.list_changed_files()
+        finally:
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
+        self.assertTrue(files)
+        self.assertTrue(all(path.startswith("skills/deployment/") for path in files))
+        self.assertIn(
+            "skills/deployment/vss-deploy-dense-captioning/evals/standalone_api.json",
+            files,
+        )
+        self.assertNotIn(
+            "skills/deployment/vss-deploy-dense-captioning/evals/evals.json",
+            files,
+        )
+
+    def test_unknown_name_still_raises(self):
+        orig_changed = os.environ.pop("CHANGED_FILES", None)
+        os.environ["MANUAL_SKILLS_FILTER"] = "vss-this-skill-does-not-exist-xyz"
+        try:
+            with self.assertRaises(ValueError):
+                plan_matrix.list_changed_files()
+        finally:
+            os.environ.pop("MANUAL_SKILLS_FILTER", None)
+            if orig_changed is not None:
+                os.environ["CHANGED_FILES"] = orig_changed
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

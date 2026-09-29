@@ -30,7 +30,7 @@ on:
           - brev
           - openshell
       skills:
-        description: "Which skill to eval: `*` or a bare skill-directory name."
+        description: "Which skill to eval: `*`, a bare skill-directory name, or a category such as `deployment`."
         required: false
         default: "*"
         type: string

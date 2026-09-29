@@ -441,7 +441,8 @@ def list_changed_files() -> list[str]:
     # Manual full-sweep (workflow_dispatch): there's no diff. Enumerate the
     # chosen skill(s)' specs so build_matrix fans them per-(spec,platform)
     # exactly like a push — this replaces the legacy single-agent sweep.
-    # `*` sweeps every skill; otherwise a bare skill-dir name.
+    # `*` sweeps every skill; otherwise a bare skill-dir name or a
+    # category folder such as `deployment`.
     manual = os.environ.get("MANUAL_SKILLS_FILTER")
     if manual:
         # workflow_dispatch input — guard against path escape before it
@@ -449,27 +450,13 @@ def list_changed_files() -> list[str]:
         if manual != "*" and not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_-]*", manual):
             raise ValueError(
                 f"unsafe MANUAL_SKILLS_FILTER {manual!r}: expected a skill-dir "
-                f"name ([A-Za-z0-9_-]) or '*'"
+                f"name ([A-Za-z0-9_-]), a category name, or '*'"
             )
         # Fail loud on a typo'd / renamed skill rather than emitting an empty
         # matrix that the eval job silently skips (the removed manual-sweep
         # job errored here too).
         skills_map = discover_skills()
-        if manual != "*" and manual not in skills_map:
-            hint = ""
-            branch = (os.environ.get("PR_BASE") or "").strip()
-            if branch and manual == branch:
-                hint = (
-                    f" {manual!r} is the branch this workflow is running from "
-                    f"(Actions 'Use workflow from' / gh --ref), not a skill. "
-                    f"Leave the skills input as '*' or pass a skill directory "
-                    f"such as vss-deploy-test-openshell."
-                )
-            raise ValueError(
-                f"MANUAL_SKILLS_FILTER {manual!r}: skill not found under skills/ "
-                f"on this ref — check the skill name.{hint}"
-            )
-        skills = sorted(skills_map) if manual == "*" else [manual]
+        skills = _skills_for_manual_filter(manual, skills_map)
         return [sp for sk in skills for sp, _, _ in specs_for_skill(sk)]
 
     base = os.environ["PR_BASE"]
@@ -483,6 +470,41 @@ def list_changed_files() -> list[str]:
         check=True, capture_output=True, text=True,
     ).stdout
     return [ln.strip() for ln in out.splitlines() if ln.strip()]
+
+
+def _skills_for_manual_filter(manual: str, skills_map: dict[str, Path]) -> list[str]:
+    """Leaf skill names selected by a workflow_dispatch skills input.
+
+    `*` is every discovered skill. A leaf name selects that skill. A
+    category directory name (`deployment`, `operations`) selects every
+    skill nested under `skills/<category>/`.
+    """
+    if manual == "*":
+        return sorted(skills_map)
+    if manual in skills_map:
+        return [manual]
+    category = REPO_ROOT / "skills" / manual
+    if category.is_dir():
+        matched = sorted(
+            name
+            for name, path in skills_map.items()
+            if path.parent == category
+        )
+        if matched:
+            return matched
+    hint = ""
+    branch = (os.environ.get("PR_BASE") or "").strip()
+    if branch and manual == branch:
+        hint = (
+            f" {manual!r} is the branch this workflow is running from "
+            f"(Actions 'Use workflow from' / gh --ref), not a skill. "
+            f"Leave the skills input as '*' or pass a skill directory "
+            f"such as vss-deploy-test-openshell."
+        )
+    raise ValueError(
+        f"MANUAL_SKILLS_FILTER {manual!r}: skill not found under skills/ "
+        f"on this ref — check the skill name.{hint}"
+    )
 
 
 def specs_for_skill(skill: str, skills_map: dict[str, Path] | None = None) -> list[tuple[str, str, str]]:
