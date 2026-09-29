@@ -358,6 +358,10 @@ def start(plan: dict):
             # The 1.14 DGX Spark variants enable tool calls with this switch;
             # they do not consume the standard NIM_PASSTHROUGH_ARGS setting.
             nim_args.extend(("-e", "TOOL_CALL_PARSER=1"))
+            if "qwen3-32b-dgx-spark@" in item["image"]:
+                # Its default 8K window cannot hold the Codex skill-eval
+                # system prompt (9.7K tokens before the first tool call).
+                nim_args.extend(("-e", "NIM_MAX_MODEL_LEN=32768"))
         elif parser_args:
             nim_args.extend(("-e", f"NIM_PASSTHROUGH_ARGS={parser_args}"))
         nim_args.extend((

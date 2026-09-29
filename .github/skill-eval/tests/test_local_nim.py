@@ -172,6 +172,7 @@ def test_two_roles_deploy_one_nim_and_one_adapter(monkeypatch, tmp_path):
     assert len(launches) == 2
     model_launch = next(c for c in launches if any("nvcr.io/nim/" in a for a in c))
     assert "TOOL_CALL_PARSER=1" in model_launch
+    assert "NIM_MAX_MODEL_LEN=32768" in model_launch
     assert sum(any("nvcr.io/nim/" in a for a in c) for c in launches) == 1
     config = json.loads((nim.owner_paths(plan()["owner"]) / "proxy.json").read_text())
     assert len(config["model_list"]) == 1
