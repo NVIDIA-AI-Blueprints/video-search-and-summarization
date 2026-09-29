@@ -128,8 +128,8 @@ vss configure vlm \
   --disable-reasoning \
   --chunk-duration 0 \
   --fps 4 \
-  --shortest-edge 262144 \
-  --longest-edge 16777216 \
+  --max-frames 256 \
+  --total-pixels 16777216 \
   --lock
 ```
 
@@ -145,8 +145,8 @@ Each field also has an independent runtime environment override:
 | `enable_reasoning` | `VSS_VLM_ENABLE_REASONING` (`true` or `false`) |
 | `chunk_duration` | `VSS_VLM_CHUNK_DURATION` |
 | `fps` | `VSS_VLM_FPS` |
-| `shortest_edge` | `VSS_VLM_SHORTEST_EDGE` |
-| `longest_edge` | `VSS_VLM_LONGEST_EDGE` |
+| `max_frames` | `VSS_VLM_MAX_FRAMES` |
+| `total_pixels` | `VSS_VLM_TOTAL_PIXELS` |
 | `locked` | `VSS_VLM_LOCKED` (`true` or `false`) |
 
 Environment variables provide per-field defaults. Values persisted by
@@ -154,6 +154,35 @@ Environment variables provide per-field defaults. Values persisted by
 override the resulting policy when it is unlocked; conflicting arguments are
 rejected when it is locked. If neither source defines a field, its built-in
 request default applies. Empty or malformed environment variables are errors.
+
+### Frame sampling
+
+Three fields control what the model sees. They use the same names as
+VLMEvalKit's video dataset configs, and the CLI sends them to the backend
+rather than resolving them itself:
+
+| Field | Meaning | Sent as |
+|-------|---------|---------|
+| `fps` | Frames sampled per second | `media_io_kwargs.video.fps` |
+| `max_frames` | Upper bound on frames; combines with `fps` | `media_io_kwargs.video.num_frames` (vLLM also gets `max_frames`, which its `qwen3_vl` loader reads) |
+| `total_pixels` | Pixel budget for the whole clip | `mm_processor_kwargs.size.longest_edge`, with `shortest_edge` set to the Qwen3-VL floor of 131072 or `total_pixels` if smaller |
+
+`total_pixels` assumes a Qwen3-VL-family processor (Qwen3-VL, Cosmos-Reason2),
+where the budget covers every frame: 16,777,216 is roughly 8,192 vision tokens
+(each token is a 32x32 tile across two merged frames). Qwen2/2.5-VL processors
+read the same field as a per-frame limit. A server may also ignore per-request
+processor kwargs: vLLM 0.28 serving Qwen3.8-27B did, so there the pixel budget
+has to be set server-side.
+
+A field left unset is not sent, and the VLM server's own sampling applies. On
+RT-VLM that is the deployment's `VLM_DEFAULT_NUM_FRAMES_PER_SECOND_OR_FIXED_FRAMES_CHUNK`,
+which some profiles set to one frame per chunk. `vss configure` prints the
+effective values and their source (environment variable or config file) and
+names any that are unset.
+
+RT-VLM reads `fps` ahead of `num_frames`, so on RT-VLM `max_frames` applies
+only when `fps` is unset; with `fps`, RT-VLM's deployment-wide frame cap
+applies instead.
 
 ## The surface
 
@@ -329,8 +358,7 @@ vss vlm run --sensor warehouse --prompt "What happened?" --start-time T --end-ti
 | `--prompt` | required | Question sent to the VLM |
 | `--model` | deployment `rt_vlm` model | Override the recorded model name |
 | `--timeout` | 30s (`vlm run`); 180s (introspection follow-ups) | HTTP / workflow budget |
-| `--num-frames` | 8 when neither sampling flag is set | Fixed frame count across the clip |
-| `--fps` | unset | Frames per second; mutually exclusive with `--num-frames`. Direct `vlm run` sends the requested rate to the backend without converting it to a 60-frame sample. For standalone vLLM, its loader receives `fps` with `num_frames=-1`, then Qwen consumes the selected frames without sampling again. Backend/deployment limits still apply. |
+| `--fps` / `--max-frames` / `--total-pixels` | policy, else server sampling | Frame sampling; see [Frame sampling](#frame-sampling) |
 | `--max-tokens` / `--temperature` | unset | Optional generation knobs |
 | `--intent` | `qa` (`vlm run`); `introspection` (follow-ups) | Stored on the memory record |
 | `--no-persist` | off | Skip writing this VLM job |

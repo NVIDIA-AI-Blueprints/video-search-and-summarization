@@ -50,9 +50,24 @@ VLM_ENV = {
     "enable_reasoning": "VSS_VLM_ENABLE_REASONING",
     "chunk_duration": "VSS_VLM_CHUNK_DURATION",
     "fps": "VSS_VLM_FPS",
-    "shortest_edge": "VSS_VLM_SHORTEST_EDGE",
-    "longest_edge": "VSS_VLM_LONGEST_EDGE",
+    "max_frames": "VSS_VLM_MAX_FRAMES",
+    "total_pixels": "VSS_VLM_TOTAL_PIXELS",
     "locked": "VSS_VLM_LOCKED",
+}
+
+#: The frame-sampling subset of the VLM policy. Left unset, the VLM server's
+#: own sampling defaults apply.
+VLM_SAMPLING_FIELDS = ("fps", "max_frames", "total_pixels")
+
+#: Pre-release names replaced by ``total_pixels``. Rejected rather than
+#: ignored, so a locked policy cannot silently lose its pixel budget.
+_RETIRED_VLM_FIELDS = {
+    "shortest_edge": "total_pixels",
+    "longest_edge": "total_pixels",
+}
+_RETIRED_VLM_ENV = {
+    "VSS_VLM_SHORTEST_EDGE": "VSS_VLM_TOTAL_PIXELS",
+    "VSS_VLM_LONGEST_EDGE": "VSS_VLM_TOTAL_PIXELS",
 }
 
 #: Bumped when the on-disk shape changes incompatibly. A file written by a
@@ -629,8 +644,8 @@ class VlmConfig:
     enable_reasoning: bool | None = None
     chunk_duration: int | None = None
     fps: float | None = None
-    shortest_edge: int | None = None
-    longest_edge: int | None = None
+    max_frames: int | None = None
+    total_pixels: int | None = None
     locked: bool = False
 
     def validate(self) -> VlmConfig:
@@ -643,8 +658,8 @@ class VlmConfig:
             ("max_tokens", self.max_tokens, 1, 1_000_000),
             ("seed", self.seed, 1, 2**32 - 1),
             ("chunk_duration", self.chunk_duration, 0, 3600),
-            ("shortest_edge", self.shortest_edge, 1, 2**31 - 1),
-            ("longest_edge", self.longest_edge, 1, 2**31 - 1),
+            ("max_frames", self.max_frames, 1, 2**31 - 1),
+            ("total_pixels", self.total_pixels, 1, 2**31 - 1),
         ):
             if value is not None and (
                 isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high
@@ -662,8 +677,6 @@ class VlmConfig:
             raise ConfigError("VLM fps must be a number greater than 0 and no greater than 256")
         if self.enable_reasoning is not None and not isinstance(self.enable_reasoning, bool):
             raise ConfigError("VLM enable_reasoning must be true, false, or null")
-        if self.shortest_edge is not None and self.longest_edge is not None and self.shortest_edge > self.longest_edge:
-            raise ConfigError("VLM shortest_edge must be no greater than longest_edge")
         if not isinstance(self.locked, bool):
             raise ConfigError("VLM locked state must be true or false")
         if self.locked and not any(
@@ -676,8 +689,8 @@ class VlmConfig:
                 self.enable_reasoning,
                 self.chunk_duration,
                 self.fps,
-                self.shortest_edge,
-                self.longest_edge,
+                self.max_frames,
+                self.total_pixels,
             )
         ):
             raise ConfigError("a locked VLM policy must configure at least one request value")
@@ -694,8 +707,8 @@ class VlmConfig:
             "enable_reasoning": self.enable_reasoning,
             "chunk_duration": self.chunk_duration,
             "fps": self.fps,
-            "shortest_edge": self.shortest_edge,
-            "longest_edge": self.longest_edge,
+            "max_frames": self.max_frames,
+            "total_pixels": self.total_pixels,
         }
         return {name: value for name, value in values.items() if value is not None} | {"locked": self.locked}
 
@@ -712,10 +725,17 @@ class VlmConfig:
             "enable_reasoning",
             "chunk_duration",
             "fps",
-            "shortest_edge",
-            "longest_edge",
+            "max_frames",
+            "total_pixels",
             "locked",
         }
+        retired = sorted(set(raw) & set(_RETIRED_VLM_FIELDS))
+        if retired:
+            raise ConfigError(
+                f"config 'vlm' uses retired fields: {', '.join(retired)}; they were replaced by total_pixels. "
+                f"Delete them from the 'vlm' object in {config_path()}, "
+                "then run `vss configure vlm --total-pixels <N>`."
+            )
         unknown = sorted(set(raw) - expected)
         if unknown:
             raise ConfigError(f"config 'vlm' contains unknown fields: {', '.join(unknown)}")
@@ -733,8 +753,8 @@ _VLM_INTEGER_ENV_FIELDS = frozenset(
         "max_tokens",
         "seed",
         "chunk_duration",
-        "shortest_edge",
-        "longest_edge",
+        "max_frames",
+        "total_pixels",
     }
 )
 _VLM_FLOAT_ENV_FIELDS = frozenset({"temperature", "fps"})
@@ -780,6 +800,10 @@ def effective_vlm_config(configured: VlmConfig | None) -> VlmConfig | None:
     Explicit ``vss vlm run`` arguments are applied afterward. They override
     the effective policy only when that policy is unlocked.
     """
+    retired = sorted(name for name in _RETIRED_VLM_ENV if name in os.environ)
+    if retired:
+        replacements = sorted({_RETIRED_VLM_ENV[name] for name in retired})
+        raise ConfigError(f"retired VLM environment variables: {', '.join(retired)}; use {', '.join(replacements)}")
     environment_defaults = {
         field_name: _parse_vlm_environment_value(field_name, environment_name, os.environ[environment_name])
         for field_name, environment_name in VLM_ENV.items()

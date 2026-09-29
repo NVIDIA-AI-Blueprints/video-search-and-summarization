@@ -39,8 +39,8 @@ if TYPE_CHECKING:
 _CROCKFORD32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _TERMINAL_WRITE_RESERVE_SECONDS = 1.0
 _CLEANUP_TIMEOUT_SECONDS = 1.0
-# Matches the ``vss vlm run --num-frames`` fallback. RT-VLM samples the opening
-# frame alone when no sampling control is sent.
+# Introspection's fixed frame budget. Deployments may default RT-VLM to a
+# single frame per chunk, which is too little evidence for a follow-up.
 _DEFAULT_FIXED_FRAME_BUDGET = 8
 
 

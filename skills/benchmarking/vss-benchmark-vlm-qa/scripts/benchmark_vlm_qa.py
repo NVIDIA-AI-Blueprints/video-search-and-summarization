@@ -657,7 +657,7 @@ def run_vlm_item(
         "qa",
         "--timeout",
         str(timeout_s),
-        "--num-frames",
+        "--max-frames",
         str(num_frames),
     ]
     if model:

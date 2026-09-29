@@ -188,6 +188,8 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
     )
     path = config_mod.save(deployment)
     click.echo(f"wrote {path} ({len(services)}/{len(config_mod.INGRESS_SERVICES)} services)", err=True)
+    if "rt_vlm" in services:
+        _report_vlm_sampling(deployment, path)
 
     # What this file records about Elasticsearch is a snapshot, and indices are
     # created by ingestion rather than by deployment. Configuring a freshly
@@ -202,6 +204,44 @@ def configure(ctx: click.Context, base_url: str | None, timeout: float) -> None:
             "note: elasticsearch is routed but holds no mdx-* search indices yet. "
             "They are created by ingestion, so re-run this command after ingesting "
             "video and before searching, or the recorded index list stays empty.",
+            err=True,
+        )
+
+
+def _report_vlm_sampling(deployment: config_mod.Deployment, path: Path) -> None:
+    """Say which frame-sampling values `vss vlm run` will send, and where each came from.
+
+    Unset values are not filled in: the VLM server's own sampling applies. That
+    default can be as little as one frame per chunk, so an unset value is named
+    rather than left for a caller to discover from a thin answer.
+    """
+    try:
+        effective = config_mod.effective_vlm_config(deployment.vlm)
+    except config_mod.ConfigError as error:
+        click.echo(f"vss configure: VLM configuration error: {error}", err=True)
+        raise SystemExit(int(Exit.CONFIGURATION)) from error
+
+    click.echo("vlm sampling for `vss vlm run`:", err=True)
+    unset: list[str] = []
+    for name in config_mod.VLM_SAMPLING_FIELDS:
+        value = getattr(effective, name) if effective is not None else None
+        if value is None:
+            unset.append(name)
+            click.echo(f"  {name:<14} unset", err=True)
+            continue
+        environment_name = config_mod.VLM_ENV[name]
+        if deployment.vlm is not None and getattr(deployment.vlm, name) is not None:
+            source = f"{path} (vss configure vlm)"
+        else:
+            source = environment_name
+        click.echo(f"  {name:<14} {value!s:<12} {source}", err=True)
+    if unset:
+        variables = ", ".join(config_mod.VLM_ENV[name] for name in unset)
+        flags = " ".join(f"--{name.replace('_', '-')} <value>" for name in unset)
+        click.echo(
+            f"note: {', '.join(unset)} unset, so the VLM server's own sampling applies "
+            "(RT-VLM deployments may default to one frame per chunk). "
+            f"To set them, export {variables} or run `vss configure vlm {flags}`.",
             err=True,
         )
 
@@ -725,14 +765,14 @@ def _vlm_config_error(message: str) -> NoReturn:
 )
 @click.option("--fps", type=click.FloatRange(min=0, min_open=True, max=256), help="Frames sampled per second.")
 @click.option(
-    "--shortest-edge",
+    "--max-frames",
     type=click.IntRange(1, 2**31 - 1),
-    help="Minimum processor pixel budget passed as mm_processor_kwargs.size.shortest_edge.",
+    help="Upper bound on frames sent to the model; the backend applies it.",
 )
 @click.option(
-    "--longest-edge",
+    "--total-pixels",
     type=click.IntRange(1, 2**31 - 1),
-    help="Maximum processor pixel budget passed as mm_processor_kwargs.size.longest_edge.",
+    help="Whole-clip pixel budget (Qwen3-VL family), about 2048 pixels per vision token.",
 )
 @click.option("--lock/--unlock", "locked", default=None, help="Reject or allow per-call overrides.")
 @click.option("--reset", is_flag=True, help="Remove the VLM policy and restore CLI/backend defaults.")
@@ -745,8 +785,8 @@ def configure_vlm(
     enable_reasoning: bool | None,
     chunk_duration: int | None,
     fps: float | None,
-    shortest_edge: int | None,
-    longest_edge: int | None,
+    max_frames: int | None,
+    total_pixels: int | None,
     locked: bool | None,
     reset: bool,
 ) -> None:
@@ -767,8 +807,8 @@ def configure_vlm(
             enable_reasoning,
             chunk_duration,
             fps,
-            shortest_edge,
-            longest_edge,
+            max_frames,
+            total_pixels,
             locked,
         )
     )
@@ -797,8 +837,8 @@ def configure_vlm(
             enable_reasoning=current.enable_reasoning if enable_reasoning is None else enable_reasoning,
             chunk_duration=current.chunk_duration if chunk_duration is None else chunk_duration,
             fps=current.fps if fps is None else fps,
-            shortest_edge=current.shortest_edge if shortest_edge is None else shortest_edge,
-            longest_edge=current.longest_edge if longest_edge is None else longest_edge,
+            max_frames=current.max_frames if max_frames is None else max_frames,
+            total_pixels=current.total_pixels if total_pixels is None else total_pixels,
             locked=current.locked if locked is None else locked,
         ).validate()
     except config_mod.ConfigError as exc:

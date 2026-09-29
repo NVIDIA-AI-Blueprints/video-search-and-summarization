@@ -45,8 +45,8 @@ def _locked_policy() -> config_mod.VlmConfig:
         enable_reasoning=False,
         chunk_duration=0,
         fps=4,
-        shortest_edge=262144,
-        longest_edge=16777216,
+        max_frames=256,
+        total_pixels=16777216,
         locked=True,
     )
 
@@ -68,9 +68,9 @@ def test_configure_vlm_writes_complete_locked_policy(config_home: Path) -> None:
         "0",
         "--fps",
         "4",
-        "--shortest-edge",
-        "262144",
-        "--longest-edge",
+        "--max-frames",
+        "256",
+        "--total-pixels",
         "16777216",
         "--lock",
     )
@@ -139,8 +139,8 @@ def test_configure_vlm_updates_only_supplied_values(config_home: Path) -> None:
         enable_reasoning=False,
         chunk_duration=0,
         fps=4,
-        shortest_edge=262144,
-        longest_edge=16777216,
+        max_frames=256,
+        total_pixels=16777216,
         locked=False,
     )
 
@@ -194,11 +194,120 @@ def test_locked_policy_requires_at_least_one_value(config_home: Path) -> None:
     assert "must configure at least one" in result.output
 
 
-def test_configure_vlm_rejects_inverted_processor_size(config_home: Path) -> None:
-    result = _invoke("--shortest-edge", "16777216", "--longest-edge", "262144")
+@pytest.mark.parametrize("field_name", ["shortest_edge", "longest_edge"])
+def test_persisted_retired_pixel_field_is_rejected_with_its_replacement(field_name: str) -> None:
+    with pytest.raises(config_mod.ConfigError, match=r"retired fields.*replaced by total_pixels"):
+        config_mod.VlmConfig.from_json({field_name: 16777216, "locked": True})
+
+
+@pytest.mark.parametrize("environment_name", ["VSS_VLM_SHORTEST_EDGE", "VSS_VLM_LONGEST_EDGE"])
+def test_retired_pixel_environment_is_rejected_not_ignored(
+    environment_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(environment_name, "16777216")
+
+    with pytest.raises(
+        config_mod.ConfigError, match=f"retired VLM environment variables: {environment_name}; use VSS_VLM_TOTAL_PIXELS"
+    ):
+        config_mod.effective_vlm_config(None)
+
+
+def test_sampling_fields_combine_in_one_policy(config_home: Path) -> None:
+    result = _invoke("--fps", "2", "--max-frames", "64", "--total-pixels", "4194304")
+
+    assert result.exit_code == 0, result.output
+    assert config_mod.load().vlm == config_mod.VlmConfig(fps=2, max_frames=64, total_pixels=4194304)
+
+
+def _configure_all_routes(monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setattr(configure_mod, "_probe", lambda *_args, **_kwargs: (True, "HTTP 200"))
+    monkeypatch.setattr(configure_mod, "_describe", lambda *_args, **_kwargs: [])
+    return CliRunner().invoke(configure_mod.configure, ["--base-url", "http://new"])
+
+
+def _report_line(output: str, field_name: str) -> str:
+    return next(line for line in output.splitlines() if line.strip().startswith(field_name))
+
+
+def test_configure_reports_unset_sampling_and_asks_for_it(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for field_name in config_mod.VLM_SAMPLING_FIELDS:
+        monkeypatch.delenv(config_mod.VLM_ENV[field_name], raising=False)
+
+    result = _configure_all_routes(monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    for field_name in config_mod.VLM_SAMPLING_FIELDS:
+        assert _report_line(result.output, field_name).split()[1] == "unset"
+    assert "fps, max_frames, total_pixels unset, so the VLM server's own sampling applies" in result.output
+    assert "VSS_VLM_FPS, VSS_VLM_MAX_FRAMES, VSS_VLM_TOTAL_PIXELS" in result.output
+    assert "vss configure vlm --fps <value> --max-frames <value> --total-pixels <value>" in result.output
+
+
+def test_configure_reports_each_sampling_value_with_its_source(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
+    monkeypatch.setenv(config_mod.VLM_ENV["max_frames"], "32")
+    config_mod.save(replace(config_mod.load(), vlm=config_mod.VlmConfig(max_frames=128)))
+
+    result = _configure_all_routes(monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert _report_line(result.output, "fps").split()[1:] == ["2.0", "VSS_VLM_FPS"]
+    max_frames = _report_line(result.output, "max_frames")
+    assert max_frames.split()[1] == "128"
+    assert "(vss configure vlm)" in max_frames
+    assert _report_line(result.output, "total_pixels").split()[1] == "unset"
+    assert "note: total_pixels unset" in result.output
+    assert "export VSS_VLM_TOTAL_PIXELS or run `vss configure vlm --total-pixels <value>`" in result.output
+
+
+def test_configure_with_all_sampling_set_prints_no_note(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["fps"], "2")
+    monkeypatch.setenv(config_mod.VLM_ENV["max_frames"], "32")
+    monkeypatch.setenv(config_mod.VLM_ENV["total_pixels"], "16777216")
+
+    result = _configure_all_routes(monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "own sampling applies" not in result.output
+
+
+def test_configure_rejects_malformed_sampling_environment(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_mod.VLM_ENV["max_frames"], "many")
+
+    result = _configure_all_routes(monkeypatch)
 
     assert result.exit_code == int(Exit.CONFIGURATION), result.output
-    assert "shortest_edge must be no greater than longest_edge" in result.output
+    assert "VSS_VLM_MAX_FRAMES must be an integer" in result.output
+
+
+def test_configure_without_vlm_route_skips_sampling_report(
+    config_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        configure_mod,
+        "_probe",
+        lambda _base_url, probe_path, _timeout: (probe_path.startswith("/vst"), "HTTP 200"),
+    )
+    monkeypatch.setattr(configure_mod, "_describe", lambda *_args, **_kwargs: [])
+
+    result = CliRunner().invoke(configure_mod.configure, ["--base-url", "http://new"])
+
+    assert result.exit_code == 0, result.output
+    assert "vlm sampling" not in result.output
 
 
 def test_configure_vlm_without_saved_deployment_exits_configuration(
@@ -223,8 +332,8 @@ def test_persisted_policy_overrides_every_environment_default(monkeypatch: pytes
         enable_reasoning=True,
         chunk_duration=30,
         fps=2,
-        shortest_edge=131072,
-        longest_edge=8388608,
+        max_frames=128,
+        total_pixels=8388608,
         locked=False,
     )
     values = {
@@ -236,8 +345,8 @@ def test_persisted_policy_overrides_every_environment_default(monkeypatch: pytes
         "enable_reasoning": "false",
         "chunk_duration": "0",
         "fps": "4",
-        "shortest_edge": "262144",
-        "longest_edge": "16777216",
+        "max_frames": "256",
+        "total_pixels": "16777216",
         "locked": "true",
     }
     for field_name, value in values.items():
