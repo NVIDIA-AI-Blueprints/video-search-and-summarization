@@ -428,6 +428,9 @@ rtvi:
         nvidia.com/gpu: 1
   vss-rtvi-vlm:
     envOverrides:
+      # Leaf chart defaults to openai-compat + OPENAI_API_KEY=NOAPIKEYSET.
+      # Alerts loads the in-pod Cosmos checkpoint, same as dev-profile-alerts.
+      VLM_MODEL_TO_USE: "cosmos-reason3"
       VLLM_GPU_MEMORY_UTILIZATION: "0.8"
 
 # Alerts stack, off by default. Enable vss-alert-bridge, agent, and
