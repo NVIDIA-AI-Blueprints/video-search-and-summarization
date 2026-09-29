@@ -69,9 +69,11 @@ a cached/local copy.
 
 ## Invoke ordinary ask-video
 
-Pass the complete original visual intent and the resolved `VIDEO_URL`. Ask the
+Pass the complete original visual intent and the resolved `VIDEO_URL`. Constrain the
 VLM to analyze only that bounded clip, ignore scores, filenames, object IDs,
-and other retrieval metadata, and return exactly one JSON object:
+and other retrieval metadata, and return exactly one JSON object whose `result`
+field is **only** one of `confirmed`, `rejected`, or `unverified` — never
+free-text verdict prose:
 
 ```json
 {
@@ -85,10 +87,9 @@ and other retrieval metadata, and return exactly one JSON object:
 }
 ```
 
-Require `result` to be `confirmed`, `rejected`, or `unverified`, every
-`criteria_met` value to be boolean, nonempty `evidence`, and
-`media_evaluated: true`. Malformed output is a technical failure; do not parse
-JSON from hidden reasoning or surrounding prose. A valid semantic `unverified`
+Require `result` to be **exactly** `confirmed`, `rejected`, or `unverified`
+(reject any other string or prose paragraph as malformed and retry once
+for repair); ignore any JSON embedded in hidden reasoning or surrounding prose. A valid semantic `unverified`
 is a completed visual check and must not trigger fallback.
 
 Replace only that hit's prior `unverified` state with the validated result.

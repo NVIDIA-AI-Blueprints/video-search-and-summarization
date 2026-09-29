@@ -1,14 +1,14 @@
 [
   {
     "id": "search-archive",
-    "question": "Run a natural-language fusion search over archived VSS video, ingesting a clip first if needed.",
+    "question": "Ingest the loading-dock clip for search, then find up to three forklift instances in it.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent searches the requested archived source with fusion retrieval, using the agent-backed ingestion lifecycle first only when the named source is absent and the user authorizes ingestion.",
+    "ground_truth": "A combined ingest-and-search request activates the search skill for the search phase only. Ingestion is handled by vss-manage-video-io-storage (which registers via `vss vios add`; the deployment's notification config owns the fan-out); the search skill performs archive retrieval only once the source is available and never ingests, switches sources, or runs an unrestricted search.",
     "expected_behavior": [
-      "The agent loads vss-search-archive and preserves the requested source and visual constraints.",
-      "The agent uses the supported search interface for the selected deployment.",
-      "The agent does not expose credentials, substitute another source, or mutate a backend directly."
+      "The agent loads vss-search-archive for the retrieval phase and preserves the requested source and visual constraints.",
+      "For the ingestion phase the agent routes to vss-manage-video-io-storage rather than ingesting from inside the search skill; it does not combine a UI/Agent completion path with a second VIOS registration for the same source.",
+      "The agent uses the supported search interface for the selected deployment and does not expose credentials, substitute another source, or mutate a backend directly."
     ]
   },
   {
@@ -76,11 +76,11 @@
     "question": "Search the live camera stream dock_cam_live for a person entering the restricted zone.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "The agent resolves the live stream, runs archive retrieval scoped to it with the rtsp source type, and proves readiness against the embedding family wildcard rather than a date-stamped index before reporting candidates.",
+    "ground_truth": "The agent resolves the live stream, runs archive retrieval scoped to it with the rtsp source type, and does not conflate live-stream documents with the uploads anchor.",
     "expected_behavior": [
       "The agent loads vss-search-archive and resolves dock_cam_live to its registered live-stream identity before search.",
       "The agent selects --source-type rtsp and scopes retrieval to the resolved live-stream identifier.",
-      "The agent proves searchable documents with a stream-scoped count against the embedding family wildcard, not a single 2025-01-01 anchor index, and does not treat an empty uploads anchor as a live-stream failure."
+      "The agent does not select the upload partition or a date-stamped anchor index, does not treat an empty uploads anchor as a live-stream failure, and does not poll a search index directly."
     ]
   },
   {
@@ -105,6 +105,42 @@
       "The agent loads vss-search-archive and resolves dock_cam before search.",
       "The agent recognizes the embedded detectable property (hard hat) and routes to fusion, not embed, even though the request arrived as one sentence.",
       "The agent keeps the action carrying a cone in the query and passes hard hat as the attribute, without extracting a generic noun or an object's own color as an attribute."
+    ]
+  },
+  {
+    "id": "search-archive-exit6-partial",
+    "question": "My last `vss search run embed` for forklifts in warehouse_sample returned exit 6 with three hits but `\"persisted\": false`. What should I report, and should I rerun?",
+    "expected_skill": "vss-search-archive",
+    "expected_script": null,
+    "ground_truth": "Exit 6 is partial, not failure: the response carried usable hits but `\"persisted\": false`, so a later stage (persistence) failed. The agent reports the three hits once, discloses the persistence limitation, and does not rerun the search or discard the usable results.",
+    "expected_behavior": [
+      "The agent recognizes exit 6 as a partial result that still carries usable `data`, and reads `search_messages` when present.",
+      "The agent reports the three hits once with their source, interval, score, media URL when present, and verification verdict, and states the persistence limitation.",
+      "The agent does not rerun the search, does not treat exit 6 as a hard failure, and does not broaden scope or fall back to raw REST."
+    ]
+  },
+  {
+    "id": "search-archive-ingest-only",
+    "question": "Ingest the loading-dock camera feed into the search index so I can search it later.",
+    "expected_skill": null,
+    "expected_script": null,
+    "should_trigger": false,
+    "ground_truth": "A pure ingestion request routes to the source-management skill (vss-manage-video-io-storage), which registers via `vss vios add`, not to the search skill.",
+    "expected_behavior": [
+      "The agent does not load or activate vss-search-archive for an ingestion-only request.",
+      "The agent routes source registration to vss-manage-video-io-storage or an equivalent source-management workflow."
+    ]
+  },
+  {
+    "id": "search-archive-delete-only",
+    "question": "Delete the warehouse-ladder source from the search deployment.",
+    "expected_skill": null,
+    "expected_script": null,
+    "should_trigger": false,
+    "ground_truth": "A pure deletion request routes to the source-management skill (vss-manage-video-io-storage), which deletes via `vss vios delete`, not to the search skill.",
+    "expected_behavior": [
+      "The agent does not load or activate vss-search-archive for a deletion-only request.",
+      "The agent routes source deletion to vss-manage-video-io-storage or an equivalent source-management workflow."
     ]
   },
   {
