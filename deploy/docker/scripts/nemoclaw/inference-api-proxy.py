@@ -85,7 +85,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             conn.close()
 
     def do_GET(self) -> None:
-        if self.path == "/__upstream":
+        if self.path == "/__upstream" and self.client_address[0] in ("127.0.0.1", "::1"):
             body = UPSTREAM_HOST.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
