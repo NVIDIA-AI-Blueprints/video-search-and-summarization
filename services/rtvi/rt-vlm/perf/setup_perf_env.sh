@@ -28,8 +28,7 @@
 #   8. Starts nvstreamer, waits for health at http://localhost:${NVSTREAMER_HTTP_PORT}, then starts VST
 #   9. Polls VST sensor streams API until live streams with /live/ paths appear
 #  10. Creates a Python virtual environment with benchmark dependencies
-#  11. Injects the discovered VST RTSP URL + live ports into rtvi_vlm_config_test.yaml
-#      and the four platform-specific configs (h100, rtx_pro, jetson, spark)
+#  11. Injects the discovered VST RTSP URL + live ports into benchmark configs
 #  12. Generates .env.perf from env vars and starts RTVI VLM via compose.perf.yaml
 #
 # Required environment variables:
@@ -41,6 +40,7 @@
 #                            Can also be set inline: NVIDIA_VISIBLE_DEVICES=3 bash perf/setup_perf_env.sh
 #
 # Optional environment variables (all have sensible defaults):
+#   BENCHMARK_CONFIG    — Benchmark YAML path; BCD 3.3 profiles select their model preset
 #   RTVI_IMAGE          — RTVI VLM image (default: GHCR develop-latest;
 #                         develop-latest-sbsa on DGX Spark)
 #   VLM_MODEL_PRESET    — Optional model preset; supported values:
@@ -121,6 +121,8 @@ Optional environment variables (sensible defaults shown):
   NODE_EXPORTER_PORT    Node Exporter host port            (default: 9100)
   DCGM_EXPORTER_PORT    DCGM Exporter host port            (default: 9400)
   PROMETHEUS_PORT       Prometheus host port               (default: 9090)
+  BENCHMARK_CONFIG      Benchmark YAML path                (default: perf/benchmark/rtvi_vlm_config_test.yaml)
+                        BCD 3.3 platform YAMLs set VLM_MODEL_PRESET through global.model_preset.
   VLM_MODEL_PRESET      Optional model preset. Supported values:
                         cr2-fp8-static-kv8, cr2-fp8-dynamic-kv8,
                         cr2-nvfp4-dynamic-kv8, cr3-nano-reasoner-fp8,
@@ -247,6 +249,7 @@ ROOT_DOTENV_PATH="${REPO_ROOT}/.env"
 ENV_PERF_FILE="${ENV_PERF_FILE:-${REPO_ROOT}/docker/.env.perf}"
 _CALLER_VLM_MODEL_TO_USE_SET="${VLM_MODEL_TO_USE+x}"
 _CALLER_MODEL_PATH_SET="${MODEL_PATH+x}"
+_CALLER_VLM_MODEL_PRESET_SET="${VLM_MODEL_PRESET+x}"
 _CALLER_VLLM_ENABLE_PREFIX_CACHING_SET="${VLLM_ENABLE_PREFIX_CACHING+x}"
 _CALLER_VLLM_DISABLE_MM_PREPROCESSOR_CACHE_SET="${VLLM_DISABLE_MM_PREPROCESSOR_CACHE+x}"
 declare -A _LOADED_ENV_DEFAULTS=()
@@ -374,7 +377,7 @@ LVS_VIDEO_FETCH_SCRIPT="${SCRIPT_DIR}/../../../../skills/benchmarking/vss-benchm
 LVS_VIDEO_SOURCE_PATH="${LVS_VIDEO_DATA_DIR}/videos/warehouse_10min.mp4"
 
 BENCHMARK_DIR="${SCRIPT_DIR}/benchmark"
-BENCHMARK_CONFIG="${BENCHMARK_DIR}/rtvi_vlm_config_test.yaml"
+BENCHMARK_CONFIG="${BENCHMARK_CONFIG:-${BENCHMARK_DIR}/rtvi_vlm_config_test.yaml}"
 REQUIREMENTS_FILE="${BENCHMARK_DIR}/requirements.txt"
 VST_LOCAL_PACKAGE="${VST_LOCAL_PACKAGE:-${SCRIPT_DIR}/vst_package.tar.gz}"
 
@@ -570,6 +573,18 @@ infer_vlm_model_from_model_path() {
             ;;
     esac
 }
+
+[[ -f "${BENCHMARK_CONFIG}" ]] || die "Benchmark config not found: ${BENCHMARK_CONFIG}"
+_config_model_preset="$(sed -n 's/^  model_preset: "\([^"]*\)".*/\1/p' "${BENCHMARK_CONFIG}")"
+if [[ -n "${_config_model_preset}" ]]; then
+    if [[ -n "${_CALLER_VLM_MODEL_PRESET_SET}" && "${VLM_MODEL_PRESET}" != "${_config_model_preset}" ]]; then
+        die "VLM_MODEL_PRESET=${VLM_MODEL_PRESET} conflicts with ${BENCHMARK_CONFIG} model_preset=${_config_model_preset}"
+    fi
+    if [[ -n "${_CALLER_MODEL_PATH_SET}" || -n "${_CALLER_VLM_MODEL_TO_USE_SET}" ]]; then
+        die "Do not override MODEL_PATH or VLM_MODEL_TO_USE for a BCD platform profile"
+    fi
+    VLM_MODEL_PRESET="${_config_model_preset}"
+fi
 
 apply_model_preset "${VLM_MODEL_PRESET}"
 infer_vlm_model_from_model_path
@@ -2008,8 +2023,8 @@ echo "  1. Activate the Python environment:"
 echo -e "       ${_C_CYAN}source ${VENV_DIR}/bin/activate${_C_RESET}"
 echo ""
 echo "  2. Run benchmarks (from repo root):"
-echo -e "       ${_C_CYAN}# Select the config for your GPU platform:"
-echo -e "       CONFIG=perf/benchmark/rtvi_vlm_bcd_3_2_config.yaml   # BCD 3.2 profile: 640x640, 10/20/40 frames"
+echo -e "       ${_C_CYAN}# Selected config (choose before setup with BENCHMARK_CONFIG):"
+echo -e "       CONFIG=${BENCHMARK_CONFIG}"
 echo -e "       # Legacy platform configs:"
 echo -e "       # CONFIG=perf/benchmark/rtvi_vlm_config_h100.yaml     # H100 / H100-NVL / H100-PCIe"
 echo -e "       # CONFIG=perf/benchmark/rtvi_vlm_config_rtx_pro.yaml  # RTX 6000 Ada / RTX PRO"
@@ -2017,6 +2032,7 @@ echo -e "       # CONFIG=perf/benchmark/rtvi_vlm_config_l40s.yaml     # L40S (se
 echo -e "       # CONFIG=perf/benchmark/rtvi_vlm_config_jetson.yaml   # Jetson Thor"
 echo -e "       # CONFIG=perf/benchmark/rtvi_vlm_config_spark.yaml    # DGX Spark (GB10)"
 echo -e "       BENCH=\"python3 perf/benchmark/rtvi_perf_benchmark.py --config \$CONFIG\""
+echo "       # Scenario names below are shared; BCD 3.3 workload and concurrency are in CONFIG."
 echo ""
 echo "       # ── BCD 1: Maximum streams per GPU [Stream Processing] ──────────────────────"
 echo "       \$BENCH --scenario max_live_streams_test_1_token_2k     # BCD 3.2,  OSL=1,   640x640/10 frames"
@@ -2043,8 +2059,7 @@ echo "       \$BENCH --scenario concurrency_test_1_token_4k          # BCD 3.2, 
 echo "       \$BENCH --scenario concurrency_test_100_token_4k        # BCD 3.2, OSL=100, 640x640/20 frames"
 echo "       \$BENCH --scenario concurrency_test_1_token_8k          # BCD 3.2, OSL=1,   640x640/40 frames"
 echo "       \$BENCH --scenario concurrency_test_100_token_8k        # BCD 3.2, OSL=100, 640x640/40 frames"
-echo "       # dGPU stream counts are [1,16,32,64,128]."
-echo "       # Edge override: add --concurrency-levels 1 8 16 for AGX Thor / DGX Spark."
+echo "       # Platform-specific BCD 3.3 stream counts come from the selected YAML."
 echo ""
 echo "       # ── BCD 3: Request Throughput [Non-Streaming] ───────────────────────────────"
 echo "       \$BENCH --scenario file_burst_1_token_2k     # BCD 3.2, OSL=1,   5-min steady state"
