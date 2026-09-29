@@ -12,17 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Re-export of the shared timing helper.
+"""Clip-dataset preprocessing.
 
-``TimeMeasure`` moved to ``vss_core._foundation`` when the critic and VLM paths
-needed it too: it is a cross-cutting utility, and reaching into another
-package's ``_internal`` for it would have been the first such breach. Existing
-``search_core._internal.time_measure`` imports keep working through here.
+Converts a raw clip-level DSS release (``clips/`` + ``gt/queries_gt.json`` +
+``manifest.json``) into the benchmark's on-disk ``dataset.json`` shape so the
+segment-oriented run loop can score clip retrieval without a second loader.
 """
-
-from vss_core._foundation.time_measure import LOG_PERF_LEVEL
-from vss_core._foundation.time_measure import LOG_STATUS_LEVEL
-from vss_core._foundation.time_measure import TimeMeasure
-from vss_core._foundation.time_measure import collect_timings
-
-__all__ = ["LOG_PERF_LEVEL", "LOG_STATUS_LEVEL", "TimeMeasure", "collect_timings"]

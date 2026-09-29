@@ -164,7 +164,7 @@ if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
   exit 1
 fi
 SEARCH_COMMAND=(
-  vss search run "${SEARCH_PATH}"
+  "${VSS[@]}" search run "${SEARCH_PATH}"
   --source-type "${SOURCE_TYPE}" --top-k "${TOP_K}"
   --original-query "${ORIGINAL_QUERY}" --raw
 )

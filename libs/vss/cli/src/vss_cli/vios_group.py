@@ -13,7 +13,7 @@ What it keeps from the framework is the part that should be uniform: a missing
 backend is reported by :func:`vss_cli.group.require_services` with the same
 wording every other group uses, and results leave through the same emitter.
 
-Six commands::
+Seven commands::
 
     vss vios list     [--type video|stream] [--sensor NAME]
     vss vios timeline --sensor NAME
@@ -21,6 +21,7 @@ Six commands::
     vss vios snapshot --sensor NAME [--at T]
     vss vios add      --type video|stream SOURCE [--name NAME]
     vss vios delete   --type video|stream --sensor NAME
+    vss vios readiness --sensor NAME [--type video|stream] [--timeout S]
 
 Media is addressed by sensor **name**; id resolution happens inside
 :mod:`vss_core.vios`.
@@ -30,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
+import time
 from typing import Any
 import urllib.parse
 
@@ -37,6 +39,7 @@ import click
 
 from . import params as params_mod
 from .exits import Exit
+from .group import InvalidInput
 from .group import Result
 from .group import context_from
 from .group import emit
@@ -48,6 +51,9 @@ from .group import requires_note
 REQUIRES = frozenset({"vst"})
 
 _TYPES = click.Choice(["video", "stream"])
+
+_monotonic = time.monotonic
+_sleep = time.sleep
 
 
 def _origin(ctx: Any) -> str:
@@ -72,19 +78,21 @@ def _sensor_option(required: bool = True) -> click.Option:
     )
 
 
-def _command(name: str, help_text: str, extra: list[click.Parameter], fn: Any) -> click.Command:
+def _command(
+    name: str, help_text: str, extra: list[click.Parameter], fn: Any, requires: frozenset[str] = REQUIRES
+) -> click.Command:
     """One vios command, wired to the shared context/preflight/emit path."""
 
     def callback(**values: Any) -> None:
         ctx = context_from(values)
-        require_services(f"vios {name}", REQUIRES, ctx)
+        require_services(f"vios {name}", requires, ctx)
         emit(guarded(lambda: fn(ctx, values)), ctx)
 
     return click.Command(
         name=name,
         callback=callback,
         params=[*extra, *params_mod.shared_options()],
-        help=help_text + requires_note(REQUIRES),
+        help=help_text + requires_note(requires),
         short_help=help_text.split("\n")[0],
     )
 
@@ -133,7 +141,20 @@ def _clip(ctx: Any, values: dict[str, Any]) -> Result:
     # VIOS answers a malformed or out-of-range window with a bare HTTP 400 that
     # names neither the offending bound nor the range that was available.
     segments = _run(vios.recorded_segments(origin, ref.stream_id))
-    start, end = vios.resolve_window(segments, values.get("start_time"), values.get("end_time"), ref.kind)
+    # D4: rebase a synthetic file-search interval onto the current VST
+    # timeline, preserving its duration -- the one piece the CLI did not
+    # used to do for the search-result verification handoff. Mutually
+    # exclusive with --start-time/--end-time.
+    rebase_from = values.get("rebase_from")
+    rebase_from_end = values.get("rebase_from_end")
+    if (rebase_from is None) != (rebase_from_end is None):
+        raise InvalidInput("--rebase-from and --rebase-from-end must be given together")
+    if rebase_from is not None and (values.get("start_time") is not None or values.get("end_time") is not None):
+        raise InvalidInput("--rebase-from/--rebase-from-end are mutually exclusive with --start-time/--end-time")
+    if rebase_from is not None:
+        start, end = vios.rebase_interval_to_segments(rebase_from, rebase_from_end, segments)
+    else:
+        start, end = vios.resolve_window(segments, values.get("start_time"), values.get("end_time"), ref.kind)
     url = _run(
         vios.get_video_clip_url(
             stream_id=ref.stream_id,
@@ -266,6 +287,93 @@ def _delete(ctx: Any, values: dict[str, Any]) -> Result:
     return Result(body=_run(vios.delete_media(origin, ref, keep_recordings=bool(values.get("keep_recordings")))))
 
 
+def _readiness(ctx: Any, values: dict[str, Any]) -> Result:
+    """ "D3: per-tuple ES document counts + a `ready` verdict for `vss vios readiness`.
+
+    The one new CLI verb the search-archive mutation path needs: the fan-out
+    itself is VIOS-webhook-driven, so the CLI only has to report whether the
+    embedding/behavior/raw indexes have landed for this sensor (ingest-ready)
+    or drained (delete-clean) without the skill hand-rolling `curl` against ES.
+    """
+    from vss_core import vios
+
+    origin = _origin(ctx)
+    ref = _run(vios.resolve_sensor(origin, values["sensor"]))
+    es = ctx.deployment.services.get("elasticsearch")
+    if not es or not es.url:
+        raise InvalidInput("elasticsearch is not configured; run `vss configure --base-url <origin>`")
+    indices = list(es.indices or [])
+
+    # Uploaded files land in fixed epoch anchors. Live streams use wall-clock
+    # shards, so all three readiness checks must query their index families.
+    def _pick(prefix: str) -> str | None:
+        return next((i for i in indices if i == prefix), None)
+
+    embed_anchor = _pick("mdx-embed-filtered-2025-01-01")
+    behavior_anchor = _pick("mdx-behavior-2025-01-01")
+    raw_anchor = _pick("mdx-raw-2025-01-01")
+    source_type = values.get("type") or ref.kind
+    if source_type != ref.kind:
+        raise InvalidInput(f"{ref.name!r} is a {ref.kind}, not a {source_type}")
+    if source_type == "stream":
+        embed_target = "mdx-embed-filtered-*"
+        behavior_target = "mdx-behavior-*"
+        raw_target = "mdx-raw-*"
+    else:
+        embed_target = embed_anchor
+        behavior_target = behavior_anchor
+        raw_target = raw_anchor
+    missing = [
+        name
+        for name, target in (
+            ("embed", embed_target),
+            ("behavior", behavior_target),
+            ("raw", raw_target),
+        )
+        if target is None
+    ]
+    if missing:
+        raise InvalidInput(
+            f"{', '.join(missing)} index anchor(s) not found in the recorded inventory; "
+            f"re-run `vss configure --base-url {origin}`"
+        )
+    assert embed_target and behavior_target and raw_target
+    timeout_s = float(values["timeout"]) if values.get("timeout") else None
+    deadline = (_monotonic() + timeout_s) if timeout_s is not None else None
+    counts: dict[str, int] = {}
+
+    def timed_out() -> Result:
+        return Result(
+            body=_with_ref(ref, {"ready": False, "counts": counts, "type": source_type}),
+            exit=Exit.TIMEOUT,
+        )
+
+    while True:
+        counts = {}
+        for label, index, field, value in (
+            ("embed", embed_target, "sensor.id.keyword", ref.stream_id),
+            ("behavior", behavior_target, "sensor.id.keyword", ref.name),
+            ("raw", raw_target, "sensorId.keyword", ref.name),
+        ):
+            if deadline is None:
+                counts[label] = _run(vios.count_documents(es.url, index, field, value))
+                continue
+            remaining = deadline - _monotonic()
+            if remaining <= 0:
+                return timed_out()
+            counts[label] = _run(
+                vios.count_documents(es.url, index, field, value, timeout_seconds=remaining)
+            )
+        ready = counts["embed"] > 0 and counts["behavior"] > 0 and counts["raw"] > 0
+        if ready or deadline is None:
+            break
+        remaining = deadline - _monotonic()
+        if remaining <= 0:
+            return timed_out()
+        _sleep(min(5.0, remaining))
+    return Result(body=_with_ref(ref, {"ready": ready, "counts": counts, "type": source_type}))
+
+
 def _fallback_name(source: str) -> str:
     """What we called it, when VIOS's response does not say."""
     return pathlib.PurePosixPath(urllib.parse.urlparse(source).path).name or pathlib.Path(source).name
@@ -332,10 +440,13 @@ def _build() -> click.Group:
             "For a recorded file either bound may be omitted, and either may be given as seconds from "
             "the start of the recording. A live stream needs both, as ISO-8601. The window is checked "
             "against what is recorded before VIOS is asked.\n"
+            "Use --rebase-from/--rebase-from-end to map a synthetic file-search interval onto the\n"
+            "current timeline, preserving its duration; mutually exclusive with --start-time/--end-time.\n"
             "\n"
             "\b\n"
             "  vss vios clip --sensor warehouse_safety_0001\n"
-            "  vss vios clip --sensor dock-cam --start-time 2026-08-01T12:00:00Z --end-time 2026-08-01T12:00:10Z\n",
+            "  vss vios clip --sensor dock-cam --start-time 2026-08-01T12:00:00Z --end-time 2026-08-01T12:00:10Z\n"
+            "  vss vios clip --sensor warehouse-ladder --rebase-from 2025-01-01T00:00:00Z --rebase-from-end 2025-01-01T00:00:20Z\n",
             [
                 _sensor_option(),
                 click.Option(
@@ -347,6 +458,16 @@ def _build() -> click.Group:
                     ["--end-time"],
                     default=None,
                     help="ISO-8601, or seconds from the recording start. Defaults to the recording end.",
+                ),
+                click.Option(
+                    ["--rebase-from"],
+                    default=None,
+                    help="Synthetic file-search start to rebase onto the current timeline (with --rebase-from-end). Mutually exclusive with --start-time/--end-time.",
+                ),
+                click.Option(
+                    ["--rebase-from-end"],
+                    default=None,
+                    help="Synthetic file-search end to rebase onto the current timeline (with --rebase-from). Preserves the original duration.",
                 ),
             ],
             _clip,
@@ -426,6 +547,40 @@ def _build() -> click.Group:
                 ),
             ],
             _delete,
+        )
+    )
+    group.add_command(
+        _command(
+            "readiness",
+            "Report search-index readiness for a sensor.\n"
+            "\n"
+            "Counts documents in the embedding, behavior, and raw indexes for the\n"
+            "resolved sensor and returns a `ready` verdict (all three > 0). For a\n"
+            "live stream (`--type stream`) the embedding count uses the family wildcard\n"
+            "`mdx-embed-filtered-*` because wall-clock docs land in any date shard.\n"
+            "With `--timeout`, polls until ready or the timeout (exit 7); without it,\n"
+            "one-shot. Index names are read from `vss configure show`'s inventory.\n"
+            "\n"
+            "\b\n"
+            "  vss vios readiness --sensor warehouse_safety_0001\n"
+            "  vss vios readiness --sensor dock-cam --type stream --timeout 600\n",
+            [
+                _sensor_option(),
+                click.Option(
+                    ["--type"],
+                    type=_TYPES,
+                    default=None,
+                    help="Override the sensor provenance to pick the embed index (uploads anchor vs family wildcard).",
+                ),
+                click.Option(
+                    ["--timeout"],
+                    type=click.FloatRange(0.1, 7200.0),
+                    default=None,
+                    help="Poll until ready or this many seconds (exit 7 on timeout). Omit for a one-shot count.",
+                ),
+            ],
+            _readiness,
+            requires=frozenset({"vst", "elasticsearch"}),
         )
     )
     return group
