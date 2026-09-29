@@ -560,7 +560,7 @@ docker compose logs -f <rtvi-cv-service-name>
 
 **4. TensorRT Engine File Creation and Reuse**
 
-On the first run, TensorRT automatically builds optimized engine files (`.engine`) from the ONNX models. This engine generation can take significant time depending on the model size and GPU. Warehouse blueprints store engines at `/opt/storage/` inside the container (2D: host directory `$VSS_DATA_DIR/models/mtmc/`; 3D: `perception-3d` named Docker volume; MV3DT: host directory `$VSS_DATA_DIR/models/` covering `mtmc/` for RT-DETR, `mv3dt/BodyPose3DNet/` for pose, and `reid/` for CLIP-ReID plus SigLIP 2).
+On the first run, TensorRT automatically builds optimized engine files (`.engine`) from the ONNX models. This engine generation can take significant time depending on the model size and GPU. Warehouse blueprints store engines at `/opt/storage/` inside the container (2D: host directory `$VSS_DATA_DIR/models/mtmc/`; 3D: `perception-3d` named Docker volume; MV3DT: host directory `$VSS_DATA_DIR/models/` with RT-DETR at the root of that tree, `BodyPose3DNet/` for pose, and `reid/` for CLIP-ReID plus SigLIP 2).
 
 The engine files are automatically retained across container restarts via these default volume mounts, so subsequent restarts reuse the previously built engines without rebuilding.
 
