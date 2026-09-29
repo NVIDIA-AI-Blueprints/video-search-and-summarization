@@ -13,7 +13,6 @@ import importlib.util
 import json
 import re
 from pathlib import Path
-from urllib.parse import urlunsplit
 
 import pytest
 
@@ -139,22 +138,19 @@ def test_malformed_chat_url_is_ignored(cfg):
 # --- both together, the real onboard shape -------------------------------------
 
 def test_full_onboard_arg_set(cfg):
-    local_endpoint = urlunsplit(("http", "10.229.20.2:18410", "/v1", "", ""))
     changes = mod.apply(str(cfg), {
         "NEMOCLAW_PRIMARY_MODEL_REF": "aws/anthropic/bedrock-claude-opus-5",
-        "NEMOCLAW_INFERENCE_BASE_URL": local_endpoint,
         "CHAT_UI_URL": "https://chat.example.brevlab.com",
     })
     d = read(cfg)
     assert d["agents"]["defaults"]["model"]["primary"] == "inference/aws/anthropic/bedrock-claude-opus-5"
-    assert d["models"]["providers"]["inference"]["baseUrl"] == local_endpoint
     assert "https://chat.example.brevlab.com" in d["gateway"]["controlUi"]["allowedOrigins"]
     assert changes  # reported to the build log
 
 
 # --- how .openclaw/Dockerfile delivers the values to this script ---------------
 
-ONBOARD_ARGS = ("NEMOCLAW_PRIMARY_MODEL_REF", "NEMOCLAW_MODEL", "NEMOCLAW_INFERENCE_BASE_URL", "NEMOCLAW_CONTEXT_WINDOW",
+ONBOARD_ARGS = ("NEMOCLAW_PRIMARY_MODEL_REF", "NEMOCLAW_MODEL", "NEMOCLAW_CONTEXT_WINDOW",
                 "NEMOCLAW_MAX_TOKENS", "CHAT_UI_URL")
 DOCKERFILE = (REPO_ROOT / ".openclaw" / "Dockerfile").read_text()
 
