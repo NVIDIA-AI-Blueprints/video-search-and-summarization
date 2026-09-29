@@ -148,8 +148,8 @@ INGESTION_PREAMBLE = (
     "instead of repairing it. Make fixture setup idempotent by listing sources and removing remnants via `vss vios delete`, download the exact "
     "pinned NGC bundle into a fresh directory, derive both upload paths only from that extraction rather "
     "than a cached host file, and register each file via `vss vios add` (the deployment's "
-    "notification config fans it out). Reconfigure once after ingestion so lazy indexes are discovered, "
-    "then confirm both canonical sources and their sensor UUIDs appear in `vss vios list`, and do not "
+    "notification config fans it out). Confirm both canonical sources and their sensor UUIDs "
+    "appear in `vss vios list`; the verifier refreshes configuration after observing the lazy indexes. Do not "
     "poll Elasticsearch or build an endpoint yourself; the evaluation verifier makes the bounded "
     "read-only index checks. Logs are diagnostics only. If fixture setup cannot complete, print diagnostics and fail; do not "
     "reset a deadline, redeploy, restart, or re-ingest."
@@ -190,8 +190,8 @@ OPERATION_PREAMBLE = (
 VERIFICATION_PREAMBLE = (
     PREAMBLE
     + " The search profile and fixtures remain prepared from earlier steps. This is an explicit "
-    "post-results confirmation for one already-displayed, unverified bounded hit. Do not rerun "
-    "search, deploy, ingest, delete, or inspect screenshot pixels. Use the exact bounded interval and source of the earlier displayed unverified hit; load the search-result verification reference to resolve exactly that bounded clip through the configured origin. Invoke the bundled "
+    "confirmation for the supplied synthetic, unverified bounded hit. Do not rerun "
+    "search, deploy, ingest, delete, or inspect screenshot pixels. Use the supplied synthetic file-search interval and source of the unverified hit; load the search-result verification reference to map it onto the recorded file timeline while preserving its duration, then resolve only that bounded clip through the configured origin. Invoke the bundled "
     "vss-ask-video skill through its ordinary pre-resolved `VIDEO_URL` path. Ask it to evaluate only "
     "that clip against the complete supplied visual intent and return the structured result contract. "
     "Validate `result`, boolean `criteria_met`, nonempty `evidence`, and `media_evaluated: true`. Make one "
@@ -266,19 +266,115 @@ def _peer_skill_dir(skill_dir: Path, name: str) -> Path | None:
     return None
 
 
-def generate_test_script(step: int, spec_name: str) -> str:
-    """Wrapper that invokes the generic judge for one step's checks."""
+# Scripted Elasticsearch tuple verification for persisted setup and cleanup.
+# Webhook indexing and withdrawal are asynchronous. Keep their bounded waits
+# in the verifier, never in the search skill or the evaluated agent's prompt.
+_ES_TUPLE_PROBE = """es_count() {
+  curl -fsS --connect-timeout 5 --max-time 15 -H 'Content-Type: application/json' "${ES_URL%/}/$1/_count" -d "$(jq -cn --arg f "$2" --arg v "$3" '{query:{term:{($f):$v}}}')" | jq -er '.count | numbers'
+}
+CONFIG_JSON=$(vss configure show 2>/dev/null) || { echo "vss not configured — cannot verify fixture indexing" >&2; exit 1; }
+ES_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.elasticsearch.url') || { echo "ES url missing from config" >&2; exit 1; }
+EMBED_IDX=mdx-embed-filtered-2025-01-01
+BEHAV_IDX=mdx-behavior-2025-01-01
+RAW_IDX=mdx-raw-2025-01-01
+state_file() {
+  local key
+  key=$(printf '%s' "${CONFIG_JSON}" | jq -erc '[.base_url, .written_at] | join("|")' | sha256sum | cut -d' ' -f1) || return 1
+  printf '/tmp/skill-eval/fixture-state/%s/ladder.uuid\\n' "${key}"
+}
+"""
+
+_INGEST_ASSERT = """
+deadline=$((SECONDS + 900))
+while :; do
+  SENSORS=$(vss vios list 2>/dev/null) || { echo "vss vios list failed" >&2; exit 1; }
+  SAMPLE_UUID=$(printf '%s' "${SENSORS}" | jq -r '.sensors[] | select(.name == "warehouse_sample") | .sensor_id // empty')
+  LADDER_UUID=$(printf '%s' "${SENSORS}" | jq -r '.sensors[] | select(.name == "warehouse-ladder") | .sensor_id // empty')
+  if [ -n "${SAMPLE_UUID}" ] && [ -n "${LADDER_UUID}" ] &&
+     SAMPLE_EMBED=$(es_count "${EMBED_IDX}" sensor.id.keyword "${SAMPLE_UUID}") &&
+     LADDER_EMBED=$(es_count "${EMBED_IDX}" sensor.id.keyword "${LADDER_UUID}") &&
+     LADDER_BEHAVIOR=$(es_count "${BEHAV_IDX}" sensor.id.keyword "warehouse-ladder") &&
+     LADDER_RAW=$(es_count "${RAW_IDX}" sensorId.keyword "warehouse-ladder") &&
+     (( SAMPLE_EMBED > 0 && LADDER_EMBED > 0 && LADDER_BEHAVIOR > 0 && LADDER_RAW > 0 )); then
+    printf 'fixture indexed: embed=%s,%s behavior=%s raw=%s\\n' "${SAMPLE_EMBED}" "${LADDER_EMBED}" "${LADDER_BEHAVIOR}" "${LADDER_RAW}"
+    break
+  fi
+  if (( SECONDS >= deadline )); then
+    echo "fixture indexing did not converge within 900s" >&2
+    exit 1
+  fi
+  sleep 5
+done
+# Refresh the local inventory after the lazy indexes are observed, so later
+# search steps see the raw index and the judge can inspect the distinct names.
+BASE_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.base_url') || exit 1
+vss configure --base-url "${BASE_URL}" >/dev/null 2>&1 || exit 1
+CONFIG_JSON=$(vss configure show) || exit 1
+printf '%s' "${CONFIG_JSON}" | jq -e --arg a "${EMBED_IDX}" --arg b "${BEHAV_IDX}" --arg c "${RAW_IDX}" '[.services.elasticsearch.indices[]] | (index($a) != null and index($b) != null and index($c) != null)' >/dev/null || exit 1
+STATE_FILE=$(state_file) || exit 1
+mkdir -p "$(dirname "${STATE_FILE}")" || exit 1
+printf '%s\\n' "${LADDER_UUID}" > "${STATE_FILE}" || exit 1
+
+"""
+
+_CLEANUP_ASSERT = """
+STATE_FILE=$(state_file) || exit 1
+[ -r "${STATE_FILE}" ] || { echo "missing ladder UUID from fixture setup" >&2; exit 1; }
+LADDER_UUID=$(cat "${STATE_FILE}") || exit 1
+[[ "${LADDER_UUID}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "invalid saved ladder UUID" >&2; exit 1; }
+deadline=$((SECONDS + 600))
+while :; do
+  SENSORS=$(vss vios list 2>/dev/null) || { echo "vss vios list failed" >&2; exit 1; }
+  LADDER_PRESENT=$(printf '%s' "${SENSORS}" | jq -r 'any(.sensors[]; .name == "warehouse-ladder")')
+  if [ "${LADDER_PRESENT}" = false ] &&
+     LADDER_EMBED=$(es_count "${EMBED_IDX}" sensor.id.keyword "${LADDER_UUID}") &&
+     LADDER_BEHAVIOR=$(es_count "${BEHAV_IDX}" sensor.id.keyword "warehouse-ladder") &&
+     LADDER_RAW=$(es_count "${RAW_IDX}" sensorId.keyword "warehouse-ladder") &&
+     (( LADDER_EMBED == 0 && LADDER_BEHAVIOR == 0 && LADDER_RAW == 0 )); then
+    printf 'cleanup confirmed: vst_present=%s embed=%s behavior=%s raw=%s\\n' "${LADDER_PRESENT}" "${LADDER_EMBED}" "${LADDER_BEHAVIOR}" "${LADDER_RAW}"
+    break
+  fi
+  if (( SECONDS >= deadline )); then
+    echo "fixture cleanup did not converge within 600s" >&2
+    exit 1
+  fi
+  sleep 5
+done
+
+"""
+
+def generate_test_script(step: int, spec_name: str, scenario: str | None = None) -> str:
+    """Verifier for one step's checks.
+
+    The persisted setup (ingest) and cleanup (delete) steps prepend a scripted,
+    read-only Elasticsearch tuple check to the generic LLM judge. The agent is
+    never told to poll ES, so the verifier owns that readiness/convergence
+    evidence and fails fast when indexing is incomplete (setup) or cleanup has
+    not converged (cleanup). Search and contract steps delegate entirely to the
+    generic judge.
+    """
+    judge = (
+        'python3 "$TEST_DIR/generic_judge.py" \\\n'
+        f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+    )
+    if scenario == "ingest-search-fixtures":
+        probe = _ES_TUPLE_PROBE + _INGEST_ASSERT
+    elif scenario == "delete-search-fixture":
+        probe = _ES_TUPLE_PROBE + _CLEANUP_ASSERT
+    else:
+        probe = ""
+    label = "scripted ES tuple check + " if probe else ""
     return (
         "#!/bin/bash\n"
-        f"# vss-search-archive verifier (step {step}): delegates to the generic\n"
-        "# LLM-as-judge (.github/skill-eval/verifiers/generic_judge.py).\n"
-        "set -euo pipefail\n"
+        f"# vss-search-archive verifier (step {step}): {label}"
+        "generic LLM-as-judge (.github/skill-eval/verifiers/generic_judge.py).\n"
+        "set -uo pipefail\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
         "\n"
-        'python3 "$TEST_DIR/generic_judge.py" \\\n'
-        f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+        + probe
+        + judge
     )
 
 
@@ -584,7 +680,7 @@ def generate_task(
         # tests/
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
-        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name, scenario))
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
         (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2) + "\n")

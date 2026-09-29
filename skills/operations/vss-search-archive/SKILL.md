@@ -25,7 +25,7 @@ Not for:
 - A fresh visual question about a supplied local clip — `vss-ask-video`.
 - Long-form summarization of a recording — `vss-summarize-video`.
 - Deploying or changing a profile — `/vss-build-vision-ai`.
-- Ingesting or deleting a source — `vss-manage-video-io-storage`.
+- Ingesting or deleting a source — use the deployment's source-management workflow.
 
 Answer from the configured deployment through the installed `vss` CLI. Do not
 fall back to raw REST when a CLI command fails.
@@ -56,14 +56,15 @@ Bootstrap, exit codes, and common CLI rules live in [AGENTS.md](../../../AGENTS.
 ## Source management handoff
 
 For an explicit request to ingest or delete a source, use
-`vss-manage-video-io-storage` — it registers via `vss vios add` / `vss vios
-delete` and the deployment's notification config owns the fan-out — then return
-to archive search once the source is available. If the user only asks to search
+`vss-manage-video-io-storage` only where its own routing rules allow it, then
+return to archive search once the source is available. Its provisioning recipe
+stops when an Agent tier is present; for that deployment, explain that this
+search skill cannot manage sources and direct the user to VSS Video Management.
+Do not route back and forth between skills. If the user only asks to search
 a named source and it is missing, report the missing name and the available
 sources, then ask for clarification or an explicit ingestion request; do not
-ingest, switch videos, or run an unrestricted search. If `vss-manage-video-io-storage`
-stops because of its Agent-tier guard, report that blocker instead of adding an
-ingestion fallback here.
+ingest, switch videos, or run an unrestricted search. If no supported source
+management workflow is available, report that blocker.
 
 ## Search workflow
 
@@ -116,14 +117,25 @@ array or hide the exit code behind `if !`:
 : "${SOURCE_TYPE:?set video_file or rtsp}"
 : "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"
 TOP_K="${TOP_K:-3}"
+# Set VIDEO_SOURCES from step 1 for a named source. Explicitly set it to () only
+# for a request that was unrestricted from the start; never reset a resolved scope.
+declare -p VIDEO_SOURCES >/dev/null 2>&1 || { echo "Set VIDEO_SOURCES before search" >&2; exit 1; }
+: "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
+if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
+  echo "Resolved source scope is empty; refusing an unrestricted search" >&2
+  exit 1
+fi
 SEARCH_COMMAND=(vss search run "${SEARCH_PATH}" --source-type "${SOURCE_TYPE}" \
   --top-k "${TOP_K}" --original-query "${ORIGINAL_QUERY}" --raw)
 for source in "${VIDEO_SOURCES[@]}"; do
   SEARCH_COMMAND+=(--video-source "${source}")
 done
 # Append --query, repeatable --attribute, --object-id, and time bounds as needed.
-SEARCH_JSON=$("${SEARCH_COMMAND[@]}")
-STATUS=$?
+if SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
+  STATUS=0
+else
+  STATUS=$?
+fi
 ```
 
 Read [CLI usage](references/cli_usage.md) only when tuning retrieval weights

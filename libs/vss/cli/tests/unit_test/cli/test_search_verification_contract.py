@@ -72,6 +72,13 @@ def test_search_skill_is_a_compact_search_contract() -> None:
     assert "every displayed result in the nonempty set is `unverified" in normalized
     assert "Never hand off a partially verified result set" in normalized
 
+    # The recipe hard-enforces the missing-source refusal: a resolved scope that
+    # came back empty must not collapse into an unrestricted search.
+    assert "SOURCE_SCOPED" in main
+    assert "Resolved source scope is empty; refusing an unrestricted search" in main
+    assert re.search(r"^VIDEO_SOURCES=\(\)", main, re.MULTILINE) is None
+    assert "declare -p VIDEO_SOURCES" in main
+
 
 def test_search_skill_passes_the_exact_original_query_to_every_path() -> None:
     main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
@@ -91,12 +98,48 @@ def test_search_skill_captures_exit_status_separately_and_keeps_exit_6() -> None
     # The old `if ! SEARCH_JSON=$(...)` hid the real exit code; the contract now
     # captures stdout and the status separately and treats exit 6 as partial.
     assert 'SEARCH_JSON=$("${SEARCH_COMMAND[@]}")' in main
+    assert 'if SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then' in main
     assert "STATUS=$?" in main
     assert "if ! SEARCH_JSON=" not in main
     assert "Exit 6" in main
     assert "do not rerun" in normalized
     # cli_usage documents the partial exit so a caller can branch on it.
     assert "6 | partial" in cli_usage or "Exit 6" in cli_usage
+
+
+def test_search_recipe_preserves_scope_and_partial_status_with_errexit(tmp_path: Path) -> None:
+    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    recipe = next(
+        block for block in re.findall(r"```bash\n(.*?)```", main, re.DOTALL)
+        if "SEARCH_COMMAND=" in block
+    )
+    command_log = tmp_path / "command.txt"
+    setup = (
+        "set -euo pipefail\n"
+        'vss() { printf "%s\\n" "$@" > "$COMMAND_LOG"; printf \'{"data":[]}\\n\'; return 6; }\n'
+        "SEARCH_PATH=embed SOURCE_TYPE=video_file ORIGINAL_QUERY=forklifts SOURCE_SCOPED=true\n"
+    )
+    scoped = subprocess.run(
+        ["bash", "-c", setup + "VIDEO_SOURCES=(resolved-uuid)\n" + recipe + '\n[ "$STATUS" -eq 6 ]'],
+        env={**os.environ, "COMMAND_LOG": str(command_log)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert scoped.returncode == 0, scoped.stderr
+    assert "--video-source\nresolved-uuid\n" in command_log.read_text(encoding="utf-8")
+
+    command_log.unlink()
+    empty = subprocess.run(
+        ["bash", "-c", setup + "VIDEO_SOURCES=()\n" + recipe],
+        env={**os.environ, "COMMAND_LOG": str(command_log)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert empty.returncode != 0
+    assert "refusing an unrestricted search" in empty.stderr
+    assert not command_log.exists()
 
 
 def test_zero_candidates_may_not_be_reported_as_absence() -> None:
@@ -311,7 +354,9 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts() -> None:
     assert "Initial profile deployment activity is not a routing violation" in deployment_preamble
     assert "preceding step already deployed" in ingestion_preamble
     assert "do not invoke `/vss-build-vision-ai`" in ingestion_preamble
-    assert "do not poll Elasticsearch or build an endpoint yourself" in ingestion_preamble
+    assert "do not poll elasticsearch or build an endpoint yourself" in ingestion_preamble.lower()
+    assert "the verifier refreshes configuration after observing the lazy indexes" in ingestion_preamble
+    assert "evaluation verifier" in _check_matching(spec["expects"][1]["checks"], "fresh `vss configure show`")
 
     # The search spec no longer demands a raw Elasticsearch count from the
     # runtime skill; the verifier owns the bounded read-only index checks.
@@ -336,6 +381,12 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts() -> None:
     # builds the documented one — an unscoped prohibition contradicts it.
     assert "do not invent a hostname" in serialized
 
+    # The verification step is self-contained: it supplies an explicit bounded
+    # hit so a fresh agent turn can act without prior-step display state.
+    verification = next(e for e in spec["expects"] if e.get("scenario") == "confirmed-search-result-verification")
+    assert "2025-01-01T00:00:00Z" in verification["query"]
+    assert "2025-01-01T00:00:20Z" in verification["query"]
+
 
 def test_search_routing_eval_handles_exit6_and_negative_triggers() -> None:
     cases = json.loads((SEARCH_SKILL / "evals" / "evals.json").read_text(encoding="utf-8"))
@@ -354,12 +405,12 @@ def test_search_routing_eval_handles_exit6_and_negative_triggers() -> None:
     assert any("does not rerun" in behavior for behavior in exit6["expected_behavior"])
     assert any("reports" in behavior and "once" in behavior for behavior in exit6["expected_behavior"])
 
-    # New: pure ingestion and pure deletion route to the source-management skill,
-    # not to the search skill.
+    # Pure ingestion and deletion do not activate the search skill. The selected
+    # source workflow must respect the VIOS skill's Agent-tier guard.
     for neg_id in ("search-archive-ingest-only", "search-archive-delete-only"):
         case = by_id[neg_id]
         assert case.get("should_trigger") is False
-        assert "vss-manage-video-io-storage" in case["ground_truth"]
+        assert "search skill" in case["ground_truth"]
 
     # The RTSP routing case no longer requires a direct Elasticsearch count.
     rtsp = by_id["search-archive-rtsp-live-stream"]
@@ -443,7 +494,7 @@ def test_search_adapter_bundles_ask_video_and_emits_role_metadata(tmp_path: Path
     verification_step = tmp_path / "search/rtxpro6000bw/step-7"
     assert (verification_step / "skills/vss-ask-video/SKILL.md").is_file()
     instruction = (verification_step / "instruction.md").read_text(encoding="utf-8")
-    assert "explicit post-results confirmation" in instruction
+    assert "supplied synthetic, unverified bounded hit" in instruction
 
     # Deletion is the terminal cleanup step (moved from step 8 to step 11).
     cleanup_step = tmp_path / "search/rtxpro6000bw/step-11"
@@ -493,3 +544,67 @@ def test_search_adapter_solve_script_matches_role(tmp_path: Path) -> None:
     # A setup-role gold solution still depends on a live deployment.
     setup_solve = (tmp_path / "search/rtxpro6000bw/step-1/solution/solve.sh").read_text(encoding="utf-8")
     assert "/health" in setup_solve
+
+
+def test_search_adapter_test_script_probes_es_for_setup_and_cleanup(tmp_path: Path) -> None:
+    subprocess.run(
+        [
+            "python3",
+            str(SEARCH_ADAPTER),
+            "--output-dir",
+            str(tmp_path),
+            "--skill-dir",
+            str(SEARCH_SKILL),
+            "--deploy-skill-dir",
+            str(REPOSITORY_ROOT / "skills/vss-build-vision-ai"),
+            "--video-io-skill-dir",
+            str(REPOSITORY_ROOT / "skills/operations/vss-manage-video-io-storage"),
+            "--ask-video-skill-dir",
+            str(ASK_VIDEO_SKILL),
+            "--spec",
+            str(SEARCH_SKILL / "evals/search.json"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    # The verifier — not the agent — owns the read-only Elasticsearch tuple
+    # checks for the persisted setup (ingest) and cleanup (delete) steps, so the
+    # agent is never told to poll ES. Search and contract steps delegate to the
+    # generic LLM judge alone.
+    ingest_test = (tmp_path / "search/rtxpro6000bw/step-2/tests/test.sh").read_text(encoding="utf-8")
+    cleanup_test = (tmp_path / "search/rtxpro6000bw/step-11/tests/test.sh").read_text(encoding="utf-8")
+    search_test = (tmp_path / "search/rtxpro6000bw/step-4/tests/test.sh").read_text(encoding="utf-8")
+    assert "es_count" in ingest_test and "/_count" in ingest_test
+    assert "es_count" in cleanup_test and "/_count" in cleanup_test
+    assert "SECONDS + 900" in ingest_test
+    assert "SECONDS + 600" in cleanup_test
+    assert "|| printf '0'" not in ingest_test
+    assert "|| printf '0'" not in cleanup_test
+    for script in (ingest_test, cleanup_test, search_test):
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    # A failed backend count must stay a failure: zero is a valid cleanup
+    # count, so converting transport errors to zero would falsely pass cleanup.
+    count_function = ingest_test.split("es_count() {", 1)[1].split("\n}", 1)[0]
+    failed_count = subprocess.run(
+        ["bash", "-c", "set -o pipefail\nes_count() {" + count_function + "\n}\n"
+         "ES_URL=http://127.0.0.1:1\nes_count idx field value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert failed_count.returncode != 0
+    assert not failed_count.stdout.strip()
+    # Setup preserves the UUID under the current deployment's config identity;
+    # cleanup uses it for the embedding tuple after VST has removed the sensor.
+    assert "warehouse-ladder" in cleanup_test
+    assert "state_file" in ingest_test and "state_file" in cleanup_test
+    assert 'LADDER_UUID=$(cat "${STATE_FILE}")' in cleanup_test
+    assert 'es_count "${EMBED_IDX}" sensor.id.keyword "${LADDER_UUID}"' in cleanup_test
+    # Search-role steps never get the ES probe.
+    assert "es_count" not in search_test and "/_count" not in search_test
+    # Every step still falls through to the generic LLM judge.
+    assert "generic_judge.py" in ingest_test
+    assert "generic_judge.py" in cleanup_test
+    assert "generic_judge.py" in search_test

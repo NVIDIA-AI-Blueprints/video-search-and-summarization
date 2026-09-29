@@ -4,10 +4,10 @@
     "question": "Ingest the loading-dock clip for search, then find up to three forklift instances in it.",
     "expected_skill": "vss-search-archive",
     "expected_script": null,
-    "ground_truth": "A combined ingest-and-search request activates the search skill for the search phase only. Ingestion is handled by vss-manage-video-io-storage (which registers via `vss vios add`; the deployment's notification config owns the fan-out); the search skill performs archive retrieval only once the source is available and never ingests, switches sources, or runs an unrestricted search.",
+    "ground_truth": "A combined ingest-and-search request activates the search skill for the search phase only. The VIOS skill's provisioning recipe is headless-only. On an Agent-backed deployment with an absent source, the agent directs the user to the VSS Video Management upload flow and waits until the source is registered; it does not claim ingestion or run search prematurely.",
     "expected_behavior": [
       "The agent loads vss-search-archive for the retrieval phase and preserves the requested source and visual constraints.",
-      "For the ingestion phase the agent routes to vss-manage-video-io-storage rather than ingesting from inside the search skill; it does not combine a UI/Agent completion path with a second VIOS registration for the same source.",
+      "For the ingestion phase the agent observes the VIOS skill's Agent-tier guard; on an Agent-backed deployment it points to the VSS Video Management upload flow rather than cycling between skills or claiming it ingested the source.",
       "The agent uses the supported search interface for the selected deployment and does not expose credentials, substitute another source, or mutate a backend directly."
     ]
   },
@@ -125,10 +125,10 @@
     "expected_skill": null,
     "expected_script": null,
     "should_trigger": false,
-    "ground_truth": "A pure ingestion request routes to the source-management skill (vss-manage-video-io-storage), which registers via `vss vios add`, not to the search skill.",
+    "ground_truth": "A pure ingestion request does not activate the search skill. The VIOS skill's provisioning recipe is headless-only; on an Agent-backed deployment the agent directs the user to the VSS Video Management upload flow rather than claiming to ingest through that skill.",
     "expected_behavior": [
       "The agent does not load or activate vss-search-archive for an ingestion-only request.",
-      "The agent routes source registration to vss-manage-video-io-storage or an equivalent source-management workflow."
+      "The agent respects the VIOS skill's Agent-tier guard and identifies the VSS Video Management upload flow for an Agent-backed deployment."
     ]
   },
   {
@@ -137,7 +137,7 @@
     "expected_skill": null,
     "expected_script": null,
     "should_trigger": false,
-    "ground_truth": "A pure deletion request routes to the source-management skill (vss-manage-video-io-storage), which deletes via `vss vios delete`, not to the search skill.",
+    "ground_truth": "A pure deletion request uses a source-management workflow supported by the deployment, not the search skill.",
     "expected_behavior": [
       "The agent does not load or activate vss-search-archive for a deletion-only request.",
       "The agent routes source deletion to vss-manage-video-io-storage or an equivalent source-management workflow."
