@@ -4,8 +4,9 @@
 """Worker-side NIM lifecycle. Standard library only; copied to the VSS worker.
 
 Discover model-specific NIMs in nvcr.io, pin the resolved manifest digest,
-validate CPU architecture, then serve both harness roles through one LiteLLM
-protocol adapter. No resource sizing or hosted fallback is performed.
+validate CPU architecture, then serve coding harnesses through LiteLLM and
+NemoClaw through NIM's native API. No resource sizing or hosted fallback is
+performed.
 """
 
 from __future__ import annotations
@@ -240,6 +241,22 @@ def owner_paths(owner: str):
     return root
 
 
+def worker_host() -> str:
+    """Return the worker address reachable from the NemoClaw sandbox."""
+    route = subprocess.run(
+        ["ip", "-j", "route", "get", "1.1.1.1"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    host = json.loads(route.stdout)[0]["prefsrc"]
+    import ipaddress
+
+    ipaddress.ip_address(host)
+    return host
+
+
 def wait_ready(url: str, token: str, timeout: int = 900, container: str | None = None):
     deadline = min(time.monotonic() + timeout, _START_DEADLINE or float("inf"))
     while time.monotonic() < deadline:
@@ -340,8 +357,17 @@ def start(plan: dict):
                 os.environ["DOCKER_CONFIG"] = old
     cleanup(plan["owner"], remove_files=False)
     models = []
+    nemoclaw_route = next(
+        (r for r in plan["routes"] if r["runtime"] == "nemoclaw"), None
+    )
+    nemoclaw_model = (
+        validate_model_id(nemoclaw_route["model"]) if nemoclaw_route else None
+    )
+    host = worker_host() if nemoclaw_route else None
+    nemoclaw_port = None
     for i, item in enumerate(resolved):
         port = PROXY_PORT + 10 + i
+        direct_nemoclaw = item["model"] == nemoclaw_model
         name = f"skill-eval-nim-{plan['owner']}-{i}"
         cache = (
             Path.home()
@@ -377,11 +403,16 @@ def start(plan: dict):
             nim_args.extend(("-e", f"NIM_PASSTHROUGH_ARGS={parser_args}"))
         nim_args.extend((
             "-p",
-            f"127.0.0.1:{port}:8000",
+            f"{host if direct_nemoclaw else '127.0.0.1'}:{port}:8000",
             "-v",
             f"{cache}:/opt/nim/.cache",
             item["image"],
         ))
+        if direct_nemoclaw:
+            # NemoClaw uses chat completions directly. NIM can advertise the
+            # selected ID, so this route needs neither aliasing nor proxy auth.
+            nim_args.extend(("--served-model-name", nemoclaw_route["model"]))
+            nemoclaw_port = port
         docker(*nim_args)
         base = f"http://127.0.0.1:{port}/v1"
         wait_ready(f"{base}/health/ready", "", 4800, container=name)
@@ -392,6 +423,11 @@ def start(plan: dict):
         if len(names) != 1:
             raise NimError(
                 f"Expected one served model from {item['image']}; received {names}"
+            )
+        if direct_nemoclaw and names[0] != nemoclaw_route["model"]:
+            raise NimError(
+                f"Local NIM advertised {names[0]!r}, not the selected "
+                f"NemoClaw model {nemoclaw_route['model']!r}"
             )
         for route in plan["routes"]:
             if validate_model_id(route["model"]) == item["model"]:
@@ -488,8 +524,13 @@ def start(plan: dict):
                 },
             )
         try:
+            smoke_base = (
+                f"http://127.0.0.1:{nemoclaw_port}/v1"
+                if runtime == "nemoclaw"
+                else f"http://127.0.0.1:{PROXY_PORT}/v1"
+            )
             request_json(
-                f"http://127.0.0.1:{PROXY_PORT}/v1/{path}",
+                f"{smoke_base}/{path}",
                 {
                     "Authorization": f"Bearer {plan['token']}",
                     "x-api-key": plan["token"],
@@ -508,21 +549,8 @@ def start(plan: dict):
                 f"HTTP {exc.code}: {detail}"
             ) from None
     evidence = {"models": resolved, "roles": plan["routes"], "architecture": arch}
-    if any(r["runtime"] == "nemoclaw" for r in plan["routes"]):
-        # The provider runs outside the sandbox; it needs the worker's
-        # routable address rather than the sandbox's own loopback.
-        route = subprocess.run(
-            ["ip", "-j", "route", "get", "1.1.1.1"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
-        )
-        host = json.loads(route.stdout)[0]["prefsrc"]
-        import ipaddress
-
-        ipaddress.ip_address(host)
-        evidence["nemoclaw_endpoint"] = f"http://{host}:{PROXY_PORT}/v1"
+    if nemoclaw_route:
+        evidence["nemoclaw_endpoint"] = f"http://{host}:{nemoclaw_port}/v1"
     marker.write_text(json.dumps(evidence, indent=2))
     configure_nemoclaw(evidence)
     publish(root)

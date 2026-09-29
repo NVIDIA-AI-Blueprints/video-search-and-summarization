@@ -201,6 +201,54 @@ def test_two_roles_deploy_one_nim_and_one_adapter(monkeypatch, tmp_path):
     nim.start(plan())
 
 
+def test_nemoclaw_uses_private_direct_nim_route(monkeypatch, tmp_path):
+    registry(monkeypatch)
+    monkeypatch.setenv("NGC_API_KEY", "ngc-secret")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(nim.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(nim, "worker_host", lambda: "10.229.20.2")
+    monkeypatch.setattr(nim, "publish", lambda root: None)
+    monkeypatch.setattr(nim, "wait_ready", lambda *a, **kw: {})
+    original_request = nim.request_json
+    probes = []
+
+    def request(url, headers=None, payload=None):
+        if url.endswith("/models"):
+            return {"data": [{"id": "nvidia/nemotron-3.5-lightning-30b-a3b"}]}, {}
+        if url.startswith("http://127.0.0.1:"):
+            probes.append(url)
+            return {}, {}
+        return original_request(url, headers, payload)
+
+    monkeypatch.setattr(nim, "request_json", request)
+    commands = []
+
+    def docker(*args, **kwargs):
+        commands.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(nim, "docker", docker)
+    local_plan = {
+        "owner": "b" * 24,
+        "token": "sk-test-local",
+        "routes": [{
+            "role": "operational",
+            "runtime": "nemoclaw",
+            "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+        }],
+    }
+    nim.start(local_plan)
+
+    launch = next(c for c in commands if c[0] == "run" and "--gpus" in c)
+    assert "10.229.20.2:18410:8000" in launch
+    assert launch[-2:] == (
+        "--served-model-name", "nvidia/nemotron-3.5-lightning-30b-a3b"
+    )
+    assert "http://127.0.0.1:18410/v1/chat/completions" in probes
+    ready = json.loads((nim.owner_paths(local_plan["owner"]) / "ready.json").read_text())
+    assert ready["nemoclaw_endpoint"] == "http://10.229.20.2:18410/v1"
+
+
 def test_alias_provider_deduplicates():
     assert nim.unique_models(
         [{"model": "nvidia_nim/nvidia/test"}, {"model": "nvidia/test"}]

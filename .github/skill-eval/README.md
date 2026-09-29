@@ -78,17 +78,18 @@ not estimate GPU capacity, memory, disk, or combined VSS/inference demand.
 
 After the existing first-task Docker reset, the worker starts one NIM per
 unique selected local model. Identical coding and operational models share
-one container and endpoint; later tasks reuse that deployment. Different
-models run as separate containers. A pinned LiteLLM protocol adapter provides
-Anthropic Messages, OpenAI Responses, and Chat Completions for the harnesses,
-with startup smoke requests for each selected protocol. It runs on the same
-worker as VSS. NemoClaw receives the worker's routable address rather than the
-sandbox's loopback address.
+one container; later tasks reuse that deployment. Different models run as
+separate containers. A pinned LiteLLM adapter provides Anthropic Messages and
+OpenAI Responses for coding harnesses. NemoClaw uses the NIM's native Chat
+Completions endpoint on the worker's private address, with the selected model
+ID advertised by NIM. Startup smoke requests exercise each selected protocol.
+The NIM and VSS run on the same worker.
 
-Startup is bounded to 1,400 seconds within the existing environment deadline;
+Startup is bounded to 5,400 seconds within the existing environment deadline;
 cold downloads may exceed this and fail explicitly. The worker needs access
 to NGC, Docker Hub (`python:3.12-slim`), and PyPI (`litellm[proxy]==1.103.0`).
-The adapter uses authenticated port 18400; NIM ports 18410+ bind to loopback.
+The adapter uses authenticated port 18400. NIM ports 18410+ bind to loopback,
+except a NemoClaw model's port, which binds to the worker's private address.
 Job-owned containers are removed when the leg ends or is cancelled. The next
 first-task Docker reset reconciles leftovers after an uncatchable SIGKILL.
 Weights persist under `~/.cache/skill-eval-nim-models/`, outside Docker volumes.
