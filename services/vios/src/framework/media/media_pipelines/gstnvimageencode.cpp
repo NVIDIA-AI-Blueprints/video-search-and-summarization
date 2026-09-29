@@ -19,7 +19,7 @@
 
 using namespace std;
 
-#define MAX_BUFFER_WAIT_TIMEOUT 10s
+constexpr auto MAX_BUFFER_WAIT_TIMEOUT = 10s;
 
 NvImageEncode::NvImageEncode()
 {
