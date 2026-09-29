@@ -224,7 +224,12 @@ class SelectImagesTest(unittest.TestCase):
             },
             "vss-configurator": {
                 "context": ".",
-                "source_path": "services/configurators/vss-configurator",
+                # Two source paths: the Dockerfile installs the Spatial AI
+                # data utilities from libs/analytics as well.
+                "source_path": [
+                    "services/configurators/vss-configurator",
+                    "libs/analytics/spatialai-data-utils",
+                ],
                 "native_platform_build": True,
             },
             "vss-rt-config-adaptor": {
@@ -270,10 +275,15 @@ class SelectImagesTest(unittest.TestCase):
             [entry["name"] for entry in configurator_entries], ["vss-configurator"]
         )
 
+        # The configurator Dockerfile installs the Spatial AI data utilities,
+        # so a change there must rebuild it (it used to be silently skipped and
+        # the old image re-tagged with the stale library).
         spatialai_entries, _ = dci.select_images(
             inventory, ["libs/analytics/spatialai-data-utils/release/pyproject.toml"]
         )
-        self.assertEqual([entry["name"] for entry in spatialai_entries], [])
+        self.assertEqual(
+            [entry["name"] for entry in spatialai_entries], ["vss-configurator"]
+        )
 
         adaptor_entries, _ = dci.select_images(
             inventory, ["services/configurators/vss-rt-config-adaptor/app/config.py"]
@@ -607,6 +617,101 @@ def _content_repo() -> Path:
     return root
 
 
+def _versioned_repo() -> tuple[Path, list[dict]]:
+    """A repo with one version-carrying image (ARG VSS_PACKAGE_VERSION) and one plain image."""
+    root = Path(tempfile.mkdtemp())
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    for path, dockerfile in (
+        ("services/agent", "FROM scratch\nARG VSS_PACKAGE_VERSION=0.0.0+local\n"),
+        ("services/ui", "FROM scratch\n"),
+    ):
+        d = root / path
+        d.mkdir(parents=True)
+        (d / "Dockerfile").write_text(dockerfile)
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qm", "init"], check=True)
+    images = [
+        {"name": "vss-agent", "source_path": "services/agent", "dockerfile": "services/agent/Dockerfile",
+         "strategy": "build", "ghcr_build": True},
+        {"name": "vss-agent-ui", "source_path": "services/ui", "dockerfile": "services/ui/Dockerfile",
+         "strategy": "build", "ghcr_build": True},
+    ]
+    return root, images
+
+
+def _reader(line: str | None):
+    """A label reader returning a published image on ``line`` (None: unreadable)."""
+    def read(_ref: str):
+        if line is None:
+            return None, "network error", False
+        return dci.ImageManifestLabels(
+            source_tree_sha="a" * 40, source_path=None, image_name=None, release_line=line
+        ), None, False
+    return read
+
+
+class StaleReleaseLineTest(unittest.TestCase):
+    """A v* tag lands on an already-built commit, so no path changes: the
+    version-carrying images must still be rebuilt once for the new line."""
+
+    def test_image_on_the_previous_line_is_added(self):
+        repo, images = _versioned_repo()
+        _, added = dci.add_stale_release_lines(images, [], repo, "HEAD", _reader("3.3.0-rc0"), "Org", "3.3.0")
+        self.assertEqual(added, ["vss-agent"])
+
+    def test_image_on_the_current_line_is_not_added(self):
+        repo, images = _versioned_repo()
+        selected, added = dci.add_stale_release_lines(images, [], repo, "HEAD", _reader("3.3.0"), "Org", "3.3.0")
+        self.assertEqual((selected, added), ([], []))
+
+    def test_images_that_bake_no_version_are_never_added(self):
+        repo, images = _versioned_repo()
+        _, added = dci.add_stale_release_lines(images, [], repo, "HEAD", _reader("1.0.0"), "Org", "3.3.0")
+        self.assertNotIn("vss-agent-ui", added)
+
+    def test_unreadable_or_unlabelled_image_fails_open_to_a_rebuild(self):
+        repo, images = _versioned_repo()
+        _, added = dci.add_stale_release_lines(images, [], repo, "HEAD", _reader(None), "Org", "3.3.0")
+        self.assertEqual(added, ["vss-agent"])
+
+    def test_already_selected_images_are_not_reread(self):
+        repo, images = _versioned_repo()
+        seen: list[str] = []
+
+        def read(ref: str):
+            seen.append(ref)
+            return None, "x", False
+
+        selected, added = dci.add_stale_release_lines(images, [images[0]], repo, "HEAD", read, "Org", "3.3.0")
+        self.assertEqual((seen, added, len(selected)), ([], [], 1))
+
+    def test_reads_the_content_tag_it_would_reuse(self):
+        repo, images = _versioned_repo()
+        seen: list[str] = []
+
+        def read(ref: str):
+            seen.append(ref)
+            return None, "x", False
+
+        dci.add_stale_release_lines(images, [], repo, "HEAD", read, "Org", "3.3.0")
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0].startswith("ghcr.io/org/vss/vss-agent:tree-"))
+
+    def test_the_real_version_carrying_images(self):
+        """vss-agent and both harness images bake a version in; e.g. the UI does not."""
+        repo = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo)
+        baking = {
+            entry["name"]
+            for entry in inventory["images"]
+            if entry.get("ghcr_build") and dci.bakes_release_line(str(repo / entry.get("dockerfile", "")))
+        }
+        self.assertLessEqual({"vss-agent", "vss-harness-openclaw", "vss-harness-hermes"}, baking)
+        self.assertNotIn("vss-agent-ui", baking)
+
+
 class ContentTagGapTest(unittest.TestCase):
     """A path diff says the source did not change; it cannot say the content
     tag was ever published. The post-merge retag sources from tree-<sha>, so a
@@ -666,6 +771,56 @@ class ContentTagGapTest(unittest.TestCase):
             seen[0],
             r"^ghcr\.io/org/vss/vss-agent:tree-[0-9a-f]{40}-sbsa$",
         )
+
+
+class DockerfileCopiesAreDeclaredTest(unittest.TestCase):
+    """Every path an inventory Dockerfile COPYs from its build context must be
+    in the image's ``source_path``: that list is what triggers a rebuild and
+    what the ``tree-<sha>`` content tag hashes. A path a Dockerfile reads but
+    the entry omits is a stale-image bug -- a change there neither rebuilds the
+    image nor moves its content tag, so the workflow re-tags the old one. This
+    is the audit that found vss-agent silently ignoring libs/vss."""
+
+    @staticmethod
+    def _copied_paths(dockerfile: str) -> set[str]:
+        """Build-context sources of every COPY/ADD (not --from=<stage>, not URLs)."""
+        sources: set[str] = set()
+        for raw in dockerfile.splitlines():
+            line = raw.strip()
+            if not line.startswith(("COPY", "ADD")) or "--from" in line:
+                continue
+            tokens = [t for t in line.split()[1:] if not t.startswith("--")]
+            for src in tokens[:-1]:
+                if src.startswith(("http://", "https://")):
+                    continue
+                # Dockerfil[e]-style globs and ./ prefixes normalise to the path.
+                sources.add(src.replace("[", "").replace("]", "").lstrip("./") or ".")
+        return sources
+
+    def test_every_copied_path_is_a_declared_source_path(self):
+        repo_root = Path(__file__).resolve().parents[2]
+        inventory = dci.load_inventory(repo_root)
+        problems: list[str] = []
+        for entry in inventory["images"]:
+            dockerfile = entry.get("dockerfile")
+            if not dockerfile or entry.get("strategy") != "build":
+                continue
+            text = (repo_root / dockerfile).read_text()
+            context = entry.get("context", ".").strip("/")
+            declared = dci.source_paths_of(entry["source_path"])
+            for src in self._copied_paths(text):
+                repo_rel = src if context in ("", ".") else f"{context}/{src}".rstrip("/")
+                if repo_rel == context and context not in ("", "."):
+                    repo_rel = context
+                covered = any(
+                    repo_rel == path or repo_rel.startswith(path + "/") for path in declared
+                )
+                if not covered:
+                    problems.append(
+                        f"{entry['name']}: {dockerfile} copies {repo_rel!r}, "
+                        f"outside source_path {declared}"
+                    )
+        self.assertEqual(problems, [], "\n".join(problems))
 
 
 if __name__ == "__main__":

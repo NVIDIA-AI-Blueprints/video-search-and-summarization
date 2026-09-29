@@ -95,5 +95,28 @@
       "Selects the search profile with HARDWARE_PROFILE=GB300.",
       "Collapses the stock two-GPU search layout onto the selected GB300 through explicit override.env values and keeps the local LLM nvidia/nemotron-3.5-lightning-30b-a3b."
     ]
+  },
+  {
+    "id": "build-base-harness-ref",
+    "question": "Deploy the VSS base profile with the NemoClaw harness at nightly-20260928.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "Select nightly-20260928 as the harness source ref and build the sandbox from a staged worktree of it.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Fetches nightly-20260928, verifies it resolves to a commit whose .openclaw/Dockerfile consumes a staged snapshot, and creates a detached worktree of it under _builds/<name>/harness-src.",
+      "Stages that worktree with its own stage_vss_src.py and runs the NemoClaw notebook with VSS_REPO_DIR set to the worktree.",
+      "Does not set VSS_CONTAINER_TAG from the harness ref, and names the ref and its short sha in the architecture diagram and the final summary."
+    ]
+  },
+  {
+    "id": "build-base-harness-default-ref",
+    "question": "Deploy the VSS base profile with the NemoClaw harness.",
+    "expected_skill": "vss-build-vision-ai",
+    "ground_truth": "No harness ref was requested, so the sandbox builds from develop.",
+    "expected_behavior": [
+      "Activates vss-build-vision-ai.",
+      "Does not ask for a harness ref, create a harness worktree, or run stage_vss_src.py.",
+      "Runs the NemoClaw notebook with VSS_REPO_DIR set to the checkout root."
+    ]
   }
 ]

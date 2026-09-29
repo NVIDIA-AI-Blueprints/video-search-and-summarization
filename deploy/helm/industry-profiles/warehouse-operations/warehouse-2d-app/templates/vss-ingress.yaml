@@ -88,6 +88,14 @@ metadata:
       http-request replace-path ^//vst(/.*)?$ /vst\1
       http-request set-var(txn.path) path
       http-request set-var(txn.path_match) var(txn.host_match),concat(,txn.path,),map_beg(/etc/haproxy/maps/path-prefix.map) if !{ var(txn.path_match) -m found }
+      {{- /* The deployment's version, answered by the ingress itself: this profile has
+             no agent behind /api. .Values.vssVersion is stamped by stamp_versions.py
+             (.github/version-convention.md). Only with a host: a hostless rule would
+             answer for every host on a shared HAProxy controller, i.e. report this
+             release's version for other deployments. */}}
+      {{- if $host }}
+      http-request return status 200 content-type application/json lf-string '{"service":"vss","version":"{{ .Values.vssVersion | toJson | trimAll "\"" }}"}' if { path /api/v1/version } { req.hdr(host),field(1,:) -i {{ $host }} }
+      {{- end }}
 spec:
   ingressClassName: {{ index $vi "ingressClassName" | default "haproxy" | quote }}
   rules:

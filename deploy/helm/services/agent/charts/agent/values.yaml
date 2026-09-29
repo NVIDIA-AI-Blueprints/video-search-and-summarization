@@ -98,9 +98,6 @@ vssAgentExternalUrl: ""
 externalIp: ""
 vstInternalIp: ""
 vssAgentVersion: "3.3.0-65576357eb80"
-# Overrides the version GET /api/v1/version reports; empty means the image's
-# own stamped nvidia-vss-core version is reported. Strict SemVer, or HTTP 503.
-vssDeploymentVersion: ""
 lvsBackendService: ""
 
 # [Optional] HTTP-client timeouts (seconds) for the post-upload pipeline in
@@ -239,17 +236,10 @@ env:
   value: '{{- $g := .Values.global | default dict }}{{- $eh := index $g "externalHost" | default "" | toString | trim }}{{- $es := index $g "externalScheme" | default "http" }}{{- $ep := index $g "externalPort" | default "" | toString | trim }}{{- $globalBase := ternary (ternary (printf "%s://%s:%s" $es $eh $ep) (printf "%s://%s" $es $eh) (ne $ep "")) "" (ne $eh "") }}{{- $pfx := default false (coalesce .Values.useReleaseNamePrefix ((index $g "useReleaseNamePrefix") | default false)) }}{{- $vssAgentHttp := ternary (printf "http://%s-vss-agent:8000" .Release.Name) "http://vss-agent:8000" $pfx }}{{ coalesce .Values.vssAgentExternalUrl .Values.vstExternalUrl $globalBase $vssAgentHttp }}'
 - name: VSS_AGENT_VERSION
   value: '{{ .Values.vssAgentVersion | default "3.3.0-65576357eb80" }}'
-# Operator override for the version GET /api/v1/version reports (compose
-# parity: deploy/docker/services/agent/compose.yml). No default, and
-# deliberately not .Chart.Version: the endpoint reports the installed
-# nvidia-vss-core version that the image build stamps from Chart.yaml, and a
-# chart upgraded ahead of the image would otherwise make the endpoint claim a
-# release the image does not contain. Unset renders as the empty string rather
-# than omitting the variable, because templates/deployment.yaml emits every
-# `env` entry unconditionally; harmless, because vss_core.version strips the
-# value and treats empty as unset, so the image stamp still wins.
-- name: VSS_DEPLOYMENT_VERSION
-  value: '{{ .Values.vssDeploymentVersion | default "" }}'
+# The version GET /api/v1/version reports is not an env entry: it is the
+# installed nvidia-vss-core's, stamped into the image from the nearest v* git
+# tag, and deliberately not .Chart.Version -- a chart upgraded ahead of the
+# image must not make the endpoint claim a release the image does not contain.
 # Audio configuration (compose parity: deploy/docker/services/agent/compose.yml).
 # Set ENABLE_AUDIO=true for Nemotron Nano Omni audio-aware VLM.
 - name: ENABLE_AUDIO

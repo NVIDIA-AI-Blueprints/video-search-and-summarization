@@ -548,6 +548,55 @@ itself — work this skill has already done by the time the harness comes up.
 Add it as a second `--notebook` only when the user explicitly wants the agent to
 own the deployment lifecycle too.
 
+### Harness source ref
+
+Only when SKILL.md's [Harness source ref](../SKILL.md#harness-source-ref)
+selected one. The sandbox Dockerfiles fetch `develop` unless their build
+context holds a staged snapshot (`.vss-src/`), and the notebook takes every
+harness asset — the Dockerfile, the plugin, the policy, the skills, the
+workspace docs — from `VSS_REPO_DIR`. So build the whole harness from one
+revision: a worktree of the ref, staged with that ref's own script, as
+`VSS_REPO_DIR`. Run this **before** the notebook, in place of the plain
+`export VSS_REPO_DIR="$REPO"` above:
+
+```bash
+REF="<ref>"                                        # e.g. nightly-20260928, v3.3.0, a sha
+SRC="$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/harness-src"
+
+# Resolve REF to what origin has *now*, never to a stale local copy: a tag is
+# force-fetched (`+`, so a moved tag updates the local one), a branch or full sha
+# is read from the FETCH_HEAD of that same fetch, and only a sha the remote will
+# not serve by name (an abbreviated one) falls back to the local object store.
+COMMIT=""
+if git -C "$REPO" fetch -q origin "+refs/tags/$REF:refs/tags/$REF" 2>/dev/null; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "refs/tags/$REF^{commit}" || true)"
+elif git -C "$REPO" fetch -q origin "$REF" 2>/dev/null; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "FETCH_HEAD^{commit}" || true)"
+elif [[ "$REF" =~ ^[0-9a-f]{7,40}$ ]]; then
+  COMMIT="$(git -C "$REPO" rev-parse --verify -q "$REF^{commit}" || true)"
+fi
+[ -n "${COMMIT:-}" ] || { echo "harness ref $REF does not resolve" >&2; exit 1; }
+git -C "$REPO" show "$COMMIT:.openclaw/Dockerfile" | grep -q 'vss-sr\[c\]' \
+  || { echo "$REF predates staged harness builds" >&2; exit 1; }
+
+git -C "$REPO" worktree remove --force "$SRC" 2>/dev/null || true
+GIT_LFS_SKIP_SMUDGE=1 git -C "$REPO" worktree add -q --detach "$SRC" "$COMMIT"
+python3 "$SRC/skills/vss-build-vision-ai/scripts/stage_vss_src.py" \
+  --repo-root "$SRC" .openclaw .hermes
+
+export VSS_REPO_DIR="$SRC"                         # every harness asset from the ref
+```
+
+The staging line prints the snapshot's sha and version (for example
+`sha 1942cc2fe0 ... version 3.3.0rc0.post1.dev21+g1942cc2fe0`); quote both in
+the summary — that version is what `vss --version` will report inside the
+sandbox. Keep `--notebook` on `$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb`
+(the runner is the checkout's; the assets are the ref's). `GIT_LFS_SKIP_SMUDGE`
+keeps the worktree to source files; the harness needs no LFS object.
+
+The worktree is the build's, not the checkout's: it stays under
+`_builds/<name>/` for a later re-onboard, and [Teardown](#teardown) removes it.
+
 The OpenClaw sandbox image ships only the **operation** skills — the ones whose
 `SKILL.md` declares `vss-requires` — and activates those the recorded deployment
 can serve (`vss-openclaw-sync` — or `vss-hermes-sync` on Hermes — inside the sandbox re-selects after
@@ -666,6 +715,8 @@ project.
 
 ```bash
 nemoclaw "<build-name>" destroy --yes --cleanup-gateway
+# only when the harness was built from a harness source ref:
+git -C "$REPO" worktree remove --force "$REPO/_builds/<build-name>/harness-src"
 ```
 
 Destroy the sandbox **before** the Compose project when doing both, so the

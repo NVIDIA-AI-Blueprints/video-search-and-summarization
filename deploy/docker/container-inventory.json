@@ -25,6 +25,13 @@
     "                   carried into a release set at its tree-<sha> content",
     "                   tag, the same way an -sbsa variant is.",
     "",
+    "source_path:",
+    "  one repo-relative path, or a list when the Dockerfile COPYs from more",
+    "  than one place (vss-agent installs libs/vss). Every listed path triggers a",
+    "  rebuild when it changes and is hashed into the tree-<sha> content tag; a",
+    "  path a Dockerfile reads but this omits is a stale-image bug",
+    "  (test_detect_changed_images.py audits the Dockerfiles for it).",
+    "",
     "GHCR variants:",
     "  repository     - optional GHCR repository basename; defaults to name.",
     "                   Set the same value on multiple logical inventory entries",
@@ -45,7 +52,7 @@
       "name": "vss-agent",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": "services/agent",
+      "source_path": ["services/agent", "libs/vss"],
       "context": ".",
       "dockerfile": "services/agent/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
@@ -56,7 +63,7 @@
       "name": "vss-agent-ui",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": "services/ui",
+      "source_path": ["services/ui", "LICENSE"],
       "context": ".",
       "dockerfile": "services/ui/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
@@ -281,7 +288,7 @@
       "strategy": "build",
       "ghcr_build": true,
       "native_platform_build": true,
-      "source_path": "services/configurators/vss-configurator",
+      "source_path": ["services/configurators/vss-configurator", "libs/analytics/spatialai-data-utils"],
       "context": ".",
       "dockerfile": "services/configurators/vss-configurator/docker/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
@@ -377,23 +384,23 @@
       "name": "vss-harness-openclaw",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": ".openclaw",
+      "source_path": [".openclaw", "skills", "libs/vss"],
       "context": ".openclaw",
       "dockerfile": ".openclaw/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
-      "notes": "NemoClaw OpenClaw sandbox harness (VSS skills + vss CLI). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts. Skills/CLI content is pinned by the Dockerfile's VSS_REF, which lives inside source_path — a pin bump is what triggers a rebuild."
+      "notes": "NemoClaw OpenClaw sandbox harness (VSS skills + vss CLI). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts. Skills and the vss CLI come from this repo at the commit being built: CI passes VSS_REF=<commit sha> (the Dockerfile default is develop for local builds), and skills/ and libs/vss are in source_path, so a skill or CLI change rebuilds the image and moves its tree-<sha>."
     },
     {
       "name": "vss-harness-hermes",
       "strategy": "build",
       "ghcr_build": true,
-      "source_path": ".hermes",
+      "source_path": [".hermes", "skills", "libs/vss", ".openclaw/workspace"],
       "context": ".hermes",
       "dockerfile": ".hermes/Dockerfile",
       "platforms": ["linux/amd64", "linux/arm64"],
       "compose_image_names": [],
-      "notes": "NemoClaw Hermes sandbox harness (VSS skills + vss CLI on NemoClaw's managed Hermes runtime). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts and by the eval harness's Provision panel. Skills/CLI content is pinned by the Dockerfile's VSS_REF, which lives inside source_path — a pin bump is what triggers a rebuild."
+      "notes": "NemoClaw Hermes sandbox harness (VSS skills + vss CLI on NemoClaw's managed Hermes runtime). Not a compose service: consumed by `nemoclaw onboard --from` on deploy hosts and by the eval harness's Provision panel. Skills and the vss CLI come from this repo at the commit being built: CI passes VSS_REF=<commit sha> (the Dockerfile default is develop for local builds), and skills/ and libs/vss are in source_path, so a skill or CLI change rebuilds the image and moves its tree-<sha>."
     }
   ]
 }
