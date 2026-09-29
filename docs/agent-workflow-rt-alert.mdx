@@ -908,6 +908,6 @@ The Jaeger UI is present only when the `jaeger` Compose profile is enabled; see 
 
 * VLM verdict verification can fail in the UI even when VLM requests are processed successfully. Alert Bridge response parsing accepts only raw verdicts such as `A/B` or `Yes/No` before serializing them to `confirmed` or `rejected`. As a result, a semantically valid `rejected` verdict from Cosmos Reason can fail schema validation and be persisted as `verification-failed`.
 
-* Report generation may produce inaccurate results. As a potential workaround, remove the `use_base64: true` line under `video_understanding_iso` in `developer-profiles/dev-profile-alerts/vss-agent/configs/config.yml`.
+* Report generation may produce inaccurate results.
 
 * The VST UI is externally accessible on both port 30000 and 30888 because both ports are exposed on the host network. For security hardening, consider using a firewall to allowlist only the required VST ingress port.
