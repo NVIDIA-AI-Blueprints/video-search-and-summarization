@@ -24,7 +24,8 @@ one `videos/` directory.**
 
 **Legacy** — the value *is* the ground-truth segment list. Every existing
 dataset works as-is. The default live decomposer can still route each query;
-`--no-decompose` uses one fixed retrieval path:
+`--no-decompose` uses the fallback `--search-path` because no route is stored.
+`--fixed-search-path` makes that single-path choice explicit:
 
 ```json
 {"queries": {
@@ -73,7 +74,8 @@ language to the CLI would compare *"decomposed then retrieved"* against
 
 Live decomposition uses the deployed LLM and replaces a stored decomposition
 for that query. Run with `--no-decompose` to replay the dataset's stored route
-for comparisons. The contract is
+for comparisons; use `--fixed-search-path` to ignore stored routes and apply
+the same `--search-path` to every query. The contract is
 `QUERY_DECOMPOSITION_PROMPT` in
 `services/agent/packages/vss_agents/src/vss_agents/tools/search.py`:
 

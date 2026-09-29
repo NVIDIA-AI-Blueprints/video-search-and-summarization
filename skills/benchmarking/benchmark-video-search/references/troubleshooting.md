@@ -98,37 +98,24 @@ contracts.
 The critic never ran, or ran and could not fetch the clip. Retrieval is
 unaffected and looks healthy, which is what makes this hard to spot.
 
-Verification is best-effort by design — `_verify_results` never fails a search —
-so a broken clip URL and "no critic configured" are indistinguishable in the
-output. Check the causes in order.
+Verification is best-effort by design — `_verify_results` never fails a search.
+A disabled critic adds a `Visual verification disabled: ...` search message;
+failed clip verification instead leaves hits `unverified`. Check the causes in
+order.
 
-**1. The clip URL is not routable from inside the containers.** This is the
-common one when the benchmark runs *on* the deployment host.
+**1. The actual VST clip URL is not reachable from RT-VLM.**
 
 The CLI builds the critic with `media_mode="video_url"` and
-`video_url_scope="external"`, so RT-VLM is handed a VST clip URL and fetches it
-itself. That URL is built from whatever `vss configure --base-url` recorded. Set
-it to `http://localhost:7777` and RT-VLM — a container — resolves `localhost` to
-itself, the fetch fails, and every hit stays `unverified`.
+`video_url_scope="internal"`. VST supplies the `videoUrl` in the search result;
+the CLI's configured base URL only controls how the CLI reaches the services.
+`vss configure --base-url http://localhost:7777` is valid when the CLI runs on
+the deployment host and does not itself make the clip URL loopback.
 
-```bash
-vss configure show | grep -i base_url
-docker exec vss-rtvi-vlm curl -sf --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}\n' \
-    http://<HOST_LAN_IP>:7777/vst/api/v1/sensor/version
-```
-
-Fix by pointing the CLI at an address the containers can reach, even though you
-are on the host:
-
-```bash
-vss configure --base-url http://<HOST_LAN_IP>:7777
-```
-
-`http://172.17.0.1:7777` (the docker bridge gateway) works as a fallback when
-the host IP is not reachable from the container network.
-
-Running the benchmark from another machine hides this entirely: nothing but a
-routable address reaches the deployment in the first place.
+Inspect a returned hit's `videoUrl`, then test that **exact URL** from the
+RT-VLM container (for example with `docker exec vss-rtvi-vlm curl ...`). If it
+cannot be fetched, correct the VST ingress or clip-URL configuration used by
+that deployment; changing the CLI base URL alone may not help. Do not assume
+the Docker bridge gateway or the host LAN IP is the right address.
 
 **2. RT-VLM is not in the CLI's config.** The critic stack is built only when
 the deployment exposes one — `vss configure show` must list `rt_vlm` with both a
