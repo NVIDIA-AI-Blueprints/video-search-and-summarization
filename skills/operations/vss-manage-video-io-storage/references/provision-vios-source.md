@@ -1,43 +1,49 @@
-# Provision a source (headless)
+# Provision a source
 
 Registering a source brings **no** perception with it: a bare VIOS add stores or
 publishes the media, but nothing detects, embeds, or captions it until the
-source reaches the consumers a build deployed. A stock full-stack profile does
-this through the agent in one transaction. When **no agent tier is present** —
-e.g. a `vss-build-vision-ai` headless `_builds/<name>` deployment — this file is
-that recipe: register one source with VIOS, and stop there.
+source reaches the consumers a build deployed. Agent-backed and headless
+deployments use the same registration path: register one source with VIOS, and
+let the mounted notification config deliver it to enabled receivers.
 
 Fan-out is the deployment's, not the caller's: VIOS posts each sensor lifecycle
 event to the receivers its mounted notification config declares. Delivery is
 asynchronous, so a consumer trails registration by design — waiting is the
 answer, never a direct call to make up the lag.
 
-## Headless-only — first line of defense
+## Check the receiver for the requested capability
 
-This recipe is the **agent-free** path. If an agent tier is present, **STOP** —
-provisioning is agent-owned and a second provisioning path double-provisions. The
-authoritative, ingress-independent signal is caller-supplied: the caller confirms
-**no agent tier is deployed** before invoking this recipe, by the same contract it
-injects the consumer endpoints (a `vss-build-vision-ai` caller derives it from
-the build's service set). Absent that signal, fall back to a status-code-aware
-probe — only a `2xx` is a real agent route; a `3xx` is the curated ingress's
-catch-all redirect to `/kibana/` (headless), which `curl -sf` would wrongly count
-as success:
+When the caller needs indexing or perception, inspect the notification policy
+actually mounted by the deployment for the corresponding `camera_streaming`
+receiver and its `camera_remove` partner. Compose selects the policy through
+`VST_NOTIFICATION_CONFIG_PATH`; Helm selects it through `notificationConfigFile`
+(for example, in `deploy/helm/developer-profiles/dev-profile-search/values.yaml`).
+The resolved service set must include the receiver's consumer.
+[`vss-build-vision-ai`'s VIOS reference](../../../vss-build-vision-ai/references/services/vios.md)
+lists the receiver IDs. For search, check the RT-Embed, RT-CV, and RT-VLM
+tagging receivers required by the selected retrieval paths. An Agent API route
+does not establish receiver availability.
 
-```bash
-# Only a 2xx is a real agent route. A 3xx is the ingress catch-all to /kibana/
-# (headless) — do NOT treat it as present.
-code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${ORIGIN%/}/api/v1/videos")
-case "$code" in
-  2*) echo "agent tier present — use the agent-backed ingest instead" >&2; exit 1 ;;
-esac
-```
+Record each required receiver as **enabled**, **absent**, or **unknown**:
 
-Defer full-stack provisioning to the agent-mediated path for the build's
-capability — search ingestion to `vss-search-archive` (`/api/v1/videos` +
-`/complete`), alert rules to `vss-manage-alerts`, or the agent's ingest
-routes. The probe is a coarse public-route
-capability check, not internal discovery.
+- **Enabled**: the mounted policy confirms an enabled receiver and its removal
+  partner, and its consumer is deployed. Use notification fan-out.
+- **Absent**: the mounted policy is readable and confirms the streaming
+  receiver or removal partner is missing or disabled (or the required consumer
+  is confirmed missing). Report the missing automatic lifecycle support. A
+  streaming receiver enabled without its removal partner can still index, but
+  cannot promise cleanup; never duplicate its registration with manual tagging.
+  An explicit tagging request may use *Driving RT-VLM by hand* only when the
+  streaming tagging receiver itself is confirmed absent and the prerequisites
+  below are satisfied.
+- **Unknown**: the mounted policy or resolved service set cannot be read or
+  confirmed, as is common from a harness with only a published origin. Report
+  that automatic fan-out cannot be confirmed; do not call it unavailable or
+  assume a receiver is absent. Register through VIOS, inspect available
+  ingestion readiness evidence, and do not start a manual tagging leg.
+
+A source registration alone does not prove searchable readiness. Do not use
+manual calls as a fallback for enabled or unknown receivers.
 
 ## One registration; the deployment owns the fan-out
 
@@ -46,8 +52,9 @@ deployment, not the caller:
 
 | Deployment state | Provisioning path |
 |---|---|
-| Agent tier present | Agent-owned ingest (`vss-search-archive` / `vss-manage-alerts`) — this recipe stops at the guard above |
-| Headless | Register with VIOS; the mounted notification config fans it out |
+| Receiver enabled | Register once with `vss vios add`; the mounted notification config fans it out |
+| Receiver absent | Register once; report missing automatic lifecycle support. With streaming enabled but removal absent, indexing can run but cleanup is unsupported; never duplicate registration. Manual tagging requires an explicit request, the streaming tagging receiver itself confirmed absent, and the prerequisites below |
+| Receiver unknown | Register once; report unconfirmed fan-out and readiness. Never start manual tagging or claim the capability is unavailable from unreadable policy |
 
 On SDRC-routed deployments (warehouse and LVS Docker profiles, all Helm
 profiles) the single-registration rule still holds: do **not** also register the
@@ -99,8 +106,10 @@ RT-VLM starts captioning on any `stream/add` bearing a `prompt`, and the
 matching `camera_remove` item tears it down. Calling it by hand there does not
 merely duplicate the work — the webhook has already registered the asset under
 the `sensorId`, so the upload call returns `400 AssetAlreadyExists` and the live
-registration is rejected as a duplicate stream id. Drive it by hand only where
-no such receiver exists — *Driving RT-VLM by hand*, below.
+registration is rejected as a duplicate stream id. Drive it by hand only for
+an explicit tagging request when the streaming tagging receiver itself is
+confirmed absent and the prerequisites below hold — *Driving RT-VLM by hand*.
+An unknown receiver state never authorizes a manual leg.
 
 ## Endpoints are injected by the caller — never hard-code ports
 
@@ -239,7 +248,10 @@ not failures:
   flight through Kafka and Logstash land after the cleanup. Let tagging finish
   and settle before deleting, or remove the leftovers by hand.
 
-A hand-driven RT-VLM leg is torn down by its caller, before the sensor goes.
+A hand-driven RT-VLM leg is torn down by its caller before the sensor goes.
+For manual tagging, the confirmed-absent streaming receiver and explicit-request gates
+still apply. With an unknown policy, do not promise webhook cleanup or attempt
+a manual tagging leg.
 Its tag documents stay searchable afterwards: they carry no `cameraId`, so the
 shipped cleanup misses them, and the edge keeps Elasticsearch read-only. Where
 tag cleanup matters, use the tagging receiver rather than a hand-driven leg.
@@ -248,7 +260,12 @@ tag cleanup matters, use the tagging receiver rather than a hand-driven leg.
 
 Two RT-VLM uses have no webhook receiver to do them for you: **dense
 captioning**, which no shipped config carries an item for, and **tagging** on a
-build whose config has no tagging receiver. Both take the registered source's
+build whose mounted config confirms no streaming tagging receiver. Manual tagging is
+allowed only for an explicit tagging request, with a deployed and reachable
+RT-VLM service, the controlled tag-prompt/indexing pipeline, the shared source
+ID and upload anchor described above, and no Alert-Bridge leg on that RT-VLM
+instance. Receiver **enabled** or **unknown** prohibits manual tagging; a
+search ingestion handoff alone does not request it. Both take the registered source's
 URL — the clip URL for an upload, the live proxy for a stream. Nothing else here is
 caller-driven; RT-CV and RT-Embed receive every source from VIOS.
 
@@ -260,9 +277,10 @@ POST http://localhost:<rt-vlm-port>/v1/files          # uploaded (VOD): multipar
 POST http://localhost:<rt-vlm-port>/v1/streams/add    # RTSP: feed the VIOS live-proxy URL
 #   then POST .../v1/generate_captions with the returned file_id/stream_id
 
-# RT-VLM tagging — the search-indexing leg, where no tagging receiver runs it.
-# Independent of the Alert Bridge carve-out above; same rtvi-vlm deployment, different
-# prompt. Controlled JSON-tag prompt + response_format json_object + temperature 0 +
+# RT-VLM tagging — explicit request only, streaming tagging receiver confirmed absent,
+# and the manual-leg prerequisites above satisfied.
+# Do not run on an RT-VLM instance carrying an Alert-Bridge leg.
+# Controlled JSON-tag prompt + response_format json_object + temperature 0 +
 # 5s chunks. RT-VLM does NOT read the x-stream-id header — carry identity in the body
 # (id / sensor_name for VOD, streams[].id for RTSP). See the shared-id + upload-date rules.
 #

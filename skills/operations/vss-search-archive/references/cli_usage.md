@@ -4,7 +4,7 @@ One CLI for Compose and Kubernetes. Endpoints come from the deployment recorded
 by `vss configure`; the command takes none. Run the `vss` on PATH — shipped in
 the harness images, otherwise installed from this skill's checkout with
 `uv tool install <checkout>/libs/vss/cli`. Bootstrap, exit codes, and the
-common CLI rules live in [AGENTS.md](../../../AGENTS.md); this reference covers
+common CLI rules live in [AGENTS.md](../../../../AGENTS.md); this reference covers
 search-specific invocation and optional retrieval tuning only.
 
 ```bash
@@ -103,11 +103,11 @@ JSON on stdout (`SearchOutput.data`). `--raw` compact, `--pretty` indented.
 | --- | --- |
 | 0 | success |
 | 1 | unexpected error; report failure, nothing actionable |
-| 2 | invalid input (unknown flag, bad value) |
+| 2 | invalid input (unknown flag, bad value); read the selected path's `--help` once before correcting the invocation |
 | 3 | backend unreachable |
 | 4 | configuration — not configured, foreign config, or a required service absent |
 | 5 | not found: a searched index that is not the uploads anchor is missing (an absent anchor returns exit 0 with empty results) |
-| 6 | partial: retrieval succeeded, a later stage did not (e.g. `persisted: false`). The payload still carries usable `data`; report the hits and the limitation, and retry only the failed stage — never the whole job |
+| 6 | partial: when `data` exists, report hits and the supplied limitation (e.g. `persisted: false`); without `data`, report the supplied failure. Never retry the job or an individual stage |
 | 7 | timeout: the marker carries a job id for `status`/`get`; the work is gone, only the caller can decide to spend it again |
 
 Search automatically attempts bounded visual verification through
@@ -138,3 +138,34 @@ by this command.
 
 `vss search run` is read-only. For upload, registration, deletion, or repair,
 use the `vss-manage-video-io-storage` skill (`vss vios add` / `vss vios delete`).
+
+For live streams, `--source-type rtsp` selects the live family wildcard excluding
+the fixed uploads anchor, regardless of ingestion order. `vss configure` records
+routes not exposed through ingress as absent; a path requiring one exits 4.
+Report missing required ingress for the operator to expose the
+supported route and reconfigure, without port-forwarding or private endpoints.
+
+Refresh `vss configure` after first ingestion. Before attribute/fusion retrieval,
+inspect `services.elasticsearch.indices` in `vss configure show`. If no name
+starts with `mdx-raw-`, refresh once using the recorded nonempty `base_url`.
+Inspect again and disclose absent frame enrichment if that family remains
+missing. Readiness belongs to source provisioning, not a search retry loop.
+
+For attribute/fusion, this bounded inventory check uses recorded configuration
+only and continues with a disclosed limitation when refresh cannot discover raw
+indexes:
+
+```bash
+CONFIG_JSON=$(vss configure show) || exit $?
+if ! printf '%s' "${CONFIG_JSON}" | jq -e \
+  'any(.services.elasticsearch.indices[]?; startswith("mdx-raw-"))' >/dev/null; then
+  RECORDED_ORIGIN=$(printf '%s' "${CONFIG_JSON}" |
+    jq -er '.base_url | select(type == "string" and length > 0)') || exit 1
+  vss configure --base-url "${RECORDED_ORIGIN}" >/dev/null || exit $?
+  CONFIG_JSON=$(vss configure show) || exit $?
+  if ! printf '%s' "${CONFIG_JSON}" | jq -e \
+    'any(.services.elasticsearch.indices[]?; startswith("mdx-raw-"))' >/dev/null; then
+    echo "Frame enrichment unavailable: raw index family remains absent" >&2
+  fi
+fi
+```

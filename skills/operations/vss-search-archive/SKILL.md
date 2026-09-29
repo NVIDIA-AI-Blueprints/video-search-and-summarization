@@ -25,7 +25,7 @@ Not for:
 - A fresh visual question about a supplied local clip — `vss-ask-video`.
 - Long-form summarization of a recording — `vss-summarize-video`.
 - Deploying or changing a profile — `/vss-build-vision-ai`.
-- Ingesting or deleting a source — `vss-manage-video-io-storage`.
+- Ingesting or deleting a source — use the deployment's source-management workflow.
 
 Answer from the configured deployment through the installed `vss` CLI. Do not
 fall back to raw REST when a CLI command fails.
@@ -48,7 +48,7 @@ fall back to raw REST when a CLI command fails.
 
 ## Prerequisites
 
-- A running VSS `search` profile with `vss configure` already run against its origin.
+- A running VSS `search` profile with `vss configure` already run against its origin. Refresh configuration after first ingestion, once source provisioning has established readiness; lazy raw indexes enable frame enrichment for attribute/fusion.
 - The `vss` CLI on PATH. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
 
 Bootstrap, exit codes, and common CLI rules live in [AGENTS.md](../../../AGENTS.md).
@@ -56,14 +56,21 @@ Bootstrap, exit codes, and common CLI rules live in [AGENTS.md](../../../AGENTS.
 ## Source management handoff
 
 For an explicit request to ingest or delete a source, use
-`vss-manage-video-io-storage` — it registers via `vss vios add` / `vss vios
-delete` and the deployment's notification config owns the fan-out — then return
-to archive search once the source is available. If the user only asks to search
+`vss-manage-video-io-storage` for `vss vios add` or `vss vios delete`, then
+return to archive search once the source is available. The deployment's mounted
+notification config owns consumer fan-out; the presence of an Agent tier does
+not change the VIOS registration path. Check the requested receiver as enabled,
+absent, or unknown under source management's policy contract. With an enabled
+receiver, use fan-out; with confirmed absent lifecycle support, report that
+limitation. Only an explicit tagging request with a confirmed absent streaming
+tagging receiver and the provisioning prerequisites may use manual tagging.
+With unknown policy, report unconfirmed fan-out, never unavailable indexing,
+and do not start manual tagging.
+If the user only asks to search
 a named source and it is missing, report the missing name and the available
 sources, then ask for clarification or an explicit ingestion request; do not
-ingest, switch videos, or run an unrestricted search. If `vss-manage-video-io-storage`
-stops because of its Agent-tier guard, report that blocker instead of adding an
-ingestion fallback here.
+ingest, switch videos, or run an unrestricted search. If no supported source
+management workflow is available, report that blocker.
 
 ## Search workflow
 
@@ -104,8 +111,20 @@ identifiers:
 
 For every path an unknown source yields an empty, narrowed result, not an error.
 
-**3. Invoke the CLI.** Set `--source-type video_file` for an uploaded recording
-or `rtsp` for a live stream, carry the requested time bounds and `--top-k`, and
+Before `attribute` or `fusion`, inspect `vss configure show`'s
+`services.elasticsearch.indices`. If no entry starts with `mdx-raw-`, refresh
+once with `vss configure --base-url` using that same record's nonempty
+`base_url`, then inspect again. Stop on a configuration failure; if the raw
+family is still absent, disclose that frame enrichment is unavailable and
+continue the requested retrieval. Do not construct an origin or poll indexes.
+
+**3. Invoke the CLI.** Use `--query` for embed/fusion/tag, repeatable
+`--attribute` for attribute/fusion, and repeatable `--object-id` for object.
+Use `--timestamp-start` / `--timestamp-end` for time bounds. Set `--source-type video_file` for an uploaded recording
+or `rtsp` for a live stream. Source type selects the fixed uploads anchor or
+the live family wildcard excluding that uploads anchor, independently of source
+identity and ingestion order. Carry
+the requested time bounds and `--top-k`, and
 run `vss search run <path>` with no endpoint, index, model, or profile flag —
 `vss configure` owns those. Build the invocation as a Bash array and capture
 stdout and the exit status separately; never clear a previously resolved source
@@ -116,14 +135,25 @@ array or hide the exit code behind `if !`:
 : "${SOURCE_TYPE:?set video_file or rtsp}"
 : "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"
 TOP_K="${TOP_K:-3}"
+# Set VIDEO_SOURCES from step 1 for a named source. Explicitly set it to () only
+# for a request that was unrestricted from the start; never reset a resolved scope.
+declare -p VIDEO_SOURCES >/dev/null 2>&1 || { echo "Set VIDEO_SOURCES before search" >&2; exit 1; }
+: "${SOURCE_SCOPED:?set true for a resolved scope; false only when unrestricted}"
+if [ "${SOURCE_SCOPED}" = true ] && [ "${#VIDEO_SOURCES[@]}" -eq 0 ]; then
+  echo "Resolved source scope is empty; refusing an unrestricted search" >&2
+  exit 1
+fi
 SEARCH_COMMAND=(vss search run "${SEARCH_PATH}" --source-type "${SOURCE_TYPE}" \
   --top-k "${TOP_K}" --original-query "${ORIGINAL_QUERY}" --raw)
 for source in "${VIDEO_SOURCES[@]}"; do
   SEARCH_COMMAND+=(--video-source "${source}")
 done
-# Append --query, repeatable --attribute, --object-id, and time bounds as needed.
-SEARCH_JSON=$("${SEARCH_COMMAND[@]}")
-STATUS=$?
+# Append only the selected path's fields and --timestamp-start/--timestamp-end.
+if SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then
+  STATUS=0
+else
+  STATUS=$?
+fi
 ```
 
 Read [CLI usage](references/cli_usage.md) only when tuning retrieval weights
@@ -133,8 +163,16 @@ invocation — the contract above is the whole invocation.
 **4. Interpret the result by exit status.**
 
 - Exit 0 — interpret `data` and `search_messages`.
-- Exit 6 — partial: usable `data` is present but a later stage (e.g. persistence) failed; report the hits and disclose the limitation, and do not rerun.
-- Other nonzero — report the typed failure (2 invalid input, 3 backend unreachable, 4 configuration or missing service, 5 not found) and stop.
+- Exit 6 — partial: report hits only when the payload contains `data`, disclosing the supplied limitation. Without `data`, report the supplied failure; do not claim retrieval succeeded. Do not rerun or retry an individual stage.
+- Exit 2 — read `vss search run <path> --help` once; correct invalid flags or values only from that help, then stop if the corrected command fails.
+- Other nonzero — report the typed failure (3 backend unreachable, 4 configuration or missing service, 5 not found) and stop.
+
+Routes not exposed through ingress are recorded as absent by `vss configure`;
+a search path requiring one exits 4. Report the missing capability and ask the
+operator to expose its supported ingress and
+refresh configuration. Never create a port-forward or use private endpoints.
+After exit 5 following first ingestion, hand readiness back to source management
+and refresh recorded configuration once when it is ready; never ingest implicitly.
 
 An empty `data` array means zero retrieved candidates — a fact about retrieval,
 not about the video; a threshold or embedding gap yields the same empty result

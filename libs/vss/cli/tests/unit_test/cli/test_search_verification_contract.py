@@ -55,7 +55,7 @@ def test_search_skill_is_a_compact_search_contract() -> None:
 
     assert f'version: "{_stamped_version()}"' in main
     assert 'vss-requires: "search"' in main
-    assert len(main.splitlines()) < 200
+    assert len(main.splitlines()) < 240
     # Search-only: no lifecycle recipes, no Brev/origin setup, no raw endpoints.
     assert "source_setup.md" not in main
     assert "ingest.md" not in main
@@ -69,6 +69,13 @@ def test_search_skill_is_a_compact_search_contract() -> None:
     assert "The CLI attempts critic verification by default" in main
     assert "every displayed result in the nonempty set is `unverified" in normalized
     assert "Never hand off a partially verified result set" in normalized
+
+    # The recipe hard-enforces the missing-source refusal: a resolved scope that
+    # came back empty must not collapse into an unrestricted search.
+    assert "SOURCE_SCOPED" in main
+    assert "Resolved source scope is empty; refusing an unrestricted search" in main
+    assert re.search(r"^VIDEO_SOURCES=\(\)", main, re.MULTILINE) is None
+    assert "declare -p VIDEO_SOURCES" in main
 
 
 def test_search_skill_passes_the_exact_original_query_to_every_path() -> None:
@@ -89,12 +96,104 @@ def test_search_skill_captures_exit_status_separately_and_keeps_exit_6() -> None
     # The old `if ! SEARCH_JSON=$(...)` hid the real exit code; the contract now
     # captures stdout and the status separately and treats exit 6 as partial.
     assert 'SEARCH_JSON=$("${SEARCH_COMMAND[@]}")' in main
+    assert 'if SEARCH_JSON=$("${SEARCH_COMMAND[@]}"); then' in main
     assert "STATUS=$?" in main
     assert "if ! SEARCH_JSON=" not in main
     assert "Exit 6" in main
     assert "do not rerun" in normalized
     # cli_usage documents the partial exit so a caller can branch on it.
     assert "6 | partial" in cli_usage or "Exit 6" in cli_usage
+
+
+def test_search_recipe_preserves_scope_and_partial_status_with_errexit(tmp_path: Path) -> None:
+    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    recipe = next(block for block in re.findall(r"```bash\n(.*?)```", main, re.DOTALL) if "SEARCH_COMMAND=" in block)
+    command_log = tmp_path / "command.txt"
+    setup = (
+        "set -euo pipefail\n"
+        'vss() { printf "%s\\n" "$@" > "$COMMAND_LOG"; printf \'{"data":[]}\\n\'; return 6; }\n'
+        "SEARCH_PATH=embed SOURCE_TYPE=video_file ORIGINAL_QUERY=forklifts SOURCE_SCOPED=true\n"
+    )
+    scoped = subprocess.run(
+        ["bash", "-c", setup + "VIDEO_SOURCES=(resolved-uuid)\n" + recipe + '\n[ "$STATUS" -eq 6 ]'],
+        env={**os.environ, "COMMAND_LOG": str(command_log)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert scoped.returncode == 0, scoped.stderr
+    assert "--video-source\nresolved-uuid\n" in command_log.read_text(encoding="utf-8")
+
+    command_log.unlink()
+    empty = subprocess.run(
+        ["bash", "-c", setup + "VIDEO_SOURCES=()\n" + recipe],
+        env={**os.environ, "COMMAND_LOG": str(command_log)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert empty.returncode != 0
+    assert "refusing an unrestricted search" in empty.stderr
+    assert not command_log.exists()
+
+
+def test_path_flags_and_partial_failure_contract() -> None:
+    main = " ".join((SEARCH_SKILL / "SKILL.md").read_text().split())
+    reference = (SEARCH_SKILL / "references/cli_usage.md").read_text()
+    assert "`--query` for embed/fusion/tag" in main
+    assert "`--attribute` for attribute/fusion" in main
+    assert "`--object-id` for object" in main
+    assert "`--timestamp-start` / `--timestamp-end`" in main
+    assert "--help` once" in main
+    assert "Without `data`, report the supplied failure" in main
+    assert "retry an individual stage" in main
+    assert "retry only the failed stage" not in reference
+    link = re.search(r"\[AGENTS.md\]\(([^)]+)\)", reference)
+    assert link and (SEARCH_SKILL / "references" / link.group(1)).resolve() == REPOSITORY_ROOT / "AGENTS.md"
+
+
+def test_verification_verdict_must_agree_with_expected_criteria() -> None:
+    text = " ".join((SEARCH_SKILL / "references/result_verification.md").read_text().split())
+    assert "Fix their exact keys before viewing evidence" in text
+    assert "exactly the expected criteria keys" in text
+    assert "Accept `confirmed` only when every criterion is `true`" in text
+    assert "accept `rejected` only when at least one criterion is `false`" in text
+    assert "confirmed response with a false criterion" in text
+    assert "no missing or unexpected keys" in text
+    assert "single repair allowance" in text
+    assert "valid semantic `unverified`" in text
+
+
+def test_raw_inventory_refresh_is_bounded_and_discloses_absence(tmp_path: Path) -> None:
+    reference = (SEARCH_SKILL / "references/cli_usage.md").read_text()
+    recipe = next(
+        block for block in re.findall(r"```bash\n(.*?)```", reference, re.DOTALL) if "RECORDED_ORIGIN=" in block
+    )
+    for raw_present in (True, False):
+        calls = tmp_path / ("present" if raw_present else "absent")
+        setup = r"""set -euo pipefail
+vss() {
+  printf '%s\n' "$*" >> "$CALLS"
+  if [ "$*" = 'configure --base-url https://public.example' ]; then return 0; fi
+  local indices='[]'
+  if [ "$(wc -l < "$CALLS")" -gt 1 ] && [ "$RAW_PRESENT" = true ]; then indices='["mdx-raw-2026"]'; fi
+  printf '{"base_url":"https://public.example","services":{"elasticsearch":{"indices":%s}}}\n' "$indices"
+}
+"""
+        result = subprocess.run(
+            ["bash", "-c", setup + recipe],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "CALLS": str(calls), "RAW_PRESENT": str(raw_present).lower()},
+        )
+        assert result.returncode == 0, result.stderr
+        assert calls.read_text().splitlines() == [
+            "configure show",
+            "configure --base-url https://public.example",
+            "configure show",
+        ]
+        assert ("Frame enrichment unavailable" in result.stderr) is not raw_present
 
 
 def test_zero_candidates_may_not_be_reported_as_absence() -> None:
@@ -155,6 +254,10 @@ def test_search_handoff_resolves_bounded_clip_for_existing_ask_video(tmp_path: P
     stub.write_text(
         """#!/bin/sh
 case "$*" in
+  'configure show')
+    if [ "${CONFIG_FAIL:-0}" -ne 0 ]; then exit 4; fi
+    printf '%s\n' '{"base_url":"https://public.example"}'
+    ;;
   'vios timeline --sensor sensor-1')
     printf '%s\n' '{"recorded":true,"segments":[{"start_time":"2026-08-01T12:00:00.000Z","end_time":"2026-08-01T12:01:00.000Z"}]}'
     ;;
@@ -168,7 +271,7 @@ esac
     stub.chmod(0o755)
     script = (
         """set -euo pipefail
-VST_URL=https://public.example
+unset VST_URL
 HIT_SENSOR_ID=sensor-1
 HIT_START=2025-01-01T00:00:00Z
 HIT_END=2025-01-01T00:00:10Z
@@ -186,6 +289,15 @@ test "${VSS_PUBLIC_URL}" = 'https://public.example'
         text=True,
         env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
     )
+    failed = subprocess.run(
+        ["bash", "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "CONFIG_FAIL": "1"},
+    )
+    assert failed.returncode == 4
+    assert "Deployment configuration unavailable (exit 4)" in failed.stderr
 
 
 def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
@@ -244,7 +356,7 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     assert (ASK_VIDEO_SKILL / "evals/direct_vlm_video_understanding.json").exists() is False
 
 
-def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts() -> None:
+def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts(tmp_path: Path) -> None:
     spec = json.loads((SEARCH_SKILL / "evals" / "search.json").read_text(encoding="utf-8"))
     serialized = json.dumps(spec)
     adapter = SEARCH_ADAPTER.read_text(encoding="utf-8")
@@ -280,6 +392,7 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts() -> None:
     # Path-selection search steps must not hand the agent the path and flags:
     # choosing the path is what the check measures. Contract steps (k8s, rtsp)
     # are explicitly "show the commands", so naming the CLI there is the point.
+    adapter_module.generate_task("RTXPRO6000BW", "search", spec, tmp_path, SEARCH_SKILL, None, None, None)
     contract_indices = {
         i
         for i, e in enumerate(spec["expects"])
@@ -292,8 +405,9 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts() -> None:
     for i, expect in enumerate(spec["expects"]):
         if expect.get("role") != "search" or i in contract_indices:
             continue
-        q = expect["query"].lower()
-        assert "vss search run" not in q, f"step {i + 1} prompt reveals the path"
+        q = (tmp_path / f"search/rtxpro6000bw/step-{i + 1}/instruction.md").read_text().lower()
+        for path in ("embed", "attribute", "fusion", "object", "tag"):
+            assert f"run {path}" not in q, f"step {i + 1} prompt reveals the path"
         assert "--video-source" not in q, f"step {i + 1} prompt reveals --video-source"
         assert "--source-type" not in q, f"step {i + 1} prompt reveals --source-type"
 
@@ -337,6 +451,8 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts() -> None:
     assert "documented host-reachable fallback" in adapter
     assert "explicitly label the media URLs host-local" in adapter
     assert "disables redirects" in deployment_query
+    assert len(spec["expects"][1]["checks"]) == 3
+    assert not any("evaluation verifier" in check.lower() for check in spec["expects"][1]["checks"])
 
     # The search spec no longer demands a raw Elasticsearch count from the
     # runtime skill; the verifier owns the bounded read-only index checks.
@@ -348,18 +464,23 @@ def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts() -> None:
     ]
     assert len(verification_steps) == 1
     assert any(
-        "at most one additional request only to repair malformed structured output" in check
+        "at most one additional request" in check and "repair malformed structured output" in check
         for check in verification_steps[0]["checks"]
     )
     assert "ask_video_skill_dir" in adapter
     assert '(ask_video_skill_dir, "vss-ask-video")' in adapter
 
     forklift_checks = spec["expects"][3]["checks"]
-    assert any("one bounded critic attempt for every returned forklift hit" in check for check in forklift_checks)
+    assert any("default critic behavior for every returned forklift hit" in check for check in forklift_checks)
 
-    # The ban exists to stop invented hostnames, but the correction it mandates
-    # builds the documented one — an unscoped prohibition contradicts it.
-    assert "do not invent a hostname" in serialized
+    # Public-link absence permits a supplied host origin, never an invented hostname.
+    assert "without inventing hostnames" in serialized.lower()
+
+    # The verification step is self-contained: it supplies an explicit bounded
+    # hit so a fresh agent turn can act without prior-step display state.
+    verification = next(e for e in spec["expects"] if e.get("scenario") == "confirmed-search-result-verification")
+    assert "2025-01-01T00:00:00Z" in verification["query"]
+    assert "2025-01-01T00:00:20Z" in verification["query"]
 
 
 def test_search_routing_eval_handles_exit6_and_negative_triggers() -> None:
@@ -379,12 +500,19 @@ def test_search_routing_eval_handles_exit6_and_negative_triggers() -> None:
     assert any("does not rerun" in behavior for behavior in exit6["expected_behavior"])
     assert any("reports" in behavior and "once" in behavior for behavior in exit6["expected_behavior"])
 
-    # New: pure ingestion and pure deletion route to the source-management skill,
-    # not to the search skill.
+    no_data = by_id["search-archive-exit6-without-data"]
+    assert "without data" in no_data["ground_truth"].lower()
+    assert any("supplied failure" in item for item in no_data["expected_behavior"])
+
+    # Pure ingestion and deletion do not activate the search skill.
     for neg_id in ("search-archive-ingest-only", "search-archive-delete-only"):
         case = by_id[neg_id]
         assert case.get("should_trigger") is False
-        assert "vss-manage-video-io-storage" in case["ground_truth"]
+        assert "search skill" in case["ground_truth"]
+
+    combined = by_id["search-archive"]
+    assert "`vss vios add`" in combined["ground_truth"]
+    assert "Agent-tier guard" not in json.dumps(combined)
 
     # The RTSP routing case no longer requires a direct Elasticsearch count.
     rtsp = by_id["search-archive-rtsp-live-stream"]
@@ -394,13 +522,14 @@ def test_search_routing_eval_handles_exit6_and_negative_triggers() -> None:
     assert any("does not poll a search index directly" in behavior for behavior in rtsp["expected_behavior"])
 
 
-def test_public_probe_rejects_redirects_and_accepts_vst_json(tmp_path: Path) -> None:
+def test_origin_selector_uses_one_bounded_probe_and_declared_host_fallback(tmp_path: Path) -> None:
     selector = SEARCH_SKILL / "scripts" / "select_brev_origin.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_curl = fake_bin / "curl"
     fake_curl.write_text(
         """#!/usr/bin/env bash
+printf '%s\\n' "$@" >>"${CURL_ARGS}"
 count=$(cat "${CURL_COUNT}" 2>/dev/null || printf '0')
 printf '%s' "$((count + 1))" >"${CURL_COUNT}"
 output=
@@ -410,15 +539,30 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%s' "${CURL_BODY}" >"${output}"
 printf '%s' "${CURL_STATUS}"
+exit "${CURL_EXIT:-0}"
 """
     )
     fake_curl.chmod(0o755)
-
-    def run_probe(status: int, body: str, expected_origin: str) -> None:
-        count_file = tmp_path / f"count-{status}"
+    cases = [
+        ("", "000", "", 0, "host-local"),
+        ("https://public.example/", "000", "", 7, "host-local"),
+        ("https://public.example/", "302", "<html>login</html>", 0, "host-local"),
+        ("https://public.example/", "503", "{}", 0, "host-local"),
+        ("https://public.example/", "200", "not-json", 0, "host-local"),
+        ("https://public.example/", "200", '{"type":"vst"}', 0, "host-local"),
+        ("https://public.example/", "200", '{"type":"vst","version":3}', 0, "host-local"),
+        ("https://public.example/", "200", '{"type":"not-vst","version":"3.2.0"}', 0, "host-local"),
+        ("https://public.example/", "200", '{"type":"vst","version":""}', 0, "host-local"),
+        ("https://public.example/", "200", '{"type":"vst","version":"3.2.0"}', 0, "public"),
+        ("https://public.example:8443/", "200", '{"type":"vst","version":"3.2.0"}', 0, "public"),
+        ("https://[2001:db8::1]:8443/", "200", '{"type":"vst","version":"3.2.0"}', 0, "public"),
+    ]
+    for number, (public, status, body, transport_exit, scope) in enumerate(cases):
+        count_file = tmp_path / f"count-{number}"
+        args_file = tmp_path / f"args-{number}"
         completed = subprocess.run(
-            [str(selector), "https://public.example", "http://10.0.0.1:7777"],
-            check=True,
+            [str(selector), public, "http://deployment.example:7777/"],
+            check=False,
             capture_output=True,
             text=True,
             env={
@@ -426,14 +570,103 @@ printf '%s' "${CURL_STATUS}"
                 "PATH": f"{fake_bin}:{os.environ['PATH']}",
                 "CURL_BODY": body,
                 "CURL_COUNT": str(count_file),
-                "CURL_STATUS": str(status),
+                "CURL_ARGS": str(args_file),
+                "CURL_STATUS": status,
+                "CURL_EXIT": str(transport_exit),
             },
         )
-        assert json.loads(completed.stdout)["origin"] == expected_origin
+        assert completed.returncode == 0, (number, completed.stderr)
+        expected_origin = public.removesuffix("/") if scope == "public" else "http://deployment.example:7777"
+        assert json.loads(completed.stdout) == {"origin": expected_origin, "media_scope": scope}
+        if not public:
+            assert not count_file.exists()
+            assert not args_file.exists()
+            continue
         assert count_file.read_text() == "1"
+        args = args_file.read_text().splitlines()
+        assert args[args.index("--connect-timeout") + 1] == "5"
+        assert args[args.index("--max-time") + 1] == "15"
+        assert args[args.index("--max-redirs") + 1] == "0"
+        assert "-L" not in args and "--location" not in args
+        assert args[-1] == f"{public.removesuffix('/')}/vst/api/v1/sensor/version"
 
-    run_probe(302, "<html>login</html>", "http://10.0.0.1:7777")
-    run_probe(200, '{"type":"vst","version":"3.2.0"}', "https://public.example")
+
+def test_origin_selector_rejects_invalid_public_origins_before_probe(tmp_path: Path) -> None:
+    selector = SEARCH_SKILL / "scripts" / "select_brev_origin.sh"
+    fake_curl = tmp_path / "curl"
+    fake_curl.write_text(
+        """#!/usr/bin/env bash
+printf called >"${CURL_CALLED}"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then shift; output=$1; fi
+  shift
+done
+printf '%s' '{"type":"vst","version":"3.2.0"}' >"${output}"
+printf 200
+"""
+    )
+    fake_curl.chmod(0o755)
+    for public in (
+        "http://public.example",
+        "ftp://public.example",
+        "public.example",
+        "https://",
+        "https:///",
+        "https://public.example/path",
+        "https://public.example?query=value",
+        "https://public.example#fragment",
+        "https://public.example/path/",
+        "https://public.example invalid",
+    ):
+        called = tmp_path / "curl-called"
+        completed = subprocess.run(
+            [str(selector), public, "http://deployment.example:7777/"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "PATH": f"{tmp_path}:{os.environ['PATH']}",
+                "CURL_CALLED": str(called),
+            },
+        )
+        assert completed.returncode == 0, (public, completed.stderr)
+        assert json.loads(completed.stdout) == {
+            "origin": "http://deployment.example:7777",
+            "media_scope": "host-local",
+        }, public
+        assert completed.stderr, public
+        assert not called.exists(), public
+
+
+def test_origin_selector_failures_have_empty_stdout(tmp_path: Path) -> None:
+    selector = SEARCH_SKILL / "scripts" / "select_brev_origin.sh"
+    fake_curl = tmp_path / "curl"
+    fake_curl.write_text('#!/bin/sh\nprintf called >"${CURL_CALLED}"\nexit 99\n')
+    fake_curl.chmod(0o755)
+    for args in (
+        [],
+        ["https://public.example"],
+        ["", ""],
+        ["https://public.example", ""],
+        ["https://public.example", "/"],
+        ["", "http://deployment.example", "extra"],
+    ):
+        completed = subprocess.run(
+            [str(selector), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "PATH": f"{tmp_path}:{os.environ['PATH']}",
+                "CURL_CALLED": str(tmp_path / "curl-called"),
+            },
+        )
+        assert completed.returncode != 0, args
+        assert completed.stdout == "", args
+        assert completed.stderr, args
+        assert not (tmp_path / "curl-called").exists(), args
 
 
 def test_search_adapter_bundles_ask_video_and_emits_role_metadata(tmp_path: Path) -> None:
@@ -471,7 +704,7 @@ def test_search_adapter_bundles_ask_video_and_emits_role_metadata(tmp_path: Path
     verification_step = tmp_path / "search/rtxpro6000bw/step-7"
     assert (verification_step / "skills/vss-ask-video/SKILL.md").is_file()
     instruction = (verification_step / "instruction.md").read_text(encoding="utf-8")
-    assert "explicit post-results confirmation" in instruction
+    assert "supplied synthetic, unverified bounded hit" in instruction
 
     # Deletion is the terminal cleanup step (moved from step 8 to step 11).
     cleanup_step = tmp_path / "search/rtxpro6000bw/step-11"
@@ -521,3 +754,71 @@ def test_search_adapter_solve_script_matches_role(tmp_path: Path) -> None:
     # A setup-role gold solution still depends on a live deployment.
     setup_solve = (tmp_path / "search/rtxpro6000bw/step-1/solution/solve.sh").read_text(encoding="utf-8")
     assert "/health" in setup_solve
+
+
+def test_search_adapter_test_script_probes_es_for_setup_and_cleanup(tmp_path: Path) -> None:
+    subprocess.run(
+        [
+            "python3",
+            str(SEARCH_ADAPTER),
+            "--output-dir",
+            str(tmp_path),
+            "--skill-dir",
+            str(SEARCH_SKILL),
+            "--deploy-skill-dir",
+            str(REPOSITORY_ROOT / "skills/vss-build-vision-ai"),
+            "--video-io-skill-dir",
+            str(REPOSITORY_ROOT / "skills/operations/vss-manage-video-io-storage"),
+            "--ask-video-skill-dir",
+            str(ASK_VIDEO_SKILL),
+            "--spec",
+            str(SEARCH_SKILL / "evals/search.json"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    # The verifier — not the agent — owns the read-only Elasticsearch tuple
+    # checks for the persisted setup (ingest) and cleanup (delete) steps, so the
+    # agent is never told to poll ES. Search and contract steps delegate to the
+    # generic LLM judge alone.
+    ingest_test = (tmp_path / "search/rtxpro6000bw/step-2/tests/test.sh").read_text(encoding="utf-8")
+    cleanup_test = (tmp_path / "search/rtxpro6000bw/step-11/tests/test.sh").read_text(encoding="utf-8")
+    search_test = (tmp_path / "search/rtxpro6000bw/step-4/tests/test.sh").read_text(encoding="utf-8")
+    assert "es_count" in ingest_test and "/_count" in ingest_test
+    assert "es_count" in cleanup_test and "/_count" in cleanup_test
+    assert "SECONDS + 900" in ingest_test
+    assert "SECONDS + 600" in cleanup_test
+    assert "|| printf '0'" not in ingest_test
+    assert "|| printf '0'" not in cleanup_test
+    for script in (ingest_test, cleanup_test, search_test):
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    # A failed backend count must stay a failure: zero is a valid cleanup
+    # count, so converting transport errors to zero would falsely pass cleanup.
+    count_function = ingest_test.split("es_count() {", 1)[1].split("\n}", 1)[0]
+    failed_count = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "set -o pipefail\nes_count() {" + count_function + "\n}\n"
+            "ES_URL=http://127.0.0.1:1\nes_count idx field value",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert failed_count.returncode != 0
+    assert not failed_count.stdout.strip()
+    # Setup preserves the UUID under the current deployment's config identity;
+    # cleanup uses it for the embedding tuple after VST has removed the sensor.
+    assert "warehouse-ladder" in cleanup_test
+    assert "state_file" in ingest_test and "state_file" in cleanup_test
+    assert 'LADDER_UUID=$(cat "${STATE_FILE}")' in cleanup_test
+    assert 'es_count "${EMBED_IDX}" sensor.id.keyword "${LADDER_UUID}"' in cleanup_test
+    # Search-role steps never get the ES probe.
+    assert "es_count" not in search_test and "/_count" not in search_test
+    # Every step still falls through to the generic LLM judge.
+    assert "generic_judge.py" in ingest_test
+    assert "generic_judge.py" in cleanup_test
+    assert "generic_judge.py" in search_test

@@ -158,7 +158,7 @@ repository organisation only and never appears in the installed path or in the
 
 | Skill | Layer | Description |
 |---|---|---|
-| [vss-search-archive](operations/vss-search-archive/SKILL.md) | 3 | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; also ingests files/RTSP for search. |
+| [vss-search-archive](operations/vss-search-archive/SKILL.md) | 3 | Search video archives with natural language using multi-embedding fusion (Cosmos-Embed1) plus CV attribute matching; hands file/RTSP source registration to `vss-manage-video-io-storage`. |
 | [vss-summarize-video](operations/vss-summarize-video/SKILL.md) | 3 | Summarize a recorded video via chunking, dense captioning, and aggregation using the Long Video Summarization (LVS) microservice (HITL-gated, VLM fallback). |
 | [vss-ask-video](operations/vss-ask-video/SKILL.md) | 3 | Route video questions through hot conversation context, agent Markdown memory, structured VSS memory, bounded memory introspection, or a direct `vss vlm run` for an explicitly scoped fresh inspection. |
 | [vss-generate-video-report](operations/vss-generate-video-report/SKILL.md) | 3 | Produce a formatted markdown report through one of three backends — per-clip VLM, delegating to `vss-summarize-video` when LVS is ready or the clip is 120 seconds or longer (Mode A), incident-range via `vss-query-analytics` (Mode B), or SOP compliance via the SOP tools (Mode C). Never via the VSS agent's `/generate`. |

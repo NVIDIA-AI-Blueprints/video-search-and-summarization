@@ -14,12 +14,23 @@ through ask-video's ordinary user-supplied `VIDEO_URL` interface.
 ## Resolve the bounded clip
 
 For each hit, require the exact `sensor_id`, `start_time`, and `end_time`
-returned by the CLI. Validate the sensor identifier before placing it in a URL,
-resolve its main stream from VST, and request only the hit interval. Use
-`--data-urlencode` so timestamp text is data rather than shell syntax:
+returned by the CLI. Validate the sensor identifier, resolve its recorded
+timeline through the CLI, and request only the hit interval. Quote each
+timestamp argument so its text is data rather than shell syntax:
 
 ```bash
-: "${VST_URL:?resolved deployment origin}"
+if CONFIG_JSON=$(vss configure show); then
+  CONFIG_STATUS=0
+else
+  CONFIG_STATUS=$?
+  echo "Deployment configuration unavailable (exit ${CONFIG_STATUS})" >&2
+  exit "${CONFIG_STATUS}"
+fi
+VST_URL=$(printf '%s' "${CONFIG_JSON}" |
+  jq -er '.base_url | select(type == "string" and length > 0)') || {
+  echo "Deployment configuration has no nonempty base_url" >&2
+  exit 1
+}
 : "${HIT_SENSOR_ID:?exact CLI sensor_id}"
 : "${HIT_START:?exact CLI start_time}"
 : "${HIT_END:?exact CLI end_time}"
@@ -69,7 +80,11 @@ a cached/local copy.
 
 ## Invoke ordinary ask-video
 
-Pass the complete original visual intent and the resolved `VIDEO_URL`. Constrain the
+Before invoking the VLM, derive a nonempty set of expected criteria from the
+original user request: the requested subject/properties, action, and relations.
+Fix their exact keys before viewing evidence; do not let the VLM choose or drop
+criteria. Pass those keys, the complete original visual intent, and the resolved
+`VIDEO_URL`. Constrain the
 VLM to analyze only that bounded clip, ignore scores, filenames, object IDs,
 and other retrieval metadata, and return exactly one JSON object whose `result`
 field is **only** one of `confirmed`, `rejected`, or `unverified` — never
@@ -89,7 +104,17 @@ free-text verdict prose:
 
 Require `result` to be **exactly** `confirmed`, `rejected`, or `unverified`
 (reject any other string or prose paragraph as malformed and retry once
-for repair); ignore any JSON embedded in hidden reasoning or surrounding prose. A valid semantic `unverified`
+for repair); require `criteria_met` to be a nonempty object with boolean values,
+with exactly the expected criteria keys (no missing or unexpected keys).
+Accept `confirmed` only when every criterion is `true`; accept `rejected` only
+when at least one criterion is `false`. A confirmed response with a false
+criterion, a rejected response with all true criteria, or different criteria
+keys is inconsistent and malformed. Require `evidence` to be a nonempty string,
+and `media_evaluated` to be exactly `true`
+before accepting any verdict. Treat missing or malformed fields as malformed
+structured output and use the same single repair allowance; do not promote an
+unverified hit to confirmed or rejected on invalid evidence. Ignore any JSON
+embedded in hidden reasoning or surrounding prose. A valid semantic `unverified`
 is a completed visual check and must not trigger fallback.
 
 Replace only that hit's prior `unverified` state with the validated result.

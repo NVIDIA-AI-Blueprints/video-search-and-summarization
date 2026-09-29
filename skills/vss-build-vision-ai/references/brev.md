@@ -124,7 +124,50 @@ path.
 Ports that should NOT get their own secure link (they're behind HAProxy):
 3000 (UI), 8000 (Agent), 30888 (VST).
 
+### Search Harbor eval origin selection
+<a id="host-local-search-eval"></a>
+
+The host-side search Harbor eval accepts the deployment's host origin when
+published links are missing or unreachable. This allows retrieval, ingestion,
+and cleanup to run on eval workers without public links. Report missing ports
+or unreadable context explicitly. The browser-facing deployment flow below
+still requires the links in the profile table; a host-local eval result does
+not establish public browser access.
+
+Select this branch **during preflight**, only when the caller explicitly
+authorizes a host-side Search Harbor eval. When required published links are
+missing or the context is unreadable, skip the browser-only secure-link overrides
+in *Setup flow* and the external browser verification below. Keep the
+deployment's local `HOST_IP` / `EXTERNAL_IP` settings and their dependent-value
+closure from [`composition.md`](composition.md); do not replace them with an
+unavailable FQDN. Continue through [`deployment.md`](deployment.md) and the local
+Search checks in [`readiness.md`](readiness.md). Missing public links do not
+fail this branch. The completed workflow supplies the host origin to the
+selector; operate skills do not construct it.
+
+After local deployment readiness, pass the published HTTPS origin for 7777
+(or an empty string when none is available) and the **host origin supplied by
+the deployment workflow** to
+[`select_brev_origin.sh`](../../operations/vss-search-archive/scripts/select_brev_origin.sh).
+Never guess a Brev hostname, construct a replacement endpoint, or modify ports.
+The selector validates each public candidate as an HTTPS origin before probing;
+a non-HTTPS or malformed candidate selects host-local scope without a request.
+For a valid HTTPS candidate, it makes one bounded request to
+`/vst/api/v1/sensor/version`, without following redirects. HTTP 200 with JSON
+`type: "vst"` and a nonempty string `version` selects the public origin with
+`media_scope: "public"`. Missing candidates, transport errors, redirects,
+authentication pages, and invalid JSON select the supplied host origin with
+`media_scope: "host-local"`. A missing host origin or invalid invocation fails
+with empty stdout. Check the exit status, configure `vss` with the returned
+`origin`, and report `media_scope`. Host-local media URLs are usable from the
+eval host and must not be advertised as public links. Do not retry the selector
+or repair routing during ingestion or search.
+
 ## Setup flow
+
+This recipe configures a browser-facing deployment. For an explicitly authorized host-local search eval,
+select [the eval branch](#host-local-search-eval) before executing this recipe;
+its missing-link stop does not apply to that branch.
 
 Before resolving Compose, set the Brev secure-link values in the build's
 `_builds/<name>/override.env`. **`EXTERNAL_IP` alone is not enough** — the Brev secure

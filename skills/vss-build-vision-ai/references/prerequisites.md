@@ -233,8 +233,14 @@ bridge→host probe in [`troubleshooting.md`](troubleshooting.md#vlm-500--fetch_
 **Detect Brev before choosing an address below — file check, not a question.**
 A Brev instance publishes an environment context file mapping each exposed port
 to its FQDN, and sets `BREV_ENV_ID` in `/etc/environment`. On a hit,
-[`brev.md`](brev.md) owns the browse address: its secure-link values are
-mandatory, and no LAN or public/elastic IP is offered as an option.
+[`brev.md`](brev.md) owns the access-mode decision. For a browser-facing deployment,
+its secure-link values are mandatory, and no LAN or public/elastic IP is offered
+as an option. For an explicitly authorized host-side Search Harbor eval,
+select [`the host-local eval branch`](brev.md#host-local-search-eval) during
+preflight when links are missing or unreadable: keep the deployment's local
+host settings and skip the browser-only address selection below. Public links
+are not a prerequisite for that branch; local reachability and readiness still
+apply.
 
 ```bash
 BREV_CTX="${BREV_ENVIRONMENT_CONTEXT_PATH:-/etc/brev/environment-context.json}"
@@ -243,7 +249,7 @@ jq -e '.ports' "$BREV_CTX" 2>/dev/null \
   || echo "not a Brev instance"
 ```
 
-Take the browse host from that file's `fqdn` for the ingress port
+For browser-facing access, take the browse host from that file's `fqdn` for the ingress port
 ([`brev.md`](brev.md) → *Resolving a secure link*). Never assemble one from
 `BREV_ENV_ID` and a domain.
 
@@ -259,7 +265,8 @@ internal one:
 |---|---|
 | Plain LAN | same as `HOST_IP` (the LAN IP) |
 | Cloud VM (AWS/GCP/Azure) | the **public/elastic IP** — **not on the NIC** (provider NAT, so `ip route`/`ip addr` can't see it). Read from instance metadata, e.g. AWS IMDSv1: `curl -s --max-time 2 http://169.254.169.254/latest/meta-data/public-ipv4` (`--max-time` so it fails fast off-AWS; IMDSv2-only instances must first fetch an `X-aws-ec2-metadata-token`). **Prompt the user** to confirm the public IP and that the security group opens the port. |
-| Brev | the secure-link FQDN the environment context file publishes for the ingress port — resolved, not constructed (`brev.md`) |
+| Brev, browser-facing | the secure-link FQDN the environment context file publishes for the ingress port — resolved, not constructed (`brev.md`) |
+| Brev, explicitly authorized host-side Search Harbor eval without published links | retain the deployment's local host setting; follow [`the host-local eval branch`](brev.md#host-local-search-eval) |
 | Reach over a tunnel | the tunnel address (Tailscale `100.x`, cloudflared/ngrok hostname) |
 
 A private `192.168.x` / `10.x` `EXTERNAL_IP` (including a GlobalProtect VPN IP) is

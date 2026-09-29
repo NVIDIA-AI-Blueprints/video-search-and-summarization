@@ -129,15 +129,14 @@ OPERATION_PREAMBLE = (
     "the requested source is not registered, follow the skill's missing-source rule: list "
     "registered sources, report the missing source, and stop without silently substituting "
     "another source or invoking the search CLI. For a resolved search request, decompose the request, "
-    "preserve the exact original user sentence in `--original-query`, select one "
-    "retrieval path, and pass it as the sub-action of `run` -- `run embed` for a text query, "
-    "`run attribute` for attributes only, `run fusion` for both, `run object` for tracked ids, "
-    "`run tag` for explicit lexical/tag intent -- "
-    "then run `vss search run <path>` with no endpoint, index "
-    "or model flags (they come from `vss configure`). Pass the resolved identifier with "
-    "`--video-source` (sensor ID for `embed` and `fusion`, name for `attribute` and `object`; `tag` resolves a name to its sensor ID), "
-    "select the partition with `--source-type video_file` for these uploaded fixtures, and pass any result "
-    "limit as `--top-k`. Build the invocation in a bash array, capture its stdout and exit status separately, and branch on the CLI's typed exit status: exit 0 and exit 6 both carry usable `data` (exit 6 means a later stage such as persistence failed -- report the hits and the limitation, and do not rerun); other nonzero exits are typed failures (2 invalid input, 3 backend unreachable, 4 configuration or missing service, 5 not found) -- report the exit and stop. Read `search_messages` when present; do not put the command behind `if !`, which hides the real exit code. "
+    "preserve the exact original user sentence and follow the bundled search skill's dispatcher, "
+    "path-specific flags, and configuration-refresh rules. Build the invocation in a bash array, "
+    "capture stdout and exit status separately, and branch on the CLI's typed exit status: "
+    "exit 0 carries the completed result; exit 6 carries usable hits only when `data` exists. "
+    "With exit 6 and `data`, report the hits and supplied limitation once; without `data`, report "
+    "the supplied failure without inventing hits. Do not rerun or retry an individual stage. "
+    "On exit 2, read the selected path's `--help` once and correct the invalid invocation; "
+    "report other typed failures and stop. Read `search_messages` when present. "
     "The CLI automatically attempts critic verification when the configured deployment "
     "exposes VST and RT-VLM; preserve each hit's `critic_result.result` as confirmed, rejected, or "
     "unverified, reporting a null `critic_result` as unverified. "
@@ -154,8 +153,8 @@ OPERATION_PREAMBLE = (
 VERIFICATION_PREAMBLE = (
     PREAMBLE
     + " The search profile and fixtures remain prepared from earlier steps. This is an explicit "
-    "post-results confirmation for one already-displayed, unverified bounded hit. Do not rerun "
-    "search, deploy, ingest, delete, or inspect screenshot pixels. Use the exact bounded interval and source of the earlier displayed unverified hit; load the search-result verification reference to resolve exactly that bounded clip through the configured origin. Invoke the bundled "
+    "confirmation for the supplied synthetic, unverified bounded hit. Do not rerun "
+    "search, deploy, ingest, delete, or inspect screenshot pixels. Use the supplied synthetic file-search interval and source of the unverified hit; load the search-result verification reference to map it onto the recorded file timeline while preserving its duration, then resolve only that bounded clip through the configured origin. Invoke the bundled "
     "vss-ask-video skill through its ordinary pre-resolved `VIDEO_URL` path. Ask it to evaluate only "
     "that clip against the complete supplied visual intent and return the structured result contract. "
     "Validate `result`, boolean `criteria_met`, nonempty `evidence`, and `media_evaluated: true`. Make one "
@@ -172,29 +171,15 @@ VERIFICATION_PREAMBLE = (
 KUBERNETES_INGRESS_CONTRACT_PREAMBLE = (
     PREAMBLE
     + " This step is a read-only Kubernetes Ingress contract check. Do not deploy, "
-    "redeploy, execute the example commands, inspect a cluster, or reuse the Docker "
-    "deployment from earlier steps. Kubernetes and Compose use the same commands and "
-    "differ only in the origin: `vss configure --base-url <origin>` runs once, source "
-    "listing is `vss vios list`, and search is `vss search run <path>`. Do not use "
-    "kubectl, port-forward, Service DNS, NodePorts, localhost ports, or direct "
-    "Elasticsearch/RTVI access. Your answer must also say what happens when the Ingress "
-    "does not expose a route: `vss configure` records it as absent, and a search path "
-    "needing it exits 4. That is the answer — do not propose exposing or forwarding the "
-    "route instead."
+    "execute the example commands, inspect a cluster, or reuse earlier deployment state. "
+    "Use the bundled skill to explain the requested host-side workflow and missing-route behavior."
 )
 
 RTSP_LIVE_STREAM_CONTRACT_PREAMBLE = (
     PREAMBLE
     + " This step is a read-only live-stream search contract check. Do not deploy, "
-    "redeploy, ingest, add or delete a stream, execute the example commands, or reuse "
-    "earlier deployment state; show the exact host-side commands only. Resolve the "
-    "registered live stream to its exact identity through the configured origin's VST "
-    "route first. Search with `vss search run embed` using the resolved sensor ID as "
-    "`--video-source` and `--source-type rtsp`, which selects the "
-    "live-stream partition (the family wildcard minus the pinned uploads anchor) so "
-    "uploaded-file hits are excluded regardless of ingestion order. Pass no endpoint, "
-    "index, or model flags. Do not poll a date-stamped index or claim the live stream's "
-    "documents live in the uploads anchor."
+    "ingest, add or delete a stream, execute examples, or reuse earlier deployment state. "
+    "Use the bundled skill to show the requested host-side workflow and explain partition selection."
 )
 
 CLEANUP_PREAMBLE = (
@@ -203,8 +188,9 @@ CLEANUP_PREAMBLE = (
     "Resolve the fixture source and save its UUID and canonical name first, then require "
     "`vss vios delete --type video --sensor <name>` to succeed using the resolved name (the "
     "deployment's `camera_remove` webhooks withdraw consumers and clean the anchor indexes). "
-    "Never use the Agent `DELETE /api/v1/videos/<id>` or a bare VIOS/storage DELETE. Reuse the index "
-    "names from `vss configure show`. The evaluation verifier makes the bounded read-only checks that "
+    "Never use the Agent `DELETE /api/v1/videos/<id>` or a bare VIOS/storage DELETE. Confirm absence "
+    "with `vss vios list` after the CLI returns; do not wrap it in a retry loop. The evaluation verifier "
+    "makes the bounded read-only checks that "
     "the source is gone from VST and that the distinct embedding, behavior, and raw index tuples reach "
     "zero; the agent does not build an Elasticsearch endpoint or poll an index itself."
 )
@@ -230,19 +216,120 @@ def _peer_skill_dir(skill_dir: Path, name: str) -> Path | None:
     return None
 
 
-def generate_test_script(step: int, spec_name: str) -> str:
-    """Wrapper that invokes the generic judge for one step's checks."""
+# Scripted Elasticsearch tuple verification for persisted setup and cleanup.
+# Webhook indexing and withdrawal are asynchronous. Keep their bounded waits
+# in the verifier, never in the search skill or the evaluated agent's prompt.
+_ES_TUPLE_PROBE = """es_count() {
+  curl -fsS --connect-timeout 5 --max-time 15 -H 'Content-Type: application/json' "${ES_URL%/}/$1/_count" -d "$(jq -cn --arg f "$2" --arg v "$3" '{query:{term:{($f):$v}}}')" | jq -er '.count | numbers'
+}
+bounded_vios_list() {
+  local remaining=$((deadline - SECONDS))
+  (( remaining > 0 )) || return 124
+  timeout --kill-after=5s "${remaining}s" vss vios list
+}
+CONFIG_JSON=$(vss configure show 2>/dev/null) || { echo "vss not configured — cannot verify fixture indexing" >&2; exit 1; }
+ES_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.services.elasticsearch.url') || { echo "ES url missing from config" >&2; exit 1; }
+EMBED_IDX=mdx-embed-filtered-2025-01-01
+BEHAV_IDX=mdx-behavior-2025-01-01
+RAW_IDX=mdx-raw-2025-01-01
+state_file() {
+  local key origin
+  origin=$(printf '%s' "${CONFIG_JSON}" | jq -er '.base_url') || return 1
+  key=$(printf '%s\\0%s\\0%s' "${origin}" "${GITHUB_RUN_ID:-local}" "${EVAL_SLUG:-vss-search-archive}" | sha256sum | cut -d' ' -f1) || return 1
+  printf '/tmp/skill-eval/fixture-state/%s/ladder.uuid\\n' "${key}"
+}
+"""
+
+_INGEST_ASSERT = """
+deadline=$((SECONDS + 900))
+while :; do
+  SENSORS=$(bounded_vios_list 2>/dev/null) || { echo "vss vios list failed or exceeded fixture deadline" >&2; exit 1; }
+  SAMPLE_UUID=$(printf '%s' "${SENSORS}" | jq -r '.sensors[] | select(.name == "warehouse_sample") | .sensor_id // empty')
+  LADDER_UUID=$(printf '%s' "${SENSORS}" | jq -r '.sensors[] | select(.name == "warehouse-ladder") | .sensor_id // empty')
+  if [ -n "${SAMPLE_UUID}" ] && [ -n "${LADDER_UUID}" ] &&
+     SAMPLE_EMBED=$(es_count "${EMBED_IDX}" sensor.id.keyword "${SAMPLE_UUID}") &&
+     LADDER_EMBED=$(es_count "${EMBED_IDX}" sensor.id.keyword "${LADDER_UUID}") &&
+     LADDER_BEHAVIOR=$(es_count "${BEHAV_IDX}" sensor.id.keyword "warehouse-ladder") &&
+     LADDER_RAW=$(es_count "${RAW_IDX}" sensorId.keyword "warehouse-ladder") &&
+     (( SAMPLE_EMBED > 0 && LADDER_EMBED > 0 && LADDER_BEHAVIOR > 0 && LADDER_RAW > 0 )); then
+    printf 'fixture indexed: embed=%s,%s behavior=%s raw=%s\\n' "${SAMPLE_EMBED}" "${LADDER_EMBED}" "${LADDER_BEHAVIOR}" "${LADDER_RAW}"
+    break
+  fi
+  if (( SECONDS >= deadline )); then
+    echo "fixture indexing did not converge within 900s" >&2
+    exit 1
+  fi
+  sleep 5
+done
+# Refresh the local inventory after the lazy indexes are observed, so later
+# search steps see the raw index and the judge can inspect the distinct names.
+BASE_URL=$(printf '%s' "${CONFIG_JSON}" | jq -er '.base_url') || exit 1
+vss configure --base-url "${BASE_URL}" >/dev/null 2>&1 || exit 1
+CONFIG_JSON=$(vss configure show) || exit 1
+printf '%s' "${CONFIG_JSON}" | jq -e --arg a "${EMBED_IDX}" --arg b "${BEHAV_IDX}" --arg c "${RAW_IDX}" '[.services.elasticsearch.indices[]] | (index($a) != null and index($b) != null and index($c) != null)' >/dev/null || exit 1
+STATE_FILE=$(state_file) || exit 1
+mkdir -p "$(dirname "${STATE_FILE}")" || exit 1
+printf '%s\\n' "${LADDER_UUID}" > "${STATE_FILE}" || exit 1
+
+"""
+
+_CLEANUP_ASSERT = """
+STATE_FILE=$(state_file) || exit 1
+[ -r "${STATE_FILE}" ] || { echo "missing ladder UUID from fixture setup" >&2; exit 1; }
+LADDER_UUID=$(cat "${STATE_FILE}") || exit 1
+[[ "${LADDER_UUID}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "invalid saved ladder UUID" >&2; exit 1; }
+deadline=$((SECONDS + 600))
+while :; do
+  SENSORS=$(bounded_vios_list 2>/dev/null) || { echo "vss vios list failed or exceeded fixture deadline" >&2; exit 1; }
+  LADDER_PRESENT=$(printf '%s' "${SENSORS}" | jq -r 'any(.sensors[]; .name == "warehouse-ladder")')
+  if [ "${LADDER_PRESENT}" = false ] &&
+     LADDER_EMBED=$(es_count "${EMBED_IDX}" sensor.id.keyword "${LADDER_UUID}") &&
+     LADDER_BEHAVIOR=$(es_count "${BEHAV_IDX}" sensor.id.keyword "warehouse-ladder") &&
+     LADDER_RAW=$(es_count "${RAW_IDX}" sensorId.keyword "warehouse-ladder") &&
+     (( LADDER_EMBED == 0 && LADDER_BEHAVIOR == 0 && LADDER_RAW == 0 )); then
+    printf 'cleanup confirmed: vst_present=%s embed=%s behavior=%s raw=%s\\n' "${LADDER_PRESENT}" "${LADDER_EMBED}" "${LADDER_BEHAVIOR}" "${LADDER_RAW}"
+    break
+  fi
+  if (( SECONDS >= deadline )); then
+    echo "fixture cleanup did not converge within 600s" >&2
+    exit 1
+  fi
+  sleep 5
+done
+
+"""
+
+
+def generate_test_script(step: int, spec_name: str, scenario: str | None = None) -> str:
+    """Verifier for one step's checks.
+
+    The persisted setup (ingest) and cleanup (delete) steps prepend a scripted,
+    read-only Elasticsearch tuple check to the generic LLM judge. The agent is
+    never told to poll ES, so the verifier owns that readiness/convergence
+    evidence and fails fast when indexing is incomplete (setup) or cleanup has
+    not converged (cleanup). Search and contract steps delegate entirely to the
+    generic judge.
+    """
+    judge = (
+        'python3 "$TEST_DIR/generic_judge.py" \\\n'
+        f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+    )
+    if scenario == "ingest-search-fixtures":
+        probe = _ES_TUPLE_PROBE + _INGEST_ASSERT
+    elif scenario == "delete-search-fixture":
+        probe = _ES_TUPLE_PROBE + _CLEANUP_ASSERT
+    else:
+        probe = ""
+    label = "scripted ES tuple check + " if probe else ""
     return (
         "#!/bin/bash\n"
-        f"# vss-search-archive verifier (step {step}): delegates to the generic\n"
-        "# LLM-as-judge (.github/skill-eval/verifiers/generic_judge.py).\n"
-        "set -euo pipefail\n"
+        f"# vss-search-archive verifier (step {step}): {label}"
+        "generic LLM-as-judge (.github/skill-eval/verifiers/generic_judge.py).\n"
+        "set -uo pipefail\n"
         "\n"
         'TEST_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
         "python3 -m pip install --quiet 'anthropic>=0.40.0' >/dev/null 2>&1 || true\n"
-        "\n"
-        'python3 "$TEST_DIR/generic_judge.py" \\\n'
-        f'    --spec "$TEST_DIR/{spec_name}" --step {step}\n'
+        "\n" + probe + judge
     )
 
 
@@ -389,10 +476,11 @@ def _validate_spec(spec: dict) -> None:
         raise ValueError("spec.expects[1] must be the ingest-search-fixtures scenario")
     if not isinstance(expects[-1], dict) or expects[-1].get("role") != "cleanup":
         raise ValueError("the final expect must be the cleanup role")
-    _validate_role_sequence(expects)
     for index, expect in enumerate(expects, 1):
         if not isinstance(expect, dict):
             raise TypeError(f"spec.expects[{index}] must be an object")
+    _validate_role_sequence(expects)
+    for index, expect in enumerate(expects, 1):
         if not isinstance(expect.get("query"), str) or not expect["query"].strip():
             raise ValueError(f"spec.expects[{index}].query must be a non-empty string")
         checks = expect.get("checks")
@@ -547,7 +635,9 @@ def generate_task(
         # tests/
         tests_dir = step_dir / "tests"
         tests_dir.mkdir(exist_ok=True)
-        (tests_dir / "test.sh").write_text(generate_test_script(idx, spec_name))
+        (tests_dir / "test.sh").write_text(
+            generate_test_script(idx, spec_name, scenario)
+        )
         if GENERIC_JUDGE.exists():
             shutil.copy(GENERIC_JUDGE, tests_dir / "generic_judge.py")
         (tests_dir / spec_name).write_text(json.dumps(rendered_spec, indent=2) + "\n")
