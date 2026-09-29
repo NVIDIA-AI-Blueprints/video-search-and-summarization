@@ -70,6 +70,12 @@ A common root cause is Elasticsearch disk pressure. In Kibana Discover, this can
 
 If Docker marks Elasticsearch, Kibana, or Logstash as `unhealthy` during startup, that is a separate Docker health check timeout. Check the service logs first; if the service is only starting slowly, increase the affected service's `healthcheck.retries` value in `video-search-and-summarization/deploy/docker/services/infra/compose.yml` (or `deploy/docker/services/infra/compose.yml` from the deployment repository root) and redeploy.
 
+### Why is Logstash CPU usage high?
+
+Kafka-based deployments run four parallel analytics pipelines (`mdx-kafka`, `mdx-kafka-1`, `mdx-kafka-2`, and `mdx-kafka-3`), in addition to the separate `mdx-lvs` pipeline. This parallelism can increase CPU usage on hosts with fewer CPU cores.
+
+For Docker Compose deployments, reduce the analytics pipeline count in `$VSS_APPS_DIR/services/infra/elk/logstash/configs/pipelines-kafka.yml`. Comment out extra `pipeline.id` entries and their corresponding `path.config` lines, keeping at least `mdx-kafka`, then restart Logstash. Fewer pipelines can reduce CPU overhead but also reduce ingestion throughput. Leave `mdx-lvs` unchanged. Redis deployments already use one analytics pipeline.
+
 ### Why does Elasticsearch stop accepting writes or mark indices read-only when disk usage is high?
 
 Elasticsearch uses disk watermarks to protect the ELK stack from running out of disk space. One common symptom is Kibana Discover failing with `Unable to retrieve search results` and `Request timeout: "Request timed out"`. The default watermarks are:
