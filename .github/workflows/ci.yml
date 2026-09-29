@@ -312,15 +312,11 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --group dev --frozen
 
-      # --no-sync: a bare `uv run` refreshes a stale lock first, and that refresh
-      # resolves the eval group's nvdataset index on artifactory.pdx.nvidia.com.
-      # Hosted runners cannot resolve that host. The sync above already installed
-      # this environment.
       - name: ruff check
-        run: uv run --no-sync ruff check .
+        run: uv run ruff check .
 
       - name: ruff format
-        run: uv run --no-sync ruff format --check .
+        run: uv run ruff format --check .
 
       # Run from repo root so the tracked-file manifest sees YAML files
       # outside services/agent (the job's default working-directory).
@@ -412,7 +408,7 @@ jobs:
         run: uv sync --group dev --extra agent --extra cli --frozen
 
       - name: mypy
-        run: uv run --no-sync mypy packages/vss_agents/src/vss_agents
+        run: uv run mypy packages/vss_agents/src/vss_agents
 
   # ---------------------------------------------------------------------------
   # Job 3: Python tests (pytest + coverage)
@@ -461,7 +457,7 @@ jobs:
       - name: pytest
         timeout-minutes: 10
         run: |
-          uv run --no-sync pytest \
+          uv run pytest \
             --cov=packages/vss_agents/src \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
@@ -470,7 +466,7 @@ jobs:
       - name: Video summarization contracts
         working-directory: ${{ github.workspace }}
         run: |
-          uv run --no-sync --project services/agent pytest \
+          uv run --project services/agent pytest \
             .github/skill-eval/tests/test_generic_judge_trajectory_guidance.py \
             .github/skill-eval/tests/test_lvs_deployment_config.py \
             .github/skill-eval/tests/test_vss_summarize_eval_contract.py \
