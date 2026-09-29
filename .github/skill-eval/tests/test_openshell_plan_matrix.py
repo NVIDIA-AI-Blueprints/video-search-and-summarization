@@ -225,10 +225,7 @@ class OpenshellGpuFleet(unittest.TestCase):
                 plan_matrix.REPO_ROOT = original_root
 
     def test_all_current_specs_have_complete_fresh_metadata(self):
-        roots = [
-            plan_matrix.REPO_ROOT / "skills" / name
-            for name in ("operations", "deployment", "tools", "vss-build-vision-ai")
-        ]
+        roots = [plan_matrix.REPO_ROOT / "skills" / "deployment"]
         specs = []
         for root in roots:
             specs.extend(
@@ -302,10 +299,10 @@ class OpenshellGpuFleet(unittest.TestCase):
                 leg["slug"],
             )
 
-    def test_vdr_quickstart_is_pinned_to_rtx_pro_blackwell(self):
+    def test_detection_usage_is_pinned_to_rtx_pro_blackwell(self):
         path = (
-            "skills/vss-build-vision-ai/evals/"
-            "vdr_1_quickstart_vision_agent.json"
+            "skills/deployment/vss-deploy-detection-tracking-2d/evals/"
+            "usage-evals.json"
         )
         current_adapter = plan_matrix.adapter_exists
         current_platforms = plan_matrix.spec_platform_config
@@ -318,26 +315,25 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.spec_platform_config = current_platforms
         self.assertEqual(len(legs), 1)
         leg = legs[0]
-        self.assertEqual(leg["spec_stem"], "vdr_1_quickstart_vision_agent")
+        self.assertEqual(leg["spec_stem"], "usage-evals")
         self.assertEqual(
             leg["name"],
-            "vss-build-vision-ai · vdr_1_quickstart_vision_agent · gpus-1",
+            "vss-deploy-detection-tracking-2d · usage-evals · gpus-1",
         )
         self.assertEqual(
             leg["slug"],
-            "vss-build-vision-ai__vdr_1_quickstart_vision_agent__gpus-1",
+            "vss-deploy-detection-tracking-2d__usage-evals__gpus-1",
         )
         self.assertIn("gpu-rtxpro6000bw", leg["runs_on"])
         self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
 
-    def test_operations_vios_opts_into_one_gpu_fleet(self):
+    def test_operations_vios_stays_off_openshell(self):
         path = (
             "skills/operations/vss-manage-video-io-storage/evals/vios_ops.json"
         )
         requirements, error = plan_matrix.openshell_requirements(path)
-        self.assertIsNone(error)
-        self.assertEqual(requirements["gpu_count"], 1)
-        self.assertFalse(requirements.get("requires_blackwell"))
+        self.assertIsNone(requirements)
+        self.assertIn("missing openshell", error)
 
     def test_hardware_profile_identity_is_never_substituted(self):
         for profile in ("H200", "L40S", "RTXPRO6000BW"):
@@ -346,16 +342,16 @@ class OpenshellGpuFleet(unittest.TestCase):
     def test_harness_only_diff_emits_count_only_smoke_leg(self):
         inc = plan_matrix.build_matrix([".github/workflows/skills-eval.yml"])
         self.assertEqual(len(inc), 1)
-        self.assertEqual(inc[0]["skill"], "vss-ask-video")
-        self.assertEqual(inc[0]["spec_stem"], "base_profile_video_understanding")
+        self.assertEqual(inc[0]["skill"], "vss-deploy-dense-captioning")
+        self.assertEqual(inc[0]["spec_stem"], "standalone_api")
         self.assertEqual(inc[0]["gpu_count"], 1)
         self.assertEqual(
             inc[0]["slug"],
-            "vss-ask-video__base_profile_video_understanding__gpus-1",
+            "vss-deploy-dense-captioning__standalone_api__gpus-1",
         )
         self.assertEqual(
             inc[0]["name"],
-            "vss-ask-video · base_profile_video_understanding · gpus-1",
+            "vss-deploy-dense-captioning · standalone_api · gpus-1",
         )
         self.assertNotIn("rtxpro6000-2g", inc[0]["slug"])
         self.assertEqual(inc[0]["platform"], "")
@@ -379,31 +375,24 @@ class OpenshellGpuFleet(unittest.TestCase):
             None,
             "missing openshell capability metadata",
         )
-        plan_matrix.adapter_exists = lambda s: s == "vss-manage-video-io-storage"
+        plan_matrix.adapter_exists = lambda s: s == "vss-deploy-dense-captioning"
         try:
             inc = plan_matrix.build_matrix(
-                ["skills/operations/vss-manage-video-io-storage/evals/vios_ops.json"]
+                ["skills/deployment/vss-deploy-dense-captioning/evals/standalone_api.json"]
             )
         finally:
             plan_matrix.openshell_requirements = original
             plan_matrix.adapter_exists = orig_adapter
         self.assertEqual(len(inc), 1)
         self.assertEqual(inc[0]["kind"], "not_run_infra_acquisition")
-        self.assertEqual(inc[0]["skill"], "vss-manage-video-io-storage")
+        self.assertEqual(inc[0]["skill"], "vss-deploy-dense-captioning")
         self.assertIn("missing openshell capability metadata", inc[0]["skip_reason"])
 
-    def test_operations_search_is_scheduled_on_openshell(self):
-        orig_adapter = plan_matrix.adapter_exists
-        plan_matrix.adapter_exists = lambda s: s == "vss-search-archive"
-        try:
-            inc = plan_matrix.build_matrix(
-                ["skills/operations/vss-search-archive/evals/search.json"]
-            )
-        finally:
-            plan_matrix.adapter_exists = orig_adapter
-        self.assertEqual(len(inc), 1)
-        self.assertEqual(inc[0]["skill"], "vss-search-archive")
-        self.assertEqual(inc[0]["gpu_count"], 2)
+    def test_operations_search_stays_off_openshell(self):
+        inc = plan_matrix.build_matrix(
+            ["skills/operations/vss-search-archive/evals/search.json"]
+        )
+        self.assertEqual(inc, [])
 
     def test_any_skill_opts_into_openshell_by_spec(self):
         """Fleet membership is the spec, not the skill directory name."""
