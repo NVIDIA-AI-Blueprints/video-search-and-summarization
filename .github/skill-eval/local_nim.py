@@ -79,6 +79,17 @@ def tool_parser_args(model: str) -> str | None:
     """Enable tool calling for known vLLM-backed model-specific NIMs."""
     if model.startswith(("meta/llama-3.1-", "meta/llama-3.3-")):
         return "--enable-auto-tool-choice --tool-call-parser llama3_json"
+    if model == "nvidia/nemotron-3.5-lightning-30b-a3b":
+        return (
+            "--reasoning-parser nemotron_v3 "
+            "--enable-auto-tool-choice --tool-call-parser qwen3_coder"
+        )
+    if model == "nvidia/nemotron-3-ultra-550b-a55b":
+        return (
+            "--reasoning-parser-plugin ultra_v3_reasoning_parser.py "
+            "--reasoning-parser ultra_v3 "
+            "--enable-auto-tool-choice --tool-call-parser qwen3_coder"
+        )
     return None
 
 

@@ -64,6 +64,18 @@ def test_llama_nim_enables_documented_tool_parser():
     assert nim.tool_parser_args("qwen/qwen3-32b") is None
 
 
+def test_nemotron_nims_enable_documented_reasoning_and_tool_parsers():
+    assert nim.tool_parser_args("nvidia/nemotron-3.5-lightning-30b-a3b") == (
+        "--reasoning-parser nemotron_v3 "
+        "--enable-auto-tool-choice --tool-call-parser qwen3_coder"
+    )
+    assert nim.tool_parser_args("nvidia/nemotron-3-ultra-550b-a55b") == (
+        "--reasoning-parser-plugin ultra_v3_reasoning_parser.py "
+        "--reasoning-parser ultra_v3 "
+        "--enable-auto-tool-choice --tool-call-parser qwen3_coder"
+    )
+
+
 def test_architecture_mismatch_rejected_without_deployment(monkeypatch):
     registry(monkeypatch, arch="amd64")
     with pytest.raises(nim.NimError, match="supports linux/arm64"):
