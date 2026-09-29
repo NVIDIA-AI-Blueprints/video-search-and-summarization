@@ -237,7 +237,9 @@ services:
         {"name": "mdx-structured-events-summary"},
         {"name": "mdx-embed"},
         {"name": "mdx-embed-filtered"},
-        {"name": "mdx-compressed-embeddings"}]'
+        {"name": "mdx-compressed-embeddings"},
+        {"name": "vision-embed-errors"},
+        {"name": "vision-llm-errors"}]'
     depends_on:
       kafka:
         condition: service_healthy

@@ -282,6 +282,70 @@ async def test_list_joins_streams_and_filters_by_provenance(vios_http) -> None:
     assert [row["name"] for row in await vios.list_media(VST, kind="stream")] == ["rtsp-one"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind, expected", [(None, ["archive", "live"]), ("video", ["archive"]), ("stream", ["live"])])
+async def test_list_skips_removed_tombstones_without_hiding_existing_sources(vios_http, kind, expected) -> None:
+    configure, calls, _ = vios_http
+    configure(
+        **_routes(
+            sensors=[
+                {"name": "deleted", "sensorId": "gone", "state": "removed"},
+                {"name": "archive", "sensorId": "file", "state": "online"},
+                {"name": "live", "sensorId": "camera", "state": "online"},
+            ],
+            streams={
+                "file": [{"streamId": "file-stream", "isMain": True, "url": "/videos/archive.mp4"}],
+                "camera": [{"streamId": "camera-stream", "isMain": True, "url": "rtsp://cam/live"}],
+            },
+        )
+    )
+
+    rows = await vios.list_media(VST, kind=kind)
+
+    assert [row["name"] for row in rows] == expected
+    assert not any("/sensor/gone/streams" in call for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_list_active_sensor_404_remains_a_failure(vios_http) -> None:
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "active", "sensorId": "active-id", "state": "online"}]})
+
+    with pytest.raises(vios.VSTError, match="404"):
+        await vios.list_media(VST)
+
+
+@pytest.mark.asyncio
+async def test_resolve_stream_id_skips_removed_tombstones(vios_http) -> None:
+    configure, calls, _ = vios_http
+    configure(
+        **_routes(
+            sensors=[
+                {"name": "deleted", "sensorId": "gone", "state": "removed"},
+                {"name": "archive", "sensorId": "file", "state": "online"},
+            ],
+            streams={"file": [{"streamId": "file-stream", "isMain": True, "url": "/videos/archive.mp4"}]},
+        )
+    )
+
+    ref = await vios.resolve_sensor(VST, "file-stream")
+
+    assert ref.name == "archive"
+    assert ref.kind == "video"
+    assert not any("/sensor/gone/streams" in call for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_resolve_missing_ignores_removed_tombstone_streams(vios_http) -> None:
+    configure, calls, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "deleted", "sensorId": "gone", "state": "removed"}]})
+
+    with pytest.raises(vios.VIOSNotFoundError, match="no VIOS sensor"):
+        await vios.resolve_sensor(VST, "missing")
+
+    assert not any("/sensor/gone/streams" in call for call in calls)
+
+
 # ------------------------------------------------------------------ snapshot
 
 

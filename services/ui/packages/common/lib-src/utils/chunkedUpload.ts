@@ -13,6 +13,8 @@
  *  - videoUpload.ts#uploadFileChunked: uploads to a caller-supplied VST URL
  */
 
+import { protectUploadedFile } from './uploadProtection';
+
 export const CHUNK_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 export const MAX_CHUNK_RETRIES = 3;
 
@@ -230,5 +232,6 @@ export async function chunkedUpload(options: ChunkedUploadOptions): Promise<Chun
     throw new Error('Upload response missing sensorId');
   }
 
+  await protectUploadedFile(uploadUrl, lastResponse, abortSignal);
   return lastResponse;
 }

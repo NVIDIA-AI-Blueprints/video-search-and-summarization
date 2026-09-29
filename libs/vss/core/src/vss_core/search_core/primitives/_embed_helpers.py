@@ -195,13 +195,15 @@ def build_es_query(
         }
     }
 
-    if not filters:
-        return {"query": nested_query, "size": k_value}
-    filter_clause = {"bool": {"must": filters}} if len(filters) > 1 else filters[0]
-    return {
-        "query": {"bool": {"must": [nested_query], "filter": [filter_clause]}},
-        "size": k_value,
-    }
+    if filters:
+        # Scope candidate selection itself. An outer bool.filter is a post-filter
+        # for approximate kNN: another source can fill all k candidates, leaving
+        # no results from the requested source even though matching vectors exist.
+        # These predicates reference parent-document fields, supported by nested
+        # kNN pre-filtering; they retain the same source/time/description semantics.
+        filter_clause = {"bool": {"must": filters}} if len(filters) > 1 else filters[0]
+        nested_query["nested"]["query"]["knn"]["filter"] = filter_clause
+    return {"query": nested_query, "size": k_value}
 
 
 # =============================================================================

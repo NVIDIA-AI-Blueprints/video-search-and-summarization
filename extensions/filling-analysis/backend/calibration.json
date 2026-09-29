@@ -1,0 +1,31 @@
+{
+  "version": "orangejuice-visible-height-v1",
+  "source_sha256": "21739924f607755906107affa28842df85a4c468e1a8a3a9f28afcb83f346d61",
+  "reference_size": [1280, 806],
+  "sample_fps": 5,
+  "source_fps": 30,
+  "description": "Human-calibrated visible bottle regions for this edited source. Geometry is translated using measured green-neck anchors. Heights are visible-window fractions, not volume or certified bottle fill percentages. Shot ranges are reviewed calibration applicability, not detected process events.",
+  "scenes": [
+    {
+      "id": "fill-a", "start": 15.633, "end": 42.033,
+      "anchor_reference": [878, 213], "anchor_search": [730, 190, 260, 265],
+      "anchor_kind": "handle", "liquid_hue_max": 18, "liquid_saturation_min": 135,
+      "bottles": [
+        {"id": "a-front", "label": "A · Front", "color": "#b6f36a", "box": [784, 210, 169, 393], "measurement_box": [825, 251, 79, 309]},
+        {"id": "a-middle", "label": "A · Middle", "color": "#5dd9ed", "box": [696, 218, 116, 355], "measurement_box": [721, 248, 50, 274]},
+        {"id": "a-rear", "label": "A · Rear", "color": "#f4ab62", "box": [620, 222, 102, 330], "measurement_box": [643, 249, 38, 256]}
+      ]
+    },
+    {
+      "id": "fill-b", "start": 42.033, "end": 61.967,
+      "anchor_reference": [344, 437], "anchor_search": [250, 360, 190, 210],
+      "anchor_kind": "neck", "liquid_hue_max": 20, "liquid_saturation_min": 210,
+      "requires_sharp_boundary": true,
+      "quantitative_enabled": false,
+      "limitation": "The foreground bottle bottom is outside frame and its color transition is diffuse; neck tracking is available, quantitative level is not validated.",
+      "bottles": [
+        {"id": "b-front", "label": "B · Foreground (partial)", "color": "#c3a6ff", "box": [263, 435, 224, 327], "measurement_box": [350, 490, 40, 245]}
+      ]
+    }
+  ]
+}

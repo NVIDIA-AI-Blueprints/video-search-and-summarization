@@ -1,0 +1,18 @@
+services:
+  vss-haproxy-ingress:
+    volumes:
+      - ${FILLING_QA_DIR}/patches/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+  rtvi-vlm:
+    image: ${VSS_FILLING_RTVLM_IMAGE:-vss-livestream/rt-vlm:qa}
+    pull_policy: never
+  kibana-init-container-search:
+    volumes:
+      - ${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/kibana-dashboard/its-kibana-objects.ndjson:/opt/mdx/alerts-kibana-objects.ndjson:ro
+    command:
+      - bash
+      - -ec
+      - 'bash /opt/mdx/init-scripts/kibana-import-dashboard.sh; curl -fsS -X POST http://kibana:5601/kibana/api/saved_objects/_import?overwrite=true -H "kbn-xsrf: true" --form file=@/opt/mdx/alerts-kibana-objects.ndjson'
+  perception-2d-fusion:
+    volumes:
+      - ${FILLING_QA_DIR}/patches/rt-cv-startup/ds-start.sh:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/ds-start.sh:ro
+      - ${FILLING_QA_DIR}/patches/rt-cv-startup/configs:/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app/mounted-configs:ro

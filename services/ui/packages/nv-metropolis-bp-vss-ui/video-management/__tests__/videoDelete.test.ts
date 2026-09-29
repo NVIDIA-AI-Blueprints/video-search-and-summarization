@@ -55,3 +55,19 @@ describe('direct VST uploaded-video deletion', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('retention-protected upload deletion', () => {
+  beforeEach(() => { global.fetch = jest.fn(); });
+
+  it.each([
+    [{ protectedFiles: ['/uploaded.mp4'], spaceSaved: 0 }, 'Video storage is protected'],
+    [{ invalidFiles: ['/uploaded.mp4'], spaceSaved: 0 }, 'VIOS could not delete all requested video files'],
+  ])('keeps sensor registration when storage reports skipped files', async (body, message) => {
+    (fetch as jest.Mock).mockResolvedValueOnce(new Response(JSON.stringify(body), { status: 200 }));
+    await expect(deleteVideo(
+      'https://host/vst/api', 'sensor-1',
+      '2025-01-01T00:00:00Z', '2025-01-01T01:00:00Z',
+    )).rejects.toThrow(message as string);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});

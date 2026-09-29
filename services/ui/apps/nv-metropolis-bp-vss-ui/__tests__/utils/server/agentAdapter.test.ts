@@ -5,6 +5,7 @@ import {
   ARTIFACT_CLOSE,
   ARTIFACT_OPEN,
   ArtifactStreamParser,
+  parseArtifact,
   stripArtifactsFromValue,
 } from "../../../utils/server/agentAdapter/artifacts";
 import { loadAgentAdapterConfig } from "../../../utils/server/agentAdapter/config";
@@ -110,6 +111,36 @@ describe("embedded agent adapter", () => {
         data: expect.objectContaining({ kind: "vss.search.results" }),
       }),
     ]);
+  });
+
+  it("preserves CLI verification and adds the canonical Search verdict without changing evidence", () => {
+    const data = ["confirmed", "rejected", "unverified"].map((result) => ({
+      sensor_id: "original-source", start_time: "2025-01-01T00:01:00Z",
+      similarity: 0.145, screenshot_url: "/vst/snapshot.jpg",
+      verification: { result, criteria_met: { "liquid leaking while being filled": result === "confirmed" } },
+    }));
+    const artifact = parseArtifact(JSON.stringify({version: "1.0", kind: "vss.search.results", payload: {data}}));
+    expect(artifact?.payload.data).toEqual(data.map(item => ({...item, critic_result: item.verification})));
+    expect(data.every(item => !("critic_result" in item))).toBe(true);
+  });
+
+  it("keeps canonical critic_result authoritative when both verdict fields exist", () => {
+    const item = {
+      critic_result: {result: "rejected", criteria_met: {leak: false}},
+      verification: {result: "confirmed", criteria_met: {leak: true}},
+    };
+    const artifact = parseArtifact(JSON.stringify({version: "1.0", kind: "vss.search.results", payload: {data: [item]}}));
+    expect(artifact?.payload.data).toEqual([item]);
+  });
+
+  it("does not infer Search verdicts from invalid verification or alter other artifact kinds", () => {
+    const data = [null, true, "confirmed", {}, {result: "yes", criteria_met: {}},
+      {result: "confirmed"}, {result: "confirmed", criteria_met: {leak: "false"}},
+    ].map(verification => ({verification}));
+    const artifact = parseArtifact(JSON.stringify({version: "1.0", kind: "vss.search.results", payload: {data}}));
+    expect(artifact?.payload.data).toEqual(data);
+    const other = {data: [{verification: {result: "confirmed", criteria_met: {leak: true}}}]};
+    expect(parseArtifact(JSON.stringify({version: "1.0", kind: "vss.alert.incidents", payload: other}))?.payload).toEqual(other);
   });
 
   it("derives same-origin image artifacts from snapshot tool results", () => {

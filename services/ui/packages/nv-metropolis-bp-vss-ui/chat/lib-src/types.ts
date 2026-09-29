@@ -226,6 +226,8 @@ export interface ChatPanelProps {
   onMessageSubmitted?: () => void;
   /** Receives a function the embedder can call to add a context chip. */
   onAddQueryContextReady?: (add: (item: QueryDataContext) => void) => void;
+  /** Host-view scope, attached to every submission while present; not a one-shot chip. */
+  ambientContext?: QueryDataContext | null;
   /** Notified when an upload batch finishes with at least one success. */
   onChatVideoUploadComplete?: (payload: ChatVideoUploadCompletePayload) => void;
   /** Notified whenever a turn starts or ends. */

@@ -2,6 +2,74 @@
 
 This folder is home. Treat it that way.
 
+## Native skill paths and selected Filling bottles
+
+The home directory in this NemoClaw sandbox is `/sandbox`. A catalog location
+starting with `~/.openclaw/plugin-skills/` means the absolute path
+`/sandbox/.openclaw/plugin-skills/`; pass that absolute path to the read tool.
+For Filling Analysis, read exactly
+`/sandbox/.openclaw/plugin-skills/vss-inspect-filling/SKILL.md`.
+VSS skills are installed there, not in the OpenClaw bundled-skills directory.
+
+For a Filling Analysis question saying “this bottle” or “these two bottles”,
+read `selected_bottles` in the current UI context and pass every selected full
+`track_id` through `--selected-cycle` (repeat it for a pair). Including only the
+session and stream silently drops the user's bottle selection. For one selection:
+
+```json
+{"args":["filling","live","query","--session-id","<context session_id>","--stream-id","<context stream_id>","--question","<user question unchanged>","--selected-cycle","<selected_bottles[0].track_id>","--limit","10","--operator-view"]}
+```
+
+Substitute actual values from this request. Do not invent track IDs or reuse
+examples. An explicitly typed cycle label takes precedence and uses the question
+without `--selected-cycle`. Preserve the CLI's validated `display_markdown`.
+
+## Choose the requested operation before calling tools
+
+A request to **search/find matching clips in a named recorded video** uses
+`vss-search-archive`, even when the visual event mentions filling, leaking,
+overflow, bottles or liquid. Those event words do not select Filling Analysis.
+Read the active archive skill before any search invocation. Complete this one
+archive search and present its actual cards/verdicts; do not then run filling
+queries, analytics, a separate VLM check, shell commands or another skill.
+
+Keep the two parts of a named-video search separate:
+- **Source scope:** the named recording, resolved by `vss_cli` args
+  `["vios","list"]` to its actual listed UUID. Never use the filename as the
+  embedding query or a guessed UUID. Only consider the requested recording.
+- **Visual query:** the requested event/action only, preserving its wording.
+  For “Search the recorded video named orangejuiceneww for liquid leaking while
+  being filled. Show the top 3 matching clips.” the visual query is exactly
+  `liquid leaking while being filled`; `orangejuiceneww` is source scope only.
+
+
+If the source listing has **no matching recorded file**, say that the named
+recording is unavailable and STOP before any search. Never substitute a
+similarly named RTSP/live replay, multiple sources, an analytics sensor, or a
+known historical UUID. A listed `type: stream` is not the requested recording.
+The recording name must match a returned file entry before its UUID is used.
+
+After resolving the actual recording UUID, the native tool call is:
+```json
+{"args":["search","run","embed","--query","liquid leaking while being filled","--source-type","video_file","--video-source","<actual listed recording UUID>","--top-k","3"]}
+```
+The example query applies only when the user requests that event; preserve any
+different requested event instead. Present returned verification unchanged.
+An empty result or rejected clip never authorizes a new visual interpretation.
+
+Use `vss-inspect-filling` only for an explicit measured fill level, completed
+inspection/underfill record, exact bottle `cycle-N`/`cyce-N`, or a question
+scoped by the Filling Analysis UI. Its live-session recipe does not apply to
+named-video searches. A video name is never a live session ID. A request for
+archive clips takes precedence over ambient filling context; a clicked bottle
+inspection takes its own exact measurement route.
+
+Before configuring an unknown deployment, read `ENV.md` and use its actual
+VSS_PUBLIC_URL. An orchestrator/MCP URL (including port9988) is not the VSS
+origin. Never invent an endpoint. Use `vss_cli` with argument arrays; if the
+chosen operation fails, explain its typed error instead of exploring unrelated
+commands or silently switching tools.
+
 ## VSS deployment origin
 
 Every VSS skill talks to one deployment through the `vss` CLI, and the CLI
@@ -22,6 +90,134 @@ this step was skipped, not that there is no deployment: run it, then retry. If
 VSS_PUBLIC_URL" says; never guess one or probe for it. A `CONNECT tunnel
 failed, response 403` is an egress-policy gap on the host - report it and stop.
 
+## This deployment: orange juice Search + Alerts + Filling Analysis
+
+This sandbox operates the custom `nightly-20260922` deployment created by the
+host builder. These facts override generic profile-presence heuristics:
+
+- Alerts use `ALERTS_MODE=real-time`: direct realtime VLM rules. RT-CV is present
+  for Search perception; its presence does not mean Alerts use CV verification.
+- Rules are created explicitly. `ALERT_AGENT_ALWAYS_ON=false` deliberately
+  prevents automatic rule creation when a video is uploaded.
+- Search uses embedding retrieval and the VLM critic. VLM tagging is disabled
+  because this composition uses RT-VLM for realtime monitoring.
+- The custom Filling Analysis service is reached with `vss filling` and the
+  `vss-inspect-filling` operation skill. It supports recorded measurements and
+  separate `vss filling live` RTSP sessions. Both are separate from native
+  realtime alert incidents; a cycle question is an exact measured-record lookup,
+  not a named-video VLM report and does not require LVS.
+- Source UUIDs, SHA identities, source clocks, measured counts and evidence
+  links must come from current tool responses. No demo counts are predetermined.
+- Run archive searches through `vss_cli`. Preserve the CLI job result and
+  matching `vss_job_completed` output; the VSS UI converts those outputs into
+  native search cards. Do not replace structured tool results with invented JSON.
+- This sandbox has no deployment lifecycle orchestrator configured. Deployment,
+  rebuilding and teardown belong to the host builder, not an assumed MCP endpoint.
+
+### Exact live chat call and concise answer
+
+Read the selection in the user's `[Context: ...]` before constructing the tool call.
+For “this bottle” or “these two bottles”, the selected full track IDs MUST be
+included as `--selected-cycle`. Session and stream IDs alone do not select a bottle.
+Use the supplied `session_id` and `stream_id`; do not run status again when both exist.
+
+For one selected bottle, make exactly this `vss_cli` call using the actual values:
+
+```json
+{"args":["filling","live","query","--session-id","<context session_id>","--stream-id","<context stream_id>","--question","<user question unchanged>","--selected-cycle","<selected_bottles[0].track_id>","--limit","10","--operator-view"]}
+```
+
+For two selected bottles, repeat the selection option with both actual full IDs:
+
+```json
+{"args":["filling","live","query","--session-id","<context session_id>","--stream-id","<context stream_id>","--question","<user question unchanged>","--selected-cycle","<selected_bottles[0].track_id>","--selected-cycle","<selected_bottles[1].track_id>","--limit","10","--operator-view"]}
+```
+
+These placeholders mean values from this request's context, never literal text.
+Retain each track's embedded session and epoch. Do not combine `--selected-cycle`
+with `--cycle-id` or `--epoch`. Require one selection for a single bottle or two
+for comparison. With no selection, ask the user to select the bottle(s); never
+substitute the moving current bottle or the first history records.
+
+Explicitly typed cycle labels override ambient selections. Only in that case,
+omit `--selected-cycle`, preserve the complete question and call:
+
+```json
+{"args":["filling","live","query","--session-id","<context session_id>","--stream-id","<context stream_id>","--question","<user question unchanged>","--limit","10","--operator-view"]}
+```
+
+Use `--operator-view` for ALL operator inspection questions, including clicked
+Ask actions, comparisons and the latest overflow. For a clicked event without selected_bottles, add its
+exact full returned `--cycle-id` and target `--epoch` if supplied. Never pass a
+bare number as a cycle ID, omit the session, or use ambient `view_epoch` as a
+query filter for an older short cycle label. With no context, discover the live
+session once through `filling live status`, then use its returned IDs.
+
+The compact response is already fully validated and scoped to the requested
+cycles. For an inspection answer, return its `display_markdown` VERBATIM as the
+final response, without a code fence, backticks, preface, follow-up analysis or
+extra prose. Do not recalculate heights/durations, convert source time to UTC,
+speculate about lighting, or add current-bottle diagnostics to an older cycle.
+Do not omit or reconstruct any image URL in `display_markdown`.
+
+The `ui_artifacts` field transports actual verified decoded-frame images to the
+native VSS UI automatically. Do not print its raw envelopes. It contains only
+the representative returned images, never a video claim. Empty video evidence
+remains pending. Preserve not_found/ambiguous/in_progress/unsupported answers;
+do not replace them with unrelated Search results or counts. Only an explicit
+engineering/debugging request should omit `--operator-view` for full diagnostics.
+### Filling cycle questions take the live lookup route
+
+When a user asks about bottle `cycle-N` (or misspells it `cyce-N`), a full live
+track ID, or what happened to a bottle in the Live tab, select and read the active
+`vss-inspect-filling` skill before any tool call. These are exact measurement
+identifiers, not descriptions to embed-search. Do not route them to Search,
+VLM, recorded `filling select/query/analyze`, or native alert analytics.
+
+Use supplied UI/event session and stream IDs. For a selected older event, its
+full track ID and epoch override the current view's epoch. With no session
+context, discover active/latest via `vss filling live status`, then use its
+returned session/stream. Call `vss filling live query` with the user's actual
+question and exact session/stream; use `--cycle-id`/`--epoch` only for an explicit
+cycle/event identity. A short cycle label alone does not force the newest epoch. `view_epoch` is ambient UI state; never pass it as `--epoch` for a historical short cycle label.
+Do not invent IDs, pass an RTSP source to recorded selection, or start a new
+session merely to answer a question. Respect ok/not_found/ambiguous/in_progress/
+unsupported, and keep pending evidence pending. Never replace a missing exact
+cycle with unrelated search clips or aggregate bottle counts.
+
+### Filling evidence in the VSS web chat
+
+Return each bottle's exact `video_evidences` public URL as a standard Markdown
+link: `[Bottle 2 evidence](actual_returned_public_url)`. This UI needs clickable
+links, not `MEDIA:` markers, inline-code URLs, or fenced link blocks. Preserve
+the measured bottle ID and its own returned evidence URL.
+
+### Recorded visual-event search in this deployment
+
+- Read and follow the active `vss-search-archive` skill, but use the available
+  embedding path for a visual event. Tagging is disabled here; an empty tag
+  index is expected and is not a reason to try more tag queries.
+- When the user names a video, run `vss vios list`, resolve that exact registered
+  name to its current stream UUID and recorded source type, then retain that
+  source scope on the search. Never replace the requested recording with a
+  similarly named live replay or another video. Ask if the name is ambiguous.
+- For a recorded visual-event query, invoke `vss_cli` with arguments shaped as:
+  `["search","run","embed","--query","<visual event only; exclude the source filename>","--source-type","video_file","--video-source","<resolved UUID>","--top-k","5"]`.
+  Keep the complete requested action and relationship in the query. Do not
+  invent positional commands or use `--query` on the attribute action.
+- Make one scoped search unless the user requests a broader investigation.
+  Once that search returns usable results, present them and its actual
+  verification outcomes. Do not repeat through tag, attribute or fusion.
+  A rejected candidate is a result, not a failed tool invocation.
+- Preserve the returned Search JSON and matching `vss_job_completed` marker.
+  The UI creates native cards from the tool result; do not reconstruct cards,
+  claim confidence from unrelated criteria, or rename a different clip.
+- Job list/get require configured memory. For an immediate result returned by
+  `search run`, use that result directly; do not ask unavailable memory to
+  retrieve it again.
+- If a real tool error prevents results, explain that error. Only retry with
+  a targeted correction; do not silently widen the source scope.
+
 ## VSS Base prompt routing
 
 For every named-video report, first resolve the exact timeline with `vss_cli`.
@@ -30,6 +226,8 @@ required. Never bypass this gate through `exec`, raw HTTP, or another tool.
 
 For these UI requests, select and follow exactly one active VSS skill:
 
+- Search/find matching clips or a visual event in a named recording: `vss-search-archive` (separate source name from visual query as above)
+- Explicit bottle-cycle inspection, current/live measurements, underfill records or measured fill levels: `vss-inspect-filling` (use live routing above for cycle identifiers)
 - List sensors, take a snapshot, or inspect a timeline: `vss-manage-video-io-storage`
 - Ask what is visually present in a named video, including whether a worker is wearing PPE: `vss-ask-video`
 - Generate a report for a named video: `vss-generate-video-report`

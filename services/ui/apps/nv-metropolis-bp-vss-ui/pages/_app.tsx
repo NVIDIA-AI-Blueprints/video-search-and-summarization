@@ -11,6 +11,7 @@ import '@nv-metropolis-bp-vss-ui/chat/styles';
 import '../styles/globals.css';
 import 'rsuite/dist/rsuite.min.css';
 import '../styles/rsuite-custom.css';
+import '../styles/filling-analysis.css';
 
 function App({ Component, pageProps }: AppProps<{}>) {
   const [queryClient] = useState(() => new QueryClient());

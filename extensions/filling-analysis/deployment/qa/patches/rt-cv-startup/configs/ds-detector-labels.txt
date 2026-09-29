@@ -1,0 +1,7 @@
+Person
+Agility_Digit_Humanoid
+Fourier_GR1_T2_Humanoid
+Nova_Carter
+Transporter
+Forklift
+Pallet

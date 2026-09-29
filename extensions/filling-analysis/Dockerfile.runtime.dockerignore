@@ -1,0 +1,7 @@
+**
+!backend/
+!backend/**
+!segmentation/
+!segmentation/measurements.py
+**/__pycache__
+**/.pytest_cache

@@ -90,6 +90,24 @@ function vssImageSource(value: unknown, mediaProxyUrl?: string): string | null {
     const parsed = new URL(normalized, 'https://vss-ui.invalid');
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     let path = parsed.pathname;
+    // Live evidence is served by the same-origin filling API, not the VIOS proxy.
+    // Accept only the bound snapshot route; never generalize this to arbitrary paths.
+    if (path === '/filling/api/live/evidence') {
+      const query = parsed.searchParams;
+      const session = query.get('session_id') || '';
+      const event = query.get('event_id') || '';
+      const frame = query.get('frame_id') || '';
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const eventSuffix = event.startsWith(`${session}:`) ? event.slice(session.length + 1) : '';
+      const keys = [...query.keys()];
+      if (
+        !normalized.startsWith('/') || normalized.startsWith('//') || parsed.origin !== 'https://vss-ui.invalid' || parsed.hash ||
+        !uuid.test(session) || !/^epoch-\d+:cycle-\d+:inspection$/.test(eventSuffix) ||
+        !/^\d+$/.test(frame) || !Number.isSafeInteger(Number(frame)) ||
+        keys.length !== 3 || !['session_id', 'event_id', 'frame_id'].every(key => query.getAll(key).length === 1)
+      ) return null;
+      return `${path}${parsed.search}`;
+    }
     if (path === '/storage' || path.startsWith('/storage/')) path = `/vst${path}`;
     const proxyPath = mediaProxyUrl
       ? new URL(mediaProxyUrl, 'https://vss-ui.invalid').pathname.replace(/\/$/, '')

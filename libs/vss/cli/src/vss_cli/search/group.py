@@ -358,6 +358,7 @@ async def _critic_from(
         logger.warning("Search critic disabled: %s", reason)
         return None, None, reason
 
+    from vss_core.critic import COMPLETE_QUERY_CRITIC_PROMPT
     from vss_core.critic import CriticAgent
     from vss_core.vios import VSTClient
     from vss_core.vlm import OpenAIVLMAnalyzer
@@ -380,6 +381,14 @@ async def _critic_from(
         # media_io_kwargs that OpenAIVLMAnalyzer normally adds do not belong
         # in this proxy request.
         cosmos_nim_runtime_options=False,
+        # RT-VLM otherwise samples only the opening frame. Ongoing actions need
+        # temporal evidence; the analyzer bounds this 2 fps request to 60 frames.
+        rt_vlm_frame_budget=2.0,
+        rt_vlm_use_fps_for_chunking=True,
+        # Preserve small interaction details that the decoder's low default
+        # resolution can obscure. These are RT-VLM request-local dimensions.
+        rt_vlm_input_width=1280,
+        rt_vlm_input_height=720,
     )
     # iso, not offset: the critic already rebases file-source bounds onto the
     # real replay timeline itself (cached per sensor), so the analyzer's clip-URL
@@ -394,6 +403,8 @@ async def _critic_from(
             vst=vst,
             time_format="iso",
             num_videos_to_evaluate=eval_count,
+            prompt=COMPLETE_QUERY_CRITIC_PROMPT,
+            require_complete_query=True,
         ),
         vlm,
         None,

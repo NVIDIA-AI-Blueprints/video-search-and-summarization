@@ -1,0 +1,75 @@
+{
+  "source_sha256": "a47527bd58438ef0d7a432cf3f990ef8fa58b428ea8f23103924fd3ee0e71472",
+  "reviewed_source_sha256": [
+    "a47527bd58438ef0d7a432cf3f990ef8fa58b428ea8f23103924fd3ee0e71472",
+    "1acdbf15d8e121e9afd5cd8328c95489fe0d6a94537c742d8e7423dffb838086",
+    "16ab996b583753df7b8f77881dffac73fe8aa31bad61e96454ef26238bafb4a9"
+  ],
+  "derived_reference_note": "The second and third SHA values identify separately reviewed VIOS-stored recordings, including nightly-20260922. Transcoding changes container/pixel values; each derivative is separately evaluated with this calibration and is not asserted to be pixel-identical to another source. See native-ui/artifacts/derivative-review for the latest complete timestamp, analysis-cadence pixel and sixteen-cycle comparison.",
+  "profile_id": "single-station-5min",
+  "reference_size": [
+    640,
+    360
+  ],
+  "source_fps": 24,
+  "sample_fps": 4,
+  "station_x": 320,
+  "station_tolerance_px": 12,
+  "collar_y_range": [
+    98,
+    128
+  ],
+  "interior_y_range": [
+    125,
+    315
+  ],
+  "interior_x_offsets": [
+    -26,
+    24
+  ],
+  "bottle_box_offsets": [
+    -52,
+    79,
+    112,
+    247
+  ],
+  "flow_box": [
+    313,
+    53,
+    16,
+    27
+  ],
+  "exterior_boxes": [
+    [
+      349,
+      81,
+      30,
+      82
+    ],
+    [
+      382,
+      169,
+      34,
+      135
+    ]
+  ],
+  "orange_hsv_lower": [
+    5,
+    115,
+    115
+  ],
+  "orange_hsv_upper": [
+    36,
+    255,
+    255
+  ],
+  "flow_fraction_min": 0.13,
+  "overflow_pixels_min": 180,
+  "overflow_persistence_seconds": 0.5,
+  "settled_seconds_min": 0.75,
+  "cycle_seconds_min": 3,
+  "reference_level": 0.8789,
+  "tolerance": 0.055,
+  "reference_basis": "Human-reviewed normal finish at source 13 seconds; fraction of the calibrated visible-height window, not volume or a factory tolerance.",
+  "calibration_note": "Geometry and color thresholds apply only to this fixed-camera recording. Final decisions require observed flow followed by stopped flow and a settled stationary bottle. Exterior liquid is independent of fill height. Manual event labels and counts are evaluation-only."
+}

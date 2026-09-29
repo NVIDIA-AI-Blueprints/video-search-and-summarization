@@ -35,6 +35,7 @@ Call the VIOS REST API to manage cameras/sensors, RTSP streams, recordings, snap
 
 - If the user asks to "upload `<file>.mp4` to VIOS", "upload a video file", or otherwise means storing a local video as a VIOS file-backed sensor, use the direct VIOS API: `PUT /vst/api/v1/storage/file/{filename}` from [`references/api-reference.md`](references/api-reference.md) Section 8.
 - Use NvStreamer only when the user explicitly needs a live/synthetic RTSP camera feed, asks for NvStreamer, or asks to retrieve an RTSP URL.
+- For a replay request using a supplied asset already on the same Compose host and hash-verified against the active package ASSETS.md, prefer the supported server-directory discovery path in `references/nvstreamer-api-reference.md` Section 7 over re-uploading those bytes. Resolve this application's actual videos bind, publish a complete file without overwriting existing media, and retrieve the real discovered RTSP URL. Client-only files retain the normal upload path; plain VIOS archive uploads are unchanged. Do not force a scan of active replay sources merely to save polling time.
 - Do not substitute the NvStreamer upload -> RTSP URL -> VIOS `/sensor/add` handoff for a plain VIOS MP4 upload request.
 
 **Provisioning + fan-out routing rule:**

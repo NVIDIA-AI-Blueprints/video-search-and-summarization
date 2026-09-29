@@ -207,6 +207,21 @@ From the user's prompt, generate a short `snake_case` tag that summarizes the al
 
 **Create the rule ONLY via Alert Bridge `POST $AB/api/v1/realtime`.** Never call the `rtvi-vlm` microservice (`:8018`, e.g. `POST /v1/streams/add`) directly — Alert Bridge wires the stream to rtvi-vlm itself; a direct `:8018` call bypasses rule persistence and is a failure even if the stream goes live.
 
+### Supplied camera preset (takes precedence over generic defaults)
+
+Before constructing the payload, read the active project's `DEPLOYMENT.md` and `ASSETS.md`. Use a preset only when those documents explicitly assign it to the selected registered camera and the requested monitoring condition. Do not choose a preset from a similar filename, an old rule, or expected anomaly counts. If the assigned preset is missing or invalid, report that configuration error instead of silently substituting defaults. With no assigned preset, use the generic payload below.
+
+For an assigned preset:
+
+1. Load the exact JSON path and verify its recorded SHA256 when supplied. Check fields against the deployed Alert Bridge `RealtimeAlertRequest` schema. The supported tuning fields for this release are `system_prompt`, `model`, `chunk_duration`, `chunk_overlap_duration`, `num_frames_per_second_or_fixed_frames_chunk`, `use_fps_for_chunking`, `vlm_input_width`, `vlm_input_height`, `enable_reasoning`, `max_tokens`, and `temperature`. Preserve their JSON types, including `false`; do not omit them and inherit API defaults. Confirm an explicit model matches the deployed model; do not invent a replacement.
+2. Resolve `sensor_id`, `sensor_name`, and `live_stream_url` from the current VIOS sensor and main stream, as in Step 2. Replace identity placeholders with these actual values. Replace the template's `prompt` with the user's detection condition from Step 1, preserving its wording; derive `alert_type` from that condition as in Step 3. Do not replace the user's condition with a canned demo prompt. The reviewed `system_prompt` supplies the physical event criterion.
+3. Submit this complete resolved payload through the same supported `POST $AB/api/v1/realtime`. Retain the preset hash, submitted settings and returned rule ID as the creation receipt. Read the rule back with `GET $AB/api/v1/realtime/{id}` and compare the stored tuning fields with the submitted values before calling it configured. A create success is not evidence that a real event was detected.
+4. This release exposes no realtime-rule PUT/PATCH update endpoint. For an explicitly authorized repair, preserve the prior receipt and follow the rule replacement/delete authorization workflow; do not invent an update API or silently create overlapping duplicate monitoring. Existing event results remain evidence from their original settings.
+
+The preset must not contain labels, expected incident counts, event timestamps or generated answers. Verify detection using newly produced incidents and their actual footage.
+
+### Generic payload (only when no camera preset is assigned)
+
 Construct the payload using values collected from the previous steps and POST to the Alert Bridge realtime endpoint:
 
 ```bash
@@ -224,7 +239,7 @@ curl -s -X POST "$AB/api/v1/realtime" \
   }' | jq .
 ```
 
-**Send this canonical payload consistently.** Use exactly these field names
+**When no camera preset is assigned, send this canonical payload consistently.** Use exactly these field names
 and the fixed defaults shown (`system_prompt: "Answer yes or no"`,
 `chunk_duration: 30`, `chunk_overlap_duration: 5`) on every create — do not
 improvise extra fields, rename fields, or vary the defaults between requests.

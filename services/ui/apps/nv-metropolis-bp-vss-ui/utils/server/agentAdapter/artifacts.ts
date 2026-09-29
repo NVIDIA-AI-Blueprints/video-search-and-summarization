@@ -44,6 +44,25 @@ const artifactEvent = (artifact: VssUiArtifact): ConnectorEvent => ({
   },
 });
 
+/** Preserve CLI verification while exposing the UI's canonical verdict field. */
+const searchPayloadWithCriticResult = (payload: JsonObject): JsonObject => {
+  if (!Array.isArray(payload.data)) return payload;
+  return {
+    ...payload,
+    data: payload.data.map((item) => {
+      if (!isJsonObject(item) || item.critic_result !== undefined) return item;
+      const verification = item.verification;
+      if (
+        !isJsonObject(verification) ||
+        !["confirmed", "rejected", "unverified"].includes(String(verification.result)) ||
+        !isJsonObject(verification.criteria_met) ||
+        !Object.values(verification.criteria_met).every((met) => typeof met === "boolean")
+      ) return item;
+      return { ...item, critic_result: verification };
+    }),
+  };
+};
+
 export const parseArtifact = (value: string): VssUiArtifact | null => {
   if (!value || value.length > MAX_ARTIFACT_LENGTH) return null;
   let decoded: unknown;
@@ -62,10 +81,13 @@ export const parseArtifact = (value: string): VssUiArtifact | null => {
     return null;
   }
   try {
+    const payload = decoded.kind === "vss.search.results"
+      ? searchPayloadWithCriticResult(decoded.payload)
+      : decoded.payload;
     const canonical = stableStringify({
       version: ARTIFACT_PROTOCOL_VERSION,
       kind: decoded.kind,
-      payload: decoded.payload,
+      payload,
     });
     return {
       artifactId: `artifact_${createHash("sha256")
@@ -73,7 +95,7 @@ export const parseArtifact = (value: string): VssUiArtifact | null => {
         .digest("hex")
         .slice(0, 24)}`,
       kind: decoded.kind,
-      payload: decoded.payload,
+      payload,
     };
   } catch {
     return null;

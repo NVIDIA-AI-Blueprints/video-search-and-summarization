@@ -6,7 +6,7 @@
  */
 
 /** Main app tabs that can register for sidebar broadcasts (excludes Chat). */
-export type SidebarMainTabId = 'search' | 'alerts' | 'dashboard' | 'map' | 'video-management';
+export type SidebarMainTabId = 'search' | 'alerts' | 'dashboard' | 'map' | 'video-management' | 'filling';
 
 /** All main tabs that can subscribe to sidebar chat / upload events (excludes Chat). */
 export const SIDEBAR_MAIN_TAB_IDS: SidebarMainTabId[] = [
@@ -15,6 +15,7 @@ export const SIDEBAR_MAIN_TAB_IDS: SidebarMainTabId[] = [
   'dashboard',
   'map',
   'video-management',
+  'filling',
 ];
 
 /** Lifecycle events other than receiving the full assistant answer text. */
@@ -28,6 +29,7 @@ export function parseSidebarMainTabId(tab: string): SidebarMainTabId | null {
     case 'alerts':
     case 'dashboard':
     case 'map':
+    case 'filling':
     case 'video-management':
       return tab;
     default:
@@ -45,6 +47,7 @@ function emptyTabSets<T>(): Record<SidebarMainTabId, Set<T>> {
     dashboard: new Set(),
     map: new Set(),
     'video-management': new Set(),
+    filling: new Set(),
   };
 }
 

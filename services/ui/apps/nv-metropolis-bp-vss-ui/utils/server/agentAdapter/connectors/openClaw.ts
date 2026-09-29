@@ -4,6 +4,8 @@
 import type { AgentAdapterConfig } from "../config";
 import type { ConnectorEvent, CreateRunRequest, JsonObject } from "../contract";
 import { isJsonObject } from "../json";
+import {archiveSearchSummary, completedArchiveSearch, mayCompleteArchiveSearch, requiresFreshArchiveSearch, FRESH_ARCHIVE_SEARCH_INSTRUCTIONS} from "../archiveSearch";
+import {fillingOperatorText, fillingRequestScope, fillingResponseText, type FillingScope} from "../fillingOperator";
 import { type Connector, ConnectorError, connectorCapabilities } from "./base";
 import {
   JsonWebSocket,
@@ -79,11 +81,17 @@ interface NormalizationState {
   imageSources: Map<string, { source: string; mimeType: string }>;
   materializedImageSources: Set<string>;
   sawText: boolean;
+  fillingScope?: FillingScope;
+  fillingText?: string;
+  bufferedFillingText?: string;
+  completeArchiveSearch?: boolean;
+  requireFreshArchiveSearch?: boolean;
 }
 
 interface NormalizedFrame {
   events: ConnectorEvent[];
   terminal: boolean;
+  stopUpstream?: boolean;
 }
 
 export class OpenClawConnector implements Connector {
@@ -652,6 +660,13 @@ export class OpenClawConnector implements Connector {
     if (typeof payload.deltaText !== "string" || !payload.deltaText) {
       return OpenClawConnector.emptyNormalizedFrame();
     }
+    // A new Search must not stream remembered answers before its current receipt.
+    // The successful Search boundary below supplies the grounded final summary.
+    if (state.requireFreshArchiveSearch) return OpenClawConnector.emptyNormalizedFrame();
+    if (state.fillingScope) {
+      state.bufferedFillingText = (state.bufferedFillingText || "") + payload.deltaText;
+      return OpenClawConnector.emptyNormalizedFrame();
+    }
     state.sawText = true;
     return {
       events: [{ type: "message.delta", data: { delta: payload.deltaText } }],
@@ -664,12 +679,21 @@ export class OpenClawConnector implements Connector {
     state: NormalizationState,
     signal: AbortSignal
   ): Promise<NormalizedFrame> {
-    const finalText = state.sawText
-      ? undefined
-      : OpenClawConnector.finalText(payload);
+    if (state.requireFreshArchiveSearch) {
+      throw new ConnectorError(
+        "No successful fresh VSS Search result was received for this request. Previous results were not reused.",
+        "fresh_search_required"
+      );
+    }
+    const finalText = state.fillingScope
+      ? fillingResponseText(state.fillingScope, state.fillingText, state.bufferedFillingText || OpenClawConnector.finalText(payload))
+      : state.sawText ? undefined : OpenClawConnector.finalText(payload);
     const events: ConnectorEvent[] = finalText
       ? [{ type: "message.delta", data: { delta: finalText } }]
       : [];
+    // Filling evidence is supplied only by the validated operator contract below.
+    // Generic managed images have no bottle/event identity and can be from an earlier read.
+    if (state.fillingScope) return { events, terminal: true };
     const recoverySignal = this.managedImageRecoverySignal(signal);
     for (const image of OpenClawConnector.managedImageBlocks(
       payload,
@@ -744,6 +768,7 @@ export class OpenClawConnector implements Connector {
     toolCallId: string,
     signal: AbortSignal
   ): Promise<void> {
+    if (state.fillingScope || state.requireFreshArchiveSearch) return;
     const imageSource = state.imageSources.get(toolCallId);
     if (
       !imageSource ||
@@ -790,8 +815,30 @@ export class OpenClawConnector implements Connector {
       name,
       payload: "Completed",
     };
-    if (toolData.result !== undefined) data._artifact_source = toolData.result;
+    let validatedFillingEvidence = false;
+    if (state.fillingScope && name === "vss_cli" && toolData.result !== undefined) {
+      try {
+        const measured = fillingOperatorText(toolData.result, state.fillingScope);
+        if (measured) {
+          state.fillingText = measured;
+          validatedFillingEvidence = true;
+        }
+      } catch (error) {
+        throw new ConnectorError(error instanceof Error ? error.message : "Invalid filling result", "filling_result_mismatch");
+      }
+    }
+    const archive = state.completeArchiveSearch && name === "vss_cli"
+      ? completedArchiveSearch(toolData.result) : undefined;
+    if (toolData.result !== undefined && (!state.fillingScope || validatedFillingEvidence)
+      && (!state.requireFreshArchiveSearch || archive !== undefined)) {
+      data._artifact_source = toolData.result;
+    }
     events.push({ type: "tool.completed", data });
+    if (archive) {
+      // Only this current Search result supplies cards and the final summary.
+      events.push({type: "message.delta", data: {delta: archiveSearchSummary(archive)}});
+      return {events, terminal: true, stopUpstream: true};
+    }
     await this.appendToolImageArtifact(events, state, toolCallId, signal);
     return { events, terminal: false };
   }
@@ -872,12 +919,17 @@ export class OpenClawConnector implements Connector {
   ): AsyncGenerator<ConnectorEvent> {
     const socket = await this.connect(signal);
     const sessionKey = this.sessionKey(request.threadId);
+    const freshArchiveSearch = requiresFreshArchiveSearch(request.input[0]?.content || "");
+    const executionRequest = freshArchiveSearch ? {
+      ...request,
+      instructions: [request.instructions, FRESH_ARCHIVE_SEARCH_INSTRUCTIONS].filter(Boolean).join("\n\n"),
+    } : request;
     this.activeRuns.set(runId, { socket, sessionKey, upstreamRunId: runId });
     try {
       const pendingEvents: JsonObject[] = [];
       const sendId = this.request(socket, "chat.send", {
         sessionKey,
-        message: this.message(request),
+        message: this.message(executionRequest),
         idempotencyKey: runId,
       });
       let accepted: JsonObject;
@@ -921,11 +973,25 @@ export class OpenClawConnector implements Connector {
         imageSources: new Map(),
         materializedImageSources: new Set(),
         sawText: false,
+        fillingScope: fillingRequestScope(request.input[0]?.content || ""),
+        completeArchiveSearch: mayCompleteArchiveSearch(request.input[0]?.content || ""),
+        requireFreshArchiveSearch: freshArchiveSearch,
       };
       while (!signal.aborted) {
         const frame =
           pendingEvents.shift() ?? (await this.receive(socket, signal));
         const normalized = await this.normalizeEvent(frame, state, signal);
+        if (normalized.stopUpstream) {
+          // This Gateway has no per-run tool allowlist. Use its native cancellation
+          // for only this run and require acknowledgement before completing the UI.
+          const abortId = this.request(socket, "chat.abort", {sessionKey, runId: upstreamRunId});
+          try {
+            await this.awaitResponse(socket, abortId, AbortSignal.any([signal, AbortSignal.timeout(5_000)]));
+          } catch (error) {
+            if (signal.aborted) return;
+            throw new ConnectorError("Search completed, but the agent continuation could not be stopped", "search_continuation_abort_failed", false, {cause: error});
+          }
+        }
         for (const event of normalized.events) yield event;
         if (normalized.terminal) return;
       }

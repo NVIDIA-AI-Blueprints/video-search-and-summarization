@@ -14,6 +14,33 @@ metadata:
   vss-requires: "search"
 ---
 
+## Native chat: preserve visual query and source independently
+
+For a request such as “Search the recorded video named orangejuiceneww for
+liquid leaking while being filled. Show the top 3 matching clips.”:
+
+1. Use `vss_cli` with `["vios","list"]`, resolve the exact registered recording
+   name, and retain its listed UUID. The filename is only a source filter.
+2. Use the actual visual phrase as `--query`, never the filename:
+   `["search","run","embed","--query","liquid leaking while being filled","--source-type","video_file","--video-source","<listed recording UUID>","--top-k","3"]`.
+
+If the source listing has **no matching recorded file**, say that the named
+recording is unavailable and STOP before any search. Never substitute a
+similarly named RTSP/live replay, multiple sources, an analytics sensor, or a
+known historical UUID. A listed `type: stream` is not the requested recording.
+The recording name must match a returned file entry before its UUID is used.
+
+3. Present that returned SearchOutput and its verification as native cards.
+   Stop this search turn; do not call filling analysis, a separate VLM or
+   analytics to reinterpret the results. Do not claim the file name itself
+   constitutes a detected visual criterion.
+
+The words “filling”, “overflow” and “leaking” describe visual events here. They
+do not make this a calibrated Filling Analysis measurement query. Select that
+other skill only when the user requests measured bottle/cycle inspection or
+its specific UI context. Preserve an explicitly different event or top-k.
+A typed search error remains an error; do not bypass it through shell/HTTP.
+
 ## Purpose
 
 Operate archive search from the caller's host. Compose and Kubernetes use the

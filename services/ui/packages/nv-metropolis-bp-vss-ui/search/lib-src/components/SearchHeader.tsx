@@ -23,11 +23,12 @@ interface SearchHeaderProps {
 
 const SOURCE_TYPE_OPTIONS = [
     { label: 'Video', value: 'video_file' },
-    { label: 'RTSP', value: 'rtsp' }
+    { label: 'RTSP', value: 'rtsp' },
+    { label: 'All sources', value: 'all' }
 ];
 
 const SOURCE_TYPE_STORAGE_KEY = 'vss_search_sourceType';
-const VALID_SOURCE_TYPES = new Set<string>(['video_file', 'rtsp']);
+const VALID_SOURCE_TYPES = new Set<string>(['video_file', 'rtsp', 'all']);
 
 /** Returns 'video_file' | 'rtsp' when only that type has streams; null when both or neither. */
 function getOnlyOneSourceType(streams: StreamInfo[]): 'video_file' | 'rtsp' | null {
@@ -73,7 +74,7 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ theme, streams, filt
     // Default Source Type only on first visit (no session storage): prefer the option that has video sources.
     // Once user has a stored preference, allow any option (including one with no streams) to avoid confusion.
     useEffect(() => {
-        if (getStoredSourceType() != null) return;
+        if (getStoredSourceType() != null || filterParamsRef.current.sourceType != null) return;
         const next = getOnlyOneSourceType(streams);
         if (next == null) return; // both or neither → keep current selection
         if (sourceType === next) return;
@@ -99,6 +100,19 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({ theme, streams, filt
             setFilterParams({ ...current, sourceType: initial });
         }
     }, []);
+
+  // Chat result scope updates the parent. Keep the visible selector in sync
+  // without reapplying a saved preference after the user changes filters.
+  useEffect(() => {
+    const next = filterParams.sourceType;
+    if (!next || !VALID_SOURCE_TYPES.has(next)) return;
+    setSourceType(next);
+    try {
+      sessionStorage.setItem(SOURCE_TYPE_STORAGE_KEY, next);
+    } catch {
+      // ignore unavailable session storage
+    }
+  }, [filterParams.sourceType]);
 
     const close = useCallback(() => setIsPopoverOpen(false), []);
     const togglePopover = useCallback(() => setIsPopoverOpen((prev) => !prev), []);

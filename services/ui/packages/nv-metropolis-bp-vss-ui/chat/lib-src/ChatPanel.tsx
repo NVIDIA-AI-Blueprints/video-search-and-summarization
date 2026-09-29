@@ -82,6 +82,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onSubmitMessageReady,
   onMessageSubmitted,
   onAddQueryContextReady,
+  ambientContext,
   onChatVideoUploadComplete,
   onBusyChange,
   onControlsReady,
@@ -235,13 +236,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const submitText = useCallback(
     (text: string, params?: Record<string, string | number | boolean>) => {
-      const items = contextItems;
-      if (items.length) setContextItems([]);
+      const items = ambientContext
+        ? [ambientContext, ...contextItems.filter(item => item.id !== ambientContext.id)]
+        : contextItems;
+      if (contextItems.length) setContextItems([]);
       titleIfUntitled(text);
       onSubmit?.(text);
       void send(text, { params, context: items });
     },
-    [contextItems, onSubmit, send, titleIfUntitled],
+    [ambientContext, contextItems, onSubmit, send, titleIfUntitled],
   );
 
   // Programmatic submit for the Search / Alerts tabs. Registered once —

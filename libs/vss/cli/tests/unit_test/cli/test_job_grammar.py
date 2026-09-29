@@ -546,6 +546,9 @@ def test_search_critic_reuses_configured_vst_and_rt_vlm(monkeypatch: pytest.Monk
     assert vlm._media_mode == "video_url"
     assert vlm._video_url_scope == "external"
     assert vlm._cosmos_nim_runtime_options is False
+    assert vlm._rt_vlm_frame_budget == 2.0
+    assert vlm._rt_vlm_use_fps_for_chunking is True
+    assert critic._require_complete_query is True
 
 
 def test_search_critic_is_disabled_when_configured_vlm_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:

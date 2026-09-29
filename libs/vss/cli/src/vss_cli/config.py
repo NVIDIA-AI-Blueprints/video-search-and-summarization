@@ -934,6 +934,7 @@ def save(deployment: Deployment) -> Path:
 INGRESS_SERVICES.update(
     {
         "agent": ServiceRoute(mount="/api", probe="/api/v1/videos"),
+        "filling": ServiceRoute(mount="/filling", probe="/filling/api/health"),
         "vst": ServiceRoute(mount="/vst", probe="/vst/api/v1/sensor/version"),
         "video_analytics": ServiceRoute(
             mount="/video-analytics-api",

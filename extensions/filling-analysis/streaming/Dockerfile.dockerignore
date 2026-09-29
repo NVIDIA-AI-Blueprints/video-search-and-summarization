@@ -1,0 +1,10 @@
+**
+!streaming/
+!streaming/**
+!segmentation/
+!segmentation/**
+!backend/
+!backend/neural_vision.py
+!backend/neural_measurement_calibration.json
+**/__pycache__
+**/.pytest_cache

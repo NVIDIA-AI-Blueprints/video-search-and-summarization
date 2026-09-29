@@ -6,3 +6,6 @@ services/rtvi/rt-cv/**/*.so filter=lfs diff=lfs merge=lfs -text
 services/rtvi/rt-embed/docker/binaries/** filter=lfs diff=lfs merge=lfs -text
 services/rtvi/rt-embed/docker/binaries/.gitattributes -filter -diff -merge text
 services/rtvi/rt-vlm/artifacts/**/*.so filter=lfs diff=lfs merge=lfs -text
+
+# Unified diff context lines intentionally contain a single leading space.
+extensions/filling-analysis/deployment/qa/patches/rt-vlm-overlap/overlap.patch whitespace=-blank-at-eol

@@ -7,6 +7,7 @@ import { getFileExtension, isRtspStream, fetchPictureWithQueue, getStreamType } 
 import { createApiEndpoints } from '../api';
 import {copyToClipboard} from 'common';
 import { IconCheck } from '@tabler/icons-react';
+import { env } from 'next-runtime-env';
 
 interface StreamCardProps {
   stream: StreamInfo;
@@ -33,6 +34,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
 }) => {
   const extension = getFileExtension(stream.url);
   const isRtsp = isRtspStream(stream);
+  const enableFillingTab = (env('NEXT_PUBLIC_ENABLE_FILLING_TAB') || process.env.NEXT_PUBLIC_ENABLE_FILLING_TAB) !== 'false';
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [isLoadingThumbnail, setIsLoadingThumbnail] = useState(true);
   const [thumbnailError, setThumbnailError] = useState(false);
@@ -208,6 +210,7 @@ export const StreamCard: React.FC<StreamCardProps> = ({
         ) : null}
       </div>
 
+      {enableFillingTab && !isRtsp && typeof window !== 'undefined' && <div className="px-3 py-2 border-t border-gray-700"><Button kind="secondary" size="small" onClick={()=>window.dispatchEvent(new CustomEvent('vss:open-filling',{detail:{sensor_id:stream.sensorId,stream_id:stream.streamId,name:stream.name}}))}>Analyze filling</Button></div>}
       <div
         className="group relative flex items-center justify-center bg-gray-100 dark:bg-neutral-900 pb-[56.25%]"
       >

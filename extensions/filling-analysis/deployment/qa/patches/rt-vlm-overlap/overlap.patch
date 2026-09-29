@@ -1,0 +1,38 @@
+--- a/services/rtvi/rt-vlm/src/vlm_pipeline/vlm_pipeline.py
++++ b/services/rtvi/rt-vlm/src/vlm_pipeline/vlm_pipeline.py
+@@ -1119,7 +1119,7 @@
+         fgetter.stream(
+             live_stream_url=asset.path,
+             chunk_duration=vlm_query.chunk_duration,
+-            chunk_overlap_duration=0,
++            chunk_overlap_duration=vlm_query.chunk_overlap_duration,
+             username=asset.username,
+             password=asset.password,
+             live_stream_id=asset.asset_id,
+@@ -2585,6 +2585,7 @@
+     def _live_stream_decode_signature(self, vlm_query: VlmQuery) -> tuple:
+         return (
+             int(vlm_query.chunk_duration or 0),
++            int(vlm_query.chunk_overlap_duration or 0),
+             float(vlm_query.num_frames_per_second_or_fixed_frames_chunk or 0),
+             bool(vlm_query.use_fps_for_chunking or False),
+             int(vlm_query.vlm_input_width or 0),
+--- a/services/rtvi/rt-vlm/src/server/rtvi_stream_handler.py
++++ b/services/rtvi/rt-vlm/src/server/rtvi_stream_handler.py
+@@ -3653,9 +3653,15 @@
+ 
+         self._vlm_pipeline.ensure_model_available()
+ 
+-        # Validate chunk_duration parameter
++        # Validate live window settings before creating stream state.
+         if query.chunk_duration <= 0:
+             raise ServiceException("chunk_duration must be greater than 0", "BadParameter", 400)
++        if not 0 <= query.chunk_overlap_duration < query.chunk_duration:
++            raise ServiceException(
++                "chunk_overlap_duration must be nonnegative and less than chunk_duration",
++                "BadParameter",
++                400,
++            )
+ 
+         # Create a RequestInfo object and populate it for VLM captions
+         req_info = RequestInfo()

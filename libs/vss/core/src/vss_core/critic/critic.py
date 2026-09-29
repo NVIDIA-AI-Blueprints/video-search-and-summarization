@@ -126,6 +126,25 @@ Return the output in the following format:
 """
 
 
+# Complete-query contract for CLI search; legacy/custom prompts remain supported.
+COMPLETE_QUERY_CRITIC_PROMPT = (
+    'Evaluate this video clip against the COMPLETE search query below:\n{user_prompt}\n\nDecide whether the '
+    'visible clip satisfies every part of that query, including the requested event or ongoing action and'
+    ' its relationship to the subject.\nJudge the requested subject, which may be a person, object, machin'
+    'e, or liquid. Do not substitute a description of some other visible activity. Do not add unrequested'
+    " attributes such as a worker's clothes. A completed state is not evidence that an action is occurrin"
+    'g.\nFor liquid events, distinguish the source of the visible flow. Liquid poured or sprayed onto the '
+    'outside of an already capped container is external rinsing, not leakage during filling. A filling le'
+    'ak is liquid escaping from the receiving container or intended filling path while filling is visibly'
+    ' happening. Confirm clear escaping liquid without demanding floor impact or a known cause; do not co'
+    'nfirm merely because bottles, splashing and equipment are present.\nReturn only one JSON object. Its '
+    '"criteria_met" object must contain exactly one key: the full search query copied verbatim. Set its v'
+    'alue true when the complete query is visibly satisfied, false when it is not. Set "result" to "confi'
+    'rmed" for true, "rejected" for false, or "unverified" if the evidence is insufficient to decide.\nDo '
+    'not invent hidden details.'
+)
+
+
 def _parse_iso(s: str | datetime) -> datetime:
     """Parse an ISO-8601 string into a datetime (passthrough if already datetime)."""
     if isinstance(s, datetime):
@@ -161,7 +180,7 @@ def _extract_json(text: str) -> str:
     return text
 
 
-def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
+def _parse_criteria(vlm_text: str, *, expected_query: str | None = None) -> tuple[CriticAgentResult, dict[str, bool]]:
     """Parse the VLM's JSON response into (verdict, criteria_met).
 
     On parse failure, returns (UNVERIFIED, {}). An explicit ``"result"`` verdict
@@ -186,6 +205,12 @@ def _parse_criteria(vlm_text: str) -> tuple[CriticAgentResult, dict[str, bool]]:
         if any(not isinstance(value, bool) for value in raw_criteria.values()):
             raise TypeError("criteria values must be JSON booleans")
         criteria = {str(k): value for k, value in raw_criteria.items()}
+        if expected_query is not None and set(criteria) != {expected_query}:
+            # An all-true description of another visible activity does not verify
+            # this search. Require the complete predicate, without synonym or
+            # substring matching that could erase an action or relationship.
+            logger.warning("Critic response did not evaluate the complete search query")
+            return CriticAgentResult.UNVERIFIED, {}
 
         # Honor an explicit verdict for all three vocabulary values (not just the
         # two negative ones) so a VLM that self-reports ``"confirmed"`` is trusted
@@ -273,6 +298,7 @@ class CriticAgent:
         max_concurrent_verifications: int = 5,
         time_format: TimeFormat = "iso",
         num_videos_to_evaluate: int | None = None,
+        require_complete_query: bool = False,
     ) -> None:
         if max_concurrent_verifications < 1:
             raise ConfigurationError("max_concurrent_verifications must be >= 1")
@@ -283,6 +309,7 @@ class CriticAgent:
         self._vlm = vlm_analyzer
         self._vst = vst
         self._prompt = prompt
+        self._require_complete_query = require_complete_query
         self._max_concurrent = max_concurrent_verifications
         self._time_format = time_format
         self._default_eval_count = num_videos_to_evaluate
@@ -455,7 +482,9 @@ class CriticAgent:
             )
 
         logger.info(f"VLM response for {video.sensor_id}: {vlm_response}")
-        verdict, criteria = _parse_criteria(vlm_response)
+        verdict, criteria = _parse_criteria(
+            vlm_response, expected_query=query if self._require_complete_query else None
+        )
         logger.debug(f"Video {video.sensor_id} verdict={verdict.value} criteria={criteria}")
         return VideoResult(video_info=video, result=verdict, criteria_met=criteria)
 

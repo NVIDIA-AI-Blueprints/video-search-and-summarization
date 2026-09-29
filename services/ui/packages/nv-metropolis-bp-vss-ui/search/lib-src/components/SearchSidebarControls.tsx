@@ -24,11 +24,12 @@ export interface SearchSidebarControlsProps {
 
 const SOURCE_TYPE_OPTIONS = [
   { label: 'Video', value: 'video_file' },
-  { label: 'RTSP', value: 'rtsp' }
+  { label: 'RTSP', value: 'rtsp' },
+    { label: 'All sources', value: 'all' }
 ];
 
 const SOURCE_TYPE_STORAGE_KEY = 'vss_search_sourceType';
-const VALID_SOURCE_TYPES = new Set<string>(['video_file', 'rtsp']);
+const VALID_SOURCE_TYPES = new Set<string>(['video_file', 'rtsp', 'all']);
 
 function getOnlyOneSourceType(streams: StreamInfo[]): 'video_file' | 'rtsp' | null {
   const hasVideoFile = streams.some((s) => s.type === 'sensor_file');
@@ -80,7 +81,7 @@ export const SearchSidebarControls: React.FC<SearchSidebarControlsProps> = ({
   }
 
   useEffect(() => {
-    if (getStoredSourceType() != null) return;
+    if (getStoredSourceType() != null || filterParamsRef.current.sourceType != null) return;
     const next = getOnlyOneSourceType(streams);
     if (next == null) return;
     if (sourceType === next) return;
@@ -107,6 +108,19 @@ export const SearchSidebarControls: React.FC<SearchSidebarControlsProps> = ({
       setFilterParams({ ...current, sourceType: initial });
     }
   }, [setFilterParams]);
+
+  // Chat result scope updates the parent. Keep the visible selector in sync
+  // without reapplying a saved preference after the user changes filters.
+  useEffect(() => {
+    const next = filterParams.sourceType;
+    if (!next || !VALID_SOURCE_TYPES.has(next)) return;
+    setSourceType(next);
+    try {
+      sessionStorage.setItem(SOURCE_TYPE_STORAGE_KEY, next);
+    } catch {
+      // ignore unavailable session storage
+    }
+  }, [filterParams.sourceType]);
 
   const close = useCallback(() => setIsPopoverOpen(false), []);
   const togglePopover = useCallback(() => setIsPopoverOpen((prev) => !prev), []);

@@ -27,6 +27,7 @@ import pytest
 
 from vss_core._foundation.errors import BackendUnreachableError
 from vss_core._foundation.errors import ConfigurationError
+from vss_core.critic import COMPLETE_QUERY_CRITIC_PROMPT
 from vss_core.critic import CriticAgent
 from vss_core.critic import VideoInfo
 from vss_core.critic.models import CriticAgentInput
@@ -586,3 +587,32 @@ class TestCriticOutputShape:
         assert set(r.model_dump().keys()) == {"video_info", "result", "criteria_met"}
         # Enum value contract — must match agents/critic_agent.py:168-173
         assert r.result.value in {"confirmed", "rejected", "unverified"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ('{"criteria_met": {"liquid leaking while being filled": true}}', CriticAgentResult.CONFIRMED),
+        ('{"criteria_met": {"liquid leaking while being filled": false}}', CriticAgentResult.REJECTED),
+        ('{"criteria_met": {"worker wearing blue": true}}', CriticAgentResult.UNVERIFIED),
+        ('{"criteria_met": {"liquid already filled": true}}', CriticAgentResult.UNVERIFIED),
+        ('{"result": "confirmed", "criteria_met": {"liquid leaking": true}}', CriticAgentResult.UNVERIFIED),
+        ('{"result": "unverified", "criteria_met": {}}', CriticAgentResult.UNVERIFIED),
+    ],
+)
+async def test_complete_query_contract_does_not_accept_another_visible_predicate(response, expected):
+    query = "liquid leaking while being filled"
+    vlm = _FakeVLM(response)
+    critic = CriticAgent(
+        vlm_analyzer=vlm,
+        vst=_FakeVST(),
+        prompt=COMPLETE_QUERY_CRITIC_PROMPT,
+        require_complete_query=True,
+    )
+    out = await critic.run(CriticAgentInput(query=query, videos=[_video()]))
+    assert out.video_results[0].result == expected
+    if expected == CriticAgentResult.UNVERIFIED:
+        assert out.video_results[0].criteria_met == {}
+    else:
+        assert set(out.video_results[0].criteria_met) == {query}

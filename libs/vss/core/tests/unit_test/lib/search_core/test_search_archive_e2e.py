@@ -132,22 +132,15 @@ class _MockSearchServices:
             self._send_json(handler, {"data": [[0.3, 0.2, 0.1]]})
             return
         if method == "POST" and path == "/v1/chat/completions":
+            prompt = body["messages"][0]["content"][0]["text"]
+            if prompt.startswith("Evaluate this video clip against the COMPLETE search query below:"):
+                query = prompt.split("\n\n", 1)[0].partition("\n")[2]
+                criteria = {query: True}
+            else:
+                criteria = {"subject:forklift": True, "red": True}
             self._send_json(
                 handler,
-                {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": json.dumps(
-                                    {
-                                        "subject:forklift": True,
-                                        "red": True,
-                                    }
-                                )
-                            }
-                        }
-                    ]
-                },
+                {"choices": [{"message": {"content": json.dumps({"criteria_met": criteria})}}]},
             )
             return
         if method == "GET" and path.startswith("/_cat/indices"):
@@ -319,8 +312,7 @@ def test_search_archive_cli_e2e_returns_search_output_json(
             "verification": {
                 "result": "confirmed",
                 "criteria_met": {
-                    "subject:forklift": True,
-                    "red": True,
+                    "red forklift": True,
                 },
             },
         }
@@ -340,11 +332,14 @@ def test_search_archive_cli_e2e_returns_search_output_json(
     # windows can still yield top_k results, and EmbedSearch overfetches 5x
     # because the video-source filter may discard KNN hits. top_k=1 -> 2 -> 10.
     assert search_request.body["size"] == 10
-    assert search_request.body["query"]["bool"]["must"][0]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2, 0.3]
+    assert search_request.body["query"]["nested"]["query"]["knn"]["query_vector"] == [0.1, 0.2, 0.3]
     assert "warehouse_clip" in json.dumps(search_request.body)
     assert not any(request.path in {"/generate", "/api/v1/generate"} for request in mock_services.requests)
     assert len(mock_services.requests_for("/v1/models")) == 1
     assert len(mock_services.requests_for("/v1/chat/completions")) == 1
+    critic_request = mock_services.requests_for("/v1/chat/completions")[0].body
+    assert critic_request["num_frames_per_second_or_fixed_frames_chunk"] == 2.0
+    assert critic_request["use_fps_for_chunking"] is True
 
 
 def test_search_archive_cli_rtsp_subtracts_uploads_anchor(

@@ -807,6 +807,9 @@ async def resolve_sensor(
         # address one explicitly, so the resolver has to accept what it asked for.
         scan_failure: VSTError | None = None
         for sensor in sensors:
+            if sensor.get("state") == "removed":
+                # VIOS retains deletion tombstones after removing their streams.
+                continue
             candidate = str(sensor.get("sensorId") or "")
             if not candidate:
                 continue
@@ -873,6 +876,9 @@ async def list_media(
     """
     rows: list[dict[str, object]] = []
     for sensor in await list_sensors(vst_internal_url, timeout_seconds):
+        if sensor.get("state") == "removed":
+            # A deletion tombstone has no streams and is not registered media.
+            continue
         sensor_id = str(sensor.get("sensorId") or "")
         name = str(sensor.get("name") or "")
         if not sensor_id:

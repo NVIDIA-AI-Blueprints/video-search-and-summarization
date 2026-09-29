@@ -79,6 +79,7 @@ export const FilterDialog: React.FC<FilterDialogProps> = ({
 
   // Filter streams based on sourceType
   const filteredStreams = useMemo(() => {
+    if (sourceType === 'all') return streams;
     const targetType = sourceType === 'video_file' ? 'sensor_file' : 'sensor_rtsp';
     return streams.filter(stream => stream.type === targetType);
   }, [streams, sourceType]);

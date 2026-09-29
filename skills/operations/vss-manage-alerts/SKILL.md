@@ -31,6 +31,10 @@ Operate the VSS alert pipeline (mode detection, Alert-Bridge subscriptions, veri
 
 Follow the routing tables and step-by-step workflows below. Each section that ends in *workflow*, *quick start*, or *flow* is intended to be executed top-to-bottom. Detailed reference material lives in `references/` and helper scripts live in `scripts/` — call them via `run_script` when the skill points to a script by name.
 
+## Supplied camera configuration
+
+Before creating realtime monitoring, check the active project's `DEPLOYMENT.md` and `ASSETS.md` for an explicitly assigned, reviewed camera preset. If one applies to the selected registered camera and requested condition, follow **Workflow D — Supplied camera preset** in `references/alert-subscriptions.md`; its schema-supported settings take precedence over the generic defaults. A preset contains operational settings, never expected incidents or answers. Preserve the user's detection condition and resolve current sensor identity through VIOS.
+
 ## Examples
 
 Runnable end-to-end scenarios live under `evals/` (each `*.json` manifest); inline `curl` blocks appear in each workflow below. Replay with `nv-base validate <this-skill-dir> --agent-eval`.

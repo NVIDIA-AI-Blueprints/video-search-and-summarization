@@ -149,7 +149,35 @@ def test_build_es_query_with_filter_overfetches():
     inp = EmbedSearchInput(query="q", source_type="video_file", top_k=2, video_sources=[_UUID])
     body = h.build_es_query(inp, [0.1], default_max_results=100)
     assert body["size"] == 10
-    assert body["query"]["bool"]["filter"][0] == {"terms": {"sensor.id.keyword": [_UUID]}}
+    assert body["query"]["nested"]["query"]["knn"]["filter"] == {"terms": {"sensor.id.keyword": [_UUID]}}
+
+
+def test_source_time_and_description_scope_knn_candidate_selection():
+    # A post-filter is insufficient when another source owns every global top-k
+    # candidate. All requested constraints must reach kNN's pre-filter, so the
+    # requested source/window competes within its own eligible candidate set.
+    inp = EmbedSearchInput(
+        query="liquid leaking while being filled",
+        source_type="video_file",
+        top_k=5,
+        video_sources=[_UUID],
+        description="filling station",
+        timestamp_start="2025-01-01T00:01:00Z",
+        timestamp_end="2025-01-01T00:01:10Z",
+    )
+    body = h.build_es_query(inp, [0.1, 0.2], default_max_results=100)
+    assert "bool" not in body["query"]
+    knn = body["query"]["nested"]["query"]["knn"]
+    assert knn["k"] == 25
+    assert knn["filter"] == {
+        "bool": {
+            "must": [
+                {"terms": {"sensor.id.keyword": [_UUID]}},
+                h.build_description_filter("filling station"),
+                h.build_timestamp_filter(inp.timestamp_start, inp.timestamp_end),
+            ]
+        }
+    }
 
 
 # ---------------------------------------------------------------- scoring

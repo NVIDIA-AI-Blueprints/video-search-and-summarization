@@ -122,7 +122,7 @@ Same shape quirk as VIOS — an array of `{<sensorId>: [stream, ...]}`, not a fl
 
 ### 3. Upload a Video File
 
-> **No `/sensor/add` on NvStreamer.** Although the route accepts requests (the same VST binary serves it), it does NOT belong to the NvStreamer surface — that endpoint is for VIOS where users wire up upstream RTSP cameras. On NvStreamer, the only way to add a new stream is to upload a video file with the API in this section. The file is served back over RTSP from the streamer videos directory; there is no upstream-camera concept.
+> **No `/sensor/add` on NvStreamer.** Although the route accepts requests (the same VST binary serves it), it does NOT belong to the NvStreamer surface — that endpoint is for VIOS where users wire up upstream RTSP cameras. On NvStreamer, streams are file-backed: add a file through the upload API in this section or the supported server-directory discovery path in Section 7. The file is served back over RTSP from the streamer videos directory; there is no upstream-camera concept.
 
 NvStreamer accepts uploads via three methods: **PUT v2**, **PUT v1**, and **POST multipart**. All three drop the file into the streamer videos directory and auto-register it as a file-backed sensor on the next discovery cycle. **The user must provide a local file path** to upload — `curl` reads bytes from that path; this skill does not generate or fetch video content on its own.
 
@@ -287,6 +287,20 @@ curl -s "http://<NVSTREAMER_ENDPOINT>/api/v1/storage/file/mediainfo?sensorId=<se
 
 ### 7. Filesystem Scan
 
+#### Already host-local, verified replay assets
+
+For a Compose deployment, when the active package explicitly supplies a local server asset and its SHA256, use directory discovery directly after the user requests that replay. This avoids a duplicate HTTP transfer and avoids retrying a known failed upload path. It does not register anything before the user's request and does not substitute for a plain VIOS archive upload. For client-only files, unverified server files, or deployments without an authorized host bind, retain Section 3's normal upload workflow.
+
+1. Resolve this application's actual NvStreamer videos bind from its deployment manifest/configuration. Verify the supplied source file's SHA256; do not guess a path, select a derivative, or use another application's media directory.
+2. Check whether the exact source is already staged and registered. Reuse it only after matching the staged file's hash and the returned sensor metadata. Never overwrite a different file or infer an ID from a filename.
+3. If staging is needed, copy the complete verified file to temporary storage outside the watched directory on the same filesystem, verify its hash, then publish it atomically without replacing an existing destination. This prevents discovery of partial bytes. Preserve the source and all existing media.
+4. Poll `GET /api/v1/sensor/list` for a bounded discovery interval, then retrieve that returned sensor's streams and actual RTSP URL. Metadata may need 15–30s to populate. Continue the normal VIOS `/sensor/add` handoff only when requested and only with that actual returned URL.
+5. Prefer automatic discovery while other replays are active. The explicit scan below reconnects/rebuilds the adaptor and can revive removed sensors whose files remain; do not trigger it casually or as a generic retry. If bounded discovery fails, report the staging/discovery failure and inspect service state before choosing a supported scan at an appropriate time. A scan response alone is not proof that a particular file is available.
+
+Record source hash, actual staging/discovery path, returned NvStreamer/VIOS identifiers and elapsed time. Do not call this an HTTP upload when bytes were staged locally.
+
+#### Explicit rescan operation
+
 Forces NvStreamer to re-scan its videos directory and register any newly-present files as sensors. Use this when a file has been dropped into the directory by a path *other* than the upload APIs (e.g. `docker cp`, a host-side `mv` into the bind-mounted volume, or a separate tool) and you want it to appear immediately rather than waiting for the next auto-discovery tick.
 
 ```bash
@@ -318,7 +332,7 @@ The reason this reference exists in the VIOS skill: the load-bearing pattern tha
    ```bash
    curl -sf --connect-timeout 5 "http://<NVSTREAMER_ENDPOINT>/api/v1/sensor/version" | jq -e '.type == "streamer"'
    ```
-2. Upload the file via PUT v2 — `sensorId` / `streamId` come back as a fresh UUID:
+2. For an already host-local, hash-verified supplied asset, use Section 7 directory discovery and take the actual discovered IDs; then continue with step 3. Otherwise upload the file via PUT v2 — `sensorId` / `streamId` come back as a fresh UUID:
    ```bash
    FILE=/path/to/video.mp4
    SID=$(curl -s -X PUT \

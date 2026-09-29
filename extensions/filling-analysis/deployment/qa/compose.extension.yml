@@ -1,0 +1,126 @@
+services:
+  vss-ui:
+    image: ${VSS_FILLING_UI_IMAGE:-vss-ui-filling:qa}
+    pull_policy: never
+    environment:
+      NEXT_PUBLIC_ENABLE_FILLING_TAB: "${FILLING_TAB_VISIBLE:-false}"
+      NEXT_PUBLIC_PROTECT_UPLOADED_FILES: "true"
+  vss-filling-analysis:
+    profiles: [vss-filling-analysis]
+    image: ${VSS_FILLING_API_IMAGE:-vss-filling-analysis:qa}
+    restart: unless-stopped
+    environment:
+      APP_SOURCE_MODE: vss
+      APP_ENABLE_MCP: "false"
+      APP_DATA_DIR: /data
+      APP_MEDIA_PATH: /media/orangejuice.mp4
+      VSS_BASE_URL: http://vss-haproxy-ingress:7777
+      VSS_PUBLIC_URL: ${VSS_PUBLIC_URL:?Set public HTTP(S) origin}
+      VSS_MEDIA_ORIGIN: http://vst-ingress:30888
+      APP_PUBLIC_PREFIX: /filling
+      APP_SEGMENTATION_URL: http://vss-filling-segmentation:8091
+      APP_LIVE_URL: http://vss-filling-live:8092
+      LIVE_STREAMS_CONFIG: /config/streams.json
+    volumes:
+      - type: bind
+        source: ${FILLING_REFERENCE_VIDEO:?Set original reference MP4}
+        target: /media/orangejuice.mp4
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${FILLING_STREAMS_FILE:?Set private reviewed stream configuration}
+        target: /config/streams.json
+        read_only: true
+        bind: {create_host_path: false}
+      - filling-data:/data
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/api/health',timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+  vss-filling-segmentation:
+    profiles: [vss-filling-segmentation]
+    image: ${VSS_FILLING_SEGMENTATION_IMAGE:-vss-filling-segmentation:qa}
+    restart: unless-stopped
+    init: true
+    environment: &model_env
+      BOTTLE_CHECKPOINT: /models/bottle.pth
+      LIQUID_CHECKPOINT: /models/liquid.pth
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    volumes:
+      - filling-data:/data:ro
+      - filling-results:/results
+      - type: bind
+        source: ${FILLING_BOTTLE_CHECKPOINT:?Set reviewed bottle checkpoint}
+        target: /models/bottle.pth
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${FILLING_LIQUID_CHECKPOINT:?Set reviewed liquid checkpoint}
+        target: /models/liquid.pth
+        read_only: true
+        bind: {create_host_path: false}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${FILLING_RECORDED_GPU_ID:?Set recorded GPU placement}"]
+              capabilities: [gpu]
+    shm_size: 1gb
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request,json; assert json.load(urllib.request.urlopen('http://127.0.0.1:8091/health',timeout=4))['status']=='ready'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+  vss-filling-live:
+    profiles: [vss-filling-live]
+    image: ${VSS_LIVE_IMAGE:-vss-filling-live:qa}
+    restart: unless-stopped
+    init: true
+    environment:
+      <<: *model_env
+      LIVE_STREAMS_CONFIG: /config/streams.json
+      LIVE_STATE_DB: /state/live.sqlite3
+      LIVE_FRAME_QUEUE_SIZE: "4"
+      LIVE_MAX_QUEUE_AGE_SECONDS: "0.5"
+    volumes:
+      - filling-live-state:/state
+      - type: bind
+        source: ${FILLING_STREAMS_FILE:?Set private reviewed stream configuration}
+        target: /config/streams.json
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${FILLING_BOTTLE_CHECKPOINT:?Set reviewed bottle checkpoint}
+        target: /models/bottle.pth
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${FILLING_LIQUID_CHECKPOINT:?Set reviewed liquid checkpoint}
+        target: /models/liquid.pth
+        read_only: true
+        bind: {create_host_path: false}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${FILLING_LIVE_GPU_ID:?Set live GPU placement}"]
+              capabilities: [gpu]
+    shm_size: 1gb
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request,json; assert json.load(urllib.request.urlopen('http://127.0.0.1:8092/health',timeout=4))['status']=='ready'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+volumes:
+  filling-data:
+  filling-results:
+  filling-live-state:

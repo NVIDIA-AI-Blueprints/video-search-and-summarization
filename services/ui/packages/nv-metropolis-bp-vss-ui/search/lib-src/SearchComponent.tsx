@@ -23,7 +23,7 @@ import {
   extractSearchResultsFromAgentResponse,
   normalizeSearchResultMediaUrls,
 } from './utils/agentResponseParser';
-import { applySearchResultFilters } from './utils/searchFilters';
+import { applySearchResultFilters, sourceTypeForSearchResults } from './utils/searchFilters';
 
 // Components
 import { SearchHeader } from './components/SearchHeader';
@@ -160,6 +160,15 @@ export const SearchComponent: React.FC<SearchComponentProps> = ({
   deliverAgentAnswerRef.current = (answer: string) => {
     const results = extractSearchResultsFromAgentResponse(answer);
     if (results !== null) {
+      // A new answer supplies its own source scope. Reconcile only here so
+      // subsequent user filtering and metadata refreshes retain their choices.
+      const nextFilters = {
+        ...filterParams,
+        sourceType: sourceTypeForSearchResults(results, streams),
+        videoSources: [],
+      };
+      setFilterParams(nextFilters);
+      addFilter(nextFilters);
       setAgentSearchResults(results);
       return true;
     }

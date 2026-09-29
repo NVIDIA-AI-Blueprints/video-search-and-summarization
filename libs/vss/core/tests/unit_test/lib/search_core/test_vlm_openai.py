@@ -61,6 +61,8 @@ async def test_rt_vlm_uses_video_url_without_direct_cosmos_nim_options() -> None
         payload = json.loads(request.content)
         assert "media_io_kwargs" not in payload
         assert "num_frames_per_second_or_fixed_frames_chunk" not in payload
+        assert "vlm_input_width" not in payload
+        assert "vlm_input_height" not in payload
         assert payload["messages"][0]["content"][1] == {
             "type": "video_url",
             "video_url": {"url": "https://vst.example/clip.mp4"},
@@ -335,3 +337,46 @@ async def test_vst_clip_download_error_does_not_expose_presigned_query() -> None
         assert error.value.__cause__ is None
     finally:
         await analyzer.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rt_vlm_input_dimensions_are_sent_without_changing_media() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["vlm_input_width"] == 1280
+        assert payload["vlm_input_height"] == 720
+        assert payload["messages"][0]["content"][1]["video_url"]["url"] == "https://vst.example/clip.mp4"
+        assert "media_io_kwargs" not in payload
+        return httpx.Response(200, json={"choices": [{"message": {"content": "No"}}]}, request=request)
+
+    analyzer = OpenAIVLMAnalyzer(
+        base_url="https://rt-vlm.example/v1",
+        model="model",
+        vst=_VST(),  # type: ignore[arg-type]
+        cosmos_nim_runtime_options=False,
+        rt_vlm_input_width=1280,
+        rt_vlm_input_height=720,
+    )
+    analyzer._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        await analyzer.analyze(
+            sensor_id="sensor-1",
+            start_timestamp="0.0",
+            end_timestamp="5.0",
+            prompt="What happened?",
+            time_format="offset",
+        )
+    finally:
+        await analyzer.aclose()
+
+
+@pytest.mark.parametrize("width,height", [(1280, None), (None, 720), (0, 720), (1280, 4097), (True, 720), (1280.5, 720)])
+def test_invalid_rt_vlm_input_dimensions_are_rejected(width, height) -> None:
+    with pytest.raises(ConfigurationError, match="RT-VLM input"):
+        OpenAIVLMAnalyzer(
+            base_url="https://rt-vlm.example/v1",
+            model="model",
+            vst=_VST(),  # type: ignore[arg-type]
+            rt_vlm_input_width=width,
+            rt_vlm_input_height=height,
+        )

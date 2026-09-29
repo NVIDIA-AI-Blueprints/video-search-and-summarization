@@ -85,6 +85,27 @@ describe('ChatPanel', () => {
     );
   });
 
+  it('renders exact same-origin live snapshot evidence without the VIOS proxy', () => {
+    const session='77f3bb44-6108-4645-bbd9-53b0e8a15ee9';
+    const url=`/filling/api/live/evidence?session_id=${session}&event_id=${session}%3Aepoch-2%3Acycle-413%3Ainspection&frame_id=9692`;
+    render(<VssUiArtifact mediaProxyUrl="/api/proxy" value={{version:'1.0',kind:'vss.media.image',payload:{media_url:url,mime_type:'image/jpeg',alt:'Cycle413 verified frame9692'}}}/>);
+    expect(screen.getByRole('img',{name:'Cycle413 verified frame9692'})).toHaveAttribute('src',url);
+    expect(screen.getByRole('button',{name:'Download image'})).toBeInTheDocument();
+  });
+
+  it.each([
+    'http://external.test/filling/api/live/evidence?session_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9&event_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9%3Aepoch-2%3Acycle-413%3Ainspection&frame_id=9692',
+    '/filling/api/live/evidence?session_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9&event_id=another-session%3Aepoch-2%3Acycle-413%3Ainspection&frame_id=9692',
+    '/filling/api/live/evidence?session_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9&event_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9%3Aepoch-2%3Acycle-413%3Ainspection',
+    '/filling/api/live/evidence?session_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9&event_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9%3Aepoch-2%3Acycle-413%3Ainspection&frame_id=-1',
+    '/filling/api/live/evidence?session_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9&event_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9%3Aepoch-2%3Acycle-413%3Ainspection&frame_id=9692&frame_id=9693',
+    '/filling/api/live/evidence?session_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9&event_id=77f3bb44-6108-4645-bbd9-53b0e8a15ee9%3Aepoch-2%3Acycle-413%3Ainspection&frame_id=9692&path=/etc/passwd',
+    '/filling/api/live/status',
+  ])('rejects unbound or arbitrary live artifact URL %s', media_url => {
+    render(<VssUiArtifact mediaProxyUrl="/api/proxy" value={{version:'1.0',kind:'vss.media.image',payload:{media_url,alt:'Invalid snapshot'}}}/>);
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
   it('streams an answer and renders it as markdown', async () => {
     global.fetch = jest.fn().mockResolvedValue(
       sseResponse([
@@ -567,6 +588,31 @@ describe('ChatPanel', () => {
     expect(sent).toContain('summarise');
     // Chips apply to one turn only.
     await waitFor(() => expect(screen.queryByText('Camera 3')).not.toBeInTheDocument());
+  });
+
+  it('binds ordinary typed messages to the current host scope across turns and clears it on leaving', async () => {
+    const fetchMock = jest.fn().mockImplementation(async () => sseResponse(['data: [DONE]\n\n']));
+    global.fetch = fetchMock as any;
+    const scope = (session: string, epoch: number) => ({id:'live-scope',label:'Live filling',contextType:'filling-live',data:{mode:'live',session_id:session,stream_id:'live-stream',epoch}});
+    const {rerender} = render(<ChatPanel endpoint={endpoint} features={noHeader} ambientContext={scope('first-session',2)}/>);
+    const sent = () => {const body = JSON.parse(fetchMock.mock.calls.at(-1)![1].body); return body.messages.at(-1).content;};
+    await act(async () => typeAndSend('can you tell me what happened with bottle cycle-305?'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(sent()).toContain('"session_id":"first-session"');
+    expect(sent()).toContain('"epoch":2');
+    expect(sent()).toContain('can you tell me what happened with bottle cycle-305?');
+    await act(async () => typeAndSend('show its available evidence'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(sent()).toContain('"session_id":"first-session"');
+    rerender(<ChatPanel endpoint={endpoint} features={noHeader} ambientContext={scope('next-session',3)}/>);
+    await act(async () => typeAndSend('what happened to the current bottle?'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(sent()).toContain('"session_id":"next-session"');
+    expect(sent()).not.toContain('first-session');
+    rerender(<ChatPanel endpoint={endpoint} features={noHeader}/>);
+    await act(async () => typeAndSend('what recordings are available?'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    expect(sent()).not.toContain('[Context:');
   });
 
   it('lets an embedder submit a message without the user typing', async () => {

@@ -179,6 +179,7 @@ const vssChatUploadConfig = (surface: ChatSurface) => ({
 });
 
 const dynamicComponents = {
+  FillingAnalysis: dynamic(() => import('./filling/FillingAnalysis'), { ssr: false, loading: () => <div className="p-6">Loading filling analysis…</div> }),
   AlertsComponent: dynamic(() => 
     import('@nv-metropolis-bp-vss-ui/all').then(mod => mod.AlertsComponent).catch((error) => {
       console.error('[DynamicImport] Failed to load AlertsComponent:', error);
@@ -300,6 +301,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   // Get deployment configuration from environment variables - memoize to prevent recreation
   const deploymentConfig = useMemo(() => {
     return {
+      enableFillingTab: (env('NEXT_PUBLIC_ENABLE_FILLING_TAB') || process.env.NEXT_PUBLIC_ENABLE_FILLING_TAB) !== 'false',
       enableChatTab: (env('NEXT_PUBLIC_ENABLE_CHAT_TAB') || process.env.NEXT_PUBLIC_ENABLE_CHAT_TAB) !== 'false',
       enableAlertsTab: (env('NEXT_PUBLIC_ENABLE_ALERTS_TAB') || process.env.NEXT_PUBLIC_ENABLE_ALERTS_TAB) !== 'false',
       enableSearchTab: (env('NEXT_PUBLIC_ENABLE_SEARCH_TAB') || process.env.NEXT_PUBLIC_ENABLE_SEARCH_TAB) !== 'false',
@@ -360,6 +362,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       enabled: deploymentConfig.enableVideoManagementTab,
       component: 'VideoManagementComponent'
     },
+    { id:'filling', label:'Filling analysis', icon:<IconLayoutDashboard size={16}/>, alt:'Filling analysis', enabled:deploymentConfig.enableFillingTab, component:'FillingAnalysis' },
   ], [deploymentConfig]);
 
   // Filter tabs based on deployment configuration
@@ -379,6 +382,21 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
   const setActiveTab = React.useCallback((newTab: string) => {
     setActiveTabInternal(newTab);
   }, []);
+
+  const [fillingSourceRequest, setFillingSourceRequest] = useState<{sensor_id?:string;stream_id?:string;name?:string;request_id:number}|null>(null);
+  React.useEffect(() => {
+    const openFilling = (event: Event) => {
+      if(!deploymentConfig.enableFillingTab) return;
+      const detail=(event as CustomEvent<{sensor_id?:string;stream_id?:string;name?:string}>).detail;
+      if(!detail || (!detail.sensor_id && !detail.stream_id)) return;
+      // The tab is dynamically imported. Keep source identity in Home state so
+      // the component receives it even when the event precedes its mount.
+      setFillingSourceRequest(previous=>({...detail,request_id:(previous?.request_id??0)+1}));
+      setActiveTab('filling');
+    };
+    window.addEventListener('vss:open-filling', openFilling);
+    return () => window.removeEventListener('vss:open-filling', openFilling);
+  },[deploymentConfig.enableFillingTab,setActiveTab]);
 
   // State for holding mode-specific control handlers
   const [chatControlHandlers, setChatControlHandlers] = useState<ChatSidebarControlHandlers | null>(null);
@@ -449,6 +467,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
     sidebarCollapsed: sidebarApi.collapsed,
   });
 
+  const [liveFillingChatContext, setLiveFillingChatContext] = useState<QueryDataContext | null>(null);
   const appSidebarAddQueryContextRef = React.useRef<
     ((item: QueryDataContext) => void) | undefined
   >(undefined);
@@ -583,6 +602,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
           {...vssSidebarChatExtraConfig}
           // Separates this panel's conversations from the chat tab's.
           storageKeyPrefix={CHAT_SIDEBAR_INSTANCE_STORAGE_PREFIX}
+          ambientContext={activeTab === 'filling' ? liveFillingChatContext : undefined}
           onAnswerComplete={handleSidebarAnswerComplete}
           onSubmitMessageReady={handleSidebarSubmitMessageReady}
           onMessageSubmitted={handleSidebarMessageSubmitted}
@@ -601,6 +621,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       theme,
       handleThemeChange,
       activeTab,
+      liveFillingChatContext,
       handleSidebarAnswerComplete,
       handleSidebarAnswerCompleteWithContent,
       handleSidebarSubmitMessageReady,
@@ -746,7 +767,12 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
       onThemeChange: handleThemeChange,
       isActive,
     };
-    if (componentName === 'SearchComponent') {
+    if (componentName === 'FillingAnalysis') {
+      componentProps.onLiveChatContextChange = setLiveFillingChatContext;
+      componentProps.sourceRequest = fillingSourceRequest;
+      componentProps.submitChatMessage = sidebarSubmitChatMessage ? (message:string) => { sidebarApi.setCollapsed(false); sidebarSubmitChatMessage(message); } : undefined;
+      componentProps.addChatQueryContext = sidebarAddChatQueryContext;
+    } else if (componentName === 'SearchComponent') {
       componentProps.searchData = searchData ?? undefined;
       componentProps.serverRenderTime = serverRenderTime;
       componentProps.renderControlsInLeftSidebar = true;

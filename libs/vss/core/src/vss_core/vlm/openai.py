@@ -65,6 +65,8 @@ class OpenAIVLMAnalyzer:
         cosmos_nim_runtime_options: bool = True,
         rt_vlm_frame_budget: float | None = None,
         rt_vlm_use_fps_for_chunking: bool = False,
+        rt_vlm_input_width: int | None = None,
+        rt_vlm_input_height: int | None = None,
     ) -> None:
         if not base_url.strip():
             raise ConfigurationError("VLM base_url must be non-empty")
@@ -81,6 +83,13 @@ class OpenAIVLMAnalyzer:
         ):
             qualifier = "> 0" if rt_vlm_use_fps_for_chunking else ">= 1"
             raise ConfigurationError(f"VLM rt_vlm_frame_budget must be {qualifier}")
+        if (rt_vlm_input_width is None) != (rt_vlm_input_height is None):
+            raise ConfigurationError("RT-VLM input width and height must be set together")
+        for dimension in (rt_vlm_input_width, rt_vlm_input_height):
+            if dimension is not None and (
+                isinstance(dimension, bool) or not isinstance(dimension, int) or not 16 <= dimension <= 4096
+            ):
+                raise ConfigurationError("RT-VLM input dimensions must be integers from 16 to 4096")
         self._base_url = _normalize_base_url(base_url)
         self._model = model
         self._api_key = api_key
@@ -94,6 +103,8 @@ class OpenAIVLMAnalyzer:
         self._cosmos_nim_runtime_options = cosmos_nim_runtime_options
         self._rt_vlm_frame_budget = rt_vlm_frame_budget
         self._rt_vlm_use_fps_for_chunking = rt_vlm_use_fps_for_chunking
+        self._rt_vlm_input_width = rt_vlm_input_width
+        self._rt_vlm_input_height = rt_vlm_input_height
         self._client: httpx.AsyncClient | None = None
 
     @property
@@ -222,6 +233,9 @@ class OpenAIVLMAnalyzer:
                 )
             payload["num_frames_per_second_or_fixed_frames_chunk"] = budget
             payload["use_fps_for_chunking"] = use_fps
+        if self._rt_vlm_input_width is not None:
+            payload["vlm_input_width"] = self._rt_vlm_input_width
+            payload["vlm_input_height"] = self._rt_vlm_input_height
         if not self._disable_audio and "omni" in model:
             payload["mm_processor_kwargs"] = {"use_audio_in_video": True}
 

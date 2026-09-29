@@ -67,3 +67,18 @@ export function applySearchResultFilters(
   }
   return filtered;
 }
+
+/** Use only known VIOS source metadata; unknown or mixed sources stay visible. */
+export function sourceTypeForSearchResults(
+  results: SearchData[],
+  streams: StreamInfo[],
+): 'video_file' | 'rtsp' | 'all' {
+  const byId = new Map(streams.map((stream) => [stream.sensorId, stream]));
+  const byName = new Map(streams.map((stream) => [stream.name, stream]));
+  const types = results.map((result) =>
+    (byId.get(result.sensor_id) || byName.get(result.video_name))?.type,
+  );
+  if (types.length > 0 && types.every((type) => type === 'sensor_file')) return 'video_file';
+  if (types.length > 0 && types.every((type) => type === 'sensor_rtsp')) return 'rtsp';
+  return 'all';
+}

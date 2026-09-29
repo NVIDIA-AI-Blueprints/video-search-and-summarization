@@ -11,6 +11,8 @@ NVIDIA AI Blueprint for Video Search and Summarization (VSS) combines vision-lan
 
 **[🚀 Try the Demo](https://build.nvidia.com/nvidia/video-search-and-summarization)** · **[⚡ Quickstart](#quickstart-guide)** · **[📚 Documentation](https://docs.nvidia.com/vss/latest/index.html)** · **[🏗️ Architecture](#software-components)** · **[📦 Latest Release](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/releases/latest)**
 
+> **Livestream QA branch:** Start with [the demo source, deployment recipe and test plan](docs/livestream/README.md). This custom extension targets engineering evaluation; Spark compatibility remains unvalidated.
+
 ### Table of Contents
 - [Overview](#overview)
 - [Use Case / Problem Description](#use-case--problem-description)

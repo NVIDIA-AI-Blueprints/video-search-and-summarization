@@ -1,0 +1,5 @@
+**
+!segmentation/
+!segmentation/**
+segmentation/**/__pycache__
+segmentation/**/.pytest_cache

@@ -1,0 +1,3 @@
+*.log
+*.json
+!MANIFEST.json

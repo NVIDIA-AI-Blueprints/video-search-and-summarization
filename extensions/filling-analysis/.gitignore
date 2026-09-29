@@ -1,0 +1,7 @@
+/media/
+/runtime-vss/
+/.venv/
+/artifacts/
+/integration/generated/
+__pycache__/
+.pytest_cache/

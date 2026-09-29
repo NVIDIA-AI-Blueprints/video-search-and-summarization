@@ -52,6 +52,12 @@ export async function deleteVideo(
   let spaceSaved: number | undefined;
   if (storageResponse.ok) {
     const storageResult = await storageResponse.json().catch(() => null);
+    if (Array.isArray(storageResult?.protectedFiles) && storageResult.protectedFiles.length > 0) {
+      throw new Error('Video storage is protected and was not deleted. Remove retention protection before deleting this recording.');
+    }
+    if (Array.isArray(storageResult?.invalidFiles) && storageResult.invalidFiles.length > 0) {
+      throw new Error('VIOS could not delete all requested video files; the source registration was preserved.');
+    }
     if (typeof storageResult?.spaceSaved === 'number') {
       spaceSaved = storageResult.spaceSaved;
     }

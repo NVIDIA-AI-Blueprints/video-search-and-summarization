@@ -405,7 +405,7 @@ class TestEmbedSearchQueryShape:
     async def test_description_filter_present(self, make_search):
         e, es, _embed, _vst = make_search()
         await e.run(EmbedSearchInput(query="q", source_type="video_file", description="warehouse"))
-        assert "filter" in es.last_body["query"]["bool"]
+        assert "filter" in _knn(es.last_body)
 
     @pytest.mark.asyncio
     async def test_timestamp_filter_uses_overlap_semantics(self, make_search):
@@ -421,7 +421,7 @@ class TestEmbedSearchQueryShape:
             )
         )
         # timestamp is the only filter, so it is the sole filter clause.
-        time_clause = es.last_body["query"]["bool"]["filter"][0]
+        time_clause = _knn(es.last_body)["filter"]
         assert time_clause["bool"]["must"] == [
             {"range": {"end": {"gte": "2025-01-01T00:00:00+00:00"}}},
             {"range": {"timestamp": {"lte": "2025-01-02T00:00:00+00:00"}}},
@@ -433,7 +433,7 @@ class TestEmbedSearchQueryShape:
         uuid = "8fce43a6-1c35-4d6a-b6e3-391c42090a87"
         await e.run(EmbedSearchInput(query="q", source_type="video_file", video_sources=[uuid]))
         # video_sources is the only filter, so it is the sole filter clause.
-        assert es.last_body["query"]["bool"]["filter"][0] == {"terms": {"sensor.id.keyword": [uuid]}}
+        assert _knn(es.last_body)["filter"] == {"terms": {"sensor.id.keyword": [uuid]}}
 
     @pytest.mark.asyncio
     async def test_top_k_caps_results(self, make_search):

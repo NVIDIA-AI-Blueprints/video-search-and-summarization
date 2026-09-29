@@ -33,6 +33,7 @@ export function useChatSidebarMainTabBridge({
     dashboard: 'Dashboard',
     map: 'Map',
     'video-management': 'Video Management',
+    filling: 'Filling analysis',
   };
 
   const activeTabRef = React.useRef(activeTab);

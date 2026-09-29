@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "components/filling/**/*.ts",
+    "components/filling/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next",
+    "__tests__"
+  ]
+}

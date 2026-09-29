@@ -1,0 +1,777 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Unified DeepStream perception entrypoint.
+# Dispatches based on DS_MODEL_FAMILY env var:
+#   - rtdetr-warehouse
+#   - rtdetr-gdino
+#   - sparse4d-warehouse
+
+set -euo pipefail
+
+# RHEL hosts (Docker via nvidia-container-toolkit) and OpenShift/RHCOS (GPU Operator)
+# inject the real driver libraries (e.g. libnvidia-ml.so.1) into /usr/lib64, while
+# this Ubuntu-based DeepStream image looks under /usr/lib/x86_64-linux-gnu where it
+# only finds a 0-byte stub -> "libnvidia-ml.so.1: file too short" and the GStreamer
+# pipeline fails to create src_nvmultiurisrcbin. Prepend /usr/lib64 so the loader
+# resolves the real libs first; the image's path is preserved, so vanilla Ubuntu
+# Docker behavior is unchanged.
+# Keep the pip-installed cuDNN core and its engine sublibraries on the same version.
+# DeepStream's text encoder imports torch/cuDNN 9.24, while the base OS also ships 9.20.
+VSS_CUDNN_LIB=/usr/local/lib/python3.12/dist-packages/nvidia/cudnn/lib
+if [[ ! -r "$VSS_CUDNN_LIB/libcudnn_engines_runtime_compiled.so.9" ]]; then
+  echo "Required cuDNN engine library missing: $VSS_CUDNN_LIB" >&2
+  exit 1
+fi
+export LD_LIBRARY_PATH="$VSS_CUDNN_LIB:/usr/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+DS_MODEL_FAMILY="${DS_MODEL_FAMILY:?DS_MODEL_FAMILY must be set (rtdetr-warehouse, rtdetr-gdino, sparse4d-warehouse)}"
+STREAM_TYPE="${STREAM_TYPE:-kafka}"
+DS_MODE_FLAG="${DS_MODE_FLAG:-1}"
+DS_MESSAGE_RATE="${DS_MESSAGE_RATE:-1}"
+DS_TRACKER_REID="${DS_TRACKER_REID:-false}"
+DS_SHOW_SENSOR_ID="${DS_SHOW_SENSOR_ID:-false}"
+DS_VISION_ENCODER="${DS_VISION_ENCODER:-false}"
+
+DS_APP_DIR="${DS_APP_DIR:-/opt/nvidia/deepstream/deepstream/sources/apps/sample_apps/metropolis_perception_app}"
+DS_CONFIG_DIR="${DS_APP_DIR}/configs"
+DS_MOUNTED_CONFIGS_DIR="${DS_APP_DIR}/mounted-configs"
+DS_REFERENCE_CONFIGS_DIR="${DS_REFERENCE_CONFIGS_DIR:-${DS_APP_DIR}/reference-configs}"
+
+# Prepend core DeepStream plugin dirs so GStreamer can find nvvideoconvert and
+# other elements required by metropolis_perception_app (e.g. alerts rtdetr-gdino).
+_ARCH="$(uname -m)"
+export GST_PLUGIN_PATH="/opt/nvidia/deepstream/deepstream/lib/gst-plugins:/usr/lib/${_ARCH}-linux-gnu/gstreamer-1.0/deepstream${GST_PLUGIN_PATH:+:${GST_PLUGIN_PATH}}"
+unset _ARCH
+
+# HARDWARE_PROFILE names each Thor board separately (IGX-THOR, AGX-THOR,
+# DGX-THOR, ...) but the DeepStream tuning below is identical across the
+# family. Use a case-insensitive *thor* match so a new board name needs no
+# change here.
+is_thor_profile() {
+    local profile="${HARDWARE_PROFILE:-}"
+    [[ "${profile,,}" == *thor* ]]
+}
+
+# Shared: build extra flags from env vars
+build_extra_flags() {
+    local flags=""
+    [[ "$DS_TRACKER_REID" == "true" ]] && flags="$flags --tracker-reid"
+    [[ "$DS_SHOW_SENSOR_ID" == "true" ]] && flags="$flags --show-sensor-id"
+    echo "$flags"
+}
+
+require_file() {
+    local file_path="$1"
+    local hint="${2:-}"
+    if [[ ! -f "$file_path" ]]; then
+        echo "ERROR: Required file not found: ${file_path}" >&2
+        [[ -n "$hint" ]] && echo "Hint: ${hint}" >&2
+        exit 1
+    fi
+}
+
+# Phase 0: manifest-driven NGC model acquisition (replaces Compose/Helm download init).
+# DS_MODEL_DOWNLOAD=never skips; auto skips when no manifest is mounted.
+ensure_models_from_manifest() {
+    local mode="${DS_MODEL_DOWNLOAD:-auto}"
+    [[ "$mode" == "never" ]] && return 0
+
+    local manifest="${MODELS_MANIFEST_PATH:-}"
+    if [[ -z "$manifest" || ! -f "$manifest" ]]; then
+        if [[ "$mode" == "auto" ]]; then
+            return 0
+        fi
+        echo "ERROR: MODELS_MANIFEST_PATH must point to an existing manifest when DS_MODEL_DOWNLOAD=${mode}" >&2
+        exit 1
+    fi
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        echo "ERROR: model download requires root (Option A); start the container as UID 0" >&2
+        exit 1
+    fi
+
+    local script="${DOWNLOAD_MODELS_SCRIPT:-}"
+    if [[ -z "$script" || ! -f "$script" ]]; then
+        for candidate in /opt/scripts/download-models.sh /startup-script/download-models.sh; do
+            if [[ -f "$candidate" ]]; then
+                script="$candidate"
+                break
+            fi
+        done
+    fi
+    if [[ -z "$script" || ! -f "$script" ]]; then
+        echo "ERROR: download-models.sh not found (expected /opt/scripts or /startup-script)" >&2
+        exit 1
+    fi
+
+    echo "##### Model download phase (manifest=${manifest}, script=${script}) #####"
+    bash "$script"
+}
+
+# Append DeepStream samples/<subdir> dirs under both the deepstream/ entry
+# point and any versioned deepstream-N.M/ tree (same layout split as Tracker).
+# Caller passes a nameref array name; keeps failures in-process under set -e.
+append_deepstream_sample_dirs() {
+    local subdir="$1"
+    local -n _dirs_ref="$2"
+    local canonical="/opt/nvidia/deepstream/deepstream/samples/${subdir}"
+    local d canonical_real other_real
+
+    _dirs_ref+=("$canonical")
+    canonical_real="$(readlink -f "$canonical" 2>/dev/null || true)"
+
+    shopt -s nullglob
+    for d in /opt/nvidia/deepstream/deepstream-[0-9]*/samples/"${subdir}"; do
+        [[ -d "$d" ]] || continue
+        other_real="$(readlink -f "$d" 2>/dev/null || true)"
+        # Deduplicate only when both resolve to the same path; empty readlink
+        # results must not look like a match.
+        if [[ -n "$canonical_real" && -n "$other_real" && "$canonical_real" == "$other_real" ]]; then
+            continue
+        fi
+        _dirs_ref+=("$d")
+    done
+    shopt -u nullglob
+}
+
+# Option A: after the privilege drop the app is STORAGE_UID, but several
+# image-owned DeepStream paths remain unwritable (streams HTTP download dir,
+# Tracker engine dir, app cwd) and HOME still points at /root. Prepare those
+# once here — same contract as download-models.sh / setup-tracker-reid.sh.
+prepare_runtime_user_environment() {
+    local uid="${STORAGE_UID:-1001}"
+    local gid="${STORAGE_GID:-1001}"
+    local runtime_home="${RTVI_CV_RUNTIME_HOME:-/tmp/rtvi-cv-home}"
+    local -a runtime_dirs=()
+    local d
+
+    # Redirect HOME/cache before setpriv so the dropped process inherits them
+    # (setpriv does not rewrite HOME). Avoids dconf/GStreamer writes under /root.
+    mkdir -p "${runtime_home}/.cache/gstreamer-1.0"
+    export HOME="${runtime_home}"
+    export XDG_CACHE_HOME="${runtime_home}/.cache"
+    export GST_REGISTRY="${runtime_home}/.cache/gstreamer-1.0/registry.bin"
+
+    if [[ "$(id -u)" -ne 0 ]]; then
+        echo "##### Skipping runtime dir ownership (not root); HOME=${HOME} #####"
+        return 0
+    fi
+
+    chown -R "${uid}:${gid}" "${runtime_home}"
+
+    # Non-recursive: streams accumulates downloaded videos; only the dir must
+    # be writable so fopen(..., "wb") for HTTP_DOWNLOAD_DIR succeeds.
+    append_deepstream_sample_dirs streams runtime_dirs
+    append_deepstream_sample_dirs models/Tracker runtime_dirs
+    runtime_dirs+=("${DS_APP_DIR}")
+    for d in "${runtime_dirs[@]}"; do
+        [[ -n "$d" ]] || continue
+        install -d -m 0755 "$d"
+        chown "${uid}:${gid}" "$d"
+        echo "##### Prepared runtime-writable dir ${d} -> ${uid}:${gid} #####"
+    done
+}
+
+# Supplementary groups the runtime user needs for GPU access. Tegra ships
+# /dev/nvmap and /dev/nvhost-* group-restricted, so --clear-groups costs the
+# app CUDA entirely (NvRmMemInitNvmap "Permission denied" -> cudaErrorNoDevice).
+# gids are read off the injected nodes — names/numbers differ across L4T/SBSA/x86.
+# A supplementary gid 0 is legitimate: group access to a root:root 0660 node
+# without granting uid 0.
+collect_gpu_device_gids() {
+    local -n _gids_ref="$1"
+    local node gid seen=" "
+
+    shopt -s nullglob
+    for node in /dev/nvmap /dev/nvhost-* /dev/nvgpu/*/* /dev/nvsciipc* \
+                /dev/nvidia[0-9]* /dev/nvidiactl /dev/nvidia-uvm*; do
+        [[ -c "$node" || -b "$node" ]] || continue
+        gid="$(stat -c '%g' "$node" 2>/dev/null || true)"
+        [[ -n "$gid" ]] || continue
+        if [[ "$seen" == *" ${gid} "* ]]; then
+            continue
+        fi
+        seen+="${gid} "
+        _gids_ref+=("$gid")
+    done
+    shopt -u nullglob
+}
+
+# Confirm the dropped identity can open the GPU device nodes. Used to decide
+# between --clear-groups (x86 / world-accessible) and --groups (Tegra).
+# Quiet on failure — the caller logs once when neither drop path works.
+runtime_user_can_reach_gpu() {
+    local -a priv_opts=("$@")
+    local node
+
+    for node in /dev/nvmap /dev/nvidiactl; do
+        [[ -c "$node" ]] || continue
+        if ! setpriv "${priv_opts[@]}" -- test -r "$node" ||
+           ! setpriv "${priv_opts[@]}" -- test -w "$node"; then
+            return 1
+        fi
+    done
+    return 0
+}
+
+# Drop to STORAGE_UID/GID before exec'ing the perception binary (Option A).
+# Prefer --clear-groups (prior x86 path). Only grant device groups when that
+# leaves the GPU unreachable. RTVI_CV_PRIVILEGE_DROP: auto (default; fall back
+# to root if neither drop works), force (exit 1 instead), off (never drop).
+# Override via env / overrides.env — no compose wiring required.
+exec_as_runtime_user() {
+    local uid="${STORAGE_UID:-1001}"
+    local gid="${STORAGE_GID:-1001}"
+    local mode="${RTVI_CV_PRIVILEGE_DROP:-auto}"
+    local groups_csv="" g node
+    local -a gpu_gids=() priv_opts=() supp_opts=()
+
+    prepare_runtime_user_environment
+    if [[ "$(id -u)" -ne 0 ]]; then
+        exec "$@"
+    fi
+    if [[ "$mode" == "off" ]]; then
+        echo "##### RTVI_CV_PRIVILEGE_DROP=off; running the application as root #####"
+        exec "$@"
+    fi
+
+    collect_gpu_device_gids gpu_gids
+    if [[ ${#gpu_gids[@]} -gt 0 ]]; then
+        groups_csv="$(IFS=,; echo "${gpu_gids[*]}")"
+    fi
+
+    if command -v setpriv >/dev/null 2>&1; then
+        # Path 1: identical to pre-Tegra Option A. Succeeds on x86/SBSA where
+        # /dev/nvidia* is typically world-accessible.
+        priv_opts=(--reuid="$uid" --regid="$gid" --clear-groups)
+        if runtime_user_can_reach_gpu "${priv_opts[@]}"; then
+            echo "##### Dropping privileges to ${uid}:${gid} before application exec #####"
+            exec setpriv "${priv_opts[@]}" -- "$@"
+        fi
+
+        # Path 2: Tegra — grant the gids that own the injected device nodes.
+        if [[ -n "$groups_csv" ]]; then
+            priv_opts=(--reuid="$uid" --regid="$gid" --groups "$groups_csv")
+            if runtime_user_can_reach_gpu "${priv_opts[@]}"; then
+                echo "##### Dropping privileges to ${uid}:${gid} (GPU groups: ${groups_csv}) before application exec #####"
+                exec setpriv "${priv_opts[@]}" -- "$@"
+            fi
+        fi
+
+        if [[ "$mode" == "force" ]]; then
+            echo "ERROR: RTVI_CV_PRIVILEGE_DROP=force but ${uid}:${gid} cannot access the GPU devices" >&2
+            for node in /dev/nvmap /dev/nvidiactl; do
+                [[ -c "$node" ]] && ls -ld "$node" >&2 || true
+            done
+            exit 1
+        fi
+        echo "##### WARNING: ${uid}:${gid} cannot access the GPU devices; running as root instead. #####" >&2
+        echo "#####          Files written to mounted volumes will be root-owned. #####" >&2
+        for node in /dev/nvmap /dev/nvidiactl; do
+            [[ -c "$node" ]] && ls -ld "$node" >&2 || true
+        done
+        exec "$@"
+    fi
+
+    # Fallbacks when setpriv is absent. runuser can take -G; gosu cannot.
+    echo "##### Dropping privileges to ${uid}:${gid} before application exec #####"
+    if command -v runuser >/dev/null 2>&1; then
+        if [[ ${#gpu_gids[@]} -eq 0 ]]; then
+            exec runuser -u "#${uid}" -g "#${gid}" -- "$@"
+        fi
+        for g in "${gpu_gids[@]}"; do
+            supp_opts+=(-G "$g")
+        done
+        exec runuser -u "#${uid}" -g "#${gid}" "${supp_opts[@]}" -- "$@"
+    fi
+    if command -v gosu >/dev/null 2>&1; then
+        exec gosu "${uid}:${gid}" "$@"
+    fi
+    echo "ERROR: no privilege-drop tool found (need setpriv, runuser, or gosu)" >&2
+    exit 1
+}
+
+# The pgie config is only sanity-checked and echoed; the app resolves the real
+# path from [primary-gie] inside ds-main-config.txt. Blueprint config sets name it
+# ds-pgie-config.yml while the in-image reference sets name it
+# ds-ppl-analytics-pgie-config.yml, so accept either rather than asserting one
+# blueprint's filename. Falls back to the canonical name so a genuinely missing
+# config still reports the path operators expect.
+resolve_pgie_config() {
+    local matches=()
+    if [[ -f "${DS_CONFIG_DIR}/ds-pgie-config.yml" ]]; then
+        echo "${DS_CONFIG_DIR}/ds-pgie-config.yml"
+        return 0
+    fi
+    shopt -s nullglob
+    matches=("${DS_CONFIG_DIR}"/*pgie-config.yml)
+    shopt -u nullglob
+    if ((${#matches[@]} > 0)); then
+        echo "${matches[0]}"
+        return 0
+    fi
+    echo "${DS_CONFIG_DIR}/ds-pgie-config.yml"
+}
+
+resolve_config_file() {
+    local default_file="$1"
+    local configured_file="${DS_CONFIG_FILE:-$default_file}"
+    if [[ "$configured_file" = /* ]]; then
+        echo "$configured_file"
+    else
+        echo "${DS_CONFIG_DIR}/${configured_file}"
+    fi
+}
+
+dir_has_entries() {
+    local dir="$1"
+    local entries=()
+    [[ -d "$dir" ]] || return 1
+    shopt -s nullglob dotglob
+    entries=("$dir"/*)
+    shopt -u nullglob dotglob
+    ((${#entries[@]} > 0))
+}
+
+stage_mounted_configs_if_present() {
+    if dir_has_entries "$DS_MOUNTED_CONFIGS_DIR"; then
+        mkdir -p "$DS_CONFIG_DIR"
+        cp -rL --no-preserve=all "${DS_MOUNTED_CONFIGS_DIR}/." "${DS_CONFIG_DIR}/"
+        echo "##### Staged profile configs from ${DS_MOUNTED_CONFIGS_DIR} -> ${DS_CONFIG_DIR} #####"
+    fi
+}
+
+# Map the requested model family onto a directory under reference-configs/.
+# RTVI_CV_REFERENCE_CONFIG_SET overrides the mapping for a set that has no
+# family of its own. Echoes nothing when the family has no reference set.
+resolve_reference_config_set() {
+    if [[ -n "${RTVI_CV_REFERENCE_CONFIG_SET:-}" ]]; then
+        echo "${RTVI_CV_REFERENCE_CONFIG_SET}"
+        return 0
+    fi
+    case "$DS_MODEL_FAMILY" in
+        rtdetr-warehouse)   echo "warehouse-2d" ;;
+        sparse4d-warehouse) echo "warehouse-3d" ;;
+        # Mirrors the MODEL_NAME_2D branch in start_rtdetr_gdino.
+        rtdetr-gdino)
+            if [[ "${MODEL_NAME_2D:-}" == "GDINO" ]]; then
+                echo "smartcities/gdino"
+            else
+                echo "smartcities/rt-detr"
+            fi
+            ;;
+        *) echo "" ;;
+    esac
+}
+
+# The shipped reference configs carry <TOKEN> placeholders for deployment paths
+# (model ONNX, engine, labels, anchors). Fill each from RTVI_CV_REF_<TOKEN>, then
+# refuse to start if any remain: an unsubstituted path fails much later inside
+# nvinfer with an error that does not name the config.
+#
+# Only tokens on active lines are required. Reference sets carry commented-out
+# examples (warehouse-2d ships `# model-engine-file: <PATH_TO_ENGINE_FILE>`), and
+# demanding a value for a line DeepStream never reads is pure friction. Detection
+# skips comments; substitution still rewrites them, so a commented example picks
+# up the real path when one is supplied.
+substitute_reference_placeholders() {
+    local -a unresolved=()
+    local token var value
+    : "${RTVI_CV_REF_N:=${NUM_SENSORS:-${NUM_STREAMS:-4}}}"
+
+    while IFS= read -r token; do
+        [[ -n "$token" ]] || continue
+        var="RTVI_CV_REF_${token//[<>]/}"
+        value="${!var:-}"
+        if [[ -z "$value" ]]; then
+            unresolved+=("${token} (set ${var})")
+            continue
+        fi
+        grep -rlZF "$token" "$DS_CONFIG_DIR" 2>/dev/null |
+            xargs -0 -r sed -i "s|${token}|${value//|/\\|}|g"
+    done < <(grep -rhvE '^[[:space:]]*#' "$DS_CONFIG_DIR" 2>/dev/null \
+        | grep -oE '<[A-Z0-9_]+>' | sort -u)
+
+    if ((${#unresolved[@]} > 0)); then
+        echo "ERROR: reference configs seeded from ${DS_REFERENCE_CONFIGS_DIR} still contain placeholders:" >&2
+        printf '  %s\n' "${unresolved[@]}" >&2
+        echo "Hint: set the listed variables, or mount a complete config set via" >&2
+        echo "      mounted-configs/ (RTVI_CV_MOUNTED_CONFIG_DIR) instead." >&2
+        exit 1
+    fi
+}
+
+# Last-resort default so the module is usable without a blueprint's config tree.
+# Deliberately skipped whenever either config source already has files: a
+# deployment that mounts configs owns its configuration, and seeding underneath
+# it would introduce files it never asked for. Every current profile mounts one
+# of the two, so this is inert for them.
+seed_reference_configs_if_empty() {
+    local mode="${RTVI_CV_REFERENCE_CONFIGS:-auto}"
+    [[ "$mode" == "never" ]] && return 0
+
+    if dir_has_entries "$DS_CONFIG_DIR" || dir_has_entries "$DS_MOUNTED_CONFIGS_DIR"; then
+        return 0
+    fi
+
+    local set_name
+    set_name="$(resolve_reference_config_set)"
+    if [[ -z "$set_name" ]] || ! dir_has_entries "${DS_REFERENCE_CONFIGS_DIR}/${set_name}"; then
+        if [[ "$mode" == "require" ]]; then
+            echo "ERROR: no reference config set for DS_MODEL_FAMILY=${DS_MODEL_FAMILY} under ${DS_REFERENCE_CONFIGS_DIR}" >&2
+            exit 1
+        fi
+        return 0
+    fi
+
+    mkdir -p "$DS_CONFIG_DIR"
+    cp -rL --no-preserve=all "${DS_REFERENCE_CONFIGS_DIR}/${set_name}/." "${DS_CONFIG_DIR}/"
+    echo "##### Seeded reference configs from ${DS_REFERENCE_CONFIGS_DIR}/${set_name} -> ${DS_CONFIG_DIR} #####"
+    substitute_reference_placeholders
+}
+
+patch_vision_encoder_configs_if_enabled() {
+    if [[ "$DS_VISION_ENCODER" != "true" ]]; then
+        return
+    fi
+
+    local vision_encoder_model="${VISION_ENCODER_MODEL:?VISION_ENCODER_MODEL must be set when DS_VISION_ENCODER=true}"
+    local vision_encoder_version="${VISION_ENCODER_VERSION:?VISION_ENCODER_VERSION must be set when DS_VISION_ENCODER=true}"
+    # Shared model tree root; matches download-models.sh MODELS_DEST_ROOT. Default unchanged at runtime.
+    local vision_encoder_storage="/opt/storage"
+    local vision_encoder_onnx_file="${vision_encoder_model}_${vision_encoder_version}.onnx"
+    local vision_encoder_tokenizer_dir="${vision_encoder_model}_${vision_encoder_version}_tokenizer"
+    local onnx_path="${vision_encoder_storage}/${vision_encoder_onnx_file}"
+
+    # Ordering/readiness is guaranteed by ensure_models_from_manifest (phase 0);
+    # validating the real artifact here is the meaningful runtime check.
+    require_file "$onnx_path" "Expected ONNX artifact for DS_VISION_ENCODER=true; ensure_models_from_manifest may not have completed."
+
+    for cfg in "${DS_CONFIG_DIR}/ds-main-config.txt" "${DS_CONFIG_DIR}/ds-main-redis-config.txt"; do
+        [[ -f "$cfg" ]] || continue
+        echo "##### Patching vision encoder paths in $(basename "$cfg") #####"
+        sed -i "/^\[text-embedder\]/,/^\[/{s|^onnx-model-path=.*|onnx-model-path=${onnx_path}|;}" "$cfg"
+        sed -i "/^\[text-embedder\]/,/^\[/{s|^tokenizer-dir=.*|tokenizer-dir=${vision_encoder_storage}/${vision_encoder_tokenizer_dir}/|;}" "$cfg"
+        sed -i "/^\[visionencoder\]/,/^\[/{s|^onnx-model=.*|onnx-model=${onnx_path}|;}" "$cfg"
+        sed -i "/^\[visionencoder\]/,/^\[/{s|^tensorrt-engine=.*|tensorrt-engine=${onnx_path}_batch16.plan|;}" "$cfg"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# CNN family (warehouse-2d, search)
+# ---------------------------------------------------------------------------
+start_rtdetr_warehouse()
+{
+    echo "##### RT-DETR Warehouse models will be used. #####"
+    local pgie_config
+    pgie_config="$(resolve_pgie_config)"
+    require_file "$pgie_config" "Verify model/config mounts for RT-DETR warehouse."
+    cat "$pgie_config"
+
+    local config_file
+    config_file="$(resolve_config_file "ds-main-config.txt")"
+    require_file "$config_file" "Set DS_CONFIG_FILE or ensure staged/in-image configs are present."
+    local extra_flags
+    extra_flags=$(build_extra_flags)
+
+    cat "$config_file"
+    echo "Application starting with this command: ./metropolis_perception_app -c $config_file -m $DS_MODE_FLAG -t 0 -l 5 --message-rate $DS_MESSAGE_RATE ${extra_flags:-}"
+    exec_as_runtime_user ./metropolis_perception_app -c "$config_file" \
+        -m "$DS_MODE_FLAG" -t 0 -l 5 \
+        --message-rate "$DS_MESSAGE_RATE" \
+        ${extra_flags:-}
+}
+
+# ---------------------------------------------------------------------------
+# RTDetr + GDINO family (alerts, smartcities)
+# ---------------------------------------------------------------------------
+start_rtdetr_gdino()
+{
+    echo "##### RT-DETR GDINO models will be used. #####"
+    local config_file
+    config_file="$(resolve_config_file "run_config-api-rtdetr-protobuf700.txt")"
+    require_file "$config_file" "Set DS_CONFIG_FILE or ensure GDINO runtime config is available."
+    NUM_SENSORS="${NUM_SENSORS:-30}"
+    ENGINES_DIR="/opt/engines"
+    mkdir -p "${ENGINES_DIR}/gdino" "${ENGINES_DIR}/rtdetr-its"
+    GDINO_TRT_PLAN="${ENGINES_DIR}/gdino/model_gdino_trt.plan"
+
+    # NvDCF_accuracy ReID etlt. Prefer the copy download-models.sh fetched into
+    # the shared model root; fall back to the copy bundled inside the image.
+    #
+    # The NGC image ships this under DS_APP_DIR/models. GHCR-built images do not
+    # ship models at all, so there it arrives only via the models-download.json
+    # manifest (nvidia/tao/reidentificationnet:deployable_v1.0). Checking the
+    # download first means one code path serves both, and a profile that has
+    # pinned an older in-image copy still gets the manifest's version.
+    local reid_src=""
+    local reid_cand
+    for reid_cand in \
+        "${MODELS_DEST_ROOT:-/opt/storage}/rtdetr-its/resnet50_market1501.etlt" \
+        "${DS_APP_DIR}/models/rtdetr-its/resnet50_market1501.etlt"; do
+        if [[ -f "$reid_cand" ]]; then
+            reid_src="$reid_cand"
+            break
+        fi
+    done
+    if [[ -z "$reid_src" ]]; then
+        echo "ERROR: ReID model resnet50_market1501.etlt not found." >&2
+        echo "Hint: add nvidia/tao/reidentificationnet:deployable_v1.0 to this profile's" >&2
+        echo "      models-download.json (destPath rtdetr-its/resnet50_market1501.etlt)," >&2
+        echo "      or mount an image that bundles it under DS_APP_DIR/models." >&2
+        exit 1
+    fi
+    echo "##### ReID model: ${reid_src} #####"
+    ENGINE_CACHE_DIR="${ENGINE_CACHE_DIR:-/opt/engines}"
+    export ENGINE_CACHE_DIR STORAGE_UID STORAGE_GID
+    bash "${SETUP_TRACKER_REID_SCRIPT:-/opt/scripts/setup-tracker-reid.sh}" --src "$reid_src"
+
+    if [[ "${MODEL_NAME_2D:-}" == "GDINO" ]]; then
+        require_file "/opt/storage/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx" "GDINO ONNX model must be available in shared storage."
+
+        if [[ ! -f "$GDINO_TRT_PLAN" ]]; then
+            echo "##### Building engine file for /opt/storage/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx ... #####"
+            /usr/src/tensorrt/bin/trtexec --onnx=/opt/storage/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx \
+            --minShapes=inputs:1x3x544x960,input_ids:1x256,attention_mask:1x256,position_ids:1x256,token_type_ids:1x256,text_token_mask:1x256x256 \
+            --optShapes=inputs:1x3x544x960,input_ids:1x256,attention_mask:1x256,position_ids:1x256,token_type_ids:1x256,text_token_mask:1x256x256 \
+            --maxShapes=inputs:${NUM_SENSORS}x3x544x960,input_ids:${NUM_SENSORS}x256,attention_mask:${NUM_SENSORS}x256,position_ids:${NUM_SENSORS}x256,token_type_ids:${NUM_SENSORS}x256,text_token_mask:${NUM_SENSORS}x256x256 \
+            --useCudaGraph \
+            --fp16 \
+            --saveEngine="$GDINO_TRT_PLAN"
+            echo "##### Engine file for /opt/storage/gdino/mgdino_mask_head_pruned_dynamic_batch.onnx built successfully... #####"
+        else
+            echo "##### Skipping TensorRT build; engine already exists at $GDINO_TRT_PLAN #####"
+        fi
+        cp "$GDINO_TRT_PLAN" /opt/nvidia/deepstream/deepstream/sources/TritonGdino/triton_model_repo/gdino_trt/1/model.plan
+
+        # The path handed to the app and the file patched below must stay the same file,
+        # so both derive from DS_CONFIG_DIR; splitting them silently drops the batch-size
+        # patch whenever DS_APP_DIR is overridden.
+        local gdino_triton_config="${DS_CONFIG_DIR}/config_triton_nvinferserver_gdino.txt"
+        sed -i "/^\[primary-gie\]/,/^\[/{s|config-file=.*|config-file= ${gdino_triton_config}|;}" "$config_file"
+        sed -i "\#config-file= ${gdino_triton_config}#a plugin-type=1" "$config_file"
+        sed -i "s/max_batch_size: [0-9]\+/max_batch_size: ${NUM_SENSORS}/" "$gdino_triton_config"
+
+        for cfg in \
+            /opt/nvidia/deepstream/deepstream/sources/TritonGdino/triton_model_repo/{ensemble_python_gdino,gdino_trt,gdino_postprocess,gdino_preprocess}/config.pbtxt; do
+            [[ -f "$cfg" ]] && sed -i "s/^\s*max_batch_size\s*[:=]\s*[\"]*[0-9]\+[\"]*\s*$/max_batch_size: ${NUM_SENSORS}/" "$cfg"
+        done
+
+        DS_MODE_FLAG=4
+    else
+        DS_MODE_FLAG=7
+        echo "##### RT-DETR model being used... #####"
+        # RT-DETR nvinfer config: engine filename uses b<NUM_SENSORS> (e.g. b4, b8, b30)
+        RTDETR_INFER_CONFIG="${DS_CONFIG_DIR}/rtdetr-960x544.txt"
+        if [[ -f "$RTDETR_INFER_CONFIG" ]]; then
+            sed -i "/^\[property\]/,/^\[/{s|^model-engine-file=.*|model-engine-file=${ENGINES_DIR}/rtdetr-its/model_epoch_035.fp16.onnx_b${NUM_SENSORS}_gpu0_fp16.engine|;}" "$RTDETR_INFER_CONFIG"
+            sed -i "/^\[property\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$RTDETR_INFER_CONFIG"
+            echo "##### RT-DETR nvinfer config updated successfully... #####"
+            echo "##### Contents of $RTDETR_INFER_CONFIG: #####"
+            cat "$RTDETR_INFER_CONFIG"
+        else
+            echo "Warning: RT-DETR infer config $RTDETR_INFER_CONFIG not found, skipping..."
+        fi
+    fi
+
+    sed -i "/^\[source-list\]/,/^\[/{s/^max-batch-size=.*/max-batch-size=${NUM_SENSORS}/;}" "$config_file"
+    sed -i "/^\[streammux\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
+    sed -i "/^\[primary-gie\]/,/^\[/{s/^batch-size=.*/batch-size=${NUM_SENSORS}/;}" "$config_file"
+
+    if [[ "${HARDWARE_PROFILE:-}" == "DGX-SPARK" ]] || is_thor_profile; then
+        # Replace or add msg-conv-msg2p-lib property in sink1 group
+        echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv.so for sink1 group... #####"
+        # First, remove any existing msg-conv-msg2p-lib line within [sink1] section
+        sed -i '/^\[sink1\]/,/^\[/{/^msg-conv-msg2p-lib=/d;}' "$config_file"
+        # Then add the new property after [sink1]
+        sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv.so' "$config_file"
+        # Set [primary-gie] interval=1 in $config_file
+        sed -i '/^\[primary-gie\]/,/^\[/{s/^interval=.*/interval=1/;}' "$config_file"
+    else
+        # Replace or add msg-conv-msg2p-lib property in sink1 group
+        echo "##### Setting msg-conv-msg2p-lib to libnvds_msgconv_mega2d.so for sink1 group... #####"
+        # First, remove any existing msg-conv-msg2p-lib line within [sink1] section
+        sed -i '/^\[sink1\]/,/^\[/{/^msg-conv-msg2p-lib=/d;}' "$config_file"
+        # Then add the new property after [sink1]
+        sed -i '/^\[sink1\]/a msg-conv-msg2p-lib=/opt/nvidia/deepstream/deepstream/lib/libnvds_msgconv_mega2d.so' "$config_file"
+    fi
+
+    if is_thor_profile; then
+        # Set compute-hw=2 under tracker section in config_file
+        echo "##### Setting compute-hw=2 in tracker section of $config_file... #####"
+        sed -i '/^\[tracker\]/,/^\[/{/^compute-hw=/d;}' "$config_file"
+        sed -i '/^\[tracker\]/a compute-hw=2' "$config_file"
+        # Replace or add low-latency-mode property in source-list section
+        echo "##### Setting low-latency-mode to 0 for source-list section... #####"
+        # Remove any existing low-latency-mode line within [source-list] section
+        sed -i '/^\[source-list\]/,/^\[/{/^low-latency-mode=/d;}' "$config_file"
+        # Then add the new property after [source-list]
+        sed -i '/^\[source-list\]/a low-latency-mode=0' "$config_file"
+        # Update VisualTracker section in config_tracker_NvDCF_accuracy.yml
+        TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
+        echo "##### Updating VisualTracker section in $TRACKER_CONFIG... #####"
+        # Add or update visualTrackerType and vpiBackend4DcfTracker under VisualTracker section
+        if [[ -f "$TRACKER_CONFIG" ]]; then
+            # Remove existing visualTrackerType if present
+            sed -i '/^VisualTracker:/,/^[A-Z][a-zA-Z]*:/ {/^[[:space:]]*visualTrackerType:/d;}' "$TRACKER_CONFIG"
+            # Remove existing vpiBackend4DcfTracker if present
+            sed -i '/^VisualTracker:/,/^[A-Z][a-zA-Z]*:/ {/^[[:space:]]*vpiBackend4DcfTracker:/d;}' "$TRACKER_CONFIG"
+            # Add the properties after VisualTracker line with proper YAML indentation (2 spaces)
+            sed -i '/^VisualTracker:/a \  visualTrackerType: 2' "$TRACKER_CONFIG"
+            sed -i '/^[[:space:]]*visualTrackerType: 2/a \  vpiBackend4DcfTracker: 2' "$TRACKER_CONFIG"
+            # Update maxTargetsPerStream to 50 in TargetManagement section
+            sed -i '/^TargetManagement:/,/^[A-Z][a-zA-Z]*:/ {s/^[[:space:]]*maxTargetsPerStream:.*/  maxTargetsPerStream: 50/;}' "$TRACKER_CONFIG"
+            echo "##### Updated maxTargetsPerStream to 50 in TargetManagement section... #####"
+            echo "##### Contents of $TRACKER_CONFIG: #####"
+            cat "$TRACKER_CONFIG"
+        fi
+    fi
+
+    TRACKER_CONFIG="/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_accuracy.yml"
+    echo "##### Updating minTrackerConfidence in $TRACKER_CONFIG... #####"
+    if [[ -f "$TRACKER_CONFIG" ]]; then
+        sed -i '/^TargetManagement:/,/^[A-Z][a-zA-Z]*:/ {s/^[[:space:]]*minTrackerConfidence:.*/  minTrackerConfidence: 0.2513/;}' "$TRACKER_CONFIG"
+        echo "##### Updated minTrackerConfidence to 0.2513 in TargetManagement section... #####"
+    else
+        echo "Warning: Tracker config $TRACKER_CONFIG not found, skipping minTrackerConfidence update..."
+    fi
+
+    if [[ -f "$TRACKER_CONFIG" ]]; then
+        echo "##### Contents of $TRACKER_CONFIG: #####"
+        cat "$TRACKER_CONFIG"
+    fi
+
+    cat "$config_file"
+    echo "Application starting with this command: ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -t 0 -l 5 --message-rate "$DS_MESSAGE_RATE" --show-sensor-id"
+    exec_as_runtime_user ./metropolis_perception_app -c "$config_file" \
+        -m "$DS_MODE_FLAG" -t 0 -l 5 \
+        --message-rate "$DS_MESSAGE_RATE" \
+        --show-sensor-id
+}
+
+# ---------------------------------------------------------------------------
+# Sparse4D family (warehouse-3d)
+# ---------------------------------------------------------------------------
+# engine_file: <onnx-basename>_b<num_sensors>.engine, next to the onnx_file
+# (num_sensors is the DeepStream/TensorRT batch dim; sparse4d's own
+# batch_size field describes the model's internal batch, not the engine).
+resolve_sparse4d_engine_file() {
+    local source_config_dir="${SPARSE4D_CONFIG_PATH:-/opt/data/ds-configurator/}"
+    local config_yaml="${source_config_dir}config.yaml"
+    if [[ ! -f "$config_yaml" ]]; then
+        echo "WARNING: Sparse4D config.yaml not found at ${config_yaml}; skipping engine_file patch." >&2
+        return
+    fi
+
+    local onnx_model_name
+    onnx_model_name=$(awk -F: '/^[[:space:]]*onnx_file[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    # YAML permits quoted scalars; normalize them before shell path handling.
+    onnx_model_name="${onnx_model_name#\"}" # remove a leading "
+    onnx_model_name="${onnx_model_name%\"}" # remove a trailing "
+    if [[ -z "$onnx_model_name" ]]; then
+        echo "WARNING: onnx_file not set in ${config_yaml}; skipping engine_file patch." >&2
+        return
+    fi
+
+    local num_sensors
+    num_sensors=$(awk -F: '/^[[:space:]]*num_sensors[[:space:]]*:/ {sub(/^[^:]*:[[:space:]]*/, ""); gsub(/[[:space:]#].*/, ""); print; exit}' "$config_yaml")
+    num_sensors="${num_sensors:-1}"
+
+    local engine_dir stem engine_file
+    engine_dir="$(dirname "$onnx_model_name")"
+    stem="$(basename "$onnx_model_name" .onnx)"
+    engine_file="${engine_dir}/${stem}_b${num_sensors}.engine"
+
+    # Handle following cases to update the engine_file variable:
+    # 1. if engine does not exist check for higher batch size engine file, if yes then update the engine_file variable
+    if [[ ! -f "$engine_file" ]]; then
+        # TensorRT dynamic shapes let a b<M> engine (M > num_sensors) serve a
+        # b<num_sensors> request; reuse the smallest such M instead of rebuilding.
+        local best_batch="" best_engine="" cand cand_batch
+        shopt -s nullglob
+        for cand in "${engine_dir}/${stem}_b"*".engine"; do
+            cand_batch="$(basename "$cand" .engine)"
+            cand_batch="${cand_batch##*_b}"
+            [[ "$cand_batch" =~ ^[0-9]+$ ]] || continue
+            (( cand_batch > num_sensors )) || continue
+            if [[ -z "$best_batch" || "$cand_batch" -lt "$best_batch" ]]; then
+                best_batch="$cand_batch"
+                best_engine="$cand"
+            fi
+        done
+        shopt -u nullglob
+
+        if [[ -n "$best_engine" ]]; then
+            echo "##### Sparse4D engine cache hit (compatible): reusing b${best_batch} engine -> ${best_engine} #####"
+            engine_file="$best_engine"
+        fi
+    fi
+
+    # config.yaml is never writable in place: Docker bind-mounts it as a single
+    # file (sed -i's rename-over-mountpoint fails with "Device or resource
+    # busy") and the Helm chart mounts it from a ConfigMap with readOnly: true
+    # (fails with "Read-only file system"). Stage a patched copy in the
+    # writable engine dir instead, and repoint SPARSE4D_CONFIG_PATH there so
+    # sparse4d_setup.sh (run right after this function) picks it up.
+    local staged_config_dir="${SPARSE4D_ENGINE_PATH:-/opt/storage/sparse4d/}resolved-config/"
+    mkdir -p "$staged_config_dir"
+    sed "s|^engine_file:.*|engine_file: ${engine_file}|" "$config_yaml" > "${staged_config_dir}config.yaml"
+    # Sparse4D setup consumes these as filesystem paths, not YAML syntax.
+    sed -E -i 's@^([[:space:]]*(onnx_file|engine_file|labels_file|anchor):[[:space:]]*)"([^"]*)"([[:space:]]*(#.*)?)$@\1\3\4@' "${staged_config_dir}config.yaml"
+
+    # Carry along any sibling files (e.g. calibration.json) config.yaml is
+    # normally staged next to, so consumers of SPARSE4D_CONFIG_PATH still find them.
+    local sibling
+    for sibling in "${source_config_dir}"*; do
+        [[ -f "$sibling" ]] || continue
+        [[ "$(basename "$sibling")" == "config.yaml" ]] && continue
+        cp -f "$sibling" "$staged_config_dir"
+    done
+
+    export SPARSE4D_CONFIG_PATH="$staged_config_dir"
+    echo "##### Updated Sparse4D engine_file -> ${engine_file} (staged at ${staged_config_dir}config.yaml) #####"
+}
+
+start_sparse4d_warehouse()
+{
+    echo "##### Sparse4D Warehouse models will be used. #####"
+    cd /opt/nvidia/deepstream/deepstream/sources/sparse4d/configs
+
+    if [ "${HARDWARE_PROFILE:-}" = "DGX-SPARK" ]; then
+        export PATH=/usr/src/tensorrt/bin:$PATH
+    fi
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$CUSTOM_LIB_PATH"
+    export LD_PRELOAD="${LD_PRELOAD:-}:$CUSTOM_PRELOAD_LIB"
+
+    resolve_sparse4d_engine_file
+
+    bash sparse4d_setup.sh
+
+    cd "$DS_APP_DIR"
+
+    local config_file
+    config_file="$(resolve_config_file "ds-main-config.txt")"
+    require_file "$config_file" "Set DS_CONFIG_FILE or ensure Sparse4D config exists."
+
+    cat "$config_file"
+    echo "Application starting with this command: ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -l 5"
+    exec_as_runtime_user ./metropolis_perception_app -c "$config_file" -m "$DS_MODE_FLAG" -l 5
+}
+
+echo "===== DeepStream Perception ====="
+echo "DS_MODEL_FAMILY=$DS_MODEL_FAMILY  STREAM_TYPE=$STREAM_TYPE  DS_MODE_FLAG=$DS_MODE_FLAG"
+echo "DS_VISION_ENCODER=$DS_VISION_ENCODER"
+
+ensure_models_from_manifest
+seed_reference_configs_if_empty
+stage_mounted_configs_if_present
+patch_vision_encoder_configs_if_enabled
+
+case "$DS_MODEL_FAMILY" in
+    rtdetr-warehouse)       start_rtdetr_warehouse ;;
+    rtdetr-gdino)           start_rtdetr_gdino ;;
+    sparse4d-warehouse)     start_sparse4d_warehouse ;;
+    *)        echo "Unknown DS_MODEL_FAMILY: $DS_MODEL_FAMILY"; exit 1 ;;
+esac

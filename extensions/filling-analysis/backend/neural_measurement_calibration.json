@@ -1,0 +1,54 @@
+{
+  "profile_id": "single-station-rfdetr-demo-v2",
+  "reviewed_source_sha256": [
+    "16ab996b583753df7b8f77881dffac73fe8aa31bad61e96454ef26238bafb4a9"
+  ],
+  "normal_reference_time": 13.0,
+  "normal_reference_basis": "Human-reviewed normal bottle at source 13.0 seconds. Its numeric reference is recomputed from the actual RF-DETR bottle and liquid masks, not copied from the old color-strip measurement.",
+  "tolerance": 0.05,
+  "tolerance_basis": "Demonstration tolerance in relative detected-bottle visible height; not a factory specification, volume measurement or learned quality threshold.",
+  "model_hashes": {
+    "bottle": "f6e06ac5ebafd3f9f6f01c55a7f53b8785a1697037063a6adeb737c4c6ce4838",
+    "liquid": "85af581d8a0e5fc619052a893de805338124523bf65c5620912b8daac6c5e135"
+  },
+  "stationary_seconds_min": 2.0,
+  "stationary_speed_bottle_widths_per_second": 0.2,
+  "settled_seconds_min": 0.75,
+  "settled_level_range_max": 0.025,
+  "observed_rise_min": 0.06,
+  "exterior": {
+    "engine": "calibrated-exterior-color-signal-v1",
+    "reference_size": [
+      640,
+      360
+    ],
+    "boxes": [
+      [
+        349,
+        81,
+        30,
+        82
+      ],
+      [
+        382,
+        169,
+        34,
+        135
+      ]
+    ],
+    "orange_hsv_lower": [
+      5,
+      115,
+      115
+    ],
+    "orange_hsv_upper": [
+      36,
+      255,
+      255
+    ],
+    "pixels_min": 180,
+    "persistence_seconds": 0.25,
+    "basis": "Separately reviewed exterior regions outside the stationary bottle. Used only for visible overflow evidence; never for liquid level, bottle arrival or completion. Not a learned spill detector.",
+    "persistence_basis": "Reviewed visible exterior bursts span 0.25 seconds (seven consecutive 24fps frames). Duration is last minus first timestamp. The old four-fps len/fps gate called two samples 0.5 seconds despite their endpoints being 0.25 seconds apart. This explicit demo recalibration preserves the actual observed duration, never a full-bottle proxy."
+  }
+}
