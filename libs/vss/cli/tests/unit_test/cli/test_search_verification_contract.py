@@ -1,6 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Cross-component contract for default search-result verification."""
+"""Cross-component contract for the focused vss-search-archive skill.
+
+The skill is search-only: it resolves an already registered source, chooses a
+retrieval path, runs ``vss search run``, and reports the CLI evidence honestly.
+Ingestion and deletion live in ``vss-manage-video-io-storage`` and appear only
+as persisted Harbor setup/cleanup steps. These tests pin the compact contract
+without coupling to deleted lifecycle recipes or scripted command copying.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +24,7 @@ import pytest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[6]  # libs/vss/cli/tests/unit_test/cli -> repo root
 SEARCH_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-search-archive"
 ASK_VIDEO_SKILL = REPOSITORY_ROOT / "skills" / "operations" / "vss-ask-video"
-SEARCH_ADAPTER = REPOSITORY_ROOT / ".github/skill-eval/adapters/vss-search-archive/generate.py"
+SEARCH_ADAPTER = REPOSITORY_ROOT / ".github" / "skill-eval" / "adapters" / "vss-search-archive" / "generate.py"
 
 
 def _stamped_version() -> str:
@@ -42,37 +49,52 @@ def _check_matching(checks: list[str], needle: str) -> str:
     return matches[0]
 
 
-def test_search_skill_uses_default_critic_and_unverified_only_fallback() -> None:
+def test_search_skill_is_a_compact_search_contract() -> None:
     main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
-    verification = (SEARCH_SKILL / "references/result_verification.md").read_text(encoding="utf-8")
-    cli_usage = (SEARCH_SKILL / "references/cli_usage.md").read_text(encoding="utf-8")
-    normalized_main = " ".join(main.split())
-    normalized_verification = " ".join(verification.split())
+    normalized = " ".join(main.split())
 
-    assert len(main.splitlines()) < 500
     assert f'version: "{_stamped_version()}"' in main
+    assert 'vss-requires: "search"' in main
+    assert len(main.splitlines()) < 200
+    # Search-only: no lifecycle recipes, no Brev/origin setup, no raw endpoints.
+    assert "source_setup.md" not in main
+    assert "ingest.md" not in main
+    assert "delete.md" not in main
+    assert "select_brev_origin" not in main
+    assert "VST_EXTERNAL_URL" not in main
+    assert "VSS_ORIGIN" not in main
+    assert "Natural-language Agent responses" not in main
+    assert "curl " not in main
+    # Default critic + the all-unverified gate are the contract.
     assert "The CLI attempts critic verification by default" in main
-    assert "VSS_ORIGIN=$(vss configure show" in main
-    assert "Do not repeat public-origin selection" in main
-    assert "Would you like me to verify the unverified search results?" in main
-    assert "only when every displayed result is" in normalized_main
-    assert "Never hand off a partially verified result set" in normalized_main
-    assert "Verification is fail-open" in cli_usage
-    assert "If any hit is `confirmed` or `rejected`, do not delegate any hit" in normalized_verification
-    assert "Do not require or add a search-specific mode" in verification
-    assert "ordinary user-supplied `VIDEO_URL` interface" in verification
-    assert "VERIFY_" not in verification
-    assert "VERIFY_PIXELS" not in main
+    assert "every displayed result in the nonempty set is `unverified" in normalized
+    assert "Never hand off a partially verified result set" in normalized
 
 
 def test_search_skill_passes_the_exact_original_query_to_every_path() -> None:
     main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
-    cli_usage = (SEARCH_SKILL / "references/cli_usage.md").read_text(encoding="utf-8")
+    cli_usage = (SEARCH_SKILL / "references" / "cli_usage.md").read_text(encoding="utf-8")
 
     assert ': "${ORIGINAL_QUERY:?set the exact pre-decomposition user question}"' in main
     assert '--original-query "${ORIGINAL_QUERY}"' in main
     assert 'search run "${SEARCH_PATH}"' in main
     assert "pre-decomposition user sentence" in cli_usage
+
+
+def test_search_skill_captures_exit_status_separately_and_keeps_exit_6() -> None:
+    main = (SEARCH_SKILL / "SKILL.md").read_text(encoding="utf-8")
+    cli_usage = (SEARCH_SKILL / "references" / "cli_usage.md").read_text(encoding="utf-8")
+    normalized = " ".join(main.split())
+
+    # The old `if ! SEARCH_JSON=$(...)` hid the real exit code; the contract now
+    # captures stdout and the status separately and treats exit 6 as partial.
+    assert 'SEARCH_JSON=$("${SEARCH_COMMAND[@]}")' in main
+    assert "STATUS=$?" in main
+    assert "if ! SEARCH_JSON=" not in main
+    assert "Exit 6" in main
+    assert "do not rerun" in normalized
+    # cli_usage documents the partial exit so a caller can branch on it.
+    assert "6 | partial" in cli_usage or "Exit 6" in cli_usage
 
 
 def test_zero_candidates_may_not_be_reported_as_absence() -> None:
@@ -97,7 +119,7 @@ def test_neutrality_covers_the_final_reply_and_resolved_identifiers() -> None:
     close by naming the model, the endpoint and the resolved sensor UUID. The
     rule has to reach the reply the user actually reads, and cover the
     identifiers the workflow resolves along the way."""
-    verification = (SEARCH_SKILL / "references/result_verification.md").read_text(encoding="utf-8")
+    verification = (SEARCH_SKILL / "references" / "result_verification.md").read_text(encoding="utf-8")
     normalized = " ".join(verification.split())
 
     assert "Keep progress and the final reply implementation-neutral" in normalized
@@ -106,14 +128,13 @@ def test_neutrality_covers_the_final_reply_and_resolved_identifiers() -> None:
 
 
 def test_search_handoff_resolves_bounded_clip_for_existing_ask_video(tmp_path: Path) -> None:
-    """The recipe maps the synthetic interval and mints the clip through the CLI.
-
-    The mapping is this skill's job; resolving the stream, minting the URL and
-    normalising it are the CLI's. The stub therefore asserts the mapped bounds
-    reach `vios clip` and returns an already-normalised media_url, because that
-    is what the command guarantees its callers.
+    """The retained verification reference maps the synthetic interval and mints
+    the clip through the CLI. The mapping is this skill's job; resolving the
+    stream, minting the URL and normalising it are the CLI's. The stub therefore
+    asserts the mapped bounds reach `vios clip` and returns an already-normalised
+    media_url, because that is what the command guarantees its callers.
     """
-    verification = (SEARCH_SKILL / "references/result_verification.md").read_text(encoding="utf-8")
+    verification = (SEARCH_SKILL / "references" / "result_verification.md").read_text(encoding="utf-8")
     blocks = [
         block for block in re.findall(r"```bash\n(.*?)```", verification, flags=re.DOTALL) if "MAPPED_BOUNDS" in block
     ]
@@ -223,8 +244,8 @@ def test_ask_video_routes_vss_questions_through_cli_memory_and_vlm() -> None:
     assert (ASK_VIDEO_SKILL / "evals/direct_vlm_video_understanding.json").exists() is False
 
 
-def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
-    spec = json.loads((SEARCH_SKILL / "evals/search.json").read_text(encoding="utf-8"))
+def test_search_harbor_eval_has_roles_and_unrevealing_search_prompts() -> None:
+    spec = json.loads((SEARCH_SKILL / "evals" / "search.json").read_text(encoding="utf-8"))
     serialized = json.dumps(spec)
     adapter = SEARCH_ADAPTER.read_text(encoding="utf-8")
     deployment_query = spec["expects"][0]["query"]
@@ -235,6 +256,8 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert len(spec["expects"]) == 11  # 10 search steps + tag-keyword-search
     assert spec["expects"][0]["scenario"] == "deploy-search-profile"
     assert spec["expects"][1]["scenario"] == "ingest-search-fixtures"
+    assert spec["expects"][-1]["scenario"] == "delete-search-fixture"
+    assert spec["expects"][-1]["role"] == "cleanup"
     assert "vss-ask-video" in spec["skills"]
     assert "libs/vss" in serialized and "vss search run --help" in serialized
     assert "critic_result.result" in serialized
@@ -247,6 +270,37 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "or prose layout is not required" in adapter
     assert "always use the exact heading `## Video Search Results`" not in adapter
     assert "timeout_sec = 600.0" in adapter
+
+    # Roles follow the setup, setup, search..., cleanup sequence.
+    roles = [expect.get("role") for expect in spec["expects"]]
+    assert roles == ["setup", "setup"] + ["search"] * (len(spec["expects"]) - 3) + ["cleanup"]
+    assert spec["expects"][0]["role"] == "setup"
+    assert spec["expects"][1]["role"] == "setup"
+
+    # Path-selection search steps must not hand the agent the path and flags:
+    # choosing the path is what the check measures. Contract steps (k8s, rtsp)
+    # are explicitly "show the commands", so naming the CLI there is the point.
+    contract_indices = {
+        i
+        for i, e in enumerate(spec["expects"])
+        if e.get("scenario")
+        in {
+            "kubernetes-ingress-contract",
+            "rtsp-live-stream-search-contract",
+        }
+    }
+    for i, expect in enumerate(spec["expects"]):
+        if expect.get("role") != "search" or i in contract_indices:
+            continue
+        q = expect["query"].lower()
+        assert "vss search run" not in q, f"step {i + 1} prompt reveals the path"
+        assert "--video-source" not in q, f"step {i + 1} prompt reveals --video-source"
+        assert "--source-type" not in q, f"step {i + 1} prompt reveals --source-type"
+
+    # The adapter drives the CLI's typed exit status and keeps exit 6 results.
+    assert "if ! SEARCH_JSON" not in adapter
+    assert "exit 6" in operation_preamble.lower()
+    assert "search_messages" in operation_preamble
 
     # Cold deployment and fixture ingestion are separate persisted steps. This
     # prevents model initialization from consuming the ingestion budget and
@@ -284,15 +338,18 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "explicitly label the media URLs host-local" in adapter
     assert "disables redirects" in deployment_query
 
+    # The search spec no longer demands a raw Elasticsearch count from the
+    # runtime skill; the verifier owns the bounded read-only index checks.
+    assert "/_count" not in serialized  # no raw Elasticsearch _count API path (gpu_count is unrelated)
+
+    # The verification scenario is still a single bundled step.
     verification_steps = [
         expect for expect in spec["expects"] if expect.get("scenario") == "confirmed-search-result-verification"
     ]
     assert len(verification_steps) == 1
-    verification = verification_steps[0]
-    assert "Yes, verify this one result now" in verification["query"]
     assert any(
         "at most one additional request only to repair malformed structured output" in check
-        for check in verification["checks"]
+        for check in verification_steps[0]["checks"]
     )
     assert "ask_video_skill_dir" in adapter
     assert '(ask_video_skill_dir, "vss-ask-video")' in adapter
@@ -305,79 +362,40 @@ def test_search_harbor_eval_exercises_cli_verification_contract() -> None:
     assert "do not invent a hostname" in serialized
 
 
-def test_search_routing_eval_rejects_partial_set_fallback() -> None:
-    cases = json.loads((SEARCH_SKILL / "evals/evals.json").read_text(encoding="utf-8"))
-    partial = next(case for case in cases if case["id"] == "search-archive-partially-verified")
+def test_search_routing_eval_handles_exit6_and_negative_triggers() -> None:
+    cases = json.loads((SEARCH_SKILL / "evals" / "evals.json").read_text(encoding="utf-8"))
+    by_id = {case["id"]: case for case in cases}
 
+    # Retained: a partially verified set never triggers fallback.
+    partial = by_id["search-archive-partially-verified"]
     assert "does not offer or invoke" in partial["ground_truth"]
     assert any("does not invoke vss-ask-video" in behavior for behavior in partial["expected_behavior"])
 
+    # New: an exit-6 reasoning case keeps the usable hits and discloses the
+    # limitation instead of rerunning or treating partial as failure.
+    exit6 = by_id["search-archive-exit6-partial"]
+    assert "exit 6" in exit6["ground_truth"].lower()
+    assert "persisted" in exit6["ground_truth"].lower()
+    assert any("does not rerun" in behavior for behavior in exit6["expected_behavior"])
+    assert any("reports" in behavior and "once" in behavior for behavior in exit6["expected_behavior"])
 
-def test_source_lifecycle_uses_current_configure_contract() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    origin_selector = (SEARCH_SKILL / "scripts/select_brev_origin.sh").read_text(encoding="utf-8")
-    # Prose assertions run against a whitespace-normalized copy so rewrapping a
-    # paragraph or indenting it under a list marker doesn't fail the contract.
-    prose = " ".join(lifecycle.split())
+    # New: pure ingestion and pure deletion route to the source-management skill,
+    # not to the search skill.
+    for neg_id in ("search-archive-ingest-only", "search-archive-delete-only"):
+        case = by_id[neg_id]
+        assert case.get("should_trigger") is False
+        assert "vss-manage-video-io-storage" in case["ground_truth"]
 
-    assert "vss_cli.deployment" not in lifecycle
-    assert "RuntimeSnapshot" not in lifecycle
-    assert 'configure --base-url "${VSS_ORIGIN}"' in lifecycle
-    assert "configure show" in lifecycle
-    assert "uv run --project" not in lifecycle and "vss search run --help" in lifecycle
-    assert "dev-profile-sample-data:3.2.0" in lifecycle
-    assert "mktemp -d" in lifecycle
-    assert "Never send a mutating request directly" in lifecycle
-    assert "if it is absent, continue" in lifecycle
-    assert "must not block fixture download, Agent-backed ingestion, or index readiness" in prose
-    assert "ONE shared 40-minute source-setup budget, not 40 minutes each" in prose
-    assert "Deployment and public-origin selection are prerequisite work outside this ingestion budget" in prose
-    assert "SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))" in lifecycle
-    assert "CURRENT_EPOCH < SEARCH_READINESS_DEADLINE" in lifecycle
-    assert "there is no sanctioned construction" in prose
-    assert "/etc/brev/environment-context.json" in prose
-    assert "--max-redirs 0" in origin_selector
-    assert '.type == "vst"' in origin_selector
-    assert origin_selector.count("curl ") == 1
-    assert "Do not issue a public-origin `curl` before or after it" in prose
-    assert "readiness_timeout 300" in lifecycle
-    assert "readiness_timeout 900" in lifecycle
-    assert 'max-time "${DELETE_TIMEOUT}"' in lifecycle
-    assert 'max-time "${COUNT_TIMEOUT}"' in lifecycle
-    assert "DELETE_READINESS_DEADLINE=$(($(date +%s) + 600))" in lifecycle
-    assert "delete_timeout()" in lifecycle
-    assert 'max-time "${DELETE_TIMEOUT}"' in lifecycle
-    assert 'RTSP_EMBED_INDEX="mdx-embed-filtered-*"' in lifecycle
-    assert "resolve_upload_indexes()" in lifecycle
-    assert "resolve_upload_indexes || exit 1" in lifecycle
-    assert 'select(. == "mdx-embed-filtered-2025-01-01")' in lifecycle
-    assert 'select(. == "mdx-behavior-2025-01-01")' in lifecycle
-    assert 'select(. == "mdx-raw-2025-01-01")' in lifecycle
-    assert not re.search(r'(?m)^EMBED_INDEX="mdx-embed-filtered-\*"$', lifecycle)
-    assert 'delete_index_count "${BEHAVIOR_INDEX}" sensor.id.keyword' in lifecycle
-    assert 'delete_index_count "${RAW_INDEX}" sensorId.keyword' in lifecycle
-    assert "SAMPLE_RTVI_LOG == 1" not in lifecycle
-    assert "Never keep an otherwise-ready setup waiting for an exact log message" in prose
-
-    # The host CLI stamps the `vss configure` origin into screenshot_url, so the
-    # lifecycle must point at that lever and must not send the agent off editing
-    # VST_EXTERNAL_URL (which only feeds the Agent-served path) to change it.
-    assert "The host CLI stamps the origin you gave `vss configure`" in prose
-    assert "Editing `VST_EXTERNAL_URL` in `generated.env` cannot change them" in prose
-    assert "`VST_EXTERNAL_URL` governs the Agent-served path" in prose
-
-    # The handshake mints the upload URL from VST_EXTERNAL_URL, so posting the
-    # bytes to it verbatim fails whenever the selector chose the host-local
-    # fallback -- which the budget prose above promises will not block
-    # ingestion. Keep the re-anchor, and keep the media-URL prohibition scoped
-    # so it cannot be read as forbidding it.
-    assert 'UPLOAD_URL="${VSS_ORIGIN%/}/${UPLOAD_TARGET#*/}"' in lifecycle
-    assert "Never rewrite a media URL returned in a search result" in prose
-    assert "Post the bytes to the re-anchored `UPLOAD_URL`" in prose
+    # The RTSP routing case no longer requires a direct Elasticsearch count.
+    rtsp = by_id["search-archive-rtsp-live-stream"]
+    rtsp_text = json.dumps(rtsp)
+    assert "Elasticsearch" not in rtsp_text
+    assert "_count" not in rtsp_text
+    assert any("does not poll a search index directly" in behavior for behavior in rtsp["expected_behavior"])
 
 
 def test_public_probe_rejects_redirects_and_accepts_vst_json(tmp_path: Path) -> None:
-    selector = SEARCH_SKILL / "scripts/select_brev_origin.sh"
+    selector = SEARCH_SKILL / "scripts" / "select_brev_origin.sh"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_curl = fake_bin / "curl"
@@ -418,144 +436,7 @@ printf '%s' "${CURL_STATUS}"
     run_probe(200, '{"type":"vst","version":"3.2.0"}', "https://public.example")
 
 
-def test_readiness_timeout_caps_each_blocking_request() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    match = re.search(r"(readiness_timeout\(\) \{.*?\n\})", lifecycle, flags=re.DOTALL)
-    assert match is not None
-    script = f"""set -euo pipefail
-{match.group(1)}
-SEARCH_READINESS_DEADLINE=$(($(date +%s) + 3))
-value=$(readiness_timeout 900)
-[ "$value" -ge 1 ] && [ "$value" -le 3 ]
-SEARCH_READINESS_DEADLINE=$(($(date +%s) - 1))
-! readiness_timeout 30
-"""
-    subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
-
-
-@pytest.mark.parametrize(
-    ("returned_url", "origin", "expected"),
-    [
-        # The failure this recipe exists for: the handshake answers with the
-        # public secure link while the selector chose the host-local origin.
-        (
-            "https://7777-env.brevlab.com:443/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-        # Already anchored on the origin we are using: unchanged.
-        (
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-        # VIOS 3.2.0 defects the CLI repairs for media URLs, absorbed here too.
-        (
-            "http://http://localhost:30888/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-        (
-            "/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-        # The returned path is carried over as-is, so a deployment that serves
-        # VST under a prefix is re-anchored rather than mangled.
-        (
-            "https://public.example/edge/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777",
-            "http://10.0.0.1:7777/edge/vst/api/v1/storage/file",
-        ),
-        # A trailing slash on the recorded origin must not double up.
-        (
-            "https://public.example/vst/api/v1/storage/file",
-            "http://10.0.0.1:7777/",
-            "http://10.0.0.1:7777/vst/api/v1/storage/file",
-        ),
-    ],
-)
-def test_upload_url_is_reanchored_on_the_configured_origin(returned_url: str, origin: str, expected: str) -> None:
-    """The re-anchor block in the skill must move any handshake URL onto the
-    origin `vss configure` recorded. Run the block the agent actually reads
-    rather than a copy, so a doc edit that breaks it fails here."""
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    match = re.search(
-        r"(UPLOAD_TARGET=\$\{UPLOAD_URL\}\n.*?UPLOAD_URL=\"\$\{VSS_ORIGIN%/\}/\$\{UPLOAD_TARGET#\*/\}\")",
-        lifecycle,
-        flags=re.DOTALL,
-    )
-    assert match is not None, "the upload re-anchor block is missing from source_lifecycle.md"
-
-    script = f"""set -euo pipefail
-UPLOAD_URL={shlex.quote(returned_url)}
-VSS_ORIGIN={shlex.quote(origin)}
-{match.group(1)}
-printf '%s' "${{UPLOAD_URL}}"
-"""
-    completed = subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
-    assert completed.stdout == expected
-
-
-def test_setup_recipes_cannot_reset_or_bypass_global_deadline() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    source_setup = lifecycle.split("## Pre-ingestion cleanup", 1)[1].split("## Delete source", 1)[0]
-    shell = "\n".join(re.findall(r"```bash\n(.*?)```", source_setup, flags=re.DOTALL))
-
-    assert shell.count("SEARCH_READINESS_DEADLINE:=$(($(date +%s) + 2400))") == 1
-    assert not re.search(r"(?m)^(?:DEADLINE|READINESS_DEADLINE|CLEANUP_DEADLINE)=", shell)
-    assert re.findall(r"\$\(date \+%s\) \+ (\d+)", shell) == ["2400"]
-    assert not re.search(r"--max-time\s+[0-9]+(?:\s|$)", shell)
-
-
-def test_delete_recipe_is_bounded_and_checks_all_cleanup_tuples() -> None:
-    lifecycle = (SEARCH_SKILL / "references/source_lifecycle.md").read_text(encoding="utf-8")
-    resolver_match = re.search(r"resolve_upload_indexes\(\) \{\n.*?\n\}", lifecycle, flags=re.DOTALL)
-    assert resolver_match is not None
-    resolver = resolver_match.group(0)
-    blocks = [
-        block
-        for block in re.findall(r"```bash\n(.*?)```", lifecycle, flags=re.DOTALL)
-        if "DELETE_READINESS_DEADLINE=" in block
-    ]
-    assert len(blocks) == 1
-    script = f"""set -euo pipefail
-curl() {{
-  case "$*" in
-    *'-X DELETE'*) printf '%s\n' '{{"status":"success"}}' ;;
-    *'/_count'*) printf '%s\n' '{{"count":0}}' ;;
-    *) return 9 ;;
-  esac
-}}
-# Source listing is `vss vios list` now, not a curl. Stub it in the CLI's own
-# shape -- {{count, sensors:[...]}} -- so the recipe's jq is exercised against
-# what the command actually returns.
-vss_stub() {{
-  case "$*" in
-    'vios list') printf '%s\n' '{{"count":0,"type":null,"sensors":[]}}' ;;
-    'configure show')
-      printf '%s\n' \
-        '{{"services":{{"elasticsearch":{{"indices":["mdx-embed-filtered-2025-01-01","mdx-behavior-2025-01-01","mdx-raw-2025-01-01"]}}}}}}'
-      ;;
-    *) return 9 ;;
-  esac
-}}
-vss() {{ vss_stub "$@"; }}
-VSS_ORIGIN=https://public.example
-ES_URL=http://elasticsearch:9200
-SAVED_SENSOR_ID=sensor-1
-SAVED_SOURCE_NAME=warehouse-ladder
-EMBED_INDEX=mdx-embed-filtered-2025-01-01
-BEHAVIOR_INDEX=mdx-behavior-2025-01-01
-RAW_INDEX=mdx-raw-2025-01-01
-{resolver}
-{blocks[0]}
-"""
-    completed = subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True)
-    assert "delete_status=success vst_present=false counts=0,0,0" in completed.stdout
-
-
-def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> None:
+def test_search_adapter_bundles_ask_video_and_emits_role_metadata(tmp_path: Path) -> None:
     subprocess.run(
         [
             "python3",
@@ -591,3 +472,52 @@ def test_search_adapter_bundles_ask_video_for_confirmation(tmp_path: Path) -> No
     assert (verification_step / "skills/vss-ask-video/SKILL.md").is_file()
     instruction = (verification_step / "instruction.md").read_text(encoding="utf-8")
     assert "explicit post-results confirmation" in instruction
+
+    # Deletion is the terminal cleanup step (moved from step 8 to step 11).
+    cleanup_step = tmp_path / "search/rtxpro6000bw/step-11"
+    assert (cleanup_step / "instruction.md").is_file()
+    cleanup_instruction = (cleanup_step / "instruction.md").read_text(encoding="utf-8")
+    assert "terminal evaluation cleanup" in cleanup_instruction
+    assert "vss vios delete --type video --sensor <name>" in cleanup_instruction
+
+    # Role metadata is copied into task.toml so a reporting view can score
+    # search-role steps separately from setup and cleanup.
+    assert 'role = "setup"' in (tmp_path / "search/rtxpro6000bw/step-1/task.toml").read_text(encoding="utf-8")
+    assert 'role = "search"' in (tmp_path / "search/rtxpro6000bw/step-4/task.toml").read_text(encoding="utf-8")
+    assert 'role = "cleanup"' in (tmp_path / "search/rtxpro6000bw/step-11/task.toml").read_text(encoding="utf-8")
+
+
+def test_search_adapter_solve_script_matches_role(tmp_path: Path) -> None:
+    subprocess.run(
+        [
+            "python3",
+            str(SEARCH_ADAPTER),
+            "--output-dir",
+            str(tmp_path),
+            "--skill-dir",
+            str(SEARCH_SKILL),
+            "--deploy-skill-dir",
+            str(REPOSITORY_ROOT / "skills/vss-build-vision-ai"),
+            "--video-io-skill-dir",
+            str(REPOSITORY_ROOT / "skills/operations/vss-manage-video-io-storage"),
+            "--ask-video-skill-dir",
+            str(ASK_VIDEO_SKILL),
+            "--spec",
+            str(SEARCH_SKILL / "evals/search.json"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    # A search-role gold solution depends on the CLI being configured, not on
+    # the VSS Agent being healthy — search reaches Elasticsearch/VST through
+    # the CLI, never the Agent.
+    search_solve = (tmp_path / "search/rtxpro6000bw/step-4/solution/solve.sh").read_text(encoding="utf-8")
+    assert "VSS_AGENT_URL" not in search_solve
+    assert "/health" not in search_solve
+    assert "vss configure show" in search_solve
+    assert "vss search run --help" in search_solve
+
+    # A setup-role gold solution still depends on a live deployment.
+    setup_solve = (tmp_path / "search/rtxpro6000bw/step-1/solution/solve.sh").read_text(encoding="utf-8")
+    assert "/health" in setup_solve
