@@ -3027,7 +3027,7 @@ wheels = [
 [[package]]
 name = "nvdataset"
 version = "0.93.0"
-source = { registry = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" }
+source = { registry = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" }
 dependencies = [
     { name = "multi-storage-client", extra = ["boto3", "observability-otel", "vault"] },
     { name = "packaging" },
@@ -3042,9 +3042,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0.tar.gz", hash = "sha256:b58acf8b8a248b008938935fef8350bc64d09559a2efd4262f68ff7728624726" }
+sdist = { url = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0.tar.gz", hash = "sha256:b58acf8b8a248b008938935fef8350bc64d09559a2efd4262f68ff7728624726" }
 wheels = [
-    { url = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0-py3-none-any.whl", hash = "sha256:159ff0739ef0b61c8114d3cc1ad92063e5041d0277f42f5fb50aa942d5995e42" },
+    { url = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/packages/nvdataset/0.93.0/nvdataset-0.93.0-py3-none-any.whl", hash = "sha256:159ff0739ef0b61c8114d3cc1ad92063e5041d0277f42f5fb50aa942d5995e42" },
 ]
 
 [[package]]
@@ -3451,7 +3451,7 @@ dev = [
     { name = "types-requests", specifier = ">=2.32.4.20260107" },
 ]
 eval = [
-    { name = "nvdataset", specifier = ">=0.77", index = "https://artifactory.pdx.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" },
+    { name = "nvdataset", specifier = ">=0.77", index = "https://artifactory.nvidia.com/artifactory/api/pypi/sw-ngc-data-platform-pypi-local/simple" },
     { name = "nvidia-nat", extras = ["langchain", "weave"], specifier = "==1.8.0" },
     { name = "spacy", specifier = ">=3.7,<4.0" },
 ]
