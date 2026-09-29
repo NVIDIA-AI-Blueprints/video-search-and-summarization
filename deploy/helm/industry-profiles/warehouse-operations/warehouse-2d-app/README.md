@@ -430,7 +430,7 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 | Kibana | `http://<NODE_IP>:31560/` |
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
-| Analytics API | `http://<NODE_IP>:30801/` |
+| Video Analytics API | `http://<NODE_IP>:30801/` |
 
 With [Alerts](#alerts) enabled:
 
