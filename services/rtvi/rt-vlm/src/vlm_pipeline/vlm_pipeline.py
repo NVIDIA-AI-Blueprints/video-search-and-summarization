@@ -580,16 +580,19 @@ class DecoderProcess(ProcessBase):
 
     def _warmup(self):
         chunk = ChunkInfo()
-        chunk.file = "/opt/nvidia/rtvi/warmup_streams/its_264.mp4"
         chunk.end_pts = 5000000000
-        if os.path.exists(chunk.file):
-            for fgetter in self._fgetters:
-                fgetter.get_frames(chunk)
-
-        chunk.file = "/opt/nvidia/rtvi/warmup_streams/its_265.mp4"
-        if os.path.exists(chunk.file):
-            for fgetter in self._fgetters:
-                fgetter.get_frames(chunk)
+        for warmup_file in (
+            "/opt/nvidia/rtvi/warmup_streams/its_264.mp4",
+            "/opt/nvidia/rtvi/warmup_streams/its_265.mp4",
+        ):
+            if os.path.exists(warmup_file):
+                chunk.file = warmup_file
+                for fgetter in self._fgetters:
+                    try:
+                        fgetter.get_frames(chunk)
+                    finally:
+                        # Warmup's decoder must not be reused for a real file.
+                        fgetter.destroy_pipeline()
 
         # Decoder warmup is local to this process. Do not forward the decoded
         # warmup frames to VLM: they have no prompt/request_params and may still

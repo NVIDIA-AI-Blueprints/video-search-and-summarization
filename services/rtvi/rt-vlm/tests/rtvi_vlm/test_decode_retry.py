@@ -166,10 +166,14 @@ def test_decoder_warmup_decodes_locally_without_forwarding_frames(monkeypatch):
     class WarmupFrameGetter:
         def __init__(self):
             self.files = []
+            self.destroyed = []
 
         def get_frames(self, chunk):
             self.files.append(chunk.file)
             return ["cuda-frame"], [0.0], [], None
+
+        def destroy_pipeline(self):
+            self.destroyed.append(self.files[-1])
 
     decoder = _make_decoder()
     decoder._fgetters = [WarmupFrameGetter(), WarmupFrameGetter()]
@@ -185,6 +189,8 @@ def test_decoder_warmup_decodes_locally_without_forwarding_frames(monkeypatch):
     ]
     assert decoder._fgetters[0].files == expected_files
     assert decoder._fgetters[1].files == expected_files
+    assert decoder._fgetters[0].destroyed == expected_files
+    assert decoder._fgetters[1].destroyed == expected_files
     assert decoder._output_queue.items == []
 
 
