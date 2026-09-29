@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ConfigError, loadAgentAdapterConfig } from "./config";
+import { ConnectorError } from "./connectors/base";
+import { OpenClawConnector } from "./connectors/openClaw";
 import {
   ContractError,
   createRunEvent,
@@ -30,7 +32,32 @@ interface CachedService {
 declare global {
   // eslint-disable-next-line no-var
   var __vssEmbeddedAgentAdapter: CachedService | undefined;
+  // Browser-entered gateway tokens belong to separate run stores.
+  // eslint-disable-next-line no-var
+  var __vssEmbeddedAgentAdapterSessions: Map<string, CachedService & { lastUsed: number }> | undefined;
 }
+
+const TOKEN_HEADER = "x-vss-gateway-token";
+const MAX_TOKEN_SESSIONS = 32;
+const TOKEN_SESSION_IDLE_MS = 2 * 60 * 60 * 1_000;
+
+const browserToken = (req: NextApiRequest): string | undefined => {
+  const value = req.headers[TOKEN_HEADER];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !value.trim() || value.length > 4_096 || /[\r\n]/u.test(value)) {
+    throw new ConfigError("invalid gateway token header");
+  }
+  return value.trim();
+};
+
+const tokenEnvironment = (token: string | undefined): NodeJS.ProcessEnv =>
+  token && process.env.AGENT_BACKEND_PROTOCOL?.trim().toLowerCase() === "openclaw-ws"
+    ? { ...process.env, AGENT_BACKEND_TOKEN: token }
+    : process.env;
+
+const tokenRequired = (): boolean =>
+  process.env.AGENT_BACKEND_PROTOCOL?.trim().toLowerCase() === "openclaw-ws" &&
+  !process.env.AGENT_BACKEND_TOKEN?.trim();
 
 const CONFIG_ENV_KEYS = [
   "AGENT_ADAPTER_ENABLED",
@@ -60,12 +87,35 @@ const configFingerprint = (environment: NodeJS.ProcessEnv): string =>
     )
     .digest("hex");
 
+const browserSessionExists = (environment: NodeJS.ProcessEnv): boolean => {
+  const entry = globalThis.__vssEmbeddedAgentAdapterSessions?.get(configFingerprint(environment));
+  return !!entry && Date.now() - entry.lastUsed <= TOKEN_SESSION_IDLE_MS;
+};
+
 export const getAgentAdapterService = (
   environment: NodeJS.ProcessEnv = process.env
 ): AgentAdapterService | null => {
   const config = loadAgentAdapterConfig(environment);
   if (!config) return null;
   const fingerprint = configFingerprint(environment);
+  if (environment !== process.env && config.backendProtocol === "openclaw-ws") {
+    const sessions = globalThis.__vssEmbeddedAgentAdapterSessions ??= new Map();
+    const now = Date.now();
+    for (const [key, entry] of sessions) {
+      if (now - entry.lastUsed > TOKEN_SESSION_IDLE_MS) sessions.delete(key);
+    }
+    const cached = sessions.get(fingerprint);
+    if (cached) {
+      cached.lastUsed = now;
+      return cached.service;
+    }
+    if (sessions.size >= MAX_TOKEN_SESSIONS) {
+      throw new ConfigError("too many active gateway token sessions");
+    }
+    const service = new AgentAdapterService(config);
+    sessions.set(fingerprint, { fingerprint, service, lastUsed: now });
+    return service;
+  }
   if (globalThis.__vssEmbeddedAgentAdapter?.fingerprint !== fingerprint) {
     globalThis.__vssEmbeddedAgentAdapter = {
       fingerprint,
@@ -77,6 +127,7 @@ export const getAgentAdapterService = (
 
 export const resetAgentAdapterForTests = (): void => {
   globalThis.__vssEmbeddedAgentAdapter = undefined;
+  globalThis.__vssEmbeddedAgentAdapterSessions = undefined;
 };
 
 export { agentAdapterConfigured } from "./config";
@@ -252,9 +303,77 @@ export const agentAdapterHandler = async (
   req: NextApiRequest,
   res: NextApiResponse
 ): Promise<void> => {
+  const segments = pathSegments(req);
+  let token: string | undefined;
+  try {
+    token = browserToken(req);
+  } catch (error) {
+    errorResponse(res, 400, "invalid_token", (error as Error).message);
+    return;
+  }
+  if (req.method === "GET" && segments.length === 1 && segments[0] === "connection") {
+    let config;
+    try {
+      config = loadAgentAdapterConfig(tokenEnvironment(token));
+    } catch (error) {
+      errorResponse(res, 503, "adapter_not_configured", error instanceof ConfigError ? error.message : "invalid adapter configuration");
+      return;
+    }
+    if (!config) {
+      errorResponse(res, 503, "adapter_not_configured", "embedded agent adapter is not configured");
+      return;
+    }
+    securityHeaders(res);
+    if (config.backendProtocol !== "openclaw-ws") {
+      res.status(200).json({ state: "connected" });
+      return;
+    }
+    if (tokenRequired() && !token) {
+      res.status(200).json({ state: "token_required" });
+      return;
+    }
+    try {
+      await new OpenClawConnector(config).checkConnection(AbortSignal.timeout(15_000));
+      res.status(200).json({ state: "connected" });
+    } catch (error) {
+      const code = error instanceof ConnectorError ? error.code : "backend_unreachable";
+      res.status(200).json({
+        state: code === "backend_auth_error" || code === "backend_scope_error"
+          ? "authentication_failed"
+          : "unreachable",
+      });
+    }
+    return;
+  }
+  if (tokenRequired() && !token) {
+    errorResponse(res, 401, "gateway_token_required", "enter the NemoClaw gateway token in the Web UI");
+    return;
+  }
+  const environment = tokenEnvironment(token);
+  if (environment !== process.env && !browserSessionExists(environment)) {
+    try {
+      const config = loadAgentAdapterConfig(environment);
+      if (config?.backendProtocol === "openclaw-ws") {
+        await new OpenClawConnector(config).checkConnection(AbortSignal.timeout(15_000));
+      }
+    } catch (error) {
+      if (error instanceof ConfigError) {
+        errorResponse(res, 503, "adapter_not_configured", error.message);
+        return;
+      }
+      const code = error instanceof ConnectorError ? error.code : "backend_unreachable";
+      errorResponse(
+        res,
+        code === "backend_auth_error" || code === "backend_scope_error" ? 401 : 503,
+        code,
+        error instanceof ConnectorError ? error.message : "NemoClaw gateway is unavailable"
+      );
+      return;
+    }
+  }
   let service: AgentAdapterService | null;
   try {
-    service = getAgentAdapterService();
+    service = getAgentAdapterService(environment);
   } catch (error) {
     const message =
       error instanceof ConfigError
@@ -272,7 +391,6 @@ export const agentAdapterHandler = async (
     );
     return;
   }
-  const segments = pathSegments(req);
   const method = req.method ?? "";
 
   if (

@@ -334,6 +334,12 @@ export class OpenClawConnector implements Connector {
     }
   }
 
+  /** Verify the relay and gateway credentials without creating a chat run. */
+  async checkConnection(signal: AbortSignal): Promise<void> {
+    const socket = await this.connect(signal);
+    socket.close();
+  }
+
   private sessionKey(threadId: string): string {
     const secret = this.config.backendToken || "vss-next-agent-adapter";
     const digest = createHmac("sha256", secret)

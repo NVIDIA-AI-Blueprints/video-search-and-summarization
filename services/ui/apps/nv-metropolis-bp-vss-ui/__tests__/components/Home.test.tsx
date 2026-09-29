@@ -17,7 +17,7 @@ jest.mock("next/dynamic", () => ({
         features,
       }: {
         onAnswer?: (answer: string, conversationId: string) => void;
-        endpoint?: { surface?: string };
+        endpoint?: { surface?: string; headers?: Record<string, string> };
         features?: { hitl?: boolean };
       }) => (
         <button
@@ -28,6 +28,7 @@ jest.mock("next/dynamic", () => ({
               : "deliver-search-artifact"
           }
           data-hitl-enabled={String(features?.hitl)}
+          data-gateway-token={endpoint?.headers?.['X-VSS-Gateway-Token'] ?? ''}
           onClick={() =>
             onAnswer?.('{"data":[{"id":"retained-hit"}]}', "conversation-1")
           }
@@ -197,14 +198,15 @@ describe("Home tab lifecycle", () => {
     );
   });
 
-  it("suppresses legacy HITL when the external-agent adapter is enabled", () => {
+  it("suppresses legacy HITL when the external-agent adapter is enabled", async () => {
     process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = "true";
     process.env.NEXT_PUBLIC_ENABLE_HITL = "true";
     process.env.NEXT_PUBLIC_SIDEBAR_CHAT_ENABLE_HITL = "true";
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
 
     render(<Home />);
 
-    expect(screen.getByTestId("deliver-search-artifact")).toHaveAttribute(
+    expect(await screen.findByTestId("deliver-search-artifact")).toHaveAttribute(
       "data-hitl-enabled",
       "false",
     );
@@ -215,5 +217,25 @@ describe("Home tab lifecycle", () => {
       "data-hitl-enabled",
       "false",
     );
+  });
+
+  it('connects both chat surfaces with a browser-entered token', async () => {
+    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ state: 'token_required' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+    render(<Home />);
+    const field = await screen.findByLabelText('Gateway token');
+    fireEvent.change(field, { target: { value: 'browser-token' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
+
+    expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'browser-token');
+    fireEvent.click(screen.getByTestId('sidebar-tab-search'));
+    expect(screen.getByTestId('deliver-sidebar-answer')).toHaveAttribute('data-gateway-token', 'browser-token');
+    expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBe('browser-token');
+    expect(global.fetch).toHaveBeenLastCalledWith('/api/agent/connection', expect.objectContaining({
+      headers: { 'X-VSS-Gateway-Token': 'browser-token' },
+    }));
   });
 });
