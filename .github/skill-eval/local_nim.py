@@ -414,7 +414,7 @@ def start(plan: dict):
             nim_args.extend(("--served-model-name", nemoclaw_route["model"]))
             nemoclaw_port = port
         docker(*nim_args)
-        base = f"http://127.0.0.1:{port}/v1"
+        base = f"http://{host if direct_nemoclaw else '127.0.0.1'}:{port}/v1"
         wait_ready(f"{base}/health/ready", "", 4800, container=name)
         served, _ = request_json(f"{base}/models")
         names = [m["id"] for m in served.get("data", [])]
@@ -525,7 +525,7 @@ def start(plan: dict):
             )
         try:
             smoke_base = (
-                f"http://127.0.0.1:{nemoclaw_port}/v1"
+                f"http://{host}:{nemoclaw_port}/v1"
                 if runtime == "nemoclaw"
                 else f"http://127.0.0.1:{PROXY_PORT}/v1"
             )

@@ -208,14 +208,20 @@ def test_nemoclaw_uses_private_direct_nim_route(monkeypatch, tmp_path):
     monkeypatch.setattr(nim.platform, "machine", lambda: "aarch64")
     monkeypatch.setattr(nim, "worker_host", lambda: "10.229.20.2")
     monkeypatch.setattr(nim, "publish", lambda root: None)
-    monkeypatch.setattr(nim, "wait_ready", lambda *a, **kw: {})
+    ready_urls = []
+
+    def wait_ready(url, *args, **kwargs):
+        ready_urls.append(url)
+        return {}
+
+    monkeypatch.setattr(nim, "wait_ready", wait_ready)
     original_request = nim.request_json
     probes = []
 
     def request(url, headers=None, payload=None):
         if url.endswith("/models"):
             return {"data": [{"id": "nvidia/nemotron-3.5-lightning-30b-a3b"}]}, {}
-        if url.startswith("http://127.0.0.1:"):
+        if url.startswith(("http://127.0.0.1:", "http://10.229.20.2:")):
             probes.append(url)
             return {}, {}
         return original_request(url, headers, payload)
@@ -244,7 +250,8 @@ def test_nemoclaw_uses_private_direct_nim_route(monkeypatch, tmp_path):
     assert launch[-2:] == (
         "--served-model-name", "nvidia/nemotron-3.5-lightning-30b-a3b"
     )
-    assert "http://127.0.0.1:18410/v1/chat/completions" in probes
+    assert "http://10.229.20.2:18410/v1/health/ready" in ready_urls
+    assert "http://10.229.20.2:18410/v1/chat/completions" in probes
     ready = json.loads((nim.owner_paths(local_plan["owner"]) / "ready.json").read_text())
     assert ready["nemoclaw_endpoint"] == "http://10.229.20.2:18410/v1"
 
