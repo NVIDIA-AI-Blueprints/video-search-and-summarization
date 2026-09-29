@@ -98,7 +98,8 @@ def create_tasks(ledger: dict, claim_ids: list[str] | None = None) -> list[dict]
     selected = claim_ids or [
         state["claim_id"]
         for state in ledger["claims"]
-        if state["status"] == "unresolved"
+        if state["status"] not in ("supported", "contradicted")
+        or state["coverage"] != "sufficient"
     ]
     media_scopes = {claim_id: copy.deepcopy(MEDIA_SCOPE) for claim_id in selected}
     return ledger_mod.create_inspection_tasks(ledger, media_scopes, claim_ids)
@@ -766,3 +767,214 @@ def test_final_result_contains_audit_provenance() -> None:
     assert final["evidence_details"] == ledger["observations"]
     assert final["revision"] == ledger["revision"]
     assert final["artifact_dir"] == "runs/question-1"
+
+
+def test_supported_partial_claim_stays_eligible_while_budget_remains() -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    partial = ledger_mod.merge_round_results(
+        ledger,
+        tasks,
+        [result(tasks[0], (observation(),), coverage="partial", calls=1)],
+    )
+    assert partial["status"] == "in_progress"
+    assert partial["claims"][0]["status"] == "supported"
+    assert partial["claims"][0]["coverage"] == "partial"
+    assert partial["round"] == 1
+    again = create_tasks(partial)
+    assert again[0]["claim"]["claim_id"] == "claim-color"
+    assert again[0]["task_id"].endswith("-r2")
+    with pytest.raises(ledger_mod.LedgerValidationError, match="budget remains"):
+        ledger_mod.final_result(partial, "runs/question-1", "Too early.")
+
+
+def test_exhausted_partial_ledger_terminates_and_writes_final_result(tmp_path: Path) -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    partial = ledger_mod.merge_round_results(
+        ledger,
+        tasks,
+        [result(tasks[0], (observation(),), coverage="partial", calls=1)],
+    )
+    second = create_tasks(partial)
+    exhausted = ledger_mod.merge_round_results(
+        partial,
+        second,
+        [
+            result(
+                second[0],
+                (
+                    observation(
+                        text="A second window still shows only part of the clothing.",
+                        job_id="vlm-2",
+                    ),
+                ),
+                coverage="partial",
+                calls=1,
+            )
+        ],
+    )
+    assert exhausted["status"] == "unresolved"
+    assert exhausted["stop_reason"] == "budget_exhausted"
+    assert exhausted["round"] == 2
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(json.dumps(exhausted), encoding="utf-8")
+    assert ledger_mod.main(
+        [
+            "final-result",
+            "--ledger",
+            str(ledger_path),
+            "--artifact-dir",
+            str(tmp_path),
+            "--output",
+            str(tmp_path / "final-result.json"),
+        ]
+    ) == 0
+    final = json.loads((tmp_path / "final-result.json").read_text(encoding="utf-8"))
+    assert final["status"] == "unresolved"
+    assert final["answer"] is None
+    assert final["unresolved_gaps"][0]["reason"] == "budget_exhausted"
+
+
+def test_contradicted_partial_claim_stays_eligible_while_budget_remains() -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    partial = ledger_mod.merge_round_results(
+        ledger,
+        tasks,
+        [
+            result(
+                tasks[0],
+                (observation(relation="contradicts", text="The claimed color is visibly absent."),),
+                coverage="partial",
+                calls=1,
+            )
+        ],
+    )
+    assert partial["status"] == "in_progress"
+    assert partial["claims"][0]["status"] == "contradicted"
+    assert partial["claims"][0]["coverage"] == "partial"
+    again = create_tasks(partial)
+    assert again[0]["claim"]["claim_id"] == "claim-color"
+    with pytest.raises(ledger_mod.LedgerValidationError, match="budget remains"):
+        ledger_mod.final_result(partial, "runs/question-1")
+
+
+def test_sufficient_supported_claim_resolves() -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    resolved = ledger_mod.merge_round_results(
+        ledger,
+        tasks,
+        [result(tasks[0], (observation(),), coverage="sufficient")],
+    )
+    assert resolved["status"] == "answered"
+    assert resolved["stop_reason"] == "resolved"
+    final = ledger_mod.final_result(resolved, "runs/question-1", "The claim holds.")
+    assert final["status"] == "answered"
+    assert final["unresolved_gaps"] == []
+
+
+def test_sufficient_contradicted_claim_resolves() -> None:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    resolved = ledger_mod.merge_round_results(
+        ledger,
+        tasks,
+        [
+            result(
+                tasks[0],
+                (observation(relation="contradicts", text="The claimed color is visibly absent."),),
+                coverage="sufficient",
+            )
+        ],
+    )
+    assert resolved["claims"][0]["status"] == "contradicted"
+    assert resolved["claims"][0]["coverage"] == "sufficient"
+    assert resolved["status"] == "answered"
+    assert resolved["stop_reason"] == "resolved"
+
+
+def _run_merge(tmp_path: Path, results: list[dict]) -> tuple[dict, dict]:
+    ledger = initialized()
+    tasks = create_tasks(ledger)
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    (tmp_path / "tasks.json").write_text(json.dumps(tasks), encoding="utf-8")
+    (tmp_path / "results.json").write_text(json.dumps(results), encoding="utf-8")
+    assert ledger_mod.main(
+        [
+            "merge-round",
+            "--ledger",
+            str(ledger_path),
+            "--tasks",
+            str(tmp_path / "tasks.json"),
+            "--results",
+            str(tmp_path / "results.json"),
+            "--output",
+            str(ledger_path),
+        ]
+    ) == 0
+    merged = json.loads(ledger_path.read_text(encoding="utf-8"))
+    final = json.loads((tmp_path / "final-result.json").read_text(encoding="utf-8"))
+    return merged, final
+
+
+def test_unresolved_no_progress_merge_writes_final_result(tmp_path: Path) -> None:
+    tasks = create_tasks(initialized())
+    merged, final = _run_merge(
+        tmp_path,
+        [result(tasks[0], coverage="none", gap="No useful view was found.")],
+    )
+    assert merged["status"] == "unresolved"
+    assert merged["stop_reason"] == "no_progress"
+    assert final["status"] == "unresolved"
+    assert final["answer"] is None
+
+
+def test_tool_failure_merge_writes_final_result(tmp_path: Path) -> None:
+    tasks = create_tasks(initialized())
+    merged, final = _run_merge(
+        tmp_path,
+        [result(tasks[0], coverage="none", error="vlm timed out", calls=1)],
+    )
+    assert merged["status"] == "unresolved"
+    assert merged["stop_reason"] == "tool_failure"
+    assert final["status"] == "unresolved"
+    assert final["unresolved_gaps"][0]["reason"] == "tool_failure"
+
+
+def test_categories_and_budgets_stay_at_the_base_contract() -> None:
+    assert ledger_mod.EVIDENCE_TYPES == (
+        "attribute",
+        "object",
+        "count",
+        "action",
+        "state_change",
+        "order",
+        "duration",
+        "trajectory",
+        "identity",
+        "spatial",
+        "cause",
+        "prediction",
+        "counterfactual",
+        "negative",
+    )
+    assert ledger_mod.CLAIM_STATUSES == ("supported", "contradicted", "unresolved")
+    assert ledger_mod.STOP_REASONS == (
+        None,
+        "resolved",
+        "no_progress",
+        "budget_exhausted",
+        "tool_failure",
+    )
+    assert ledger_mod.BUDGETS == {
+        "max_initial_claims": 2,
+        "max_expansions": 1,
+        "max_total_claims": 3,
+        "max_inspection_rounds": 2,
+        "max_parallel_subagents": 2,
+        "max_vlm_calls_per_subagent": 2,
+        "max_total_vlm_calls": 5,
+    }
