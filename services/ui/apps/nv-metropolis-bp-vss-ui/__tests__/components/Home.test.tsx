@@ -17,7 +17,7 @@ jest.mock("next/dynamic", () => ({
         features,
       }: {
         onAnswer?: (answer: string, conversationId: string) => void;
-        endpoint?: { surface?: string };
+        endpoint?: { surface?: string; url?: string; transport?: string };
         features?: { hitl?: boolean };
       }) => (
         <button
@@ -28,6 +28,8 @@ jest.mock("next/dynamic", () => ({
               : "deliver-search-artifact"
           }
           data-hitl-enabled={String(features?.hitl)}
+          data-endpoint-url={endpoint?.url}
+          data-endpoint-transport={endpoint?.transport}
           onClick={() =>
             onAnswer?.('{"data":[{"id":"retained-hit"}]}', "conversation-1")
           }
@@ -175,6 +177,56 @@ describe("Home tab lifecycle", () => {
     expect(screen.getByTestId("deliver-sidebar-answer")).toHaveAttribute(
       "data-hitl-enabled",
       "false",
+    );
+  });
+
+  it("routes both chat surfaces through the vss-agent SSE proxy by default", () => {
+    render(<Home />);
+
+    expect(screen.getByTestId("deliver-search-artifact")).toHaveAttribute(
+      "data-endpoint-url",
+      "/api/vss-chat?surface=main",
+    );
+    expect(screen.getByTestId("deliver-search-artifact")).toHaveAttribute(
+      "data-endpoint-transport",
+      "chat-sse",
+    );
+
+    fireEvent.click(screen.getByTestId("sidebar-tab-search"));
+
+    expect(screen.getByTestId("deliver-sidebar-answer")).toHaveAttribute(
+      "data-endpoint-url",
+      "/api/vss-chat?surface=sidebar",
+    );
+    expect(screen.getByTestId("deliver-sidebar-answer")).toHaveAttribute(
+      "data-endpoint-transport",
+      "chat-sse",
+    );
+  });
+
+  it("routes both chat surfaces through the external-agent adapter when enabled", () => {
+    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = "true";
+
+    render(<Home />);
+
+    expect(screen.getByTestId("deliver-search-artifact")).toHaveAttribute(
+      "data-endpoint-url",
+      "/api/agent",
+    );
+    expect(screen.getByTestId("deliver-search-artifact")).toHaveAttribute(
+      "data-endpoint-transport",
+      "agent-api",
+    );
+
+    fireEvent.click(screen.getByTestId("sidebar-tab-search"));
+
+    expect(screen.getByTestId("deliver-sidebar-answer")).toHaveAttribute(
+      "data-endpoint-url",
+      "/api/agent",
+    );
+    expect(screen.getByTestId("deliver-sidebar-answer")).toHaveAttribute(
+      "data-endpoint-transport",
+      "agent-api",
     );
   });
 

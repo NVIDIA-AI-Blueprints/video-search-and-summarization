@@ -38,6 +38,50 @@ describe('SseParser', () => {
     ]);
   });
 
+  it('treats the native vss-agent root workflow completion as terminal', () => {
+    const p = new SseParser();
+    const events = p.feed(
+      'intermediate_data: {"id":"workflow","parent_id":"root","name":"Function Complete: <workflow>"}\n' +
+        'data: [DONE]\n\n',
+    );
+
+    expect(events).toEqual([
+      {
+        kind: 'step',
+        step: {
+          id: 'workflow',
+          name: 'Function Complete: <workflow>',
+          status: 'in_progress',
+          payload: undefined,
+          index: 0,
+          parentId: 'root',
+        },
+      },
+      { kind: 'done' },
+    ]);
+  });
+
+  it('does not treat a nested workflow completion as terminal', () => {
+    const p = new SseParser();
+    expect(
+      p.feed(
+        'intermediate_data: {"id":"nested","parent_id":"tool","name":"Function Complete: <workflow>"}\n',
+      ),
+    ).toEqual([
+      {
+        kind: 'step',
+        step: {
+          id: 'nested',
+          name: 'Function Complete: <workflow>',
+          status: 'in_progress',
+          payload: undefined,
+          index: 0,
+          parentId: 'tool',
+        },
+      },
+    ]);
+  });
+
   it('ignores keepalive comments', () => {
     const p = new SseParser();
     expect(p.feed(': keepalive\n\n')).toEqual([]);
