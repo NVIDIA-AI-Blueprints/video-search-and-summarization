@@ -822,8 +822,10 @@ Both toggles are enabled by default. Disable either to filter the view.
 * **Upload Video** - Opens the video upload dialog for uploading video files
 * **Add RTSP** - Opens the RTSP stream configuration dialog for adding live camera feeds
 
+The **Enable video upload** switch next to these buttons shows or hides the **Upload Video** button, and the drop zone shown when the tab is empty. Turning it off does not hide videos that were already uploaded. The switch starts in the position set by `NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE` and goes back to that position when the page is reloaded.
+
 <Note>
-These buttons may appear disabled (grayed out) if the deployment does not support the respective features. A disabled **Upload Video** button indicates that video file uploads are not enabled in the current deployment configuration. Similarly, a disabled **Add RTSP** button indicates that RTSP stream management is not supported in this deployment.
+The **Add RTSP** button is hidden when the deployment does not support RTSP stream management.
 </Note>
 
 #### Streams Grid

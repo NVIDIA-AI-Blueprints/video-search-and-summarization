@@ -30,4 +30,18 @@ const Select = ({ onValueChange, items, value, ...rest }) =>
 const Tag = ({ children, ...rest }) =>
   React.createElement('span', rest, children);
 
-module.exports = { Button, TextInput, Select, Tag };
+const Switch = ({ slotLabel, checked, onCheckedChange, disabled, ...rest }) =>
+  React.createElement(
+    'label',
+    rest,
+    React.createElement('button', {
+      type: 'button',
+      role: 'switch',
+      'aria-checked': Boolean(checked),
+      disabled,
+      onClick: () => onCheckedChange?.(!checked),
+    }),
+    slotLabel
+  );
+
+module.exports = { Button, TextInput, Select, Tag, Switch };
