@@ -14,6 +14,9 @@ Live decomposition routes each query by default. Dataset-provided
 decompositions are used when live decomposition is disabled or unavailable;
 `--decompositions` explicitly replays a stored set. Without any decomposition,
 every query uses `--search-path` (default `embed`).
+`--no-decompose` disables only the live LLM; it still replays stored routes.
+For a true single-path baseline, use `--fixed-search-path`, which ignores
+dataset routes and cannot be combined with `--decompositions`.
 
 Any non-zero exit **aborts the run**. There is no exit code meaning "this query
 failed but the rest are fine" — continuing would just manufacture zeros that
@@ -70,12 +73,15 @@ one moves a run further from the baseline everything else is compared against.
 --dataset warehouse --skip-existing
 
 # One fixed path instead of routing (baseline only -- not an eval)
---no-decompose --search-path fusion --attribute "person wearing a hardhat"
+--fixed-search-path --search-path fusion --attribute "person wearing a hardhat"
+
+# Replay per-query routes stored in an extended dataset, without a live LLM
+--no-decompose
 
 # Ask the critic the reconstructed question, as runs before 3.8.0 did
 --no-original-query
 
-# The older agent-mediated ingest, when webhooks are off (e.g. Helm)
+# The older agent-mediated ingest, when deployed VIOS webhooks are off
 --ingest-flow agent-3step
 
 # Longer wait for webhook-driven perception to populate the index

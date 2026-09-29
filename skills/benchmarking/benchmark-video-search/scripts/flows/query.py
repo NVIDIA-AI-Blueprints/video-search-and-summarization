@@ -68,6 +68,10 @@ class CliExitError(RuntimeError):
     nothing was ingested.
     """
 
+    def __init__(self, message: str, *, returncode: int | None = None) -> None:
+        super().__init__(message)
+        self.returncode = returncode
+
 
 
 class QueryUnanswerableError(RuntimeError):
@@ -136,9 +140,12 @@ class CliQueryBackend:
         # the two flows incomparable. Requires a CLI carrying
         # `--original-query`; run_eval_flows probes for it.
         pass_original_query: bool = True,
+        critic_eval_count: int | None = None,
     ) -> None:
         if search_path not in SEARCH_PATHS:
             raise ValueError(f"search_path must be one of {SEARCH_PATHS}, got {search_path!r}")
+        if critic_eval_count is not None and critic_eval_count < 1:
+            raise ValueError("critic_eval_count must be at least 1")
         self.vss_cmd = vss_cmd
         self.search_path = search_path
         self.top_k = top_k
@@ -149,6 +156,7 @@ class CliQueryBackend:
         self.cwd = cwd
         self.timeout = timeout
         self.pass_original_query = pass_original_query
+        self.critic_eval_count = critic_eval_count
         #: query text -> decomposition. Empty means fixed-flag behaviour.
         self.decompositions = decompositions or {}
         #: plans actually executed, so the summary can report the path split.
@@ -176,6 +184,7 @@ class CliQueryBackend:
             "merge_adjacent": self.merge_adjacent,
             "decompositions": len(self.decompositions),
             "pass_original_query": self.pass_original_query,
+            "critic_eval_count": self.critic_eval_count,
         }
 
     def plan_for_query(self, query: str) -> dict[str, Any]:
@@ -223,6 +232,8 @@ class CliQueryBackend:
 
         argv += ["--source-type", plan["source_type"]]
         argv += ["--top-k", str(plan.get("top_k") or self.top_k)]
+        if self.critic_eval_count is not None:
+            argv += ["--critic-eval-count", str(self.critic_eval_count)]
 
         for source in plan.get("video_sources") or []:
             argv += ["--video-source", source]
@@ -267,7 +278,8 @@ class CliQueryBackend:
             meaning = CLI_EXIT_MEANINGS.get(proc.returncode, "undocumented exit code")
             detail = (proc.stderr or proc.stdout or "").strip()[:500]
             raise CliExitError(
-                f"vss exited {proc.returncode} ({meaning}): {detail}\n  command: {shlex.join(argv)}"
+                f"vss exited {proc.returncode} ({meaning}): {detail}\n  command: {shlex.join(argv)}",
+                returncode=proc.returncode,
             )
 
         hits, _messages, timings = parse_cli_output(proc.stdout)
