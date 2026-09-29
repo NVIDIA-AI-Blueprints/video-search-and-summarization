@@ -116,8 +116,8 @@ When `vss-ui` is enabled, derive `NEXT_PUBLIC_APP_SUBTITLE` from the final
 `COMPOSE_PROFILES`. In order, include `Alerts - CV` or `Alerts - VLM` for
 `alert-bridge` according to `MODE`, `LVS` for `lvs-server`, and `Search` for
 `vss-search-analytics-2d-fusion`. Join enabled labels with ` + ` inside
-`Vision (...)`: alerts verification plus summarization becomes
-`"Vision (Alerts - CV + LVS)"`. With none of those owners, use `Vision (Base)`
+`Vision (...)`: real-time VLM alerts plus summarization becomes
+`"Vision (Alerts - VLM + LVS)"`. With none of those owners, use `Vision (Base)`
 if `rtvi-vlm` remains, otherwise `Vision`. Write the result to `override.env`
 only when it differs from the inherited subtitle; honor an explicit user
 choice. Check that `resolved.yml` gives `vss-ui` the resulting value.
