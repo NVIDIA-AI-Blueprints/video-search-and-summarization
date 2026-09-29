@@ -412,12 +412,14 @@ has to change too, or the app 404s after its first redirect.
 
 ### No ingress controller: NodePort
 
-The bundled override puts the same UIs on node ports and skips the Ingress:
+The bundled override puts the same UIs on node ports and skips the Ingress.
+Pass your site values last so they take precedence:
 
 ```bash
 helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
   -n <namespace> --create-namespace \
-  -f deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values-nodeport.yaml
+  -f deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/values-nodeport.yaml \
+  -f my-values.yaml
 ```
 
 | UI | URL |
@@ -438,6 +440,20 @@ With [Alerts](#alerts) enabled:
 
 It sets **`global.vssIngress.enabled`** to false and clears
 the path prefixes, since each app then owns the root of its own port.
+
+For the Alerts UI, add explicit NodePort URLs to `my-values.yaml`:
+
+```yaml
+vss-agent-ui:
+  agentApiUrlBase: "http://<NODE_IP>:30800/api/v1"
+  vstApiUrl: "http://<NODE_IP>:30888/vst/api"
+  fillAlertBridgeUrlFromGlobal: false
+  alertsApiUrl: "http://<NODE_IP>:30980/api/v1"
+  dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
+```
+
+The `false` flag prevents the generated Ingress URL from overriding `alertsApiUrl`.
+Preserve existing `envOverrides`.
 
 ### Port-forward
 
