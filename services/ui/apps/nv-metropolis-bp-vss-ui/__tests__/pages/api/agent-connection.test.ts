@@ -4,7 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { agentAdapterHandler, getAgentAdapterService, resetAgentAdapterForTests } from '../../../utils/server/agentAdapter';
 import { ConnectorError } from '../../../utils/server/agentAdapter/connectors/base';
 import { OpenClawConnector } from '../../../utils/server/agentAdapter/connectors/openClaw';
-import type { RunRecord } from '../../../utils/server/agentAdapter/store';
+import { RunNotFoundError, type RunRecord } from '../../../utils/server/agentAdapter/store';
 
 const keys = ['AGENT_ADAPTER_ENABLED', 'AGENT_BACKEND_PROTOCOL', 'AGENT_BACKEND_URL', 'AGENT_BACKEND_TOKEN'] as const;
 
@@ -83,12 +83,24 @@ describe('NemoClaw runtime token', () => {
     expect(status.body).toEqual({ state: 'connected' });
   });
 
-  it('keeps run stores separate for different browser tokens', () => {
+  it('shares one bounded store while keeping token connectors separate', () => {
     const first = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'first-token' });
     const again = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'first-token' });
     const second = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'second-token' });
     expect(first).toBe(again);
     expect(second).not.toBe(first);
+    expect(second!.store).toBe(first!.store);
+    const input = {
+      threadId: 'same-thread',
+      input: [{ role: 'user' as const, content: 'hello' }],
+      history: [],
+      surface: 'vss-ui',
+      metadata: {},
+    };
+    const firstRun = first!.store.create(input, 'same-key', first!.ownerFingerprint).record;
+    const secondRun = second!.store.create(input, 'same-key', second!.ownerFingerprint).record;
+    expect(secondRun.runId).not.toBe(firstRun.runId);
+    expect(() => second!.store.get(firstRun.runId, second!.ownerFingerprint)).toThrow(RunNotFoundError);
   });
 
   it('does not allocate a run store for a rejected token', async () => {
@@ -110,25 +122,43 @@ describe('NemoClaw runtime token', () => {
     expect(capabilities.body).toMatchObject({ error: { code: 'backend_auth_error' } });
   });
 
-  it('makes room for another valid token without evicting retained runs', () => {
-    const retained = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' });
-    jest.spyOn(retained!.store, 'hasRetainedRuns').mockReturnValue(true);
+  it('retains finished run history after evicting an idle token connector', () => {
+    const first = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' });
+    const run = first!.store.create({
+      threadId: 'thread-1',
+      input: [{ role: 'user', content: 'hello' }],
+      history: [],
+      surface: 'vss-ui',
+      metadata: {},
+    }, undefined, first!.ownerFingerprint).record;
+    first!.store.finish(run, 'run.completed');
     for (let index = 1; index < 32; index += 1) {
       getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: `token-${index}` });
     }
     const next = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-32' });
     expect(next).toBeTruthy();
     expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size).toBe(32);
-    expect(getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' })).toBe(retained);
+    const resumed = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' });
+    expect(resumed).not.toBe(first);
+    expect(resumed!.store.get(run.runId, resumed!.ownerFingerprint)).toBe(run);
+    expect(() => next!.store.get(run.runId, next!.ownerFingerprint)).toThrow(RunNotFoundError);
   });
 
-  it('admits a valid token while every existing session retains a run', () => {
-    for (let index = 0; index < 32; index += 1) {
-      const service = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: `token-${index}` });
-      jest.spyOn(service!.store, 'hasRetainedRuns').mockReturnValue(true);
+  it('keeps an active connector when the idle-session cache fills', () => {
+    const active = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' });
+    const run = active!.store.create({
+      threadId: 'thread-1',
+      input: [{ role: 'user', content: 'hello' }],
+      history: [],
+      surface: 'vss-ui',
+      metadata: {},
+    }, undefined, active!.ownerFingerprint).record;
+    for (let index = 1; index < 33; index += 1) {
+      getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: `token-${index}` });
     }
-    expect(getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-32' })).toBeTruthy();
-    expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size).toBe(33);
+    expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size).toBe(32);
+    expect(getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' })).toBe(active);
+    active!.store.finish(run, 'run.completed');
   });
 
   it('cancels a cached active run locally during a gateway outage', async () => {

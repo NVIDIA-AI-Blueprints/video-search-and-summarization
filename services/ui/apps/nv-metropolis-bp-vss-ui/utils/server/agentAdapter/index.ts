@@ -18,6 +18,7 @@ import {
   IdempotencyConflictError,
   RunNotFoundError,
   type RunRecord,
+  type RunStore,
   StoreCapacityError,
   ThreadBusyError,
 } from "./store";
@@ -32,9 +33,11 @@ interface CachedService {
 declare global {
   // eslint-disable-next-line no-var
   var __vssEmbeddedAgentAdapter: CachedService | undefined;
-  // Browser-entered gateway tokens belong to separate run stores.
+  // Browser-entered tokens have separate connectors but share one bounded run store.
   // eslint-disable-next-line no-var
   var __vssEmbeddedAgentAdapterSessions: Map<string, CachedService & { lastUsed: number }> | undefined;
+  // eslint-disable-next-line no-var
+  var __vssEmbeddedAgentAdapterSharedStore: { fingerprint: string; store: RunStore } | undefined;
 }
 
 const TOKEN_HEADER = "x-vss-gateway-token";
@@ -92,7 +95,7 @@ const canCancelCachedRun = (environment: NodeJS.ProcessEnv, segments: string[]):
   const service = globalThis.__vssEmbeddedAgentAdapterSessions?.get(configFingerprint(environment))?.service;
   if (!service) return false;
   try {
-    return !service.store.get(segments[1]).terminal;
+    return !service.store.get(segments[1], service.ownerFingerprint).terminal;
   } catch {
     return false;
   }
@@ -106,11 +109,18 @@ export const getAgentAdapterService = (
   const fingerprint = configFingerprint(environment);
   if (environment !== process.env && config.backendProtocol === "openclaw-ws") {
     const sessions = globalThis.__vssEmbeddedAgentAdapterSessions ??= new Map();
+    const sharedFingerprint = configFingerprint({ ...environment, AGENT_BACKEND_TOKEN: "" });
+    let shared = globalThis.__vssEmbeddedAgentAdapterSharedStore;
+    if (shared && shared.fingerprint !== sharedFingerprint) {
+      sessions.clear();
+      globalThis.__vssEmbeddedAgentAdapterSharedStore = undefined;
+      shared = undefined;
+    }
     const now = Date.now();
     for (const [key, entry] of sessions) {
       if (
         now - entry.lastUsed > TOKEN_SESSION_IDLE_MS &&
-        !entry.service.store.hasRetainedRuns()
+        !shared?.store.hasActiveRunsForOwner(key)
       ) sessions.delete(key);
     }
     const cached = sessions.get(fingerprint);
@@ -120,15 +130,20 @@ export const getAgentAdapterService = (
     }
     while (sessions.size >= MAX_TOKEN_SESSIONS) {
       const oldestIdle = [...sessions.entries()]
-        .filter(([, entry]) => !entry.service.store.hasRetainedRuns())
+        .filter(([key]) => !shared?.store.hasActiveRunsForOwner(key))
         .sort((left, right) => left[1].lastUsed - right[1].lastUsed)[0];
       if (!oldestIdle) break;
       sessions.delete(oldestIdle[0]);
     }
-    // Retained runs stay addressable until the store's retention window ends.
-    // If every session retains runs, allow a temporary overflow instead of
-    // rejecting a valid token or discarding a run.
-    const service = new AgentAdapterService(config);
+    // Active connectors cannot be evicted. Their count is bounded by the
+    // shared store's maxRuns; retained runs stay in that same bounded store.
+    const service = new AgentAdapterService(config, shared?.store, fingerprint);
+    if (!shared) {
+      globalThis.__vssEmbeddedAgentAdapterSharedStore = {
+        fingerprint: sharedFingerprint,
+        store: service.store,
+      };
+    }
     sessions.set(fingerprint, { fingerprint, service, lastUsed: now });
     return service;
   }
@@ -144,6 +159,7 @@ export const getAgentAdapterService = (
 export const resetAgentAdapterForTests = (): void => {
   globalThis.__vssEmbeddedAgentAdapter = undefined;
   globalThis.__vssEmbeddedAgentAdapterSessions = undefined;
+  globalThis.__vssEmbeddedAgentAdapterSharedStore = undefined;
 };
 
 export { agentAdapterConfigured } from "./config";
@@ -437,7 +453,7 @@ export const agentAdapterHandler = async (
   const runId = segments[1];
   let record: RunRecord;
   try {
-    record = service.store.get(runId);
+    record = service.store.get(runId, service.ownerFingerprint);
   } catch (error) {
     if (error instanceof RunNotFoundError) {
       errorResponse(
