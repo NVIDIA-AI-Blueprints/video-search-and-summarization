@@ -1,0 +1,25 @@
+{
+  "skills": [
+    "vss-build-vision-ai"
+  ],
+  "profile": "alerts-cv-lvs-subtitle",
+  "runtime_deploy": false,
+  "resources": {
+    "platforms": {
+      "RTXPRO6000BW": {
+        "gpu_count": 2
+      }
+    }
+  },
+  "expects": [
+    {
+      "query": "Autonomously build, but do not deploy, a VSS stack under `_builds/alerts-cv-lvs-subtitle/` on this two-GPU RTX PRO 6000 Blackwell host. Use the Alerts verification profile (`MODE=2d_cv`) as the Foundation, add video summarization (LVS), and retain the Web UI. Use no agent harness. Generate and validate the build artifacts without starting containers.",
+      "checks": [
+        "`_builds/alerts-cv-lvs-subtitle/override.env`, `compose.yml`, and `resolved.yml` exist, and `override.env` declares `FOUNDATION=alerts`.",
+        "The final `COMPOSE_PROFILES` includes `alert-bridge`, `perception-alerts`, `vss-behavior-analytics-alerts`, `lvs-server`, and `vss-ui`, so CV verification, summarization, and the UI are enabled.",
+        "`override.env` sets `NEXT_PUBLIC_APP_SUBTITLE=\"Vision (Alerts - CV + LVS)\"`; it includes the CV alert label and LVS exactly once each.",
+        "The resolved `vss-ui` service receives `NEXT_PUBLIC_APP_SUBTITLE` with the exact value `Vision (Alerts - CV + LVS)`."
+      ]
+    }
+  ]
+}
