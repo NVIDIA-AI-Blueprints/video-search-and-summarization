@@ -302,7 +302,11 @@ gate passes, skip visual inspection.
 
 ### 4. Select bounded inspection work
 
-Create one utility-generated task per selected unresolved claim. Every task:
+Create one utility-generated task per claim that still needs evidence. A claim
+still needs evidence when it is `unresolved`, or when it is `supported` or
+`contradicted` but its coverage is not `sufficient`. Derived support is not
+completion. While round or VLM-call budget remains, keep that claim eligible
+and inspect the uncovered interval. Every task:
 
 - targets one existing claim;
 - carries the complete evidence-plan claim unchanged;
@@ -392,8 +396,13 @@ The deterministic sufficiency gate passes only when every claim:
 If the gate passes, the ledger becomes `answered` with stop reason `resolved`.
 If a round adds no observation and improves no coverage, it stops unresolved
 with `no_progress`. Exhausted round or global-call budget stops with
-`budget_exhausted`. If every attempted inspection fails and no useful evidence
-exists, it stops with `tool_failure`.
+`budget_exhausted`, including when a claim is only partially covered. If every
+attempted inspection fails and no useful evidence exists, it stops with
+`tool_failure`.
+
+A supported or contradicted claim whose coverage is still `partial` or `none`
+is not finished. If budget remains, create another task for it. If no budget
+remains, stop. Do not answer from a note while the ledger is `in_progress`.
 
 Invoke planner expansion mode only when an independently assessable answer
 requirement is absent from the plan. Pass the prior plan and demonstrated
@@ -411,8 +420,14 @@ Only the top-level agent synthesizes the user answer. Answer choices may be
 considered now, after sufficient option-blind evidence exists. Every
 answer-bearing statement must cite accepted observation IDs.
 
-Use `scripts/evidence_ledger.py final-result` to write the result shape. For an
-unresolved run, set `answer` to null and report each claim gap using only:
+Write `final-result.json` with `scripts/evidence_ledger.py final-result` before
+any user-facing answer. Do this for every outcome: resolved, partial coverage
+stopped by `budget_exhausted`, `no_progress`, and `tool_failure`. The command
+persists a budget stop when no inspection budget remains, then writes the
+file. It refuses an in-progress ledger that still has budget; create the next
+task instead of writing a synthesis note. `merge-round` also writes
+`final-result.json` when the merged ledger is unresolved. For an unresolved
+run, set `answer` to null and report each claim gap using only:
 
 - `insufficient_coverage`;
 - `not_visible`;
