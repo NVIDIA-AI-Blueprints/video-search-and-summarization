@@ -605,6 +605,25 @@ def validate_inspection_task(
         _fail("task.asset_id", "does not match the plan")
 
 
+def _needs_inspection(state: Mapping[str, Any]) -> bool:
+    """Keep a claim eligible until it is resolved with sufficient coverage.
+
+    Derived status becomes ``supported`` or ``contradicted`` as soon as one
+    matching observation is accepted. Partial coverage is not completion, so
+    that claim stays eligible for another evidence task while budget remains.
+    """
+    if state["status"] not in ("supported", "contradicted"):
+        return True
+    return state["coverage"] != "sufficient"
+
+
+def _budget_exhausted(ledger: Mapping[str, Any]) -> bool:
+    return (
+        ledger["round"] >= BUDGETS["max_inspection_rounds"]
+        or ledger["vlm_calls_used"] >= BUDGETS["max_total_vlm_calls"]
+    )
+
+
 def create_inspection_tasks(
     ledger: Mapping[str, Any],
     media_scopes: Mapping[str, Mapping[str, Any]],
@@ -619,20 +638,18 @@ def create_inspection_tasks(
     remaining = BUDGETS["max_total_vlm_calls"] - ledger["vlm_calls_used"]
     if remaining <= 0:
         _fail("ledger.vlm_calls_used", "global VLM-call budget is exhausted")
-    unresolved = [
-        state["claim_id"]
-        for state in ledger["claims"]
-        if state["status"] == "unresolved"
+    eligible = [
+        state["claim_id"] for state in ledger["claims"] if _needs_inspection(state)
     ]
-    selected = list(claim_ids) if claim_ids is not None else unresolved
+    selected = list(claim_ids) if claim_ids is not None else eligible
     if not selected:
-        _fail("claim_ids", "must select at least one unresolved claim")
+        _fail("claim_ids", "must select at least one claim that still needs evidence")
     if len(selected) != len(set(selected)):
         _fail("claim_ids", "must not contain duplicates")
     if len(selected) > BUDGETS["max_parallel_subagents"]:
         _fail("claim_ids", "parallel subagent limit exceeded")
-    if any(claim_id not in unresolved for claim_id in selected):
-        _fail("claim_ids", "tasks may target only unresolved claims")
+    if any(claim_id not in eligible for claim_id in selected):
+        _fail("claim_ids", "tasks may target only claims that still need evidence")
     if not isinstance(media_scopes, dict):
         _fail("media_scopes", "must be an object keyed by selected claim ID")
     if set(media_scopes) != set(selected):
@@ -911,10 +928,7 @@ def merge_round_results(
     elif accepted == 0 and not coverage_improved:
         updated["status"] = "unresolved"
         updated["stop_reason"] = "no_progress"
-    elif (
-        updated["round"] >= BUDGETS["max_inspection_rounds"]
-        or updated["vlm_calls_used"] >= BUDGETS["max_total_vlm_calls"]
-    ):
+    elif _budget_exhausted(updated):
         updated["status"] = "unresolved"
         updated["stop_reason"] = "budget_exhausted"
     validate_ledger(updated)
@@ -971,11 +985,7 @@ def evaluate_stop(ledger: Mapping[str, Any]) -> dict[str, Any]:
             "status": "unresolved",
             "reason": ledger["stop_reason"],
         }
-    exhausted = (
-        ledger["round"] >= BUDGETS["max_inspection_rounds"]
-        or ledger["vlm_calls_used"] >= BUDGETS["max_total_vlm_calls"]
-    )
-    if exhausted:
+    if _budget_exhausted(ledger):
         return {"stop": True, "status": "unresolved", "reason": "budget_exhausted"}
     return {"stop": False, "status": "in_progress", "reason": None}
 
@@ -993,13 +1003,31 @@ def apply_budget_stop(ledger: Mapping[str, Any]) -> dict[str, Any]:
     return updated
 
 
+def prepare_for_final_result(ledger: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a terminal ledger, applying an explicit budget stop when required.
+
+    An in-progress ledger with remaining budget is refused. The caller must
+    create another evidence task for every claim that still needs coverage.
+    This never invents an answer.
+    """
+    validate_ledger(ledger)
+    if ledger["status"] != "in_progress":
+        return copy.deepcopy(ledger)
+    if evaluate_stop(ledger)["reason"] != "budget_exhausted":
+        _fail(
+            "ledger.status",
+            "cannot finalize an in-progress ledger while inspection budget remains",
+        )
+    return apply_budget_stop(ledger)
+
+
 def final_result(
     ledger: Mapping[str, Any],
     artifact_dir: str,
     answer: str | None = None,
 ) -> dict[str, Any]:
     """Build an answered or unresolved handoff with self-contained provenance."""
-    validate_ledger(ledger)
+    ledger = prepare_for_final_result(ledger)
     if ledger["status"] == "in_progress":
         _fail("ledger.status", "cannot finalize an in-progress ledger")
     artifact_dir = _nonempty(artifact_dir, "artifact_dir")
@@ -1096,6 +1124,20 @@ def _emit(value: Any, output: str | None) -> None:
         print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def _write_unresolved_final(ledger: Mapping[str, Any], ledger_output: str | None) -> None:
+    """Write final-result.json beside a ledger that just became unresolved.
+
+    Resolved runs still need the caller's answer, so this does not invent one.
+    """
+    if not ledger_output or ledger.get("status") != "unresolved":
+        return
+    artifact_dir = str(Path(ledger_output).resolve().parent)
+    atomic_write(
+        Path(artifact_dir) / "final-result.json",
+        final_result(ledger, artifact_dir, None),
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1161,12 +1203,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "merge-memory":
         _emit(merge_memory(_read(args.ledger), _read(args.updates)), args.output)
     elif args.command == "merge-round":
-        _emit(
-            merge_round_results(
-                _read(args.ledger), _read(args.tasks), _read(args.results)
-            ),
-            args.output,
+        merged = merge_round_results(
+            _read(args.ledger), _read(args.tasks), _read(args.results)
         )
+        _emit(merged, args.output)
+        _write_unresolved_final(merged, args.output)
     elif args.command == "expand":
         _emit(expand_ledger(_read(args.ledger), _read(args.plan)), args.output)
     elif args.command == "assess":
@@ -1176,10 +1217,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             None,
         )
     elif args.command == "final-result":
-        _emit(
-            final_result(_read(args.ledger), args.artifact_dir, args.answer),
-            args.output,
-        )
+        prepared = prepare_for_final_result(_read(args.ledger))
+        atomic_write(args.ledger, prepared)
+        _emit(final_result(prepared, args.artifact_dir, args.answer), args.output)
     else:
         print(observation_id(_read(args.observation)))
     return 0
