@@ -17,9 +17,15 @@ TEXT_SUFFIXES = frozenset({".json", ".md", ".mdx", ".yaml", ".yml"})
 JSON_SUFFIXES = frozenset({".json"})
 YAML_SUFFIXES = frozenset({".yaml", ".yml"})
 
-# Intentionally empty for the substitution-enablement migration. Add future
-# build-time documentation variables explicitly; use a VSS_DOCS_ prefix.
-ALLOWED_SUBSTITUTIONS: frozenset[str] = frozenset()
+# Build-time documentation variables. Authored Markdown uses shell-default
+# expressions so commands remain runnable without the Fern preparation step.
+ALLOWED_SUBSTITUTIONS: frozenset[str] = frozenset(
+    {
+        "VSS_DOCS_GIT_REF",
+        "VSS_DOCS_IMAGE_TAG",
+        "VSS_DOCS_SBSA_IMAGE_TAG",
+    }
+)
 ALLOWED_SUBSTITUTION_PREFIX = "VSS_DOCS_"
 
 # These mirror Fern's documented/implemented forms:
@@ -27,6 +33,12 @@ ALLOWED_SUBSTITUTION_PREFIX = "VSS_DOCS_"
 #   literal:      \$\{NAME\}
 SUBSTITUTION_PATTERN = re.compile(r"\$\{(?P<name>\w+)\}")
 ESCAPE_PREFIX_PATTERN = re.compile(r"\\\$\\\{(?P<name>\w+)(?P<close>\\?\})")
+
+# Authored docs use this shell-compatible form. Preparation resolves its default
+# or reduces it to Fern's substitution form when the variable is provided.
+DEFAULTED_SUBSTITUTION_PATTERN = re.compile(
+    r"\$\{(?P<name>\w+):-(?P<default>[^}\r\n]+)\}"
+)
 YAML_HEX_ESCAPE_LENGTHS = {"x": 2, "u": 4, "U": 8}
 YAML_SIMPLE_ESCAPES = {
     "0": "\0",

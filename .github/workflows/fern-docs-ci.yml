@@ -26,6 +26,11 @@
 
 name: Fern Docs CI
 
+env:
+  VSS_DOCS_GIT_REF: pull-request/2407
+  VSS_DOCS_IMAGE_TAG: pr-2407-latest
+  VSS_DOCS_SBSA_IMAGE_TAG: pr-2407-latest-sbsa
+
 on:
   push:
     branches:
