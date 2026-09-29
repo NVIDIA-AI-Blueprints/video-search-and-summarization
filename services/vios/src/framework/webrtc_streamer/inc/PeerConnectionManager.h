@@ -22,6 +22,7 @@
 #include <regex>
 #include <thread>
 #include <future>
+#include <chrono>
 
 #include "api/peer_connection_interface.h"
 
@@ -46,7 +47,7 @@
 // #define ASYNC_API
 constexpr int PEER_CONNECTION_TIMEOUT_THREAD_COUNT = 1;
 constexpr const char* WEBRTC_PREFIX = "webrtc_";
-#define WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL  12s
+constexpr std::chrono::seconds WEBRTC_INPUT_DATA_WATCH_DOG_SCHEDULER_INTERVAL{12};
 constexpr int WEBRTC_INPUT_FPS_CAPTURE_INTERVAL_SEC = 2;
 constexpr int WEBRTC_INPUT_FPS_PUBLISH_INTERVAL_SEC = 20;
 constexpr int STANDARD_BITRATE_720P_KBPS = 3000;
