@@ -205,9 +205,9 @@ export class RunStore {
     }
   }
 
-  private oldestTerminal(): RunRecord | undefined {
+  private oldestTerminal(ownerFingerprint?: string): RunRecord | undefined {
     return [...this.runs.values()]
-      .filter((record) => record.terminal)
+      .filter((record) => record.terminal && record.ownerFingerprint === ownerFingerprint)
       .sort((left, right) => left.lastUpdatedAt - right.lastUpdatedAt)[0];
   }
 
@@ -275,7 +275,7 @@ export class RunStore {
       this.runs.size >= this.maxRuns ||
       this.retainedChars + record.retainedChars > this.maxRetainedChars
     ) {
-      const terminal = this.oldestTerminal();
+      const terminal = this.oldestTerminal(ownerFingerprint);
       if (!terminal) {
         throw new StoreCapacityError(
           this.runs.size >= this.maxRuns
