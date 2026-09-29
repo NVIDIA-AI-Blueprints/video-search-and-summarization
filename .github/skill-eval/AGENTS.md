@@ -142,11 +142,11 @@ The canonical harbor command is in § Harbor invocation.
          non-zero, or finishes but the resulting dataset is missing
          `tests/`, `instruction.md`, `task.toml`, `solution/solve.sh`,
          or any platform listed in `spec.resources.platforms`.
-         `vss-deploy-test-openshell` is exempt from that last clause: its
-         legs are placed by label and GPU count, so it generates exactly
-         one platform — this guest's card — and a dataset with one
-         platform directory is correct, not stale. A non-zero exit
-         naming an unrecognised GPU there is the guest's problem, not the
+         An OpenShell leg is exempt from that last clause: it is placed
+         by label and GPU count, so the adapter generates exactly one
+         platform — this guest's card — and a dataset with one platform
+         directory is correct, not stale. A non-zero exit naming an
+         unrecognised GPU there is the guest's problem, not the
          adapter's: `BLOCKED:` with the detected card, do not patch the
          adapter to force a platform.
        - **Spec drift**: the rendered `instruction.md` references an
@@ -514,9 +514,11 @@ The canonical harbor command is in § Harbor invocation.
 | `rtx` / `rtxpro6000bw` | RTX PRO: `vss-eval-rtx*` (e.g. registered `vss-eval-rtx-2g-VM1b`); GeForce: `vss-eval-geforce-rtx4090-vm*` | RTX PRO 6000 BW by default. RTX PRO suffixes denote per-host GPU count (`-1g` = 1 GPU, `-2g` = 2 GPU). Allowlisted single-GPU RTX 4090 nodes are eligible only for skills proven on 24 GB. |
 | `spark` | BYOH registered node `SPARK` | Edge / unified memory; only `remote-llm` mode supported today. Already registered. |
 
-`vss-deploy-test-openshell` is the only skill on the direct OpenShell
-path, and its legs are independent of the GPU spec. Placement and sizing
-are decided in different places, by different things:
+Develop skills opt into the direct OpenShell path per spec
+(`infrastructure` includes `openshell`, or the spec has an `openshell`
+object). That covers `deployment/`, `operations/`, `tools/`, and
+`vss-build-vision-ai`. Those legs are independent of the GPU spec.
+Placement and sizing are decided in different places, by different things:
 
 - **Placement** is GitHub labels plus GPU count, and nothing else.
   `openshell_job_labels()` emits `vss-skill-eval-gpu` +

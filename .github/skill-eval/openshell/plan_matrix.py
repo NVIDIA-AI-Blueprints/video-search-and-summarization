@@ -71,7 +71,7 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # Nested skill dirs live one level under these category folders. Flat skills
 # (skills/<name>/) are everything else. Used only when the skill dir is not
 # on disk yet; a live SKILL.md wins via discover_skills().
-SKILL_CATEGORIES = ("operations", "deployment")
+SKILL_CATEGORIES = ("operations", "deployment", "tools", "benchmarking")
 # A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
 # scratch/results paths (/tmp/skill-eval/results/<slug>/…). Skill dirs, spec
 # stems, and platform keys are safe today, but enforce the token so a future
@@ -218,7 +218,7 @@ OPENSHELL_L40S_LABELS: tuple[str, ...] = (
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = (
-    "skills/vss-deploy-test-openshell/evals/"
+    "skills/operations/vss-ask-video/evals/"
     "base_profile_video_understanding.json"
 )
 
@@ -499,7 +499,7 @@ def _skills_for_manual_filter(manual: str, skills_map: dict[str, Path]) -> list[
             f" {manual!r} is the branch this workflow is running from "
             f"(Actions 'Use workflow from' / gh --ref), not a skill. "
             f"Leave the skills input as '*' or pass a skill directory "
-            f"such as vss-deploy-test-openshell."
+            f"such as vss-ask-video, or a category such as deployment."
         )
     raise ValueError(
         f"MANUAL_SKILLS_FILTER {manual!r}: skill not found under skills/ "
@@ -783,8 +783,9 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "local_gpu": False,
                 })
         elif not named_a_skill:
+            smoke_skill = skill_for_file(SMOKE_SPEC, discover_skills()) or "vss-ask-video"
             smoke_meta = {
-                "skill": "vss-deploy-test-openshell",
+                "skill": smoke_skill,
                 "spec_path": SMOKE_SPEC,
                 "spec_stem": "base_profile_video_understanding",
                 "eval_dir": "evals",
@@ -804,11 +805,11 @@ def build_matrix(changed: list[str]) -> list[dict]:
                     "kind": "eval",
                     "skip_reason": "",
                     "slug": (
-                        "vss-deploy-test-openshell__"
+                        f"{smoke_skill}__"
                         f"base_profile_video_understanding__{tag}"
                     ),
                     "name": (
-                        "vss-deploy-test-openshell · "
+                        f"{smoke_skill} · "
                         f"base_profile_video_understanding · {tag}"
                     ),
                     "runs_on": openshell_job_labels(

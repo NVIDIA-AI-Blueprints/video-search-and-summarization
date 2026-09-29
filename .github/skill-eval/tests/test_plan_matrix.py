@@ -298,11 +298,10 @@ class BuildMatrix(unittest.TestCase):
         )
         self.assertEqual(self._stems(inc), ["a", "b"])
 
-    def test_openshell_skill_never_enters_the_brev_matrix(self):
+    def test_deployment_category_never_enters_the_brev_matrix(self):
         inc = plan_matrix.build_matrix([
-            "skills/vss-deploy-test-openshell/SKILL.md",
-            "skills/vss-deploy-test-openshell/evals/alerts_vlm_real_time.json",
-            ".github/skill-eval/adapters/vss-deploy-test-openshell/generate.py",
+            "skills/deployment/vss-deploy-dense-captioning/SKILL.md",
+            "skills/deployment/vss-deploy-dense-captioning/evals/standalone_api.json",
         ])
         self.assertEqual(inc, [])
 

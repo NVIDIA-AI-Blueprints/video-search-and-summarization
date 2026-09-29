@@ -21,7 +21,7 @@ The workflow runs on a self-hosted GitHub Actions runner installed on `vss-skill
 - **[Brev CLI](https://docs.nvidia.com/brev/latest/cli/cli-overview)** — authenticated via `brev login --auth nvidia` (refresh token lasts ~30 days; a user-level `brev-keepalive.timer` keeps the access token warm).
 - **`git`**, **`gh` (GitHub CLI)** — authenticated against the VSS repo.
 - **Python 3.12** — the workflows pin this runtime for the coordinator, adapters, `run_leg.py`, and Harbor. Each matrix leg installs Claude Agent SDK 0.2.128 in its own virtual environment so parallel jobs never mutate a shared interpreter.
-- **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file on Brev legs (`local_gpu: false`). Only `vss-deploy-test-openshell` is placed on OpenShell GHA guests (`local_gpu: true`); those source `$HOME/.eval_env` and set `SKILL_EVAL_LOCAL_GPU_INSTANCE` so Harbor runs on the same VM (no Brev hop). Do not key that pin on `runner.name` prefixes; H200 registrations look like `h200-2-g10-…`.
+- **A `.env` at `/home/ubuntu/eval-coordinator/.env`** with the keys below — the workflow step `Load coordinator env` sources this file on Brev legs (`local_gpu: false`). Specs that opt into OpenShell (`deployment/`, `operations/`, `tools/`, and `vss-build-vision-ai`) are placed on OpenShell GHA guests (`local_gpu: true`); those source `$HOME/.eval_env` and set `SKILL_EVAL_LOCAL_GPU_INSTANCE` so Harbor runs on the same VM (no Brev hop). Do not key that pin on `runner.name` prefixes; H200 registrations look like `h200-2-g10-…`.
 
 ### OSRB / third-party CI harness
 
@@ -136,7 +136,7 @@ Each generated task contains:
 
 Each evaluable skill ships a spec at `skills/<skill>/evals/<name>.json`; legacy `skills/<skill>/eval/<name>.json` (singular) specs remain supported for unmigrated skills. This is the **only file a skill author writes** — the skills-eval agent derives the Harbor adapter, dataset, and dispatch matrix from it.
 
-The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. `vss-deploy-test-openshell` is the one exception: its legs are placed on the OpenShell fleet by label and `openshell.gpu_count` alone, so the spec names no card, its adapter generates for whichever card the guest actually has, and one leg covers every GPU family.
+The **spec is the source of truth** for dispatch. Adapters iterate exactly what `resources.platforms` lists; they never invent platforms or modes a spec did not declare. An OpenShell leg is placed by label and `openshell.gpu_count` alone, so the adapter generates for whichever card the guest actually has, and one leg covers that guest.
 
 Schema:
 

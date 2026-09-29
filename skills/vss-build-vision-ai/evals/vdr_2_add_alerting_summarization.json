@@ -3,6 +3,13 @@
     "vss-build-vision-ai"
   ],
   "profile": "vdr-2-alerting-summarization",
+  "infrastructure": ["brev", "openshell"],
+  "openshell": {
+    "gpu_count": 2,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": true
+  },
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {
