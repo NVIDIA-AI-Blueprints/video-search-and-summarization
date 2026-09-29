@@ -973,6 +973,7 @@ No known issues.
 ### Global Chat Sidebar
 
 * If the backend agent restarts, the UI doesn't clear the outdated chat history.
+* During a Build Vision AI deployment with NemoClaw, the UI can come up before the NemoClaw gateway token is wired into the VSS UI adapter. Chat stays enabled and a prompt calls the removed in-stack agent at `<host>:8000/v1/chat/stream`, so the UI shows that the backend returned HTTP 502 even though the UI and other VSS services look ready. This is intermittent and happens when NemoClaw is not fully installed. As a workaround, wait for the NemoClaw installation to complete, and then restart the `vss-ui` container.
 
 ### Alerts Tab
 
