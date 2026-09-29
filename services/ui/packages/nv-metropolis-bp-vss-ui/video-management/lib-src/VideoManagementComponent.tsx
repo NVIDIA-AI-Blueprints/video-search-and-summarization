@@ -95,7 +95,8 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   const vstApiUrl = videoManagementData?.vstApiUrl;
   const chatUploadFileConfigTemplateJson = videoManagementData?.chatUploadFileConfigTemplateJson;
   const enableAddRtspButton = videoManagementData?.enableAddRtspButton ?? true;
-  const enableVideoUpload = videoManagementData?.enableVideoUpload ?? true;
+  // The deployment flag only picks where the "Enable video upload" switch starts; the user owns it after that.
+  const [enableVideoUpload, setEnableVideoUpload] = useState(videoManagementData?.enableVideoUpload ?? true);
 
   // Upload dialog state
   const [showUploadDialog, setShowUploadDialog] = useState(false);
@@ -159,9 +160,6 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
   useEffect(() => {
     if (!enableAddRtspButton) setShowRtsps(false);
   }, [enableAddRtspButton]);
-  useEffect(() => {
-    if (!enableVideoUpload) setShowVideos(false);
-  }, [enableVideoUpload]);
 
   const {
     streams,
@@ -772,6 +770,7 @@ export const VideoManagementComponent: React.FC<VideoManagementComponentProps> =
     isDeleting,
     enableAddRtspButton,
     enableVideoUpload,
+    onEnableVideoUploadChange: setEnableVideoUpload,
     hasVideoStreams,
     hasRtspStreams,
     isDialogOpen,

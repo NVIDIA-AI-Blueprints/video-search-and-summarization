@@ -191,7 +191,7 @@ NEXT_PUBLIC_MAP_URL=http://127.0.0.1:3002
 NEXT_PUBLIC_ENABLE_VIDEO_MANAGEMENT_TAB=true
 # Add RTSP button in Video Management tab (enabled by default, set to 'false' to hide)
 NEXT_PUBLIC_VIDEO_MANAGEMENT_TAB_ADD_RTSP_ENABLE=true
-# Upload Video button in Video Management tab (enabled by default, set to 'false' to hide)
+# Starting position of the Enable video upload switch in the Video Management tab, which shows or hides the Upload Video button (on by default, set to 'false' to start it off)
 NEXT_PUBLIC_VIDEO_MANAGEMENT_VIDEO_UPLOAD_ENABLE=true
 ```
 
