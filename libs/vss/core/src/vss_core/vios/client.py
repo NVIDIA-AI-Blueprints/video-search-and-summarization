@@ -819,7 +819,7 @@ async def resolve_sensor(
     if match is None:
         # Last resort: a streamId. _pick_stream tells an ambiguous caller to
         # address one explicitly, so the resolver has to accept what it asked for.
-        scan_failure: VSTError | VIOSNotFoundError | None = None
+        scan_failure: VSTError | None = None
         for sensor in sensors:
             candidate = str(sensor.get("sensorId") or "")
             if not candidate:
@@ -831,13 +831,18 @@ async def resolve_sensor(
                     timeout_seconds,
                     not_found_message=f"sensor id {candidate!r} was deleted from VIOS",
                 )
-            except (VSTError, VIOSNotFoundError) as exc:
-                # Keep the first failure. One unreadable sensor should not stop
-                # the search, but if the search then finds nothing we must not
-                # call it "not found" -- VIOS may simply have been unable to answer.
-                # A per-candidate 404 (VIOSNotFoundError) is treated the same as a
-                # transport failure here: it just means this candidate is a dead
-                # end, not that the scan itself should stop.
+            except VIOSNotFoundError:
+                # This candidate is gone -- a dead end, not a search failure.
+                # Recording it as `scan_failure` would let it outrank a real
+                # backend error found on a later candidate (first-failure-wins
+                # below), reporting "not found" when VIOS actually could not
+                # answer for someone else.
+                continue
+            except VSTError as exc:
+                # Keep the first genuine backend failure. One unreadable
+                # sensor should not stop the search, but if the search then
+                # finds nothing we must not call it "not found" -- VIOS may
+                # simply have been unable to answer.
                 scan_failure = scan_failure or exc
                 continue
             if any(str(entry.get("streamId") or "") == handle for entry in entries):

@@ -23,8 +23,10 @@ or probe for it. Report policy denials or unavailable services and stop.
 **Alert Bridge is not a `configure check` command group** — the CLI's config
 never declares it, so `configure check` can never report it as available and
 its absence there does not mean Alert Bridge is down. For any alerts
-readiness/health question, bypass the CLI and query the backend directly per
-the `vss-manage-alerts` skill (`curl "$AB/health"`).
+readiness/health question, bypass the CLI and query the backend directly:
+follow the `vss-manage-alerts` skill's own deployment-prerequisite step to
+resolve `$AB` first, then probe `curl "$AB/health"` — this workspace does not
+export `$AB` on its own.
 
 A user-supplied video URL is direct media for `vss-ask-video`; it does not need
 sensor registration or ingestion. The named-sensor and report rules below

@@ -599,6 +599,29 @@ async def test_a_failed_stream_scan_is_a_backend_error_not_a_missing_sensor(vios
         await vios.resolve_sensor(VST, "some-stream-id")
 
 
+@pytest.mark.asyncio
+async def test_a_stale_candidate_does_not_mask_a_later_backend_error(vios_http) -> None:
+    """A 404 dead-end earlier in the scan must not outrank a real outage later.
+
+    Recording the 404 as `scan_failure` would report "not found" for the whole
+    search when VIOS genuinely could not answer for a different candidate.
+    """
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/sensor/list": [
+                {"name": "early", "sensorId": "early-id"},
+                {"name": "late", "sensorId": "late-id"},
+            ],
+            "/sensor/early-id/streams": (404, {}),
+            "/sensor/late-id/streams": (503, {}),
+        }
+    )
+
+    with pytest.raises(vios.VSTError, match="503"):
+        await vios.resolve_sensor(VST, "target-stream")
+
+
 # ---------------------------------------- third review round (pane + Codex)
 
 
