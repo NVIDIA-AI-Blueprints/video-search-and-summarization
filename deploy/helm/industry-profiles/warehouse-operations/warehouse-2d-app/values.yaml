@@ -559,6 +559,8 @@ vss-alert-bridge:
   configVariant: ""
   waitForDependencies:
     enabled: true
+    # Match Compose: accept camera registrations only after RT-VLM is ready.
+    vlmReadyUrl: '{{ trimSuffix "/" .Values.vlmBaseUrl }}/v1/health/ready'
 
 agent:
   enabled: false
