@@ -71,7 +71,7 @@ ADAPTER_RE = re.compile(r"^\.github/skill-eval/adapters/([^/]+)/")
 # Nested skill dirs live one level under these category folders. Flat skills
 # (skills/<name>/) are everything else. Used only when the skill dir is not
 # on disk yet; a live SKILL.md wins via discover_skills().
-SKILL_CATEGORIES = ("operations",)
+SKILL_CATEGORIES = ("operations", "deployment")
 # A leg's slug names its artifact (skills-eval-results-…-<slug>-…) and its
 # scratch/results paths (/tmp/skill-eval/results/<slug>/…). Skill dirs, spec
 # stems, and platform keys are safe today, but enforce the token so a future

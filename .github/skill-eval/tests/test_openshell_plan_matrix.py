@@ -252,14 +252,27 @@ class OpenshellGpuFleet(unittest.TestCase):
             plan_matrix.specs_for_skill = current_specs
             plan_matrix.adapter_exists = current_adapter
             plan_matrix.spec_platform_config = current_platforms
-        self.assertEqual(len(legs), 21)
-        self.assertEqual(len({leg["spec_path"] for leg in legs}), 21)
+        opted = []
+        skills_root = plan_matrix.REPO_ROOT / "skills"
+        for spec in skills_root.rglob("evals/*.json"):
+            if spec.name in plan_matrix.EXCLUDED_SPEC_NAMES:
+                continue
+            relative = spec.relative_to(plan_matrix.REPO_ROOT).as_posix()
+            if "openshell" in plan_matrix.infrastructures_for_path(
+                plan_matrix.REPO_ROOT / relative
+            ):
+                opted.append(relative)
+        self.assertEqual({leg["spec_path"] for leg in legs}, set(opted))
+        self.assertIn(
+            "skills/deployment/vss-deploy-dense-captioning/evals/standalone_api.json",
+            opted,
+        )
         counts = {
             key: sum((leg.get("cohort") or "brev") == key for leg in legs)
             for key in {(leg.get("cohort") or "brev") for leg in legs}
         }
-        self.assertEqual(counts, {"openshell": 21})
-        self.assertEqual(sum(leg["local_gpu"] for leg in legs), 21)
+        self.assertEqual(counts, {"openshell": len(opted)})
+        self.assertEqual(sum(leg["local_gpu"] for leg in legs), len(opted))
         # Every OpenShell leg travels without a SKU: no platform for the
         # adapter to size from, and no hardware profile for the workflow to
         # export. The guest's own card decides both.
@@ -268,7 +281,7 @@ class OpenshellGpuFleet(unittest.TestCase):
             for leg in legs
             if leg.get("cohort") == plan_matrix.OPENSHELL_COHORT_TAG
         ]
-        self.assertEqual(len(openshell), 21)
+        self.assertEqual(len(openshell), len(legs))
         for leg in openshell:
             self.assertEqual(leg["platform"], "", leg["slug"])
             self.assertEqual(leg["hardware_profile"], "", leg["slug"])

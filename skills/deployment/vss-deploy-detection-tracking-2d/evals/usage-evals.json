@@ -2,6 +2,13 @@
   "skills": [
     "vss-deploy-detection-tracking-2d"
   ],
+  "infrastructure": ["brev", "openshell"],
+  "openshell": {
+    "gpu_count": 1,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": true
+  },
   "resources": {
     "platforms": {
       "RTXPRO6000BW": {

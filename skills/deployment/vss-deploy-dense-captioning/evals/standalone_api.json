@@ -2,6 +2,13 @@
   "skills": [
     "vss-deploy-dense-captioning"
   ],
+  "infrastructure": ["brev", "openshell"],
+  "openshell": {
+    "gpu_count": 1,
+    "requires_video_codec": false,
+    "multi_gpu_capable": false,
+    "requires_blackwell": false
+  },
   "resources": {
     "platforms": {
       "L40S": {
