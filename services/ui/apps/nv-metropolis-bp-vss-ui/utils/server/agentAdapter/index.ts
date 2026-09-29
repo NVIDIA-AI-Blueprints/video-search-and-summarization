@@ -87,11 +87,6 @@ const configFingerprint = (environment: NodeJS.ProcessEnv): string =>
     )
     .digest("hex");
 
-const browserSessionExists = (environment: NodeJS.ProcessEnv): boolean => {
-  const entry = globalThis.__vssEmbeddedAgentAdapterSessions?.get(configFingerprint(environment));
-  return !!entry && Date.now() - entry.lastUsed <= TOKEN_SESSION_IDLE_MS;
-};
-
 export const getAgentAdapterService = (
   environment: NodeJS.ProcessEnv = process.env
 ): AgentAdapterService | null => {
@@ -102,16 +97,25 @@ export const getAgentAdapterService = (
     const sessions = globalThis.__vssEmbeddedAgentAdapterSessions ??= new Map();
     const now = Date.now();
     for (const [key, entry] of sessions) {
-      if (now - entry.lastUsed > TOKEN_SESSION_IDLE_MS) sessions.delete(key);
+      if (
+        now - entry.lastUsed > TOKEN_SESSION_IDLE_MS &&
+        !entry.service.store.hasActiveRuns()
+      ) sessions.delete(key);
     }
     const cached = sessions.get(fingerprint);
     if (cached) {
       cached.lastUsed = now;
       return cached.service;
     }
-    if (sessions.size >= MAX_TOKEN_SESSIONS) {
-      throw new ConfigError("too many active gateway token sessions");
+    while (sessions.size >= MAX_TOKEN_SESSIONS) {
+      const oldestIdle = [...sessions.entries()]
+        .filter(([, entry]) => !entry.service.store.hasActiveRuns())
+        .sort((left, right) => left[1].lastUsed - right[1].lastUsed)[0];
+      if (!oldestIdle) break;
+      sessions.delete(oldestIdle[0]);
     }
+    // Preserve in-flight runs when every session is active. A later request
+    // can evict an idle session after one of those runs completes.
     const service = new AgentAdapterService(config);
     sessions.set(fingerprint, { fingerprint, service, lastUsed: now });
     return service;
@@ -350,7 +354,7 @@ export const agentAdapterHandler = async (
     return;
   }
   const environment = tokenEnvironment(token);
-  if (environment !== process.env && !browserSessionExists(environment)) {
+  if (environment !== process.env) {
     try {
       const config = loadAgentAdapterConfig(environment);
       if (config?.backendProtocol === "openclaw-ws") {

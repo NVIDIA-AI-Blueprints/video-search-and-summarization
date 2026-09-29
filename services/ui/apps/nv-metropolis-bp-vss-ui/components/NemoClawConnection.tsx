@@ -9,6 +9,7 @@ type ConnectionState = 'checking' | 'connected' | 'token_required' | 'authentica
 
 export interface NemoClawConnection {
   state: ConnectionState;
+  hasConnected: boolean;
   token: string;
   connect: (token: string) => Promise<void>;
   retry: () => Promise<void>;
@@ -17,6 +18,7 @@ export interface NemoClawConnection {
 
 export function useNemoClawConnection(enabled: boolean): NemoClawConnection {
   const [state, setState] = useState<ConnectionState>(enabled ? 'checking' : 'connected');
+  const [hasConnected, setHasConnected] = useState(false);
   const [token, setToken] = useState('');
   const requestNumber = useRef(0);
 
@@ -34,6 +36,7 @@ export function useNemoClawConnection(enabled: boolean): NemoClawConnection {
         setState('unreachable');
       } else if (['connected', 'token_required', 'authentication_failed', 'unreachable'].includes(body.state)) {
         setState(body.state);
+        if (body.state === 'connected') setHasConnected(true);
       } else {
         setState('unreachable');
       }
@@ -64,10 +67,11 @@ export function useNemoClawConnection(enabled: boolean): NemoClawConnection {
     requestNumber.current += 1;
     try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* Storage is optional. */ }
     setToken('');
+    setHasConnected(false);
     setState('token_required');
   }, []);
 
-  return useMemo(() => ({ state, token, connect, retry, changeToken }), [state, token, connect, retry, changeToken]);
+  return useMemo(() => ({ state, hasConnected, token, connect, retry, changeToken }), [state, hasConnected, token, connect, retry, changeToken]);
 }
 
 export function NemoClawConnectionPanel({ connection }: { connection: NemoClawConnection }) {
@@ -115,9 +119,16 @@ export function NemoClawConnectionPanel({ connection }: { connection: NemoClawCo
 }
 
 export function NemoClawConnectionBadge({ connection }: { connection: NemoClawConnection }) {
+  const status = {
+    checking: 'Checking NemoClaw gateway…',
+    connected: 'NemoClaw connected',
+    token_required: 'NemoClaw token required',
+    authentication_failed: 'NemoClaw token rejected',
+    unreachable: 'NemoClaw gateway unavailable',
+  }[connection.state];
   return (
     <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 dark:border-neutral-700 dark:bg-black dark:text-gray-300">
-      <span>NemoClaw connected</span>
+      <span role="status">{status}</span>
       <div className="flex gap-3">
         <button type="button" onClick={() => void connection.retry()} className="underline">Check connection</button>
         <button type="button" onClick={connection.changeToken} className="underline">Change token</button>

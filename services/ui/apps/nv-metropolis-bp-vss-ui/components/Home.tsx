@@ -313,7 +313,7 @@ export default function Home({ alertsData, searchData, dashboardData, mapData, v
 
   const nemoClawAdapterEnabled = readEnv('NEXT_PUBLIC_AGENT_ADAPTER_ENABLED') === 'true';
   const nemoClawConnection = useNemoClawConnection(nemoClawAdapterEnabled);
-  const showNemoClawSetup = nemoClawAdapterEnabled && nemoClawConnection.state !== 'connected';
+  const showNemoClawSetup = nemoClawAdapterEnabled && !nemoClawConnection.hasConnected;
 
   // Define all possible tabs with their configuration - memoize to prevent recreation
   const allTabs: TabConfig[] = useMemo(() => [

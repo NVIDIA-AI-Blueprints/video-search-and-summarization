@@ -98,4 +98,26 @@ describe('NemoClaw runtime token', () => {
     expect(run.statusCode).toBe(401);
     expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size ?? 0).toBe(0);
   });
+
+  it('rechecks a cached token before serving later agent requests', async () => {
+    getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'revoked-token' });
+    jest.spyOn(OpenClawConnector.prototype, 'checkConnection')
+      .mockRejectedValue(new ConnectorError('rejected', 'backend_auth_error'));
+    const capabilities = response();
+    await agentAdapterHandler(request('capabilities', 'GET', 'revoked-token'), capabilities);
+    expect(capabilities.statusCode).toBe(401);
+    expect(capabilities.body).toMatchObject({ error: { code: 'backend_auth_error' } });
+  });
+
+  it('makes room for another valid token without evicting an active session', () => {
+    const active = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' });
+    jest.spyOn(active!.store, 'hasActiveRuns').mockReturnValue(true);
+    for (let index = 1; index < 32; index += 1) {
+      getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: `token-${index}` });
+    }
+    const next = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-32' });
+    expect(next).toBeTruthy();
+    expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size).toBe(32);
+    expect(getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' })).toBe(active);
+  });
 });
