@@ -84,7 +84,7 @@ k8s-workload-alerts-2d:
   enable: true
   REDIS_MSG_KEY: vst.event
   WDM_REDIS_MSG_KEY: vst.event
-  WDM_WL_REDIS_MSG_FIELD: value
+  WDM_WL_REDIS_MSG_FIELD: sensor.id
   WDM_INITIALIZE_FROM_VST: true
   VST_STREAMS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/streams
   VST_STATUS_ENDPOINT: http://vss-vios-sensor:30000/api/v1/sensor/status

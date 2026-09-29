@@ -429,6 +429,7 @@ helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/war
 | Kibana | `http://<NODE_IP>:31560/` |
 | Grafana | `http://<NODE_IP>:30300/` |
 | Prometheus | `http://<NODE_IP>:30909/` |
+| Analytics API | `http://<NODE_IP>:30801/` |
 
 With [Alerts](#alerts) enabled:
 
@@ -450,10 +451,15 @@ vss-agent-ui:
   fillAlertBridgeUrlFromGlobal: false
   alertsApiUrl: "http://<NODE_IP>:30980/api/v1"
   dashboardKibanaBaseUrl: "http://<NODE_IP>:31560"
+  envOverrides:
+    # Merge with existing entries; Helm replaces lists.
+    - name: NEXT_PUBLIC_MDX_WEB_API_URL
+      value: "http://<NODE_IP>:30801"
 ```
 
 The `false` flag prevents the generated Ingress URL from overriding `alertsApiUrl`.
-Preserve existing `envOverrides`.
+Preserve existing `envOverrides`. The alerts list uses the analytics API on `30801`;
+the alert bridge on `30980` manages rules.
 
 ### Port-forward
 
