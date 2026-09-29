@@ -170,12 +170,68 @@ vios:
     enabled: false
   vss-vios-sensor:
     enabled: true
+    # Preserve subchart defaults; extraction publishes Redis payloads under value.
+    env:
+    - name: HOST_IP
+      value: 0.0.0.0
+    - name: ADAPTOR
+      value: vst_rtsp
+    - name: ADAPTOR_IP
+      value: ''
+    - name: ADAPTOR_USER
+      value: ''
+    - name: ADAPTOR_PASSWORD
+      value: ''
+    - name: ADAPTOR_PORT
+      value: ''
+    - name: NEED_RECORDING
+      value: 'false'
+    - name: NEED_RTSPSERVER
+      value: 'false'
+    - name: NEED_STORAGE
+      value: 'false'
+    - name: NEED_STREAM_MONITORING
+      value: 'true'
+    - name: HTTP_PORT
+      value: '30000'
+    - name: CENTRALIZE_DB_NAME
+      value: nvcentralizedb
+    - name: CENTRALIZE_DB_USERNAME
+      value: vst
+    - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
+      value: '1'
     streamProcessorService: sdrc
     persistence:
       vstData: { enabled: true, create: false, existingClaim: "" }
       vstVideo: { enabled: true, create: false, existingClaim: "" }
   vss-vios-streamprocessing:
     enabled: true
+    # Preserve subchart defaults; extraction publishes Redis payloads under value.
+    env:
+    - name: HOST_IP
+      value: 0.0.0.0
+    - name: VST_INSTALL_ADDITIONAL_PACKAGES
+      value: 'true'
+    - name: VST_APT_MIRROR
+      value: ''
+    - name: CONTAINER_NAME
+      value: vss-vios-streamprocessing
+    - name: ADAPTOR
+      value: vst_rtsp
+    - name: HTTP_PORT
+      value: '30001'
+    - name: RTSP_SERVER_PORT
+      value: '30554'
+    - name: CENTRALIZE_DB_NAME
+      value: nvcentralizedb
+    - name: CENTRALIZE_DB_USERNAME
+      value: vst
+    - name: ENABLE_AGING_POLICY
+      value: 'true'
+    - name: VST_VIDEO_STORAGE_SIZE_MB
+      value: '100000'
+    - name: DEEPSTREAM_ENABLE_SENSOR_ID_EXTRACTION
+      value: '1'
     useSdrEnvoyStyleHeadless: false
     headlessServiceName: ""
     # No bind-mounts in Helm: download overlay assets from video-analytics-api.
