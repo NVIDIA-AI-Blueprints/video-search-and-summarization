@@ -70,6 +70,9 @@ typedef void (*osd_draw_t) (OsdContext_t, void *);
 typedef void (*osd_global_init_t) ();
 typedef void (*osd_global_destroy_t) ();
 
+/* Opaque handle to a dynamically loaded shared library (as returned by dlopen). */
+struct SharedLibraryHandle;
+
 class GstMetaUnion
 {
     public:
@@ -186,8 +189,8 @@ public:
 
 private:
     static NvOsdLibs* _instance;
-    void* handle_nvCuLib = nullptr;
-    void* handle_nvCuosdmetaLib = nullptr;
+    SharedLibraryHandle* handle_nvCuLib = nullptr;
+    SharedLibraryHandle* handle_nvCuosdmetaLib = nullptr;
     bool error = false;
 
     NvOsdLibs();
@@ -385,7 +388,7 @@ class NvLLOverlayInternal
         std::atomic<int>            m_sourceHeight {HEIGHT_1080p};
         std::atomic<int>            m_ipcSourceWidth {WIDTH_1080p};
         std::atomic<int>            m_ipcSourceHeight {HEIGHT_1080p};
-        void*                       osd_ctx = nullptr;
+        OsdContext_t                osd_ctx = nullptr;
         std::shared_ptr<IMetadataStore> m_metadataStore = nullptr;
         std::shared_ptr<ReplayMetadataStore> m_replayMetadataStore = nullptr;
         bool                        m_isGst = false;
