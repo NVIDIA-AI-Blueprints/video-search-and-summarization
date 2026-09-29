@@ -180,6 +180,20 @@ async def test_unknown_handle_is_a_not_found(vios_http) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_deleted_sensor_still_in_the_listing_is_not_found_not_unreachable(vios_http) -> None:
+    """`/sensor/list` does not prune sensors VIOS has since deleted.
+
+    The direct-match path hitting a 404 on `/streams` for such a sensor must
+    read as "gone", not as a VIOS outage.
+    """
+    configure, _, _ = vios_http
+    configure(**{"/sensor/list": [{"name": "cam", "sensorId": "cam-id"}], "/sensor/cam-id/streams": (404, {})})
+
+    with pytest.raises(vios.VIOSNotFoundError, match="deleted from VIOS"):
+        await vios.resolve_sensor(VST, "cam")
+
+
+@pytest.mark.asyncio
 async def test_main_stream_is_preferred_over_substreams(vios_http) -> None:
     configure, _, _ = vios_http
     configure(
@@ -427,6 +441,30 @@ async def test_list_fails_rather_than_reporting_a_short_list(vios_http) -> None:
 
     with pytest.raises(vios.VSTError, match="503"):
         await vios.list_media(VST)
+
+
+@pytest.mark.asyncio
+async def test_list_filters_out_a_sensor_deleted_since_the_listing(vios_http) -> None:
+    """A stale `/sensor/list` row that 404s on `/streams` is dropped, not errored.
+
+    It no longer exists, so unlike the other error rows there is nothing for
+    the caller to act on.
+    """
+    configure, _, _ = vios_http
+    configure(
+        **{
+            "/sensor/list": [
+                {"name": "gone", "sensorId": "gone-id"},
+                {"name": "cam", "sensorId": "cam-id"},
+            ],
+            "/sensor/gone-id/streams": (404, {}),
+            "/sensor/cam-id/streams": [{"streamId": "s-1", "isMain": True, "url": "/videos/cam.mp4"}],
+        }
+    )
+
+    rows = await vios.list_media(VST)
+
+    assert [row["name"] for row in rows] == ["cam"]
 
 
 @pytest.mark.asyncio
