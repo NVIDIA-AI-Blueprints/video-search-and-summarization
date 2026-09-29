@@ -91,6 +91,7 @@ configVariant: ""
 service:
   port: 9080
   type: ClusterIP
+  nodePort: ""
 
 # Seconds the pod gets to shut down. Must stay above the shutdown budget: at
 # alert_agent.processes: 1 that is up to 10s for the API child, up to 15s of

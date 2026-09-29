@@ -1488,7 +1488,7 @@ jobs:
       - name: Build developer-profile chart dependencies
         run: |
           helm version --short
-          for profile in deploy/helm/developer-profiles/*/; do
+          for profile in deploy/helm/developer-profiles/*/ deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app/; do
             helm dependency build "$profile"
           done
 

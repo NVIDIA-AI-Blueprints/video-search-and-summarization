@@ -19,6 +19,12 @@ from mdx.analytics.core.schema.models import Behavior
 
 logger = logging.getLogger(__name__)
 
+# Marks a behavior whose track has ended. Mirrors the incident convention in
+# ``frame_state_management``: the key is present only on completed records and is never set to
+# "false", so absence is what says "still live".
+INFO_FIELD_IS_COMPLETE = "isComplete"
+INFO_VALUE_COMPLETE = "true"
+
 
 class BehaviorHoldback:
     """
@@ -28,7 +34,9 @@ class BehaviorHoldback:
     judgement -- inactivity, discontinuity or state expiry -- and calls :meth:`end_track`. Keeping
     the policy out of here is what makes both halves testable on their own.
 
-    Used only when ``behaviorEmitOnce`` is enabled.
+    Used in both emit modes. Ended tracks are always released for writing, marked with
+    ``info["isComplete"] = "true"``; ``behaviorEmitOnce`` decides only whether *live* tracks are
+    written alongside them each batch.
 
     :ivar dict[str, Behavior] pending: Latest behavior per live track, keyed by behavior ID.
     :ivar list[Behavior] ended: Behaviors of tracks that ended and are waiting to be collected.
@@ -70,6 +78,7 @@ class BehaviorHoldback:
         """
         behavior = self.pending.pop(message_key, None)
         if behavior is not None:
+            behavior.info[INFO_FIELD_IS_COMPLETE] = INFO_VALUE_COMPLETE
             logger.info(f"Behavior ready to write ({reason}): {message_key}")
             self.ended.append(behavior)
 
@@ -90,6 +99,9 @@ class BehaviorHoldback:
 
         :return list[Behavior]: Ended behaviors followed by the still-live retained behaviors.
         """
+        # Shutdown ends every live track, so what is still pending is completed too.
+        for behavior in self.pending.values():
+            behavior.info[INFO_FIELD_IS_COMPLETE] = INFO_VALUE_COMPLETE
         held = self.ended + list(self.pending.values())
         self.ended = []
         self.pending.clear()

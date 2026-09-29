@@ -336,6 +336,7 @@ the Agent container. Create and select that file as described in
 | `VSS_AGENT_VERSION` | Agent image-tag and Phoenix telemetry-project suffix; it is not used by the version endpoint. Set `VSS_CONTAINER_TAG` alongside it when the telemetry suffix should change without selecting a different image. |
 | `VSS_AGENT_CONFIG_FILE` | Agent configuration path inside the container. |
 | `VSS_AGENT_HOST`, `VSS_AGENT_PORT` | Agent bind address and container port; the default container port is `8000`. |
+| `HITL_ENABLED` | Defaults to `true` for the in-stack VSS Agent in Docker Compose, enabling structured prompts in the VSS UI. Set to `false` to skip those dialogs. The NemoClaw OpenClaw harness uses a separate default of `false` and asks follow-up questions in chat. |
 | `VSS_AGENT_OBJECT_STORE_TYPE` | Object-store entry used by report and chart tools. |
 | `VSS_AGENT_REPORTS_BASE_URL` | Public base URL for reports and charts. |
 | `VSS_AGENT_TEMPLATE_PATH`, `VSS_AGENT_TEMPLATE_NAME` | Report-template directory and filename. |

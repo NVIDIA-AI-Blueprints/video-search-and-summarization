@@ -177,7 +177,7 @@ def test_weighted_rrf_union_does_not_collapse_same_provider_chunks() -> None:
     assert fused[1].similarity == pytest.approx(1.0 / 62)
 
 
-def test_fuse_ranked_union_dispatches_weighted_and_equal_rrf() -> None:
+def test_fuse_ranked_union_dispatches_weighted_and_legacy_rrf() -> None:
     shared_embed = _embed_result(video_name="shared", sensor_id="cam1")
     shared_tag = _embed_result(video_name="shared", sensor_id="cam1")
     providers = {"embed": [shared_embed], "tag": [shared_tag]}
@@ -188,15 +188,15 @@ def test_fuse_ranked_union_dispatches_weighted_and_equal_rrf() -> None:
         weights={"embed": 0.25, "tag": 0.75},
         rrf_k=60,
     )
-    equal = _fusion.fuse_ranked_union(
+    assert weighted[0].similarity == pytest.approx(1.0 / 61)
+
+    legacy = _fusion.fuse_ranked_union(
         providers,
         method="rrf",
-        weights={"embed": 0.25, "tag": 0.75},
+        weights={"embed": 0.0, "tag": 99.0},
         rrf_k=60,
     )
-
-    assert weighted[0].similarity == pytest.approx(1.0 / 61)
-    assert equal[0].similarity == pytest.approx(2.0 / 61)
+    assert legacy[0].similarity == pytest.approx(2.0 / 61)
 
 
 @pytest.mark.parametrize("method", ["bogus", "weighted_linear"])

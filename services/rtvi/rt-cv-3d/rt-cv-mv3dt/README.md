@@ -57,6 +57,8 @@ $MODELS_DIR/mv3dt/BodyPose3DNet/   3D pose model
 $MODELS_DIR/reid/                  CLIP-ReID onnx + TensorRT engine (optional ReID service)
 ```
 
+The warehouse app-data package does not include `$MODELS_DIR/reid/`. Before setting `REID_ENABLED=1`, stage those files with the `reid-embed` image as described in [§3.3](#33-optional-reid-service).
+
 **Sample dataset (optional).** The same package also ships a 4-camera warehouse sample you can try RT-CV-3D on without your own footage. It consists of:
 
 - **Per-camera videos** (in the app-data package) — point `VIDEO_DIR` at this directory:
@@ -178,6 +180,32 @@ INPUT_MODE=file
 REID_ENABLED=1
 REID_RESET_BEFORE_RUN=1
 ```
+
+With `REID_ENABLED=1`, `./scripts/stage-configs.sh` requires this file to exist and be readable:
+
+```text
+$MODELS_DIR/reid/reid_model.onnx
+```
+
+The app-data package does not ship it. The warehouse blueprint fills that directory with a one-shot container of the `reid-embed` image (`vss-reid-embed-init-mv3dt`), which already has PyTorch. It mounts `$VSS_DATA_DIR/models/reid` at `/opt/storage/reid` and runs `download-embedding-models.sh --secondary --clipreid` there. Do not run that script on the host unless `python3 -c 'import torch'` succeeds.
+
+From this directory, the same one-shot is:
+
+```bash
+source docker/.env
+mkdir -p "$MODELS_DIR/reid"
+docker run --rm --gpus "device=${GPU_DEVICE:-0}" \
+  -e NGC_CLI_API_KEY \
+  -w /opt/storage/reid \
+  -v "$MODELS_DIR/reid:/opt/storage/reid:rw" \
+  -v "$(cd ../../../../deploy/docker/services/rtvi/reid-embed && pwd):/opt/scripts:ro" \
+  "${REID_EMBED_IMAGE}:${REID_EMBED_TAG}" \
+  bash /opt/scripts/download-embedding-models.sh --secondary --clipreid
+```
+
+`NGC_CLI_API_KEY` is required because `--secondary` downloads SigLIP 2 from NGC, the same as the warehouse init container. `--clipreid` exports `reid_model.onnx` inside the container.
+
+`reid_model.onnx_b64_gpu0_fp32.engine` (batch 64, GPU 0, FP32) is not a prerequisite and is not shipped. TensorRT builds it inside the perception container on the first run that has ReID enabled, writing the plan next to the ONNX — the same way the RT-DETR engine is built. A cold build takes minutes, so the first start is slow and later ones reuse the plan. `$MODELS_DIR/reid` therefore has to stay writable by the container's user, which is what `download-embedding-models.sh` relaxes the directory permissions for.
 
 Then restage and launch the `reid` profile together with the bundled brokers:
 

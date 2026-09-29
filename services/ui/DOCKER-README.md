@@ -37,9 +37,9 @@ For direct Compose, copy the selected profile's `overrides.env` to the ignored
 `/`. Never commit a real harness token. The Compose service maps these
 host-side settings to the server-only `AGENT_*` variables shown below. Keep
 `HITL_ENABLED=false` for OpenClaw so follow-up questions complete as ordinary
-chat turns. Structured HITL defaults to `false` for `vss-agent` too. Set
-`HITL_ENABLED=true` explicitly only when its configured tools and the UI should
-use the legacy inline response modal; Compose passes that one value to both.
+chat turns. The in-stack `vss-agent` defaults to `HITL_ENABLED=true` in Compose,
+which enables its structured interaction dialogs. Compose passes the selected
+value to both the agent and UI.
 
 .env sample to use for docker run when running the Metropolis BP VSS UI app:
 

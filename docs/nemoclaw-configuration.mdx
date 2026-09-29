@@ -69,7 +69,7 @@ Advanced values are set in Section 1.3 or derived from the environment.
 | `AGENT_DASHBOARD_PORT` | `18789` | Loopback-only agent dashboard forward. Override with `NEMOCLAW_DASHBOARD_PORT`. |
 | `AGENT_DASHBOARD_RELAY_PORT` | `18790` | Relay used by off-loopback clients, including the VSS UI container and Brev secure link. Override with `NEMOCLAW_DASHBOARD_RELAY_PORT`. |
 | `VSS_AGENT_ADAPTER_ENABLED` | `False` | Enables the relay for a containerized VSS UI outside Brev; Brev starts the relay for its secure link regardless. |
-| `HITL_ENABLED` | `False` | When false, the harness asks follow-up questions as ordinary chat messages. |
+| `HITL_ENABLED` | `False` | Disables structured HITL dialogs in an external VSS UI connected to the harness. The agent still asks follow-up questions in chat, where you can reply inline. |
 | `NEMOCLAW_VLLM_PORT` | `18000` | Host port for a NemoClaw-managed vLLM server. |
 | `NEMOCLAW_VLLM_GPU_DEVICE` | `0` | GPU index or full GPU/MIG UUID passed to `install-vllm`; changing it requires a fresh onboard. |
 | `AGENT_PLUGIN_VARIANT` | `nemoclaw` | Workspace variant overlay read into `WORKSPACE_VARIANT`. |

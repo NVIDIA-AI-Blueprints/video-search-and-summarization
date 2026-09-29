@@ -16,6 +16,12 @@ Running VSS through NemoClaw turns a multi-service Docker Compose deployment int
   status and container logs to the agent so it can inspect and remediate a
   deployment from chat.
 
+## Summaries, reports, and follow-up prompts
+
+With NemoClaw's OpenClaw runtime, video summaries and reports appear directly in the OpenClaw chat UI. Human in the Loop (HITL) interaction happens in that chat: when the agent needs a scenario, events, objects of interest, or other report details, it asks inline and you reply there. An external VSS UI connected to NemoClaw does not support the VSS Agent's structured HITL dialogs; follow-up questions remain ordinary chat messages.
+
+The in-stack VSS Agent UI uses HITL dialogs for these prompts and provides generated reports as PDF downloads. Screenshots of dialogs and PDF report links in the [quickstart](/vss/getting-started/quickstart#generate-a-report-with-the-in-stack-vss-agent) and [Video Summarization workflow](/vss/vision-agent/agent-workflows/video-summarization#step-3-generate-a-report-for-uploaded-videos) show that VSS Agent experience.
+
 ## How to run NemoClaw with VSS
 
 <Note>

@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
+from elastic_transport import RequestsHttpNode
 import pytest
 
 from vss_core._foundation.time import iso8601_to_datetime
@@ -15,6 +17,17 @@ from vss_core.memory.models import JobInfo
 from vss_core.memory.models import UnifiedMemoryRecord
 from vss_core.memory.store import JobFilters
 from vss_core.memory.store import MemoryQuery
+
+
+def test_owned_client_uses_requests_transport() -> None:
+    with patch("vss_core.memory.backends.elasticsearch.Elasticsearch") as constructor:
+        ElasticsearchMemoryStore(endpoint="http://elasticsearch:9200", request_timeout=17)
+
+    constructor.assert_called_once_with(
+        "http://elasticsearch:9200",
+        request_timeout=17,
+        node_class=RequestsHttpNode,
+    )
 
 
 def _parent(job_id: str = "summary-1", status: str = "submitted") -> UnifiedMemoryRecord:
