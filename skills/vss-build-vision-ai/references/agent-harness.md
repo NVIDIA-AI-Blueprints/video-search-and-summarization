@@ -69,10 +69,24 @@ gateway — what `host.docker.internal` resolves to inside the container. If the
 checked-out notebook lacks section 3.5's relay, stop and report the checkout as
 incompatible; a loopback-only forward cannot serve the containerized UI.
 
-Before onboarding, select the dashboard port (default `18789`) and the relay
-port (default `18790`, must differ) and export them with the adapter flag. The
-notebook derives `AGENT_DASHBOARD_PORT` and `AGENT_DASHBOARD_RELAY_PORT` from
-these same values:
+Before Step 7 writes the build artifacts, select the dashboard port (default
+`18789`) and the relay port (default `18790`, must differ). Put these values in
+`_builds/<name>/override.env` so the first deploy starts the UI with the
+adapter selected. Resolve `<relay-port>` to the selected relay port, not the
+loopback dashboard forward:
+
+| Variable | Value |
+|---|---|
+| `VSS_AGENT_ADAPTER_ENABLED` | `true` |
+| `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
+| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<relay-port>` |
+
+Leave `VSS_AGENT_BACKEND_TOKEN` unset. The gateway token does not exist until
+onboarding, and the Web UI accepts it at runtime. Leave
+`VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default.
+
+Export the selected ports and adapter flag before onboarding. The notebook
+derives `AGENT_DASHBOARD_PORT` and `AGENT_DASHBOARD_RELAY_PORT` from these values:
 
 ```bash
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
@@ -80,25 +94,15 @@ export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 ```
 
-After onboarding, add these values to `_builds/<name>/override.env`, resolving
-`<relay-port>` to the selected `NEMOCLAW_DASHBOARD_RELAY_PORT` — the relay
-port, not the forward's — rather than writing the placeholder or assuming the
-default:
+After onboarding, the user runs `nemoclaw <sandbox> gateway-token --quiet` on
+the deployment host and enters the result in the Web UI's **Connect NemoClaw
+chat** panel. The UI checks the gateway and enables both chat surfaces when it
+accepts the token. If the relay is unavailable, the panel offers a retry; if
+the token is rejected, the user can enter a current one. The token stays in
+the browser tab session and is sent only to the UI's same-origin agent API.
+No Compose regeneration or UI container recreation is needed.
 
-| Variable | Value |
-|---|---|
-| `VSS_AGENT_ADAPTER_ENABLED` | `true` |
-| `VSS_AGENT_BACKEND_PROTOCOL` | `openclaw-ws` |
-| `VSS_AGENT_BACKEND_URL` | `ws://host.docker.internal:<relay-port>` |
-| `VSS_AGENT_BACKEND_TOKEN` | output of `nemoclaw <sandbox> gateway-token --quiet` |
-
-Leave `VSS_AGENT_BACKEND_PATH` unset; `/` is the `openclaw-ws` default. The
-token does not exist until onboarding. Capture it without printing it, keep it
-only in the ignored build artifacts, then repeat Step 8 and recreate `vss-ui`
-from the regenerated `resolved.yml`. Confirm the container has the four
-corresponding `AGENT_*` values without printing the token.
-
-This restores the chat sidebar and Chat tab. It does not restore the Search tab
+This connects the chat sidebar and Chat tab. It does not restore the Search tab
 or the ingress `/api`, `/chat`, `/websocket` routes, which address the in-stack
 agent directly. `openclaw-ws` is specific to OpenClaw; do not apply this block
 to an explicit Hermes build.

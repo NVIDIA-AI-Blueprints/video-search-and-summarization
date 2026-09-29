@@ -268,6 +268,12 @@ Skill asks whether to deploy a host-side agent harness. The default harness is
 NemoClaw, which runs outside the Docker Compose project and operates the
 deployed stack through its public ingress URL.
 
+For a NemoClaw build with the VSS Web UI, the UI starts with the stack. Its
+chat surfaces wait for a gateway token. After NemoClaw onboarding, run
+`nemoclaw <sandbox> gateway-token --quiet` on the deployment host and enter the
+token in **Connect NemoClaw chat**. The UI checks gateway access at runtime;
+the container does not need to be restarted.
+
 If you choose no harness, operate the deployment from the host with the `vss`
 CLI. If you explicitly request the in-stack VSS Agent, the Skill preserves that
 agent instead.
