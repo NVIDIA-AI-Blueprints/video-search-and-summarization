@@ -16,8 +16,12 @@ so keep the count guard in the same snippet as the state guard:
 
 ```bash
 BUILD_DIR="_builds/<name>"
-expected=$(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l)
-actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -q | wc -l)
+# How many services this deploy deliberately held back. 0 on every build except
+# one deferring vss-ui for the harness (agent-harness.md, "Start vss-ui last");
+# never a way to excuse a service that failed to start.
+DEFERRED=${DEFERRED:-0}
+expected=$(( $(docker compose -f "$BUILD_DIR/resolved.yml" config --services | wc -l) - DEFERRED ))
+actual=$(docker compose -f "$BUILD_DIR/resolved.yml" ps -aq | wc -l)
 if [ "$expected" -le 0 ] || [ "$actual" -le 0 ] || [ "$actual" -lt "$expected" ]; then
   echo "FAIL: expected $expected services, got $actual — inspect resolved.yml" >&2
   exit 1
@@ -29,7 +33,7 @@ fi
 # `running` and `exited 0`; everything else (restarting, unhealthy,
 # exited with non-zero code) is a failure.
 bad=$(
-  docker compose -f "$BUILD_DIR/resolved.yml" ps --format json \
+  docker compose -f "$BUILD_DIR/resolved.yml" ps -a --format json \
     | jq -r 'select((.State == "running" or (.State == "exited" and .ExitCode == 0)) | not)
              | "\(.Name)\t\(.State)\texit=\(.ExitCode // "?")\t\(.Status)"'
 )
@@ -45,6 +49,11 @@ jobs (e.g. `vss-kibana-init`) legitimately exit 0 and stay exited, which is
 fine. Anything `restarting`, `unhealthy`, or `exited <N≠0>` is a deploy
 failure even though `up -d` returned 0.
 
+A deferred service is not exempt, only late. The deferring pass sets `DEFERRED`
+to the held-back count. Once the service starts, set `DEFERRED=0` before
+re-running this whole gate in the same shell, so an exported first-pass value
+cannot carry over. Declare nothing done before that second pass.
+
 > **Warehouse needs a data-plane check, not just Gate 0.** Every container can
 > report `Up` while zero streams are processed, and Gate 0 cannot see it. Run the
 > liveness checks in [`profiles/warehouse.md`](profiles/warehouse.md) before
@@ -59,6 +68,12 @@ REST API, UI, inference NIMs, etc., on the ports the profile actually opens).
 Run those `curl` checks with a generous deadline (15 min is reasonable for cold
 NIM warmup) and only declare the deploy done once every documented endpoint
 returns the expected success exit code.
+
+On a build deferring `vss-ui`, the UI probe belongs to the second pass, not this
+one — running it early reports a deliberate deferral as a failed deploy. Where
+the profile's list includes it (`base`, `alerts`, `search`), move that probe;
+where it lists none (`lvs`), add `curl -sf "http://${HOST_IP}:3000/"` to the
+second pass.
 
 **Agent gate — only when the build includes the VSS Agent.** Stock profiles run
 `vss-agent`, so it must answer on `:8000/health`; a headless delta prunes it (no
