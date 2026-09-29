@@ -1836,6 +1836,37 @@ class TraceUrls(unittest.TestCase):
             self.assertTrue(viewer_root.parent.stat().st_mode & 0o005)
             self.assertEqual(outside.stat().st_mode, outside_mode)
 
+    def test_skill_eval_parents_are_writable_by_both_users(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            leg = root / "skill-eval" / "results" / "slug"
+            leg.mkdir(parents=True)
+            os.chmod(root / "skill-eval", 0o755)
+            os.chmod(root / "skill-eval" / "results", 0o755)
+            os.chmod(leg, 0o755)
+            outside_mode = root.stat().st_mode
+            run_leg._share_skill_eval_parents(leg)
+            self.assertEqual((root / "skill-eval").stat().st_mode & 0o1777, 0o1777)
+            self.assertEqual(
+                (root / "skill-eval" / "results").stat().st_mode & 0o1777, 0o1777
+            )
+            self.assertEqual(leg.stat().st_mode & 0o777, 0o755)
+            self.assertEqual(root.stat().st_mode, outside_mode)
+
+            import direct_agent_progress
+
+            other = root / "skill-eval" / "results" / "other"
+            other.mkdir()
+            os.chmod(root / "skill-eval", 0o755)
+            os.chmod(root / "skill-eval" / "results", 0o755)
+            direct_agent_progress._share_skill_eval_parents(other)
+            self.assertEqual((root / "skill-eval").stat().st_mode & 0o1777, 0o1777)
+            plain = root / "results"
+            plain.mkdir()
+            plain_mode = plain.stat().st_mode
+            run_leg._share_skill_eval_parents(plain)
+            self.assertEqual(plain.stat().st_mode, plain_mode)
+
     def test_publish_trace_returns_none_when_trial_produced_no_result(self):
         invocation = run_leg.HarborInvocation(
             harbor_root=Path("/tmp/datasets/base/l40s"),

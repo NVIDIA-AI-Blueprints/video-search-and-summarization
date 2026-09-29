@@ -1572,6 +1572,32 @@ def _publish_directory(source: Path, destination: Path) -> None:
     shutil.rmtree(backup)
 
 
+def _share_skill_eval_parents(path: Path) -> None:
+    """Let gha-runner and uid 998 both create children under skill-eval.
+
+    A 0755 directory owned by one of them blocks the other. The progress
+    monitor creates the leg directory, and the acknowledgement writer creates
+    ``_ack`` beside it. Only ``skill-eval`` and ``results`` are opened up.
+    """
+    current = path if path.is_dir() else path.parent
+    nodes: list[Path] = []
+    stop = {Path("/"), Path("/tmp"), Path("/private/tmp")}
+    while current not in stop and current != current.parent:
+        nodes.append(current)
+        if current.name == "skill-eval":
+            break
+        current = current.parent
+    else:
+        return
+    for node in nodes:
+        if node.name not in {"skill-eval", "results"}:
+            continue
+        try:
+            os.chmod(node, stat.S_IMODE(node.stat().st_mode) | 0o1777)
+        except OSError:
+            return
+
+
 def _share_with_workload(path: Path) -> None:
     """Let uid 998 read a path written by gha-runner.
 
@@ -1596,6 +1622,7 @@ def _share_with_workload(path: Path) -> None:
 
 def _share_published_viewer(viewer_job: Path) -> None:
     """Share one published job and the viewer parents under /tmp/skill-eval."""
+    _share_skill_eval_parents(viewer_job)
     if viewer_job.is_dir():
         for child in viewer_job.rglob("*"):
             _share_with_workload(child)
@@ -1810,6 +1837,7 @@ def run_invocations(
     env = harbor_env(instance)
 
     results_root.mkdir(parents=True, exist_ok=True)
+    _share_skill_eval_parents(results_root)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
     # the env vars are the authoritative source when the agent exports them.
     leg_slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
