@@ -66,14 +66,12 @@ export function useNemoClawConnection(enabled: boolean): NemoClawConnection {
       const fragmentToken = tokenFromFragment();
       if (fragmentToken === null) return false;
       const next = fragmentToken.trim();
-      const valid = next.length <= 4_096 && !/[\r\n]/u.test(next);
-      const value = valid ? next : '';
+      if (!next || next.length > 4_096 || /[\r\n]/u.test(next)) return false;
       try {
-        if (value) sessionStorage.setItem(STORAGE_KEY, value);
-        else sessionStorage.removeItem(STORAGE_KEY);
+        sessionStorage.setItem(STORAGE_KEY, next);
       } catch { /* Private browsing may deny storage. */ }
-      setToken(value);
-      void check(value);
+      setToken(next);
+      void check(next);
       return true;
     };
     if (!applyFragment()) {

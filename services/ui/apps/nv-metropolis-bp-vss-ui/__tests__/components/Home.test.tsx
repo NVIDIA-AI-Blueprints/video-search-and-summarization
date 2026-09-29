@@ -256,6 +256,43 @@ describe("Home tab lifecycle", () => {
     }));
   });
 
+  it.each(['#token=', '#token=bad%0Atoken', `#token=${'x'.repeat(4097)}`])(
+    'keeps a saved token when the initial fragment is invalid: %s',
+    async (fragment) => {
+      process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+      sessionStorage.setItem('vss-nemoclaw-gateway-token', 'working-token');
+      window.history.replaceState({}, '', `/${fragment}`);
+      global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+      render(<Home />);
+
+      expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'working-token');
+      expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBe('working-token');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(global.fetch).toHaveBeenCalledWith('/api/agent/connection', expect.objectContaining({
+        headers: { 'X-VSS-Gateway-Token': 'working-token' },
+      }));
+    },
+  );
+
+  it('ignores an invalid fragment added after chat connects', async () => {
+    process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
+    sessionStorage.setItem('vss-nemoclaw-gateway-token', 'working-token');
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'connected' }) }) as unknown as typeof fetch;
+
+    render(<Home />);
+    expect(await screen.findByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'working-token');
+
+    await act(async () => {
+      window.history.replaceState({}, '', '/#token=');
+      window.dispatchEvent(new Event('hashchange'));
+    });
+
+    expect(screen.getByTestId('deliver-search-artifact')).toHaveAttribute('data-gateway-token', 'working-token');
+    expect(sessionStorage.getItem('vss-nemoclaw-gateway-token')).toBe('working-token');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts a new token fragment in an open tab and clears it when changing tokens', async () => {
     process.env.NEXT_PUBLIC_AGENT_ADAPTER_ENABLED = 'true';
     sessionStorage.setItem('vss-nemoclaw-gateway-token', 'first-token');
