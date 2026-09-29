@@ -44,7 +44,7 @@ ships rather than a REST endpoint that is being retired.
 | User asks to benchmark the retired agent REST search endpoint | This runner does not measure it; for historical comparison, use the external legacy `run_eval.py` noted in `references/troubleshooting.md` |
 | No search profile deployed in this session | Use `vss-build-vision-ai` to deploy the **stock search profile with its in-stack agent REST API and in-stack LLM retained**. Explicitly name both requirements in the build request so it skips the harness question (which would remove the agent and possibly the LLM); do not select a NemoClaw-only or CLI-only harness. Record the reachable agent endpoint and unified origin, then return here. Check agent `/health` and LLM `/v1/models`, run Step 3 to inspect indices, and complete Step 4 ingestion and its index probe before scoring |
 | User did not give an endpoint | Ask for it. Do not guess, and do not default to localhost |
-| Endpoint uses `localhost` or `127.0.0.1` | Ask for a host address reachable from the containers; loopback can make critic verification silently fail |
+| Endpoint uses `localhost` or `127.0.0.1` | This is valid when the runner is on the deployment host. Verify the actual VST clip URL is reachable from RT-VLM before trusting critic-filtered metrics |
 | User did not give a dataset | Ask which dataset and where its `--data-dir` is. Do not invent one |
 | Elasticsearch has no `mdx-*` indices | Ingestion has not completed. Run **Step 4**; do not report zero scores as a quality result |
 | User asks to reuse what is already ingested | Add `--skip-ingest`. It cannot be combined with `--clear` or `--only-dataset` |
@@ -74,16 +74,17 @@ Five defaults, each load-bearing:
   `--endpoint` (same host, port 30081), so there is no flag to forget. Every
   query is decomposed the way the deployed agent decomposes it, and that choice
   picks the retrieval path. Override with `--llm-url` / `--llm-port`; turn it
-  off only with `--no-decompose`.
+  off with `--no-decompose` (replays stored routes) or `--fixed-search-path`
+  (ignores stored routes for a single-path baseline).
 
-  If the NIM is unreachable the run automatically falls back to the `embed`
-  path, which needs nothing but the query text. Do not pass `--search-path embed`
-  yourself; that explicitly fixes every query to one path. The fallback warns loudly and records
-  `flow.query.live_decomposition.fell_back_to` in the result file. **That run measures one
-  path, not routing**; read the field before quoting any number from it.
+  If the NIM is unreachable the run replays dataset routes when present;
+  otherwise it falls back to `embed`, which needs nothing but the query text.
+  The fallback records `flow.query.live_decomposition.fell_back_to` in the
+  result file. Check that field and `Search paths:` before quoting numbers.
 
-  A dataset that carries its own decompositions still routes per query, because
-  that is the dataset's stated intent. Nothing else is inferred: a
+  `--no-decompose` also replays dataset routes when present; it does not force
+  one path. Use `--fixed-search-path` only for a deliberately single-path
+  baseline. Nothing else is inferred: a
   `devset_provenance.json` sidecar is never loaded automatically. To use it as
   an answer key, pass its full path with `--decompositions`; scoring against
   perfect routing is a different experiment from scoring the live decomposer.
@@ -124,12 +125,11 @@ Five defaults, each load-bearing:
 
 Deviate only on request: `--skip-ingest` to reuse what is there, `--clear` to
 wipe the whole deployment, `--subset` to narrow the slice, `--concurrency N` to
-trade latency fidelity for wall-clock, `--no-decompose` for a single-path
-baseline.
+trade latency fidelity for wall-clock, `--no-decompose` to replay stored routes,
+or `--fixed-search-path` for a single-path baseline.
 
-Never add `--no-decompose` to a run the user called an eval. It measures one
-retrieval path instead of the product's routing, and nothing in the metrics
-says so.
+Never add either decomposition override to a run the user called a live-routing
+eval. Both measure a different flow; the result records the routing mode.
 
 ## Prerequisites
 
@@ -143,7 +143,7 @@ says so.
 | Python 3.10+ for this runner; Python 3.13–3.14 for a separately installed `vss` CLI | `python3 --version` for the runner; use a Python 3.13 or 3.14 environment when installing `libs/vss/core` and `libs/vss/cli` (their `requires-python` is `>=3.13,<3.15`), then check `vss search run --help` there |
 | LLM reachable (else the run falls back and says so) | `curl -sf --connect-timeout 5 --max-time 10 http://HOST:30081/v1/models` returns 200 |
 | LLM model selected unambiguously | If `/v1/models` lists multiple IDs, pass `--llm-model` matching the deployed agent's model |
-| ORIGIN reachable **from inside** the containers | `docker exec vss-rtvi-vlm curl -sf --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}\n' ${ORIGIN}/vst/api/v1/sensor/version` returns 200. `localhost` fails this even when it passes from the host |
+| Critic clip URL reachable **from RT-VLM** | Inspect a returned VST `videoUrl` and test that exact URL from the RT-VLM container. The CLI uses `video_url_scope="internal"`; CLI ORIGIN may legitimately be localhost on the host |
 
 Agent `/health` confirms the process is reachable, not that VIOS and the search
 indices are ready. Step 3 and the post-ingest index probe are the retrieval
@@ -161,12 +161,10 @@ vss configure --base-url http://HOST:7777
 vss configure show
 ```
 
-**If you are running on the deployment host, do not use `localhost`.** Use the
-host's LAN IP anyway. The critic hands the VST clip URL to RT-VLM, which is a
-*container*: `localhost` there resolves to the container itself, the fetch
-fails, and because verification is best-effort every hit stays `unverified`
-while retrieval looks perfectly healthy. Running off-host hides this, because
-nothing but a routable address works in the first place.
+`localhost` is valid here when the runner runs on the deployment host. This
+URL controls where the CLI reaches the services; it does not determine the
+clip URL sent to RT-VLM. If verification fails, inspect the VST-returned
+`videoUrl` and test that exact address from the RT-VLM container.
 
 ## Step 2 — Dry run
 

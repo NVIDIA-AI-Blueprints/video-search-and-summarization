@@ -182,6 +182,16 @@ def test_invalid_search_path_rejected_before_any_request() -> None:
     raise AssertionError("expected ValueError for an unknown search path")
 
 
+def test_cli_failure_keeps_its_exit_code(monkeypatch: Any) -> None:
+    class _Proc:
+        returncode, stdout, stderr = 5, "", "search index does not exist"
+
+    monkeypatch.setattr("flows.query.subprocess.run", lambda *_a, **_k: _Proc())
+    with pytest.raises(flows.CliExitError) as error:
+        flows.CliQueryBackend(["vss"]).search("a person")
+    assert error.value.returncode == 5
+
+
 # ---------------------------------------------------------------------------
 # CLI output parsing
 # ---------------------------------------------------------------------------
@@ -1213,6 +1223,40 @@ def test_vsts_own_casing_reaches_the_scoped_probe(monkeypatch: Any) -> None:
     assert result["covered"] is True
 
 
+def test_vst_upload_suffix_reaches_scoped_probe_when_broad_hits_crowd_it_out(
+    monkeypatch: Any,
+) -> None:
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    registered_name = "clip_1_20250101_000000_e0482.mp4"
+    scoped: list[str] = []
+
+    def backend(**kw: Any) -> Any:
+        routes = kw.get("decompositions") or {}
+        source = next(iter(routes.values()), {}).get("video_sources", [None])[0]
+
+        class _Probe:
+            def search(self, _query: str) -> tuple[list[dict[str, Any]], float]:
+                if source is None:
+                    return [{"video_name": "clip_10.mp4"}], 0.1
+                scoped.append(source)
+                return [{"video_name": registered_name}], 0.1
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", backend)
+    monkeypatch.setattr(flows, "list_sensor_streams", lambda _u: {"s1": registered_name})
+    result = rf.probe_index_coverage(
+        _Backend(), ["clip_1"], vst_url="https://vst", attempts=1, backoff_s=0
+    )
+    assert scoped == [registered_name]
+    assert result["covered"] is True
+
+
 def test_a_genuinely_absent_source_survives_the_scoped_check(monkeypatch: Any) -> None:
     """The confirmation must not turn every miss into a pass."""
     import run_eval_flows as rf
@@ -1242,6 +1286,27 @@ def test_a_genuinely_absent_source_survives_the_scoped_check(monkeypatch: Any) -
     assert result["covered"] is False
     assert result["missing"] == ["clip_b"]
     assert result["per_source_verified"] is True
+
+
+def test_probe_does_not_accept_prefix_collision_even_from_scoped_search(monkeypatch: Any) -> None:
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    def wrong_video(**_kw: Any) -> Any:
+        class _Probe:
+            def search(self, _query: str) -> tuple[list[dict[str, Any]], float]:
+                return [{"video_name": "clip_10.mp4"}], 0.1
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", wrong_video)
+    monkeypatch.setattr(flows, "list_sensor_streams", lambda _u: {"s1": "clip_1"})
+    result = rf.probe_index_coverage(_Backend(), ["clip_1"], vst_url="https://vst", attempts=1, backoff_s=0)
+    assert result["covered"] is False
+    assert result["missing"] == ["clip_1"]
 
 
 def test_without_vst_the_probe_says_it_could_not_verify_per_source(
@@ -1390,6 +1455,72 @@ def test_a_broken_cli_is_reported_as_itself_not_as_an_empty_index(
     assert result["covered"] is False
     assert result["attempts"] == 1  # not retried; it will not fix itself
     assert "CliExitError" in result["error"]
+
+
+def test_missing_index_is_retried_until_it_appears(monkeypatch: Any) -> None:
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    calls = 0
+
+    def starting_index(**_kw: Any) -> Any:
+        class _Probe:
+            def search(self, _query: str) -> tuple[list[dict[str, Any]], float]:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise flows.CliExitError("vss exited 5 (index absent)", returncode=5)
+                return [{"video_name": "clip_a.mp4"}], 0.1
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", starting_index)
+    monkeypatch.setattr(rf.time, "sleep", lambda _s: None)
+    result = rf.probe_index_coverage(_Backend(), ["clip_a"], attempts=3, backoff_s=0)
+    assert result["covered"] is True
+    assert result["attempts"] == 2
+    assert calls == 2
+
+
+def test_missing_index_exhausts_bounded_probe_budget(monkeypatch: Any) -> None:
+    import run_eval_flows as rf
+
+    class _Backend:
+        vss_cmd: ClassVar[list[str]] = ["vss"]
+        cwd = None
+
+    calls = 0
+
+    def missing_index(**_kw: Any) -> Any:
+        class _Probe:
+            def search(self, _query: str) -> tuple[list[dict[str, Any]], float]:
+                nonlocal calls
+                calls += 1
+                raise flows.CliExitError("vss exited 5 (index absent)", returncode=5)
+
+        return _Probe()
+
+    monkeypatch.setattr(flows, "CliQueryBackend", missing_index)
+    monkeypatch.setattr(rf.time, "sleep", lambda _s: None)
+    result = rf.probe_index_coverage(_Backend(), ["clip_a"], attempts=2, backoff_s=0)
+    assert result["covered"] is False
+    assert result["attempts"] == 2
+    assert result["missing"] == ["clip_a"]
+    assert "index absent" in result["error"]
+    assert calls == 2
+
+
+def test_probe_caps_critic_without_changing_scored_queries() -> None:
+    import run_eval_flows as rf
+
+    regular = flows.CliQueryBackend(["vss"])
+    probe = rf._probe_backend(regular, 1000)
+    argv = probe.build_argv("a person")
+    assert argv[argv.index("--critic-eval-count") + 1] == "1"
+    assert "--critic-eval-count" not in regular.build_argv("a person")
 
 
 def test_an_unreachable_vst_is_unchecked_not_a_passing_anchor(monkeypatch: Any) -> None:
@@ -1629,6 +1760,62 @@ def test_the_llm_unreachable_fallback_lands_on_embed() -> None:
     assert rf.parse_args(["--endpoint", "https://host:8000"]).search_path == "embed"
 
 
+def test_fixed_search_path_disables_live_and_stored_decompositions() -> None:
+    import run_eval_flows as rf
+
+    args = rf.parse_args(["--endpoint", "https://host:8000", "--fixed-search-path"])
+    assert args.no_decompose is True
+    assert args.fixed_search_path is True
+
+
+def test_fixed_search_path_rejects_explicit_decompositions() -> None:
+    import run_eval_flows as rf
+
+    with pytest.raises(SystemExit) as exc:
+        rf.parse_args([
+            "--endpoint", "https://host:8000", "--fixed-search-path",
+            "--decompositions", "routes.json",
+        ])
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("fixed,expected_path", [(False, "fusion"), (True, "embed")])
+def test_stored_route_replay_and_fixed_path_are_distinct(
+    tmp_path: Path, fixed: bool, expected_path: str
+) -> None:
+    import run_eval_flows as rf
+
+    dataset_dir = tmp_path / "warehouse"
+    dataset_dir.mkdir()
+    (dataset_dir / "dataset.json").write_text(json.dumps({
+        "schema_version": 2,
+        "queries": {
+            "a person running in a hardhat": {
+                "segments": [],
+                "decomposition": {
+                    "query": "person running in a hardhat",
+                    "attributes": ["person in a hardhat"],
+                    "has_action": True,
+                },
+            },
+        },
+    }))
+    backend = flows.CliQueryBackend(["vss"], search_path="embed")
+    paths: list[str] = []
+
+    def search(query: str) -> tuple[list[dict[str, Any]], float]:
+        paths.append(backend.plan_for_query(query)["path"])
+        return [], 0.01
+
+    backend.search = search  # type: ignore[method-assign]
+    result = rf.run_evaluation(
+        backend, tmp_path, "warehouse", "", output_file=str(tmp_path / "result.json"),
+        use_dataset_decompositions=not fixed,
+    )
+    assert paths == [expected_path]
+    assert result["flow"]["query"]["planned_paths"] == f"{expected_path}=1"
+
+
 def test_the_fallback_path_needs_nothing_a_decomposition_would_supply() -> None:
     """The property that makes embed the right fallback, not just the default."""
     argv = flows.CliQueryBackend(["vss"], search_path="embed").build_argv("a person running")
@@ -1805,6 +1992,27 @@ def test_a_different_video_never_matches() -> None:
     assert flows.match_segment(_window("vidB", 10), gt)[0] == -1
 
 
+@pytest.mark.parametrize(
+    "api_name, ground_truth, expected",
+    [
+        ("clip_1.mp4", "clip_1", True),
+        ("clip_1.mkv", "clip_1.mp4", True),
+        ("clip_1_20250101_000000_e0482.mp4", "clip_1", True),
+        ("clip_10.mp4", "clip_1", False),
+        ("clip_1_unrelated.mp4", "clip_1", False),
+    ],
+)
+def test_video_name_match_requires_complete_identity(api_name: str, ground_truth: str, expected: bool) -> None:
+    assert flows.video_name_matches(api_name, ground_truth) is expected
+
+
+def test_prefix_collision_does_not_inflate_scores() -> None:
+    scored = flows.evaluate_query("q", [_window("clip_10.mp4", 10)], [_window("clip_1", 10)], 0.1)
+    assert scored["precision"] == 0.0
+    assert scored["recall"] == 0.0
+    assert scored["average_precision"] == 0.0
+
+
 # ---------------------------------------------------------------------------
 # no_opinion: the safety check that catches a critic which ran and said nothing
 # ---------------------------------------------------------------------------
@@ -1838,9 +2046,8 @@ def test_a_critic_that_only_ever_said_unverified_is_no_opinion() -> None:
     """Blocks present, zero opinions -- the state that reads as agreement.
 
     filter_rejected drops nothing, so critic_filtered comes out numerically
-    identical to raw and looks like the critic endorsed retrieval. Observed for
-    real: a loopback clip URL, RT-VLM's SSRF guard returning 422, and all 121
-    queries unverified at exit 0.
+    identical to raw and looks like the critic endorsed retrieval. A VST clip
+    URL that RT-VLM cannot fetch can produce this state at exit 0.
     """
     summary = _summary({"verification"}, {"unverified": 10})
     assert summary["critic"]["status"] == "no_opinion"

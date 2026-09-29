@@ -256,6 +256,7 @@ def _probe_backend(query_backend: Any, top_k: int, source: str | None = None) ->
         top_k=top_k,
         cwd=query_backend.cwd,
         pass_original_query=False,
+        critic_eval_count=1,
         decompositions=decompositions,
     )
 
@@ -310,9 +311,13 @@ def probe_index_coverage(
             # exactly that way.
             names = list(flows.list_sensor_streams(vst_url).values())
             for source in expected_sources:
-                # Match case-insensitively, but keep VST's own spelling.
-                variants = flows.name_variants(source)
-                match = next((n for n in names if n.lower() in variants), None)
+                # Use the same complete-identity rule as scoring. VST may add
+                # an upload suffix, and the source-scoped query must use VST's
+                # original spelling for case-sensitive ES keyword fields.
+                match = next(
+                    (n for n in names if flows.video_name_matches(n.lower(), source.lower())),
+                    None,
+                )
                 if match:
                     registered[source] = match
         except Exception as e:  # noqa: BLE001
@@ -320,6 +325,7 @@ def probe_index_coverage(
 
     broad = _probe_backend(query_backend, min(1000, max(50, top_k_per_source * len(expected_sources))))
     missing = list(expected_sources)
+    last_index_error: str | None = None
 
     for attempt in range(1, attempts + 1):
         try:
@@ -340,9 +346,26 @@ def probe_index_coverage(
                     confirmed_missing.append(source)
                     continue
                 scoped_hits, _ = _probe_backend(query_backend, 1, source=name).search(PROBE_QUERY)
-                if not scoped_hits:
+                if not any(flows.video_name_matches(hit.get("video_name", ""), source) for hit in scoped_hits):
                     confirmed_missing.append(source)
             missing = confirmed_missing
+            last_index_error = None
+        except flows.CliExitError as e:
+            if e.returncode != 5:
+                return {
+                    "checked": True,
+                    "covered": False,
+                    "attempts": attempt,
+                    "error": f"{type(e).__name__}: {e}",
+                }
+            # VIOS registration can precede creation of the embedding index.
+            # Exit 5 is a readiness state for this probe, not a zero-hit result.
+            last_index_error = f"{type(e).__name__}: {e}"
+            missing = list(expected_sources)
+            if attempt < attempts:
+                print(f"  Probe {attempt}/{attempts}: search index not ready; retrying in {backoff_s:.0f}s")
+                time.sleep(backoff_s)
+            continue
         except Exception as e:  # noqa: BLE001
             # An environment fault is worth reporting as itself rather than as
             # an empty index -- exit 4 means misconfigured, not unindexed.
@@ -370,7 +393,7 @@ def probe_index_coverage(
             )
             time.sleep(backoff_s)
 
-    return {
+    result = {
         "checked": True,
         "covered": False,
         "attempts": attempts,
@@ -379,6 +402,9 @@ def probe_index_coverage(
         "missing_count": len(missing),
         "per_source_verified": bool(registered),
     }
+    if last_index_error:
+        result["error"] = last_index_error
+    return result
 
 
 def expected_sources_from_upload(upload_stats: dict[str, Any]) -> list[str]:
@@ -576,6 +602,7 @@ def run_evaluation(
     decomposer: Any = None,
     decompose_fallback: dict[str, Any] | None = None,
     tolerate_unanswered: int = 0,
+    use_dataset_decompositions: bool = True,
 ) -> dict[str, Any]:
     """Score every dataset query through ``query_backend``.
 
@@ -591,7 +618,7 @@ def run_evaluation(
     annotations, dataset_decompositions = flows.unpack_dataset(data)
     queries = list(annotations.keys())
 
-    if dataset_decompositions and hasattr(query_backend, "decompositions"):
+    if use_dataset_decompositions and dataset_decompositions and hasattr(query_backend, "decompositions"):
         if query_backend.decompositions:
             print(
                 f"NOTE: --decompositions ({len(query_backend.decompositions)}) overrides the "
@@ -900,9 +927,9 @@ def _summarize(
     # metrics come out numerically identical to raw, which reads as "the critic
     # agreed with retrieval" when it never rendered an opinion at all.
     #
-    # Observed in practice: a CLI configured with a loopback base_url hands
-    # RT-VLM a `localhost` clip link, its SSRF guard returns 422, and all 121
-    # queries came back unverified at exit 0.
+    # A VST-returned clip URL that RT-VLM cannot fetch can leave every hit
+    # unverified while the CLI search itself exits 0. The CLI's base URL is
+    # not necessarily the clip URL: video_url_scope is "internal".
     real_sources = sources_seen - {flows.VERIFICATION_ABSENT}
     verdicts = verdicts or {}
     opinions = verdicts.get("confirmed", 0) + verdicts.get("rejected", 0)
@@ -914,8 +941,8 @@ def _summarize(
                 "Verification blocks were present but every verdict was 'unverified': "
                 "the critic ran and formed no opinion. Critic-filtered metrics are "
                 "suppressed because they would equal raw. Common cause: the clip URL "
-                "handed to RT-VLM is not resolvable from inside its container -- check "
-                "`vss configure show` is not a loopback address."
+                "handed to RT-VLM is not reachable from its container -- inspect "
+                "the actual VST-returned videoUrl and RT-VLM connectivity."
             ),
         }
         real_sources = set()
@@ -1387,10 +1414,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--no-decompose",
         action="store_true",
         help=(
-            "Do not decompose. Every query then takes --search-path, which "
-            "measures one retrieval path rather than the routing the product "
-            "performs -- correct for a baseline, wrong for an eval."
+            "Skip live decomposition. Replay stored per-query routes from the "
+            "dataset or --decompositions when present; otherwise use --search-path. "
+            "For a true single-path baseline use --fixed-search-path."
         ),
+    )
+    p.add_argument(
+        "--fixed-search-path",
+        action="store_true",
+        help="Use --search-path for every query, ignoring live and dataset decompositions (baseline only).",
     )
     p.add_argument(
         "--no-original-query",
@@ -1425,6 +1457,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Print the resolved backends and a sample CLI invocation, then exit",
     )
     args = p.parse_args(argv)
+    if args.fixed_search_path and args.decompositions:
+        p.error("--fixed-search-path cannot be combined with --decompositions")
+    if args.fixed_search_path:
+        args.no_decompose = True
     if (args.only_dataset or args.clear) and not args.confirm_delete:
         p.error("--only-dataset and --clear require --confirm-delete")
     if (args.only_dataset or args.clear) and args.skip_ingest:
@@ -1448,7 +1484,10 @@ def main() -> None:
     decompose_fallback: dict[str, Any] | None = None
     if args.no_decompose:
         if not args.dry_run:
-            print(f"decomposition: OFF (--no-decompose) -- every query uses --search-path {args.search_path}")
+            if args.fixed_search_path:
+                print(f"decomposition: OFF (--fixed-search-path) -- every query uses --search-path {args.search_path}")
+            else:
+                print("decomposition: live OFF (--no-decompose) -- stored routes replay when present")
     elif args.decompositions:
         if not args.dry_run:
             print(f"decomposition: from {args.decompositions} -- not live")
@@ -1672,7 +1711,7 @@ def main() -> None:
                     "scores that as a retrieval regression.\n"
                     "  Raise --index-probe-attempts if perception is merely slow. Otherwise "
                     "check webhooks.enabled in\n"
-                    "  the VIOS notification config (false in the Helm chart), and that "
+                    "  the deployed VIOS notification config, and that "
                     "RTVI_EMBED_MODEL matches the webhook's\n"
                     "  model string -- RT-Embed answers a mismatch with 200 and "
                     "inference=false."
@@ -1686,6 +1725,7 @@ def main() -> None:
         decomposer=decomposer,
         decompose_fallback=decompose_fallback,
         tolerate_unanswered=args.tolerate_unanswered,
+        use_dataset_decompositions=not args.fixed_search_path,
         output_file=args.output_file,
         run_name=args.name,
         concurrency=args.concurrency,

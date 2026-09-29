@@ -17,7 +17,7 @@
 
 Vendored from ``run_eval.py`` so this flow owns its scoring and that script can
 be deleted without taking the metrics with it. It started byte-for-byte
-equivalent and has since diverged once, deliberately:
+equivalent and has since diverged deliberately in two places:
 
 ``match_segment`` matches on half-open **overlap** rather than on equal start
 times. The old rule additionally required the ground truth to sit on the
@@ -32,6 +32,11 @@ datasets captured before that change are NOT comparable with runs after it:
 physicalai-dev moved mAP 0.1782 -> 0.3359 on identical retrieval. Chunk-shaped
 datasets are unaffected, and a test pins that.
 
+``video_name_matches`` requires a complete source identity (optionally with
+VST's timestamp/hash upload suffix). The legacy prefix match could score
+``clip_10`` as a hit for ``clip_1``; those old scores are not comparable for
+datasets containing such names.
+
 ``tests/test_search_eval_flows.py`` guards the rest against drift while both
 modules exist -- note it *skips* when ``run_eval.py`` is not importable, which
 is the normal case in this repo, so a green run is not proof of parity.
@@ -40,6 +45,7 @@ is the normal case in this repo, so a green run is not proof of parity.
 from __future__ import annotations
 
 import copy
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -82,12 +88,18 @@ def align_ts_to_segment(start: datetime, end: datetime) -> list[tuple[datetime, 
 
 
 def video_name_matches(api_name: str, gt_name: str) -> bool:
-    """Prefix match, because VST renames uploads.
+    """Match the complete source identity, allowing VST's upload suffix.
 
     Ground truth says ``warehouse_sample``; search returns
     ``warehouse_sample_20250101_000000_e0482.mp4``.
     """
-    return api_name.replace(".mp4", "").startswith(gt_name)
+    def stem(name: str) -> str:
+        return name[:-4] if name.lower().endswith((".mp4", ".mkv")) else name
+
+    actual, expected = stem(api_name), stem(gt_name)
+    if actual == expected:
+        return True
+    return re.fullmatch(rf"{re.escape(expected)}_\d{{8}}_\d{{6}}_[0-9a-fA-F]{{5}}", actual) is not None
 
 
 def match_segment(api_result: dict, gt_segments: list[dict]) -> tuple[int, dict | None]:
