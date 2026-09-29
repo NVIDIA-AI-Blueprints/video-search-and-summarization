@@ -281,6 +281,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vss-alert-bridge.vstBaseUrl`** | **`""`** | Base URL of the VST service for alert media retrieval. Required when alerts are enabled. |
 | **`vss-alert-bridge.vlmName`** | **`nim_nvidia_cosmos3-nano-reasoner_bf16-final`** | VLM model name used by the alert bridge. Override when pointing at a different model endpoint. |
 | **`vss-alert-bridge.vlmBaseUrl`** | **`""`** | External VLM base URL. Set this and omit **`rtvi.vss-rtvi-vlm.enabled`** when using an external VLM instead of the in-cluster RT-VLM pod. |
+| **`vss-alert-bridge.waitForDependencies.vlmReadyUrl`** | **`<vlmBaseUrl>/v1/health/ready`** | Waits up to 30 minutes before starting the alert bridge. For an external VLM, set its readiness URL or clear this value if unsupported. |
 | **`agent.enabled`** | **`false`** | Enables `vss-agent` and `vss-va-mcp`. Required for the alerts stack. |
 | **`vss-agent-ui.enabled`** | **`false`** | Enables the agent UI. Required for alerts; not controlled by **`agent.enabled`**. |
 
