@@ -271,7 +271,7 @@ class RealSpecCorpus(unittest.TestCase):
         ).read_text()
         self.assertIn("openshell-a16-active", planner)
         self.assertIn("openshell-a40-active", planner)
-        self.assertIn("openshell-h200-active", planner)
+        self.assertIn("poc-copy", planner)
         self.assertIn("gpu-h200", planner)
         self.assertNotIn("gpu-rtxpro6000bw", plan_matrix.OPENSHELL_H200_LABELS)
         self.assertNotIn(
@@ -319,7 +319,7 @@ class RealSpecCorpus(unittest.TestCase):
             elif leg["cohort"].startswith("a40"):
                 self.assertIn("openshell-a40-active", leg["runs_on"])
             elif leg["cohort"] == "h200-1g":
-                self.assertIn("openshell-h200-active", leg["runs_on"])
+                self.assertIn("poc-copy", leg["runs_on"])
                 self.assertIn("gpu-h200", leg["runs_on"])
                 self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
                 self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
@@ -685,7 +685,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertIn("gpus-2", a40_2g)
 
         h200 = plan_matrix.runs_on_labels("H200", {"gpu_count": 1})
-        self.assertIn("openshell-h200-active", h200)
+        self.assertIn("poc-copy", h200)
         self.assertIn("gpu-h200", h200)
         self.assertIn("gpu-nvidia-h200", h200)
         self.assertIn("gpus-1", h200)
@@ -876,7 +876,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertEqual(inc[0]["spec_stem"], "base")
         self.assertEqual(inc[0]["platform"], "H200")
         self.assertEqual(inc[0]["cohort"], "h200-1g")
-        self.assertIn("openshell-h200-active", inc[0]["runs_on"])
+        self.assertIn("poc-copy", inc[0]["runs_on"])
         self.assertNotIn("gpu-rtxpro6000bw", inc[0]["runs_on"])
         self.assertEqual(inc[0]["kind"], "eval")
 
