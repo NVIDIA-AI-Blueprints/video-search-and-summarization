@@ -44,6 +44,17 @@ Never place a backend credential in a `NEXT_PUBLIC_*` variable. In Docker, the
 harness forward binds to Docker's private bridge address and the UI connects to
 `host.docker.internal`; the port is not published on an external interface.
 
+## Browser gateway token
+
+With `openclaw-ws` and no server-provided `AGENT_BACKEND_TOKEN`, the UI asks for
+the NemoClaw gateway token. A link ending in `#token=<URL-encoded-token>` also
+connects the chat. The fragment is read by the browser and supplied through the
+same agent API header as a manually entered token; it is not part of the HTTP
+request URL. A fragment token overrides a token saved in the current tab, and
+changing or forgetting the token removes the fragment from the address bar.
+The link grants gateway access to anyone who has it, so share it only with
+intended users.
+
 ## Follow-up questions
 
 Structured interaction responses are deliberately unsupported in the launch
