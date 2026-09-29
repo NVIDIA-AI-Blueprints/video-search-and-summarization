@@ -205,9 +205,9 @@ export class RunStore {
     }
   }
 
-  private oldestTerminal(ownerFingerprint?: string): RunRecord | undefined {
+  private oldestTerminal(): RunRecord | undefined {
     return [...this.runs.values()]
-      .filter((record) => record.terminal && record.ownerFingerprint === ownerFingerprint)
+      .filter((record) => record.terminal)
       .sort((left, right) => left.lastUpdatedAt - right.lastUpdatedAt)[0];
   }
 
@@ -275,7 +275,10 @@ export class RunStore {
       this.runs.size >= this.maxRuns ||
       this.retainedChars + record.retainedChars > this.maxRetainedChars
     ) {
-      const terminal = this.oldestTerminal(ownerFingerprint);
+      // Replay retention is best effort under the global capacity limit.
+      // Evict only completed runs so a valid token can start new work without
+      // interrupting any active run.
+      const terminal = this.oldestTerminal();
       if (!terminal) {
         throw new StoreCapacityError(
           this.runs.size >= this.maxRuns

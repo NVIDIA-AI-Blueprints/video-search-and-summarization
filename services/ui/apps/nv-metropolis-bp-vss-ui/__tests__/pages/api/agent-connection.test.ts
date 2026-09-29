@@ -4,7 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { agentAdapterHandler, getAgentAdapterService, resetAgentAdapterForTests } from '../../../utils/server/agentAdapter';
 import { ConnectorError } from '../../../utils/server/agentAdapter/connectors/base';
 import { OpenClawConnector } from '../../../utils/server/agentAdapter/connectors/openClaw';
-import { RunNotFoundError, RunStore, StoreCapacityError, type RunRecord } from '../../../utils/server/agentAdapter/store';
+import { RunNotFoundError, RunStore, type RunRecord } from '../../../utils/server/agentAdapter/store';
 
 const keys = ['AGENT_ADAPTER_ENABLED', 'AGENT_BACKEND_PROTOCOL', 'AGENT_BACKEND_URL', 'AGENT_BACKEND_TOKEN'] as const;
 
@@ -161,7 +161,7 @@ describe('NemoClaw runtime token', () => {
     active!.store.finish(run, 'run.completed');
   });
 
-  it('never evicts one token’s retained run to admit another token’s run', () => {
+  it('evicts the oldest completed run at global capacity without exposing it to another token', () => {
     const store = new RunStore(60_000, 1, 10, 1_000, 10_000);
     const input = {
       threadId: 'same-thread',
@@ -172,10 +172,11 @@ describe('NemoClaw runtime token', () => {
     };
     const first = store.create(input, undefined, 'owner-a').record;
     store.finish(first, 'run.completed');
-    expect(() => store.create(input, undefined, 'owner-b')).toThrow(StoreCapacityError);
-    expect(store.get(first.runId, 'owner-a')).toBe(first);
-    const replacement = store.create(input, undefined, 'owner-a').record;
+    const replacement = store.create(input, undefined, 'owner-b').record;
     expect(replacement.runId).not.toBe(first.runId);
+    expect(() => store.get(first.runId, 'owner-a')).toThrow(RunNotFoundError);
+    expect(() => store.get(replacement.runId, 'owner-a')).toThrow(RunNotFoundError);
+    expect(store.get(replacement.runId, 'owner-b')).toBe(replacement);
   });
 
   it('cancels a cached active run locally during a gateway outage', async () => {
