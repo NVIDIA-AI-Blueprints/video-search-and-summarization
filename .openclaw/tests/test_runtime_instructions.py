@@ -86,30 +86,20 @@ class EnvironmentInstructions(unittest.TestCase):
             ["", ""],
         )
 
-    def test_direct_url_does_not_require_memory_configuration(self):
-        script = (
-            bash_block(SKILL, "## Prerequisites")
-            + "\n"
-            + bash_block(SKILL, "For a trusted bounded URL")
-        )
-        result = self.exports(
-            {
-                "VIDEO_URL": "https://media.example/video.mp4",
-                "USER_QUESTION": "What happened?",
-            },
-            names=(),
-            script="""set -e
-            vss() {
-              case "$*" in
-                'configure check') return 0 ;;
-                'vlm run '*) printf 'direct-url-answer' ;;
-                *) echo 'memory is not configured' >&2; return 2 ;;
-              esac
-            }
-            """
-            + script,
-        )
-        self.assertIn("direct-url-answer", result)
+    def test_video_qa_skill_has_one_full_video_vlm_call(self):
+        text = SKILL.read_text()
+        blocks = re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL)
+        self.assertEqual(len(blocks), 1)
+
+        command = blocks[0]
+        self.assertEqual(command.count("vss vlm run"), 1)
+        self.assertIn('--sensor "$VSS_SENSOR_ID"', command)
+        self.assertIn('--prompt "<exact benchmark question>"', command)
+        self.assertNotIn("--start", command)
+        self.assertNotIn("--end", command)
+        self.assertNotIn("vss memory", command)
+        self.assertIn("3.3.0-single-call", text)
+        self.assertIn("/output/answer.json", text)
 
     def notebook_script(self, origin, hitl):
         path = ROOT / "deploy/docker/scripts/deploy_nemoclaw.ipynb"
