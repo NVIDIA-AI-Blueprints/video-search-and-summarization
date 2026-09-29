@@ -180,8 +180,9 @@ export class RunStore {
     private readonly maxRetainedChars: number
   ) {}
 
-  hasActiveRuns(): boolean {
-    return this.activeThreads.size > 0;
+  hasRetainedRuns(): boolean {
+    this.cleanup();
+    return this.runs.size > 0;
   }
 
   private remove(runId: string): void {

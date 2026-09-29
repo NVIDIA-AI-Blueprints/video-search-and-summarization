@@ -87,6 +87,17 @@ const configFingerprint = (environment: NodeJS.ProcessEnv): string =>
     )
     .digest("hex");
 
+const canCancelCachedRun = (environment: NodeJS.ProcessEnv, segments: string[]): boolean => {
+  if (segments.length !== 3 || segments[0] !== "runs" || segments[2] !== "cancel") return false;
+  const service = globalThis.__vssEmbeddedAgentAdapterSessions?.get(configFingerprint(environment))?.service;
+  if (!service) return false;
+  try {
+    return !service.store.get(segments[1]).terminal;
+  } catch {
+    return false;
+  }
+};
+
 export const getAgentAdapterService = (
   environment: NodeJS.ProcessEnv = process.env
 ): AgentAdapterService | null => {
@@ -99,7 +110,7 @@ export const getAgentAdapterService = (
     for (const [key, entry] of sessions) {
       if (
         now - entry.lastUsed > TOKEN_SESSION_IDLE_MS &&
-        !entry.service.store.hasActiveRuns()
+        !entry.service.store.hasRetainedRuns()
       ) sessions.delete(key);
     }
     const cached = sessions.get(fingerprint);
@@ -109,13 +120,14 @@ export const getAgentAdapterService = (
     }
     while (sessions.size >= MAX_TOKEN_SESSIONS) {
       const oldestIdle = [...sessions.entries()]
-        .filter(([, entry]) => !entry.service.store.hasActiveRuns())
+        .filter(([, entry]) => !entry.service.store.hasRetainedRuns())
         .sort((left, right) => left[1].lastUsed - right[1].lastUsed)[0];
       if (!oldestIdle) break;
       sessions.delete(oldestIdle[0]);
     }
-    // Preserve in-flight runs when every session is active. A later request
-    // can evict an idle session after one of those runs completes.
+    // Retained runs stay addressable until the store's retention window ends.
+    // If every session retains runs, allow a temporary overflow instead of
+    // rejecting a valid token or discarding a run.
     const service = new AgentAdapterService(config);
     sessions.set(fingerprint, { fingerprint, service, lastUsed: now });
     return service;
@@ -366,13 +378,21 @@ export const agentAdapterHandler = async (
         return;
       }
       const code = error instanceof ConnectorError ? error.code : "backend_unreachable";
-      errorResponse(
-        res,
-        code === "backend_auth_error" || code === "backend_scope_error" ? 401 : 503,
-        code,
-        error instanceof ConnectorError ? error.message : "NemoClaw gateway is unavailable"
-      );
-      return;
+      // A transient gateway outage must not block local cancellation of a
+      // run already owned by this token. Rejected credentials still fail closed.
+      if (
+        code !== "backend_unreachable" ||
+        req.method !== "POST" ||
+        !canCancelCachedRun(environment, segments)
+      ) {
+        errorResponse(
+          res,
+          code === "backend_auth_error" || code === "backend_scope_error" ? 401 : 503,
+          code,
+          error instanceof ConnectorError ? error.message : "NemoClaw gateway is unavailable"
+        );
+        return;
+      }
     }
   }
   let service: AgentAdapterService | null;

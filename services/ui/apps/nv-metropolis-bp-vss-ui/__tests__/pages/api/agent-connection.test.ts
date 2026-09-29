@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { agentAdapterHandler, getAgentAdapterService, resetAgentAdapterForTests } from '../../../utils/server/agentAdapter';
 import { ConnectorError } from '../../../utils/server/agentAdapter/connectors/base';
 import { OpenClawConnector } from '../../../utils/server/agentAdapter/connectors/openClaw';
+import type { RunRecord } from '../../../utils/server/agentAdapter/store';
 
 const keys = ['AGENT_ADAPTER_ENABLED', 'AGENT_BACKEND_PROTOCOL', 'AGENT_BACKEND_URL', 'AGENT_BACKEND_TOKEN'] as const;
 
@@ -20,7 +21,7 @@ const response = () => {
 
 const request = (path: string, method = 'GET', token?: string) => ({
   method,
-  query: { path: [path] },
+  query: { path: path.split('/') },
   headers: token ? { 'x-vss-gateway-token': token } : {},
 }) as unknown as NextApiRequest;
 
@@ -109,15 +110,47 @@ describe('NemoClaw runtime token', () => {
     expect(capabilities.body).toMatchObject({ error: { code: 'backend_auth_error' } });
   });
 
-  it('makes room for another valid token without evicting an active session', () => {
-    const active = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' });
-    jest.spyOn(active!.store, 'hasActiveRuns').mockReturnValue(true);
+  it('makes room for another valid token without evicting retained runs', () => {
+    const retained = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' });
+    jest.spyOn(retained!.store, 'hasRetainedRuns').mockReturnValue(true);
     for (let index = 1; index < 32; index += 1) {
       getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: `token-${index}` });
     }
     const next = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-32' });
     expect(next).toBeTruthy();
     expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size).toBe(32);
-    expect(getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' })).toBe(active);
+    expect(getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-0' })).toBe(retained);
+  });
+
+  it('admits a valid token while every existing session retains a run', () => {
+    for (let index = 0; index < 32; index += 1) {
+      const service = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: `token-${index}` });
+      jest.spyOn(service!.store, 'hasRetainedRuns').mockReturnValue(true);
+    }
+    expect(getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'token-32' })).toBeTruthy();
+    expect(globalThis.__vssEmbeddedAgentAdapterSessions?.size).toBe(33);
+  });
+
+  it('cancels a cached active run locally during a gateway outage', async () => {
+    const service = getAgentAdapterService({ ...process.env, AGENT_BACKEND_TOKEN: 'valid-token' });
+    const record = {
+      terminal: false,
+      snapshot: () => ({ run_id: 'run-1', status: 'running' }),
+    } as unknown as RunRecord;
+    jest.spyOn(service!.store, 'get').mockReturnValue(record);
+    const cancel = jest.spyOn(service!, 'cancelRun').mockResolvedValue(record);
+    jest.spyOn(OpenClawConnector.prototype, 'checkConnection')
+      .mockRejectedValueOnce(new ConnectorError('unreachable', 'backend_unreachable'))
+      .mockRejectedValueOnce(new ConnectorError('rejected', 'backend_auth_error'));
+
+    const result = response();
+    await agentAdapterHandler(request('runs/run-1/cancel', 'POST', 'valid-token'), result);
+    expect(result.statusCode).toBe(202);
+    expect(cancel).toHaveBeenCalledWith('run-1');
+
+    const rejected = response();
+    await agentAdapterHandler(request('runs/run-1/cancel', 'POST', 'valid-token'), rejected);
+    expect(rejected.statusCode).toBe(401);
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
