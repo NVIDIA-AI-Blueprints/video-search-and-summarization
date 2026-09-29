@@ -7,7 +7,6 @@ metadata:
   version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
-  vss-requires: "always"
 ---
 # VSS Generate Video Calibration
 
