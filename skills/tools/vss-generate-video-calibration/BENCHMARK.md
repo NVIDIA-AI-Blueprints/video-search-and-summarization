@@ -1,79 +1,82 @@
 # Evaluation Report
 
-Evaluation of the `vss-generate-video-calibration` skill before publication through NVSkills-Eval.
+Evaluation record for `vss-generate-video-calibration` before NVSkills-Eval publication.
 
-This benchmark summarizes 3-Tier Evaluation from NVSkills-Eval results for the skill. The goal is to document whether the skill is safe, discoverable, effective, and useful for agents before it is published for broader workflow use.
+## Current Status
 
-## Evaluation Summary
-
-- Skill: `vss-generate-video-calibration`
-- Evaluation date: 2026-07-15
+- Status: **Pending full re-evaluation**
+- Reason: The previous 2026-07-15 report covered only three positive cases and predates the AMC 3.3.0, rectification, settings-validation, and tuning workflows.
+- Source commit: **Record at run time**
 - NVSkills-Eval profile: `external`
-- Environment: `astra-sandbox`
-- Dataset: 3 evaluation tasks
-- Attempts per task: 1
-- Pass threshold: 50%
-- Overall verdict: PASS
+- Environment: **Record at run time**
+- Agents: `claude-code`, `codex`
+- Attempts: At least 3 per task and agent in each arm
+- Pass threshold: 50% per reported dimension
+- Publication verdict: **Pending** — do not declare PASS until the completed run meets every stated threshold.
 
-## Agents Used
+## Evaluation Corpus
 
-- `claude-code`
-- `codex`
+Run every case in [`evals/evals.json`](evals/evals.json):
 
-## Metrics Used
+- AMC activation cases: 5
+- AMC non-activation cases: 5, including sibling-skill decoys for video summarization and alerts, plus non-AMC target-based stereo calibration
+- Total cases: 10
 
-Reported benchmark dimensions:
+The CI-oriented [`evals/auto-calibration.json`](evals/auto-calibration.json) remains the separate execution specification for the supported AMC environment.
 
-- Security: checks whether skill-assisted execution avoids unsafe behavior such as secret leakage, destructive commands, or unauthorized access.
-- Correctness: checks whether the agent follows the expected workflow and produces the correct final output.
-- Discoverability: checks whether the agent loads the skill when relevant and avoids using it when irrelevant.
-- Effectiveness: checks whether the agent performs measurably better with the skill than without it.
-- Efficiency: checks whether the agent uses fewer tokens and avoids redundant work.
+## Metrics
 
-Underlying evaluation signals used in this run:
+- **Security:** avoids secret leakage, destructive actions, and unauthorized access.
+- **Correctness:** follows expected workflow and produces the expected outcome.
+- **Discoverability:** activates AMC when relevant and avoids it when a sibling or non-AMC workflow applies.
+- **Effectiveness:** improves task completion versus the no-skill baseline.
+- **Efficiency:** avoids redundant work and records token and wall-clock cost in both arms.
 
-- `security` (Security): checks for unsafe operations, secret leakage, and unauthorized access.
-- `skill_execution` (Skill Execution): verifies that the agent loaded the expected skill and workflow.
-- `skill_efficiency` (Efficiency): checks routing quality, decoy avoidance, and redundant tool usage.
-- `accuracy` (Accuracy): grades final-answer correctness against the reference answer.
-- `goal_accuracy` (Goal Accuracy): checks whether the overall user task completed successfully.
-- `behavior_check` (Behavior Check): verifies expected behavior steps, including safety expectations.
-- `token_efficiency` (Token Efficiency): compares token usage with and without the skill.
+## Run Protocol
 
-## Test Tasks
+For each agent, run every corpus case in two arms:
 
-The benchmark dataset contained 3 evaluation tasks:
+1. **Without skill** — the AMC skill unavailable to the agent.
+2. **With skill** — the AMC skill and its references available normally.
 
-- Positive tasks: 3 tasks where the skill was expected to activate.
-- Negative tasks: 0 tasks where no skill was expected.
-- Unlabeled tasks: 0 tasks where positive/negative intent could not be inferred.
+Record the exact source commit, evaluation command/profile, environment, per-case outcome, input/output tokens, and wall-clock duration. Compute uplift in percentage points as `with-skill score - without-skill score`.
 
-Task composition is derived from the evaluation dataset when possible. Entries with `expected_skill` set are treated as positive skill-activation cases, while entries with `expected_skill: null` are treated as negative activation cases.
+## Results — Pending Measurement
 
-## Results
+### With Skill
 
-| Dimension | Num | `claude-code` | `codex` |
-|---|---:|---:|---:|
-| Security | 3 | 100% (+0%) | 100% (+0%) |
-| Correctness | 3 | 60% (+32%) | 68% (+42%) |
-| Discoverability | 3 | 73% (+26%) | 86% (+43%) |
-| Effectiveness | 3 | 31% (+24%) | 33% (+26%) |
-| Efficiency | 3 | 64% (+12%) | 77% (+27%) |
+| Dimension | Cases | `claude-code` score | `codex` score | Input tokens | Output tokens | Wall-clock |
+|---|---:|---:|---:|---:|---:|---:|
+| Security | 10 | Pending | Pending | Pending | Pending | Pending |
+| Correctness | 10 | Pending | Pending | Pending | Pending | Pending |
+| Discoverability | 10 | Pending | Pending | Pending | Pending | Pending |
+| Effectiveness | 10 | Pending | Pending | Pending | Pending | Pending |
+| Efficiency | 10 | Pending | Pending | Pending | Pending | Pending |
 
-Score values show skill-assisted performance. Values in parentheses show uplift versus the no-skill baseline when baseline data is available.
+### Without Skill Baseline
 
-## Tier 1: Static Validation Summary
+| Dimension | Cases | `claude-code` score | `codex` score | Input tokens | Output tokens | Wall-clock |
+|---|---:|---:|---:|---:|---:|---:|
+| Security | 10 | Pending | Pending | Pending | Pending | Pending |
+| Correctness | 10 | Pending | Pending | Pending | Pending | Pending |
+| Discoverability | 10 | Pending | Pending | Pending | Pending | Pending |
+| Effectiveness | 10 | Pending | Pending | Pending | Pending | Pending |
+| Efficiency | 10 | Pending | Pending | Pending | Pending | Pending |
 
-Tier 1 validation passed with observations. NVSkills-Eval ran 1 checks and found 1 total findings.
+### Uplift
 
-Top findings:
+| Dimension | `claude-code` uplift (pp) | `codex` uplift (pp) |
+|---|---:|---:|
+| Security | Pending | Pending |
+| Correctness | Pending | Pending |
+| Discoverability | Pending | Pending |
+| Effectiveness | Pending | Pending |
+| Efficiency | Pending | Pending |
 
-- MEDIUM SCHEMA/author_missing: Author not specified in metadata (`skills/tools/vss-generate-video-calibration/SKILL.md`)
+## Static Validation Follow-up
 
-## Tier 2: Deduplication Summary
+The superseded report recorded `SCHEMA/author_missing`, but current `SKILL.md` declares `metadata.author`. Re-run static validation at the measured commit and record the reconciled result here; do not carry the stale finding forward as current evidence.
 
-This tier was not run or did not produce findings in this report.
+## Publication Decision
 
-## Publication Recommendation
-
-The skill is suitable to proceed toward NVSkills-Eval publication based on this benchmark. Skill owners should keep this file with the skill and refresh it when the evaluation dataset, skill behavior, or target agents materially change.
+After results are recorded, reconcile all static findings against the checked source, including `metadata.author`, and set the verdict to PASS only when every stated threshold passes. Otherwise record FAIL or NEEDS IMPROVEMENT with the failing dimensions and follow-up work.

@@ -59,6 +59,6 @@ Do not use this endpoint for an active run. Stop or wait for the active job firs
 
 Once the mode-specific reference has uploaded videos, alignment, and layout
 (plus any optional GT zip / focal lengths), continue with the **Shared
-Calibration Tail** — see [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media)
+Calibration Tail** — see [SKILL.md Step A onward](../SKILL.md#step-a-stage-linear-media)
 for the REST flow and [`calibration-tail.md`](calibration-tail.md) for the
 shared Python snippet (stage linear media → verify → VGGT/post-process when ready → AMC/post-process → results).

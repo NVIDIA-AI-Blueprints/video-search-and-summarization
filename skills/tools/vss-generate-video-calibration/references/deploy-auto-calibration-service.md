@@ -42,7 +42,7 @@ Set stable service defaults such as container ports in [`deploy/docker/industry-
 
 Standard compose-centric workflow: initialize `generated.env` from `overrides.env` → apply env overrides → `docker compose --env-file .env --env-file generated.env config` dry-run → review → `docker compose up` with the same env-file pair.
 
-### Step 0 — Platform Preflight
+### Step 0: Platform Preflight
 
 Run this before NGC login, image pulls, VIOS checks, capture, upload, or calibration. AMC 3.3.0 requires Ubuntu 24.04 on an `x86_64` calibration host, NVIDIA Driver 590 or newer, NVIDIA GPU access, NVENC hardware encoder support, non-root Docker access, and NVIDIA Container Toolkit. DGX Spark is an `aarch64` system, so it is not a supported AMC calibration host for this flow even though it has NVENC; use an existing `calibration.json`, run calibration on a supported host, or transfer generated calibration artifacts.
 
@@ -111,7 +111,7 @@ fi
 echo "AMC platform preflight passed"
 ```
 
-### Step 1 — NGC login
+### Step 1: NGC login
 
 AMC pulls its images from the `vss-core` namespace on `nvcr.io`. The compose defaults are the **`nvstaging`** org (`nvcr.io/nvstaging/vss-core/…`), overridable via `VSS_AUTO_CALIBRATION_IMAGE` / `VSS_AUTO_CALIBRATION_UI_IMAGE` — read the resolved path from `docker compose config` rather than assuming an org. The user's NGC key must have access to whichever org resolves.
 
@@ -128,7 +128,7 @@ printenv NGC_CLI_API_KEY | docker login nvcr.io --username '$oauthtoken' --passw
 
 > **Credential handling.** State that you are logging in with `NGC_CLI_API_KEY` from the current env before you run it. If the var is `NOT SET`, or `docker login` fails / a pull later returns 401, **stop and ask the user for a valid NGC key** (`AskUserQuestion`) — do **not** reuse an NGC key seen earlier in the conversation unless the user explicitly confirms reusing it. Never echo, log, or persist the raw key. Use `printenv NGC_CLI_API_KEY | docker login … --password-stdin` — do **not** `echo "$NGC_CLI_API_KEY"` (that expands the secret into echo's argv). Keep the key out of any file you write.
 
-### Step 2 — Stage the VGGT model when required
+### Step 2: Stage the VGGT model when required
 
 Explicit multi-camera tuning counts as a request for VGGT. For ordinary calibration or deployment, skip this step unless the user asks for VGGT. For automated checks without accepted model access, do not attempt the gated download or claim the model exists.
 
@@ -196,7 +196,7 @@ test -s "${VSS_DATA_DIR}/auto-calib/vggt/vggt_1B_commercial.pt"
 
 Never ask the user to paste the token into chat or put it directly in command arguments. If the backend was already running, restart the Auto Calibration service, wait for `/v1/ready`, and confirm a verified multi-camera project reports `vggt_state == READY` before tuning.
 
-### Step 2b — If VIOS is already running, confirm `VIOS_BASE_URL`
+### Step 2b: If VIOS is already running, confirm `VIOS_BASE_URL`
 
 AMC's RTSP-stream calibration path calls VIOS over `${VIOS_BASE_URL}`. The warehouse stable `.env` defaults to `VIOS_BASE_URL=${VST_INTERNAL_URL}` (which resolves using `HOST_IP` from the runtime env layer). That default is correct when VIOS/VST comes up as part of the same compose stack — but if you're standing AMC up next to a **pre-existing** VIOS (separate image / different namespace / from another compose project), the default may point at nothing.
 
@@ -223,7 +223,7 @@ If VIOS is running, **before** the dry-run in Step 3:
 
 If you don't intend to use AMC's RTSP-stream path (only sample-dataset or pre-recorded videos), `VIOS_BASE_URL` is unused and you can skip this step.
 
-### Step 3 — Select the auto-calibration service list and deploy
+### Step 3: Select the auto-calibration service list and deploy
 
 Pick the deployment variant that matches the intent, initialize the runtime env if needed, then run the same **generate → confirm image access → bring up** sequence:
 
@@ -292,7 +292,7 @@ done
 docker compose --env-file industry-profiles/warehouse-operations/.env --env-file industry-profiles/warehouse-operations/generated.env up -d
 ```
 
-### Step 4 — Verify
+### Step 4: Verify
 
 ```bash
 PORT=$(grep ^VSS_AUTO_CALIBRATION_HOST_PORT industry-profiles/warehouse-operations/generated.env | cut -d= -f2)
@@ -326,7 +326,7 @@ echo "Microservice: http://${HOST_IP}:${PORT:-8010}"
 echo "Web UI:       http://${HOST_IP}:${UI_PORT:-5000}"
 ```
 
-### Step 5 — Confirm the projects directory is writable
+### Step 5: Confirm the projects directory is writable
 
 AMC stores each project under a host directory bind-mounted into the container. The container runs as **UID 1000** (`triton-server`), so that directory must be writable by UID 1000 — otherwise the first `POST /v1/create_project` returns `[Errno 13] Permission denied`. **On a fresh checkout this almost always fails the first time**: a `git clone` leaves `services/auto-calibration/projects` owned by the cloning user (whatever their UID is), and unless that happens to be UID 1000 the container can't write. Treat the write-test failing as the expected default on a new host and apply the scoped ACL below. Check this once after the stack is healthy, before any calibration run:
 

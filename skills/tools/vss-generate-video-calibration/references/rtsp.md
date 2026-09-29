@@ -1,4 +1,4 @@
-# vss-generate-video-calibration — RTSP Mode (live camera streams)
+# vss-generate-video-calibration RTSP Mode (live camera streams)
 
 Load this reference when the user wants to calibrate from **live RTSP camera streams**. The MS records each stream through VIOS, ingests the recorded clips, then runs the normal AMC calibration. Skip to the [Shared Calibration Tail](../SKILL.md#shared-calibration-tail) in SKILL.md once the RTSP capture + ingest is done and alignment/layout are uploaded.
 
@@ -13,9 +13,9 @@ For local MP4s instead, see `videos.md`. For verifying the install with the bund
 
 The shared prerequisites (AMC microservice, Python+requests) come from the SKILL.md [Prerequisites](../SKILL.md#prerequisites-shared-across-calibration-modes) section.
 
-## Step 1 — Verify Platform And VIOS
+## Step 1 Verify Platform And VIOS
 
-First run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0--platform-preflight). Do this before probing VIOS, capturing RTSP clips, or calling AMC APIs, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement and stop; do not continue to VIOS or capture until the user provides calibration artifacts or moves calibration to a supported host.
+First run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0-platform-preflight). Do this before probing VIOS, capturing RTSP clips, or calling AMC APIs, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement and stop; do not continue to VIOS or capture until the user provides calibration artifacts or moves calibration to a supported host.
 
 Then confirm VIOS is up. Probe in this order — stop at the first hit:
 
@@ -58,7 +58,7 @@ fi
 
 **If VIOS was detected on 30888 but the MS container env is unset**, the capture endpoint will still return 503 until `VIOS_BASE_URL` is set. The cleanest fix is to deploy alongside a `bp_wh_*` blueprint (which auto-wires it from `${VST_INTERNAL_URL}`). Otherwise set `VIOS_BASE_URL=http://<HOST_IP>:30888` in `deploy/docker/industry-profiles/warehouse-operations/generated.env` and re-run `docker compose --env-file ... up -d` from `deploy/docker/`.
 
-## Step 2 — Collect Inputs From User
+## Step 2 Collect Inputs From User
 
 ### Required
 1. **RTSP URLs** — one per camera. Example: `rtsp://<nvstreamer-host>:31556/stream/cam_00.mp4` or `rtsp://user:pass@<cam-ip>:554/stream`.
@@ -73,29 +73,29 @@ Because there's no local videos directory to anchor the scan, ask the user for t
 
 | File | Order |
 |---|---|
-| Calibration settings | Ask the user for a path. When provided, this file replaces the entire UI Step 3 Parameters dialog. If they don't have a file, skip to UI Step 3 **and** explicitly ask which detector to use. See [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern) for the parsing rule. |
+| Calibration settings | Ask the user for a path. When provided, this file replaces the entire UI Step 3 Parameters dialog. If they don't have a file, skip to UI Step 3 **and** explicitly ask which detector to use. See [Settings File + Detector Pattern](../SKILL.md#settings-file-and-detector-pattern) for the parsing rule. |
 | Alignment JSON | If a config path was given, scan the **same directory** for `alignment_data.json`. If exactly one match, use it; zero or multiple → ask the user; no answer → UI fallback. |
 | Layout PNG | Same scan rule, filename `layout.png`. |
 
 UI fallback details for any of these live in [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallback-pattern).
 
 ### Required when no calibration-settings file is provided
-6. **Detector type** — see [SKILL.md § Step D — Start AMC Calibration](../SKILL.md#step-d--start-amc-calibration) for the choice and the AskUserQuestion fallback.
-7. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d--start-amc-calibration) for the exact prompt.
+6. **Detector type** — see [SKILL.md § Step D — Start AMC Calibration](../SKILL.md#step-d-start-amc-calibration) for the choice and the AskUserQuestion fallback.
+7. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d-start-amc-calibration) for the exact prompt.
 
 ### Optional
 7. **`sensor_id`** per stream — if VIOS already has the sensor registered, pass the ID to skip re-registration. Leave null and the MS auto-registers via VIOS.
 8. **Ground truth zip** (`GT.zip`) and **focal lengths** — same options as the videos mode.
 
-Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c--independent-vggt-calibration). VGGT runs when ready; missing VGGT must not block AMC.
+Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c-independent-vggt-calibration). VGGT runs when ready; missing VGGT must not block AMC.
 
 For nvstreamer setup details and sensor pre-registration, see your VIOS deployment docs.
 
-## Step 3 — Initialize RTSP Run
+## Step 3 Initialize RTSP Run
 
 Before capture, allocate an AMC project using [`common-steps.md`](common-steps.md#create-project). The RTSP capture request uses that `project_id`.
 
-## Step 4 — Start RTSP Capture
+## Step 4 Start RTSP Capture
 
 ```
 POST /v1/rtsp/capture/<project_id>
@@ -121,7 +121,7 @@ Any state → ERROR
 STARTING → CANCELLED (no usable recording window)
 ```
 
-## Step 5 — Poll Automatic Ingest
+## Step 5 Poll Automatic Ingest
 
 Poll every ~10 s until session state is `INGESTED`:
 
@@ -137,11 +137,11 @@ AMC ingests recorded clips automatically. Do not call a separate ingest endpoint
 - `GET /v1/rtsp/sessions/<project_id>` — list all sessions for a project.
 - `DELETE /v1/rtsp/session/<project_id>/<session_id>` — delete a session record.
 
-## Step 6 — Apply Config, Upload Alignment / Layout
+## Step 6 Apply Config, Upload Alignment / Layout
 
 Resolve the config path (asked in Step 2) and use it as the anchor to scan for alignment + layout.
 
-**Calibration settings**: see [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern).
+**Calibration settings**: see [Settings File + Detector Pattern](../SKILL.md#settings-file-and-detector-pattern).
 
 **Alignment + layout** (resolved via same-dir scan of the config path, or user-provided, or UI fallback):
 ```
@@ -157,9 +157,9 @@ POST /v1/upload_focal_length/<project_id> focal_length=<f0>&focal_length=<f1>...
 
 UI fallback details — see [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallback-pattern). Note for RTSP: the "Layout missing → UI Step 2" instruction says to upload `layout.png` ONLY; do not touch the video section because clips are already ingested from RTSP capture.
 
-## Step 7 — Hand off to the Shared Calibration Tail
+## Step 7 Hand off to the Shared Calibration Tail
 
-After ingest, ask whether every captured clip is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely. [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calibration-tail) has the reusable handoff note.
+After ingest, ask whether every captured clip is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a-stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely. [`common-steps.md` § Hand off](common-steps.md#hand-off-to-the-shared-calibration-tail) has the reusable handoff note.
 
 ---
 
@@ -332,4 +332,4 @@ if FOCAL_LENGTHS:
 | 404 on `/v1/rtsp/capture/{project_id}` | Project doesn't exist — create it first via `/v1/create_project`. |
 | `verify_project` not `READY` after ingest | Ingest may have partially failed; re-check `GET /v1/get_project_info/<project_id>` — ensure all expected `video_files` are listed. |
 
-See the [Cross-cutting Troubleshooting](../SKILL.md#cross-cutting-troubleshooting) table in SKILL.md for issues that span all modes.
+See the [Troubleshooting](../SKILL.md#troubleshooting) table in SKILL.md for issues that span all modes.
