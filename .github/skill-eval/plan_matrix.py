@@ -186,7 +186,9 @@ OPENSHELL_H200_LABELS: tuple[str, ...] = (
     "h200",
     "gpu-h200",
     "gpu-nvidia-h200",
-    "openshell-h200-active",
+    # Temporary: this PoC runner advertises poc-copy instead of
+    # openshell-h200-active. Restore the production label before fleet use.
+    "poc-copy",
 )
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
