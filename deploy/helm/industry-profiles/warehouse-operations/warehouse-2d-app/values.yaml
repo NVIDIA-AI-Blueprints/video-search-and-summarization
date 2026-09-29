@@ -428,12 +428,17 @@ rtvi:
         nvidia.com/gpu: 1
   vss-rtvi-vlm:
     envOverrides:
+      VLM_MODEL_TO_USE: cosmos-reason3
       VLLM_GPU_MEMORY_UTILIZATION: "0.8"
 
 # Alerts stack, off by default. Enable vss-alert-bridge, agent, and
 # rtvi.vss-rtvi-vlm together to run alerts.
 vss-alert-bridge:
   enabled: false
+  workloadKind: StatefulSet
+  vlmResponseFormat: json
+  # Four cameras x four live checks share this model with CV verification.
+  vlmRequestTimeout: 120
   kafkaBootstrapServers: ""
   elasticHosts: ""
   vlmBaseUrl: "http://vss-rtvi-vlm:8000"
@@ -460,10 +465,7 @@ vss-alert-bridge:
         }
       ]
     }
-  # Always-on rules, from vlm-as-verifier/realtime-config.yml. NOTE: inert on Helm
-  # today -- alert_agent.always_on is hardcoded false in the alert chart
-  # (configs/config.yml), deliberately; only Docker Compose sets
-  # ALERT_AGENT_ALWAYS_ON=true. Kept here so it is ready if that changes.
+  # Always-on rules, started by SDRC camera lifecycle callbacks when alerts are enabled.
   realtimeConfig: |
     # Sample configuration for the POST /api/v1/realtime/always-on endpoint.
     #
