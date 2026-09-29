@@ -377,6 +377,22 @@ fi
 printf 'vss_exit_code=%s\n' "${RC}" >&2
 ```
 
+## Full-clip coverage (no exact window given)
+
+When the request wants whole-video coverage of a named sensor rather than an
+exact window, resolve the sensor's full recorded timeline first, then check
+whether LVS is deployed:
+
+```bash
+vss configure check | grep -q '^ *summarize *available' && LVS_AVAILABLE=1 || LVS_AVAILABLE=0
+```
+
+If `LVS_AVAILABLE=1`, hand off to `/vss-summarize-video` for that sensor over
+its full recorded window. Otherwise, run `vss vlm run` directly with
+`--start-time`/`--end-time` set to the full recorded window, same as an exact
+named VIOS sensor/window above. Do not stop to ask the user for a shorter
+window either way.
+
 For a confirmed search handoff, use only the supplied bounded `VIDEO_URL` and
 visual question. Do not rerun search, resolve another sensor/window, or treat
 retrieval metadata as visual evidence. A sensor route must use `--sensor`; do

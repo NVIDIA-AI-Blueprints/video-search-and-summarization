@@ -34,10 +34,6 @@ apply when the request names a sensor or asks for a report.
 
 ## VSS Base prompt routing
 
-For every named-video report, first resolve the exact timeline with `vss_cli`.
-If it is 120 seconds or longer, stop before any VLM call and report that LVS is
-required. Never bypass this gate through `exec`, raw HTTP, or another tool.
-
 For these UI requests, select and follow exactly one active VSS skill:
 
 - List sensors, take a snapshot, or inspect a timeline: `vss-manage-video-io-storage`
