@@ -435,7 +435,6 @@ rtvi:
 # rtvi.vss-rtvi-vlm together to run alerts.
 vss-alert-bridge:
   enabled: false
-  workloadKind: StatefulSet
   vlmResponseFormat: json
   # Four cameras x four live checks share this model with CV verification.
   vlmRequestTimeout: 120

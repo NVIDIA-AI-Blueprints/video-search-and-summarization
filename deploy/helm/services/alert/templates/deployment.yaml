@@ -15,16 +15,14 @@
 
 {{- if .Values.enabled }}
 apiVersion: apps/v1
-kind: {{ .Values.workloadKind | default "Deployment" }}
+kind: StatefulSet
 metadata:
   name: {{ include "vss-alert-bridge.fullname" . }}
   labels:
     app.kubernetes.io/name: vss-alert-bridge
     app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
-  {{- if eq (.Values.workloadKind | default "Deployment") "StatefulSet" }}
   serviceName: {{ include "vss-alert-bridge.fullname" . }}
-  {{- end }}
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
