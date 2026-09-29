@@ -353,6 +353,13 @@ then add each camera under **`global.cameraInfo.sensors`** with `camera_name`,
 `sensors` — copy `../camera_configs/camera_info.example.json` outside the repo,
 fill in real cameras, and pass it with `--set-file`).
 
+Recorded video files instead of live RTSP: point
+**`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
+equivalent PVC binding) at the video files, set
+**`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart doesn't
+also seed sample videos into that volume, and set
+**`vios.vss-vios-nvstreamer.syncFileCount`** to the number of files provided.
+
 Unlike 3D/MV3DT, calibration is optional here: 2D detection/tracking runs
 directly on the camera stream in image (pixel) coordinates, with no
 calibration required. Calibration is only needed for ROI/tripwire events in
@@ -382,12 +389,10 @@ Also configure, outside `global`:
   layering the generated file in. Left at the default 3, sensors past the 3rd
   are dropped silently.
 
-`global.gitRef` and `global.sampleVideoDataset` only matter for the bundled
-sample datasets under `calibration/sample-data/`; once the three
-`calibration-import` source keys above are overridden, both are unused except
-for `vios.vss-vios-nvstreamer.ngcVideoSeed.dataset`, which still follows
-`sampleVideoDataset` — set `ngcVideoSeed.enabled=false` if not using the
-sample video seed.
+`global.gitRef`, `global.sampleVideoDataset`, and (by default)
+`vios.vss-vios-nvstreamer.ngcVideoSeed.dataset` only matter for the bundled
+sample dataset — irrelevant once the video and calibration sources above are
+overridden.
 
 ### 4. Post-install validation
 

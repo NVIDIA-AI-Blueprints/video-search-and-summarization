@@ -562,6 +562,13 @@ then add each camera under **`global.cameraInfo.sensors`** with `camera_name`,
 `sensors` — copy `../camera_configs/camera_info.example.json` outside the repo,
 fill in real cameras, and pass it with `--set-file`).
 
+Recorded video files instead of live RTSP: point
+**`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
+equivalent PVC binding) at the video files, set
+**`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart doesn't
+also seed sample videos into that volume, and set
+**`vios.vss-vios-nvstreamer.syncFileCount`** to the number of files provided.
+
 Calibration data has to be supplied either way — override **`calibration-import.calibrationFileSource`**,
 **`imageMetadataFileSource`**, and **`imageBaseSource`** to point at your own
 `calibration.json`, `imageMetadata.json`, and floor-plan images instead of the
@@ -587,12 +594,10 @@ Also configure, outside `global`:
   `fusion.maxExpectedSensors` to match — the stream-cap script doesn't touch
   them. Left at the default 4, sensors past the 4th are dropped silently.
 
-`global.gitRef` and `global.sampleVideoDataset` only matter for the bundled
-sample datasets under `calibration/sample-data/`; once the three
-`calibration-import` source keys above are overridden, both are unused except
-for `vios.vss-vios-nvstreamer.ngcVideoSeed.dataset`, which still follows
-`sampleVideoDataset` — set `ngcVideoSeed.enabled=false` if not using the
-sample video seed.
+`global.gitRef`, `global.sampleVideoDataset`, and (by default)
+`vios.vss-vios-nvstreamer.ngcVideoSeed.dataset` only matter for the bundled
+sample dataset — irrelevant once the video and calibration sources above are
+overridden.
 
 ### 4. Post-install validation
 
