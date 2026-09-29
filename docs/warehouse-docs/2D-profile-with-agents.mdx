@@ -209,7 +209,7 @@ The Blueprint supports several levels of customization:
 ### Adding New Cameras or Custom Datasets
 
 <Note>
-For 2D processing in image coordinates, calibration is not required unless you want to configure tripwires or regions of interest (ROIs). If you do not need either, skip the calibration files and Steps 3–4 below, and deploy your selected 2D profile using [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint).
+For 2D processing in image coordinates, you can skip Auto Calibration, but the deployment still requires a valid `calibration.json` file. Set `"calibrationType": "image"` and include your camera entries; add tripwires or regions of interest (ROIs) only if needed. After preparing the file in Step 2, skip Steps 3–4 and deploy your selected 2D profile using [Deploy the Blueprint](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/quickstart#deploy-the-blueprint).
 </Note>
 
 <Info>
@@ -331,7 +331,9 @@ To use a custom dataset:
 
 * Place the video files in `$VSS_DATA_DIR/videos/$SAMPLE_VIDEO_DATASET/`.
 
-* If calibration is needed, add the image metadata and floor map files under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. If you already have a calibration, add `calibration.json` to the same directory. Otherwise, generate it in Step 3. You can refer to sample datasets provided in the repository for the expected file structure and sample contents.
+* Provide `calibration.json` under `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/calibration/sample-data/${SAMPLE_VIDEO_DATASET}`. For image-coordinate processing, create a file following the [Calibration Schema](/vss/system-components/calibration/calibration-schema) with `"calibrationType": "image"` and a sensor entry for each camera. Match sensor IDs to the configured camera names and retain all required schema fields; ROIs and tripwires are optional. Do not leave the file absent, even if neither is needed.
+
+* If you need Auto Calibration instead, add the image metadata and floor map files to the same dataset directory and generate `calibration.json` in Step 3 before deploying the 2D profile. Refer to the repository's sample datasets for the expected file structure.
 
 <Note>
 Refer to [RT-DETR Real-Time Performance](/vss/system-components/models/rt-detr-2d-warehouse-detection) for more details on the max streams supported for a particular GPU. If GPU is not found in list, then increase the streams gradually to find the optimal number of streams that can be used
