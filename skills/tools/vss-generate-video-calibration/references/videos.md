@@ -1,4 +1,4 @@
-# vss-generate-video-calibration — Videos Mode (pre-recorded MP4s)
+# vss-generate-video-calibration Videos Mode (pre-recorded MP4s)
 
 Load this reference when the user has **local MP4 files** to calibrate. Skip to the [Shared Calibration Tail](../SKILL.md#shared-calibration-tail) in SKILL.md once videos + alignment + layout are uploaded.
 
@@ -23,40 +23,40 @@ The skill scans the **videos directory** and its **parent directory** for these 
 | Alignment JSON | `alignment_data.json` |
 | Layout PNG | `layout.png` |
 
-See the [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern) section in SKILL.md for the parsing rule.
+See the [Settings File + Detector Pattern](../SKILL.md#settings-file-and-detector-pattern) section in SKILL.md for the parsing rule.
 
 ### Required when no calibration-settings file is provided
-4. **Detector type** — see [SKILL.md § Step D — Start AMC Calibration](../SKILL.md#step-d--start-amc-calibration) for the `resnet` vs `transformer` choice and the
+4. **Detector type** — see [SKILL.md § Step D — Start AMC Calibration](../SKILL.md#step-d-start-amc-calibration) for the `resnet` vs `transformer` choice and the
    AskUserQuestion fallback. When a config file is provided, the script extracts
    the detector automatically.
-5. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d--start-amc-calibration) for the exact prompt.
+5. **Parameter tuning** — also ask whether to proceed with the default calibration parameters or tune them in the UI (Step 3: Parameters) first. See [SKILL.md § Step D](../SKILL.md#step-d-start-amc-calibration) for the exact prompt.
 
 ### Optional
 5. **Ground truth zip** — `GT.zip` with `_World_Cameras_Camera_XX/` folders (enables evaluation metrics).
 6. **Focal lengths** — one per camera, e.g. `1269.0, 1099.5, 1099.5`.
 
-Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c--independent-vggt-calibration). VGGT is default when ready; missing VGGT must not block AMC.
+Independent VGGT calibration is handled before AMC by [SKILL.md Step C](../SKILL.md#step-c-independent-vggt-calibration). VGGT is default when ready; missing VGGT must not block AMC.
 
 Root `README.md` "Custom Dataset" section documents input-video guidelines and ground-truth format.
 
 ## API Call Sequence (videos mode)
 
-### Step 0 — Platform Preflight
+### Step 0 Platform Preflight
 
-Run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0--platform-preflight) before project creation, upload, or calibration, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement and stop; ask the user to provide existing calibration artifacts or run calibration on a supported host.
+Run [`deploy-auto-calibration-service.md` Step 0](deploy-auto-calibration-service.md#step-0-platform-preflight) before project creation, upload, or calibration, even if the AMC service is already running. If Step 0 fails, report the unmet host requirement and stop; ask the user to provide existing calibration artifacts or run calibration on a supported host.
 
-### Step 1 — Initialize Videos Run
+### Step 1 Initialize Videos Run
 
 Create the project with the shared request in [`common-steps.md`](common-steps.md#create-project), then keep `project_id` for the upload calls.
 
-### Step 2 — Upload Videos (required)
+### Step 2 Upload Videos (required)
 
 See [`common-steps.md` § Upload videos](common-steps.md#upload-videos).
 
 > **Important**: upload sorted alphabetically — the server assigns camera
 > indices by upload order. The `multipart/form-data` part name is `files`.
 
-### Step 3 — Resolve Local Files (Auto-Scan, Ask, or UI)
+### Step 3 Resolve Local Files (Auto-Scan, Ask, or UI)
 
 For each of calibration-settings, alignment, and layout, run this resolution:
 
@@ -65,7 +65,7 @@ For each of calibration-settings, alignment, and layout, run this resolution:
 3. If **zero or multiple matches**, ask the user for an explicit path via `AskUserQuestion`. If they don't have the file, mark it for UI fallback.
 4. **UI fallback**: see [SKILL.md UI Fallback Pattern](../SKILL.md#ui-fallback-pattern).
 
-### Step 4 — Upload Resolved Files
+### Step 4 Upload Resolved Files
 
 For each file that was resolved locally:
 
@@ -77,7 +77,7 @@ Content-Type: application/json
 <file contents, posted as-is>
 ```
 
-After a successful POST, also parse the file for `"detector"` / `"detector_type"` and override `DETECTOR_TYPE` for the `/calibrate` call (see [Settings File + Detector Pattern](../SKILL.md#settings-file--detector-pattern)).
+After a successful POST, also parse the file for `"detector"` / `"detector_type"` and override `DETECTOR_TYPE` for the `/calibrate` call (see [Settings File + Detector Pattern](../SKILL.md#settings-file-and-detector-pattern)).
 
 **Alignment JSON**:
 ```
@@ -103,9 +103,9 @@ POST /v1/upload_focal_length/<project_id>
 focal_length=1269.0&focal_length=1099.5&...
 ```
 
-### Step 5 — Hand off to the Shared Calibration Tail
+### Step 5 Hand off to the Shared Calibration Tail
 
-Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a--stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
+Once uploads are done (and any UI fallback confirmed on disk), ask whether every input is already linear/pinhole. Set `MEDIA_MODE=linear` only when confirmed; otherwise set `MEDIA_MODE=rectified`, complete/review/commit AMC UI Rectification, then continue with [SKILL.md Step A onward](../SKILL.md#step-a-stage-linear-media) (stage linear media → verify → VGGT/post-process when available → AMC/post-process → compare results). If `MEDIA_MODE` is empty, `calibration-tail.md` prompts for this decision rather than defaulting unsafely.
 
 ---
 
@@ -293,4 +293,4 @@ print(f"Final camera parameters: ${{VSS_APPS_DIR}}/services/auto-calibration/pro
 | Upload returns 413 | Raise server upload limit, or split files. Most user videos are <500 MB so this is unusual. |
 | Auto-scan finds multiple settings files | Disambiguate by passing `CONFIG_FILE = Path("...")` explicitly. |
 
-See the [Cross-cutting Troubleshooting](../SKILL.md#cross-cutting-troubleshooting) table in SKILL.md for issues that span all modes.
+See the [Troubleshooting](../SKILL.md#troubleshooting) table in SKILL.md for issues that span all modes.
