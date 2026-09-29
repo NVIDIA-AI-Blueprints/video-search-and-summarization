@@ -1779,6 +1779,10 @@ def _run_invocations(
             }
         )
         env["COMPATIBLE_API_KEY"] = operational_config.api_key
+        if operational_config.provider == "local-nim":
+            # NemoClaw's inference proxy rewrites private endpoints to HTTPS
+            # on port 443. The worker NIM adapter serves plain HTTP on 18400.
+            env["NEMOCLAW_INFERENCE_PROXY"] = "0"
         env["BREV_EXEC_TIMEOUT"] = str(
             max(
                 int(env.get("BREV_EXEC_TIMEOUT", "0")),
