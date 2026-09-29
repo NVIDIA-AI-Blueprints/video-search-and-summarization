@@ -275,6 +275,10 @@ def generate_task(
             "",
             "[metadata]",
             'skill = "vss-deploy-detection-tracking-2d"',
+            # This skill docker-runs nvcr.io/nvstaging/vss-core/vss-rt-cv.
+            # The compose golden list is a different image set; prewarming
+            # it consumes the 1800s env-build budget and times out start().
+            "prewarm_compose_images = false",
             f'deployment = "{kind}"',
             f'platform = "{platform}"',
             f'mode = "{mode}"',

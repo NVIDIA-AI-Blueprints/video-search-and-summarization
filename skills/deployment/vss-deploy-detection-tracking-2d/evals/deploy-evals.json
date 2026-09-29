@@ -4,7 +4,7 @@
   ],
   "infrastructure": ["brev", "openshell"],
   "openshell": {
-    "gpu_count": 1,
+    "gpu_count": 2,
     "requires_video_codec": false,
     "multi_gpu_capable": false,
     "requires_blackwell": false

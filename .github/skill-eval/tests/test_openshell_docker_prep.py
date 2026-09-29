@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -13,7 +14,10 @@ sys.path.insert(0, str(ROOT))
 from openshell.docker_prep import (
     DOCKER_PREWARM_SCRIPT,
     DOCKER_RESET_SCRIPT,
+    ENV_BUILD_BUDGET_SEC,
     MODEL_CACHE_VOLUME_RE,
+    PREWARM_HEADROOM_SEC,
+    prewarm_timeout_sec,
 )
 
 GOLDEN = (
@@ -52,6 +56,42 @@ def test_cache_volume_names_are_kept() -> None:
         assert CACHE_RE.search(name), name
     for name in drop:
         assert not CACHE_RE.search(name), name
+
+
+def test_prewarm_timeout_stays_inside_env_build_budget() -> None:
+    assert ENV_BUILD_BUDGET_SEC == 600 * 3
+    fresh = prewarm_timeout_sec(0)
+    assert fresh == ENV_BUILD_BUDGET_SEC - PREWARM_HEADROOM_SEC
+    assert fresh < ENV_BUILD_BUDGET_SEC
+    assert prewarm_timeout_sec(ENV_BUILD_BUDGET_SEC) == 0
+
+
+def test_detection_tracking_tasks_skip_compose_prewarm(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[3]
+    out = tmp_path / "dataset"
+    spec = (
+        repo
+        / "skills/deployment/vss-deploy-detection-tracking-2d/evals/deploy-evals.json"
+    )
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(
+                repo
+                / ".github/skill-eval/adapters/vss-deploy-detection-tracking-2d/generate.py"
+            ),
+            "--output-dir",
+            str(out),
+            "--skill-dir",
+            str(repo / "skills/deployment/vss-deploy-detection-tracking-2d"),
+            "--spec",
+            str(spec),
+        ]
+    )
+    tomls = list(out.rglob("task.toml"))
+    assert tomls
+    for path in tomls:
+        assert "prewarm_compose_images = false" in path.read_text()
 
 
 def test_prewarm_skips_nims_and_industry_profiles() -> None:

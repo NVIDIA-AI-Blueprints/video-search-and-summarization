@@ -19,6 +19,9 @@ Task.toml [metadata] fields consumed:
     brev_instance         — (optional) explicit instance name override
     expected_services     — optional Compose service-name preflight allowlist
     required_local_images — optional immutable images required before the agent
+    prewarm_compose_images — pull compose-images.golden before the agent
+                            (default true). Standalone skills that docker-run
+                            their own image set this false.
 """
 
 from __future__ import annotations
@@ -36,12 +39,17 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 import uuid
 
 from harbor.environments.base import BaseEnvironment
 from harbor.environments.base import ExecResult
 
-from openshell.docker_prep import DOCKER_PREWARM_SCRIPT, DOCKER_RESET_SCRIPT
+from openshell.docker_prep import (
+    DOCKER_PREWARM_SCRIPT,
+    DOCKER_RESET_SCRIPT,
+    prewarm_timeout_sec,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +315,7 @@ class OpenShellEnvironment(BaseEnvironment):
         if self._started:
             return
 
+        started_at = time.monotonic()
         meta = self._read_task_metadata()
         requirements = {
             "gpu_type": meta.get("gpu_type"),
@@ -672,8 +681,18 @@ class OpenShellEnvironment(BaseEnvironment):
             # the golden list names that are not already local. NIMs stay
             # out of this list so a 1-GPU remote-LLM trial does not fetch
             # unused multi-GB checkpoints. Best-effort: a pull failure does
-            # not fail start().
-            await self._prewarm_docker_images()
+            # not fail start(). Tasks that docker-run their own image
+            # (prewarm_compose_images = false) skip this — pulling the
+            # compose set burns the 1800s env-build budget and never
+            # fetches the image the skill actually runs.
+            if meta.get("prewarm_compose_images", True):
+                await self._prewarm_docker_images(time.monotonic() - started_at)
+            else:
+                logger.info(
+                    "Skipping compose image prewarm on %s "
+                    "(prewarm_compose_images=false)",
+                    self._instance_name,
+                )
         await self._probe_bind_mount(f"{task_dir_name}:after-sync")
 
         if local_instance:
@@ -807,17 +826,34 @@ class OpenShellEnvironment(BaseEnvironment):
             (result.stdout or "").strip().splitlines()[-1] if result.stdout else "<no output>",
         )
 
-    async def _prewarm_docker_images(self) -> None:
+    async def _prewarm_docker_images(self, elapsed_sec: float = 0.0) -> None:
         """Pull developer-stack images that are not already on the box.
 
         Runs after repo sync so ``compose-images.golden`` exists. Industry
         profiles and ``nvcr.io/nim/*`` are skipped — 1-GPU OpenShell trials
         use a remote LLM and must not pay for unused NIM images. Failures
         are logged, not raised; compose can still pull during deploy.
+
+        The wait is capped to the time still inside Harbor's env-build
+        budget. A pull that runs until that deadline raises
+        ``EnvironmentStartTimeoutError`` and the trial never starts.
         """
-        logger.info("Pre-warming developer-stack images on %s", self._instance_name)
+        timeout = prewarm_timeout_sec(elapsed_sec)
+        if timeout <= 0:
+            logger.info(
+                "Skipping image prewarm on %s; env-build budget is already "
+                "spent (%.0fs elapsed)",
+                self._instance_name,
+                elapsed_sec,
+            )
+            return
+        logger.info(
+            "Pre-warming developer-stack images on %s (budget %ss)",
+            self._instance_name,
+            timeout,
+        )
         result = await _run_brev_exec(
-            self._instance_name, DOCKER_PREWARM_SCRIPT, timeout=1800
+            self._instance_name, DOCKER_PREWARM_SCRIPT, timeout=timeout
         )
         summary = (result.stdout or result.stderr or "").strip().splitlines()
         last = summary[-1] if summary else "<no output>"

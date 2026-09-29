@@ -15,6 +15,28 @@ from __future__ import annotations
 # phoenix-*, postgres) do not match and are still dropped.
 MODEL_CACHE_VOLUME_RE = r"hf-cache|ngc-model-cache|_cache$"
 
+# Harbor's OpenShell environment-build budget is 600s * 3.0
+# (openshell/run_leg.py HARBOR_ENVIRONMENT_BUILD_BUDGET_SEC). Prewarm runs
+# inside start(), after docker reset and repo sync. Waiting the full 1800s
+# here makes Harbor raise EnvironmentStartTimeoutError before start()
+# returns, so a slow pull fails the trial instead of staying best-effort.
+ENV_BUILD_BUDGET_SEC = 1800
+PREWARM_HEADROOM_SEC = 180
+MIN_USEFUL_PREWARM_SEC = 60
+
+
+def prewarm_timeout_sec(elapsed_sec: float) -> int:
+    """Seconds left for image pulls before the env-build deadline.
+
+    Returns 0 when the remaining window is too short to be useful. Callers
+    skip the pull in that case so start() can still finish.
+    """
+    remaining = ENV_BUILD_BUDGET_SEC - PREWARM_HEADROOM_SEC - elapsed_sec
+    if remaining < MIN_USEFUL_PREWARM_SEC:
+        return 0
+    return int(remaining)
+
+
 DOCKER_RESET_SCRIPT = rf"""set -uo pipefail
 CACHE_RE='{MODEL_CACHE_VOLUME_RE}'
 COLD="${{SKILL_EVAL_COLD_DOCKER_RESET:-0}}"
