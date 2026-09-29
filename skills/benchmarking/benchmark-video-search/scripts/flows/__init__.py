@@ -121,6 +121,7 @@ from .readiness import (
     list_sensor_streams,
     name_variants,
     sensor_list_url,
+    source_name_matches,
     wait_for_sources,
 )
 from .routing import (
@@ -251,6 +252,7 @@ __all__ = [
     "route",
     "sensor_list_url",
     "sidecar_decompositions_for",
+    "source_name_matches",
     "unpack_dataset",
     "verdict_counts",
     "verification_sources",

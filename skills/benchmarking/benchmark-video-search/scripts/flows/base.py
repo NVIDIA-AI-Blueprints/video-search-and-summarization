@@ -40,7 +40,8 @@ VST_LIST_TIMEOUT = 15
 # capture time is unknown; the eval's ground truth is expressed relative to it.
 DEFAULT_UPLOAD_TIMESTAMP = "2025-01-01T00:00:00"
 
-CONTENT_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska"}
+CONTENT_TYPES = {".mp4": "video/mp4", ".mkv": "video/x-matroska",
+                 ".mov": "video/quicktime", ".avi": "video/x-msvideo"}
 
 
 class QueryBackend(Protocol):

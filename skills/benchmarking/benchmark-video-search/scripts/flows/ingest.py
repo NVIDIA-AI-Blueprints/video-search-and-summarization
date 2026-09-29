@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import requests
@@ -55,6 +56,18 @@ COMPLETE_FATAL = "fatal"
 #: retry hits when the *previous* attempt got far enough to add the stream
 #: before failing -- i.e. the work already landed.
 _DUPLICATE_CAMERA_MARKER = "duplicate camera id"
+
+
+def _same_anchor(actual: str, expected: str) -> bool:
+    """Compare VIOS's timestamp and the upload anchor as UTC instants."""
+    try:
+        a = datetime.fromisoformat(actual.replace("Z", "+00:00"))
+        e = datetime.fromisoformat(expected.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    a = a.replace(tzinfo=timezone.utc) if a.tzinfo is None else a
+    e = e.replace(tzinfo=timezone.utc) if e.tzinfo is None else e
+    return a == e
 
 
 def classify_complete_failure(status_code: int, body: str) -> str:
@@ -100,7 +113,7 @@ class LegacyPutIngest:
 
     def upload(self, video_path: Path) -> dict[str, Any]:
         record = base_record(video_path)
-        content_type = CONTENT_TYPES.get(video_path.suffix, "video/mp4")
+        content_type = CONTENT_TYPES.get(video_path.suffix.lower(), "video/mp4")
         try:
             with open(video_path, "rb") as f:
                 start = time.time()
@@ -336,10 +349,9 @@ class VstDirectIngest:
       readiness poll and the first query are all that confirm anything indexed,
       so ``chunks_processed`` is ``None`` -- not zero -- and the run records
       ``ingest_proof: "none"``.
-    * **Helm has webhooks off.** ``webhooks.enabled`` is true only in the Docker
-      search profile; the Helm chart ships the dummy item and false. On such a
-      deployment this backend uploads successfully and indexes nothing, and
-      without a chunk count nothing says so until the first query returns empty.
+    * **Webhook configuration must be checked.** A deployment without the
+      RT-Embed notification can accept uploads without indexing them. The
+      post-ingest probe catches this before scoring.
 
     :meth:`verify_anchor` remains as a cheap one-video sanity check, since a
     wrong anchor is silent and indistinguishable from broken retrieval.
@@ -404,14 +416,14 @@ class VstDirectIngest:
             "start_time": start,
             "end_time": timelines[0].get("endTime") or "",
             # The dataset's ground truth is offsets from this instant.
-            "matches_expected_anchor": start.startswith(self.upload_timestamp[:10]),
+            "matches_expected_anchor": _same_anchor(start, self.upload_timestamp),
             "expected_anchor": self.upload_timestamp,
         }
 
     def upload(self, video_path: Path) -> dict[str, Any]:
         record = base_record(video_path)
         filename = video_path.name
-        content_type = CONTENT_TYPES.get(video_path.suffix, "video/mp4")
+        content_type = CONTENT_TYPES.get(video_path.suffix.lower(), "video/mp4")
         overall_start = time.time()
 
         try:
