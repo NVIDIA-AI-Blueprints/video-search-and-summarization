@@ -23,9 +23,7 @@ accuracy number.
 
 from __future__ import annotations
 
-import re
 import time
-from pathlib import Path
 from typing import Any
 
 import requests
@@ -119,28 +117,12 @@ def name_variants(video_name: str) -> set[str]:
     already registered. Accept either.
     """
     stem = video_name.rsplit(".", 1)[0]
-    return {stem.lower(), *(f"{stem.lower()}{suffix}" for suffix in (".mp4", ".mkv", ".mov", ".avi"))}
-
-
-def source_name_matches(registered_name: str, video_name: str) -> bool:
-    """Match VIOS's exact or timestamp-suffixed spelling of one video.
-
-    A bare prefix is unsafe: ``clip2`` must never prove ``clip`` was indexed.
-    VIOS may append ``_YYYYMMDD_HHMMSS_<hex>`` when registering an upload.
-    """
-    actual = Path(registered_name).stem if Path(registered_name).suffix.lower() in {
-        ".mp4", ".mkv", ".mov", ".avi"} else registered_name
-    expected = Path(video_name).stem if Path(video_name).suffix.lower() in {
-        ".mp4", ".mkv", ".mov", ".avi"} else video_name
-    actual = actual.lower().replace("_", "-")
-    expected = expected.lower().replace("_", "-")
-    return actual == expected or bool(re.fullmatch(
-        re.escape(expected) + r"-[0-9]{8}-[0-9]{6}-[0-9a-f]{4,}", actual))
+    return {stem.lower(), f"{stem.lower()}.mp4", f"{stem.lower()}.mkv"}
 
 
 def is_registered(video_name: str, registered: set[str]) -> bool:
     """True when any plausible spelling of ``video_name`` is registered."""
-    return any(source_name_matches(name, video_name) for name in registered)
+    return bool(name_variants(video_name) & registered)
 
 
 def wait_for_sources(

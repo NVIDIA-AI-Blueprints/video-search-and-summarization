@@ -39,17 +39,6 @@ ships rather than a REST endpoint that is being retired.
 
 ## The default run
 
-For harness-managed benchmark Jobs, onboard a separate `benchmark-spec.json`
-with `name`, `task` (`segment` or `clip`), `subsets` (subset names to local
-ground-truth JSON filenames), and `videos` (filenames in `<data-dir>/<name>/videos/`).
-Run `scripts/run_eval_flows.py prepare` with `--dataset-spec`, `--data-dir`,
-`--skip-download`, `--receipt`, and explicit `--target-id`, `--chart-version`,
-`--image-digest`, `--dataset-checksum`, `--endpoint`, `--vss-base-url`, and
-`--vst-url` (VIOS origin, without `/vst`). A separate `score` invocation needs
-the same identity options, `--receipt`, `--skip-ingest`, `--skip-download`, and
-`--output-file`. Preparation writes its receipt only after every source is
-registered, every segment anchor matches, and every source is searchable.
-
 Unless the user says otherwise, this is the run. Ask which dataset; do not ask
 about the rest.
 
@@ -106,9 +95,8 @@ Three defaults, each load-bearing:
   Elasticsearch, and without this check an unindexed deployment scores 0.0
   across the board and reads as a retrieval collapse.
 
-  If the probe aborts a run, check that the rendered Search Helm VIOS
-  notification ConfigMaps retain `webhooks.enabled: true`, that the RT-Embed
-  webhook points to the RT-Embed service, and that `RTVI_EMBED_MODEL`
+  If the probe aborts a run, check `webhooks.enabled` (true in the Docker
+  search profile, **false** in the Helm chart) and that `RTVI_EMBED_MODEL`
   matches the webhook's model string — RT-Embed answers a mismatch with HTTP
   200 and `inference: false`. Fall back with `--ingest-flow agent-3step`.
   Never pass `--skip-index-probe` on a run whose numbers you intend to quote.

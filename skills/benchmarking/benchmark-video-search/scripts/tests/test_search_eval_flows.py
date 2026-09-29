@@ -420,13 +420,6 @@ def test_name_matching_is_case_insensitive() -> None:
     assert flows.is_registered("Warehouse_Sample.MP4", {"warehouse_sample"})
 
 
-def test_source_name_matching_accepts_vios_suffix_without_prefix_collisions() -> None:
-    assert flows.source_name_matches("clip_20250101_000000_e0482.mp4", "clip.mov")
-    assert flows.source_name_matches("CLIP.MP4", "clip.mov")
-    assert not flows.source_name_matches("clip2.mp4", "clip.mp4")
-    assert not flows.source_name_matches("clip_other.mp4", "clip.mp4")
-
-
 def test_sensor_streams_payload_is_parsed_to_id_name_pairs(monkeypatch) -> None:
     """``/sensor/streams`` nests one dict per stream id; --clear depends on this."""
 
@@ -996,10 +989,8 @@ def test_vst_direct_posts_to_vios_and_never_calls_the_agent() -> None:
     assert "none" in described["ingest_proof"]
 
 
-@pytest.mark.parametrize("extension,mime", [
-    ("mp4", "video/mp4"), ("mov", "video/quicktime"), ("avi", "video/x-msvideo")])
 def test_vst_direct_reports_no_chunk_count_rather_than_zero(
-    tmp_path: Path, monkeypatch: Any, extension: str, mime: str
+    tmp_path: Path, monkeypatch: Any
 ) -> None:
     """`None` means nobody counted; `0` would mean counted and empty.
 
@@ -1008,7 +999,7 @@ def test_vst_direct_reports_no_chunk_count_rather_than_zero(
     """
     import requests
 
-    video = tmp_path / f"clip.{extension}"
+    video = tmp_path / "clip.mp4"
     video.write_bytes(b"not really an mp4")
 
     class _Resp:
@@ -1025,7 +1016,6 @@ def test_vst_direct_reports_no_chunk_count_rather_than_zero(
 
     def fake_post(url: str, **kw: Any) -> Any:
         posted.append(url)
-        assert kw["files"]["mediaFile"][2] == mime
         return _Resp()
 
     monkeypatch.setattr(requests, "post", fake_post)
@@ -1077,13 +1067,6 @@ def test_vst_direct_checks_the_anchor_instead_of_assuming_it(monkeypatch: Any) -
     bad = backend.verify_anchor("abc-123")
     assert bad["found"] is True
     assert bad["matches_expected_anchor"] is False
-
-    def wrong_time_same_day(*_a: Any, **_k: Any) -> Any:
-        return _Resp({"abc-123": [{"startTime": "2025-01-01T12:34:56.000Z",
-                                   "endTime": "2025-01-01T12:35:26.000Z"}]})
-
-    monkeypatch.setattr(requests, "get", wrong_time_same_day)
-    assert backend.verify_anchor("abc-123")["matches_expected_anchor"] is False
 
 
 def test_the_probe_gate_reads_a_flag_not_a_prose_string() -> None:

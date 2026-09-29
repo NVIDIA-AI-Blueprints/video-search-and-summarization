@@ -70,7 +70,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 import requests
 
@@ -87,7 +86,6 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import flows
-from flows.dataset_spec import load_dataset_spec
 
 # =============================================================================
 # Backend construction
@@ -269,7 +267,6 @@ def probe_index_coverage(
     attempts: int = 10,
     backoff_s: float = 15.0,
     top_k_per_source: int = 20,
-    strict_per_source: bool = False,
 ) -> dict[str, Any]:
     """Confirm every ingested video is searchable before scoring a whole run.
 
@@ -314,16 +311,12 @@ def probe_index_coverage(
             names = list(flows.list_sensor_streams(vst_url).values())
             for source in expected_sources:
                 # Match case-insensitively, but keep VST's own spelling.
-                match = next((n for n in names if flows.source_name_matches(n, source)), None)
+                variants = flows.name_variants(source)
+                match = next((n for n in names if n.lower() in variants), None)
                 if match:
                     registered[source] = match
         except Exception as e:  # noqa: BLE001
-            if strict_per_source:
-                return {"checked": True, "covered": False, "error": f"VIOS inventory unavailable: {e}"}
             print(f"  (could not resolve VST source names, per-source probing off: {e})")
-
-    if strict_per_source and len(registered) != len(expected_sources):
-        return {"checked": True, "covered": False, "error": "source names not resolvable in VIOS"}
 
     broad = _probe_backend(query_backend, min(1000, max(50, top_k_per_source * len(expected_sources))))
     missing = list(expected_sources)
@@ -337,8 +330,6 @@ def probe_index_coverage(
                 for source in expected_sources
                 if not any(flows.video_name_matches(name, source) for name in seen)
             ]
-            if strict_per_source:
-                missing = list(expected_sources)
 
             # Stage 2: ask directly about whatever the broad query did not
             # surface, so ranking cannot be mistaken for absence.
@@ -349,8 +340,7 @@ def probe_index_coverage(
                     confirmed_missing.append(source)
                     continue
                 scoped_hits, _ = _probe_backend(query_backend, 1, source=name).search(PROBE_QUERY)
-                if not any(flows.source_name_matches(str(hit.get("video_name") or ""), source)
-                           for hit in scoped_hits if isinstance(hit, dict)):
+                if not scoped_hits:
                     confirmed_missing.append(source)
             missing = confirmed_missing
         except Exception as e:  # noqa: BLE001
@@ -389,49 +379,6 @@ def probe_index_coverage(
         "missing_count": len(missing),
         "per_source_verified": bool(registered),
     }
-
-
-def probe_attribute_coverage(
-    query_backend: Any,
-    expected_sources: list[str],
-    registered_names: dict[str, str],
-    attributes: list[str],
-    *,
-    attempts: int = 10,
-    backoff_s: float = 15.0,
-) -> dict[str, Any]:
-    """Require an attribute hit from every newly uploaded source."""
-    if not attributes:
-        return {"checked": False, "covered": False, "reason": "no probe attributes"}
-    missing = list(expected_sources)
-    for attempt in range(1, attempts + 1):
-        missing = []
-        for source in expected_sources:
-            registered = registered_names.get(source)
-            if not registered or not flows.source_name_matches(registered, source):
-                missing.append(source)
-                continue
-            probe = flows.CliQueryBackend(
-                vss_cmd=query_backend.vss_cmd, search_path="attribute", top_k=1,
-                attributes=attributes, cwd=query_backend.cwd, pass_original_query=False,
-                decompositions={PROBE_QUERY: {"attributes": attributes,
-                                              "has_action": False,
-                                              "video_sources": [registered]}},
-            )
-            try:
-                hits, _ = probe.search(PROBE_QUERY)
-            except Exception as exc:  # noqa: BLE001 - record the readiness fault
-                return {"checked": True, "covered": False, "error": f"{type(exc).__name__}: {exc}"}
-            if not any(flows.source_name_matches(str(hit.get("video_name") or ""), source)
-                       for hit in hits if isinstance(hit, dict)):
-                missing.append(source)
-        if not missing:
-            return {"checked": True, "covered": True, "sources_verified": len(expected_sources),
-                    "attempts": attempt}
-        if attempt < attempts:
-            time.sleep(backoff_s)
-    return {"checked": True, "covered": False, "sources_verified": len(expected_sources) - len(missing),
-            "missing": missing, "attempts": attempts}
 
 
 def expected_sources_from_upload(upload_stats: dict[str, Any]) -> list[str]:
@@ -501,16 +448,16 @@ def prune_foreign_videos(agent_endpoint: str, vst_url: str, video_dir: Path) -> 
     except Exception as e:
         raise SystemExit(f"ABORTED: could not list sensors at {vst_url} ({type(e).__name__}: {e})") from e
 
-    video_files = [path for path in video_dir.iterdir()
-                   if path.is_file() and path.suffix.lower() in flows.CONTENT_TYPES]
-    if not video_files:
+    ours: set[str] = set()
+    for vf in sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv")):
+        ours |= flows.name_variants(vf.name)
+    if not ours:
         raise SystemExit(
             f"ABORTED: no video files under {video_dir}, so every source looks foreign. "
             f"Refusing to delete the whole deployment -- pass --clear if that is what you meant."
         )
 
-    foreign = {sid: n for sid, n in streams.items()
-               if not any(flows.source_name_matches(str(n), vf.name) for vf in video_files)}
+    foreign = {sid: n for sid, n in streams.items() if str(n).lower() not in ours}
     kept = len(streams) - len(foreign)
     print(f"  {len(streams)} source(s) registered: {kept} belong to this dataset, {len(foreign)} do not")
     if not foreign:
@@ -550,8 +497,7 @@ def ingest_videos(
     re-uploading someone else's fixture is at best wasteful and at worst
     creates a duplicate sensor for the same video.
     """
-    video_files = sorted(path for path in video_dir.iterdir()
-                         if path.is_file() and path.suffix.lower() in flows.CONTENT_TYPES)
+    video_files = sorted(video_dir.glob("*.mp4")) + sorted(video_dir.glob("*.mkv"))
     if not video_files:
         print(f"  No video files found in {video_dir}")
         return flows.aggregate_upload_stats([])
@@ -613,11 +559,6 @@ def ingest_videos(
 # =============================================================================
 
 
-def _score_decompositions(carried: dict[str, dict[str, Any]], *, fixed_search_path: bool) -> dict[str, dict[str, Any]]:
-    """A selected fixed mode must not inherit per-query routing from ground truth."""
-    return {} if fixed_search_path else carried
-
-
 def run_evaluation(
     query_backend: Any,
     data_dir: Path,
@@ -637,7 +578,6 @@ def run_evaluation(
     tolerate_unanswered: int = 0,
     task: str = "segment",
     hit_ks: tuple[int, ...] | None = None,
-    fixed_search_path: bool = False,
 ) -> dict[str, Any]:
     """Score every dataset query through ``query_backend``.
 
@@ -650,8 +590,7 @@ def run_evaluation(
     # to. --decompositions stays available for A/B-ing a different set (say,
     # agent-captured vs hand-written) against the same annotations, so an
     # explicit flag wins over what the dataset carries.
-    annotations, carried = flows.unpack_dataset(data)
-    dataset_decompositions = _score_decompositions(carried, fixed_search_path=fixed_search_path)
+    annotations, dataset_decompositions = flows.unpack_dataset(data)
     queries = list(annotations.keys())
 
     if dataset_decompositions and hasattr(query_backend, "decompositions"):
@@ -1353,7 +1292,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     dataset = p.add_argument_group("dataset")
     dataset.add_argument("--dataset", default="warehouse", choices=sorted(flows.DATASETS))
-    dataset.add_argument("--dataset-spec", type=Path, help="Validated local benchmark-spec.json")
     dataset.add_argument("--subset", default="", help="Dataset subset (default: '')")
     dataset.add_argument("--data-dir", type=Path, default=flows.DEFAULT_DATA_DIR)
     dataset.add_argument("--skip-download", action="store_true", help="Use the local dataset as-is")
@@ -1487,11 +1425,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--output-file",
         help=f"Exact path for the results JSON. Default: {RESULTS_DIR}/<name>.json",
     )
-    p.add_argument("--receipt", type=Path, help="Successful preparation receipt required by score mode")
-    p.add_argument("--target-id", help="Benchmark target or lease identity")
-    p.add_argument("--chart-version", help="Pinned Search chart version")
-    p.add_argument("--image-digest", help="Benchmark image digest")
-    p.add_argument("--dataset-checksum", help="Onboarded dataset snapshot checksum")
     p.add_argument(
         "--llm-url",
         default=os.environ.get("VSS_LLM_URL"),
@@ -1513,8 +1446,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "performs -- correct for a baseline, wrong for an eval."
         ),
     )
-    p.add_argument("--fixed-search-path", action="store_true",
-                   help="Score every query through --search-path, ignoring live and dataset decompositions")
     p.add_argument(
         "--no-original-query",
         action="store_true",
@@ -1554,165 +1485,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("destructive cleanup cannot be combined with --skip-ingest")
     if args.confirm_delete and not (args.only_dataset or args.clear):
         p.error("--confirm-delete requires --only-dataset or --clear")
-    if args.fixed_search_path and args.decompositions:
-        p.error("--fixed-search-path cannot be combined with --decompositions")
     return args
 
 
-def _register_spec(args: argparse.Namespace) -> None:
-    if args.dataset_spec:
-        spec = load_dataset_spec(args.dataset_spec, args.data_dir)
-        args.dataset = spec["name"]
-        if args.subset not in spec["subsets"]:
-            raise SystemExit(f"Unknown benchmark subset: {args.subset!r}")
-
-
-def _receipt_identity(args: argparse.Namespace) -> dict[str, Any]:
-    return {
-        "target_id": args.target_id,
-        "gateway_origin": args.vss_base_url or args.endpoint,
-        "vios_origin": args.vst_url,
-        "chart_version": args.chart_version,
-        "image_digest": args.image_digest,
-        "dataset_checksum": args.dataset_checksum,
-        "dataset": args.dataset,
-    }
-
-
-def _validate_vios_origin(vst_url: str | None) -> None:
-    parsed = urlsplit(vst_url or "")
-    if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path not in ("", "/"):
-        raise SystemExit("--vst-url must be an HTTP VIOS origin without a /vst suffix")
-
-
-def _validate_receipt(args: argparse.Namespace) -> dict[str, Any]:
-    if not args.receipt or not args.receipt.is_file():
-        raise SystemExit("score requires a successful --receipt")
-    receipt = json.loads(args.receipt.read_text())
-    if receipt.get("version") != 1 or receipt.get("status") != "prepared":
-        raise SystemExit("receipt is absent, unsuccessful, or has an unsupported version")
-    for key, value in _receipt_identity(args).items():
-        if not value or receipt.get(key) != value:
-            raise SystemExit(f"receipt {key} does not match this score job")
-    if not receipt.get("index", {}).get("covered"):
-        raise SystemExit("receipt has no successful embedding coverage")
-    if receipt.get("index_ok") is not True or receipt.get("anchors_ok") is not True:
-        raise SystemExit("receipt has no successful index and anchor gates")
-    if receipt.get("expected_source_count") != receipt.get("verified_source_count"):
-        raise SystemExit("receipt source counts do not match")
-    if args.search_path in ("attribute", "fusion"):
-        index = receipt.get("index", {})
-        if index.get("attribute_ready") is not True or index.get("attribute_sources_verified") != receipt.get("expected_source_count"):
-            raise SystemExit("receipt lacks per-source attribute index coverage")
-    if flows.dataset_meta(args.dataset).task == "segment":
-        anchors = receipt.get("anchors", {})
-        if len(anchors) != receipt["expected_source_count"] or not all(
-            a.get("checked") and a.get("found") and a.get("matches_expected_anchor")
-            for a in anchors.values()
-        ):
-            raise SystemExit("receipt lacks matching anchors for every segment source")
-    return receipt
-
-
-def prepare(argv: list[str]) -> None:
-    args = parse_args(argv)
-    _register_spec(args)
-    if not args.dataset_spec or not args.receipt:
-        raise SystemExit("prepare requires --dataset-spec and --receipt")
-    _validate_vios_origin(args.vst_url)
-    if args.ingest_flow != "vst-direct" or args.skip_ingest or args.skip_readiness_wait or args.skip_index_probe:
-        raise SystemExit("prepare requires vst-direct ingest, readiness wait, and index probe")
-    if not args.skip_download:
-        raise SystemExit("prepare requires --skip-download for an onboarded dataset")
-    if not all(_receipt_identity(args).values()):
-        raise SystemExit("prepare requires target, gateway, VIOS, chart, image, and dataset identities")
-    args.receipt.unlink(missing_ok=True)
-    video_dir = args.data_dir / args.dataset / "videos"
-    spec = json.loads(args.dataset_spec.read_text())
-    if {p.name for p in video_dir.iterdir() if p.is_file()} != set(spec["videos"]):
-        raise SystemExit("materialized videos differ from dataset spec")
-    vst_url = args.vst_url
-    before = flows.list_sensor_streams(vst_url)
-    existing_names = set(before.values()) | flows.list_sensor_names(vst_url)
-    collisions = [n for n in spec["videos"] if any(
-        flows.source_name_matches(registered, n) for registered in existing_names)]
-    if collisions:
-        raise SystemExit(f"preparation refuses existing dataset sources: {collisions[:10]}")
-    backend = build_ingest_backend(args)
-    stats = ingest_videos(backend, video_dir, skip_existing_from=None)
-    if stats.get("failed"):
-        raise SystemExit(f"preparation upload failures: {stats['failed']}")
-    expected = expected_sources_from_upload(stats)
-    if len(expected) != len(spec["videos"]):
-        raise SystemExit("upload did not return every expected sensor")
-    readiness = flows.wait_for_sources(vst_url, expected, timeout_s=args.readiness_timeout)
-    if not readiness.get("ready"):
-        raise SystemExit(f"VIOS registration incomplete: {readiness.get('missing')}")
-    streams = flows.list_sensor_streams(vst_url)
-    sensor_ids = {r["video_name"]: r["sensor_id"] for r in stats["per_file"] if r.get("sensor_id")}
-    if len(sensor_ids) != len(expected):
-        raise SystemExit("missing uploaded VIOS sensor identifiers")
-    anchors: dict[str, Any] = {}
-    if flows.dataset_meta(args.dataset).task == "segment":
-        for name, sensor_id in sensor_ids.items():
-            result = backend.verify_anchor(sensor_id)
-            anchors[name] = result
-            if not (result.get("checked") and result.get("found") and result.get("matches_expected_anchor")):
-                raise SystemExit(f"segment timestamp anchor missing or wrong for {name}: {result}")
-    query = build_query_backend(args)
-    index = probe_index_coverage(query, expected, vst_url=vst_url,
-        attempts=args.index_probe_attempts, backoff_s=args.index_probe_backoff,
-        top_k_per_source=args.index_probe_top_k, strict_per_source=True)
-    if not (index.get("checked") and index.get("covered") and index.get("per_source_verified")):
-        raise SystemExit(f"embedding index coverage incomplete: {index}")
-    # The harness selects one fixed path. Prove the attribute index for every
-    # uploaded source when that path needs it.
-    attribute_needed = args.search_path in ("attribute", "fusion")
-    if attribute_needed:
-        probe_attributes = args.attribute or []
-        if not probe_attributes:
-            raise SystemExit("attribute/fusion preparation requires a probe attribute")
-        registered = {name: streams.get(sensor_id, "") for name, sensor_id in sensor_ids.items()}
-        attribute = probe_attribute_coverage(query, expected, registered, probe_attributes,
-            attempts=args.index_probe_attempts, backoff_s=args.index_probe_backoff)
-        if not attribute.get("covered"):
-            raise SystemExit(f"attribute index coverage incomplete: {attribute}")
-        index["attribute_ready"] = True
-        index["attribute_sources_verified"] = attribute["sources_verified"]
-        index["attribute_probe"] = attribute
-    after = flows.list_sensor_streams(vst_url)
-    if before.keys() - after.keys() or not set(sensor_ids.values()).issubset(after):
-        raise SystemExit("VIOS inventory changed during preparation")
-    receipt = {
-        "version": 1, "status": "prepared", **_receipt_identity(args),
-        "uploaded_sensor_ids": sensor_ids,
-        "sensor_ids": list(sensor_ids.values()),
-        "expected_source_count": len(expected), "verified_source_count": len(expected),
-        "anchors": anchors, "anchors_ok": True,
-        "index": index, "index_ok": True, "readiness": readiness,
-        "inventory": sorted([[key, value] for key, value in after.items()]),
-        "completed_at": datetime.now(UTC).isoformat(),
-    }
-    args.receipt.parent.mkdir(parents=True, exist_ok=True)
-    temporary = args.receipt.with_suffix(args.receipt.suffix + ".tmp")
-    temporary.write_text(json.dumps(receipt, indent=2))
-    os.replace(temporary, args.receipt)
-    print(f"Preparation receipt: {args.receipt}")
-
-
-def main(argv: list[str] | None = None, *, require_receipt: bool = False) -> None:
-    args = parse_args(argv)
-    _register_spec(args)
-    if args.fixed_search_path:
-        args.no_decompose = True
-    if require_receipt:
-        _validate_vios_origin(args.vst_url)
-        if not args.skip_ingest or not args.skip_download or not args.output_file:
-            raise SystemExit("score requires --skip-ingest --skip-download --output-file")
-        receipt = _validate_receipt(args)
-        current = sorted([[key, value] for key, value in flows.list_sensor_streams(args.vst_url).items()])
-        if current != receipt.get("inventory"):
-            raise SystemExit("VIOS source inventory changed since preparation")
+def main() -> None:
+    args = parse_args()
 
     # Per-dataset wiring (DSS source, retrieval task, the HIT@k set). The clip
     # path scores whole-clip relevance; segment scores time-overlap. [F5/F8]
@@ -1961,13 +1738,13 @@ def main(argv: list[str] | None = None, *, require_receipt: bool = False) -> Non
                     "scores that as a retrieval regression.\n"
                     "  Raise --index-probe-attempts if perception is merely slow. Otherwise "
                     "check webhooks.enabled in\n"
-                    "  the rendered Search Helm VIOS notification config, and that "
+                    "  the VIOS notification config (false in the Helm chart), and that "
                     "RTVI_EMBED_MODEL matches the webhook's\n"
                     "  model string -- RT-Embed answers a mismatch with 200 and "
                     "inference=false."
                 )
 
-    result = run_evaluation(
+    run_evaluation(
         query_backend=query_backend,
         data_dir=args.data_dir,
         dataset=args.dataset,
@@ -1986,21 +1763,8 @@ def main(argv: list[str] | None = None, *, require_receipt: bool = False) -> Non
         vst_url=vst_url,
         task=task,
         hit_ks=effective_hit_ks,
-        fixed_search_path=args.fixed_search_path,
     )
-    if require_receipt:
-        current = sorted([[key, value] for key, value in flows.list_sensor_streams(args.vst_url).items()])
-        if current != receipt["inventory"]:
-            Path(args.output_file).unlink(missing_ok=True)
-            raise SystemExit("VIOS source inventory changed during scoring; result discarded")
-        result["preparation_receipt"] = str(args.receipt)
-        Path(args.output_file).write_text(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "prepare":
-        prepare(sys.argv[2:])
-    elif len(sys.argv) > 1 and sys.argv[1] == "score":
-        main(sys.argv[2:], require_receipt=True)
-    else:
-        main()
+    main()

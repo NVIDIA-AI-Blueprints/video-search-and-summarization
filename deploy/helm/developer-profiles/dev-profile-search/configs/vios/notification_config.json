@@ -58,7 +58,7 @@
               "retry_on_status": [408, 429, 500, 502, 503, 504]
             },
             "user_defined_metadata": {
-              "model": "__RTVI_EMBED_MODEL__",
+              "model": "cosmos-embed1-448p-anomaly-detection",
               "chunk_duration": 5
             }
           }
