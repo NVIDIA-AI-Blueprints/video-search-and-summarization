@@ -236,16 +236,23 @@ print(" ".join(sorted(str(i) for i in ids if i)))
 }
 check_camera_consistency
 
-# The perception tag has to match the machine's architecture. The aarch64 build
-# ships as a separate -sbsa tag; the default tag's arm64 variant carries no
-# NVIDIA decoder at all (no libgstnvvideo4linux2.so, no tegra libraries), so
-# nvv4l2decoder cannot be created, GStreamer falls back, extract-sei-type5-data
-# is unavailable and nvstreammux drops every buffer. The operator sees an
-# element-creation failure deep in the pipeline instead of a wrong-image message.
-# That is bug 6575042. Settle it here, before anything is staged.
+# The perception tag has to match the machine's architecture. The SBSA / DGX
+# Spark build ships as a separate -sbsa tag. The default tag's arm64 variant
+# carries no NVIDIA decoder at all (no libgstnvvideo4linux2.so, no tegra
+# libraries), so nvv4l2decoder cannot be created, GStreamer falls back,
+# extract-sei-type5-data is unavailable and nvstreammux drops every buffer.
+# The operator sees an element-creation failure deep in the pipeline instead of
+# a wrong-image message. That is bug 6575042. Settle it here, before anything
+# is staged.
 #
-# Only the stock ghcr image follows this tag convention, so a custom
-# PERCEPTION_IMAGE is left alone. SKIP_ARCH_CHECK=1 bypasses the whole thing.
+# The GHCR build and the NGC release image (nvcr.io/nvidia/vss-core/vss-rt-cv)
+# share that default/-sbsa split. A custom PERCEPTION_IMAGE is left alone.
+# SKIP_ARCH_CHECK=1 bypasses the whole thing.
+#
+# Jetson is aarch64 too, but it is not an SBSA machine. The Tegra encoder node
+# is how the encoder probe below already recognizes one, so this guard leaves
+# that host alone instead of sending it at the DGX Spark tag.
+#
 # Strip the sbsa marker wherever it sits so the suggested tag is one this guard
 # would accept. "develop-latest-sbsa" -> "develop-latest",
 # "develop-latest-sbsa-swenc" -> "develop-latest-swenc".
@@ -265,17 +272,19 @@ check_perception_arch() {
   # guard exists to reject. Check what will actually run.
   [ -n "$tag" ] || tag=develop-latest
   case "$image" in
-    ''|*ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv) ;;
+    ''|*ghcr.io/nvidia-ai-blueprints/vss/vss-rt-cv|*nvcr.io/nvidia/vss-core/vss-rt-cv) ;;
     *) return 0 ;;                       # custom image, convention does not apply
   esac
 
   arch="$(uname -m)"
   case "$arch" in
     aarch64|arm64)
+      # Jetson uses the Tegra build. The -sbsa tag is the DGX Spark image.
+      has_tegra_encoder_node && return 0
       case "$tag" in
         *-sbsa|*sbsa*) return 0 ;;
         *) { echo "ERROR: perception image does not match this machine, nothing was staged."
-             echo "       $arch needs the -sbsa tag; docker/.env has PERCEPTION_TAG=\"$tag\"."
+             echo "       $arch needs the -sbsa tag, and docker/.env has PERCEPTION_TAG=\"$tag\"."
              echo "       That image carries no NVIDIA decoder, so sources register and then"
              echo "       produce no frames (bug 6575042)."
              echo "       Set PERCEPTION_TAG=\"${tag}-sbsa\" in docker/.env and restage,"

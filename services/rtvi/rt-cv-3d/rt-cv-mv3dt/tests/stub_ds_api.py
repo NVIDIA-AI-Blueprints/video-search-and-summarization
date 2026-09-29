@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Stub of the DeepStream REST server that MV3DT's add-streams.sh talks to.
 
 The real server lives inside the `nvcr.io/nvidia/vss-core/vss-rt-cv`
@@ -8,6 +20,13 @@ perception image and is not part of the VSS repo, so client-side behavior in
 `scripts/add-streams.sh` cannot otherwise be tested. This stub implements just
 the endpoints that script uses, plus the failure modes the open NVBugs issues
 describe.
+
+Test-only scaffolding: it lives beside the tests deliberately and does not belong
+under scripts/lib/, which is shipped production code that add-streams.sh loads at
+runtime. A fake API server must never be installable on a rig.
+
+This file exists twice, here and in the bug-fix harness at docker/mv3dt-tests/.
+tests/run.sh compares them byte for byte, so edit both in the same commit.
 
 Endpoints (mirroring DeepStream's `/api/v1`):
 
@@ -226,21 +245,21 @@ def main() -> int:
         default=[],
         choices=["ok", "not-ready", "add-fails-200", "empty-info",
                  "adds-inactive", "no-sei"],
-        help="behavior mode; repeatable",
+        help="behavior mode, repeatable",
     )
     ap.add_argument(
         "--dead-stream",
         action="append",
         default=[],
         metavar="CAM=URL",
-        help="pre-register a stream that never produces frames; repeatable",
+        help="pre-register a stream that never produces frames, repeatable",
     )
     ap.add_argument(
         "--seed-stream",
         action="append",
         default=[],
         metavar="CAM=URL",
-        help="pre-register a stream; repeatable",
+        help="pre-register a stream, repeatable",
     )
     args = ap.parse_args()
 

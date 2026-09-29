@@ -109,7 +109,7 @@ Fewer than two calibrated views leaves the position at an area-weighted mean of 
 
 A ground-contact point sitting `d` off the assumed `z=0` plane back-projects to the wrong range by `d/h` of that range, for a camera at height `h` — a fraction, not a fixed distance. A single view typically lands short by about 1% of its range. The correction is a radial rescale about each camera, applied per view before anything else reads it.
 
-`FOOT_OFFSET=auto` ships no constant. The offset may come from the detector's bottom edge or from the calibrated floor — indistinguishable from one site, and one is a detector property while the other is a deployment property — so the service measures the value that makes overlapping cameras agree, which needs no ground truth. A site whose true offset is zero measures zero; one with the opposite sign is corrected the other way. The estimate is clamped, needs `FOOT_OFFSET_MIN_PAIRS` before it applies at all, and is re-fitted every `FOOT_OFFSET_EVERY` buckets over a rolling window of the last `FOOT_OFFSET_WINDOW` pairs, so a recalibration or a moved camera is followed rather than averaged away.
+`FOOT_OFFSET=auto` ships no constant. The offset may come from the detector's bottom edge or from the calibrated floor — indistinguishable from one site, and one is a detector property while the other is a deployment property — so the service measures the value that makes overlapping cameras agree, which needs no ground truth. A site whose true offset is zero measures zero, and one with the opposite sign is corrected the other way. The estimate is clamped, needs `FOOT_OFFSET_MIN_PAIRS` before it applies at all, and is re-fitted every `FOOT_OFFSET_EVERY` buckets over a rolling window of the last `FOOT_OFFSET_WINDOW` pairs, so a recalibration or a moved camera is followed rather than averaged away.
 
 Pairs are sampled every `FOOT_OFFSET_STRIDE` buckets: consecutive buckets hold the same people on the same cameras, so they carry less information than their count suggests. A deployment with no overlapping views measures nothing and is left uncorrected.
 
@@ -121,7 +121,7 @@ Two views sharing an id but sitting metres apart are two different people, mis-a
 
 `MAX_SPEED` refuses a fused position that cannot follow the last one published; `REACQUIRE` accepts after that many refusals so a real move is not stranded. `SPLIT_ON_REACQUIRE` then publishes the relocation as a new track rather than leaping the old one there, reusing the longest-unused id below the highest in play.
 
-`GATE_MEMORY` bounds how long that last published position stays authoritative. A track absent for longer could legitimately be anywhere, so the gate stops measuring against a stale origin instead of refusing the reappearance as too fast; the same horizon expires the bookkeeping the gate keeps per id.
+`GATE_MEMORY` bounds how long that last published position stays authoritative. A track absent for longer could legitimately be anywhere, so the gate stops measuring against a stale origin instead of refusing the reappearance as too fast. The same horizon expires the bookkeeping the gate keeps per id.
 
 `SMOOTH_LAG` holds each frame back that many buckets for an RTS backward pass. Off by default: it is latency the consumer pays and it bought nothing here.
 

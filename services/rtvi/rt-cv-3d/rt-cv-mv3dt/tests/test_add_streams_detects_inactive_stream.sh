@@ -2,9 +2,24 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # Regression test for the MV3DT standalone scripts. Self-contained: paths
 # default to this checkout, env vars still override.
 # Run:  bash tests/run.sh          (or: bash "$0" for just this one)
+# Bug 6558487. an invalid RTSP URL must not be reported as an active stream,
+# and a stream that never activates must be named rather than retried forever
+#
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,8 +82,8 @@ tests_summary "inactive-stream"
 t_partial_batch_is_not_flagged() {
   local out status tmp
   tmp="$(mktemp -d)"
-  mkdir -p "$tmp/scripts" "$tmp/generated/camInfo"
-  cp "$ADD_STREAMS" "$tmp/scripts/add-streams.sh"; chmod +x "$tmp/scripts/add-streams.sh"
+  mkdir -p "$tmp" "$tmp/generated/camInfo"
+  stage_add_streams "$tmp" >/dev/null
   local cam
   for cam in Camera Camera_01 Camera_02 Camera_03; do
     printf 'name: %s\n' "$cam" > "$tmp/generated/camInfo/${cam}.yml"
@@ -82,7 +97,7 @@ t_partial_batch_is_not_flagged() {
   stub_stop; rm -rf "$tmp"
   assert_status "$status" 0 "partial batch must not be flagged" || return 1
   assert_not_contains "$out" "not producing frames" "no false positive on a partial batch" || return 1
-  (( elapsed < 15 )) || { fail "partial batch stalled ${elapsed}s; it must not wait out the timeout"; return 1; }
+  (( elapsed < 15 )) || { fail "partial batch stalled ${elapsed}s and must not wait out the timeout"; return 1; }
 }
 
 run_test "partial batch is not flagged and does not stall" t_partial_batch_is_not_flagged

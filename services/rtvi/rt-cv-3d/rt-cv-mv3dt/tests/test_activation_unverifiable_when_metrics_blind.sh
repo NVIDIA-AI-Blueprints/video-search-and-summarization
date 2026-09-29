@@ -2,6 +2,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # Regression test for the MV3DT standalone scripts. Self-contained: paths
 # default to this checkout, env vars still override.
 # Run:  bash tests/run.sh          (or: bash "$0" for just this one)
@@ -24,8 +36,8 @@ source "${MV3DT_TESTS_DIR}/lib.sh"
 t_metrics_without_stats_is_not_a_failure() {
   local out status tmp cam
   tmp="$(mktemp -d)"
-  mkdir -p "$tmp/scripts" "$tmp/generated/camInfo"
-  cp "$ADD_STREAMS" "$tmp/scripts/add-streams.sh"; chmod +x "$tmp/scripts/add-streams.sh"
+  mkdir -p "$tmp" "$tmp/generated/camInfo"
+  stage_add_streams "$tmp" >/dev/null
   for cam in Camera Camera_01; do
     printf 'name: %s\n' "$cam" > "$tmp/generated/camInfo/${cam}.yml"
   done
@@ -59,8 +71,8 @@ t_metrics_without_stats_is_not_a_failure() {
 t_unverifiable_note_names_both_causes() {
   local out status tmp cam
   tmp="$(mktemp -d)"
-  mkdir -p "$tmp/scripts" "$tmp/generated/camInfo"
-  cp "$ADD_STREAMS" "$tmp/scripts/add-streams.sh"; chmod +x "$tmp/scripts/add-streams.sh"
+  mkdir -p "$tmp" "$tmp/generated/camInfo"
+  stage_add_streams "$tmp" >/dev/null
   for cam in Camera Camera_01; do
     printf 'name: %s\n' "$cam" > "$tmp/generated/camInfo/${cam}.yml"
   done

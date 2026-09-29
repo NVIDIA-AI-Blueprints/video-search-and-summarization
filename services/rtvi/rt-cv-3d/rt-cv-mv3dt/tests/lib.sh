@@ -1,18 +1,75 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # Shared helpers for MV3DT shell tests. Sourced by run.sh and by any
 # repo-local tests under services/rtvi/rt-cv-3d/rt-cv-mv3dt/tests/.
 #
 # Provides: stub_start, stub_stop, closed_port, ok/fail/run_test,
 #           assert_contains, assert_not_contains, assert_status.
+#
+# Not to be confused with scripts/lib/, which is shipped production code that
+# add-streams.sh loads at runtime and refuses to start without. This file and
+# stub_ds_api.py beside it are test-only scaffolding and are never installed on a
+# rig. Nothing here may be imported by anything under scripts/.
+#
+# This file exists twice, here and in the bug-fix harness at docker/mv3dt-tests/.
+# run.sh compares them byte for byte, so edit both in the same commit.
 
 MV3DT_TESTS_DIR="${MV3DT_TESTS_DIR:-/opt/mv3dt-tests}"
 STUB="${MV3DT_TESTS_DIR}/stub_ds_api.py"
 
+# Hermetic scratch copy of the component, for tests run directly rather than
+# through run.sh.
+#
+# add-streams.sh resolves its config directory relative to its own location
+# ($ROOT/generated). That directory is gitignored, so it is absent from a fresh
+# clone and present in an operator checkout with a deployment staged, and a staged
+# extract-sei-sim-time=1 makes the SEI prerequisite fire on fixture camera names.
+# run.sh already builds this copy. Without it here, three tests passed under
+# run.sh and failed when run on their own, which is worse than either.
+if [[ -z "${MV3DT_SCRATCH:-}" && -d "${MV3DT_TESTS_DIR}/../scripts" ]]; then
+  MV3DT_SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/mv3dt-lib-XXXXXX")"
+  cp -r "$(cd "${MV3DT_TESTS_DIR}/.." && pwd)/." "$MV3DT_SCRATCH/"
+  rm -rf "$MV3DT_SCRATCH/generated" "$MV3DT_SCRATCH/video-output" \
+         "$MV3DT_SCRATCH/bev-output" "$MV3DT_SCRATCH/utils/venv"
+  export MV3DT_SCRATCH
+  ADD_STREAMS="$MV3DT_SCRATCH/scripts/add-streams.sh"
+  STAGE_CONFIGS="$MV3DT_SCRATCH/scripts/stage-configs.sh"
+  # Only claim the EXIT trap if the test has not set one of its own.
+  [[ -n "$(trap -p EXIT)" ]] || trap 'rm -rf "$MV3DT_SCRATCH"' EXIT
+fi
+
 _TESTS_RUN=0
 _TESTS_FAILED=0
 _CURRENT_TEST=""
+
+# ---- fixtures ---------------------------------------------------------------
+
+# Copy add-streams.sh into a scratch component tree the way a deployment has it.
+# The script reads $ROOT/generated for staged config and $ROOT/scripts/lib for its
+# Python helpers, so copying the script on its own leaves it without either, which
+# fails at the point of use rather than at the copy.
+stage_add_streams() {   # $1=component root, echoes the staged script path
+  local root="$1" src
+  src="$(dirname "$ADD_STREAMS")"
+  mkdir -p "$root/scripts"
+  cp "$ADD_STREAMS" "$root/scripts/add-streams.sh"
+  chmod +x "$root/scripts/add-streams.sh"
+  [[ -d "$src/lib" ]] && cp -r "$src/lib" "$root/scripts/"
+  printf '%s' "$root/scripts/add-streams.sh"
+}
 
 # ---- reporting -------------------------------------------------------------
 

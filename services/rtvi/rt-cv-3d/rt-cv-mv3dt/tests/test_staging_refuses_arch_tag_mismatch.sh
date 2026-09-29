@@ -2,6 +2,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # Regression test for the MV3DT standalone scripts. Self-contained: paths
 # default to this checkout, env vars still override.
 # Run:  REPO=<vss repo root> bash "$0"
@@ -68,6 +80,19 @@ chk "x86_64 with the default tag stages"             "$(stage x86_64 develop-lat
 # Escape hatches: a deliberate override and a non-stock image.
 chk "SKIP_ARCH_CHECK=1 stages anyway"                "$(stage aarch64 develop-latest SKIP_ARCH_CHECK=1)" "0"
 chk "a custom image is not second-guessed"           "$(stage aarch64 some-tag PERCEPTION_IMAGE=my.registry/perception)" "0"
+
+# Jetson is aarch64, and the encoder probe already treats a Tegra node as
+# proof of that. The -sbsa tag is the DGX Spark image, so the guard must not
+# demand it here.
+touch "$T/v4l2-nvenc"
+chk "Jetson with the default tag stages"             "$(stage aarch64 develop-latest TEGRA_ENCODER_NODE=$T/v4l2-nvenc)" "0"
+chk "  it is not sent to the sbsa tag"               "$(said 'needs the -sbsa tag')" "no"
+
+# The NGC release image documents the same default/-sbsa split as GHCR.
+NGC_IMAGE=nvcr.io/nvidia/vss-core/vss-rt-cv
+chk "NGC aarch64 with the default tag is refused"    "$(stage aarch64 develop-latest PERCEPTION_IMAGE=$NGC_IMAGE)" "1"
+chk "NGC aarch64 with the sbsa tag stages"            "$(stage aarch64 develop-latest-sbsa PERCEPTION_IMAGE=$NGC_IMAGE)" "0"
+chk "NGC x86_64 with the sbsa tag is refused"         "$(stage x86_64 develop-latest-sbsa PERCEPTION_IMAGE=$NGC_IMAGE)" "1"
 
 # An unset PERCEPTION_TAG is not a pass: compose falls back to develop-latest,
 # which on aarch64 is exactly the decoder-less image the guard rejects.

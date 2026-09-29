@@ -2,9 +2,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # Regression test for the MV3DT standalone scripts. Self-contained: paths
 # default to this checkout, env vars still override.
 # Run:  bash tests/run.sh          (or: bash "$0" for just this one)
+# Bug 6564472. the run must report how many streams are still required
+#
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,8 +34,7 @@ make_component_root() {
   local root="$1"
 
   mkdir -p "$root/scripts" "$root/generated/camInfo" "$root/generated/configs"
-  cp "$ADD_STREAMS" "$root/scripts/add-streams.sh"
-  chmod +x "$root/scripts/add-streams.sh"
+  stage_add_streams "$root" >/dev/null
 
   local cam
   for cam in Camera Camera_01 Camera_02 Camera_03; do

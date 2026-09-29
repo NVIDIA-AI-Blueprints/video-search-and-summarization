@@ -2,9 +2,23 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # Regression test for the MV3DT standalone scripts. Self-contained: paths
 # default to this checkout, env vars still override.
 # Run:  bash tests/run.sh          (or: bash "$0" for just this one)
+# Bug 6553034. a deployment staged for SEI must not register SEI-less sources
+#
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,11 +32,11 @@ source "${MV3DT_TESTS_DIR}/lib.sh"
 
 # The check only applies when the staged config reads timestamps from the SEI,
 # so a component copy with that config is what exercises it at all.
-staged_copy() {  # $1=extract-sei-sim-time value; echoes the copy's add-streams.sh
+staged_copy() {  # $1=extract-sei-sim-time value, echoes the copy's add-streams.sh
   local v="$1" tmp cam
   tmp="$(mktemp -d)"
-  mkdir -p "$tmp/scripts" "$tmp/generated/camInfo" "$tmp/generated/configs"
-  cp "$ADD_STREAMS" "$tmp/scripts/add-streams.sh"; chmod +x "$tmp/scripts/add-streams.sh"
+  mkdir -p "$tmp" "$tmp/generated/camInfo" "$tmp/generated/configs"
+  stage_add_streams "$tmp" >/dev/null
   for cam in Camera; do printf 'name: %s\n' "$cam" > "$tmp/generated/camInfo/${cam}.yml"; done
   printf '[streammux]\nextract-sei-sim-time=%s\n' "$v" \
     > "$tmp/generated/configs/ds-main-config-mv3dt.txt"

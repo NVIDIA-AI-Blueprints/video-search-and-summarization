@@ -1,9 +1,23 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # Regression test for the MV3DT standalone scripts. Self-contained: paths
 # default to this checkout, env vars still override.
 # Run:  STAGE_CONFIGS=<repo>/scripts/stage-configs.sh bash "$0"
 #
-# nvbugs 6646812: SAVE_VIDEO=1 on an NVENC-less GPU staged enc-type=1 and the
+# Bug 6646812. SAVE_VIDEO=1 on an NVENC-less GPU staged enc-type=1 and the
 # pipeline then failed for lack of a software encoder, because no shipping image
 # carries x264enc. Staging must now settle that before writing anything.
 #
@@ -61,7 +75,7 @@ EOF
     chmod +x "$t/bin/ffmpeg"
   fi
   # prepare-sw-encoder stub. --probe-hw answers the capability question (10 =
-  # no hardware encoder, matching a real NVENC-less part); a plain call is the
+  # no hardware encoder, matching a real NVENC-less part). A plain call is the
   # prepare step and exits with the code the case wants.
   cat > "$t/scripts/prepare-sw-encoder.sh" <<EOF
 #!/usr/bin/env bash
