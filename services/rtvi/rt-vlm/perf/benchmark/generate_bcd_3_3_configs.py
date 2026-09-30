@@ -71,6 +71,23 @@ def render(
     )
     text = text.replace("stream_count: [1, 16, 32, 64, 128]", f"stream_count: {levels}")
     text = text.replace("concurrency_levels: [1, 16, 32, 64, 128]", f"concurrency_levels: {levels}")
+    if platform == "agx_orin":
+        # Cosmos3-Edge: (640 / 16 / 2)^2 = 400 vision tokens per frame.
+        frames = {"10": "5", "20": "10", "40": "20"}
+        text = re.sub(
+            r"(num_frames_per_second_or_fixed_frames_chunk: )(10|20|40)\b",
+            lambda match: match[1] + frames[match[2]],
+            text,
+        )
+        text = re.sub(
+            r"(10|20|40) frames \(~([248])K\)",
+            lambda match: frames[match[1]] + f" frames (~{match[2]}K)",
+            text,
+        )
+        text = text.replace(
+            "Frame counts per chunk: 10, 20, 40,",
+            "Frame counts per chunk: 5, 10, 20,",
+        )
     return text
 
 

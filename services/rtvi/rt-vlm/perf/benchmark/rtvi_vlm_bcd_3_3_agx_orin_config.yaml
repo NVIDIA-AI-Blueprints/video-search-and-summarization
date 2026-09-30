@@ -26,7 +26,7 @@
 #   - OSL: 1 and 100
 #   - Chunk size: 10 seconds
 #   - Model input resolution: 640x640
-#   - Frame counts per chunk: 10, 20, 40, corresponding to ~2K, ~4K, ~8K vision tokens
+#   - Frame counts per chunk: 5, 10, 20, corresponding to ~2K, ~4K, ~8K vision tokens
 #   - BCD 3 non-streaming video content: 10 s clip, 10 FPS, H.264, 1080p
 #   - Platform concurrency seed: [1, 2, 4, 8]; benchmark failures remain failures.
 #
@@ -62,7 +62,7 @@ global:
     vlm_input_width: 640
     vlm_input_height: 640
     use_fps_for_chunking: false
-    num_frames_per_second_or_fixed_frames_chunk: 40
+    num_frames_per_second_or_fixed_frames_chunk: 20
 
   prompt: "Describe the key events in this video with timestamps."
   # BCD non-streaming request throughput measures generation, not the /files upload/delete path.
@@ -74,7 +74,7 @@ test_scenarios:
   # condition: VLM inference per chunk must stay below the 10 second chunk size,
   # with no chunk-ID gaps (`require_no_dropped_chunks` defaults to true).
   max_live_streams_test_1_token_2k:
-    description: "BCD 3.3 max live streams, 640x640, 10 frames (~2K), OSL=1"
+    description: "BCD 3.3 max live streams, 640x640, 5 frames (~2K), OSL=1"
     benchmark_mode: "max_live_streams"
     generate_captions_params:
       vlm_input_width: 640
@@ -99,11 +99,11 @@ test_scenarios:
           temperature: 0.5
           max_tokens: 1
           use_fps_for_chunking: false
-          num_frames_per_second_or_fixed_frames_chunk: 10
+          num_frames_per_second_or_fixed_frames_chunk: 5
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   max_live_streams_test_100_token_2k:
-    description: "BCD 3.3 max live streams, 640x640, 10 frames (~2K), OSL=100"
+    description: "BCD 3.3 max live streams, 640x640, 5 frames (~2K), OSL=100"
     benchmark_mode: "max_live_streams"
     generate_captions_params:
       vlm_input_width: 640
@@ -128,11 +128,11 @@ test_scenarios:
           temperature: 0.5
           max_tokens: 100
           use_fps_for_chunking: false
-          num_frames_per_second_or_fixed_frames_chunk: 10
+          num_frames_per_second_or_fixed_frames_chunk: 5
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
 
   max_live_streams_test_1_token_4k:
-    description: "BCD 3.3 max live streams, 640x640, 20 frames (~4K), OSL=1"
+    description: "BCD 3.3 max live streams, 640x640, 10 frames (~4K), OSL=1"
     benchmark_mode: "max_live_streams"
     generate_captions_params:
       vlm_input_width: 640
@@ -157,11 +157,11 @@ test_scenarios:
           temperature: 0.5
           max_tokens: 1
           use_fps_for_chunking: false
-          num_frames_per_second_or_fixed_frames_chunk: 20
+          num_frames_per_second_or_fixed_frames_chunk: 10
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   max_live_streams_test_100_token_4k:
-    description: "BCD 3.3 max live streams, 640x640, 20 frames (~4K), OSL=100"
+    description: "BCD 3.3 max live streams, 640x640, 10 frames (~4K), OSL=100"
     benchmark_mode: "max_live_streams"
     generate_captions_params:
       vlm_input_width: 640
@@ -186,11 +186,11 @@ test_scenarios:
           temperature: 0.5
           max_tokens: 100
           use_fps_for_chunking: false
-          num_frames_per_second_or_fixed_frames_chunk: 20
+          num_frames_per_second_or_fixed_frames_chunk: 10
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
 
   max_live_streams_test_1_token_8k:
-    description: "BCD 3.3 max live streams, 640x640, 40 frames (~8K), OSL=1"
+    description: "BCD 3.3 max live streams, 640x640, 20 frames (~8K), OSL=1"
     benchmark_mode: "max_live_streams"
     generate_captions_params:
       vlm_input_width: 640
@@ -215,11 +215,11 @@ test_scenarios:
           temperature: 0.5
           max_tokens: 1
           use_fps_for_chunking: false
-          num_frames_per_second_or_fixed_frames_chunk: 40
+          num_frames_per_second_or_fixed_frames_chunk: 20
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   max_live_streams_test_100_token_8k:
-    description: "BCD 3.3 max live streams, 640x640, 40 frames (~8K), OSL=100"
+    description: "BCD 3.3 max live streams, 640x640, 20 frames (~8K), OSL=100"
     benchmark_mode: "max_live_streams"
     generate_captions_params:
       vlm_input_width: 640
@@ -244,12 +244,12 @@ test_scenarios:
           temperature: 0.5
           max_tokens: 100
           use_fps_for_chunking: false
-          num_frames_per_second_or_fixed_frames_chunk: 40
+          num_frames_per_second_or_fixed_frames_chunk: 20
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
 
   # BCD 2: live stream E2E latency over a 5 minute steady-state window.
   concurrency_test_1_token_2k:
-    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 10 frames (~2K), OSL=1"
+    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 5 frames (~2K), OSL=1"
     benchmark_mode: "concurrent_live_streams"
     iterations: 1
     generate_captions_params:
@@ -258,7 +258,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 1
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 10
+      num_frames_per_second_or_fixed_frames_chunk: 5
     videos:
       - name: "warehouse_concurrent_2k_1t"
         rtsp_url: "RTSP_STREAM_URL"
@@ -270,7 +270,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   concurrency_test_100_token_2k:
-    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 10 frames (~2K), OSL=100"
+    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 5 frames (~2K), OSL=100"
     benchmark_mode: "concurrent_live_streams"
     iterations: 1
     generate_captions_params:
@@ -279,7 +279,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 100
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 10
+      num_frames_per_second_or_fixed_frames_chunk: 5
     videos:
       - name: "warehouse_concurrent_2k_100t"
         rtsp_url: "RTSP_STREAM_URL"
@@ -291,7 +291,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
 
   concurrency_test_1_token_4k:
-    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 20 frames (~4K), OSL=1"
+    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 10 frames (~4K), OSL=1"
     benchmark_mode: "concurrent_live_streams"
     iterations: 1
     generate_captions_params:
@@ -300,7 +300,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 1
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 20
+      num_frames_per_second_or_fixed_frames_chunk: 10
     videos:
       - name: "warehouse_concurrent_4k_1t"
         rtsp_url: "RTSP_STREAM_URL"
@@ -312,7 +312,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   concurrency_test_100_token_4k:
-    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 20 frames (~4K), OSL=100"
+    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 10 frames (~4K), OSL=100"
     benchmark_mode: "concurrent_live_streams"
     iterations: 1
     generate_captions_params:
@@ -321,7 +321,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 100
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 20
+      num_frames_per_second_or_fixed_frames_chunk: 10
     videos:
       - name: "warehouse_concurrent_4k_100t"
         rtsp_url: "RTSP_STREAM_URL"
@@ -333,7 +333,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
 
   concurrency_test_1_token_8k:
-    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 40 frames (~8K), OSL=1"
+    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 20 frames (~8K), OSL=1"
     benchmark_mode: "concurrent_live_streams"
     iterations: 1
     generate_captions_params:
@@ -342,7 +342,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 1
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 40
+      num_frames_per_second_or_fixed_frames_chunk: 20
     videos:
       - name: "warehouse_concurrent_8k_1t"
         rtsp_url: "RTSP_STREAM_URL"
@@ -354,7 +354,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   concurrency_test_100_token_8k:
-    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 40 frames (~8K), OSL=100"
+    description: "BCD 3.3 live stream latency, AGX ORIN stream counts, 640x640, 20 frames (~8K), OSL=100"
     benchmark_mode: "concurrent_live_streams"
     iterations: 1
     generate_captions_params:
@@ -363,7 +363,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 100
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 40
+      num_frames_per_second_or_fixed_frames_chunk: 20
     videos:
       - name: "warehouse_concurrent_8k_100t"
         rtsp_url: "RTSP_STREAM_URL"
@@ -376,7 +376,7 @@ test_scenarios:
 
   # BCD 3: non-streaming request throughput over a 5 minute steady-state window.
   file_burst_1_token_2k:
-    description: "BCD 3.3 non-streaming throughput, 640x640, 10 frames (~2K), OSL=1"
+    description: "BCD 3.3 non-streaming throughput, 640x640, 5 frames (~2K), OSL=1"
     benchmark_mode: "file_burst"
     iterations: 1
     generate_captions_params:
@@ -385,7 +385,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 1
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 10
+      num_frames_per_second_or_fixed_frames_chunk: 5
     videos:
       - name: "warehouse_10s_burst_2k_1t"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
@@ -396,7 +396,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   file_burst_100_token_2k:
-    description: "BCD 3.3 non-streaming throughput, 640x640, 10 frames (~2K), OSL=100"
+    description: "BCD 3.3 non-streaming throughput, 640x640, 5 frames (~2K), OSL=100"
     benchmark_mode: "file_burst"
     iterations: 1
     generate_captions_params:
@@ -405,7 +405,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 100
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 10
+      num_frames_per_second_or_fixed_frames_chunk: 5
     videos:
       - name: "warehouse_10s_burst_2k_100t"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
@@ -416,7 +416,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
 
   file_burst_1_token_4k:
-    description: "BCD 3.3 non-streaming throughput, 640x640, 20 frames (~4K), OSL=1"
+    description: "BCD 3.3 non-streaming throughput, 640x640, 10 frames (~4K), OSL=1"
     benchmark_mode: "file_burst"
     iterations: 1
     generate_captions_params:
@@ -425,7 +425,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 1
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 20
+      num_frames_per_second_or_fixed_frames_chunk: 10
     videos:
       - name: "warehouse_10s_burst_4k_1t"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
@@ -436,7 +436,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   file_burst_100_token_4k:
-    description: "BCD 3.3 non-streaming throughput, 640x640, 20 frames (~4K), OSL=100"
+    description: "BCD 3.3 non-streaming throughput, 640x640, 10 frames (~4K), OSL=100"
     benchmark_mode: "file_burst"
     iterations: 1
     generate_captions_params:
@@ -445,7 +445,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 100
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 20
+      num_frames_per_second_or_fixed_frames_chunk: 10
     videos:
       - name: "warehouse_10s_burst_4k_100t"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
@@ -456,7 +456,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
 
   file_burst_1_token_8k:
-    description: "BCD 3.3 non-streaming throughput, 640x640, 40 frames (~8K), OSL=1"
+    description: "BCD 3.3 non-streaming throughput, 640x640, 20 frames (~8K), OSL=1"
     benchmark_mode: "file_burst"
     iterations: 1
     generate_captions_params:
@@ -465,7 +465,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 1
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 40
+      num_frames_per_second_or_fixed_frames_chunk: 20
     videos:
       - name: "warehouse_10s_burst_8k_1t"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
@@ -476,7 +476,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   file_burst_100_token_8k:
-    description: "BCD 3.3 non-streaming throughput, 640x640, 40 frames (~8K), OSL=100"
+    description: "BCD 3.3 non-streaming throughput, 640x640, 20 frames (~8K), OSL=100"
     benchmark_mode: "file_burst"
     iterations: 1
     generate_captions_params:
@@ -485,7 +485,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 100
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 40
+      num_frames_per_second_or_fixed_frames_chunk: 20
     videos:
       - name: "warehouse_10s_burst_8k_100t"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
@@ -497,7 +497,7 @@ test_scenarios:
 
   # BCD 4: non-streaming request latency by video duration at concurrency 1.
   e2e_latency_1_token_2k:
-    description: "BCD 3.3 non-streaming request latency, 640x640, 10 frames (~2K), OSL=1"
+    description: "BCD 3.3 non-streaming request latency, 640x640, 5 frames (~2K), OSL=1"
     benchmark_mode: "file_burst"
     iterations: 3
     generate_captions_params:
@@ -506,7 +506,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 1
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 10
+      num_frames_per_second_or_fixed_frames_chunk: 5
     videos:
       - name: "warehouse_10s"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
@@ -530,7 +530,73 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   e2e_latency_100_token_2k:
-    description: "BCD 3.3 non-streaming request latency, 640x640, 10 frames (~2K), OSL=100"
+    description: "BCD 3.3 non-streaming request latency, 640x640, 5 frames (~2K), OSL=100"
+    benchmark_mode: "file_burst"
+    iterations: 3
+    generate_captions_params:
+      vlm_input_width: 640
+      vlm_input_height: 640
+      temperature: 0.5
+      max_tokens: 100
+      use_fps_for_chunking: false
+      num_frames_per_second_or_fixed_frames_chunk: 5
+    videos:
+      - name: "warehouse_10s"
+        filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
+        chunk_sizes: [0]
+        concurrency_levels: [1]
+        target_latency_seconds: 0
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+      - name: "warehouse_10min"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m_10fps.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1]
+        request_timeout_seconds: 1800
+        target_latency_seconds: 0
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+      - name: "warehouse_60min"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m_10fps.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1]
+        request_timeout_seconds: 7200
+        target_latency_seconds: 0
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
+
+  e2e_latency_1_token_4k:
+    description: "BCD 3.3 non-streaming request latency, 640x640, 10 frames (~4K), OSL=1"
+    benchmark_mode: "file_burst"
+    iterations: 3
+    generate_captions_params:
+      vlm_input_width: 640
+      vlm_input_height: 640
+      temperature: 0.5
+      max_tokens: 1
+      use_fps_for_chunking: false
+      num_frames_per_second_or_fixed_frames_chunk: 10
+    videos:
+      - name: "warehouse_10s"
+        filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
+        chunk_sizes: [0]
+        concurrency_levels: [1]
+        target_latency_seconds: 0
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+      - name: "warehouse_10min"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m_10fps.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1]
+        request_timeout_seconds: 1800
+        target_latency_seconds: 0
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+      - name: "warehouse_60min"
+        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m_10fps.mp4"
+        chunk_sizes: [10]
+        concurrency_levels: [1]
+        request_timeout_seconds: 7200
+        target_latency_seconds: 0
+        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
+
+  e2e_latency_100_token_4k:
+    description: "BCD 3.3 non-streaming request latency, 640x640, 10 frames (~4K), OSL=100"
     benchmark_mode: "file_burst"
     iterations: 3
     generate_captions_params:
@@ -562,74 +628,8 @@ test_scenarios:
         target_latency_seconds: 0
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
 
-  e2e_latency_1_token_4k:
-    description: "BCD 3.3 non-streaming request latency, 640x640, 20 frames (~4K), OSL=1"
-    benchmark_mode: "file_burst"
-    iterations: 3
-    generate_captions_params:
-      vlm_input_width: 640
-      vlm_input_height: 640
-      temperature: 0.5
-      max_tokens: 1
-      use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 20
-    videos:
-      - name: "warehouse_10s"
-        filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
-        chunk_sizes: [0]
-        concurrency_levels: [1]
-        target_latency_seconds: 0
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
-      - name: "warehouse_10min"
-        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m_10fps.mp4"
-        chunk_sizes: [10]
-        concurrency_levels: [1]
-        request_timeout_seconds: 1800
-        target_latency_seconds: 0
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
-      - name: "warehouse_60min"
-        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m_10fps.mp4"
-        chunk_sizes: [10]
-        concurrency_levels: [1]
-        request_timeout_seconds: 7200
-        target_latency_seconds: 0
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
-
-  e2e_latency_100_token_4k:
-    description: "BCD 3.3 non-streaming request latency, 640x640, 20 frames (~4K), OSL=100"
-    benchmark_mode: "file_burst"
-    iterations: 3
-    generate_captions_params:
-      vlm_input_width: 640
-      vlm_input_height: 640
-      temperature: 0.5
-      max_tokens: 100
-      use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 20
-    videos:
-      - name: "warehouse_10s"
-        filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
-        chunk_sizes: [0]
-        concurrency_levels: [1]
-        target_latency_seconds: 0
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
-      - name: "warehouse_10min"
-        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_10m_10fps.mp4"
-        chunk_sizes: [10]
-        concurrency_levels: [1]
-        request_timeout_seconds: 1800
-        target_latency_seconds: 0
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
-      - name: "warehouse_60min"
-        filepath: "/opt/nvidia/rtvi/streams/perf/warehouse_gopro_60m_10fps.mp4"
-        chunk_sizes: [10]
-        concurrency_levels: [1]
-        request_timeout_seconds: 7200
-        target_latency_seconds: 0
-        prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area and answer in Yes or No Followed by Brief Description if Yes"
-
   e2e_latency_1_token_8k:
-    description: "BCD 3.3 non-streaming request latency, 640x640, 40 frames (~8K), OSL=1"
+    description: "BCD 3.3 non-streaming request latency, 640x640, 20 frames (~8K), OSL=1"
     benchmark_mode: "file_burst"
     iterations: 3
     generate_captions_params:
@@ -638,7 +638,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 1
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 40
+      num_frames_per_second_or_fixed_frames_chunk: 20
     videos:
       - name: "warehouse_10s"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"
@@ -662,7 +662,7 @@ test_scenarios:
         prompt: "You are a warehouse monitoring system. Look for anomalies. Detect for a box being dropped, or for any property being damaged, or for anyone entering a restricted area. Answer Yes or No only."
 
   e2e_latency_100_token_8k:
-    description: "BCD 3.3 non-streaming request latency, 640x640, 40 frames (~8K), OSL=100"
+    description: "BCD 3.3 non-streaming request latency, 640x640, 20 frames (~8K), OSL=100"
     benchmark_mode: "file_burst"
     iterations: 3
     generate_captions_params:
@@ -671,7 +671,7 @@ test_scenarios:
       temperature: 0.5
       max_tokens: 100
       use_fps_for_chunking: false
-      num_frames_per_second_or_fixed_frames_chunk: 40
+      num_frames_per_second_or_fixed_frames_chunk: 20
     videos:
       - name: "warehouse_10s"
         filepath: "/opt/nvidia/rtvi/streams/perf/FPS10_Res1080p_Dur10sec_1.mp4"

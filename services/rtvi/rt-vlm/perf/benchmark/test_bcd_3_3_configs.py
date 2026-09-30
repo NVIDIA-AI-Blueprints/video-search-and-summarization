@@ -10,6 +10,27 @@ from generate_bcd_3_3_configs import HERE, PROFILES, SOURCE, render
 
 
 class PlatformConfigTest(unittest.TestCase):
+    def test_cosmos3_edge_frame_budgets(self):
+        for platform, expected in (
+            ("agx_orin", {"2k": 5, "4k": 10, "8k": 20}),
+            ("rtx_pro_6000_se", {"2k": 10, "4k": 20, "8k": 40}),
+        ):
+            config = yaml.safe_load(
+                (HERE / f"rtvi_vlm_bcd_3_3_{platform}_config.yaml").read_text()
+            )
+            for name, scenario in config["test_scenarios"].items():
+                budget = name.rsplit("_", 1)[-1]
+                frames = scenario.get("generate_captions_params", {}).get(
+                    "num_frames_per_second_or_fixed_frames_chunk",
+                    config["global"]["generate_captions_params"]["num_frames_per_second_or_fixed_frames_chunk"],
+                )
+                for video in scenario["videos"]:
+                    actual = video.get("generate_captions_params", {}).get(
+                        "num_frames_per_second_or_fixed_frames_chunk", frames
+                    )
+                    with self.subTest(platform=platform, scenario=name):
+                        self.assertEqual(actual, expected[budget])
+
     def test_platform_profiles(self):
         base = yaml.safe_load(SOURCE.read_text())
         self.assertEqual(len(base["test_scenarios"]), 24)
