@@ -207,7 +207,29 @@ class EvalScope(unittest.TestCase):
             "vss-brand-new")
         # ...but a bare category file names no skill, and neither does a bare root.
         self.assertIsNone(plan_matrix.skill_for_file("skills/operations/README.md", skills))
-        self.assertIsNone(plan_matrix.skill_for_file("skills/deployment/vss-new/SKILL.md", skills))
+        self.assertEqual(
+            plan_matrix.skill_for_file("skills/deployment/vss-new/SKILL.md", skills),
+            "vss-new",
+        )
+
+    def test_one_gpu_deployment_specs_run_on_poc_copy(self):
+        os.environ["OPENSHELL_GPU_FLEET"] = "1"
+        try:
+            include = plan_matrix.build_matrix([
+                "skills/deployment/vss-setup-behavior-analytics/evals/standalone_deploy.json",
+                "skills/deployment/vss-deploy-video-embedding/evals/standalone_deploy.json",
+            ])
+        finally:
+            os.environ.pop("OPENSHELL_GPU_FLEET", None)
+        self.assertEqual(
+            [leg["spec_stem"] for leg in include],
+            ["standalone_deploy", "standalone_deploy"],
+        )
+        for leg in include:
+            self.assertEqual(leg["runs_on"], ["poc-copy"])
+            self.assertEqual(leg["cohort"], "h200-1g")
+            self.assertEqual(leg["platform"], "H200")
+            self.assertTrue(leg["local_gpu"])
 
 
 class RealSpecCorpus(unittest.TestCase):
@@ -299,11 +321,10 @@ class RealSpecCorpus(unittest.TestCase):
         self.assertEqual(
             counts,
             {
-                "blocked": 19,
-                "a40-1g": 12,
-                "a40-2g": 5,
-                "h200-1g": 2,
-                "rtxpro6000-2g": 12,
+                "blocked": 22,
+                "a40-1g": 1,
+                "a40-2g": 1,
+                "h200-1g": 14,
             },
         )
         for leg in include:
@@ -319,10 +340,7 @@ class RealSpecCorpus(unittest.TestCase):
             elif leg["cohort"].startswith("a40"):
                 self.assertIn("openshell-a40-active", leg["runs_on"])
             elif leg["cohort"] == "h200-1g":
-                self.assertIn("poc-copy", leg["runs_on"])
-                self.assertIn("gpu-h200", leg["runs_on"])
-                self.assertNotIn("gpu-rtxpro6000bw", leg["runs_on"])
-                self.assertNotIn("openshell-rtxpro6000-active", leg["runs_on"])
+                self.assertEqual(leg["runs_on"], ["poc-copy"])
             else:
                 self.assertEqual(leg["cohort"], "rtxpro6000-2g")
                 self.assertIn("openshell-rtxpro6000-active", leg["runs_on"])
@@ -685,11 +703,7 @@ class OpenshellGpuFleet(unittest.TestCase):
         self.assertIn("gpus-2", a40_2g)
 
         h200 = plan_matrix.runs_on_labels("H200", {"gpu_count": 1})
-        self.assertIn("poc-copy", h200)
-        self.assertIn("gpu-h200", h200)
-        self.assertIn("gpu-nvidia-h200", h200)
-        self.assertIn("gpus-1", h200)
-        self.assertNotIn("gpu-rtxpro6000bw", h200)
+        self.assertEqual(h200, ["poc-copy"])
         self.assertEqual(
             plan_matrix.runs_on_labels("H200", {"gpu_count": 2}),
             list(plan_matrix.SKIP_RUNNER),
