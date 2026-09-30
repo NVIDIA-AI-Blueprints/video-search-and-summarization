@@ -15,6 +15,10 @@ target the selected project and pass `-v --remove-orphans`.
 The default removes all project volumes, including model caches. Use the
 cache-preserving path only when the user explicitly asks to keep model caches.
 
+Ask the user to confirm before running either path, and say which one you are
+about to run: on the default, that it discards the NIM/RTVI model caches and the
+next deploy re-downloads them.
+
 ## NemoClaw harness — before Compose
 
 Run this whenever the build has a `sandbox` file: tearing down the build covers
@@ -102,8 +106,6 @@ next deploy doesn't re-download them. Do not select this path unless the user
 explicitly requests cache preservation.
 
 ### Tear down while preserving model caches
-
-Ask user to confirm to tear down the deployment before you proceed.
 
 When cache preservation was explicitly requested, still stop every prior VSS
 stack, especially when switching profiles (`base` → `search`, alerts
