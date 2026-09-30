@@ -32,9 +32,12 @@ before the notebook runs, because onboarding happens in its section 3.1 and a
 later section can still fail over a live sandbox. So run this section for a
 failed build as well; skipping it is how a sandbox gets left behind.
 
-`nemoclaw destroy` does not stop the dashboard relay the setup notebook
-started. Left running it holds `NEMOCLAW_DASHBOARD_RELAY_PORT` (default
-`18790`), and the next deploy's relay cell stops on it as a foreign listener.
+`nemoclaw destroy` does not stop the two host processes the setup notebook
+started. The dashboard-forward watchdog would see the forward die and run
+`nemoclaw <sandbox> recover` against the sandbox being destroyed, and keep
+retrying it afterwards, so stop it **before** the destroy. The dashboard relay,
+left running, holds `NEMOCLAW_DASHBOARD_RELAY_PORT` (default `18790`), and the
+next deploy's relay cell stops on it as a foreign listener; stop it after.
 
 ```bash
 REPO="$(git rev-parse --show-toplevel)"
@@ -51,20 +54,24 @@ if [ -z "$SANDBOX" ]; then
   echo "no sandbox recorded in $BUILD_DIR; nothing to destroy" >&2
   exit 0
 fi
-nemoclaw "$SANDBOX" destroy --yes --cleanup-gateway
 
 # Match the exact --sandbox argument, never the port or a name prefix: other
-# sandboxes' relays share the script and may sit on neighbouring ports.
-# pkill -f compiles an extended regex. Escape the recorded name so
-# vision.dev selects that sandbox's relay alone.
+# sandboxes' watchdogs and relays share the scripts and may sit on neighbouring
+# ports. pkill -f compiles an extended regex. Escape the recorded name so
+# vision.dev selects that sandbox's processes alone.
 SANDBOX_RE="$(printf '%s' "$SANDBOX" | sed 's/[][(){}.*+?^$|\\]/\\&/g')"
-RELAY="dashboard-relay\.py --sandbox ${SANDBOX_RE}( |$)"
-pkill -f -- "$RELAY"
-for _ in $(seq 50); do pgrep -f -- "$RELAY" >/dev/null || break; sleep 0.1; done
-if pgrep -af -- "$RELAY"; then
-  echo "dashboard relay for $SANDBOX still running" >&2
+stop_sandbox_process() {  # <script> <label>
+  local pattern="$1 --sandbox ${SANDBOX_RE}( |$)"
+  pkill -f -- "$pattern"
+  for _ in $(seq 50); do pgrep -f -- "$pattern" >/dev/null || return 0; sleep 0.1; done
+  pgrep -af -- "$pattern"
+  echo "$2 for $SANDBOX still running" >&2
   exit 1
-fi
+}
+
+stop_sandbox_process 'dashboard-forward-watchdog\.py' "dashboard-forward watchdog"
+nemoclaw "$SANDBOX" destroy --yes --cleanup-gateway
+stop_sandbox_process 'dashboard-relay\.py' "dashboard relay"
 ```
 
 A name recorded by a run that failed *before* onboarding belongs to a sandbox
