@@ -1325,7 +1325,7 @@ class RTVIServer:
         if vlm_query.url:
             if not vlm_query.id_list or len(vlm_query.id_list) != 1:
                 raise ServiceException(
-                    "When 'url' is provided, 'id' must be a single UUID.",
+                    "When 'url' is provided, 'id' must be a single identifier.",
                     "BadParameters",
                     400,
                 )
