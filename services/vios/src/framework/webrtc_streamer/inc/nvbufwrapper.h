@@ -196,6 +196,11 @@ class NvBufWrapper
             if (handle_nvbufsurfacetransform_utils)  dlCloseLibrary(handle_nvbufsurfacetransform_utils);
         }
 
+        NvBufWrapper(const NvBufWrapper&) = delete;
+        NvBufWrapper& operator=(const NvBufWrapper&) = delete;
+        NvBufWrapper(NvBufWrapper&&) = delete;
+        NvBufWrapper& operator=(NvBufWrapper&&) = delete;
+
         int getFDAndDoTransformIfNeeded(InputBufferType &buffer_type, uint32_t sourceWidth, uint32_t sourceHeight,
                                 uint32_t targetWidth, uint32_t targetHeight,
                                 bool software_mode = false, int* fd = nullptr, bool *ret_transform = nullptr)

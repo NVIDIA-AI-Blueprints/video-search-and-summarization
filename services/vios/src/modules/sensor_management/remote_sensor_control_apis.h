@@ -32,10 +32,10 @@ class RemoteSensorControlApis
         {
             LOG(info) << __PRETTY_FUNCTION__ << std::endl;
         }
-        RemoteSensorControlApis(const RemoteSensorControlApis&) = default;
-        RemoteSensorControlApis& operator=(const RemoteSensorControlApis&) = default;
-        RemoteSensorControlApis(RemoteSensorControlApis&&) = default;
-        RemoteSensorControlApis& operator=(RemoteSensorControlApis&&) = default;
+        RemoteSensorControlApis(const RemoteSensorControlApis&) = delete;
+        RemoteSensorControlApis& operator=(const RemoteSensorControlApis&) = delete;
+        RemoteSensorControlApis(RemoteSensorControlApis&&) = delete;
+        RemoteSensorControlApis& operator=(RemoteSensorControlApis&&) = delete;
         typedef std::function<void(const Json::Value& receivedData, Json::Value& response)> remoteSensorFunc;
         const std::map<std::string, remoteSensorFunc, std::less<>> getRemoteSensorControlApis() { return m_func; };
         void handleSensorCredentials(const Json::Value &data, Json::Value &response);
