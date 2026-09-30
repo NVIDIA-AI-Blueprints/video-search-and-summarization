@@ -1,9 +1,10 @@
 ---
 name: rtvi-vlm-perf-testing
-description: Plan, run, and diagnose reproducible RT-VLM GPU performance canaries and benchmarks. Use for fresh-container stream-capacity, semantic-isolation, latency, throughput, or regression experiments against an RTVI microservices checkout.
+description: Plan, run, and diagnose reproducible RT-VLM GPU performance canaries and benchmarks. Use this skill when running fresh-container stream-capacity, semantic-isolation, latency, throughput, or regression experiments against an RTVI microservices checkout.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.0-rc0"
+  requires-vss: ">=3.2.0,<4.0.0"
   author: "NVIDIA Video Search and Summarization Team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia rt-vlm performance benchmarking gpu canary"
