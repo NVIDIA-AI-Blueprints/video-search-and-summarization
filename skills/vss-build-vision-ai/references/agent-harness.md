@@ -500,6 +500,13 @@ export COMPATIBLE_API_KEY
 #   export COMPATIBLE_API_KEY=EMPTY
 #   export NEMOCLAW_INFERENCE_PROXY=0
 
+# Record the name BEFORE the run, not on success: 3.1 onboards and 3.2-3.5 keep
+# configuring, so a failure in between leaves a live sandbox that teardown
+# reaches only through this file. NEMOCLAW_RECREATE_SANDBOX=1 makes the name this
+# build's either way.
+printf '%s\n' "$NEMOCLAW_SANDBOX_NAME" \
+  > "$REPO/_builds/${BUILD_NAME}/sandbox"
+
 uv run --isolated --no-project --python 3.12 \
   --with nbformat --with nbclient --with ipykernel -- \
   python "$REPO/deploy/docker/scripts/run_setup_notebook.py" \
@@ -512,7 +519,8 @@ uv run --isolated --no-project --python 3.12 \
 **Take the status from the notebook, not from `tee`.** Keep `pipefail` set, or
 read `${PIPESTATUS[0]}` on the line right after the pipeline. Non-zero is a
 blocker: report it with the log path and stop, rather than going on to the UI
-link.
+link. Say that the build may hold a live sandbox and name it — the claim is on
+disk, so [Teardown](#teardown) removes it like any other build's.
 
 **`--echo-output` is what puts the notebook's output in the log.** Without it the
 runner keeps every output in memory, prints one summary line, and discards the
@@ -714,15 +722,12 @@ guards — is NemoClaw's domain: see the
 
 ## Teardown
 
-The harness and the build are independent lifecycles. Tearing down one never
-tears down the other, and [`teardown.md`](teardown.md) covers only the Compose
-project.
-
-```bash
-nemoclaw <sandbox> destroy --yes --cleanup-gateway
-# only when the harness was built from a harness source ref:
-git -C "$REPO" worktree remove --force "$REPO/_builds/<name>/harness-src"
-```
+The harness and the build are independent lifecycles: nothing in Compose
+reaches the sandbox. Tearing down a build therefore starts with
+[`teardown.md`](teardown.md) →
+[NemoClaw harness](teardown.md#nemoclaw-harness--before-compose), which
+destroys the sandbox, stops the dashboard relay the destroy leaves behind, and
+removes the `harness-src` worktree when the build has one.
 
 Destroy the sandbox **before** the Compose project when doing both, so the
 harness is not left pointed at an origin that has stopped answering. Removing
