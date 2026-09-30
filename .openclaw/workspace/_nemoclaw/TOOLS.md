@@ -223,8 +223,9 @@ it, and never replace it with raw HTTP.
 If the baked executable fails or is missing, report the image problem and stop.
 Development-checkout instructions in a skill do not apply to this image.
 
-The CLI operates whatever deployment it has recorded. Inspect `vss configure
-show`; record the operator's selected origin only when it is missing or differs:
+The CLI operates whatever deployment it has recorded. Record the operator's
+origin once per session, before the first VSS call, without a `configure show`
+first:
 
 ```bash
 vss configure --base-url "${VSS_PUBLIC_URL}"
