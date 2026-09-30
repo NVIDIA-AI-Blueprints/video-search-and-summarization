@@ -18,11 +18,12 @@ and compacts against the wrong model's limits. This script closes it -- the
 Dockerfile declares the ARGs, and this applies them to the inherited config at
 build, before the config hash is recomputed.
 
-allowedOrigins is a wildcard (see control_ui()); allowInsecureAuth is
-scheme == http; device auth is disabled for a non-loopback UI host.
-
-CHAT_UI_URL enters the config here: nothing can add an origin afterwards,
-since `config set` refuses gateway.*.
+controlUi.allowedOrigins is always a wildcard: the gateway binds loopback and
+the token is the boundary, and an origin derived from CHAT_UI_URL could miss
+the one the browser sends (onboard rewrites its port). CHAT_UI_URL only sets the
+auth flags: allowInsecureAuth is scheme == http; device auth is disabled for a
+non-loopback UI host. `config set` refuses gateway.*, so this is the only place
+to set them.
 """
 
 from __future__ import annotations
@@ -46,24 +47,14 @@ def _qualify(model: str) -> str:
     return model if model.startswith("inference/") else f"inference/{model}"
 
 
-def control_ui(chat_ui_url: str) -> dict | None:
-    """The controlUi block NemoClaw's generator would have produced.
-
-    allowedOrigins is a wildcard rather than a derived loopback/chat/portless
-    set: the derived set broke whenever onboard's own port-rewrite of
-    CHAT_UI_URL (NEMOCLAW_DASHBOARD_PORT vs NEMOCLAW_DASHBOARD_RELAY_PORT)
-    didn't match the origin the browser actually sent, and matching against
-    that moving target bought no security this deployment relies on -- the
-    real boundary is the token in the URL fragment, per
-    dangerouslyDisableDeviceAuth below.
-    """
+def control_ui_auth(chat_ui_url: str) -> dict | None:
+    """The controlUi auth flags for the UI host CHAT_UI_URL names, or None."""
     if not chat_ui_url:
         return None
     parsed = urlparse(chat_ui_url)
     if not parsed.scheme or not parsed.hostname:
         return None
     return {
-        "allowedOrigins": ["*"],
         "allowInsecureAuth": parsed.scheme == "http",
         "dangerouslyDisableDeviceAuth": not _is_loopback(parsed.hostname),
     }
@@ -111,14 +102,15 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
                 del models[0][cfg_key]
                 changes.append(f"{cfg_key} dropped (baked for another model, none supplied)")
 
-    # --- control UI origins: onboard supplies CHAT_UI_URL --------------------
-    gateway = cfg.setdefault("gateway", {})
-    ui = control_ui((env.get("CHAT_UI_URL") or "").strip())
-    if ui:
-        current = gateway.setdefault("controlUi", {})
-        if current.get("allowedOrigins") != ui["allowedOrigins"]:
-            changes.append(f"allowedOrigins {current.get('allowedOrigins')} -> {ui['allowedOrigins']}")
-        current.update(ui)
+    # --- control UI: any origin; onboard's CHAT_UI_URL sets the auth flags ---
+    current = cfg.setdefault("gateway", {}).setdefault("controlUi", {})
+    if current.get("allowedOrigins") != ["*"]:
+        changes.append(f"allowedOrigins {current.get('allowedOrigins')} -> ['*']")
+        current["allowedOrigins"] = ["*"]
+    for key, value in (control_ui_auth((env.get("CHAT_UI_URL") or "").strip()) or {}).items():
+        if current.get(key) != value:
+            changes.append(f"{key} {current.get(key)} -> {value}")
+            current[key] = value
 
     if changes:
         with open(config, "w") as handle:

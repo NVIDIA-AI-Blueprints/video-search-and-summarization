@@ -579,7 +579,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
         )
         onboard_config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(onboard_config)
-        cls.control_ui = staticmethod(onboard_config.control_ui)
+        cls.control_ui_auth = staticmethod(onboard_config.control_ui_auth)
 
     def _run_ui_cell(
         self,
@@ -605,20 +605,14 @@ class NemoClawForwardContractTests(unittest.TestCase):
         sandbox's forward; `forward_listener_visible` off is a listener lsof cannot
         report - started by another user, or no lsof on the host at all."""
 
-        # The config the image carries: whatever onboard's generator derived from the
-        # CHAT_UI_URL 3.1 baked in (a wildcard, once any CHAT_UI_URL was set), or the
-        # base image's own stock loopback-only default when the sandbox was built
-        # without one at all (ui_origin_baked=False -- CHAT_UI_URL empty, so
-        # control_ui() returns None and nothing gets patched).
-        control_ui_block = (
-            self.control_ui(f"https://{chat_fqdn}" if chat_fqdn else "")
-            if ui_origin_baked
-            else {
-                "allowedOrigins": [f"http://127.0.0.1:{self.PORT}"],
-                "allowInsecureAuth": False,
-                "dangerouslyDisableDeviceAuth": False,
-            }
-        )
+        # The controlUi the image carries: any origin, with auth flags from the
+        # CHAT_UI_URL 3.1 baked in -- or, built without one (ui_origin_baked=False),
+        # device auth left on.
+        auth = self.control_ui_auth(f"https://{chat_fqdn}" if chat_fqdn and ui_origin_baked else "")
+        control_ui_block = {
+            "allowedOrigins": ["*"],
+            **(auth or {"allowInsecureAuth": False, "dangerouslyDisableDeviceAuth": False}),
+        }
         state = {
             "forward": forward_up,
             "relay": relay_running_for,
@@ -860,7 +854,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
                 ui_origin_baked=False,
             )
         self.assertIn(
-            "https://agent.example.test is not in the sandbox's allowedOrigins",
+            "built without a remote UI origin, so https://agent.example.test cannot sign in",
             str(raised.exception),
         )
         self.assertIn("NEMOCLAW_RECREATE_SANDBOX = True", str(raised.exception))

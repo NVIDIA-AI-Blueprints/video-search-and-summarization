@@ -96,11 +96,7 @@ def test_no_model_arg_leaves_model_untouched(cfg):
 
 # --- control UI origins (the reported "Browser origin not allowed" bug) ---------
 #
-# allowedOrigins is a wildcard rather than a derived loopback/chat/portless
-# set: the derived set broke whenever onboard's own port-rewrite of
-# CHAT_UI_URL didn't match the origin the browser actually sent. The
-# boundary that matters is the token in the URL fragment
-# (dangerouslyDisableDeviceAuth), which still depends on the UI host.
+# allowedOrigins is always a wildcard; CHAT_UI_URL only sets the auth flags.
 
 def test_chat_ui_url_yields_the_wildcard_origin(cfg):
     mod.apply(str(cfg), {"CHAT_UI_URL": "https://chat.example.brevlab.com"})
@@ -125,14 +121,26 @@ def test_loopback_chat_url_keeps_device_auth(cfg):
     assert ui["allowInsecureAuth"] is True
 
 
-def test_no_chat_url_leaves_origins_untouched(cfg):
+def test_no_chat_url_still_gets_the_wildcard_and_keeps_the_auth_flags(cfg):
     mod.apply(str(cfg), {"NEMOCLAW_MODEL": "m/x"})
-    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == ["http://127.0.0.1:18789"]
+    ui = read(cfg)["gateway"]["controlUi"]
+    assert ui["allowedOrigins"] == ["*"]
+    assert ui["allowInsecureAuth"] is True and ui["dangerouslyDisableDeviceAuth"] is False
 
 
-def test_malformed_chat_url_is_ignored(cfg):
+def test_malformed_chat_url_leaves_the_auth_flags(cfg):
     mod.apply(str(cfg), {"CHAT_UI_URL": "not-a-url"})
-    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == ["http://127.0.0.1:18789"]
+    ui = read(cfg)["gateway"]["controlUi"]
+    assert ui["allowedOrigins"] == ["*"]
+    assert ui["dangerouslyDisableDeviceAuth"] is False
+
+
+def test_an_auth_flag_change_alone_is_written(cfg):
+    d = base_config(); d["gateway"]["controlUi"]["allowedOrigins"] = ["*"]
+    Path(cfg).write_text(json.dumps(d))
+    changes = mod.apply(str(cfg), {"CHAT_UI_URL": "https://chat.example.brevlab.com"})
+    assert changes
+    assert read(cfg)["gateway"]["controlUi"]["dangerouslyDisableDeviceAuth"] is True
 
 
 # --- both together, the real onboard shape -------------------------------------

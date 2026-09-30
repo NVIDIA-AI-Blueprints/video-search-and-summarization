@@ -57,7 +57,7 @@ curl -fsSL "https://raw.githubusercontent.com/NVIDIA/NemoClaw/${NEMOCLAW_INSTALL
 
 # 2. Create the sandbox (provider/model come from the environment)
 #    NEMOCLAW_PROVIDER=build|custom, NEMOCLAW_MODEL, NEMOCLAW_ENDPOINT_URL, COMPATIBLE_API_KEY / NVIDIA_API_KEY
-# CHAT_UI_URL bakes gateway.controlUi.allowedOrigins (gateway.* cannot be
+# CHAT_UI_URL bakes gateway.controlUi's auth for a remote UI (gateway.* cannot be
 # edited afterwards) — set it to the dashboard origin before onboarding. That
 # origin is the *relay* port (18790, step 7), not NemoClaw's own forward port
 # 18789, which stays loopback-only.
@@ -118,7 +118,7 @@ openshell sandbox exec -n "$SB" -- vss-openclaw-sync    # vss-hermes-sync on Her
 # nemoclaw "$SB" mcp add vss_orchestrator --url https://host.openshell.internal:9988/mcp
 
 # 6. Sandbox config: only the optional webhooks need config set.
-#    gateway.* (incl. controlUi.allowedOrigins) is rejected — it comes from
+#    gateway.* (incl. controlUi) is rejected — it comes from
 #    CHAT_UI_URL at onboard; agents.defaults.workspace already defaults to
 #    ~/.openclaw/workspace (= /sandbox/.openclaw/workspace in the sandbox).
 nemoclaw "$SB" config set --key hooks.enabled \

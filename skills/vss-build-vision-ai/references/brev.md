@@ -113,9 +113,9 @@ reports a secure-link URL or a loopback one behind an SSH tunnel.
 
 Publish it **before** the notebook's section 3.1. That is the step that reads the
 link and exports `CHAT_UI_URL`, which onboard bakes into the image's
-`gateway.controlUi`; 3.5 only checks that the built image allows the origin the
-browser will send. A browser that gets `origin not allowed` needs a recreated
-sandbox once the link exists, since `gateway.*` cannot be edited afterwards.
+`gateway.controlUi` to turn device auth off for the remote UI (any origin is
+allowed). A sandbox built without it cannot sign in over the link and needs
+recreating once the link exists, since `gateway.*` cannot be edited afterwards.
 
 `NEMOCLAW_DASHBOARD_PORT` (default 18789) gets no link of its own. NemoClaw
 keeps that forward on loopback and the relay in front of it is the published
