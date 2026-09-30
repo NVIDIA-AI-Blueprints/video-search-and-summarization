@@ -177,6 +177,8 @@ For BCD 3.2, run the named scenarios from `rtvi_vlm_bcd_3_2_config.yaml`:
 - BCD 3 file throughput: `file_burst_1_token_2k`, `file_burst_100_token_2k`, `file_burst_1_token_4k`, `file_burst_100_token_4k`, `file_burst_1_token_8k`, and `file_burst_100_token_8k`.
 - BCD 4 file latency: `e2e_latency_1_token_2k`, `e2e_latency_100_token_2k`, `e2e_latency_1_token_4k`, `e2e_latency_100_token_4k`, `e2e_latency_1_token_8k`, and `e2e_latency_100_token_8k`.
 
+For each configured BCD 3.3 platform, monitor the max-live initial load and stability window. If a frozen latency gate aborts the run before normal refinement, preserve the failed count, logs, drops, stream/source counts, and cleanup proof; then retry with `initial_stream_count` halved (round down) under a fresh run ID and isolated outputs. Keep the platform, source/image/model, workload shape, graph/IPC mode, thresholds, and seed fixed. Repeat until the initial window passes, then let the runner find the highest-stable/first-unstable boundary. Stop as inconclusive if one stream fails, owned cleanup cannot be proved, or a fatal hardware/runtime gate fires. Track every attempt and the active monitor per platform; a latency breach during normal refinement is the measured unstable point, not a reason to restart. Neither a lower-count retry nor initial launches erase the original BCD target failure.
+
 ### Run Integrity Gates
 
 - Before any 30min+ file-burst or target-latency run, first send a direct minimal video request with 1 frame and 1 output token; stop if it hangs, times out, leaves the file asset in use, or fails cleanup.
