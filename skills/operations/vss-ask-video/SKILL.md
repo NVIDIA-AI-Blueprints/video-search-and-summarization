@@ -52,7 +52,7 @@ and requested response format instead; do not invent options or require a letter
 
 ## Video source
 
-When the task says `The video is at <URL>`, set `VIDEO_URL` to that exact URL.
+When the task provides a video URL, set `VIDEO_URL` to that exact URL.
 This includes a supplied HTTP(S) RustFS/S3 object URL; do not reconstruct it
 from a video ID, bucket name, or endpoint, and do not substitute an `s3://` path.
 
