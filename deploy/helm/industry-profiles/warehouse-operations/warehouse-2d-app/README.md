@@ -143,10 +143,17 @@ under a single host, matching the `vss-haproxy-ingress` service in the compose
 profiles. The top-level **`vssIngress.*`** block holds config only (host, ports,
 ingressClassName); it is not the enable gate.
 
-**`global.externalHost`** drives all browser-reachable URLs (VST endpoint, analytics
-address, incident links). **`vssIngress.host`** controls only the Ingress
-`spec.rules[].host` for Kubernetes routing. Set both if they differ; omit
-**`vssIngress.host`** to match any hostname.
+**`global.externalHost`** drives browser-reachable URLs (VST endpoint, analytics
+address, incident links). **`vssIngress.host`** controls the Ingress
+`spec.rules[].host` for Kubernetes routing. The template uses `vssIngress.host`
+when it is set, and otherwise `global.externalHost`. Kubernetes rejects a raw
+IP in that host field. Use a DNS name for both when enabling Ingress, and point
+it at a node running the controller. For a quick test, use
+`vss-warehouse.<NODE_IP>.nip.io` with `<NODE_IP>` replaced by that node's
+reachable IP address, the same `nip.io` form as the developer Search profile.
+Leaving both values empty omits the host rule, so the Ingress matches any Host
+header, including a node IP. Browser links still need `global.externalHost` set
+to a name clients can resolve.
 
 ### 1. Prepare the values file
 
@@ -155,10 +162,10 @@ Create a values override file (e.g. `my-values.yaml`) and set at least:
 | Key | Description |
 |-----|-------------|
 | **`global.storageClass`** | StorageClass for VST, Elasticsearch, and related PVCs (e.g. **`local-path`**, **`oci-bv-high`**). Must exist on the cluster before install. |
-| **`global.externalHost`** | Node IP or hostname browsers use to reach the UIs (e.g. `192.168.1.10`). Drives all browser-reachable URLs. |
+| **`global.externalHost`** | Hostname browsers use. For Ingress, a DNS name such as `vss-warehouse.<NODE_IP>.nip.io`. A raw IP is rejected when it is copied into the Ingress host. For NodePort only, a node IP is valid. |
 | **`global.vssIngress.enabled`** | Set **`true`** to create the HAProxy `Ingress`. Requires the controller installed in [step 2](#2-install-the-ingress-controller). Leave **`false`** and use `values-nodeport.yaml` instead for NodePort access. |
-| **`monitoring.grafana.rootUrl`** | Full external URL for Grafana including path prefix, e.g. `http://<NODE_IP>/grafana`. Grafana embeds this in redirect links; without it Grafana points at `localhost`. |
-| **`infra.kibana.kibanaPublicUrl`** | Full external URL for Kibana including path prefix, e.g. `http://<NODE_IP>/kibana`. Kibana uses this for absolute links in the UI. |
+| **`monitoring.grafana.rootUrl`** | Required when Ingress is enabled. Full external URL for Grafana including the path prefix, e.g. `http://vss-warehouse.<NODE_IP>.nip.io/grafana`. Grafana embeds this in redirect links; without it Grafana points at `localhost`. |
+| **`infra.kibana.kibanaPublicUrl`** | Required when Ingress is enabled. Full external URL for Kibana including the path prefix, e.g. `http://vss-warehouse.<NODE_IP>.nip.io/kibana`. Kibana rejects a public URL that does not include `infra.kibana.basePath`. |
 | **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`** | NGC resource version for the warehouse app-data bundle (models, configs, video seed). Default is `nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`; override when using a different release. |
 
 #### `values.yaml` vs your override file
@@ -238,7 +245,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 |-----|---------|-------------|
 | **`monitoring.enabled`** | **`true`** | Master switch for Prometheus and Grafana. Set **`false`** to skip the stack. |
 | **`monitoring.prometheus.routePrefix`** | **`/prometheus`** | Prometheus route prefix matching the `/prometheus` ingress path. Change only if the ingress path changes. |
-| **`monitoring.grafana.rootUrl`** | **`http://localhost:8080/grafana`** | Full external URL for Grafana including the path prefix. Set to `http://<NODE_IP>/grafana` so redirect links resolve correctly. |
+| **`monitoring.grafana.rootUrl`** | **`http://localhost:8080/grafana`** | Full external URL for Grafana including the path prefix. With Ingress, set it to `http://vss-warehouse.<NODE_IP>.nip.io/grafana` so redirect links resolve correctly. |
 | **`monitoring.nodeExporter.enabled`** | **`true`** | Enable the node exporter DaemonSet for host-level metrics. |
 | **`monitoring.dcgmExporter.enabled`** | **`false`** | Stays off because the GPU Operator already runs `nvidia-dcgm-exporter`. Enable only on clusters without the GPU Operator. |
 
@@ -304,34 +311,94 @@ helm upgrade --install haproxy-ingress haproxytech/kubernetes-ingress --version 
   --set controller.ingressClass=haproxy
 ```
 
-`useHostPort=true` binds node ports 80 (HTTP) and 443 (HTTPS) directly. A stock
-install creates a LoadBalancer Service, which stays `Pending` on bare metal. Check with:
+`useHostPort=true` binds host ports 80 (HTTP) and 443 (HTTPS) directly; these
+are not Kubernetes NodePorts. A stock install creates a LoadBalancer Service,
+which stays `Pending` on bare metal. Make sure the ports are free and reachable
+on the nodes running the controller. Check with:
 
 ```bash
 kubectl get ingressclass          # expect: haproxy
+kubectl get pods -n haproxy-controller -o wide
 ```
 
-### 3. Install
+### 3. Configure HAProxy-only access
+
+Use a DNS name that resolves to a node running the HAProxy controller. The
+example below follows the developer Search profile's `nip.io` style: replace
+`<NODE_IP>` with the reachable IP of that node throughout `my-values.yaml`.
+Use your own DNS name instead if preferred. The Ingress host must not be a raw
+IP address.
+
+```yaml
+global:
+  externalHost: vss-warehouse.<NODE_IP>.nip.io
+  externalScheme: http
+  externalPort: ""
+  vssIngress:
+    enabled: true
+
+vssIngress:
+  ingressClassName: haproxy
+  host: vss-warehouse.<NODE_IP>.nip.io
+
+infra:
+  kibana:
+    basePath: /kibana
+    kibanaPublicUrl: http://vss-warehouse.<NODE_IP>.nip.io/kibana
+
+monitoring:
+  grafana:
+    rootUrl: http://vss-warehouse.<NODE_IP>.nip.io/grafana
+  prometheus:
+    routePrefix: /prometheus
+
+# Include this block when the Agent UI is enabled.
+# With externalHost and externalScheme set, the UI chart fills the agent, VST,
+# alerts, and video-analytics browser URLs from that origin. It does not fill
+# the Kibana dashboard URL: an unset dashboardKibanaBaseUrl becomes a separate
+# kibana.<host> name, which this single-host Ingress does not serve.
+# Set dashboardKibanaBaseUrl to this host's /kibana path.
+# envOverrides replaces the chart list. Keep the bbox entry that values.yaml
+# already ships, or thumbnail overlays turn off.
+vss-agent-ui:
+  agentApiUrlBase: http://vss-warehouse.<NODE_IP>.nip.io/api/v1
+  vstApiUrl: http://vss-warehouse.<NODE_IP>.nip.io/vst/api
+  alertsApiUrl: http://vss-warehouse.<NODE_IP>.nip.io/alert-bridge/api/v1
+  dashboardKibanaBaseUrl: http://vss-warehouse.<NODE_IP>.nip.io/kibana
+  envOverrides:
+    - name: NEXT_PUBLIC_ALERTS_TAB_MEDIA_WITH_OBJECTS_BBOX
+      value: "true"
+    - name: NEXT_PUBLIC_MDX_WEB_API_URL
+      value: http://vss-warehouse.<NODE_IP>.nip.io/video-analytics-api
+```
+
+Keep any other required site settings (for example, `global.storageClass`,
+secrets, dataset, and NGC resource versions) in the same override. Do **not**
+include `values-nodeport.yaml` with this override. The profile's default
+Services stay `ClusterIP`; the controller is the browser-facing entry point.
+When the Agent UI is enabled, keep `dashboardKibanaBaseUrl` in that override.
+Without it, dashboard links use a separate `kibana.<host>` name, which this
+Ingress does not serve.
+
+### 4. Install
 
 ```bash
-helm dependency update deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app
+helm dependency build deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app
 
 GIT_REF=$(git describe --tags --exact-match 2>/dev/null || git rev-parse --abbrev-ref HEAD)
 
 helm upgrade --install wh deploy/helm/industry-profiles/warehouse-operations/warehouse-2d-app \
   -n <namespace> --create-namespace \
-  --set global.vssIngress.enabled=true \
-  --set global.externalHost=<NODE_IP> \
-  --set global.storageClass=<STORAGE_CLASS> \
-  --set global.gitRef=$GIT_REF \
-  --set monitoring.grafana.rootUrl=http://<NODE_IP>/grafana \
-  --set infra.kibana.kibanaPublicUrl=http://<NODE_IP>/kibana
+  -f my-values.yaml \
+  --set global.gitRef="$GIT_REF" \
+  --wait --timeout 60m
 ```
 
-**`global.storageClass`**, **`monitoring.grafana.rootUrl`**, and **`infra.kibana.kibanaPublicUrl`**
-are host-specific. Grafana and Kibana build absolute links, so without them Grafana
-points at `localhost` and Kibana at its in-cluster Service name. The rest works off
-the defaults.
+For an existing release, inspect `helm get values wh -n <namespace>` first and
+carry forward any unrelated site settings. Do not reuse old NodePort values
+when switching to HAProxy-only access. If an upgrade fails because a completed
+Kubernetes Job's pod template is immutable, resolve that Job separately; a
+full uninstall is not required just to change Ingress settings.
 
 **`global.gitRef`** picks the branch/tag the calibration-import source links
 (`calibrationFileSource`, `imageMetadataFileSource`, `imageBaseSource`) point at.
@@ -368,7 +435,7 @@ fetch calibration.json from that endpoint via an initContainer, retrying until
 it returns real data and validating it before the main container starts. Clear
 it to fall back to the bundled `files/behavior-analytics/calibration.json`.
 
-### 4. Post-install validation
+### 5. Post-install validation
 
 Wait for all pods to be ready:
 
@@ -383,33 +450,73 @@ kubectl port-forward -n <namespace> svc/vss-vios-ingress 30888:30888
 curl -f http://127.0.0.1:30888/health
 ```
 
-### URLs
+Confirm the HAProxy route and Service exposure as well (replace the hostname):
 
-With `<NODE_IP>` being any cluster node:
+```bash
+kubectl get ingress -n <namespace> vss-ingress
+kubectl get svc -n <namespace>
+curl -I "http://vss-warehouse.<NODE_IP>.nip.io/kibana/"
+```
 
-| UI | URL |
+The application Services should be `ClusterIP`, not `NodePort`. If DNS is not
+configured yet, test the Host header with
+`curl -I -H 'Host: vss-warehouse.<NODE_IP>.nip.io' 'http://<NODE_IP>/kibana/'`.
+
+### Access via Ingress (recommended)
+
+With `global.vssIngress.enabled=true`, browser traffic enters through the
+HAProxy controller on ports 80/443. All routes use one hostname. For the
+`nip.io` example below, replace `<NODE_IP>` with the reachable IP of a node
+running that controller (or use your configured DNS name instead).
+
+| Service | URL |
 | --- | --- |
-| VST | `http://<NODE_IP>/vst/` |
-| Kibana | `http://<NODE_IP>/kibana/` |
-| NVStreamer | `http://<NODE_IP>/streamer/` |
-| Grafana | `http://<NODE_IP>/grafana/` |
-| Prometheus | `http://<NODE_IP>/prometheus/` |
+| Agent UI | `http://vss-warehouse.<NODE_IP>.nip.io/` |
+| Agent API | `http://vss-warehouse.<NODE_IP>.nip.io/api` |
+| VST UI | `http://vss-warehouse.<NODE_IP>.nip.io/vst/` |
+| VST API | `http://vss-warehouse.<NODE_IP>.nip.io/vst/api` |
+| VST media | `http://vss-warehouse.<NODE_IP>.nip.io/storage/` |
+| NVStreamer HTTP | `http://vss-warehouse.<NODE_IP>.nip.io/streamer/` |
+| Video Analytics API | `http://vss-warehouse.<NODE_IP>.nip.io/video-analytics-api` |
+| Behavior Analytics | `http://vss-warehouse.<NODE_IP>.nip.io/behavior-analytics/` |
+| Alert Bridge | `http://vss-warehouse.<NODE_IP>.nip.io/alert-bridge/` |
+| Kibana Dashboards | `http://vss-warehouse.<NODE_IP>.nip.io/kibana/` |
+| Grafana | `http://vss-warehouse.<NODE_IP>.nip.io/grafana/` |
+| Prometheus | `http://vss-warehouse.<NODE_IP>.nip.io/prometheus/` |
 
-`/storage/`, `/video-analytics-api/` and `/behavior-analytics/` are routed too.
+The UI, Agent API, and Alert Bridge routes require their components to be
+enabled; a disabled backend has no route. Phoenix is not exposed by this
+Ingress. NVStreamer's **HTTP** endpoint uses `/streamer/`; RTSP is not carried
+by the HTTP Ingress. Unlike the Search profile, this Ingress does not mount
+`/rtvi-vlm`, `/rtvi-embed`, `/rtvi-cv`, or `/elasticsearch`.
 
-With [Alerts](#alerts) enabled, Agent UI takes the root path and Agent API /
-Alert bridge are routed too:
+### Ingress Configuration
 
-| UI | URL |
-| --- | --- |
-| Agent UI | `http://<NODE_IP>/` |
-| Agent API | `http://<NODE_IP>/api` |
-| Alert bridge | `http://<NODE_IP>/alert-bridge` |
+The chart renders `templates/vss-ingress.yaml` only when
+`global.vssIngress.enabled=true`. The Ingress is named `vss-ingress` by default
+and uses `vssIngress.ingressClassName` (default `haproxy`). The profile's HTTP
+Services remain `ClusterIP`; the HAProxy controller provides external access.
+The Ingress uses `haproxy.org/path-rewrite` annotations, so another controller
+would need equivalent routing rules. It has one host with path-based routes,
+unlike the developer Search profile's separate Kibana and streamer hosts.
 
-Kibana, Grafana and Prometheus run under a path prefix set by
-**`infra.kibana.basePath`**, **`monitoring.grafana.rootUrl`** and
-**`monitoring.prometheus.routePrefix`**. Change an ingress path and the matching value
-has to change too, or the app 404s after its first redirect.
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `global.vssIngress.enabled` | `false` | Enables creation of the Warehouse 2D Ingress. The top-level `vssIngress.enabled` value is not the enable gate. |
+| `global.externalHost` | `""` | Browser-facing DNS name; used as the Ingress host when `vssIngress.host` is empty. A raw IP is invalid in an Ingress host rule. |
+| `global.externalScheme` / `global.externalPort` | `""` / `""` | Scheme and optional non-standard port for generated browser URLs. Leave the port empty for HTTP 80 or HTTPS 443. |
+| `vssIngress.ingressClassName` | `haproxy` | Must match the controller's `IngressClass`. |
+| `vssIngress.host` | `""` | Optional host override; otherwise uses `global.externalHost`. Does not change browser URLs. |
+| `vssIngress.resourceName` | `""` (renders `vss-ingress`) | Optional Ingress resource name. |
+| `vssIngress.vstPort` / `videoAnalyticsApiPort` / `behaviorAnalyticsPort` | `30888` / `8081` / `8080` | Corresponding backend Service ports. |
+| `vssIngress.kibanaPort` / `nvstreamerPort` | `5601` / `31000` | Corresponding backend Service ports. |
+| `vssIngress.grafanaPort` / `prometheusPort` | `3000` / `9090` | Monitoring backend Service ports. |
+
+Kibana, Grafana and Prometheus run under path prefixes set by
+`infra.kibana.basePath`, `monitoring.grafana.rootUrl` and
+`monitoring.prometheus.routePrefix`. Keep those values aligned with the Ingress
+paths, or redirects and links may fail. This chart does not use the Search
+profile's `vssIngress.hosts.*`, `vssIngress.tls`, or timeout settings.
 
 ### No ingress controller: NodePort
 
