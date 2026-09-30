@@ -128,7 +128,7 @@ spec:
             - name: vss-behavior-analytics-resources
               mountPath: /resources-data
         {{- end }}
-        {{- if and .Values.resourceFiles.calibration.enabled $calibApiUrl }}
+        {{- if and .Values.enabled .Values.resourceFiles.calibration.enabled .Values.resourceFiles.calibration.apiUrl }}
         # Fetches calibration.json from the video-analytics API, retrying
         # until it returns real data, then validates it before the main
         # container starts.
@@ -202,7 +202,7 @@ spec:
             name: {{ include "vss-behavior-analytics.fullname" . }}-resources
           {{- end }}
         {{- end }}
-        {{- if and .Values.resourceFiles.calibration.enabled $calibApiUrl }}
+        {{- if and .Values.enabled .Values.resourceFiles.calibration.enabled .Values.resourceFiles.calibration.apiUrl }}
         - name: fetch-calibration-script
           configMap:
             name: {{ include "vss-behavior-analytics.fullname" . }}-fetch-calibration
