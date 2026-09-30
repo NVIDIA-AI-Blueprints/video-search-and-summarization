@@ -157,12 +157,12 @@ An example dataset can be found in the [Warehouse_014](https://huggingface.co/da
 
 ### 3D-to-2D Geometric Distillation for Real-World Datasets
 
-3D-to-2D geometric distillation lets Sparse4D learn from real-world images with 2D annotations or detector pseudo-labels, reducing the need to collect full 3D ground truth. Sparse4D still predicts 3D boxes and tracking IDs. The term **3D-to-2D** describes projecting its 3D predictions into the image plane, where 2D supervision can be applied.
+3D-to-2D geometric distillation lets Sparse4D learn from calibrated multi-camera real-world images with 2D annotations or detector pseudo-labels, reducing the need to collect full 3D ground truth. Sparse4D still predicts 3D boxes and tracking IDs. The term **3D-to-2D** describes projecting its 3D predictions into the image plane, where 2D supervision can be applied.
 
 A projected 3D cuboid encloses all eight corners and can be larger than the object's tight image-space box. A geometry-only **loose-to-tight (LTT)** MLP learns to correct this difference from paired 3D boxes and tight, amodal 2D boxes in labeled data. During Sparse4D fine-tuning, the MLP is frozen and its predicted correction factors are detached; gradients flow through the corrected box projection into Sparse4D. Per-camera matching then compares these boxes with real-world 2D detections, such as offline RT-DETR predictions, to supervise box geometry and classification.
 
 <Note>
-Use a TAO PyTorch build that includes `model.head.loose_to_tight` and, for the single-view route, `model.sv_aux_head`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare`. Check the experiment specs shipped with your build; these optional training routes are disabled by default.
+Use a TAO PyTorch build that includes `model.head.loose_to_tight`. The data preparation commands below also require a TAO Data Services build with `annotations sparse4d_prepare`. Check the experiment specs shipped with your build; the optional LTT training losses are disabled by default.
 </Note>
 
 #### Choose the supervision route
@@ -171,16 +171,14 @@ Use a TAO PyTorch build that includes `model.head.loose_to_tight` and, for the s
 | --- | --- | --- |
 | Synthetic or real scenes with 3D labels | Synchronized images, camera intrinsics/extrinsics, 3D boxes and IDs; visible 2D boxes for the optional LTT loss | Standard 3D losses, optionally supplemented by LTT 2D supervision |
 | Calibrated real-world scenes without 3D labels | Synchronized images, camera intrinsics/extrinsics, BEV groups, and per-camera 2D detections | Projected 2D box and classification pseudo-losses using LTT |
-| Single-view real-world images without calibration (SV2D) | Images and COCO-format 2D annotations | Image-plane auxiliary classification with `model.sv_aux_head.enable: true` |
 
-SV2D preparation creates a virtual camera to satisfy the training data format. It does not recover physical camera calibration or supply metric 3D ground truth. When the auxiliary classifier is enabled, SV2D batches use that classifier and their geometric pseudo-losses are zeroed. An alternative SV2D projection route is available with the auxiliary classifier disabled; its default depth and yaw gradient scales are zero because those quantities are ambiguous from uncalibrated 2D boxes. Keep 3D-labeled data in the training mix to retain metric geometry supervision.
+Keep 3D-labeled data in the training mix to retain metric geometry supervision.
 
 #### Prepare the data and geometric correction model
 
 1. **Fit the LTT model on labeled data.** Use `annotations sparse4d_prepare` with `operation=ltt_data` to extract paired cuboid projections and tight amodal 2D boxes. Fit the MLP in the TAO PyTorch environment with `python -m nvidia_tao_pytorch.cv.sparse4d.tools.ltt_train --data /data/ltt_training.npz --out /data/loose_to_tight_mlp.pth --epochs 60 --device cuda`. Check its held-out per-class GIoU against the uncorrected projection baseline.
 2. **Prepare 2D supervision.** Use `operation=ltt_2dgt` for visible-2D sidecars on 3D-labeled scenes. For calibrated real scenes, run the 2D teacher offline, then use `operation=rtdetr_2d` to convert its per-camera KITTI `labels.tar.gz` archives to `<scene>__rtdetr2d.npz`. This operation converts detections; it does not run RT-DETR. Create the matching image/calibration info PKL with the [calibrated real-scene preparation recipe](#convert-calibrated-real-scenes-to-sparse4d-info-pkls) below before building the mixed split.
-3. **Optionally add uncalibrated images.** Use `operation=sv2d` with a manifest of COCO datasets to produce one-view info PKLs, paired 2D caches, and a training split. Match the runtime canonical image dimensions to those used during preparation.
-4. **Build the mixed training split.** List the converted 3D, calibrated real, and optional SV2D info PKLs once each. Mark genuinely unlabeled 3D samples with `gt_boxes=None`, rather than treating them as annotated empty scenes. Run `operation=lazy_index` after finalizing this split if using `dataset.lazy_load: true`.
+3. **Build the mixed training split.** List the converted 3D-labeled and calibrated real info PKLs once each. Mark genuinely unlabeled 3D samples with `gt_boxes=None`, rather than treating them as annotated empty scenes. Run `operation=lazy_index` after finalizing this split if using `dataset.lazy_load: true`.
 
 Use the same ordered taxonomy for data preparation `class_names`, training `dataset.classes`, the LTT checkpoint, and all caches. For the released seven-class warehouse models, the training names are `person`, `gr1_t2`, `agility_digit`, `nova_carter`, `transporter`, `forklift`, and `pallet_truck`. Map teacher labels explicitly to this taxonomy; a matching class count alone is insufficient. Camera names, source frame IDs, image dimensions, and coordinate conventions must agree between the info PKLs and their caches.
 
@@ -321,17 +319,15 @@ dataset:
 
 `real_block_prob: 0.5` is an example starting point for the proportion of 2D-route blocks, not an accuracy recommendation. Distributed co-training requires `sync_route: true` and a positive `scene_switch_iters`; each batch must have homogeneous 2D/3D supervision. `rtdetr_2d_mark_real: true` makes any scene with a teacher cache use the 2D-only route, so keep those caches separate from scenes intended for full 3D supervision.
 
-For SV2D auxiliary training, additionally set `model.sv_aux_head.enable: true`, `model.sv_scene_keywords: [SV2D]`, and `dataset.resize_to_canonical_2d: true`. Set `dataset.canonical_2d_width` and `dataset.canonical_2d_height` to the preparation dimensions (defaults: 1920 and 1080), and include both `SV2D` and your calibrated real scene keywords in `dataset.real_scene_keywords`. Canonical resizing applies to explicitly 2D-only inputs; prepare calibrated real inputs at compatible dimensions before mixing these routes.
-
 Run the regular `sparse4d train -e /specs/experiment_spec.yaml` command inside the TAO PyTorch environment. This workflow uses the training task; there is no separate Sparse4D `distill` task. Refer to the [TAO Sparse4D documentation](https://docs.nvidia.com/tao/tao-toolkit/latest/text/cv_finetuning/pytorch/sparse4d/sparse4d.html) for the standard training, evaluation, and export workflow.
 
 #### Validate and deploy
 
-Inspect projected boxes on real images before a long run. Verify that expected labeled frames join their caches and that `loss_box_2d_pseudo_*` and `loss_cls_pseudo_*` contribute on calibrated real batches. SV2D auxiliary batches should report `loss_sv_aux_cls`; their geometric pseudo-losses are intentionally zero. Missing cache joins skip pseudo supervision and must not be interpreted as successfully processed empty detections.
+Inspect projected boxes on real images before a long run. Verify that expected labeled frames join their caches and that `loss_box_2d_pseudo_*` and `loss_cls_pseudo_*` contribute on calibrated real batches. Missing cache joins skip pseudo supervision and must not be interpreted as successfully processed empty detections.
 
 Compare the original checkpoint and the adapted checkpoint on held-out, 3D-labeled real scenes, and retain a synthetic validation set to check for regressions. Report detection and tracking metrics separately; a lower 2D loss alone does not establish better metric 3D accuracy or tracking.
 
-RT-DETR pseudo-label generation, the LTT MLP, and the SV2D auxiliary classifier are training components. Standard Sparse4D evaluation, inference, and export do not require the external LTT checkpoint. Export the adapted Sparse4D model and follow the [model compatibility requirements](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#model-compatibility-requirements) when deploying it. The deployed multi-camera 3D pipeline still needs real camera calibration.
+RT-DETR pseudo-label generation and the LTT MLP are training components. Standard Sparse4D evaluation, inference, and export do not require the external LTT checkpoint. Export the adapted Sparse4D model and follow the [model compatibility requirements](/vss/vision-agent/agent-workflows/industry-specific-examples/warehouse-operations-blueprint/microservice-configuration/perception/3d-multi-camera-detection-and-tracking-sparse4d#model-compatibility-requirements) when deploying it. The deployed multi-camera 3D pipeline still needs real camera calibration.
 
 ### Camera Grouping for Model Fine-tuning
 
