@@ -199,7 +199,7 @@ def test_summarization_uses_one_ordered_workflow_without_return_protocol() -> No
 
     assert "Recorded Video Workflow" in summarize_skill
     assert "Prepare the Video Through VIOS" in summarize_skill
-    assert "do not call the VIOS REST API directly" in normalized_summarize_skill
+    assert "no VIOS REST calls" in normalized_summarize_skill
     assert "do not invoke a separate skill" in normalized_summarize_skill
     assert (
         "Invoke and follow the `vss-manage-video-io-storage` skill"
@@ -208,11 +208,12 @@ def test_summarization_uses_one_ordered_workflow_without_return_protocol() -> No
     assert "vss-manage-video-io-storage" not in eval_spec["skills"]
     # Clip minting and reachability both route through the vss CLI now, not a
     # hand-rolled VIOS REST call or a docker/kubectl exec probe.
-    assert 'vss vios list --sensor "$FILENAME"' in end_to_end_example
+    assert 'vss vios list --sensor "$STEM"' in end_to_end_example
     assert 'vss vios add "$SOURCE_FILE"' in end_to_end_example
+    assert 'vss vios timeline --sensor "$SENSOR_NAME"' in end_to_end_example
     assert 'vss vios clip --sensor "$SENSOR_NAME"' in end_to_end_example
     assert "jq -er '.media_url'" in end_to_end_example
-    assert "jq -er '.warmed'" in end_to_end_example
+    assert "jq -r '.warmed'" in end_to_end_example
     assert "docker exec vss-lvs" not in end_to_end_example
     assert "docker exec vss-lvs" not in summarize_skill
     assert "Stage 1: Select the Backend" in summarize_skill
@@ -504,7 +505,7 @@ def test_a_summary_is_filed_under_a_sensor_not_a_stream() -> None:
     end_to_end_example = SUMMARIZE_REFERENCES[0].read_text()
     summarize_skill = " ".join(SUMMARIZE_SKILL.read_text().split())
 
-    assert "SENSOR_ID=$(jq -er '.sensor_id' /tmp/vios-clip.json)" in end_to_end_example
+    assert "SENSOR_ID=$(printf '%s' \"$CLIPPED\" | jq -er '.sensor_id')" in end_to_end_example
     assert 'VIDEO_ID="$SENSOR_ID"' in end_to_end_example
     # The old fallback silently persisted a stream id whenever the upload path ran.
     assert "${SENSOR_ID:-$STREAM_ID}" not in end_to_end_example
@@ -523,7 +524,7 @@ def test_the_media_start_is_never_a_constant_for_media_already_present() -> None
     """
     end_to_end_example = SUMMARIZE_REFERENCES[0].read_text()
 
-    assert "START_TIME=$(jq -er '.start_time' /tmp/vios-clip.json)" in end_to_end_example
+    assert "START_TIME=$(printf '%s' \"$CLIPPED\" | jq -er '.start_time')" in end_to_end_example
     assert 'CREATION_TIME="$START_TIME"' in end_to_end_example
     assert 'CREATION_TIME="${UPLOAD_TIMESTAMP:-' not in end_to_end_example
     assert 'CREATION_TIME="2025-01-01' not in end_to_end_example
