@@ -94,8 +94,9 @@ export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 ```
 
-After onboarding, the user runs `nemoclaw <sandbox> gateway-token --quiet` on
-the deployment host and enters the result in the Web UI's **Connect NemoClaw
+After onboarding, the user runs `nemoclaw <sandbox> gateway-token --quiet`
+with the name section 3.5 printed (`vss-harness-sandbox` by default) on the
+deployment host and enters the result in the Web UI's **Connect NemoClaw
 chat** panel. The UI checks the gateway and enables both chat surfaces when it
 accepts the token. If the relay is unavailable, the panel offers a retry; if
 the token is rejected, the user can enter a current one. The token stays in
@@ -454,7 +455,7 @@ Set the environment, then run the notebook:
 |---|---|---|
 | `VSS_REPO_DIR` | the checkout root | resolves the policy, skills, and workspace docs |
 | `VSS_PUBLIC_URL` | **leave unset** for a Compose build | the deployment origin `vss configure` records; empty means this host's Compose deployment and 3.2 fills it in — see [`VSS_PUBLIC_URL` is the deployment origin](#vss_public_url-is-the-deployment-origin---leave-it-empty-on-compose) below |
-| `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name replaces the first build's sandbox |
+| `NEMOCLAW_SANDBOX_NAME` | `vss-harness-sandbox` unless already set | a new build replaces the sandbox of the same name |
 | `NEMOCLAW_RECREATE_SANDBOX` | `1` | onboard is the only step that applies the provider, endpoint, model and key, so a reused sandbox would run on whatever it was onboarded with. Section 3.1 adds `--recreate-sandbox` when a sandbox of that name exists, discarding it and its agent sessions |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
 | `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
@@ -469,9 +470,10 @@ set -o pipefail   # report the notebook's status, not `tee`'s
 umask 077         # the setup log echoes the notebook's own settings dump
 
 REPO="$(git rev-parse --show-toplevel)"
+BUILD_NAME="<name>"                                # the build's _builds/<name>/ directory
 
 export VSS_REPO_DIR="$REPO"
-export NEMOCLAW_SANDBOX_NAME="<build-name>"
+export NEMOCLAW_SANDBOX_NAME="${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}"
 export NEMOCLAW_RECREATE_SANDBOX=1
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
 export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
@@ -504,7 +506,7 @@ uv run --isolated --no-project --python 3.12 \
     --notebook "$REPO/deploy/docker/scripts/deploy_nemoclaw.ipynb" \
     --require-output "Sandbox '${NEMOCLAW_SANDBOX_NAME}' ready." \
     --echo-output \
-  2>&1 | tee "$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/nemoclaw-setup.log"
+  2>&1 | tee "$REPO/_builds/${BUILD_NAME}/nemoclaw-setup.log"
 ```
 
 **Take the status from the notebook, not from `tee`.** Keep `pipefail` set, or
@@ -565,7 +567,7 @@ revision: a worktree of the ref, staged with that ref's own script, as
 
 ```bash
 REF="<ref>"                                        # e.g. nightly-20260928, v3.3.0, a sha
-SRC="$REPO/_builds/${NEMOCLAW_SANDBOX_NAME}/harness-src"
+SRC="$REPO/_builds/${BUILD_NAME}/harness-src"
 
 # Resolve REF to what origin has *now*, never to a stale local copy: a tag is
 # force-fetched (`+`, so a moved tag updates the local one), a branch or full sha
@@ -675,9 +677,8 @@ the bring-up was given, read back from section 3.5's `Sandbox: <name>` line
 rather than assumed. It is the handle every later command takes:
 `nemoclaw <name> status`, `openshell sandbox exec -n <name>`, and the
 [Teardown](#teardown) destroy. The sandbox lives outside the Compose project, so
-nothing that lists the build reveals it, and a name left at the `demo` default is
-the one a second build silently replaces — a user who cannot name this sandbox
-cannot tell the two apart later.
+nothing that lists the build reveals it, and a second build under the same
+name replaces it.
 
 Say with it whether the bring-up **rebuilt** an existing sandbox of that name.
 `NEMOCLAW_RECREATE_SANDBOX=1` discards the previous sandbox and its agent
@@ -718,9 +719,9 @@ tears down the other, and [`teardown.md`](teardown.md) covers only the Compose
 project.
 
 ```bash
-nemoclaw "<build-name>" destroy --yes --cleanup-gateway
+nemoclaw <sandbox> destroy --yes --cleanup-gateway
 # only when the harness was built from a harness source ref:
-git -C "$REPO" worktree remove --force "$REPO/_builds/<build-name>/harness-src"
+git -C "$REPO" worktree remove --force "$REPO/_builds/<name>/harness-src"
 ```
 
 Destroy the sandbox **before** the Compose project when doing both, so the

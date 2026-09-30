@@ -199,27 +199,23 @@ def test_summarization_uses_one_ordered_workflow_without_return_protocol() -> No
 
     assert "Recorded Video Workflow" in summarize_skill
     assert "Prepare the Video Through VIOS" in summarize_skill
-    assert "Execute VIOS API operations directly" in summarize_skill
+    assert "no VIOS REST calls" in normalized_summarize_skill
     assert "do not invoke a separate skill" in normalized_summarize_skill
     assert (
         "Invoke and follow the `vss-manage-video-io-storage` skill"
         not in summarize_skill
     )
     assert "vss-manage-video-io-storage" not in eval_spec["skills"]
-    assert '"$VIOS_API/sensor/list"' in end_to_end_example
-    assert '"$VIOS_API/sensor/$SENSOR_ID/streams"' in end_to_end_example
-    assert (
-        '"$VIOS_API/storage/file/$FILENAME?timestamp=$UPLOAD_TIMESTAMP"'
-        in end_to_end_example
-    )
-    assert "Content-Type: application/octet-stream" in end_to_end_example
-    assert "Content-Length: $FILE_SIZE" in end_to_end_example
-    assert '--upload-file "$SOURCE_FILE"' in end_to_end_example
-    assert '"$VIOS_API/storage/$STREAM_ID/timelines"' in end_to_end_example
-    assert '"$VIOS_API/storage/file/$STREAM_ID/url"' in end_to_end_example
-    assert 'sub("^http://http://"; "http://")' in end_to_end_example
-    assert "map(.startTime) | min" in end_to_end_example
-    assert "map(.endTime) | max" in end_to_end_example
+    # Clip minting and reachability both route through the vss CLI now, not a
+    # hand-rolled VIOS REST call or a docker/kubectl exec probe.
+    assert 'vss vios list --sensor "$STEM"' in end_to_end_example
+    assert 'vss vios add "$SOURCE_FILE"' in end_to_end_example
+    assert 'vss vios timeline --sensor "$SENSOR_NAME"' in end_to_end_example
+    assert 'vss vios clip --sensor "$SENSOR_NAME"' in end_to_end_example
+    assert "jq -er '.media_url'" in end_to_end_example
+    assert "jq -r '.warmed'" in end_to_end_example
+    assert "docker exec vss-lvs" not in end_to_end_example
+    assert "docker exec vss-lvs" not in summarize_skill
     assert "Stage 1: Select the Backend" in summarize_skill
     assert "Stage 2: Prepare the Video Through VIOS" in summarize_skill
     assert "Stage 3: Collect LVS Settings" in summarize_skill
@@ -231,10 +227,6 @@ def test_summarization_uses_one_ordered_workflow_without_return_protocol() -> No
     assert "Completion gate" not in summarize_skill
     assert "Step 2 fallback" not in end_to_end_example
     assert "Step 2 scenario/events" not in end_to_end_example
-    assert 'headers={"Range": "bytes=0-0"}' in end_to_end_example
-    assert "response.read(1)" in end_to_end_example
-    assert "lightweight `curl` shim" in summarize_skill
-    assert "entire video into tool output" in summarize_skill
 
 
 def test_empty_lvs_results_preserve_processing_evidence() -> None:
@@ -513,7 +505,7 @@ def test_a_summary_is_filed_under_a_sensor_not_a_stream() -> None:
     end_to_end_example = SUMMARIZE_REFERENCES[0].read_text()
     summarize_skill = " ".join(SUMMARIZE_SKILL.read_text().split())
 
-    assert "SENSOR_ID=$(jq -er '.sensorId' /tmp/vios-upload.json)" in end_to_end_example
+    assert "SENSOR_ID=$(printf '%s' \"$CLIPPED\" | jq -er '.sensor_id')" in end_to_end_example
     assert 'VIDEO_ID="$SENSOR_ID"' in end_to_end_example
     # The old fallback silently persisted a stream id whenever the upload path ran.
     assert "${SENSOR_ID:-$STREAM_ID}" not in end_to_end_example
@@ -524,16 +516,18 @@ def test_a_summary_is_filed_under_a_sensor_not_a_stream() -> None:
 def test_the_media_start_is_never_a_constant_for_media_already_present() -> None:
     """`--creation-time` is the upload anchor, or VIOS's own timeline start.
 
-    The upload path knows the timestamp it anchored the timeline to. A
-    recording that was already there has its own start, and stamping it with
-    the upload constant would turn every persisted event into a confidently
+    Both cases now resolve to the same value: `vss vios clip`'s own
+    `start_time`, which is the recording's actual start whether this run
+    just uploaded it or reused an existing sensor. Stamping it with a
+    hardcoded constant would turn every persisted event into a confidently
     wrong instant.
     """
     end_to_end_example = SUMMARIZE_REFERENCES[0].read_text()
 
-    assert 'CREATION_TIME="${UPLOADED_AT:-$START_TIME}"' in end_to_end_example
-    assert 'UPLOADED_AT="$UPLOAD_TIMESTAMP"' in end_to_end_example
+    assert "START_TIME=$(printf '%s' \"$CLIPPED\" | jq -er '.start_time')" in end_to_end_example
+    assert 'CREATION_TIME="$START_TIME"' in end_to_end_example
     assert 'CREATION_TIME="${UPLOAD_TIMESTAMP:-' not in end_to_end_example
+    assert 'CREATION_TIME="2025-01-01' not in end_to_end_example
 
 
 def test_the_skill_keeps_endpoint_resolution_out_of_the_summarize_request() -> None:
