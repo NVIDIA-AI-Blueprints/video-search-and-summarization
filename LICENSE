@@ -1,6 +1,28 @@
 Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
-This project is licensed under Apache-2.0.
+This project is licensed under Apache-2.0, with the file-level exceptions
+listed below.
+
+File-level exceptions:
+  - A file that carries its own license notice - an SPDX-License-Identifier
+    header or an explicit license text - stating a license other than
+    Apache-2.0 is licensed as stated in that file, which prevails over this
+    notice for that file. In particular, vendored NVIDIA SDK headers under
+    services/vios/src/framework/webrtc_streamer/inc/nvmultimedia/ and the
+    DeepStream schema services/vios/src/framework/notification/ds_schema_2d.proto,
+    and the vendored NVIDIA proprietary license text at
+    services/vios/LICENSE_libnvjpeg
+    are provided under LicenseRef-NvidiaProprietary, and NVIDIA-authored
+    WebRTC/V4L2 codec headers under services/vios/src/framework/webrtc_streamer/inc/
+    are provided under BSD-3-Clause.
+
+  - Container-only NVIDIA license text artifacts packaged into GHCR images at
+    build time (not licensing claims over repository files) — the following
+    are included in the repo for build/packaging purposes only:
+      - LICENSE.DATA
+      - assets/NVIDIA-Software-License-Agreement.pdf
+      - services/rtvi/rt-embed/docker/NVIDIA-Software-License-Agreement.pdf
+      - services/rtvi/rt-vlm/docker/NVIDIA-Software-License-Agreement.pdf
 
 This project also contains Elasticsearch, Kibana and Redis configuration files, which are dual-licensed and may be used under your choice of either:
    - Server Side Public License v1 (SSPLv1)
