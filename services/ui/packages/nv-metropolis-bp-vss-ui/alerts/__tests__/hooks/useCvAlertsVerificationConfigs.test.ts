@@ -42,6 +42,35 @@ describe('useCvAlertsVerificationConfigs', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it.each(['create', 'update', 'delete'] as const)(
+    'ignores a stale background GET after a successful %s',
+    async (mutation) => {
+      let finishRefresh: (value: Response) => void;
+      const updated = { ...sample, prompt: 'Updated prompt' };
+      global.fetch = jest.fn()
+        .mockImplementationOnce(() => response({ configs: mutation === 'create' ? [] : [sample] }))
+        .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }))
+        .mockImplementationOnce(() => response(mutation === 'update' ? updated : sample));
+      const { result } = renderHook(() =>
+        useCvAlertsVerificationConfigs({ alertsApiUrl: 'http://alerts.test/api/v1' }),
+      );
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      let refresh: Promise<unknown>;
+      act(() => { refresh = result.current.refetch(); });
+      await act(async () => {
+        if (mutation === 'create') await result.current.createConfig(sample);
+        if (mutation === 'update') await result.current.updateConfig(sample.alert_type, { prompt: updated.prompt });
+        if (mutation === 'delete') await result.current.deleteConfig(sample.alert_type);
+      });
+      await act(async () => {
+        finishRefresh(await response({ configs: mutation === 'create' ? [] : [sample] }));
+        await refresh;
+      });
+      expect(result.current.configs).toEqual(mutation === 'delete' ? [] : [mutation === 'update' ? updated : sample]);
+      expect(result.current.loading).toBe(false);
+    },
+  );
+
   it('lists verification configs from the configured alert bridge', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
