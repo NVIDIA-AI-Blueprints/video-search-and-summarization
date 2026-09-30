@@ -25,6 +25,11 @@ Run this whenever the build has a `sandbox` file: tearing down the build covers
 its sandbox and relay without the user naming them. Run it first, so the
 sandbox is not left pointed at an origin that has stopped answering.
 
+A build whose harness setup **failed** has the file too — the name is recorded
+before the notebook runs, because onboarding happens in its section 3.1 and a
+later section can still fail over a live sandbox. So run this section for a
+failed build as well; skipping it is how a sandbox gets left behind.
+
 `nemoclaw destroy` does not stop the dashboard relay the setup notebook
 started. Left running it holds `NEMOCLAW_DASHBOARD_RELAY_PORT` (default
 `18790`), and the next deploy's relay cell stops on it as a foreign listener.
@@ -54,6 +59,10 @@ if pgrep -af -- "$RELAY"; then
   exit 1
 fi
 ```
+
+A name recorded by a run that failed *before* onboarding belongs to a sandbox
+that was never created, so `destroy` reports it as not found. That is the one
+non-zero here to accept and move on from; any other failure is a blocker.
 
 The name comes from that file and nowhere else: `nemoclaw list` names no
 Compose project and the sandbox carries no project label, so neither the build
