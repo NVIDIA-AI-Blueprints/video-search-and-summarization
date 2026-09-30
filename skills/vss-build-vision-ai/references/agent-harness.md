@@ -94,7 +94,7 @@ export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
 export VSS_AGENT_ADAPTER_ENABLED=true
 ```
 
-After onboarding, the user runs `nemoclaw <sandbox> gateway-token --quiet` on
+After onboarding, the user runs `nemoclaw vss-harness-sandbox gateway-token --quiet` on
 the deployment host and enters the result in the Web UI's **Connect NemoClaw
 chat** panel. The UI checks the gateway and enables both chat surfaces when it
 accepts the token. If the relay is unavailable, the panel offers a retry; if
