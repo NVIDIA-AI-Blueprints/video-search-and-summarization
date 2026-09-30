@@ -173,7 +173,7 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # OpenShell cohorts. GitHub still attaches `self-hosted` to each runner.
 # Cohort tuples below describe how boxes are *registered* (SKU + active
 # labels). OpenShell jobs do **not** require those SKU labels:
-# `openshell_job_labels()` emits only `poc-copy` for the Harbor PoC runners.
+# `openshell_job_labels()` emits only the shared fleet tags plus `gpus-N`.
 # Register replacements without a cohort active label (or keep listeners
 # down) until canaries pass.
 #
@@ -181,9 +181,6 @@ BASE_LABELS: tuple[str, ...] = ("self-hosted", "vss-eval")
 # reconciles dirty idle runners, recreates one VM, and restores its listener.
 # This workflow does not implement KVM/VFIO.
 OPENSHELL_RUNNER_LABEL = "openshell-runner"
-# Harbor PoC runners advertise this label and nothing else. A job that also
-# requests the shared fleet tags cannot land on them.
-POC_COPY_LABEL = "poc-copy"
 OPENSHELL_FLEET_LABELS: tuple[str, ...] = (
     "vss-skill-eval-gpu",
     OPENSHELL_RUNNER_LABEL,
@@ -340,13 +337,17 @@ def openshell_job_labels(
 ) -> list[str]:
     """GitHub `runs-on` for any spec that opted into OpenShell.
 
-    The Harbor PoC runners advertise only `poc-copy`. Shared fleet tags,
-    SKU labels, and `gpus-N` would leave these jobs queued. One-GPU and
-    two-GPU specs, including Blackwell specs, share that label for this test.
+    Fleet tags only — no SKU (`gpu-h200`, `gpu-rtxpro6000bw`), no cohort
+    active label (`openshell-h200-active`), no VRAM/codec tags. `gpus-N`
+    is the GPU-count demand so 1-GPU and 2-GPU jobs stay on matching
+    guests. Operators still register SKU labels on the VMs if they want;
+    this fleet does not require them.
     """
     if gpu_count not in (1, 2):
         return list(SKIP_RUNNER)
-    return [POC_COPY_LABEL]
+    if requirements and requirements.get("requires_blackwell"):
+        return [*OPENSHELL_RTXPRO6000_LABELS, f"gpus-{gpu_count}"]
+    return [*OPENSHELL_FLEET_LABELS, f"gpus-{gpu_count}"]
 
 
 # `cohort` on a leg names the fleet the runner comes from, and is what the
