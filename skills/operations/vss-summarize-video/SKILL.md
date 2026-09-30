@@ -153,16 +153,12 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   # and the gateway strips /lvs before the backend sees them.
   LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VSS_VIOS_URL="${VSS_PUBLIC_URL}/vst"
-  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
   VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VSS_VIOS_URL="http://${HOST_IP:-localhost}:30888/vst"
-  VST_API_BASE="${VSS_VIOS_URL}/api/v1"
   VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
   VLM="${VLM%/v1}"
 fi
@@ -180,7 +176,6 @@ schema (that path is Agent on stock Ingress).
 |---|---|
 | LVS | `${VIDEO_SUMMARIZATION_URL}` (K8s: `${VSS_PUBLIC_URL}`; Docker: `http://${HOST_IP}:38111`) |
 | VLM / RT-VLM | `${VLM}` then append `/v1/...` (K8s: the `/rtvi-vlm` mount; Docker: `:8018`) |
-| VIOS | `${VST_API_BASE}` |
 
 Strip a trailing `/v1` from the VLM base because this skill appends it. Do not
 scan ports or inspect configuration files to guess endpoints.
@@ -237,38 +232,35 @@ stdout must not trigger fallback.
 
 ### Stage 2: Prepare the Video Through VIOS
 
-Execute VIOS API operations directly as part of this workflow; do not invoke a
-separate skill. Follow **Prepare the video through VIOS** in the end-to-end
-reference (uses `${VST_API_BASE}`).
+Use the `vss` CLI for every step; do not call the VIOS REST API directly and
+do not invoke a separate skill.
 
-1. List sensors and reuse the exact requested recording when present.
-2. If absent and the exact local file is available, upload it through the VIOS
-   file API. For uploaded or sample media without a requested timestamp, use
-   `2025-01-01T00:00:00.000Z` so timeline resolution is deterministic.
-3. Poll the returned stream's timelines and obtain the complete minimum start
-   and maximum end time.
-4. Generate a fresh temporary MP4 URL for that full interval with audio
-   disabled. Pass that minted URL to `--url` **as returned** (after stripping a
-   doubled `http://` scheme if present). Do not rewrite it for browser Ingress
-   paths before the summarize run.
-5. If LVS was selected, verify one-byte reachability:
-   - **Docker:** `docker exec vss-lvs` Python range probe in the reference.
-   - **Kubernetes:** bounded Range GET of the minted URL from the agent host
-     (no `docker exec` / `kubectl exec`). Deploy must mint a URL the LVS pod
-     can fetch.
+1. `vss vios list --sensor <name>` and reuse the exact requested recording
+   when present.
+2. If absent and the exact local file is available, `vss vios add <file>`. It
+   uploads, waits for VIOS to index the timeline, and reports
+   `recorded.start_time` / `recorded.end_time` directly — no manual polling.
+   For sample media without a requested timestamp, VIOS defaults uploads to
+   `2025-01-01T00:00:00.000Z`, so timeline resolution is deterministic.
+3. `vss vios clip --sensor <name>` with no `--start-time`/`--end-time` mints a
+   fresh MP4 URL over the full recorded interval with audio disabled,
+   re-anchors it on the CLI's configured origin, and warms it with a real GET.
+   Read `media_url` and `warmed` straight from its JSON output; pass
+   `media_url` to `--url` as returned — do not hand-roll or rewrite it
+   further, and never call the VIOS clip-mint endpoint yourself.
+4. If LVS was selected and `warmed` is `false`, stop and report it: the URL
+   answered nothing on the CLI's own attempt, so LVS's fetch is not expected
+   to succeed either. Same command and check on Docker and Kubernetes — no
+   `docker exec` / `kubectl exec` probe needed.
 
 Require the exact recording, full timeline, and fresh clip URL before
 continuing. When the source file is available, compare VIOS timeline duration
-with source duration. An upload response or byte probe proves reachability, not
-complete media readiness.
+with source duration. `warmed: true` proves reachability, not complete media
+readiness.
 
 If preparation fails, stop and report the missing prerequisite. Do not choose
 an arbitrary `/tmp` video, alternate recording, local HTTP server, NvStreamer,
 or RTSP source unless the user explicitly requested that source.
-
-Do not use the `vss-lvs` container's lightweight `curl` shim for reachability;
-it can write the entire video into tool output. Use the one-byte Python probe
-on Docker.
 
 ### Stage 3: Collect LVS Settings
 

@@ -31,14 +31,12 @@ if [ -n "${VSS_PUBLIC_URL:-}" ]; then
   # the backend sees them.
   LVS_BACKEND_URL="${VSS_PUBLIC_URL}/lvs"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VST_API_BASE="${VSS_PUBLIC_URL}/vst/api/v1"
   # RT-VLM is at its own mount; /v1/models and /v1/chat/completions hang off it.
   VLM="${VSS_PUBLIC_URL}/rtvi-vlm"
 else
   DEPLOYMENT_KIND="docker"
   LVS_BACKEND_URL="${LVS_BACKEND_URL:-http://${HOST_IP:-localhost}:38111}"
   VIDEO_SUMMARIZATION_URL="${LVS_BACKEND_URL}"
-  VST_API_BASE="http://${HOST_IP:-localhost}:30888/vst/api/v1"
   VLM="${VLM_BASE_URL:-${RTVI_VLM_BASE_URL:-http://${HOST_IP:-localhost}:8018}}"
   VLM="${VLM%/v1}"
 fi
@@ -84,82 +82,38 @@ fi
 ### Prepare the video through VIOS
 
 Reuse the requested recording when present. Otherwise replace `SOURCE_FILE`
-with the exact requested local file and upload it directly. Preserve the
-returned stream ID, full timeline, and fresh MP4 URL for later stages.
+with the exact requested local file and upload it directly. Use the `vss`
+CLI for every step — it resolves the sensor, mints the clip URL, re-anchors
+it on the deployment's configured origin, and warms it with a real GET, all
+in one call; no VIOS REST API and no `docker exec` / `kubectl exec` probe.
 
 ```bash
-VIOS_API="${VST_API_BASE:-http://${HOST_IP:-localhost}:30888/vst/api/v1}"
 SOURCE_FILE=/path/to/video.mp4
 FILENAME=$(basename "$SOURCE_FILE")
-UPLOAD_TIMESTAMP=2025-01-01T00:00:00.000Z
-FILE_SIZE=$(stat -c%s "$SOURCE_FILE")
+STEM="${FILENAME%.*}"
 
-SENSOR_ID=$(curl -fsS "$VIOS_API/sensor/list" | jq -er \
-  --arg filename "$FILENAME" --arg stem "${FILENAME%.*}" \
-  '[.[] | select(.name == $filename or .name == $stem)][0].sensorId // empty' \
-  || true)
-if [ -n "$SENSOR_ID" ]; then
-  STREAM_ID=$(curl -fsS "$VIOS_API/sensor/$SENSOR_ID/streams" | jq -er \
-    '([.[] | select(.isMain == true)][0].streamId // .[0].streamId)')
+if vss vios list --sensor "$STEM" | jq -e '.sensors | length > 0' >/dev/null; then
+  SENSOR_NAME="$STEM"
 else
-  curl -fsS -X PUT \
-    "$VIOS_API/storage/file/$FILENAME?timestamp=$UPLOAD_TIMESTAMP" \
-    -H "Content-Type: application/octet-stream" \
-    -H "Content-Length: $FILE_SIZE" \
-    --upload-file "$SOURCE_FILE" > /tmp/vios-upload.json
-  # The upload answers with both ids. Read the sensor one rather than assuming
-  # the stream id equals it: it does for an uploaded file today, but the record
-  # is keyed by sensor, and a sensor carrying several streams breaks that.
-  STREAM_ID=$(jq -er '.streamId' /tmp/vios-upload.json)
-  SENSOR_ID=$(jq -er '.sensorId' /tmp/vios-upload.json)
-  # VIOS anchors an uploaded file's timeline to this, so it is the media start.
-  UPLOADED_AT="$UPLOAD_TIMESTAMP"
+  vss vios add "$SOURCE_FILE" > /tmp/vios-add.json
+  SENSOR_NAME=$(jq -er '.name' /tmp/vios-add.json)
 fi
 
-for _ in $(seq 1 20); do
-  curl -fsS "$VIOS_API/storage/$STREAM_ID/timelines" \
-    > /tmp/vios-timeline.json
-  jq -e 'length > 0' /tmp/vios-timeline.json >/dev/null && break
-  sleep 3
-done
-START_TIME=$(jq -er 'map(.startTime) | min' /tmp/vios-timeline.json)
-END_TIME=$(jq -er 'map(.endTime) | max' /tmp/vios-timeline.json)
-curl -fsSG "$VIOS_API/storage/file/$STREAM_ID/url" \
-  --data-urlencode "startTime=$START_TIME" \
-  --data-urlencode "endTime=$END_TIME" \
-  --data-urlencode "container=mp4" \
-  --data-urlencode "disableAudio=true" > /tmp/vios-clip-url.json
-CLIP=$(jq -er '.videoUrl | sub("^http://http://"; "http://")' \
-  /tmp/vios-clip-url.json)
-```
+vss vios clip --sensor "$SENSOR_NAME" > /tmp/vios-clip.json
+CLIP=$(jq -er '.media_url' /tmp/vios-clip.json)
+WARMED=$(jq -er '.warmed' /tmp/vios-clip.json)
+# The record's identity (sensor, never stream) and the media's absolute start
+# (the recording's own start when the full window was resolved) -- both
+# already resolved by the clip above, so Submit one summarize job below reads
+# them from here rather than re-deriving them from the add/upload step.
+SENSOR_ID=$(jq -er '.sensor_id' /tmp/vios-clip.json)
+START_TIME=$(jq -er '.start_time' /tmp/vios-clip.json)
 
-When LVS is selected, verify the URL is fetchable without writing the video
-body into tool output.
-
-**Docker** — probe from inside `vss-lvs`:
-
-```bash
-if [ "${DEPLOYMENT_KIND:-docker}" != "kubernetes" ]; then
-  docker exec vss-lvs python3 -c '
-import sys
-import urllib.request
-request = urllib.request.Request(sys.argv[1], headers={"Range": "bytes=0-0"})
-with urllib.request.urlopen(request, timeout=30) as response:
-    response.read(1)
-    print(response.status)
-' "$CLIP"
-fi
-```
-
-**Kubernetes** — no `docker exec` / `kubectl exec`. Probe from the agent host
-with a bounded Range GET. The URL passed to LVS must remain the minted VIOS
-URL (deploy should set `VST_EXTERNAL_URL` to the public origin so the LVS pod
-can fetch it):
-
-```bash
-if [ "${DEPLOYMENT_KIND:-docker}" = "kubernetes" ]; then
-  curl -fsS --connect-timeout 5 --max-time 60 --range 0-0 -o /dev/null "$CLIP" \
-    || { echo "CLIP not reachable from agent host: $CLIP"; return 1 2>/dev/null || exit 1; }
+# warmed=false means the CLI's own GET got nothing back -- LVS's fetch of the
+# same URL is not expected to succeed either. Stop rather than hand it off.
+if [ "$WARMED" != "true" ]; then
+  echo "CLIP not reachable ($CLIP is cold): $(jq -c . /tmp/vios-clip.json)" >&2
+  exit 1
 fi
 ```
 
@@ -187,12 +141,12 @@ VIDEO_ID="$SENSOR_ID"
   echo "no VIOS sensor id resolved; do not persist under a stream id"
   return 1 2>/dev/null || exit 1
 }
-# The media's absolute start: the timestamp this run anchored the upload to, or
-# for a recording that was already in VIOS, the start VIOS reports for it --
-# never a constant standing in for media someone else uploaded. Without
-# --creation-time the event times are clip offsets, which unified memory cannot
-# store as instants (exit 6, summary intact).
-CREATION_TIME="${UPLOADED_AT:-$START_TIME}"
+# The media's absolute start: `vss vios clip` resolved it above, whether this
+# recording was just uploaded or already in VIOS -- never a constant standing
+# in for media someone else uploaded. Without --creation-time the event times
+# are clip offsets, which unified memory cannot store as instants (exit 6,
+# summary intact).
+CREATION_TIME="$START_TIME"
 [ -n "$CREATION_TIME" ] || {
   echo "no VIOS timeline start resolved; event times would not be instants"
   return 1 2>/dev/null || exit 1
