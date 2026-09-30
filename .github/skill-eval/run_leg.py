@@ -1780,6 +1780,9 @@ def _run_invocations(
         )
         env["COMPATIBLE_API_KEY"] = operational_config.api_key
         if operational_config.provider == "local-nim":
+            # Keep the per-leg proxy credential separate from the generic
+            # provider setting, which setup recipes may replace with EMPTY.
+            env["SKILL_EVAL_LOCAL_NIM_API_KEY"] = operational_config.api_key
             # NemoClaw's inference proxy rewrites private endpoints to HTTPS
             # on port 443. The worker NIM adapter serves plain HTTP on 18400.
             env["NEMOCLAW_INFERENCE_PROXY"] = "0"

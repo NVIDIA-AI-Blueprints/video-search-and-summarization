@@ -1252,6 +1252,7 @@ class RunInvocations(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(seen_env[0]["NEMOCLAW_PROVIDER"], "custom")
         self.assertEqual(seen_env[0]["COMPATIBLE_API_KEY"], "route-specific-key")
+        self.assertNotIn("SKILL_EVAL_LOCAL_NIM_API_KEY", seen_env[0])
         self.assertEqual(seen_env[0]["NVIDIA_API_KEY"], "runner-global-key")
 
     def test_operational_claude_uses_independent_models(self):

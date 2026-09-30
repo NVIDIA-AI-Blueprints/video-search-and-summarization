@@ -299,7 +299,7 @@ that fires for every build rejects the supported paths that need no key:
 | Provider | Required at Q3 | Not required |
 |---|---|---|
 | (a) public OpenAI-compatible endpoint — the skill default | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `COMPATIBLE_API_KEY` | `NVIDIA_API_KEY` |
-| (a) self-hosted endpoint, or one on a private address — including the build's own LLM NIM | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `COMPATIBLE_API_KEY=EMPTY`, `NEMOCLAW_INFERENCE_PROXY=0` | a real bearer token — the server ignores the value |
+| (a) self-hosted endpoint, or one on a private address — including the build's own LLM NIM | `NEMOCLAW_ENDPOINT_URL`, `NEMOCLAW_MODEL`, `NEMOCLAW_INFERENCE_PROXY=0`; use the supplied `COMPATIBLE_API_KEY`, or `EMPTY` only when the endpoint has no authentication | `NVIDIA_API_KEY` |
 | (b) NemoClaw-managed local model | `NEMOCLAW_PROVIDER` (`install-vllm`, `ollama`, `nim-local`, …) | any API key; `HF_TOKEN` only for a gated `install-vllm` model |
 | (c) build.nvidia.com hosted model | `NVIDIA_API_KEY` | `COMPATIBLE_API_KEY`, `NEMOCLAW_ENDPOINT_URL` |
 
@@ -487,11 +487,12 @@ export NEMOCLAW_ENDPOINT_URL="${NEMOCLAW_ENDPOINT_URL:-https://inference-api.nvi
 : "${COMPATIBLE_API_KEY:?bearer token for NEMOCLAW_ENDPOINT_URL is required}"
 export COMPATIBLE_API_KEY
 
-# Against the build's own LLM NIM, replace all four outright — plain
-# assignment, and never an inherited bearer token:
+# Against the build's own unauthenticated LLM NIM, replace the endpoint and
+# model outright. Keep a caller-supplied key for an authenticated proxy;
+# use EMPTY only when the endpoint ignores bearer tokens:
 #   export NEMOCLAW_ENDPOINT_URL="http://host.openshell.internal:<LLM_PORT>/v1"
 #   export NEMOCLAW_MODEL="<NIM_SERVED_MODEL_NAME from resolved.yml>"
-#   export COMPATIBLE_API_KEY=EMPTY
+#   export COMPATIBLE_API_KEY="${COMPATIBLE_API_KEY:-EMPTY}"
 #   export NEMOCLAW_INFERENCE_PROXY=0
 
 uv run --isolated --no-project --python 3.12 \
