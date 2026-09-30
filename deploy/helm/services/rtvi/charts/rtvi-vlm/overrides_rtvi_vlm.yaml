@@ -225,6 +225,8 @@ env:
   # vLLM mm_encoder_attn_backend (e.g. for backend experiments).
   - name: VLLM_MM_ENCODER_ATTN_BACKEND
     value: ""
+  - name: VLLM_DISABLED_KERNELS
+    value: "FlashInferFP8ScaledMMLinearKernel"
   # vLLM NVFP4 CT emulation toggle (set to "1" to enable on non-NVFP4 hardware).
   - name: VLLM_USE_NVFP4_CT_EMULATIONS
     value: "0"

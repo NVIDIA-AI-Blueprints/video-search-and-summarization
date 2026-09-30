@@ -13,11 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Rebuild bump: edit this block to re-trigger the CI image build.
-#   [1]: inventory platforms expanded to amd64+arm64
+#
+# Build with services/rtvi/rt-cv-3d/rt-cv-bev-fusion as the context:
+#
+#   docker build \
+#     -f services/rtvi/rt-cv-3d/rt-cv-bev-fusion/Dockerfiles/measurement-fusion.Dockerfile \
+#     -t <registry>/vss-rt-cv-mv3dt-bev-fusion:<tag> \
+#     services/rtvi/rt-cv-3d/rt-cv-bev-fusion
 
 ARG PYTHON_VERSION=3.13
-ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.5
+ARG DISTROLESS_TAG=${PYTHON_VERSION}-v4.0.9
 ARG DISTROLESS_IMG=nvcr.io/nvidia/distroless/python
 
 ###################################################
@@ -103,4 +108,7 @@ COPY 3rdParty_Licenses.md /app/3rdParty_Licenses.md
 # so Docker does not prepend it to CMD. CMD is also easier to override from
 # docker-compose's `command:` field if needed for debugging.
 ENTRYPOINT []
+# Attribute this image to its nSpect program.
+LABEL com.nvidia.mm.nspect=NSPECT-H991-WYFJ
+
 CMD ["python3", "-u", "/app/measurement_fusion.py"]

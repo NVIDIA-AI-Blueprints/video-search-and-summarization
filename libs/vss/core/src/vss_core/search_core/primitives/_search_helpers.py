@@ -320,7 +320,8 @@ async def fusion_search_rerank(
             filter_sensor_id = ""
             if embed_result.sensor_id and vst_internal_url:
                 # Stream-id -> sensor-id resolution is best-effort enrichment with
-                # a defined fallback (video_name / sensor_id), so it never aborts.
+                # a defined fallback (sensor_id_raw / video_name / sensor_id), so
+                # it never aborts.
                 try:
                     filter_sensor_id = await get_sensor_id_from_stream_id(embed_result.sensor_id, vst_internal_url)
                     if filter_sensor_id != embed_result.sensor_id:
@@ -329,7 +330,13 @@ async def fusion_search_rerank(
                     logger.warning(f"VST conversion failed: {scrub_log(str(e))}. Using fallback")
 
             if not filter_sensor_id:
-                filter_sensor_id = embed_result.video_name or embed_result.sensor_id or ""
+                # VST absent (or resolution failed): fall back to the indexed
+                # sensor identity (the behavior document's sensor.id) carried from
+                # the embed adapter, not the display filename (video_name). A behavior
+                # doc keyed by sensor.id="warehouse_clip" with no path/url is
+                # otherwise missed when the embed hit's video_name is the display
+                # filename "warehouse_clip.mp4" (VIA-2753 review).
+                filter_sensor_id = embed_result.sensor_id_raw or embed_result.video_name or embed_result.sensor_id or ""
 
             attr_params = {
                 "query": attributes,
@@ -529,6 +536,10 @@ async def execute_core_search(
         # The merge-adjacent headroom doubled ``top_k`` above, but tag mode never
         # runs that merge, so slicing with the doubled value would return up to
         # 2x the requested limit (e.g. top_k=2 returns 4). Cap with the original.
+        # Apply the top-percent filter the embed/attribute path applies after
+        # retrieval; tag mode returns before that common post-processing, so
+        # `--top-percent-filter` would otherwise be a no-op for tag.
+        search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
         yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
         return
 
@@ -552,8 +563,6 @@ async def execute_core_search(
         attribute_list = [attr.strip() for attr in attribute_list if attr.strip()]
 
     if search_input.search_mode == "fusion":
-        if tag_search is None:
-            raise ConfigurationError("tag_search must be pre-loaded by the Search primitive")
         query_params["top_k"] = str(min(top_k, _DOWNSTREAM_MAX_TOP_K))
         query_input_json = json.dumps(
             {
@@ -573,6 +582,54 @@ async def execute_core_search(
                 else EmbedSearchOutput.model_validate(output)
             )
             return _fusion.embed_output_to_search_results(validated)
+
+        if config.fusion_method == "rrf":
+            # Legacy rrf fusion: embed + optional attribute (per-embed attribute
+            # lookup), NO VLM tag leg. Reuses the pre-tag-search rrf_fusion
+            # pipeline: score = 1/(rank + rrf_k) + rrf_w * normalised_attribute_score.
+            # The VLM tag leg is off by default (w_tag=0); opt in via --w-tag,
+            # which the CLI auto-routes to weighted_rrf.
+            yield AgentMessageChunk(
+                type=AgentMessageChunkType.TOOL_CALL,
+                content="Running embedding and optional attribute retrieval for rrf fusion",
+            )
+            embed_results = await _embed_provider()
+            if attribute_list and attribute_search_fn is not None:
+                search_results = await fusion_search_rerank(
+                    embed_results,
+                    attribute_list,
+                    attribute_search_fn,
+                    vst_internal_url=getattr(config, "vst_internal_url", None),
+                    source_type=search_input.source_type,
+                    fusion_method="rrf",
+                    rrf_k=config.rrf_k,
+                    rrf_w=config.rrf_w,
+                )
+            else:
+                candidates = [
+                    _fusion.FusionCandidate(
+                        embed_result=result,
+                        embed_score=_coerce_float(result.similarity),
+                        normalised_attribute_score=0.0,
+                        screenshot_url=_coerce_str(result.screenshot_url),
+                        object_ids=[],
+                    )
+                    for result in embed_results
+                ]
+                search_results = _fusion.rrf_fusion(candidates, config.rrf_k, config.rrf_w)
+            # Apply the top-percent filter the embed/attribute and general fusion paths
+            # apply; without this the rrf early-return would make --top-percent-filter
+            # a no-op for the default fusion method.
+            search_results = _fusion.apply_top_percent_filter(
+                search_results, getattr(config, "top_percent_filter", None)
+            )
+            if getattr(config, "merge_adjacent", True):
+                search_results = _fusion.merge_consecutive_results(search_results)
+            yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)
+            return
+
+        if tag_search is None:
+            raise ConfigurationError("tag_search must be pre-loaded by the Search primitive")
 
         async def _tag_provider() -> tuple[list[SearchResult], int]:
             output = await tag_search.ainvoke(tag_params)
@@ -602,14 +659,14 @@ async def execute_core_search(
         )
         outcomes = await asyncio.gather(*provider_calls, return_exceptions=True)
         provider_results: dict[str, list[SearchResult]] = {}
-        failures: list[Exception] = []
+        failures: list[tuple[str, Exception]] = []
         malformed_documents = 0
         for provider, outcome in zip(provider_names, outcomes, strict=True):
             if isinstance(outcome, BaseException):
                 if not isinstance(outcome, Exception):
                     raise outcome
                 if isinstance(outcome, BackendUnreachableError):
-                    failures.append(outcome)
+                    failures.append((provider, outcome))
                     search_messages.append(f"{provider.capitalize()} provider degraded: {outcome}")
                     continue
                 raise outcome
@@ -621,7 +678,7 @@ async def execute_core_search(
 
         if not provider_results:
             if failures:
-                raise failures[0]
+                raise failures[0][1]
             raise BackendUnreachableError("search", "all fusion providers failed")
         if malformed_documents:
             search_messages.append(
@@ -635,10 +692,20 @@ async def execute_core_search(
         # does not catch the per-request case where the only positive-weight leg
         # (typically attribute) is not active for this request. Surface it as an
         # input error (exit 2) rather than a misleading "no matches".
+        weights = {"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute}
         if config.fusion_method == "weighted_rrf" and not any(
-            {"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute}.get(provider, 0.0) > 0
-            for provider in provider_results
+            weights.get(provider, 0.0) > 0 for provider in provider_results
         ):
+            # A configured positive-weight provider may have disappeared from
+            # provider_results because its backend failed. That is a backend
+            # outage, not an invalid set of weights. Preserve the typed failure
+            # so the CLI exits 3 and tells the caller what is actually down.
+            failed_positive_provider = next(
+                (error for provider, error in failures if weights.get(provider, 0.0) > 0),
+                None,
+            )
+            if failed_positive_provider is not None:
+                raise failed_positive_provider
             raise InvalidInputError(
                 "fusion has no positively-weighted active provider for this request "
                 "(w_tag, w_embed, w_attribute are all <= 0 for the active legs); "
@@ -651,6 +718,7 @@ async def execute_core_search(
             weights={"tag": config.w_tag, "embed": config.w_embed, "attribute": config.w_attribute},
             rrf_k=config.rrf_k,
         )
+        search_results = _fusion.apply_top_percent_filter(search_results, getattr(config, "top_percent_filter", None))
         if getattr(config, "merge_adjacent", True):
             search_results = _fusion.merge_consecutive_results(search_results)
         yield SearchOutput(data=search_results[:original_top_k], search_messages=search_messages)

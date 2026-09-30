@@ -63,6 +63,28 @@ ACTIVATION_TIMEOUT="${ACTIVATION_TIMEOUT:-60}"
 # Seconds to wait for a TCP connection to an RTSP endpoint before adding it.
 # 0 disables the pre-add reachability check.
 RTSP_PROBE_TIMEOUT="${RTSP_PROBE_TIMEOUT:-2}"
+# Every diagnostic that tells the operator to read the perception log names this
+# container. A deployment that runs more than one perception instance suffixes it
+# (vss-rtvi-cv-mv3dt-0), so the name has to come from one place and be overridable,
+# or the commands we print do not exist on the machine we printed them for.
+# The Python helpers live beside this script rather than inline. Check once, here,
+# so a truncated copy of the component says so up front instead of failing in the
+# middle of a registration run.
+LIBDIR="${ROOT}/scripts/lib"
+if [[ ! -d "$LIBDIR" ]]; then
+  echo "ERROR: $LIBDIR is missing. add-streams.sh needs the helpers that ship" >&2
+  echo "       beside it. Copy the whole scripts/ directory, not the file alone." >&2
+  exit 1
+fi
+
+PERCEPTION_CONTAINER="${PERCEPTION_CONTAINER:-vss-rtvi-cv-mv3dt}"
+
+# The two commands every "the API is not answering" path ends with. Kept in one
+# place so they keep naming $PERCEPTION_CONTAINER and stay consistent: this file
+# had the container name hardcoded at seven sites before, in four wordings.
+perception_log_cmd()      { printf 'docker logs --tail 120 %s' "$PERCEPTION_CONTAINER"; }
+perception_recreate_cmd() { printf 'cd docker && docker compose up -d --force-recreate perception'; }
+
 # VST management API, used to confirm the proxy emits SEI frame IDs before
 # streams are registered. Port is VST's http_port; host is taken from the RTSP
 # URLs. Set VST_HTTP_PORT to pin the port, or pass --no-sei-check to skip.
@@ -112,10 +134,10 @@ show_stream_info() {
 
   if [[ "$code" != "200" ]]; then
     echo "ERROR: Cannot connect to MV3DT perception REST API at ${BASE}." >&2
-    echo "Check whether vss-rtvi-cv-mv3dt is running:" >&2
+    echo "Check whether $PERCEPTION_CONTAINER is running:" >&2
     echo >&2
-    echo "  docker ps -a --filter name=vss-rtvi-cv-mv3dt" >&2
-    echo "  docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
+    echo "  docker ps -a --filter name=$PERCEPTION_CONTAINER" >&2
+    echo "  $(perception_log_cmd)" >&2
     if [[ "$code" != "000" ]]; then
       echo >&2
       echo "HTTP code: ${code}" >&2
@@ -161,102 +183,7 @@ show_registration_progress() {  # args: camera IDs known to have been added in t
   fi
 
   STREAM_INFO_PAYLOAD="$payload" NUM_CAMS_VALUE="${NUM_CAMS:-}" \
-  python3 - "$ROOT" "$@" <<'PY' || true
-import glob, json, os, sys
-
-root, known_registered = sys.argv[1], sys.argv[2:]
-
-
-def parse_int(value, minimum):
-    try:
-        value = int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    return value if value >= minimum else None
-
-
-def unique(items):
-    result, seen = [], set()
-    for item in items:
-        if item not in seen:
-            result.append(item)
-            seen.add(item)
-    return result
-
-
-def configured_camera_ids():
-    generated = os.path.join(root, "generated")
-    tracker = os.path.join(generated, "configs", "ds-mv3dt-tracker-config.yml")
-    try:
-        import yaml
-        with open(tracker, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        models = data.get("ObjectModelProjection", {}).get("cameraModelFilepath", {})
-        if isinstance(models, dict) and models:
-            return unique(str(camera_id) for camera_id in models)
-    except Exception:
-        pass
-
-    patterns = (
-        os.path.join(generated, "camInfo", "*.yml"),
-        os.path.join(generated, "camInfo", "*.yaml"),
-    )
-    return unique(
-        os.path.splitext(os.path.basename(path))[0]
-        for pattern in patterns
-        for path in sorted(glob.glob(pattern))
-    )
-
-
-try:
-    info = json.loads(os.environ.get("STREAM_INFO_PAYLOAD", "")).get("stream-info", {})
-except (AttributeError, json.JSONDecodeError):
-    sys.exit(0)
-if not isinstance(info, dict):
-    sys.exit(0)
-
-streams = info.get("stream-info", [])
-streams = streams if isinstance(streams, list) else []
-registered = parse_int(info.get("stream-count"), 0)
-registered = len(streams) if registered is None else registered
-expected_ids = configured_camera_ids()
-required = parse_int(os.environ.get("NUM_CAMS_VALUE"), 1) or len(expected_ids)
-if not required:
-    sys.exit(0)
-
-expected_ids = expected_ids[:required]
-registered_ids, unnamed_sources = set(), []
-for stream in streams:
-    if not isinstance(stream, dict):
-        continue
-    camera_id = stream.get("camera_id")
-    if isinstance(camera_id, str) and camera_id:
-        registered_ids.add(camera_id)
-    else:
-        unnamed_sources.append(parse_int(stream.get("source_id"), 0))
-
-for camera_id in known_registered:
-    if len(registered_ids) >= registered:
-        break
-    registered_ids.add(camera_id)
-for source_id in unnamed_sources:
-    if len(registered_ids) >= registered:
-        break
-    if source_id is not None and source_id < len(expected_ids):
-        registered_ids.add(expected_ids[source_id])
-
-missing = [camera_id for camera_id in expected_ids if camera_id not in registered_ids]
-remaining = max(required - registered, 0)
-
-print(f"Registered streams: {registered}/{required}")
-if registered < required:
-    print(f"INFO: MV3DT requires {required} streams.")
-    if missing:
-        print("Waiting for: " + ", ".join(missing))
-    elif remaining:
-        suffix = "stream" if remaining == 1 else "streams"
-        print(f"Waiting for {remaining} additional {suffix}.")
-PY
+    python3 "${LIBDIR}/report_registration_progress.py" "$ROOT" "$@" || true
 }
 
 # True when camera_id is currently registered. That is all the removal needs:
@@ -284,156 +211,11 @@ sys.exit(0 if any(str(s.get("camera_id", "")) == sys.argv[1] for s in streams
 }
 
 response_reports_stream_change_failure() {  # $1=response_file  $2=add|remove
-  python3 - "$1" "$2" <<'PY'
-import json
-import re
-import sys
-
-path, action = sys.argv[1], sys.argv[2]
-
-try:
-    with open(path, encoding="utf-8", errors="replace") as f:
-        text = f.read()
-except OSError:
-    sys.exit(1)
-
-
-def normalized(value):
-    return re.sub(r"[^a-z0-9]+", "_", str(value).lower()).strip("_")
-
-
-def value_reports_failure(value):
-    folded = normalized(value)
-    return (
-        f"stream_{action}_fail" in folded
-        or f"stream_{action}_failed" in folded
-        or (
-            "stream" in folded
-            and action in folded
-            and ("fail" in folded or "error" in folded)
-        )
-    )
-
-
-try:
-    payload = json.loads(text)
-except json.JSONDecodeError:
-    sys.exit(0 if value_reports_failure(text) else 1)
-
-stack = [payload]
-while stack:
-    item = stack.pop()
-    if isinstance(item, dict):
-        for key, value in item.items():
-            if normalized(key) in {"success", "ok"} and value is False:
-                sys.exit(0)
-            stack.append(value)
-    elif isinstance(item, list):
-        stack.extend(item)
-    elif isinstance(item, str) and value_reports_failure(item):
-        sys.exit(0)
-
-sys.exit(1)
-PY
+  python3 "${LIBDIR}/response_reports_failure.py" "$1" "$2"
 }
 
 validate_camera_configured() {  # $1=camera_id
-  python3 - "$ROOT" "$1" <<'PY'
-import os
-import sys
-
-root, camera_id = sys.argv[1], sys.argv[2]
-generated_dir = os.path.join(root, "generated")
-cam_info_dir = os.path.join(generated_dir, "camInfo")
-tracker_config = os.path.join(generated_dir, "configs", "ds-mv3dt-tracker-config.yml")
-pub_sub_config = os.path.join(generated_dir, "configs", "pub_sub_info_config.yml")
-
-# Some ad hoc deployments do not stage generated configs beside this helper.
-# In that case there is no local source of truth to check.
-if not any(os.path.exists(path) for path in (cam_info_dir, tracker_config, pub_sub_config)):
-    sys.exit(0)
-
-missing = []
-if not any(
-    os.path.isfile(os.path.join(cam_info_dir, f"{camera_id}.{ext}"))
-    for ext in ("yml", "yaml")
-):
-    missing.append(f"generated/camInfo/{camera_id}.yml")
-
-try:
-    import yaml
-except ImportError:
-    if missing:
-        print(
-            f"ERROR: camera_id {camera_id} is not configured in camInfo/tracker/pub-sub config",
-            file=sys.stderr,
-        )
-        for item in missing:
-            print(f"  missing: {item}", file=sys.stderr)
-        sys.exit(2)
-    # camInfo exists, but without pyyaml the tracker and pub/sub membership checks
-    # cannot run. Say so rather than reporting a pass the check did not make: an
-    # id present in camInfo but absent from pub_sub_info_config.yml still crashes
-    # the tracker, which is the failure this validation exists to prevent.
-    print(
-        f"   ⚠ pyyaml unavailable: checked only generated/camInfo/{camera_id}.yml,",
-        file=sys.stderr,
-    )
-    print(
-        "     not the tracker cameraModelFilepath or pub/sub topic entries.",
-        file=sys.stderr,
-    )
-    sys.exit(0)
-
-
-def load_yaml(path):
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception as exc:
-        rel = os.path.relpath(path, root)
-        print(f"ERROR: cannot parse {rel}: {exc}", file=sys.stderr)
-        sys.exit(2)
-
-
-tracker = load_yaml(tracker_config)
-if tracker is not None:
-    object_model = (
-        tracker.get("ObjectModelProjection", {}) if isinstance(tracker, dict) else {}
-    )
-    camera_models = (
-        object_model.get("cameraModelFilepath", {})
-        if isinstance(object_model, dict)
-        else {}
-    )
-    if not isinstance(camera_models, dict) or camera_id not in camera_models:
-        missing.append(
-            "generated/configs/ds-mv3dt-tracker-config.yml "
-            "ObjectModelProjection.cameraModelFilepath"
-        )
-
-pub_sub = load_yaml(pub_sub_config)
-if pub_sub is not None:
-    if not isinstance(pub_sub, dict):
-        pub_sub = {}
-    pub_topics = pub_sub.get("pubBrokerTopicStr", {})
-    sub_topics = pub_sub.get("subPeerBrokerTopicStrs", {})
-    if not isinstance(pub_topics, dict) or camera_id not in pub_topics:
-        missing.append("generated/configs/pub_sub_info_config.yml pubBrokerTopicStr")
-    if not isinstance(sub_topics, dict) or camera_id not in sub_topics:
-        missing.append("generated/configs/pub_sub_info_config.yml subPeerBrokerTopicStrs")
-
-if missing:
-    print(
-        f"ERROR: camera_id {camera_id} is not configured in camInfo/tracker/pub-sub config",
-        file=sys.stderr,
-    )
-    for item in missing:
-        print(f"  missing: {item}", file=sys.stderr)
-    sys.exit(2)
-PY
+  python3 "${LIBDIR}/check_camera_configured.py" "$ROOT" "$1"
 }
 
 post_sensor() {  # $1=camera_id  $2=url  $3=change (camera_add|camera_remove)
@@ -478,9 +260,9 @@ print(json.dumps({
     # silent wait.
     echo "   ✗ no reply from ${BASE} (timed out or refused)" >&2
     echo "     The perception REST API is not responding. Check whether it is alive:" >&2
-    echo "       docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
+    echo "       $(perception_log_cmd)" >&2
     echo "     If it is running but unresponsive, recreate it:" >&2
-    echo "       cd docker && docker compose up -d --force-recreate perception" >&2
+    echo "       $(perception_recreate_cmd)" >&2
     rm -f "$tmp"; return 1
   fi
   echo "   ✗ HTTP ${code}"; cat "$tmp" >&2 || true; echo >&2
@@ -525,10 +307,8 @@ report_api_lost() {
   echo "   ⚠ the perception REST API stopped responding after the removal." >&2
   echo "     The container keeps running but /api/v1 requests time out; recreate it" >&2
   echo "     before adding or listing streams again:" >&2
-  echo "       cd docker && docker compose up -d --force-recreate perception" >&2
+  echo "       $(perception_recreate_cmd)" >&2
 }
-
-PERCEPTION_CONTAINER="${PERCEPTION_CONTAINER:-vss-rtvi-cv-mv3dt}"
 
 # Cameras this deployment expects: NUM_CAMS when set, else the configured camInfo
 # entries. Defined here because the remove path runs before the add path helpers.
@@ -575,20 +355,19 @@ report_removal_blocked() {
   echo "     API unresponsive. Register the remaining cameras and wait for" >&2
   echo "     \"Active sources\" to reach the full count, or drop this attempt by" >&2
   echo "     recreating perception:" >&2
-  echo "       cd docker && docker compose up -d --force-recreate perception" >&2
+  echo "       $(perception_recreate_cmd)" >&2
 }
 
-# First-buffer alignment runs once per pipeline: the flag latches on the first
-# batch and is never reset, so a set registered later shares no time origin.
-report_alignment_reset() {
-  echo
-  echo "   Note: no streams are registered now. Streams added from now on are not"
-  echo "   guaranteed to be time synchronized. Please recreate perception before"
-  echo "   registering streams again to avoid timing issues:"
-  echo
-  echo "     cd docker && docker compose up -d --force-recreate perception"
-  echo
-}
+# There used to be a note here warning that streams added after the registry
+# empties are not guaranteed to share a time origin, on the theory that
+# first_batch_aligned latches once per pipeline. Measured 2026-09-25 on a live
+# four-camera stack: a pipeline that never had a stream removed shows the same
+# cross-sensor spread as one cycled through remove-all and re-add, three runs
+# each, indistinguishable. Removal does not cause a desync, so the warning
+# pointed the user at the wrong thing and fired on every clean --remove-all.
+#
+# The spread itself, one frame at 30 FPS, is present from a cold start and is
+# not specific to removal. It is not a reason to recreate the container.
 
 if [[ "$MODE" == remove ]]; then
   if (( REMOVE_ALL )); then
@@ -642,7 +421,7 @@ if [[ "$MODE" == remove ]]; then
       lu=0; stream_is_registered "$cam" || lu=$?
       if (( lu == 2 )); then
         echo "   ✗ cannot reach the perception REST API at ${BASE} to check [${cam}]" >&2
-        echo "     Check whether it is alive:  docker logs --tail 120 vss-rtvi-cv-mv3dt" >&2
+        echo "     Check whether it is alive:  $(perception_log_cmd)" >&2
         rc=2; continue
       fi
       if (( lu != 0 )); then
@@ -662,11 +441,6 @@ if [[ "$MODE" == remove ]]; then
   if ! show_stream_info 2>/dev/null; then
     report_api_lost
     (( rc )) || rc=1
-  else
-    # A failed query is not an empty one: advise the reset only on a real answer.
-    if remaining="$(registered_camera_ids 2>/dev/null)"; then
-      [[ -z "${remaining//[[:space:]]/}" ]] && report_alignment_reset
-    fi
   fi
   exit "$rc"
 fi
@@ -686,28 +460,8 @@ fi
 probe_rtsp_endpoint() {  # $1=rtsp url
   [[ "$RTSP_PROBE_TIMEOUT" =~ ^[0-9]+$ ]] || return 0
   (( RTSP_PROBE_TIMEOUT > 0 )) || return 0
-  RTSP_URL="$1" RTSP_TIMEOUT="$RTSP_PROBE_TIMEOUT" python3 -c '
-import os, socket, sys
-from urllib.parse import urlparse
-
-url = os.environ["RTSP_URL"]
-try:
-    parsed = urlparse(url)
-    host, port = parsed.hostname, parsed.port or 554
-except Exception:
-    sys.exit(0)
-if not host:
-    sys.exit(0)
-try:
-    with socket.create_connection((host, port), timeout=float(os.environ["RTSP_TIMEOUT"])):
-        sys.exit(0)
-except (ConnectionRefusedError, socket.gaierror) as exc:
-    print(f"{host}:{port}: {exc}", file=sys.stderr)
-    sys.exit(1)
-except Exception as exc:
-    print(f"{host}:{port}: {exc}", file=sys.stderr)
-    sys.exit(2)
-'
+  RTSP_URL="$1" RTSP_TIMEOUT="$RTSP_PROBE_TIMEOUT" \
+    python3 "${LIBDIR}/probe_rtsp.py"
 }
 
 # An explicit VST_HTTP_PORT is used alone; otherwise probe both ranges. The
@@ -841,34 +595,14 @@ grep -q '"YES"' <<< "$state" || { echo "ERROR: perception never reported ready" 
 # ~30/s, so fps is not a usable liveness signal. Presence in stream-stats is.
 # Echoes "<registered> <required>": the streams the perception service currently
 # has, and how many the deployment expects -- NUM_CAMS when set, else the number
-# of configured camInfo entries. Echoes "0 0" when neither can be determined.
+# of cameras camera_counts.py resolves, which is also what the registration
+# progress display counts against. Echoes "0 0" when neither can be determined.
 registered_and_required() {
   local payload
   payload="$(curl -fsS --max-time 5 --connect-timeout 3 \
              "${BASE}/api/v1/stream/get-stream-info" 2>/dev/null)" || { echo "0 0"; return 0; }
-  STREAM_INFO_PAYLOAD="$payload" NUM_CAMS_VALUE="${NUM_CAMS:-}" ROOT_DIR="$ROOT" \
-  python3 -c '
-import glob, json, os
-
-try:
-    info = json.loads(os.environ["STREAM_INFO_PAYLOAD"])["stream-info"]
-    registered = int(info.get("stream-count") or 0)
-except Exception:
-    registered = 0
-
-raw = (os.environ.get("NUM_CAMS_VALUE") or "").strip()
-if raw.isdigit() and int(raw) > 0:
-    required = int(raw)
-else:
-    cams = set()
-    root = os.environ.get("ROOT_DIR", ".")
-    for pat in ("*.yml", "*.yaml"):
-        for f in glob.glob(os.path.join(root, "generated", "camInfo", pat)):
-            cams.add(os.path.splitext(os.path.basename(f))[0])
-    required = len(cams)
-
-print(registered, required)
-' 2>/dev/null || echo "0 0"
+  STREAM_INFO_PAYLOAD="$payload" NUM_CAMS_VALUE="${NUM_CAMS:-}" \
+    python3 "${LIBDIR}/camera_counts.py" "$ROOT" 2>/dev/null || echo "0 0"
 }
 
 verify_streams_active() {  # args: camera IDs added in this run, used as a fallback
@@ -911,77 +645,37 @@ verify_streams_active() {  # args: camera IDs added in this run, used as a fallb
 
   local out rc=0
   out="$(BASE="$BASE" ACTIVATION_TIMEOUT="$ACTIVATION_TIMEOUT" \
-         python3 - "${judged[@]}" <<'PY'
-import json
-import os
-import sys
-import time
-import urllib.request
-
-base = os.environ["BASE"]
-timeout = int(os.environ["ACTIVATION_TIMEOUT"])
-wanted = [c for c in sys.argv[1:] if c]
-
-# Bypass any http_proxy in the environment: this endpoint is local.
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-
-def sample():
-    """{sensor_id: frame_number}, or None when the endpoint is not there."""
-    try:
-        with opener.open(base + "/api/v1/metrics", timeout=5) as resp:
-            payload = json.load(resp)
-    except Exception:
-        return None
-    stats = payload.get("metrics-info", {}).get("stream-stats")
-    if not isinstance(stats, list):
-        return {}
-    seen = {}
-    for entry in stats:
-        if not isinstance(entry, dict):
-            continue
-        sensor = entry.get("sensor_id")
-        try:
-            frames = int(entry.get("frame_number"))
-        except (TypeError, ValueError):
-            continue
-        if sensor is not None:
-            seen[str(sensor)] = frames
-    return seen
-
-
-if sample() is None:
-    sys.exit(3)          # older perception build, no metrics endpoint
-
-baseline, producing, last = {}, set(), {}
-deadline = time.monotonic() + timeout
-while True:
-    current = sample()
-    if current is None:
-        sys.exit(3)
-    for sensor, frames in current.items():
-        if sensor not in baseline:
-            baseline[sensor] = frames
-        elif frames > baseline[sensor]:
-            producing.add(sensor)
-    if all(cam in producing for cam in wanted):
-        sys.exit(0)
-    last = current
-    if time.monotonic() >= deadline:
-        break
-    time.sleep(2)
-
-for cam in wanted:
-    if cam in producing:
-        continue
-    print(("STATIC " if cam in baseline else "UNSEEN ") + cam)
-for sensor in sorted(last or {}):
-    print("OBS %s frame_number=%s" % (sensor, last[sensor]))
-sys.exit(1)
-PY
-)" || rc=$?
+         python3 "${ROOT}/scripts/lib/wait_for_activation.py" "${judged[@]}")" || rc=$?
 
   if (( rc == 0 || rc == 3 )); then
+    return 0
+  fi
+
+  # rc 4: the endpoint is there but reports no per-stream stats at all, so the
+  # check cannot tell a live stream from a dead one. Say so instead of calling
+  # every stream UNSEEN.
+  # rc 4: the endpoint answered but named no stream at all. Two different states
+  # produce that and this check cannot separate them:
+  #
+  #   - statistics are not being collected (nvdslogger off in the enabled sink),
+  #     so there is nothing to report about perfectly healthy streams, or
+  #   - no source decoded, so there is nothing to report.
+  #
+  # Reading the staged config does not settle it. The running perception process
+  # loaded its config at startup, so a restage without a recreate leaves the two
+  # disagreeing, and nvdslogger can sit in a sink block that is disabled. Say
+  # plainly that the check could not run, name both causes, and do not fail a run
+  # that may be healthy: an activation check that cannot see is not evidence.
+  if (( rc == 4 )); then
+    echo
+    echo "   Note: could not verify activation. ${BASE}/api/v1/metrics reported no"
+    echo "   per-stream statistics. Two things look identical from here and this"
+    echo "   check cannot tell them apart:"
+    echo "     - nvdslogger is off in the enabled sink, so nothing is collected, or"
+    echo "     - no source decoded, so there is nothing to collect."
+    echo "   The streams are registered. Settle it against the perception log:"
+    echo "     docker logs --since 60s $PERCEPTION_CONTAINER 2>&1 | grep -aE 'Active sources|source_id'"
+    echo "   Active sources at 0 with a non-zero stream-count means the sources failed."
     return 0
   fi
 
@@ -1046,4 +740,4 @@ show_stream_info
 
 verify_streams_active "${ADDED_CAMS[@]}" || exit 2
 echo
-echo "Check per-source FPS:  docker logs vss-rtvi-cv-mv3dt 2>&1 | grep -A$(( ${#STREAMS[@]} + 1 )) '\\*\\*PERF' | tail -8"
+echo "Check per-source FPS:  docker logs $PERCEPTION_CONTAINER 2>&1 | grep -A$(( ${#STREAMS[@]} + 1 )) '\\*\\*PERF' | tail -8"

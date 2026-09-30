@@ -11,7 +11,9 @@ own gate). Run directly:
 from __future__ import annotations
 
 import base64
+import os
 import sys
+import tempfile
 import unittest
 from email.message import Message
 from pathlib import Path
@@ -24,14 +26,19 @@ from check_container_tag_source import (  # noqa: E402
     ImageManifestLabels,
     _fetch_bearer_token,
 )
-from ghcr_image_guard import preflight_decision, reuse_decision, verify_decision  # noqa: E402
+from ghcr_image_guard import (  # noqa: E402
+    bakes_release_line,
+    preflight_decision,
+    reuse_decision,
+    verify_decision,
+)
 
 TREE = "a" * 40
 OTHER_TREE = "b" * 40
 
 
-def labels(tree=TREE, path="services/agent", name="vss-agent"):
-    return ImageManifestLabels(source_tree_sha=tree, source_path=path, image_name=name)
+def labels(tree=TREE, path="services/agent", name="vss-agent", line=None):
+    return ImageManifestLabels(source_tree_sha=tree, source_path=path, image_name=name, release_line=line)
 
 
 class PreflightTest(unittest.TestCase):
@@ -80,6 +87,42 @@ class ReuseTest(unittest.TestCase):
         # Unlike preflight, an error never fails the job — it just builds.
         reuse, _ = reuse_decision(None, "network error fetching https://x", TREE)
         self.assertFalse(reuse)
+
+    def test_same_content_same_release_line_reuses(self):
+        reuse, _ = reuse_decision(labels(line="3.3.0-rc0"), None, TREE, "3.3.0-rc0")
+        self.assertTrue(reuse)
+
+    def test_same_content_new_release_line_rebuilds(self):
+        """After v3.3.0 lands on an unchanged tree, the rc image must not be re-tagged."""
+        reuse, message = reuse_decision(labels(line="3.3.0-rc0"), None, TREE, "3.3.0")
+        self.assertFalse(reuse)
+        self.assertIn("3.3.0-rc0", message)
+
+    def test_unlabelled_release_line_rebuilds_when_one_is_expected(self):
+        reuse, _ = reuse_decision(labels(), None, TREE, "3.3.0")
+        self.assertFalse(reuse)
+
+    def test_release_line_ignored_when_not_expected(self):
+        # Images that bake no version keep reusing on tree alone.
+        reuse, _ = reuse_decision(labels(line="3.2.1"), None, TREE, None)
+        self.assertTrue(reuse)
+
+
+class BakesReleaseLineTest(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parents[2]
+
+    def test_version_carrying_dockerfiles(self):
+        for dockerfile in ("services/agent/docker/Dockerfile", ".openclaw/Dockerfile", ".hermes/Dockerfile"):
+            with self.subTest(dockerfile=dockerfile):
+                self.assertTrue(bakes_release_line(str(self.ROOT / dockerfile)))
+
+    def test_other_dockerfiles_and_missing_paths(self):
+        self.assertFalse(bakes_release_line(None))
+        self.assertFalse(bakes_release_line(str(self.ROOT / "does/not/exist/Dockerfile")))
+        with tempfile.NamedTemporaryFile("w", suffix="Dockerfile", delete=False) as handle:
+            handle.write("FROM scratch\nARG SOMETHING_ELSE=1\n")
+        self.assertFalse(bakes_release_line(handle.name))
+        os.unlink(handle.name)
 
     def test_different_content_fails(self):
         action, message = preflight_decision(labels(tree=OTHER_TREE), None, TREE)

@@ -3,7 +3,7 @@ name: vss-generate-video-report
 description: Use this skill when producing a VSS analysis report — Mode A per-clip VLM, Mode B incident-range via video-analytics, Mode C SOP compliance via the SOP tools. Not for standalone video summarization, real-time alerts or ad-hoc Q&A.
 license: Apache-2.0
 metadata:
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   author: "NVIDIA Video Search and Summarization team"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
@@ -153,7 +153,7 @@ Hard gate behavior:
 - If required services for the chosen row are not reachable, stop and report the missing dependency.
 - Do not silently switch modes because a dependency is missing.
 - Offer `/vss-build-vision-ai` only after user confirmation.
-- Mode A: a clip **120 seconds or longer** never takes the direct VLM path — stop and prompt the user to deploy / use LVS (`/vss-build-vision-ai` + `/vss-summarize-video` on Docker Compose, confirm first; on Kubernetes report the missing `/lvs` route to the deployment owner) — unless LVS is already ready per the Mode A file's LVS check, in which case use it directly — then continue with the report template; details in `references/report-types/video-analysis.md` § Long-video rule.
+- Mode A: a clip **120 seconds or longer** never takes the direct VLM path — hand off to `/vss-summarize-video` (LVS when ready, otherwise `vss vlm run`), then continue with the report template; details in `references/report-types/video-analysis.md` § Long-video rule.
 
 Probe examples:
 
@@ -390,7 +390,7 @@ Mode letters are stable aliases (other skills reference them); files are named b
 
 ## Error Handling
 
-- If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step (exceptions: the Mode A LVS readiness probe's non-zero exit is the documented "not ready — take the VLM-direct path" branch, and the `Clip is N s (120 s or longer)` exit of A1 Step 1 / Step 3 routes to the Long-video rule; neither is a failure). Do not fabricate a report from partial or missing data.
+- If a probe, `curl`, VLM call, or `/vss-query-analytics` request fails, stop the workflow and report the failing endpoint, HTTP status or command error, and the next useful recovery step (exception: the `Clip is N s (120 s or longer)` exit of A1 Step 1 / Step 3 is the Long-video hand-off, not a failure). Do not fabricate a report from partial or missing data.
 - If the VLM response is empty, malformed, or contains only a reasoning block, surface that response problem and suggest checking model readiness/logs before retrying.
 - If a clip URL cannot be rewritten to the public host/port: Mode A sets the `Clip URL` row to `N/A (browser-playable URL unavailable)` (Mode A Step 4); Mode B omits that incident's clip sub-bullet; in both cases say that the browser-playable URL could not be produced.
 - For Mode B, treat missing optional incident fields (`info.reasoning`, `objectIds`, clip URL) as omissions in the report, but treat missing `id`, `timestamp`, or `category` as a data-quality error that should be reported.

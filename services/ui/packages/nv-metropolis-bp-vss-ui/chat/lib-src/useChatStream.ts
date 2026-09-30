@@ -85,6 +85,7 @@ export function useChatStream(
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const cancelUrlRef = useRef<string | null>(null);
+  const cancelHeadersRef = useRef<Record<string, string> | undefined>(undefined);
 
   // Callbacks and message state are read through refs so `send` stays stable:
   // it is handed to embedders via onSubmitMessageReady, and a new identity on
@@ -112,9 +113,10 @@ export function useChatStream(
     if (!cancelUrl) return;
     void fetch(cancelUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(cancelHeadersRef.current ?? {}) },
       body: '{}',
     }).catch(() => undefined);
+    cancelHeadersRef.current = undefined;
   }, []);
 
   const abort = useCallback(() => {
@@ -273,6 +275,7 @@ export function useChatStream(
             throw new Error('agent API returned an invalid run');
           }
           cancelUrlRef.current = run.cancel_url;
+          cancelHeadersRef.current = agentEndpoint.headers;
 
           const eventsResponse = await fetch(run.events_url, {
             signal: controller.signal,
@@ -310,6 +313,7 @@ export function useChatStream(
             throw new Error('agent API event stream ended before the run completed');
           }
           cancelUrlRef.current = null;
+          cancelHeadersRef.current = undefined;
         } else {
           const response = await fetch(endpointRef.current.url, {
             method: 'POST',
@@ -380,6 +384,7 @@ export function useChatStream(
       } finally {
         if (!agentTerminal) cancelAgentRun();
         cancelUrlRef.current = null;
+        cancelHeadersRef.current = undefined;
         abortRef.current = null;
         setBusyBoth(false);
       }

@@ -4,7 +4,7 @@ description: Use this skill when a user wants to search archived VSS video or in
 license: Apache-2.0
 metadata:
   author: "NVIDIA Video Search and Summarization team"
-  version: "3.3.0"
+  version: "3.3.0-rc0"
   github-url: "https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization"
   tags: "nvidia blueprint operational"
   # What a live deployment must expose for this skill to be usable, as the vss CLI
@@ -210,7 +210,12 @@ The CLI is fail-open: verification failure must not discard or fail retrieval.
 Never derive a verdict from similarity, filenames, object IDs, or screenshot
 availability. Treat boolean `criteria_met` values as critic evidence only.
 
-1. Format nonempty results without raw JSON:
+1. Format nonempty results without raw JSON. The final reply is user-facing,
+   not a diagnostic trace: identify a hit by the source name the user supplied
+   or its display filename, never a raw `sensor_id` or stream UUID. Never expose
+   a job ID, model or service name, endpoint, CLI flag, or implementation terms
+   such as "VLM" or "critic". Say "visual verification" when it is relevant,
+   and report only its `confirmed`, `rejected`, or `unverified` result.
 
 ```text
 ## Video Search Results

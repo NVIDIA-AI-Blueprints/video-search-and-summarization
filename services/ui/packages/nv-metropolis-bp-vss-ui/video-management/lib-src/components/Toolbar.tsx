@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import React, { useRef, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, TextInput } from '@nvidia/foundations-react-core';
+import { Button, Switch, TextInput } from '@nvidia/foundations-react-core';
 
 const DISPLAY_FILTER_MENU_Z_INDEX = 10600;
 
@@ -20,7 +20,9 @@ interface ToolbarProps {
   onDeleteSelected: () => void;
   isDeleting?: boolean;
   enableAddRtspButton?: boolean;
+  /** State of the "Enable video upload" switch; the "Upload Video" button is shown only while it is on. */
   enableVideoUpload?: boolean;
+  onEnableVideoUploadChange: (value: boolean) => void;
   /** Called when user clicks "Upload Video" — opens the upload dialog directly (bypasses native file picker). */
   onUploadClick?: () => void;
   /** Only show Video option when API returned at least one video stream */
@@ -52,6 +54,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   isDeleting = false,
   enableAddRtspButton = true,
   enableVideoUpload = true,
+  onEnableVideoUploadChange,
   onUploadClick,
   hasVideoStreams = true,
   hasRtspStreams = true,
@@ -128,7 +131,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }
   };
 
-  const showVideoOption = enableVideoUpload && hasVideoStreams;
+  // Existing videos stay listed whether or not upload is switched on.
+  const showVideoOption = hasVideoStreams;
   const showRtspOption = enableAddRtspButton && hasRtspStreams;
   const showDisplayFilter = showVideoOption || showRtspOption;
 
@@ -214,6 +218,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     </>
   );
 
+  const videoUploadSwitch = (
+    <Switch
+      data-testid="video-upload-toggle"
+      slotLabel="Enable video upload"
+      checked={enableVideoUpload}
+      onCheckedChange={onEnableVideoUploadChange}
+      disabled={isDialogOpen}
+    />
+  );
+
   const deleteButton = (
     <Button
       kind="secondary"
@@ -270,6 +284,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           onChange={handleFileInputChange}
           className="hidden"
         />
+        {videoUploadSwitch}
         {enableVideoUpload && (
           <Button kind="primary" onClick={onUploadClick ?? handleUploadClick} disabled={isDialogOpen} className="w-full">
             + Upload Video
@@ -317,6 +332,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           className="hidden"
         />
 
+        {videoUploadSwitch}
         {enableVideoUpload && (
           <Button kind="primary" onClick={onUploadClick ?? handleUploadClick} disabled={isDialogOpen}>
             + Upload Video

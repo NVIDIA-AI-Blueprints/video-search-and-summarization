@@ -170,6 +170,16 @@ def test_select_matches_groups_and_reports_missing():
     assert "commands available = analytics, vlm" in sel.reason
 
 
+def test_select_any_of_holds_when_one_alternative_is_available():
+    # vss-summarize-video runs on LVS or, without it, on `vss vlm run`.
+    either = [sync_skills.SkillSpec("vss-summarize-video", ["summarize|vlm"]),
+              sync_skills.SkillSpec("needs-neither", ["summarize|search"])]
+    sel = sync_skills.select(either, run=lambda cmd, timeout: completed(stdout=CHECK_OUT))
+    assert sel.active == ["vss-summarize-video"]
+    assert sel.inactive == {
+        "needs-neither": "none of vss command groups 'summarize|search' available"}
+
+
 def test_select_skips_alert_probe_when_no_skill_needs_it():
     def run(cmd, timeout):
         assert cmd[0] != "curl", "no skill declares alerts; probe must not run"
@@ -247,18 +257,23 @@ def test_cli_error_exits_one(tmp_path, monkeypatch, capsys):
 
 # --- pin lockstep ---------------------------------------------------------------
 
-def test_vss_ref_pins_are_in_lockstep():
+def test_vss_ref_defaults_are_in_lockstep_and_readable():
     """Both harness images must stage skills, docs, and this tool from the SAME
-    commit — two pins drifting apart means the harnesses ship different skill
-    snapshots (the defect this check exists to prevent)."""
+    ref — two defaults drifting apart means the harnesses ship different skill
+    snapshots (the defect this check exists to prevent). The default is a ref a
+    person can read: the `develop` branch, or a `v*` release tag; a bare commit
+    sha is an override for a reproducible rebuild, never the default."""
     import re as _re
     repo = Path(__file__).resolve().parents[4]
     refs = {}
     for df in (repo / ".openclaw" / "Dockerfile", repo / ".hermes" / "Dockerfile"):
-        m = _re.search(r"^ARG VSS_REF=([0-9a-f]{40})$", df.read_text(), _re.M)
-        assert m, f"{df} has no full-SHA VSS_REF default"
+        m = _re.search(r"^ARG VSS_REF=(\S+)$", df.read_text(), _re.M)
+        assert m, f"{df} has no VSS_REF default"
         refs[df.parent.name] = m.group(1)
-    assert refs[".openclaw"] == refs[".hermes"], f"VSS_REF pins drifted: {refs}"
+    assert refs[".openclaw"] == refs[".hermes"], f"VSS_REF defaults drifted: {refs}"
+    ref = refs[".openclaw"]
+    assert ref == "develop" or _re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", ref), (
+        f"VSS_REF default {ref!r} is neither `develop` nor a v* release tag")
 
 
 

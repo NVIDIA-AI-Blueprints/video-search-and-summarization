@@ -373,8 +373,8 @@ does not remove the GPU required by the profile services.
 
 RTX PRO 4500 Blackwell is supported only for the alerts profile with a remote
 LLM. Set `HARDWARE_PROFILE=RTXPRO4500BW` explicitly when automatic detection
-does not identify the GPU; the alerts quickstarts recommend NVIDIA driver
-580.126.09 or later.
+does not identify the GPU. On x86 hosts with Ubuntu 24.04, use NVIDIA driver
+595.58.03 or later.
 
 | **Profile** | **Remote LLM** |
 | --- | --- |
@@ -404,6 +404,9 @@ layout or one of the remote-model layouts below.
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
 
+[dev-profile-search](/vss/vision-agent/agent-workflows/search) requires 1 GPU
+with both the LLM and VLM remote.
+
 </Tab>
 <Tab title="IGX-THOR">
 
@@ -421,6 +424,9 @@ layout or one of the remote-model layouts below.
 | [dev-profile-base](/vss/getting-started/quickstart) | 1 | 1 |
 | [dev-profile-alerts (Alert verification with VLM)](/vss/vision-agent/agent-workflows/alert-verification) <sup>1</sup> | 1 | 1 |
 | [dev-profile-alerts (Real-Time Alerts with VLM)](/vss/vision-agent/agent-workflows/real-time-alerts) <sup>1</sup> | 1 | 1 |
+
+[dev-profile-search](/vss/vision-agent/agent-workflows/search) requires 1 GPU
+with both the LLM and VLM remote.
 
 </Tab>
 </Tabs>

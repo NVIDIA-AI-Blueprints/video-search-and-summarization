@@ -735,6 +735,10 @@ Once the video is uploaded, the video will appear in the video list.
 
 Ask the agent to generate a report about the uploaded video. Here is an example prompt:
 
+<Note>
+The screenshots in this step show the in-stack VSS Agent UI. VSS Agent collects the Video Summarization parameters in Human in the Loop (HITL) dialog windows and provides the finished report as a PDF download. With NemoClaw's OpenClaw runtime, HITL happens in the OpenClaw chat: the agent asks for needed parameters inline, you answer in the conversation, and the summary or report appears in the chat UI. The VSS Agent's structured HITL dialogs are not available through an external VSS UI connected to NemoClaw, so the dialog and PDF screenshots do not represent that experience.
+</Note>
+
 ```bash
 Can you generate a report for warehouse_sample using video summarization?
 ```
@@ -745,7 +749,7 @@ To generate reports across multiple uploaded videos, include the video names in 
 Generate reports for warehouse_sample_1 and warehouse_sample_2.
 ```
 
-The agent will prompt you with 4 dialog windows to customize the Video Summarization microservice parameters.
+In the VSS Agent UI, the agent prompts you with four dialog windows to customize the Video Summarization microservice parameters.
 
 You can cancel the workflow at any time by typing "/cancel" in the pop-up input box.
 
