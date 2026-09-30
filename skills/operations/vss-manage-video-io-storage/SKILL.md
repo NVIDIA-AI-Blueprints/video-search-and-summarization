@@ -1,6 +1,6 @@
 ---
 name: vss-manage-video-io-storage
-description: Use to drive `vss vios` for sensor list, timelines, clips, snapshots, and add/delete of video or stream sources. Use the bundled REST references only for what that CLI does not cover (WebRTC session control, the RTSP proxy, recorder configuration, network scan, device settings, and the NvStreamer API). Also provisions a source into a headless (no-agent) build, which the deployment fans out to the perception consumers (RT-CV/RT-Embed/RT-VLM). Not for VLM inference, semantic search, or agent-backed ingestion.
+description: Use to drive `vss vios` for sensor list, timelines, clips, snapshots, and add/delete of video or stream sources, and the VIOS REST API only for what that CLI does not cover (sensor info/status, storage and recorder status, WebRTC, the RTSP proxy, network scan, device settings, the NvStreamer API) or when the caller names a REST endpoint. Also provisions a source into a headless (no-agent) build, which the deployment fans out to the perception consumers (RT-CV/RT-Embed/RT-VLM). Not for VLM inference, semantic search, or agent-backed ingestion.
 license: Apache-2.0
 metadata:
   version: "3.3.0-rc0"
@@ -12,6 +12,9 @@ metadata:
   # OpenClaw harness image ships and activates skills by it.
   vss-requires: "always"
 ---
+
+# VIOS Operations
+
 ## Purpose
 
 Manage VIOS video input/output and storage with `vss vios`: sensors, streams,
@@ -31,24 +34,38 @@ Not for VLM inference or ad-hoc visual Q&A (`vss-ask-video`), semantic search (`
 - The `vss` CLI on `PATH`. The OpenClaw and Hermes harness images ship it; anywhere else, install it from the same checkout as this skill so the CLI and the skill match: `uv tool install <checkout>/libs/vss/cli`.
 - A deployment already recorded by `vss configure`. Confirm with `vss configure show`. `vss configure --base-url` is the only place an endpoint is supplied, and only the ingress origin the operator already has (`VSS_PUBLIC_URL`). If nothing is recorded and `VSS_PUBLIC_URL` is unset, stop and ask for the ingress origin. Never default a host or port. Exit codes, empty results, and pipe rules live in the repository root [`AGENTS.md`](../../../AGENTS.md).
 - NGC credentials in `$NGC_CLI_API_KEY` and `$NVIDIA_API_KEY` for any image pulls.
-- `curl` and `jq` only for the REST surface `vss vios` does not cover, and for reading CLI JSON. Use `set -o pipefail`, or capture stdout before piping. Docker is needed only for Compose deployment diagnostics.
+- `curl` only for the direct-REST cases in **Instructions**, and `jq` for reading JSON. Use `set -o pipefail`, or capture stdout before piping. Docker is needed only for Compose deployment diagnostics.
 
 ## Instructions
 
-# VIOS Operations
-
-Use `vss vios` for list, add, delete, timeline, clip, and snapshot. Address media by sensor name. Do not build a sensorId from a name. `--type` is required on add and delete (`video` for a file-backed sensor, `stream` for RTSP) and optional on list. Do not hand-build a clip window when `vss vios clip --sensor NAME` can resolve it. Do not navigate the UI.
-
-`curl` is not the path for those operations. If a `vss vios` command fails, report the failure — do not fall back to raw REST. `curl` remains only for what the CLI does not cover: WebRTC session control, the RTSP proxy, recorder configuration, network scan, device settings, and the NvStreamer REST API. Those stay in [`references/api-reference.md`](references/api-reference.md) and [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md).
+Use `vss vios` for list, add, delete, timeline, clip, and snapshot. Address media by sensor name. Do not build a sensorId from a name. `--type` (`video` for a file-backed sensor, `stream` for RTSP) is required on delete, a filter on list, and an optional check on add, which reads the kind from SOURCE (`rtsp://` or `rtsps://` is a stream, anything else a video). Do not hand-build a clip window when `vss vios clip --sensor NAME` can resolve it. Do not navigate the UI.
 
 ```bash
 vss vios list     [--type video|stream] [--sensor NAME]
 vss vios timeline --sensor NAME
 vss vios clip     --sensor NAME [--start-time T --end-time T]   # -> media_url
 vss vios snapshot --sensor NAME [--at T]                        # -> media_url
-vss vios add      --type video|stream SOURCE [--name NAME]
-vss vios delete   --type video|stream --sensor NAME
+vss vios add      [--type video|stream] SOURCE [--name NAME]
+vss vios delete   --type video|stream --sensor NAME [--keep-recordings]
 ```
+
+`curl` is not the path for those operations. If a `vss vios` command fails, report the failure — do not fall back to raw REST.
+
+**Where direct REST is allowed.** Only in three cases, documented in [`references/api-reference.md`](references/api-reference.md) and [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md):
+
+- What the CLI does not cover — sensor info/status/settings, storage file list and media info, recorder status and configuration, WebRTC session control, the RTSP proxy, network scan, device settings, saving clip or snapshot bytes to disk, and the NvStreamer API.
+- The caller names a specific VIOS REST endpoint, because the question is about the API itself.
+- Debugging VIOS, where the raw status code is the evidence.
+
+For a VIOS call, the base is the one `vss configure` recorded, never one you assemble (NvStreamer has its own base; see **Operations**):
+
+```bash
+DEPLOYMENT=$(vss configure show) || exit $?
+VST_URL=$(printf '%s' "$DEPLOYMENT" | jq -er '.services.vst.url')   # the /vst mount
+VST_API_BASE="${VST_URL%/}/api/v1"                                   # = <VST_ENDPOINT>/vst/api/v1 in the reference
+```
+
+If `services.vst` is absent, the deployment prerequisite below applies. Use a caller-supplied URL as given, but do not derive one from `HOST_IP`, a port, or `VSS_PUBLIC_URL`.
 
 **Upload routing rule:**
 
@@ -76,7 +93,7 @@ This skill bundles five reference files under `references/`. Read whichever appl
 
 | File | Purpose | Audience |
 | --- | --- | --- |
-| [`references/api-reference.md`](references/api-reference.md) | The full VIOS REST API reference (the runtime contract) — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, service discovery. **Read this for what `vss vios` does not cover: WebRTC session control, the RTSP proxy, recorder configuration, network scan, and device settings.** Do not use it in place of `vss vios list`, `add`, `delete`, `timeline`, `clip`, or `snapshot`. | Operational users + this skill itself |
+| [`references/api-reference.md`](references/api-reference.md) | The full VIOS REST API reference (the runtime contract) — sensor management, storage, snapshots, clip extraction, WebRTC live/replay, RTSP proxy, recorder, service configuration, service discovery. **Read this for the direct-REST cases in Instructions** — what `vss vios` does not cover, an endpoint the caller named, or debugging VIOS. It is not a fallback for a failed `vss vios list`, `add`, `delete`, `timeline`, `clip`, or `snapshot`. | Operational users + this skill itself |
 | [`references/provision-vios-source.md`](references/provision-vios-source.md) | The **headless (no-agent) write path** — register one VIOS source and stop; the mounted notification config fans it out. Carries the upload `creation_time` rule, the shared-id rule, idempotency, teardown, the two RT-VLM legs a caller must drive by hand where no receiver runs them, and what to read when a consumer never got the source. **Read this when provisioning a source into a headless build.** | Runtime operators, `vss-build-vision-ai` callers |
 | [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md) | The **NvStreamer REST API reference** — version, sensor list/info/status/streams, the three upload methods (PUT v2 / PUT v1 / POST multipart) with the `nvstreamer-*` custom headers, delete, snapshots (frame-indexed live, timestamp-indexed storage), storage info, filesystem scan. NvStreamer (`vss-vios-nvstreamer`, the streamer-adaptor variant of `launch_vst`) is **brought up by the same profiles that bring VIOS up** — `dev-profile-alerts`, `dev-profile-lvs`, `dev-profile-search`, all warehouse profiles. See `integrate-vios-service.md § Topology B` for the deployment side. **Read this when serving test / sample videos as synthetic RTSP, retrieving the RTSP URL NvStreamer generated for a file, or driving the canonical NvStreamer → VIOS handoff** (upload to NvStreamer → read RTSP URL → register that URL with VIOS via `vss vios add --type stream`). | Operational users + skill authors composing the upload → RTSP URL → VIOS handoff |
 | [`references/integrate-vios-service.md`](references/integrate-vios-service.md) | The **integration contract** — how VIOS plugs into other VSS microservices. Documents required peer services (RT-VLM, ELK, Kafka, Redis; `sdr-controller` / SDRC **when `VST_USE_SDRC=true`**), the structured `component_services:` block consumed by the `vss-build-vision-ai` skill's Step 4, integration inputs/outputs (Kafka topics, REST endpoints, file paths), environment variables, network requirements, and known integration constraints (e.g. the `/url`-variant double-`http://` bug, the VIOS + SDRC co-enablement rule for SDRC-routed profiles). **Read this when authoring a skill that talks to VIOS as a peer, when composing a new VSS deployment, or when debugging caption-pipeline wiring.** | Skill authors, deployment composers, pair-file maintainers |
@@ -123,7 +140,7 @@ For Kubernetes, do not use `kubectl port-forward`, an in-cluster Service name, a
 
 ## Known limitation — leftover containers from prior deploys
 
-`vss vios list` can surface **HTTP 502 Bad Gateway** or stale results when leftover `*-smc` VST containers from an earlier deploy survive teardown and win the host `network_mode: host` port-bind race. **Remediation: re-run `/vss-build-vision-ai`** — its Step 0 teardown grep clears the full `sensor-ms-*` / `vst-ingress-*` / `sdr-*` / `sdrc-*` / `rtspserver-ms-*` set. `vss vios add`, `vss vios snapshot`, and `vss vios clip` are unaffected. Full failure-mode catalogue, remediation, and the current routing contract (direct vs SDRC; SDR/Envoy removed in PR #711) live in `references/deploy-vios-service.md § Known Deployment Issues` and [issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151).
+VIOS's sensor listing (`GET /vst/api/v1/sensor/list`) can return **HTTP 502 Bad Gateway** or stale results when leftover `*-smc` VST containers from an earlier deploy survive teardown and win the `network_mode: host` port-bind race on `:30000` / `:30888`. `vss vios list` fails that way, and so do `timeline`, `clip`, `snapshot`, and `delete`, because each resolves the sensor name through that listing. Report the failure; do not route around it with a raw call. **Remediation: re-run `/vss-build-vision-ai`** — its Step 0 teardown grep clears the full `sensor-ms-*` / `vst-ingress-*` / `sdr-*` / `sdrc-*` / `rtspserver-ms-*` set. Full failure-mode catalogue, remediation, and the current routing contract (direct vs SDRC; SDR/Envoy removed in PR #711) live in `references/deploy-vios-service.md § Known Deployment Issues` and [issue #151](https://github.com/NVIDIA-AI-Blueprints/video-search-and-summarization/issues/151).
 
 ---
 
@@ -140,9 +157,9 @@ For Kubernetes, do not use `kubectl port-forward`, an in-cluster Service name, a
 - Exit 3 from `vss configure check` means a previously recorded route is unreachable. Report that failure. Do not fall back to REST.
 - Any other non-zero exit is the failure to report. Do not fall back to REST for a covered operation.
 
-**Run the commands yourself** — `vss vios` for list, add, delete, timeline, clip, and snapshot. `curl` only for the uncovered REST surface named above. Never instruct the user to run commands manually.
+**Run the commands yourself** — `vss vios` for list, add, delete, timeline, clip, and snapshot. `curl` only for the direct-REST cases in **Instructions**, against `VST_API_BASE` from the recorded deployment. Never instruct the user to run commands manually.
 
-**Auth:** Covered operations go through the CLI. On the uncovered REST surface, most deployments run without auth. If a `401` is returned, retry with `-H "Authorization: Bearer <token>"` and ask the user for the token.
+**Auth:** Covered operations go through the CLI. On a direct REST call, most deployments run without auth. If a `401` is returned, retry with `-H "Authorization: Bearer <token>"` and ask the user for the token.
 
 **Start/end time handling:**
 
@@ -159,19 +176,19 @@ For Kubernetes, do not use `kubectl port-forward`, an in-cluster Service name, a
 | Capability | How | Authoritative reference |
 | --- | --- | --- |
 | List sensors | `vss vios list` | [`../../../AGENTS.md`](../../../AGENTS.md) |
-| Add / delete a video or stream | `vss vios add --type video` or `--type stream`; `vss vios delete` with the same `--type` and `--sensor NAME` | [`../../../AGENTS.md`](../../../AGENTS.md) |
+| Add / delete a video or stream | `vss vios add SOURCE`; `vss vios delete --type video\|stream --sensor NAME` | [`../../../AGENTS.md`](../../../AGENTS.md) |
 | Recording timeline | `vss vios timeline --sensor NAME` | [`../../../AGENTS.md`](../../../AGENTS.md) |
-| Clip | `vss vios clip --sensor NAME` → `media_url` | CLI. Binary `/url` defects are a service bug in `references/integrate-vios-service.md § Known Integration Constraints`, not a reason to bypass the CLI |
-| Snapshot | `vss vios snapshot --sensor NAME` → `media_url` | CLI. The same `/url` defect note applies |
+| Clip | `vss vios clip --sensor NAME` → `media_url` | [`../../../AGENTS.md`](../../../AGENTS.md). The CLI already re-anchors the URL VIOS returns on the recorded origin, which removes the Finding 8 doubled `http://` |
+| Snapshot | `vss vios snapshot --sensor NAME [--at T]` → `media_url` | Same as clip |
 | File upload | `vss vios add --type video <file>` | libav upload failures are a deploy bug in `references/deploy-vios-service.md § Known Deployment Issues`, not a reason to bypass the CLI |
-| Network scan, device settings, WebRTC, RTSP proxy, recorder | REST surface the CLI does not cover | `references/api-reference.md` |
+| Sensor info/status/settings, storage file list and media info, recorder status, network scan, device settings, WebRTC, RTSP proxy, bytes to disk | Direct REST on `VST_API_BASE` — the CLI does not cover these | `references/api-reference.md` |
 | **NvStreamer** (synthetic RTSP only) | Direct API only when the caller already supplied `VSS_STREAMER_URL`. If it is absent, stop and ask. Do not derive a hostname or port. | `references/nvstreamer-api-reference.md` (separate from VIOS; no `/vst` prefix; `type: "streamer"` on `/version`) |
 
 ---
 
 ## Operations
 
-Supported operations are the `vss vios` verbs in the service map. Read [`references/api-reference.md`](references/api-reference.md) only for WebRTC session control, the RTSP proxy, recorder configuration, network scan, and device settings.
+Supported operations are the `vss vios` verbs in the service map. Read [`references/api-reference.md`](references/api-reference.md) only for the direct-REST cases in **Instructions**, against `VST_API_BASE`.
 
 NvStreamer is outside `vss`. When the user explicitly asks for a synthetic RTSP feed, the direct API is allowed only when the caller already supplied `VSS_STREAMER_URL`. Do not derive a hostname or port from `VSS_PUBLIC_URL`. If `VSS_STREAMER_URL` is absent, stop and ask. Follow [`references/nvstreamer-api-reference.md`](references/nvstreamer-api-reference.md) for that API, then register the RTSP URL it returns with `vss vios add --type stream`. NvStreamer comes up automatically with any VIOS-using profile that ships it; do not deploy it separately.
 
@@ -207,7 +224,7 @@ When the user has a sensor name or IP but needs a clip or snapshot:
    vss vios snapshot --sensor NAME
    ```
 
-   Use the returned `media_url`. Binary `/url` defects and libav upload failures are service bugs documented in the references, not a reason to bypass the CLI.
+   Use the returned `media_url` as given. A clip's `warmed: false` means the CLI host could not fetch it; report that rather than rebuilding the URL.
 
 ---
 
@@ -215,7 +232,7 @@ When the user has a sensor name or IP but needs a clip or snapshot:
 
 Covered operations return CLI JSON on stdout and a typed exit code. Branch on the exit code ([`AGENTS.md`](../../../AGENTS.md)). An empty sensor list at exit 0 is an answer. Do not retry it, and do not fall back to REST.
 
-The uncovered REST surface still uses its own shapes. **Success with data:** JSON object or array. **Success with no data:** `null` — the call succeeded but there is nothing to return (for example a scan found nothing). It is not an error. **Error:** JSON object with `error_code` and `error_message`:
+A direct REST call returns the service's own shapes. **Success with data:** JSON object or array. **Success with no data:** `null` — the call succeeded but there is nothing to return (for example a scan found nothing). It is not an error. **Error:** JSON object with `error_code` and `error_message`:
 
 ```json
 {
@@ -228,7 +245,7 @@ Common codes: `VMSInternalError`, `VMSNotFound`, `VMSInvalidParameter`.
 
 If `vss vios add` reports `InvalidParameterError: Failed to get media information`, this is the libav-missing failure mode — VIOS was deployed without `VST_INSTALL_ADDITIONAL_PACKAGES=true`. See `references/deploy-vios-service.md § Known Deployment Issues` Finding 9 for the fix. That is a service bug, not a reason to bypass the CLI.
 
-If a returned `media_url` contains a double-`http://` prefix, that is Finding 8 in `references/integrate-vios-service.md § Known Integration Constraints`. Report it. Do not switch to a hand-built binary endpoint.
+The doubled `http://` VIOS writes into `/url` responses (Finding 8 in `references/integrate-vios-service.md § Known Integration Constraints`) does not reach you through `vss vios clip` or `snapshot`: the CLI re-anchors every returned URL on the recorded origin. It matters only for a direct `/url` call, where you strip the duplicated prefix yourself.
 
 ---
 
@@ -244,7 +261,7 @@ Example operation prompts:
 ## Limitations
 
 - VIOS operations require the vios group recorded by `vss configure`. Exit 4 means reconfigure with the operator's ingress origin or deploy; do not curl a constructed URL.
-- Most deployments do not require auth, but a deployment can add an external auth layer on the uncovered REST surface.
+- Most deployments do not require auth, but a deployment can add an external auth layer in front of direct REST calls.
 - Container-side paths in the references use `${VST_CONTAINER_ROOT}` as a neutral placeholder for the VST install root inside the container. Resolve it from the active deployment before using path examples.
 - Do not print API keys, bearer tokens, or generated credentials in logs or final responses.
 
@@ -253,7 +270,7 @@ Example operation prompts:
 - **Error**: `vss vios list` exits 4. **Cause**: no deployment is recorded, or the recorded deployment does not expose `vst`. **Solution**: `vss configure --base-url "${VSS_PUBLIC_URL}"` when that origin is already set; if it is unset, stop and ask. Or follow the deployment prerequisite.
 - **Error**: `vss configure check` exits 3. **Cause**: a previously recorded route is unreachable. **Solution**: report the failure. Do not curl a constructed URL.
 - **Error**: uploads fail with `Failed to get media information`. **Cause**: libav packages were not installed in the VIOS container. **Solution**: set `VST_INSTALL_ADDITIONAL_PACKAGES=true` and redeploy. Do not bypass the CLI.
-- **Error**: a `media_url` contains `http://http://...`. **Cause**: known URL construction defect in the service. **Solution**: report it; the references document Finding 8. Do not bypass the CLI.
+- **Error**: a direct `/url` call returns `http://http://...`. **Cause**: known URL construction defect in the service (Finding 8). **Solution**: strip the duplicated prefix. `vss vios clip` and `snapshot` already do.
 - **Error**: a consumer (RT-CV, RT-Embed, RT-VLM) does not list a source just added to VIOS. **Cause**: the deployment fans a new source out by webhook, asynchronously and with retries, so consumer state trails registration. **Solution**: allow for the delay — the slowest shipped receivers retry for ~30 minutes before giving up. Never call a consumer directly to compensate; [`references/provision-vios-source.md`](references/provision-vios-source.md) has the logs to read if it genuinely never arrives.
 
 ---
@@ -262,8 +279,8 @@ Example operation prompts:
 
 - **jq:** Capture CLI stdout before piping to `jq`, or use `set -o pipefail`. `jq`'s exit code is not the CLI's. See [`AGENTS.md`](../../../AGENTS.md).
 - **Time format:** Always ISO 8601 UTC, e.g. `2026-04-10T10:30:00Z` or `2026-04-10T10:30:00.000Z`.
-- **streamId header:** Only on the uncovered live/replay/recorder REST surface. Those endpoints require `streamId` as both a path parameter and a request header — include both. Covered clip and snapshot calls are `vss vios clip` and `vss vios snapshot`.
-- **Clips:** `vss vios clip` returns `media_url`. The `/url` double-`http://` defect is a service bug documented in the references, not a reason to bypass the CLI.
-- **Sensor name:** Address media by sensor name. `--type video` is a file-backed sensor; `--type stream` is RTSP. Read the type from `vss vios list`. Delete with `vss vios delete --type video|stream --sensor NAME`.
+- **streamId header:** Only on direct live/replay/recorder REST calls. Those endpoints require `streamId` as both a path parameter and a request header — include both. Covered clip and snapshot calls are `vss vios clip` and `vss vios snapshot`.
+- **Clips:** `vss vios clip` returns `media_url`, already re-anchored on the recorded origin. Pass it on as given.
+- **Sensor name:** Address media by sensor name. `video` is a file-backed sensor; `stream` is RTSP. Read the type from `vss vios list`, then delete with `vss vios delete --type <that type> --sensor NAME`; a mismatch is refused.
 - **Recorded timeline after upload:** `vss vios add --type video` records the file. Read the anchored range with `vss vios timeline --sensor NAME` before a later clip or snapshot. Do not hand-build an upload request.
 - **Endpoints:** CLI examples take no endpoint. The origin is whatever `vss configure` recorded.
