@@ -20,7 +20,7 @@ The committed planning and canary helpers require Python 3.9+. Executed canaries
 
 Do not start or stop services when the user only asks to inspect existing reports. Treat setup, teardown, and benchmark runs as side-effecting operations and state that you are about to run them.
 
-When editing shell scripts, validate with `bash -n`. When changing commands, environment variables, Docker behavior, benchmark scenarios, or report workflows, update the matching repo docs under `CLAUDE.md`, `perf/benchmark/CLAUDE.md`, and relevant README or perf guide files.
+When editing shell scripts, validate with `bash -n`. When changing commands, environment variables, Docker behavior, benchmark scenarios, or report workflows, update the matching guidance in the repository `AGENTS.md`, service README, and `perf/benchmark/README.RTVI_VLM.md` or `PERF_GUIDE.RTVI_VLM.md`.
 
 Before launching a new experiment, freeze its identity, workload, metrics, scenarios, and isolated
 paths using `references/performance-contract.md`. Validate and render the plan without executing it:
