@@ -68,7 +68,7 @@ _READINESS_MARKERS = (
     "NEMOCLAW_ROUTING: True; bind=0.0.0.0",
     "NEMOCLAW_ROUTING_READY:",
     "ROUTER_POLICY_LIFECYCLE:",
-    "ROUTER_TEARDOWN: done",
+    "ROUTER_TEARDOWN:",
 )
 
 
@@ -230,11 +230,13 @@ def prepare_environment(env=None):
         e["NVIDIA_API_KEY"] = key
         select_targets(e)
     # Off the default port so a leftover local router cannot shadow the run;
-    # always torn down so the runner is left clean.
+    # torn down by default, but ROUTER_TEARDOWN=false keeps the router for a
+    # NemoClaw step that runs next. The workflow's always-run cleanup step
+    # removes the container afterwards either way.
     e.setdefault("ROUTER_PORT", "14000")
     e.setdefault("ROUTER_CONTAINER", "vss-model-router-ci")
     e["ROUTE_NEMOCLAW"] = "true"
-    e["ROUTER_TEARDOWN"] = "true"
+    e.setdefault("ROUTER_TEARDOWN", "true")
     e.setdefault("MODEL_ROUTING_WORK_DIR", "/tmp/skill-eval/model-routing")
     return mock
 
