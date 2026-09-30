@@ -1,0 +1,20 @@
+.linksApp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.linksMap {
+  font-family: sans-serif;
+  height: 80vh;
+  width: 100%;
+}
+
+.linksManager {
+  height: 15vh;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+}

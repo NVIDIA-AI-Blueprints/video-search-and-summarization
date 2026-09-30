@@ -1,0 +1,64 @@
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background-color:rgba(255,0,0,0.0);
+}
+
+html,
+body,
+#root > *,
+.ui.grid {
+  height: 100%;
+  min-height: 100%;
+}
+
+.leaflet-container {
+  cursor: inherit !important;
+}
+
+.item.disabled {
+  opacity: 0.5;
+}
+
+.vertex.editing.finished {
+  cursor: move !important;
+}
+
+.midpoint {
+  cursor: copy !important;
+}
+
+.vertex:not(.finished).first {
+  cursor: cell !important;
+}
+
+.red_tooltip {
+  background-color: red;
+  border: 1px solid white;
+  font-size: 15px;
+}
+/* .leaflet-popup-tip-container {
+  background: transparent;
+  display: none; 
+ }
+ .leaflet-popup-content-wrapper {
+  border-radius: 0;
+  border:3px solid rgba(0,0,0,0.4);
+  }  */
+.leaflet-div-icon {
+  background-color:rgba(255,0,0,0.0);
+  border: 1px solid red;
+  font-size: 15px;
+}
+/* .leaflet-tooltip-top.red_tooltip::before {
+  border-top-color: red;
+} */
+
+.blue_tooltip {
+  background: rgb(14, 110, 184);
+  border: 1px solid white;
+  font-size: 15px;
+}
+.leaflet-tooltip-top.blue_tooltip::before {
+  border-top-color: rgb(14, 110, 184);
+}

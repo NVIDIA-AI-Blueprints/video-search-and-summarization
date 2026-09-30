@@ -1,0 +1,37 @@
+.ui.card {
+  width: 100% !important; }
+
+.ui.segment {
+  border-radius: 2px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 20px 0 rgba(185, 188, 210, 0.2);
+  border: solid 1px #e8e8ec; }
+
+.panel {
+  border: 1px solid #c2c2cc;
+  border-radius: 4px;
+  padding: 8px 12px;
+  color: #4a4a4a; }
+  .panel span {
+    font-size: 12px; }
+  .panel .icon {
+    float: right;
+    margin: 0; }
+  .panel .accordion-content {
+    font-size: 14px;
+    padding: 5px; }
+
+.multiple-accordion .panel {
+  margin-top: -1px;
+  border-radius: 0; }
+
+.multiple-accordion + .panel {
+  margin-top: 0; }
+
+.multiple-accordion .panel:first-child {
+  border-top-right-radius: 4px;
+  border-top-left-radius: 4px; }
+
+.multiple-accordion .panel:last-child {
+  border-bottom-right-radius: 4px;
+  border-bottom-left-radius: 4px; }

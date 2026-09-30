@@ -1,0 +1,20 @@
+.linksValApp {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.linksValMap {
+  font-family: sans-serif;
+  height: 90vh;
+  width: 100%;
+}
+
+.linksValManager {
+  height: 15vh;
+}
+
+.map {
+  height: 100%;
+  width: 100%;
+}

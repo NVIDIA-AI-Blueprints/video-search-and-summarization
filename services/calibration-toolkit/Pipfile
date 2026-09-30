@@ -1,0 +1,29 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+django = ">=4.2.30,<5.0"
+djangorestframework = ">=3.15.2"
+django-cors-headers = ">=4.4.0"
+django-cleanup = "==7.0.0"
+gunicorn = "==23.0.0"
+pillow = ">=11.3.0"
+coverage = ">=7.6.0"
+numpy = ">=2.0.0,<3.0"
+opencv-python-headless = ">=4.10.0.84"
+python-dateutil = "==2.8.2"
+pytz = "==2021.3"
+six = "==1.16.0"
+sqlparse = "==0.5.0"
+urllib3 = ">=2.5.0"
+whitenoise = ">=6.7.0"
+requests = ">=2.32.5"
+pandas = ">=2.2.2"
+tzdata = "==2022.7"
+
+[dev-packages]
+
+[requires]
+python_version = "3.13"

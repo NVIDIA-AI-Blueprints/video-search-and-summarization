@@ -1,0 +1,40 @@
+# Auto-generated from Pipfile.lock - do not edit by hand.
+#
+# This file is a flat, pip-installable mirror of the runtime dependencies
+# locked in Pipfile.lock. The Docker build does NOT consume this file directly
+# (the build derives its own requirements.txt from Pipfile.lock at image-build
+# time via `pipenv requirements --hash`); this file exists purely so that
+# external SBOM / CVE scanners and developer tooling can read the same set of
+# pins in a familiar format.
+#
+# To regenerate after bumping any pin in Pipfile / Pipfile.lock:
+#
+#     python3 -c "import json; lock=json.load(open('Pipfile.lock')); \
+#         print('\n'.join(sorted(f'{n}=={v["version"][2:]}' \
+#         for n,v in lock['default'].items())))" > requirements-python.txt
+#
+
+
+asgiref==3.11.1
+certifi==2026.4.22
+charset-normalizer==3.4.7
+coverage==7.14.0
+django==4.2.30
+django-cleanup==7.0.0
+django-cors-headers==4.9.0
+djangorestframework==3.17.1
+gunicorn==23.0.0
+idna==3.14
+numpy==2.4.4
+opencv-python-headless==4.13.0.92
+packaging==26.2
+pandas==3.0.3
+pillow==12.2.0
+python-dateutil==2.8.2
+pytz==2021.3
+requests==2.34.0
+six==1.16.0
+sqlparse==0.5.0
+tzdata==2022.7
+urllib3==2.7.0
+whitenoise==6.12.0

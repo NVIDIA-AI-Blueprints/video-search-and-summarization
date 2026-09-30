@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  calibration-toolkit:
+    image: ${VSS_CALIBRATION_TOOLKIT_IMAGE:-ghcr.io/nvidia-ai-blueprints/vss/vss-calibration-toolkit}:${VSS_CALIBRATION_TOOLKIT_TAG:-develop-latest}
+    container_name: mdx-calibration-toolkit
+    profiles: ["calibration-toolkit"]
+    ports:
+      - "${CALIBRATION_TOOLKIT_HOST_PORT:-8003}:8003"
+    volumes:
+      - ${VSS_DATA_DIR:-./output}/calibration-toolkit:/calibration/server/data
+    command: "deploy.sh 8003"
+    restart: unless-stopped

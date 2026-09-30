@@ -1,0 +1,66 @@
+{
+		"inputDataInCRSCartesian": false,
+		"crsLatLon": "EPSG:4326",
+		"crsCartesian": "EPSG:26915",
+		"crsCartesianEnablePerSensorOrigin": false,
+		"crsCartesianCustomOrigin": {
+			"enable": false,
+			"lat": 42.492109,
+			"lon": -90.717522
+		},
+		"roadNetwork": {
+			"enable": true,
+			"roadNetworkUseCRSCartesian": false,
+			"segmentShiftDistanceMeters": 5,
+			"mapMatching": {
+					"mapMatchingMaxDistMeters": 30, 
+				    "mapMatchingMaxDistInitMeters": 20,
+				    "mapMatchingMinProbNorm": 0.001,
+				    "mapMatchingNonEmittingLengthFactor": 0.75,
+				    "mapMatchingObsNoiseMeters": 10, 
+				    "mapMatchingObsNoiseNonEmittingStatesMeters": 15, 
+				    "mapMatchingDistNoiseMeters": 10, 
+				    "mapMatchingNonEmittingStates": true,
+				    "mapMatchingMaxLatticeWidth": 5
+				},
+			"graph": {
+				"graphFromOSM": true,
+				"osmLoadMethod": "from_point",
+			    "osmType": "drive",
+			    "osmSimplify": false,
+			    "osmQueryPoint": {
+			    	"lat": 42.492109,
+			    	"lon": -90.717522
+			    },
+			    "osmQueryPointDist": 2000,
+			    "osmQueryPolygon": [
+			    	{
+				    	"lat": 42.490335, 
+				    	"lon": -90.728456
+			    	},
+			    	{
+				    	"lat": 42.493731, 
+				    	"lon": -90.728456
+			    	},
+			    	{
+				    	"lat": 42.493731, 
+				    	"lon": -90.708703
+			    	},
+			    	{
+				    	"lat": 42.490335, 
+				    	"lon": -90.708703
+			    	}
+			    ],
+			    "osmQueryPlace": "Dubuque, Iowa, USA",
+			    "osmQueryFile": "../ITS_new/sample_data/iowa-latest.osm.pbf"
+			},
+			"visualization": {
+				"visualizationGraphNodeColor": "r",
+				"visualizationGraphShowGraph": true,
+			    "visualizationMapUseBackground": true,
+			    "visualizationMapZoomPath": false,
+			    "visualizationMapShowLabels": false,
+			    "visualizationMapShowMatching": true
+			}
+		}
+	}
