@@ -153,8 +153,8 @@ VIOS's sensor listing (`GET /vst/api/v1/sensor/list`) can return **HTTP 502 Bad 
 **Availability check:**
 
 - Before any `vss vios` call, run `vss configure check`, then `vss vios list`.
-- Exit 4 from `vss vios list` means no deployment is recorded, or it does not expose `vst`. See the **Deployment prerequisite** section. Do not curl a constructed URL to decide that.
-- Exit 3 from `vss configure check` means some recorded route is unreachable. It blocks VIOS work only when the `vst` row is `UNREACHABLE`; report that failure and do not fall back to REST. Otherwise continue to `vss vios list`.
+- Exit 4 from `vss vios list` means no deployment is recorded, or it does not expose `vst`. See the **Deployment prerequisite** section.
+- Exit 3 from `vss configure check` means some recorded route is unreachable. It blocks VIOS work only when the `vst` row is `UNREACHABLE`. Otherwise continue to `vss vios list`.
 - Exit 1 from `vss configure check` means nothing is recorded; see **Setup**.
 - Any other non-zero exit is the failure to report. Do not fall back to REST for a covered operation.
 
@@ -201,7 +201,7 @@ For integration- and deployment-time questions about how VIOS interacts with oth
 
 When the user has a sensor name or IP but needs a clip or snapshot:
 
-0. Confirm the vios group (see Setup — Availability check): `vss configure check`, then `vss vios list`. Exit 4 from `vss vios list` follows the deployment prerequisite. Do not curl a constructed URL.
+0. Confirm the vios group (see Setup — Availability check): `vss configure check`, then `vss vios list`. Exit 4 from `vss vios list` follows the deployment prerequisite.
 
 1. Confirm the sensor by name:
 
@@ -218,7 +218,7 @@ When the user has a sensor name or IP but needs a clip or snapshot:
    vss vios timeline --sensor NAME
    ```
 
-3. Clip or snapshot. For a `video` sensor, pass a window only when the user supplied one; otherwise the clip is the first recorded segment and the snapshot the latest frame. A `stream` clip needs both `--start-time` and `--end-time` from step 2:
+3. Clip or snapshot. For a `video` sensor, pass a window only when the user supplied one; otherwise the clip is the first recorded segment and the snapshot the first recorded frame. A `stream` clip needs both `--start-time` and `--end-time` from step 2:
 
    ```bash
    vss vios clip --sensor NAME
@@ -231,7 +231,7 @@ When the user has a sensor name or IP but needs a clip or snapshot:
 
 ## Responses
 
-Covered operations return CLI JSON on stdout and a typed exit code. Branch on the exit code ([`AGENTS.md`](../../../AGENTS.md)). An empty sensor list at exit 0 is an answer. Do not retry it, and do not fall back to REST.
+Covered operations return CLI JSON on stdout and a typed exit code. Branch on the exit code ([`AGENTS.md`](../../../AGENTS.md)). An empty sensor list at exit 0 is an answer. Do not retry it.
 
 A direct REST call returns the service's own shapes. **Success with data:** JSON object or array. **Success with no data:** `null` — the call succeeded but there is nothing to return (for example a scan found nothing). It is not an error. **Error:** JSON object with `error_code` and `error_message`:
 
@@ -261,7 +261,7 @@ Example operation prompts:
 
 ## Limitations
 
-- VIOS operations require the vios group recorded by `vss configure`. Exit 4 means reconfigure with the operator's ingress origin or deploy; do not curl a constructed URL.
+- VIOS operations require the vios group recorded by `vss configure`. Exit 4 means reconfigure with the operator's ingress origin or deploy.
 - Most deployments do not require auth, but a deployment can add an external auth layer in front of direct REST calls.
 - Container-side paths in the references use `${VST_CONTAINER_ROOT}` as a neutral placeholder for the VST install root inside the container. Resolve it from the active deployment before using path examples.
 - Do not print API keys, bearer tokens, or generated credentials in logs or final responses.
@@ -269,7 +269,7 @@ Example operation prompts:
 ## Troubleshooting
 
 - **Error**: `vss vios list` exits 4. **Cause**: no deployment is recorded, or the recorded deployment does not expose `vst`. **Solution**: `vss configure --base-url "${VSS_PUBLIC_URL}"` when that origin is already set; if it is unset, stop and ask. Or follow the deployment prerequisite.
-- **Error**: `vss configure check` exits 3. **Cause**: a previously recorded route is unreachable. **Solution**: report the failure. Do not curl a constructed URL.
+- **Error**: `vss configure check` exits 3. **Cause**: a previously recorded route is unreachable. **Solution**: stop only when the `vst` row is `UNREACHABLE`; otherwise continue to `vss vios list`.
 - **Error**: uploads fail with `Failed to get media information`. **Cause**: libav packages were not installed in the VIOS container. **Solution**: set `VST_INSTALL_ADDITIONAL_PACKAGES=true` and redeploy. Do not bypass the CLI.
 - **Error**: a direct `/url` call returns `http://http://...`. **Cause**: known URL construction defect in the service (Finding 8). **Solution**: strip the duplicated prefix. `vss vios clip` and `snapshot` already do.
 - **Error**: a consumer (RT-CV, RT-Embed, RT-VLM) does not list a source just added to VIOS. **Cause**: the deployment fans a new source out by webhook, asynchronously and with retries, so consumer state trails registration. **Solution**: allow for the delay — the slowest shipped receivers retry for ~30 minutes before giving up. Never call a consumer directly to compensate; [`references/provision-vios-source.md`](references/provision-vios-source.md) has the logs to read if it genuinely never arrives.
