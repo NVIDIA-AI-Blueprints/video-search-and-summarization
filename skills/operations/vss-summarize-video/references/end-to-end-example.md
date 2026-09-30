@@ -41,9 +41,8 @@ fi
 # Readiness = HTTP 200 on /v1/ready. Body may be empty — do not inspect it.
 # Retry on 503 (warmup) for up to ~30s before concluding the service is unavailable.
 # No recorded lvs service is the same answer as not ready: take the VLM fallback.
-video_sum_code=000
-for i in $(seq 1 10); do
-  [ -n "$VIDEO_SUMMARIZATION_URL" ] || break
+video_sum_code=unrecorded
+[ -n "$VIDEO_SUMMARIZATION_URL" ] && for i in $(seq 1 10); do
   video_sum_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 10 "$VIDEO_SUMMARIZATION_URL/v1/ready")
   case "$video_sum_code" in 200) break ;; 503) sleep 3 ;; *) break ;; esac
 done

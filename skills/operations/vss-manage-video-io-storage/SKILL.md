@@ -1,6 +1,6 @@
 ---
 name: vss-manage-video-io-storage
-description: Use to drive `vss vios` for sensor list, timelines, clips, snapshots, and add/delete of video or stream sources, and the VIOS REST API only for what that CLI does not cover (sensor info/status, storage and recorder status, WebRTC, the RTSP proxy, network scan, device settings, the NvStreamer API) or when the caller names a REST endpoint. Also provisions a source into a headless (no-agent) build, which the deployment fans out to the perception consumers (RT-CV/RT-Embed/RT-VLM). Not for VLM inference, semantic search, or agent-backed ingestion.
+description: Use to drive `vss vios` for sensor list, timelines, clips, snapshots, and add/delete of video or stream sources, and the VIOS REST API only for what that CLI does not cover (sensor info/status/settings, storage and recorder status, WebRTC, the RTSP proxy, network scan, device settings, bytes to disk, the NvStreamer API), when the caller names a REST endpoint, or to debug VIOS. Also provisions a source into a headless (no-agent) build, which the deployment fans out to the perception consumers (RT-CV/RT-Embed/RT-VLM). Not for VLM inference, semantic search, or agent-backed ingestion.
 license: Apache-2.0
 metadata:
   version: "3.3.0-rc0"
@@ -18,12 +18,12 @@ metadata:
 ## Purpose
 
 Manage VIOS video input/output and storage with `vss vios`: sensors, streams,
-uploads, snapshots, clips, timelines, and recording status. NvStreamer stays a
+uploads, snapshots, clip URLs, and timelines. NvStreamer stays a
 separate REST API, used only for an explicit synthetic RTSP request.
 
 ## When to Use
 
-- Drive `vss vios` — add or delete a video file or RTSP stream, list sensors, show configured sensors, get a snapshot, download a clip, upload a video file, or manage video storage
+- Drive `vss vios` — add or delete a video file or RTSP stream, list sensors, show configured sensors, get a snapshot or clip URL (`media_url`), or upload a video file
 - Serve test/sample videos as synthetic RTSP via NvStreamer, or drive the NvStreamer → `vss vios add --type stream` handoff
 - Provision a source into a headless (no-agent) build so the deployment fans it out to RT-CV / RT-Embed / RT-VLM
 
@@ -46,7 +46,7 @@ vss vios timeline --sensor NAME
 vss vios clip     --sensor NAME [--start-time T --end-time T]   # -> media_url
 vss vios snapshot --sensor NAME [--at T]                        # -> media_url
 vss vios add      [--type video|stream] SOURCE [--name NAME]
-vss vios delete   --type video|stream --sensor NAME [--keep-recordings]
+vss vios delete   --type video|stream --sensor NAME [--keep-recordings]   # --keep-recordings: stream only
 ```
 
 `curl` is not the path for those operations. If a `vss vios` command fails, report the failure — do not fall back to raw REST.
@@ -65,11 +65,11 @@ VST_URL=$(printf '%s' "$DEPLOYMENT" | jq -er '.services.vst.url')   # the /vst m
 VST_API_BASE="${VST_URL%/}/api/v1"                                   # = <VST_ENDPOINT>/vst/api/v1 in the reference
 ```
 
-If `services.vst` is absent, the deployment prerequisite below applies. Use a caller-supplied URL as given, but do not derive one from `HOST_IP`, a port, or `VSS_PUBLIC_URL`.
+If `services.vst` is absent, the deployment prerequisite below applies. Do not derive a base from `HOST_IP`, a port, or `VSS_PUBLIC_URL`.
 
 **Upload routing rule:**
 
-- If the user asks to "upload `<file>.mp4` to VIOS", "upload a video file", or otherwise means storing a local video as a VIOS file-backed sensor, use `vss vios add --type video <file>`. The filename stem is the sensor name. Uploaded filenames must have no whitespace.
+- If the user asks to "upload `<file>.mp4` to VIOS", "upload a video file", or otherwise means storing a local video as a VIOS file-backed sensor, use `vss vios add --type video <file>`. The filename stem is the sensor name. Uploaded names must start with a letter or digit and use only letters, digits, `.`, `_`, and `-`.
 - Use NvStreamer only when the user explicitly needs a live/synthetic RTSP camera feed, asks for NvStreamer, or asks to retrieve an RTSP URL.
 - Do not substitute the NvStreamer upload -> RTSP URL -> `vss vios add --type stream` handoff for a plain VIOS MP4 upload request.
 
@@ -121,7 +121,7 @@ For Kubernetes, do not use `kubectl port-forward`, an in-cluster Service name, a
 
    and only when the operator's ingress origin is already in `VSS_PUBLIC_URL`. If `VSS_PUBLIC_URL` is unset, stop and ask for the ingress origin. Never default a host or port.
 
-2. **`vss vios list` exits 4 when no deployment is recorded, or the recorded deployment does not expose `vst`.** `vss configure check` does not use that code: it exits 3 when a previously recorded route is unreachable, and it prints which command groups are available. On exit 4 from `vss vios`, re-run `vss configure --base-url` with the operator's ingress origin, or hand off to deploy. Do not curl a constructed URL to decide that. Offer the standalone path:
+2. **`vss vios list` exits 4 when no deployment is recorded, or the recorded deployment does not expose `vst`.** `vss configure check` does not use that code: it exits 3 when any recorded route is unreachable and 1 (as does `vss configure show`) when nothing is recorded, and it prints which command groups are available. On exit 4 from `vss vios`, re-run `vss configure --base-url` with the operator's ingress origin, or hand off to deploy. Do not curl a constructed URL to decide that. Offer the standalone path:
 
    > *"The vios group is not configured (exit 4) — no deployment is currently serving VIOS.*
    > *(a) Bring up VIOS standalone using this skill's bundled [`references/deploy-vios-service.md`](references/deploy-vios-service.md) runbook — image tags, env vars (notably `VST_INSTALL_ADDITIONAL_PACKAGES=true`), host directories, NGC login, bring-up command, healthcheck loop, and known deployment issues are all documented there. This is the right path if you only need VIOS itself (no RT-VLM / ELK / etc.) or if you're composing a custom profile.*
@@ -154,7 +154,8 @@ VIOS's sensor listing (`GET /vst/api/v1/sensor/list`) can return **HTTP 502 Bad 
 
 - Before any `vss vios` call, run `vss configure check`, then `vss vios list`.
 - Exit 4 from `vss vios list` means no deployment is recorded, or it does not expose `vst`. See the **Deployment prerequisite** section. Do not curl a constructed URL to decide that.
-- Exit 3 from `vss configure check` means a previously recorded route is unreachable. Report that failure. Do not fall back to REST.
+- Exit 3 from `vss configure check` means some recorded route is unreachable. It blocks VIOS work only when the `vst` row is `UNREACHABLE`; report that failure and do not fall back to REST. Otherwise continue to `vss vios list`.
+- Exit 1 from `vss configure check` means nothing is recorded; see **Setup**.
 - Any other non-zero exit is the failure to report. Do not fall back to REST for a covered operation.
 
 **Run the commands yourself** — `vss vios` for list, add, delete, timeline, clip, and snapshot. `curl` only for the direct-REST cases in **Instructions**, against `VST_API_BASE` from the recorded deployment. Never instruct the user to run commands manually.
@@ -164,7 +165,7 @@ VIOS's sensor listing (`GET /vst/api/v1/sensor/list`) can return **HTTP 502 Bad 
 **Start/end time handling:**
 
 - If the user provides a window, pass `--start-time` and `--end-time` to `vss vios clip`, or `--at` to `vss vios snapshot`.
-- If the user does not, `vss vios clip --sensor NAME` resolves the recorded window itself and returns that window with the `media_url`. Do not read a timeline and invent bounds.
+- If the user does not, a `video` sensor defaults to its first recorded segment, and `vss vios clip --sensor NAME` returns that window with the `media_url`. A `stream` sensor has no default: pass both bounds as ISO-8601, from the user or from a segment `vss vios timeline` lists. Do not invent bounds.
 - `vss vios timeline --sensor NAME` is how you inspect the recorded range. Never fabricate timestamps.
 
 **Resolving a sensor:** Address media by the sensor name. Confirm it with `vss vios list` (`--type video|stream` and `--sensor NAME` optional). Do not build a sensorId from a name. If an id is required, read it from that listing.
@@ -217,7 +218,7 @@ When the user has a sensor name or IP but needs a clip or snapshot:
    vss vios timeline --sensor NAME
    ```
 
-3. Clip or snapshot. Pass a window only when the user supplied one. Otherwise let the CLI resolve it:
+3. Clip or snapshot. For a `video` sensor, pass a window only when the user supplied one; otherwise the clip is the first recorded segment and the snapshot the latest frame. A `stream` clip needs both `--start-time` and `--end-time` from step 2:
 
    ```bash
    vss vios clip --sensor NAME
@@ -243,7 +244,7 @@ A direct REST call returns the service's own shapes. **Success with data:** JSON
 
 Common codes: `VMSInternalError`, `VMSNotFound`, `VMSInvalidParameter`.
 
-If `vss vios add` reports `InvalidParameterError: Failed to get media information`, this is the libav-missing failure mode — VIOS was deployed without `VST_INSTALL_ADDITIONAL_PACKAGES=true`. See `references/deploy-vios-service.md § Known Deployment Issues` Finding 9 for the fix. That is a service bug, not a reason to bypass the CLI.
+If `vss vios add` exits 3 with `Failed to get media information`, this is the libav-missing failure mode — VIOS was deployed without `VST_INSTALL_ADDITIONAL_PACKAGES=true`. See `references/deploy-vios-service.md § Known Deployment Issues` Finding 9 for the fix. That is a service bug, not a reason to bypass the CLI.
 
 The doubled `http://` VIOS writes into `/url` responses (Finding 8 in `references/integrate-vios-service.md § Known Integration Constraints`) does not reach you through `vss vios clip` or `snapshot`: the CLI re-anchors every returned URL on the recorded origin. It matters only for a direct `/url` call, where you strip the duplicated prefix yourself.
 
@@ -278,7 +279,7 @@ Example operation prompts:
 ## Tips
 
 - **jq:** Capture CLI stdout before piping to `jq`, or use `set -o pipefail`. `jq`'s exit code is not the CLI's. See [`AGENTS.md`](../../../AGENTS.md).
-- **Time format:** Always ISO 8601 UTC, e.g. `2026-04-10T10:30:00Z` or `2026-04-10T10:30:00.000Z`.
+- **Time format:** ISO 8601 UTC, e.g. `2026-04-10T10:30:00Z` or `2026-04-10T10:30:00.000Z`. A `video` clip bound may also be seconds from the recording start.
 - **streamId header:** Only on direct live/replay/recorder REST calls. Those endpoints require `streamId` as both a path parameter and a request header — include both. Covered clip and snapshot calls are `vss vios clip` and `vss vios snapshot`.
 - **Clips:** `vss vios clip` returns `media_url`, already re-anchored on the recorded origin. Pass it on as given.
 - **Sensor name:** Address media by sensor name. `video` is a file-backed sensor; `stream` is RTSP. Read the type from `vss vios list`, then delete with `vss vios delete --type <that type> --sensor NAME`; a mismatch is refused.

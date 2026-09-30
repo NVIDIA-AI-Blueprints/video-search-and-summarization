@@ -2,31 +2,27 @@
 
 This reference explains the video summarization API workflows used by
 `vss-summarize-video`. The tables and examples below are illustrative guidance
-only for live calls. On **Docker**, the running service's `/openapi.json` is
-authoritative because its image version may expose a newer or different schema.
-On **Kubernetes**, stock LVS Ingress does not publish that document — use the
-checked-in contract here plus Exact public routes (see Runtime OpenAPI
-Discovery).
+only for live calls. The running service's `/openapi.json` is authoritative
+because its image version may expose a newer or different schema; fetch it under
+the recorded `/lvs` mount (see Runtime OpenAPI Discovery).
 
 Use `/v1/summarize` for new file-summarization examples. `/summarize` is still
-present on Docker with the same request and response schema as a compatibility
-route; it is not on stock LVS Ingress.
+present with the same request and response schema as a compatibility route.
 
 ## Setup
 
-The OpenAPI spec declares a relative server URL (`/`), so `BASE_URL` is
-deployment-specific:
+The OpenAPI spec declares a relative server URL (`/`), so `BASE_URL` is the
+`/lvs` mount `vss configure` recorded, on Compose and Kubernetes alike. Do not
+rebuild it from `VSS_PUBLIC_URL`, `HOST_IP`, or a port:
 
 ```bash
-# Docker Compose (default)
-export BASE_URL="${LVS_BACKEND_URL:-http://localhost:38111}"
-# Kubernetes operate — the /lvs mount (skill appends /v1/ready and /v1/summarize)
-# export BASE_URL="${VSS_PUBLIC_URL%/}/lvs"
+DEPLOYMENT=$(vss configure show) || exit $?
+BASE_URL=$(printf '%s' "$DEPLOYMENT" | jq -er '.services.lvs.url')   # no /v1 suffix
 ```
 
 ## Runtime OpenAPI Discovery
 
-Before constructing or issuing any live API operation on **Docker**, fetch the
+Before constructing or issuing any live API operation, fetch the
 schema from the same service instance that will receive the request. The
 bootstrap `/openapi.json` fetch and health probes are the only exceptions.
 
@@ -37,14 +33,14 @@ curl -fsS --connect-timeout 3 --max-time 15 \
 jq -e '.openapi and (.paths | type == "object")' "$LVS_OPENAPI" >/dev/null
 ```
 
-**Kubernetes:** LVS is published as a Prefix mount at `${VSS_PUBLIC_URL}/lvs`,
-so `/lvs/openapi.json` and `/lvs/models` are reachable alongside
-`/lvs/v1/ready` and `/lvs/v1/summarize`. Public `/openapi.json` — no prefix — is
-the **Agent** document; do not treat it as the LVS schema. Resolve `model` from
-`${BASE_URL}/models` (LVS), `${VSS_PUBLIC_URL}/rtvi-vlm/v1/models` (RT-VLM) or
-`VLM_NAME`, with `BASE_URL=${VSS_PUBLIC_URL}/lvs`.
+LVS is published as a Prefix mount at `/lvs`, so `${BASE_URL}/openapi.json`
+and `${BASE_URL}/models` are reachable alongside `${BASE_URL}/v1/ready` and
+`${BASE_URL}/v1/summarize`. The origin's own `/openapi.json` — no prefix — is
+the **Agent** document on Kubernetes; do not treat it as the LVS schema.
+Resolve `model` from `${BASE_URL}/models` (LVS), from `/v1/models` under
+`services.rt_vlm.url` (RT-VLM), or from `VLM_NAME`.
 
-Use the runtime document (Docker) to confirm the operation exists and inspect
+Use the runtime document to confirm the operation exists and inspect
 its request body before building a payload. For example:
 
 ```bash

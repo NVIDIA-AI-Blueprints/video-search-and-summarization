@@ -799,7 +799,7 @@ The two primary VSS workload object types managed through SDRC are:
 
 - For Docker paths in this section, `$VSS_APPS_DIR` means `video-search-and-summarization/deploy/docker`.
 - VSS includes the SDRC Docker service from `$VSS_APPS_DIR/services/infra/sdrc/docker-compose.yaml`. The service starts with the SDRC workload config rendered from the active VSS profile.
-- Profile-local SDRC configs live under paths such as `$VSS_APPS_DIR/developer-profiles/dev-profile-alerts/sdrc/` and `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/`.
+- Profile-local SDRC configs live under paths such as `$VSS_APPS_DIR/developer-profiles/dev-profile-lvs/sdrc/` and `$VSS_APPS_DIR/industry-profiles/warehouse-operations/warehouse-2d-app/sdrc/`.
 - Start with the active profile's `sdrc/configs/config.yml.tmpl`. That file tells you which workload blocks are enabled and which worker objects SDRC manages.
 - For `vss-vios-streamprocessing`, check the block in small groups:
 

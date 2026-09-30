@@ -99,15 +99,15 @@ component_services:
   # container additionally requires the build-output to materialize config.yml.tmpl
   # + docker_cluster_config-streamprocessing.json.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs
   # (model: developer-profiles/dev-profile-lvs/sdrc/2d/configs/ — single-workload
-  # form); see SKILL.md § Step 6.5 Patch 3 > "SDRC config templates" for the
-  # materialization directive (templates are not compose services, so they are not in
+  # form); see deploy-vios-service.md § Known Deployment Issues ("no *.tmpl files
+  # found") for the materialization directive (templates are not compose services, so they are not in
   # component_services — but they are a hard requirement for the SDRC chain to boot).
   - key: init-dirs
     file: services/infra/sdrc/docker-compose.yaml
     role: One-shot — chmod 0777 ./log + ./.wdm-env so the host user can clean up later. Direct depends_on of sdr-controller (and of wdm-env-from-config).
   - key: render-config
     file: services/infra/sdrc/docker-compose.yaml
-    role: One-shot — renders every *.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs in place, substituting ${HOST_IP} / ${NUM_STREAMS} / ${NUM_SENSORS}. Transitive prereq for sdr-controller (direct depends_on of wdm-env-from-config).
+    role: One-shot — renders every *.tmpl under SDR_CONTROLLER_CONFIG_PATH/configs in place, substituting ${HOST_IP} / ${NUM_STREAMS} / ${NUM_SENSORS} / ${VST_USE_SDRC_ENABLE}. Transitive prereq for sdr-controller (direct depends_on of wdm-env-from-config).
   - key: wdm-env-from-config
     file: services/infra/sdrc/docker-compose.yaml
     role: One-shot — writes ./.wdm-env from the rendered config.yml. Direct depends_on of sdr-controller (compose waits for it) and of wait-for-*; sdr-controller does not mount .wdm-env for its own env.
@@ -317,7 +317,7 @@ The IN-1-relevant subset (full list in `deploy/docker/services/vios/vst.env`):
 | `VST_INGRESS_IMAGE_TAG` | Tag for `vss-vios-ingress` image | (no default) | **Yes** |
 | `BP_CONFIGURATOR_READYZ_URL` | Optional readiness URL the configurator-wait poller hits | `http://127.0.0.1:5001/readyz` | optional |
 | `SENSOR_BP_WAIT_BP_CONFIGURATOR_MAX_SEC` / `SENSOR_BP_WAIT_STORAGE_MAX_SEC` | Wait-loop timeouts | `300` | optional |
-| `SDR_CONTROLLER_CONFIG_PATH` | Host path containing `configs/*.tmpl` for SDRC (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`); the `render-config` init container renders them in place. Mount source for the `sdr-controller` `/configs` bind. | per-profile (e.g. `${VSS_APPS_DIR}/developer-profiles/dev-profile-alerts/sdrc/${MODE}`) | **Yes (SDRC)** |
+| `SDR_CONTROLLER_CONFIG_PATH` | Host path containing `configs/*.tmpl` for SDRC (`config.yml.tmpl` + `docker_cluster_config-streamprocessing.json.tmpl`); the `render-config` init container renders them in place. Mount source for the `sdr-controller` `/configs` bind. | per-profile (e.g. `${VSS_APPS_DIR}/developer-profiles/dev-profile-lvs/sdrc/${MODE}`) | **Yes (SDRC)** |
 | `NUM_STREAMS` / `NUM_SENSORS` | Substituted into SDRC `*.tmpl` by `render-config`. | `1` each | optional |
 | `WDM_CONTROLLER_PORT` | SDRC WDM controller listen port. **Hardcoded** at [`sdrc/docker-compose.yaml:147`](../../../../deploy/docker/services/infra/sdrc/docker-compose.yaml) — not `${VAR:-default}`, so consumer `.env` cannot override; patch the compose to change. | `5003` | not env-controllable |
 | `WDM_SDRC_DIRECT_LISTENER_PORT` | SDRC direct listener port. **Hardcoded** at `sdrc/docker-compose.yaml:149`. | `8011` | not env-controllable |
@@ -430,7 +430,7 @@ services:
     volumes:
       # the deployment must materialize a config.yml.tmpl + docker_cluster_config-*.json.tmpl pair
       # here, modeled after developer-profiles/dev-profile-lvs/sdrc/2d/configs/.
-      - "${SDR_CONTROLLER_CONFIG_PATH}/configs:/configs/:ro"   # trailing slash matches compose line 157
+      - "${SDR_CONTROLLER_CONFIG_PATH}/configs:/configs/:ro"   # trailing slash matches the sdr-controller mount in sdrc/docker-compose.yaml
       - ./log:/logs
       - /var/run/docker.sock:/var/run/docker.sock
 ```

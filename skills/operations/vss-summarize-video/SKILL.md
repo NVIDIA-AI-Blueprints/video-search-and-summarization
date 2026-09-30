@@ -52,8 +52,8 @@ Load these files only as directed:
 - [`references/video-summarization-api.md`](references/video-summarization-api.md):
   load before constructing a live LVS operation **by hand** — a direct API
   question. Follow its **Runtime OpenAPI
-  Discovery** procedure on Docker. On Kubernetes, follow the K8s note there —
-  stock LVS Ingress does not publish LVS `/openapi.json`. The ordered
+  Discovery** procedure: the LVS schema is `/openapi.json` under
+  `services.lvs.url`; the origin's own `/openapi.json` is the Agent's. The ordered
   workflow does not build a summarize payload; the CLI owns that.
 - [`references/hitl-prompts.md`](references/hitl-prompts.md): load when
   collecting LVS scenario, events, and optional objects of interest.
@@ -133,11 +133,13 @@ The `vss-build-vision-ai` skill can deploy the profile.
 - Both edges are configured to wait an hour, matching the CLI's own default, so
   a long summarization is not cut short by a 504 that would be recorded as a
   failed job. An Ingress the deployment overrides shorter still caps the wait.
+
 ## Recorded services
 
-Every URL this skill touches is one `vss configure` recorded. Read it from
-`vss configure show`; never assemble it from `VSS_PUBLIC_URL`, `HOST_IP`, or a
-port, and ignore leftover `LVS_BACKEND_URL` / `VLM_BASE_URL` /
+Every URL the recorded-video workflow and a direct API question touch is one
+`vss configure` recorded. Read it from `vss configure show`; never assemble it
+from `VSS_PUBLIC_URL`, `HOST_IP`, or a port (the one exception is the Stage 2
+rewrite of a loopback `media_url` host to the host's routable IP), and ignore leftover `LVS_BACKEND_URL` / `VLM_BASE_URL` /
 `RTVI_VLM_BASE_URL`. Do not use `kubectl port-forward`, Service DNS, NodePorts,
 `docker exec`, or `docker inspect`, and do not scan ports or configuration
 files for an endpoint.
@@ -145,9 +147,9 @@ files for an endpoint.
 | Service | Recorded as | Called by the workflow |
 |---|---|---|
 | LVS | `services.lvs.url` (the `/lvs` mount) | only `GET …/v1/ready`, the readiness probe; `vss summarize run` resolves the rest |
-| VLM / RT-VLM | `services.rt_vlm.url` (the `/rtvi-vlm` mount) | never directly; `vss vlm run` resolves it |
+| VLM / RT-VLM | `services.rt_vlm.url` (the `/rtvi-vlm` mount) | only `GET …/v1/models`, a reachability check in the same probe; `vss vlm run` resolves the rest |
 
-The readiness probe is the one direct HTTP call, and it exists because the CLI
+The readiness probe is the only direct HTTP the workflow makes, and it exists because the CLI
 has no readiness verb: `vss configure` records LVS on liveness (`/lvs/v1/live`),
 while routing needs HTTP 200 from `/v1/ready`. It is not a fallback. When a
 `vss` command fails, report that failure; never repeat the work with curl
