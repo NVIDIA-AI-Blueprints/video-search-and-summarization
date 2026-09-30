@@ -198,16 +198,9 @@ OPENSHELL_A40_LABELS: tuple[str, ...] = (
     "video-codec",
     "openshell-a40-active",
 )
-OPENSHELL_H200_LABELS: tuple[str, ...] = (
-    "vss-skill-eval-gpu",
-    "openshell",
-    "h200",
-    "gpu-h200",
-    "gpu-nvidia-h200",
-    # Temporary: this PoC runner advertises poc-copy instead of
-    # openshell-h200-active. Restore the production label before fleet use.
-    "poc-copy",
-)
+# The Harbor PoC runner advertises this label alone. One-GPU specs already
+# covered by skill-eval request it and no shared OpenShell label.
+OPENSHELL_H200_LABELS: tuple[str, ...] = ("poc-copy",)
 SKIP_RUNNER = ["ubuntu-24.04"]
 SMOKE_SPEC = "skills/vss-deploy-profile/evals/base.json"
 
@@ -259,7 +252,7 @@ OPENSHELL_COHORTS: tuple[OpenShellCohort, ...] = (
     ),
     OpenShellCohort(
         "h200-1g", "H200", "H200", 1, 141, 8,
-        (*OPENSHELL_H200_LABELS, "gpus-1"),
+        OPENSHELL_H200_LABELS,
         video_codec=False,
     ),
     OpenShellCohort(
@@ -346,7 +339,7 @@ def runs_on_labels(platform: str, config: dict | None) -> list[str]:
         if platform == "H200":
             if count != 1:
                 return list(SKIP_RUNNER)
-            return [*OPENSHELL_H200_LABELS, "gpus-1"]
+            return list(OPENSHELL_H200_LABELS)
         return list(SKIP_RUNNER)
     labels = list(BASE_LABELS)
     if count <= 0:
@@ -586,6 +579,48 @@ def select_openshell_cohort(
     return None, "no compatible OpenShell cohort for declared capabilities"
 
 
+def _spec_gpu_demand(spec_path: str) -> int | None:
+    """Declared GPU count for a spec already in the eval matrix."""
+    requirements, _ = openshell_requirements(spec_path)
+    if requirements is not None:
+        return int(requirements["gpu_count"])
+    platforms = spec_platform_config(spec_path)
+    if not platforms:
+        return None
+    counts: list[int] = []
+    for config in platforms.values():
+        if "gpu_count" not in config:
+            counts.append(DEFAULT_GPU_COUNT)
+        else:
+            counts.append(_gpu_count(config))
+    if not counts or any(count != 1 for count in counts):
+        return None if not counts else max(counts)
+    return 1
+
+
+def _poc_copy_leg(meta: dict) -> dict:
+    requirements, _ = openshell_requirements(meta["spec_path"])
+    min_vram = 1
+    if requirements is not None:
+        min_vram = int(requirements["min_vram_gb_per_gpu"])
+    return {
+        "skill": meta["skill"],
+        "spec_path": meta["spec_path"],
+        "spec_stem": meta["spec_stem"],
+        "eval_dir": meta["eval_dir"],
+        "platform": "H200",
+        "hardware_profile": "H200",
+        "cohort": "h200-1g",
+        "kind": "eval",
+        "slug": f"{meta['skill']}__{meta['spec_stem']}__h200-1g",
+        "name": f"{meta['skill']} · {meta['spec_stem']} · h200-1g",
+        "runs_on": list(OPENSHELL_H200_LABELS),
+        "gpu_count": 1,
+        "min_vram_gb_per_gpu": min_vram,
+        "local_gpu": True,
+    }
+
+
 def spec_requires_video_codec(spec_path: str) -> bool:
     requirements, _ = openshell_requirements(spec_path)
     return bool(requirements and requirements["requires_video_codec"])
@@ -697,6 +732,12 @@ def build_matrix(changed: list[str]) -> list[dict]:
         for meta in sorted(by_skill[skill], key=lambda m: m["spec_path"]):
             platform_config = spec_platform_config(meta["spec_path"])
             if os.environ.get("OPENSHELL_GPU_FLEET"):
+                # Only specs skill-eval already covers reach this loop.
+                # One-GPU ones go to the PoC runner; two-GPU ones stay on
+                # their cohort. Deployment skills are not in that set.
+                if _spec_gpu_demand(meta["spec_path"]) == 1:
+                    include.append(_poc_copy_leg(meta))
+                    continue
                 requirements, metadata_error = openshell_requirements(
                     meta["spec_path"]
                 )
