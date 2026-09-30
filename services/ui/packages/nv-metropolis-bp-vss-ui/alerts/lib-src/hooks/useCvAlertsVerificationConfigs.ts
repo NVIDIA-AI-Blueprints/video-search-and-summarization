@@ -129,7 +129,7 @@ export const useCvAlertsVerificationConfigs = ({
         ...current.filter((config) => config.alert_type !== created.alert_type),
         created,
       ]);
-      await fetchConfigs();
+      void fetchConfigs();
       return created;
     },
     [alertsApiUrl, fetchConfigs],
@@ -156,7 +156,7 @@ export const useCvAlertsVerificationConfigs = ({
       setConfigs((current) =>
         current.map((config) => (config.alert_type === alertType ? updated : config)),
       );
-      await fetchConfigs();
+      void fetchConfigs();
       return updated;
     },
     [alertsApiUrl, fetchConfigs],
@@ -173,7 +173,7 @@ export const useCvAlertsVerificationConfigs = ({
       requestVersionRef.current += 1;
       setLoading(false);
       setConfigs((current) => current.filter((config) => config.alert_type !== alertType));
-      await fetchConfigs();
+      void fetchConfigs();
     },
     [alertsApiUrl, fetchConfigs],
   );

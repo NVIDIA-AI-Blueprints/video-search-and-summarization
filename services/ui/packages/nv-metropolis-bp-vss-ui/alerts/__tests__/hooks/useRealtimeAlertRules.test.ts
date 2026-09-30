@@ -186,6 +186,24 @@ describe('useRealtimeAlertRules', () => {
     expect(result.current.rules).toEqual([createdRule]);
   });
 
+  it('finishes a successful delete without waiting for its background refresh', async () => {
+    const rule = { id: 'delete-me', alert_type: 'collision' };
+    let finishRefresh: (value: Response) => void;
+    global.fetch = jest.fn()
+      .mockImplementationOnce(() => jsonResponse({ rules: [rule] }))
+      .mockImplementationOnce(() => jsonResponse({ status: 'success' }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRefresh = resolve; }));
+    const { result } = renderHook(() =>
+      useRealtimeAlertRules({ alertsApiUrl: 'http://alerts.test/api/v1' }),
+    );
+    await waitFor(() => expect(result.current.rules).toEqual([rule]));
+    await act(async () => { await result.current.deleteRule(rule.id); });
+    expect(result.current.rules).toEqual([]);
+    expect(result.current.loading).toBe(true);
+    await act(async () => { finishRefresh(await jsonResponse({ rules: [] })); });
+    expect(result.current.loading).toBe(false);
+  });
+
   it('deletes a rule by alert rule id', async () => {
     const rule = {
       id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
