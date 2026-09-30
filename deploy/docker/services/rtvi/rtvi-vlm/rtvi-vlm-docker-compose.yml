@@ -197,8 +197,6 @@ services:
 
     extra_hosts:
       host.docker.internal: host-gateway
-      # LVS forwards clip URLs minted by NemoClaw's vss CLI on this alias.
-      host.openshell.internal: host-gateway
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]

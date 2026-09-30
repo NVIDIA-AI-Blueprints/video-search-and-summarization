@@ -45,11 +45,13 @@ def test_file_and_live_summarization_use_separate_data_paths(config_path: Path) 
 # --- NemoClaw clip URLs --------------------------------------------------------
 #
 # The vss CLI in a NemoClaw sandbox mints clip URLs on host.openshell.internal.
-# LVS passes them to its VLM, and the VLM is what fetches the clip, so every VLM
-# LVS can call has to resolve that alias as well as LVS itself.
+# LVS passes them to its VLM, and the VLM is what fetches the clip. The ingress
+# carries that name as a network alias, so every container on the Compose network
+# resolves it to vss-haproxy-ingress (which already accepts that Host) without a
+# per-service extra_hosts entry.
 
 COMPOSE_SERVICES = REPO_ROOT / "deploy/docker/services"
-OPENSHELL_ALIAS = "host.openshell.internal"
+OPENSHELL_ALIAS = "${HOST_INTERNAL_ALIAS:-host.openshell.internal}"
 VLM_PREFIXES = ("rtvi-vlm", "cosmos3-reasoner")
 
 
@@ -77,17 +79,24 @@ def _compose_services() -> dict[str, dict]:
     return services
 
 
-def _host_aliases(service: dict) -> set[str]:
-    extra_hosts = service.get("extra_hosts") or {}
-    if isinstance(extra_hosts, dict):
-        return set(extra_hosts)
-    return {entry.split(":", 1)[0] for entry in extra_hosts}
+def _networks(service: dict) -> set[str]:
+    networks = service.get("networks") or {"default": None}
+    return set(networks) if isinstance(networks, dict) else set(networks)
 
 
-def test_lvs_and_every_vlm_it_calls_resolve_the_nemoclaw_alias() -> None:
+def test_the_ingress_answers_the_nemoclaw_alias_on_the_compose_network() -> None:
+    ingress = _compose_services()["vss-haproxy-ingress"]
+    aliases = ((ingress.get("networks") or {}).get("default") or {}).get("aliases") or []
+    assert OPENSHELL_ALIAS in aliases, f"vss-haproxy-ingress has no {OPENSHELL_ALIAS} alias on the default network"
+
+
+def test_lvs_and_every_vlm_it_calls_share_the_ingress_network() -> None:
     services = _compose_services()
     lvs = services["lvs-server"]
     vlms = sorted(name for name in lvs.get("depends_on", {}) if name.startswith(VLM_PREFIXES))
     assert vlms, "lvs-server depends on no VLM service; update VLM_PREFIXES"
-    missing = [name for name in ["lvs-server", *vlms] if OPENSHELL_ALIAS not in _host_aliases(services[name])]
-    assert not missing, f"{missing} cannot resolve {OPENSHELL_ALIAS}; LVS would fail to fetch NemoClaw clip URLs"
+    off_network = [
+        name for name in ["lvs-server", *vlms]
+        if services[name].get("network_mode") or "default" not in _networks(services[name])
+    ]
+    assert not off_network, f"{off_network} cannot reach the ingress alias; NemoClaw clip URLs would not resolve"
