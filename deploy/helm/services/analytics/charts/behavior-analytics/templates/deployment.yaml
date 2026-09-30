@@ -50,7 +50,7 @@ spec:
         {{- toYaml (index $g "imagePullSecrets") | nindent 8 }}
       {{- end }}
       {{- $calibApiUrl := .Values.resourceFiles.calibration.apiUrl }}
-      {{- if or .Values.waitForKafka.enabled .Values.downloadResourcesFromNgc $calibApiUrl }}
+      {{- if or .Values.waitForKafka.enabled .Values.downloadResourcesFromNgc (and .Values.resourceFiles.calibration.enabled $calibApiUrl) }}
       initContainers:
         {{- if .Values.waitForKafka.enabled }}
         - name: wait-for-kafka
@@ -192,7 +192,7 @@ spec:
             name: {{ include "vss-behavior-analytics.fullname" . }}-config
         {{- if or .Values.resourceFiles.calibration.enabled .Values.resourceFiles.roadNetwork.enabled }}
         - name: vss-behavior-analytics-resources
-          {{- if $calibApiUrl }}
+          {{- if and .Values.resourceFiles.calibration.enabled $calibApiUrl }}
           emptyDir: {}
           {{- else if .Values.downloadResourcesFromNgc }}
           persistentVolumeClaim:
