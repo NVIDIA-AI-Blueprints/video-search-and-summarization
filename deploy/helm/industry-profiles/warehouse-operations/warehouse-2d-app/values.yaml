@@ -307,7 +307,7 @@ analytics:
       calibration:
         enabled: false
         mountPath: /resources/calibration.json
-        apiUrl: ""
+        apiUrl: "http://vss-video-analytics-api:8081/config/calibration"
     config:
       kafkaConfigJson: |
         {

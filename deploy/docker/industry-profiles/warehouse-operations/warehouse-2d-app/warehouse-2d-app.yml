@@ -30,7 +30,7 @@ services:
       default:
         aliases:
           - vss-behavior-analytics
-    command: python3 apps/analytics/main_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json --calibration /resources/calibration.json
+    command: python3 apps/analytics/main_analytics_2d_app.py --config /resources/vss-behavior-analytics-config.json
     depends_on:
       broker-health-check:
         condition: service_completed_successfully
