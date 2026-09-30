@@ -42,7 +42,7 @@ document is the equivalent command reference for running it by hand.
 ## Canonical flow
 
 ```bash
-SB="${NEMOCLAW_SANDBOX_NAME:-demo}"
+SB="${NEMOCLAW_SANDBOX_NAME:-vss-harness-sandbox}"
 RUNTIME="${AGENT_RUNTIME:-openclaw}"          # openclaw (default) or hermes
 REPO="$(git rev-parse --show-toplevel)"
 

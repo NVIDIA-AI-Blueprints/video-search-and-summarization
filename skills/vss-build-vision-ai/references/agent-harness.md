@@ -454,7 +454,7 @@ Set the environment, then run the notebook:
 |---|---|---|
 | `VSS_REPO_DIR` | the checkout root | resolves the policy, skills, and workspace docs |
 | `VSS_PUBLIC_URL` | **leave unset** for a Compose build | the deployment origin `vss configure` records; empty means this host's Compose deployment and 3.2 fills it in — see [`VSS_PUBLIC_URL` is the deployment origin](#vss_public_url-is-the-deployment-origin---leave-it-empty-on-compose) below |
-| `NEMOCLAW_SANDBOX_NAME` | one name per build | the default is `demo`; a second build under the same name replaces the first build's sandbox |
+| `NEMOCLAW_SANDBOX_NAME` | **`vss-harness-sandbox`, fixed** | the default; a new build replaces the previous sandbox under that name — do not name it per build |
 | `NEMOCLAW_RECREATE_SANDBOX` | `1` | onboard is the only step that applies the provider, endpoint, model and key, so a reused sandbox would run on whatever it was onboarded with. Section 3.1 adds `--recreate-sandbox` when a sandbox of that name exists, discarding it and its agent sessions |
 | `AGENT_RUNTIME` | `openclaw` (default) or `hermes` | selects the harness profile; a change needs a fresh onboard |
 | `NEMOCLAW_DASHBOARD_PORT` | selected port; default `18789` | NemoClaw's own forward, loopback only |
@@ -471,7 +471,7 @@ umask 077         # the setup log echoes the notebook's own settings dump
 REPO="$(git rev-parse --show-toplevel)"
 
 export VSS_REPO_DIR="$REPO"
-export NEMOCLAW_SANDBOX_NAME="<build-name>"
+export NEMOCLAW_SANDBOX_NAME="vss-harness-sandbox"
 export NEMOCLAW_RECREATE_SANDBOX=1
 export NEMOCLAW_DASHBOARD_PORT="${NEMOCLAW_DASHBOARD_PORT:-18789}"
 export NEMOCLAW_DASHBOARD_RELAY_PORT="${NEMOCLAW_DASHBOARD_RELAY_PORT:-18790}"
