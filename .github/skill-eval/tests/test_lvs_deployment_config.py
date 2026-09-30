@@ -40,3 +40,54 @@ def test_file_and_live_summarization_use_separate_data_paths(config_path: Path) 
     live_summary = functions["summarization_online"]
     assert live_summary["type"] == "vlm_structured_summarization_online"
     assert live_summary["params"]["kafka_enabled"] is True
+
+
+# --- NemoClaw clip URLs --------------------------------------------------------
+#
+# The vss CLI in a NemoClaw sandbox mints clip URLs on host.openshell.internal.
+# LVS passes them to its VLM, and the VLM is what fetches the clip, so every VLM
+# LVS can call has to resolve that alias as well as LVS itself.
+
+COMPOSE_SERVICES = REPO_ROOT / "deploy/docker/services"
+OPENSHELL_ALIAS = "host.openshell.internal"
+VLM_PREFIXES = ("rtvi-vlm", "cosmos3-reasoner")
+
+
+class ComposeLoader(yaml.SafeLoader):
+    """Read Compose files, whose merge tags (`!override`, `!reset`) are plain values here."""
+
+
+def _construct_compose_tag(loader: ComposeLoader, _suffix: str, node: yaml.Node):
+    if isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    return loader.construct_scalar(node)
+
+
+ComposeLoader.add_multi_constructor("!", _construct_compose_tag)
+
+
+def _compose_services() -> dict[str, dict]:
+    services: dict[str, dict] = {}
+    for path in sorted(COMPOSE_SERVICES.rglob("*.yml")):
+        document = yaml.load(path.read_text(), Loader=ComposeLoader)
+        if isinstance(document, dict) and isinstance(document.get("services"), dict):
+            services.update(document["services"])
+    return services
+
+
+def _host_aliases(service: dict) -> set[str]:
+    extra_hosts = service.get("extra_hosts") or {}
+    if isinstance(extra_hosts, dict):
+        return set(extra_hosts)
+    return {entry.split(":", 1)[0] for entry in extra_hosts}
+
+
+def test_lvs_and_every_vlm_it_calls_resolve_the_nemoclaw_alias() -> None:
+    services = _compose_services()
+    lvs = services["lvs-server"]
+    vlms = sorted(name for name in lvs.get("depends_on", {}) if name.startswith(VLM_PREFIXES))
+    assert vlms, "lvs-server depends on no VLM service; update VLM_PREFIXES"
+    missing = [name for name in ["lvs-server", *vlms] if OPENSHELL_ALIAS not in _host_aliases(services[name])]
+    assert not missing, f"{missing} cannot resolve {OPENSHELL_ALIAS}; LVS would fail to fetch NemoClaw clip URLs"

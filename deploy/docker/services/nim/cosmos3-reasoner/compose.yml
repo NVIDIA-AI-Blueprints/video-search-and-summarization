@@ -58,6 +58,9 @@ services:
               device_ids:
               - "${VLM_DEVICE_ID:-0}"
     restart: always
+    extra_hosts:
+      # LVS forwards clip URLs minted by NemoClaw's vss CLI on this alias.
+      - "host.openshell.internal:host-gateway"
     healthcheck:
       test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
       interval: 60s
@@ -102,6 +105,9 @@ services:
               device_ids:
               - "${SHARED_LLM_VLM_DEVICE_ID:-${VLM_DEVICE_ID:-0}}"
     restart: always
+    extra_hosts:
+      # LVS forwards clip URLs minted by NemoClaw's vss CLI on this alias.
+      - "host.openshell.internal:host-gateway"
 
     healthcheck:
       test: ['CMD-SHELL', 'if [ -f /tmp/ready_done ]; then curl --max-time 30 -f http://localhost:8000/v1/health/live; else elapsed=0; while ! curl -fs http://localhost:8000/v1/health/ready > /dev/null 2>&1; do sleep 5; echo "elapsed $$elapsed"; elapsed=$$((elapsed + 5)); if [ $$elapsed -ge 600 ]; then echo "Service did not become ready within 10 minutes"; exit 1; fi; done; touch /tmp/ready_done && curl --max-time 30 -f http://localhost:8000/v1/health/live; fi']
