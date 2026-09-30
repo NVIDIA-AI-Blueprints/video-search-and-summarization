@@ -35,6 +35,7 @@ tests) without going through HTTP.
 import asyncio
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from functools import lru_cache
 from http import HTTPStatus
@@ -253,6 +254,12 @@ def get_rule_store() -> Optional[RuleStore]:
 # docstring and RealtimeAlertService.__init__'s stream_teardown_locks
 # param for why two instances exist and need to share this.
 _SHARED_STREAM_TEARDOWN_LOCKS: Dict[str, asyncio.Lock] = {}
+# In-flight stream references must be visible to both service instances for
+# the same reason their teardown locks are shared: a regular POST can be
+# mid-create while always-on reconciliation decides whether a camera stream
+# is orphaned, and vice versa.
+_SHARED_PENDING_STREAM_REFS: Dict[str, set[str]] = {}
+_SHARED_PENDING_STREAM_REFS_LOCK = threading.Lock()
 # get_always_on_service()'s instance uses this as its own _rules dict
 # (its normal in-memory bookkeeping, not a copy); get_realtime_service()
 # reads it read-only via extra_in_memory_rules so the persistent
@@ -267,6 +274,8 @@ def get_realtime_service() -> RealtimeAlertService:
     return RealtimeAlertService(
         rule_store=get_rule_store(),
         stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS,
+        pending_stream_refs=_SHARED_PENDING_STREAM_REFS,
+        pending_stream_refs_lock=_SHARED_PENDING_STREAM_REFS_LOCK,
         extra_in_memory_rules=_SHARED_ALWAYS_ON_RULES,
     )
 
@@ -329,6 +338,8 @@ def get_always_on_service() -> AlwaysOnService:
         realtime_service=RealtimeAlertService(
             extra_rule_store=get_rule_store(),
             stream_teardown_locks=_SHARED_STREAM_TEARDOWN_LOCKS,
+            pending_stream_refs=_SHARED_PENDING_STREAM_REFS,
+            pending_stream_refs_lock=_SHARED_PENDING_STREAM_REFS_LOCK,
             rules_registry=_SHARED_ALWAYS_ON_RULES,
         )
     )

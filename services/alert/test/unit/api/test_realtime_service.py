@@ -16,6 +16,7 @@
 """Unit tests for RealtimeAlertService."""
 
 import asyncio
+import threading
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -866,6 +867,115 @@ def persistent_service(mock_rtvi_client, fake_rule_store):
     return svc
 
 
+class TestStreamReferenceSafety:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("persistent", [True, False], ids=["persistent", "in-memory"])
+    async def test_delete_preserves_stream_for_inflight_create(
+        self, persistent, persistent_service, realtime_service,
+        mock_rtvi_client,
+    ):
+        service = persistent_service if persistent else realtime_service
+        created, code = await service.start_alert(make_config())
+        assert code == 201
+        rule_id = created["id"]
+        stream_id = service._rules[rule_id]["rtvi_stream_id"]
+
+        service._register_pending_stream_ref(stream_id, "creating-rule")
+        try:
+            result, code = await service.stop_alert(rule_id)
+        finally:
+            service._unregister_pending_stream_ref(
+                stream_id, "creating-rule",
+            )
+
+        assert code == 200
+        assert result["status"] == ResponseStatus.SUCCESS
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("persistent", [True, False], ids=["persistent", "always-on"])
+    @pytest.mark.parametrize("operation", ["delete", "cleanup"])
+    async def test_lookup_failure_skips_stream_delete_while_removing_rule(
+        self, persistent, operation, persistent_service, realtime_service,
+        fake_rule_store, mock_rtvi_client,
+    ):
+        service = persistent_service if persistent else realtime_service
+        if not persistent:
+            service._extra_rule_store = fake_rule_store
+        created, code = await service.start_alert(make_config())
+        assert code == 201
+        rule_id = created["id"]
+        stream_id = service._rules[rule_id]["rtvi_stream_id"]
+        fake_rule_store.create("surviving-rule", {
+            "rtvi_stream_id": stream_id,
+            "status": RuleStatus.ACTIVE,
+        })
+        survivor_before = fake_rule_store.get("surviving-rule")
+        list_rules = fake_rule_store.list
+
+        def fail_stream_lookup(filters=None, **kwargs):
+            if filters and "rtvi_stream_id" in filters:
+                raise RuntimeError("ES lookup unavailable")
+            return list_rules(filters=filters, **kwargs)
+
+        with patch.object(fake_rule_store, "list", side_effect=fail_stream_lookup):
+            if operation == "delete":
+                result, code = await service.stop_alert(rule_id)
+                if persistent:
+                    assert code == 200
+                    assert result["status"] == ResponseStatus.SUCCESS
+                    assert fake_rule_store.get(rule_id) is None
+                else:
+                    assert code == 200
+                    assert result["status"] == ResponseStatus.SUCCESS
+                    assert fake_rule_store.get(rule_id) is None
+            else:
+                await service._cleanup_failed_rule(stream_id, rule_id)
+                if persistent:
+                    failed_rule = fake_rule_store.get(rule_id)
+                    assert failed_rule["status"] == RuleStatus.FAILED
+                    assert failed_rule["rtvi_stream_id"] == stream_id
+
+        assert rule_id not in service._rules
+        assert fake_rule_store.get("surviving-rule") == survivor_before
+        if operation == "delete":
+            mock_rtvi_client.stop_captions.assert_awaited_once()
+        else:
+            mock_rtvi_client.stop_captions.assert_not_awaited()
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("persistent", [True, False], ids=["persistent", "always-on"])
+    @pytest.mark.parametrize("failed_status", [RuleStatus.ACTIVE, RuleStatus.PENDING])
+    async def test_rollback_preserves_stream_when_either_status_lookup_fails(
+        self, persistent, failed_status, persistent_service, realtime_service,
+        fake_rule_store, mock_rtvi_client,
+    ):
+        service = persistent_service if persistent else realtime_service
+        if not persistent:
+            service._extra_rule_store = fake_rule_store
+        stream_id = "shared-stream"
+        fake_rule_store.create("surviving-rule", {
+            "rtvi_stream_id": stream_id,
+            "status": failed_status,
+        })
+        survivor_before = fake_rule_store.get("surviving-rule")
+        list_rules = fake_rule_store.list
+
+        def fail_status_lookup(filters=None, **kwargs):
+            if filters and filters.get("status") == failed_status:
+                raise RuntimeError("ES lookup unavailable")
+            return list_rules(filters=filters, **kwargs)
+
+        with patch.object(fake_rule_store, "list", side_effect=fail_status_lookup):
+            await service._maybe_stop_stream_on_rollback(
+                stream_id, "failed-rule", True, {},
+            )
+
+        assert fake_rule_store.get("surviving-rule") == survivor_before
+        mock_rtvi_client.stop_captions.assert_not_awaited()
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
 class TestPersistentStartAlert:
     """start_alert with RuleStore — persist-first flow."""
 
@@ -878,6 +988,43 @@ class TestPersistentStartAlert:
         assert stored is not None
         assert stored["status"] == RuleStatus.ACTIVE
         assert stored["rtvi_stream_id"] == "stream-abc-123"
+
+    @pytest.mark.asyncio
+    async def test_post_commit_failure_cleanup_overrides_racing_active_write(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        async def _cleanup_before_active_write(
+            captions_task, rtvi_stream_id, owns_stream, ctx,
+        ):
+            rule_id = ctx["alert_rule_id"]
+            persistent_service._readiness_failed_ids.add(rule_id)
+            await persistent_service._cleanup_failed_rule(
+                rtvi_stream_id, rule_id,
+            )
+
+        not_found = httpx.HTTPStatusError(
+            "already gone",
+            request=httpx.Request("DELETE", "http://mock/streams/delete"),
+            response=httpx.Response(404),
+        )
+        mock_rtvi_client.stop_stream.side_effect = [
+            {"status": "deleted"},
+            not_found,
+        ]
+
+        with patch.object(
+            persistent_service,
+            "_wait_stream_ready",
+            side_effect=_cleanup_before_active_write,
+        ):
+            result, code = await persistent_service.start_alert(make_config())
+
+        assert code == 502
+        assert result["error"] == ErrorCode.RTVI_STREAM_NOT_READABLE
+        failed_doc = next(iter(fake_rule_store._docs.values()))
+        assert failed_doc["status"] == RuleStatus.FAILED
+        assert failed_doc["rtvi_stream_id"] is None
+        assert mock_rtvi_client.stop_stream.await_count == 2
 
     @pytest.mark.asyncio
     async def test_rtvi_failure_rolls_back_es_record(
@@ -954,7 +1101,7 @@ class TestPersistentStartAlert:
 
 
 class TestPersistentStopAlert:
-    """stop_alert with RuleStore — ES-first flow."""
+    """stop_alert with RuleStore — retryable teardown flow."""
 
     @pytest.mark.asyncio
     async def test_deletes_es_then_tears_down_rtvi(
@@ -976,15 +1123,9 @@ class TestPersistentStopAlert:
         assert code == 404
 
     @pytest.mark.asyncio
-    async def test_rtvi_failure_tolerated(
+    async def test_rtvi_failure_still_deletes_rule_and_returns_200(
         self, persistent_service, fake_rule_store, mock_rtvi_client
     ):
-        """ES record deleted even when RTVI teardown fails.
-
-        DELETE must always succeed from the user's perspective: the durable
-        record is removed first, then RTVI teardown is best-effort.  An
-        RTVI outage must not block rule cleanup.
-        """
         create_data, _ = await persistent_service.start_alert(make_config())
         rule_id = create_data["id"]
         mock_rtvi_client.stop_stream.side_effect = httpx.ConnectError("down")
@@ -992,7 +1133,9 @@ class TestPersistentStopAlert:
         data, code = await persistent_service.stop_alert(rule_id)
 
         assert code == 200
+        assert data["status"] == ResponseStatus.SUCCESS
         assert fake_rule_store.get(rule_id) is None
+        assert mock_rtvi_client.stop_stream.await_count == 1
 
     @pytest.mark.asyncio
     async def test_stop_captions_failure_continues(
@@ -2811,6 +2954,98 @@ class TestPendingStreamRefRollback:
         # Cleanup so we don't leak pending refs into other tests.
         svc._unregister_pending_stream_ref("stream-abc-123", sibling_id)
 
+    @pytest.mark.asyncio
+    async def test_failed_pending_reuser_stops_stream_after_owner_delete(
+        self, quick_persistent_service, mock_rtvi_client,
+    ):
+        svc, fake_store = quick_persistent_service
+        stream_id = "test-sensor-001"
+        mock_rtvi_client.start_stream.return_value = {
+            "results": [{"id": stream_id, "status": "added"}],
+        }
+        owner, code = await svc.start_alert(make_config(alert_type="owner"))
+        assert code == 201
+
+        mock_rtvi_client.get_stream_info.return_value = [{
+            "id": stream_id,
+            "liveStreamUrl": SAMPLE_RTSP_URL,
+        }]
+        caption_started = asyncio.Event()
+        release_caption_failure = asyncio.Event()
+
+        async def _fail_reuser_captions(**kwargs):
+            caption_started.set()
+            await release_caption_failure.wait()
+            raise httpx.ReadError("caption start failed")
+
+        mock_rtvi_client.generate_captions.side_effect = _fail_reuser_captions
+        reuser_task = asyncio.create_task(
+            svc.start_alert(make_config(alert_type="reuser"))
+        )
+        await caption_started.wait()
+
+        deleted, delete_code = await svc.stop_alert(owner["id"])
+        assert delete_code == 200
+        assert deleted["status"] == ResponseStatus.SUCCESS
+        mock_rtvi_client.stop_stream.assert_not_awaited()
+
+        release_caption_failure.set()
+        failed, failure_code = await reuser_task
+
+        assert failure_code == 502
+        assert failed["error"] == ErrorCode.RTVI_VLM_UNAVAILABLE
+        mock_rtvi_client.stop_stream.assert_awaited_once_with(stream_id)
+        assert fake_store.list(filters={"status": RuleStatus.ACTIVE})["total"] == 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "caption_error,expected_error",
+        [
+            (
+                httpx.ReadError("caption request failed"),
+                ErrorCode.RTVI_VLM_UNAVAILABLE,
+            ),
+            (
+                RuntimeError("source unreadable"),
+                ErrorCode.RTVI_STREAM_NOT_READABLE,
+            ),
+        ],
+        ids=["http-error", "readiness-error"],
+    )
+    async def test_failed_generated_stream_cleanup_retains_durable_handle(
+        self,
+        quick_persistent_service,
+        mock_rtvi_client,
+        caption_error,
+        expected_error,
+    ):
+        svc, fake_store = quick_persistent_service
+        stream_id = "generated-stream"
+        mock_rtvi_client.start_stream.return_value = {
+            "results": [{"id": stream_id, "status": "added"}],
+        }
+        mock_rtvi_client.generate_captions.side_effect = caption_error
+        mock_rtvi_client.stop_stream.side_effect = httpx.ConnectError(
+            "delete timed out"
+        )
+
+        result, code = await svc.start_alert(make_config(sensor_id=None))
+
+        assert code == 502
+        assert result["error"] == expected_error
+        assert result["rtvi_stream_id"] == stream_id
+        failed_doc = fake_store.get(result["id"])
+        assert failed_doc["status"] == RuleStatus.FAILED
+        assert failed_doc["rtvi_stream_id"] == stream_id
+
+        mock_rtvi_client.stop_stream.side_effect = None
+        mock_rtvi_client.stop_stream.return_value = {"status": "deleted"}
+        deleted, delete_code = await svc.stop_alert(result["id"])
+
+        assert delete_code == 200
+        assert deleted["status"] == ResponseStatus.SUCCESS
+        assert fake_store.get(result["id"]) is None
+
 
 # ---------------------------------------------------------------------------
 # Sensor-id reuse identity check (medium-severity regression)
@@ -2947,6 +3182,23 @@ class TestReconcileOrphanedStream:
         mock_rtvi_client.stop_stream.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_returns_retryable_failure_when_stream_delete_fails(
+        self, realtime_service, mock_rtvi_client,
+    ):
+        mock_rtvi_client.get_stream_info.return_value = [{"id": "orphan-1"}]
+        mock_rtvi_client.stop_stream.side_effect = httpx.HTTPStatusError(
+            "409",
+            request=httpx.Request("DELETE", "http://rtvi/streams/delete/orphan-1"),
+            response=httpx.Response(409),
+        )
+
+        found = await realtime_service.reconcile_orphaned_stream("orphan-1")
+
+        assert found is None
+        mock_rtvi_client.stop_captions.assert_awaited_once_with("orphan-1")
+        mock_rtvi_client.stop_stream.assert_awaited_once_with("orphan-1")
+
+    @pytest.mark.asyncio
     async def test_does_not_delete_stream_used_by_rule_on_other_instance(
         self, persistent_service, fake_rule_store,
     ):
@@ -3006,19 +3258,15 @@ class TestReconcileOrphanedStream:
         """Regression test: a failed ref-count query must not be
         treated as "verified zero readers".
 
-        reconcile_orphaned_stream is deciding whether to delete a
-        stream nothing is known, from this instance's own registry, to
-        own — unlike stop_alert (deleting a stream *this* rule owns),
-        failing open here would actively delete a stream that might
-        still be in use instead of just costing an unnecessary
-        teardown. If the store query itself fails, it must skip.
+        Like stop_alert, reconciliation must preserve the stream when
+        a failed store query leaves its remaining references unknown.
         """
         mock_rtvi_client.get_stream_info.return_value = [{"id": "stream-abc-123"}]
         fake_rule_store.list = MagicMock(side_effect=Exception("ES unavailable"))
 
         found = await persistent_service.reconcile_orphaned_stream("stream-abc-123")
 
-        assert found is False
+        assert found is None
         mock_rtvi_client.stop_captions.assert_not_awaited()
         mock_rtvi_client.stop_stream.assert_not_awaited()
 
@@ -3083,6 +3331,8 @@ class TestCrossInstanceStreamTeardownLock:
         shared_locks,
         rules_registry=None,
         extra_in_memory_rules=None,
+        pending_stream_refs=None,
+        pending_stream_refs_lock=None,
     ):
         with patch(
             "realtime.services.realtime_service.load_config",
@@ -3101,9 +3351,159 @@ class TestCrossInstanceStreamTeardownLock:
                 rule_store=rule_store,
                 extra_rule_store=extra_rule_store,
                 stream_teardown_locks=shared_locks,
+                pending_stream_refs=pending_stream_refs,
+                pending_stream_refs_lock=pending_stream_refs_lock,
                 rules_registry=rules_registry,
                 extra_in_memory_rules=extra_in_memory_rules,
             )
+
+    @pytest.mark.asyncio
+    async def test_create_handoff_blocks_reconcile_until_pending_ref_is_shared(
+        self, fake_rule_store,
+    ):
+        shared_locks = {}
+        shared_pending_refs = {}
+        shared_pending_refs_lock = threading.Lock()
+        create_service = self._build_instance(
+            fake_rule_store,
+            None,
+            shared_locks,
+            pending_stream_refs=shared_pending_refs,
+            pending_stream_refs_lock=shared_pending_refs_lock,
+        )
+        reconcile_service = self._build_instance(
+            None,
+            fake_rule_store,
+            shared_locks,
+            pending_stream_refs=shared_pending_refs,
+            pending_stream_refs_lock=shared_pending_refs_lock,
+        )
+
+        stream_id = "camera-1"
+        resolve_started = asyncio.Event()
+        release_resolve = asyncio.Event()
+        create_client = AsyncMock()
+
+        async def _get_existing_stream():
+            resolve_started.set()
+            await release_resolve.wait()
+            return [{
+                "id": stream_id,
+                "liveStreamUrl": SAMPLE_RTSP_URL,
+            }]
+
+        create_client.get_stream_info.side_effect = _get_existing_stream
+        create_service._client = create_client
+
+        reconcile_client = AsyncMock()
+        reconcile_client.get_stream_info.return_value = [{"id": stream_id}]
+        reconcile_service._client = reconcile_client
+
+        resolve_task = asyncio.create_task(
+            create_service._resolve_or_add_stream(
+                make_config(sensor_id=stream_id),
+                {"alert_rule_id": "creating-rule"},
+                pending_rule_id="creating-rule",
+            )
+        )
+        await resolve_started.wait()
+
+        reconcile_task = asyncio.create_task(
+            reconcile_service.reconcile_orphaned_stream(stream_id)
+        )
+        await asyncio.sleep(0)
+        assert not reconcile_task.done()
+
+        release_resolve.set()
+        resolved_stream_id, owns_stream = await resolve_task
+        reconcile_result = await reconcile_task
+
+        assert resolved_stream_id == stream_id
+        assert owns_stream is False
+        assert reconcile_result is False
+        assert shared_pending_refs == {stream_id: {"creating-rule"}}
+        reconcile_client.stop_stream.assert_not_awaited()
+
+        create_service._unregister_pending_stream_ref(
+            stream_id, "creating-rule",
+        )
+
+    @pytest.mark.asyncio
+    async def test_failed_regular_create_cleans_stream_after_camera_remove(
+        self, fake_rule_store,
+    ):
+        shared_locks = {}
+        shared_pending_refs = {}
+        shared_pending_refs_lock = threading.Lock()
+        shared_always_on_rules = {}
+        regular_service = self._build_instance(
+            fake_rule_store,
+            None,
+            shared_locks,
+            extra_in_memory_rules=shared_always_on_rules,
+            pending_stream_refs=shared_pending_refs,
+            pending_stream_refs_lock=shared_pending_refs_lock,
+        )
+        always_on_service = self._build_instance(
+            None,
+            fake_rule_store,
+            shared_locks,
+            rules_registry=shared_always_on_rules,
+            pending_stream_refs=shared_pending_refs,
+            pending_stream_refs_lock=shared_pending_refs_lock,
+        )
+
+        stream_id = "camera-1"
+        always_on_client = AsyncMock()
+        always_on_client.start_stream.return_value = {
+            "results": [{"id": stream_id}],
+        }
+        always_on_client.get_stream_info.return_value = []
+        always_on_client.generate_captions.return_value = {"status": "started"}
+        always_on_service._client = always_on_client
+        owner, code = await always_on_service.start_alert(
+            make_config(sensor_id=stream_id, alert_type="always-on"),
+        )
+        assert code == 201
+
+        caption_started = asyncio.Event()
+        release_caption_failure = asyncio.Event()
+        regular_client = AsyncMock()
+        regular_client.get_stream_info.return_value = [{
+            "id": stream_id,
+            "liveStreamUrl": SAMPLE_RTSP_URL,
+        }]
+
+        async def _fail_captions(**kwargs):
+            caption_started.set()
+            await release_caption_failure.wait()
+            raise httpx.ReadError("caption start failed")
+
+        regular_client.generate_captions.side_effect = _fail_captions
+        regular_service._client = regular_client
+        create_task = asyncio.create_task(
+            regular_service.start_alert(
+                make_config(sensor_id=stream_id, alert_type="regular"),
+            )
+        )
+        await caption_started.wait()
+
+        removed, remove_code = await always_on_service.stop_alert(owner["id"])
+        assert remove_code == 200
+        assert removed["status"] == ResponseStatus.SUCCESS
+        always_on_client.stop_stream.assert_not_awaited()
+
+        always_on_client.get_stream_info.return_value = [{"id": stream_id}]
+        assert await always_on_service.reconcile_orphaned_stream(stream_id) is False
+        always_on_client.stop_stream.assert_not_awaited()
+
+        release_caption_failure.set()
+        failed, failure_code = await create_task
+
+        assert failure_code == 502
+        assert failed["error"] == ErrorCode.RTVI_VLM_UNAVAILABLE
+        regular_client.stop_stream.assert_awaited_once_with(stream_id)
+        assert shared_pending_refs == {}
 
     @pytest.mark.asyncio
     async def test_shared_lock_serializes_rtvi_calls_across_instances(
@@ -3234,6 +3634,58 @@ class TestCrossInstanceStreamTeardownLock:
         client_persistent.stop_stream.assert_not_awaited()
 
 
+class TestRollbackTeardownLocking:
+    @pytest.mark.asyncio
+    async def test_rollback_serializes_with_concurrent_stop_alert(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        created, _ = await persistent_service.start_alert(make_config())
+        rule_id = created["id"]
+        stream_id = fake_rule_store.get(rule_id)["rtvi_stream_id"]
+        stop_alert_in_rtvi = asyncio.Event()
+        in_flight = 0
+        overlapped = False
+
+        async def _tracked_captions(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            stop_alert_in_rtvi.set()
+            await asyncio.sleep(0.05)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        async def _tracked_stream(*args, **kwargs):
+            nonlocal in_flight, overlapped
+            in_flight += 1
+            if in_flight > 1:
+                overlapped = True
+            await asyncio.sleep(0.03)
+            in_flight -= 1
+            return {"status": "ok"}
+
+        mock_rtvi_client.stop_captions.side_effect = _tracked_captions
+        mock_rtvi_client.stop_stream.side_effect = _tracked_stream
+
+        async def _rollback_during_stop_alert():
+            await stop_alert_in_rtvi.wait()
+            await persistent_service._maybe_stop_stream_on_rollback(
+                stream_id, "failed-create", True, {},
+            )
+
+        await asyncio.gather(
+            persistent_service.stop_alert(rule_id),
+            _rollback_during_stop_alert(),
+        )
+
+        assert not overlapped, (
+            "RTVI calls from stop_alert and rollback overlapped for the "
+            "same stream"
+        )
+        assert mock_rtvi_client.stop_stream.await_count == 2
+
+
 class TestCleanupFailedRuleLocking:
     """_cleanup_failed_rule must hold the per-stream teardown lock like
     every other RTVI-teardown call site.
@@ -3302,3 +3754,70 @@ class TestCleanupFailedRuleLocking:
             "RTVI calls from stop_alert and _cleanup_failed_rule "
             "overlapped for the same shared stream"
         )
+        mock_rtvi_client.stop_stream.assert_awaited_once_with(stream_id)
+
+    @pytest.mark.asyncio
+    async def test_two_concurrent_failures_leave_last_cleanup_to_stop_stream(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        first, _ = await persistent_service.start_alert(
+            make_config(alert_type="first"),
+        )
+        second, _ = await persistent_service.start_alert(
+            make_config(alert_type="second"),
+        )
+        stream_id = fake_rule_store.get(first["id"])["rtvi_stream_id"]
+        assert fake_rule_store.get(second["id"])["rtvi_stream_id"] == stream_id
+
+        real_update = fake_rule_store.update
+        first_update_started = threading.Event()
+        release_first_update = threading.Event()
+
+        def _gate_first_failed_update(rule_id, partial):
+            if (
+                rule_id == first["id"]
+                and partial.get("status") == RuleStatus.FAILED
+            ):
+                first_update_started.set()
+                assert release_first_update.wait(timeout=1)
+            return real_update(rule_id, partial)
+
+        fake_rule_store.update = _gate_first_failed_update
+        first_cleanup = asyncio.create_task(
+            persistent_service._cleanup_failed_rule(
+                stream_id, first["id"],
+            )
+        )
+        assert await asyncio.to_thread(first_update_started.wait, 1)
+
+        second_cleanup = asyncio.create_task(
+            persistent_service._cleanup_failed_rule(
+                stream_id, second["id"],
+            )
+        )
+        await asyncio.sleep(0.02)
+        release_first_update.set()
+        await asyncio.gather(first_cleanup, second_cleanup)
+
+        first_doc = fake_rule_store.get(first["id"])
+        second_doc = fake_rule_store.get(second["id"])
+        assert first_doc["status"] == RuleStatus.FAILED
+        assert first_doc["rtvi_stream_id"] is None
+        assert second_doc["status"] == RuleStatus.FAILED
+        assert second_doc["rtvi_stream_id"] is None
+        mock_rtvi_client.stop_stream.assert_awaited_once_with(stream_id)
+
+    @pytest.mark.asyncio
+    async def test_failed_stream_stop_retains_stream_id_for_retry(
+        self, persistent_service, fake_rule_store, mock_rtvi_client,
+    ):
+        created, _ = await persistent_service.start_alert(make_config())
+        rule_id = created["id"]
+        stream_id = fake_rule_store.get(rule_id)["rtvi_stream_id"]
+        mock_rtvi_client.stop_stream.side_effect = httpx.ConnectError("down")
+
+        await persistent_service._cleanup_failed_rule(stream_id, rule_id)
+
+        failed_doc = fake_rule_store.get(rule_id)
+        assert failed_doc["status"] == RuleStatus.FAILED
+        assert failed_doc["rtvi_stream_id"] == stream_id
