@@ -94,6 +94,9 @@ CLIPPED=$(vss vios clip --sensor "$SENSOR_NAME" \
   --start-time "$(printf '%s' "$SEGMENT" | jq -r '.start_time')" \
   --end-time "$(printf '%s' "$SEGMENT" | jq -r '.end_time')") || exit $?
 CLIP=$(printf '%s' "$CLIPPED" | jq -er '.media_url')
+# A loopback CLI origin mints a loopback URL, which vss-lvs cannot fetch (and rejects).
+HOST_ADDR=$(ip -o route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[0-9.]+' | head -1)
+CLIP=$(printf '%s' "$CLIP" | sed -E "s#^(https?://)(localhost|127\.0\.0\.1)([:/])#\1${HOST_ADDR:?no routable host IP}\3#")
 SENSOR_ID=$(printf '%s' "$CLIPPED" | jq -er '.sensor_id')
 START_TIME=$(printf '%s' "$CLIPPED" | jq -er '.start_time')
 [ "$(printf '%s' "$CLIPPED" | jq -r '.warmed')" = true ] || { echo "clip is cold: $CLIP" >&2; exit 1; }
