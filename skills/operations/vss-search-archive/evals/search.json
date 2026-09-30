@@ -15,8 +15,7 @@
     "requires_blackwell": false,
     "supported_hardware_profiles": [
       "H200",
-      "L40S",
-      "RTXPRO6000BW"
+      "L40S"
     ]
   },
   "resources": {
