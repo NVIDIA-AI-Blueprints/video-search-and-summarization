@@ -18,14 +18,11 @@ and compacts against the wrong model's limits. This script closes it -- the
 Dockerfile declares the ARGs, and this applies them to the inherited config at
 build, before the config hash is recomputed.
 
-Derivations mirror NemoClaw's generator (scripts/generate-openclaw-config.mts):
-origins are unique([loopback, chat, portless]); allowInsecureAuth is
+allowedOrigins is a wildcard (see control_ui()); allowInsecureAuth is
 scheme == http; device auth is disabled for a non-loopback UI host.
 
-Onboard keeps the session's host in CHAT_UI_URL and rewrites only its port, so a
-remote origin arrives here intact and this is where it enters the config: nothing
-can add one afterwards, since `config set` refuses gateway.*. Section 3.5 of
-deploy_nemoclaw.ipynb only checks that what arrived is what the browser will send.
+CHAT_UI_URL enters the config here: nothing can add an origin afterwards,
+since `config set` refuses gateway.*.
 """
 
 from __future__ import annotations
@@ -49,26 +46,24 @@ def _qualify(model: str) -> str:
     return model if model.startswith("inference/") else f"inference/{model}"
 
 
-def control_ui(chat_ui_url: str, gateway_port: int) -> dict | None:
-    """The controlUi block NemoClaw's generator would have produced."""
+def control_ui(chat_ui_url: str) -> dict | None:
+    """The controlUi block NemoClaw's generator would have produced.
+
+    allowedOrigins is a wildcard rather than a derived loopback/chat/portless
+    set: the derived set broke whenever onboard's own port-rewrite of
+    CHAT_UI_URL (NEMOCLAW_DASHBOARD_PORT vs NEMOCLAW_DASHBOARD_RELAY_PORT)
+    didn't match the origin the browser actually sent, and matching against
+    that moving target bought no security this deployment relies on -- the
+    real boundary is the token in the URL fragment, per
+    dangerouslyDisableDeviceAuth below.
+    """
     if not chat_ui_url:
         return None
     parsed = urlparse(chat_ui_url)
     if not parsed.scheme or not parsed.hostname:
         return None
-    loopback = f"http://127.0.0.1:{gateway_port}"
-    chat = f"{parsed.scheme}://{parsed.netloc}"
-    portless = (
-        f"{parsed.scheme}://{parsed.hostname}"
-        if parsed.port is not None and not _is_loopback(parsed.hostname)
-        else None
-    )
-    origins: list[str] = []
-    for origin in (loopback, chat, portless):
-        if origin and origin not in origins:
-            origins.append(origin)
     return {
-        "allowedOrigins": origins,
+        "allowedOrigins": ["*"],
         "allowInsecureAuth": parsed.scheme == "http",
         "dangerouslyDisableDeviceAuth": not _is_loopback(parsed.hostname),
     }
@@ -118,8 +113,7 @@ def apply(config: str | None = None, env: dict | None = None) -> list[str]:
 
     # --- control UI origins: onboard supplies CHAT_UI_URL --------------------
     gateway = cfg.setdefault("gateway", {})
-    port = gateway.get("port") if isinstance(gateway.get("port"), int) else 18789
-    ui = control_ui((env.get("CHAT_UI_URL") or "").strip(), port)
+    ui = control_ui((env.get("CHAT_UI_URL") or "").strip())
     if ui:
         current = gateway.setdefault("controlUi", {})
         if current.get("allowedOrigins") != ui["allowedOrigins"]:

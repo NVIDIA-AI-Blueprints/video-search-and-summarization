@@ -95,34 +95,34 @@ def test_no_model_arg_leaves_model_untouched(cfg):
 
 
 # --- control UI origins (the reported "Browser origin not allowed" bug) ---------
+#
+# allowedOrigins is a wildcard rather than a derived loopback/chat/portless
+# set: the derived set broke whenever onboard's own port-rewrite of
+# CHAT_UI_URL didn't match the origin the browser actually sent. The
+# boundary that matters is the token in the URL fragment
+# (dangerouslyDisableDeviceAuth), which still depends on the UI host.
 
-def test_chat_ui_url_adds_the_remote_origin(cfg):
+def test_chat_ui_url_yields_the_wildcard_origin(cfg):
     mod.apply(str(cfg), {"CHAT_UI_URL": "https://chat.example.brevlab.com"})
     ui = read(cfg)["gateway"]["controlUi"]
-    assert ui["allowedOrigins"] == ["http://127.0.0.1:18789", "https://chat.example.brevlab.com"]
+    assert ui["allowedOrigins"] == ["*"]
     assert ui["allowInsecureAuth"] is False          # https
     assert ui["dangerouslyDisableDeviceAuth"] is True  # non-loopback UI host
 
 
-def test_explicit_port_also_yields_the_portless_origin(cfg):
-    mod.apply(str(cfg), {"CHAT_UI_URL": "https://host.example.com:8443"})
-    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == [
-        "http://127.0.0.1:18789", "https://host.example.com:8443", "https://host.example.com"]
+def test_gateway_port_no_longer_affects_the_wildcard_origin(cfg):
+    d = base_config(); d["gateway"]["port"] = 19999
+    Path(cfg).write_text(json.dumps(d))
+    mod.apply(str(cfg), {"CHAT_UI_URL": "https://x.example.com"})
+    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"] == ["*"]
 
 
 def test_loopback_chat_url_keeps_device_auth(cfg):
     mod.apply(str(cfg), {"CHAT_UI_URL": "http://127.0.0.1:18789"})
     ui = read(cfg)["gateway"]["controlUi"]
-    assert ui["allowedOrigins"] == ["http://127.0.0.1:18789"]
+    assert ui["allowedOrigins"] == ["*"]
     assert ui["dangerouslyDisableDeviceAuth"] is False
     assert ui["allowInsecureAuth"] is True
-
-
-def test_gateway_port_drives_the_loopback_origin(cfg):
-    d = base_config(); d["gateway"]["port"] = 19999
-    Path(cfg).write_text(json.dumps(d))
-    mod.apply(str(cfg), {"CHAT_UI_URL": "https://x.example.com"})
-    assert read(cfg)["gateway"]["controlUi"]["allowedOrigins"][0] == "http://127.0.0.1:19999"
 
 
 def test_no_chat_url_leaves_origins_untouched(cfg):
@@ -144,7 +144,7 @@ def test_full_onboard_arg_set(cfg):
     })
     d = read(cfg)
     assert d["agents"]["defaults"]["model"]["primary"] == "inference/aws/anthropic/bedrock-claude-opus-5"
-    assert "https://chat.example.brevlab.com" in d["gateway"]["controlUi"]["allowedOrigins"]
+    assert "*" in d["gateway"]["controlUi"]["allowedOrigins"]
     assert changes  # reported to the build log
 
 

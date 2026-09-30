@@ -606,12 +606,18 @@ class NemoClawForwardContractTests(unittest.TestCase):
         report - started by another user, or no lsof on the host at all."""
 
         # The config the image carries: whatever onboard's generator derived from the
-        # CHAT_UI_URL 3.1 baked in - this session's secure link, or loopback alone
-        # when the sandbox was built without a remote origin.
-        built_for = (
-            f"https://{chat_fqdn}"
-            if chat_fqdn and ui_origin_baked
-            else f"http://127.0.0.1:{self.PORT}"
+        # CHAT_UI_URL 3.1 baked in (a wildcard, once any CHAT_UI_URL was set), or the
+        # base image's own stock loopback-only default when the sandbox was built
+        # without one at all (ui_origin_baked=False -- CHAT_UI_URL empty, so
+        # control_ui() returns None and nothing gets patched).
+        control_ui_block = (
+            self.control_ui(f"https://{chat_fqdn}" if chat_fqdn else "")
+            if ui_origin_baked
+            else {
+                "allowedOrigins": [f"http://127.0.0.1:{self.PORT}"],
+                "allowInsecureAuth": False,
+                "dangerouslyDisableDeviceAuth": False,
+            }
         )
         state = {
             "forward": forward_up,
@@ -620,7 +626,7 @@ class NemoClawForwardContractTests(unittest.TestCase):
             "config": {
                 "gateway": {
                     "port": self.PORT,
-                    "controlUi": self.control_ui(built_for, self.PORT),
+                    "controlUi": control_ui_block,
                 }
             },
         }
@@ -674,8 +680,8 @@ class NemoClawForwardContractTests(unittest.TestCase):
             if command[:2] == ["lsof", "-t"]:
                 pid = listener_pid(int(command[2].removeprefix("-i:")))
                 return completed(command, stdout=f"{pid}\n" if pid else "")
-            if command[:2] == ["ps", "-p"]:
-                if command[2] == self.FORWARD_PID:
+            if command[:2] == ["ps", "-ww"]:
+                if command[3] == self.FORWARD_PID:
                     return completed(command, stdout=forward_args() + "\n")
                 return completed(command, stdout=relay_args() + "\n" if state["relay"] else "")
             if command[:3] == ["openshell", "sandbox", "exec"]:
