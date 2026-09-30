@@ -8,12 +8,13 @@
 #
 # Needs no build context: everything but the rule comes from HARNESS_IMAGE.
 # The harness image unpacks to 125 layers; this arm adds one (126), under
-# overlay2's limit of 128. Move HARNESS_IMAGE together with
-# ../vlm-one-query-with-candidates/Dockerfile so the arms differ only in the rule.
+# overlay2's limit of 128. HARNESS_IMAGE tracks develop's tip, the image CI
+# republishes as develop-latest after every develop build; build with --pull
+# so a cached copy does not stand in for it.
 #
-#   docker build -t <registry>/vss-harness-hermes-vlm-original-question-only:<tag> - < Dockerfile
+#   docker build --pull -t <registry>/vss-harness-hermes-vlm-original-question-only:<tag> - < Dockerfile
 
-ARG HARNESS_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-harness-hermes:develop-46e614cea30e@sha256:c1a13a7501bc03948a7eba07ec88fd345a6f5d183bf4fd67ea8c7e0a4eedc974
+ARG HARNESS_IMAGE=ghcr.io/nvidia-ai-blueprints/vss/vss-harness-hermes:develop-latest
 
 FROM ${HARNESS_IMAGE}
 USER root
