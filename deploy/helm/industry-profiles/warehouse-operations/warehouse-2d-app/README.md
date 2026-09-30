@@ -346,28 +346,51 @@ it to fall back to the bundled `files/behavior-analytics/calibration.json`.
 
 #### Using a custom dataset
 
-Real cameras, not the bundled sample videos: set **`global.cameraInfo.enabled=true`**,
-then add each camera under **`global.cameraInfo.sensors`** with `camera_name`,
-`rtsp_url`, `group_id`, and `region`. For more than a handful, use
-**`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
-`sensors` — copy `../camera_configs/camera_info.example.json` outside the repo,
-fill in real cameras, and pass it with `--set-file`).
+Video source — pick one; they're mutually exclusive, don't configure both:
 
-Recorded video files instead of live RTSP: point
-**`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
-equivalent PVC binding) at the video files, set
-**`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart doesn't
-also seed sample videos into that volume, and set
-**`vios.vss-vios-nvstreamer.syncFileCount`** to the number of files provided.
+1. **Recorded video files**, not live cameras: point
+   **`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
+   equivalent PVC binding) at the video files, and set
+   **`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart
+   doesn't also seed sample videos into that volume. bp-configurator's default
+   **`SENSOR_INFO_SOURCE=nvstreamer`** auto-discovers sensors from what
+   NVStreamer is serving — leave `global.cameraInfo` unset for this path. Set
+   **`vios.vss-vios-nvstreamer.syncFileCount`** to the effective stream count
+   from **Stream count** below, not the raw file count — set higher than the
+   stream cap, sync stalls instead of serving media.
+
+2. **Live RTSP streams**: set **`global.cameraInfo.enabled=true`**, which
+   flips bp-configurator to `SENSOR_INFO_SOURCE=file`. Add each camera under
+   **`global.cameraInfo.sensors`** — required: `camera_name`, `rtsp_url`;
+   optional: `group_id`, `region`. For more than a handful, use
+   **`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
+   `sensors` — copy `../camera_configs/camera_info.example.json` outside the
+   repo, fill in real cameras, and pass it with `--set-file`). Each
+   `rtsp_url` must be reachable from the cluster — VIOS connects to it
+   directly; test with VLC or `ffplay` from the deployment machine before
+   deploying.
 
 Unlike 3D/MV3DT, calibration is optional here: 2D detection/tracking runs
 directly on the camera stream in image (pixel) coordinates, with no
 calibration required. Calibration is only needed for ROI/tripwire events in
-behavior-analytics. If you don't need those, set
-**`calibration-import.enabled=false`** and clear
-**`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** —
-otherwise behavior-analytics' initContainer polls that URL for calibration
-the disabled Job never uploads, times out, and the pod never becomes ready.
+behavior-analytics; neither is off by default. If you don't need those:
+
+- **`calibration-import.enabled=false`** — `--set calibration-import.enabled=false`.
+  Skips the upload Job.
+- **`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** —
+  clear it. Otherwise behavior-analytics' `fetch-calibration` initContainer
+  keeps polling for calibration the disabled Job never uploads, times out,
+  and the pod never becomes ready.
+- **`analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`**
+  — `--set analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`.
+  Without this the pod still comes up fine, but silently mounts the bundled
+  sample `calibration.json` via the fallback ConfigMap, unused.
+- **`analytics.vss-behavior-analytics.command`** — drop
+  `--calibration`/`/resources/calibration.json` from the array so the app
+  isn't launched pointing at a path nothing mounts. Either
+  `--set 'analytics.vss-behavior-analytics.command={python3,apps/analytics/main_analytics_2d_app.py,--config,/resources/vss-behavior-analytics-config.json}'`
+  (arrays are always replaced whole, never merged, so this is safe), or the
+  same 4 lines restated as a list in a `-f` values file.
 
 If you do need ROI/tripwire, override **`calibration-import.calibrationFileSource`**,
 **`imageMetadataFileSource`**, and **`imageBaseSource`** to point at your own

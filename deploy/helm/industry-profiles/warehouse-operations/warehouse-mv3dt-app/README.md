@@ -555,19 +555,29 @@ it to fall back to the bundled `files/behavior-analytics/calibration.json`.
 
 #### Using a custom dataset
 
-Real cameras, not the bundled sample videos: set **`global.cameraInfo.enabled=true`**,
-then add each camera under **`global.cameraInfo.sensors`** with `camera_name`,
-`rtsp_url`, `group_id`, and `region`. For more than a handful, use
-**`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
-`sensors` — copy `../camera_configs/camera_info.example.json` outside the repo,
-fill in real cameras, and pass it with `--set-file`).
+Video source — pick one; they're mutually exclusive, don't configure both:
 
-Recorded video files instead of live RTSP: point
-**`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
-equivalent PVC binding) at the video files, set
-**`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart doesn't
-also seed sample videos into that volume, and set
-**`vios.vss-vios-nvstreamer.syncFileCount`** to the number of files provided.
+1. **Recorded video files**, not live cameras: point
+   **`vios.vss-vios-nvstreamer.persistence.streamerVideos.hostPath`** (or an
+   equivalent PVC binding) at the video files, and set
+   **`vios.vss-vios-nvstreamer.ngcVideoSeed.enabled=false`** so the chart
+   doesn't also seed sample videos into that volume. bp-configurator's default
+   **`SENSOR_INFO_SOURCE=nvstreamer`** auto-discovers sensors from what
+   NVStreamer is serving — leave `global.cameraInfo` unset for this path. Set
+   **`vios.vss-vios-nvstreamer.syncFileCount`** to the effective stream count
+   from **Stream count** below, not the raw file count — set higher than the
+   stream cap, sync stalls instead of serving media.
+
+2. **Live RTSP streams**: set **`global.cameraInfo.enabled=true`**, which
+   flips bp-configurator to `SENSOR_INFO_SOURCE=file`. Add each camera under
+   **`global.cameraInfo.sensors`** — required: `camera_name`, `rtsp_url`;
+   optional: `group_id`, `region`. For more than a handful, use
+   **`global.cameraInfo.sensorsFile`** instead (raw JSON, takes priority over
+   `sensors` — copy `../camera_configs/camera_info.example.json` outside the
+   repo, fill in real cameras, and pass it with `--set-file`). Each
+   `rtsp_url` must be reachable from the cluster — VIOS connects to it
+   directly; test with VLC or `ffplay` from the deployment machine before
+   deploying.
 
 Calibration data has to be supplied either way — override **`calibration-import.calibrationFileSource`**,
 **`imageMetadataFileSource`**, and **`imageBaseSource`** to point at your own
