@@ -34,6 +34,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1200,6 +1201,28 @@ def _coordinator_env_id() -> str | None:
     return None
 
 
+def _viewer_origin() -> str | None:
+    """Persistent viewer origin, with the legacy Brev secure-link fallback."""
+    configured = os.environ.get("HARBOR_VIEW_BASE_URL", "").strip().rstrip("/")
+    if configured:
+        parsed = urllib.parse.urlsplit(configured)
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.netloc
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "HARBOR_VIEW_BASE_URL must be an http(s) origin/path "
+                "without query or fragment"
+            )
+        return configured
+    env_id = _coordinator_env_id()
+    if not env_id:
+        return None
+    return f"https://harbor-{env_id}.brevlab.com"
+
+
 def trace_url(result_json: Path, job_name: str) -> str | None:
     """Harbor viewer deep-link for one finished trial.
 
@@ -1213,8 +1236,8 @@ def trace_url(result_json: Path, job_name: str) -> str | None:
     That failure mode is indistinguishable from missing trace data, which is
     why the URL is built here instead of being assembled by hand.
     """
-    env_id = _coordinator_env_id()
-    if not env_id:
+    origin = _viewer_origin()
+    if not origin:
         return None
     try:
         data = json.loads(result_json.read_text())
@@ -1234,7 +1257,124 @@ def trace_url(result_json: Path, job_name: str) -> str | None:
     # safe="" so the slashes inside <model> and <task> encode as %2F — the
     # viewer expects them as single path segments, not extra path levels.
     encoded = "/".join(urllib.parse.quote(str(part), safe="") for part in parts)
-    return f"https://harbor-{env_id}.brevlab.com/jobs/{job_name}/tasks/{encoded}"
+    return f"{origin}/jobs/{job_name}/tasks/{encoded}"
+
+
+def _exchange_directories(source: Path, destination: Path) -> None:
+    """Atomically swap two directories on Linux. The caller deletes source."""
+    import ctypes
+
+    AT_FDCWD = -100
+    RENAME_EXCHANGE = 2
+    libc = ctypes.CDLL(None, use_errno=True)
+    result = libc.renameat2(
+        AT_FDCWD,
+        os.fsencode(source),
+        AT_FDCWD,
+        os.fsencode(destination),
+        RENAME_EXCHANGE,
+    )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(destination))
+
+
+def _publish_directory(source: Path, destination: Path) -> None:
+    """Make source appear at destination only after it is a complete tree.
+
+    A same-filesystem rename is atomic when destination is absent. Replacing
+    an existing job swaps the two directories so a concurrent copy sees either
+    the previous complete tree or the new one.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if not destination.exists():
+        os.rename(source, destination)
+        return
+    if sys.platform.startswith("linux"):
+        _exchange_directories(source, destination)
+        shutil.rmtree(source)
+        return
+    backup = destination.with_name(f".{destination.name}.previous-{os.getpid()}")
+    if backup.exists():
+        shutil.rmtree(backup)
+    os.rename(destination, backup)
+    try:
+        os.rename(source, destination)
+    except OSError:
+        os.rename(backup, destination)
+        raise
+    shutil.rmtree(backup)
+
+
+def _share_skill_eval_parents(path: Path) -> None:
+    """Let gha-runner and uid 998 both create children under skill-eval.
+
+    A 0755 directory owned by one of them blocks the other. The progress
+    monitor creates the leg directory, and the acknowledgement writer creates
+    ``_ack`` beside it. Only ``skill-eval`` and ``results`` are opened up.
+    """
+    current = path if path.is_dir() else path.parent
+    nodes: list[Path] = []
+    stop = {Path("/"), Path("/tmp"), Path("/private/tmp")}
+    while current not in stop and current != current.parent:
+        nodes.append(current)
+        if current.name == "skill-eval":
+            break
+        current = current.parent
+    else:
+        return
+    for node in nodes:
+        if node.name not in {"skill-eval", "results"}:
+            continue
+        try:
+            os.chmod(node, stat.S_IMODE(node.stat().st_mode) | 0o1777)
+        except OSError:
+            return
+
+
+def _share_with_workload(path: Path) -> None:
+    """Let uid 998 read a path written by gha-runner.
+
+    Directories also become traversable. A private umask on the GitHub job
+    otherwise hides result.json from sandbox exec.
+    """
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return
+    extra = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+    if stat.S_ISDIR(mode):
+        extra |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    updated = stat.S_IMODE(mode) | extra
+    if updated == stat.S_IMODE(mode):
+        return
+    try:
+        os.chmod(path, updated)
+    except OSError:
+        return
+
+
+def _share_published_viewer(viewer_job: Path) -> None:
+    """Share one published job and the viewer parents under /tmp/skill-eval."""
+    _share_skill_eval_parents(viewer_job)
+    if viewer_job.is_dir():
+        for child in viewer_job.rglob("*"):
+            _share_with_workload(child)
+    _share_with_workload(viewer_job)
+    current = VIEWER_ROOT
+    stop = {Path("/"), Path("/tmp"), Path("/private/tmp")}
+    while current not in stop and current != current.parent:
+        _share_with_workload(current)
+        parent = current.parent
+        if parent in stop or parent == current:
+            break
+        # Tests point VIEWER_ROOT at a private temp directory. Share that
+        # directory and stop, so a shared parent such as /var/folders is left
+        # unchanged. Production continues through results/ and skill-eval/.
+        if current == VIEWER_ROOT and parent.name not in {"results", "skill-eval"}:
+            _share_with_workload(parent)
+            break
+        current = parent
 
 
 def publish_trace(
@@ -1246,8 +1386,10 @@ def publish_trace(
 ) -> str | None:
     """Copy a finished trial into the viewer root and record its trace URL.
 
-    Returns None when the trial produced no result.json (errored or timed
-    out before the verifier ran) — such a step has no trace to link.
+    The viewer job is written under a hidden temporary name and renamed into
+    place only after this trial's result.json is in that tree. The URL row is
+    appended after that rename. Returns None when the trial produced no
+    result.json (errored or timed out before the verifier ran).
     """
     matches = [
         path.parent
@@ -1262,12 +1404,22 @@ def publish_trace(
     date_dir = trial_dir.parent
     job_name = f"{leg_slug}__{run_id}__{date_dir.name}"
     viewer_job = VIEWER_ROOT / job_name
-    viewer_job.mkdir(parents=True, exist_ok=True)
-    # Copy (never move) the date dir's *contents*: the workflow's "Collect
-    # results" step runs after this and tars results_root for the artifact,
-    # and copying the dir itself would nest a later trial under
-    # <job>/<date>/ where the viewer cannot see it.
-    shutil.copytree(date_dir, viewer_job, dirs_exist_ok=True)
+    staging = VIEWER_ROOT / f".{job_name}.incoming-{os.getpid()}"
+    if staging.exists():
+        shutil.rmtree(staging)
+    try:
+        # Copy (never move) the date dir's contents. The workflow collector
+        # still tars results_root, and copying the directory itself would nest
+        # a later trial under <job>/<date>/ where the viewer cannot see it.
+        shutil.copytree(date_dir, staging)
+        staged_result = staging / trial_dir.name / "result.json"
+        if not staged_result.is_file():
+            return None
+        _publish_directory(staging, viewer_job)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+    _share_published_viewer(viewer_job)
     url = trace_url(trial_dir / "result.json", job_name)
     if url:
         with (results_root / "trace-urls.tsv").open("a") as handle:
@@ -1409,6 +1561,7 @@ def run_invocations(
         return 1
 
     results_root.mkdir(parents=True, exist_ok=True)
+    _share_skill_eval_parents(results_root)
     # skills-eval.yml passes --results-root as <...>/results/<slug>/<run_id>;
     # the env vars are the authoritative source when the agent exports them.
     leg_slug = os.environ.get("EVAL_SLUG") or results_root.parent.name
