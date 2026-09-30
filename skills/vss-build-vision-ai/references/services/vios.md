@@ -89,9 +89,14 @@ row, both events together:
 Teardown-only cleanup items follow the Elasticsearch index a build writes rather
 than a service; enable one only when the build runs the path that fills it:
 `es-raw-camera-remove` (`mdx-raw`, from DeepStream perception),
-`es-behavior-camera-remove` (`mdx-behavior`, from behavior analytics), and
+`es-behavior-camera-remove` (`mdx-behavior`, from behavior analytics),
 `es-embed-filtered-camera-remove` (`mdx-embed-filtered`, from the search
-analytics fusion of `mdx-embed`).
+analytics fusion of `mdx-embed`), and `es-vlm-tags-camera-remove` (the
+per-video `default_<id>` tag indices, from RT-VLM tagging). Enable
+`es-vlm-tags-camera-remove` exactly when `rtvi-vlm-tagging-camera-streaming`
+is enabled: without it a deleted video's tags stay searchable. It deletes by
+`cameraId` for file sensors only, so live-stream tags and indices are
+untouched.
 
 ### Resolving it
 
