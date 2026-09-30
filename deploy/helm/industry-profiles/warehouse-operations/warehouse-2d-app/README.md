@@ -341,8 +341,11 @@ branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
 **`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
 `http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
 fetch calibration.json from that endpoint via an initContainer, retrying until
-it returns real data and validating it before the main container starts. Clear
-it to fall back to the bundled `files/behavior-analytics/calibration.json`.
+it returns real data and validating it before the main container starts — only
+when **`resourceFiles.calibration.enabled`** is also `true` (default). Clear
+`apiUrl` to fall back to the bundled `files/behavior-analytics/calibration.json`,
+or set `resourceFiles.calibration.enabled=false` to skip both the initContainer
+and that fallback.
 
 #### Using a custom dataset
 
@@ -377,14 +380,11 @@ behavior-analytics; neither is off by default. If you don't need those:
 
 - **`calibration-import.enabled=false`** — `--set calibration-import.enabled=false`.
   Skips the upload Job.
-- **`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** —
-  clear it. Otherwise behavior-analytics' `fetch-calibration` initContainer
-  keeps polling for calibration the disabled Job never uploads, times out,
-  and the pod never becomes ready.
 - **`analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`**
   — `--set analytics.vss-behavior-analytics.resourceFiles.calibration.enabled=false`.
-  Without this the pod still comes up fine, but silently mounts the bundled
-  sample `calibration.json` via the fallback ConfigMap, unused.
+  Skips both the `fetch-calibration` initContainer (so nothing polls the API
+  the disabled Job never uploads to) and the bundled sample `calibration.json`
+  fallback mount.
 - **`analytics.vss-behavior-analytics.command`** — drop
   `--calibration`/`/resources/calibration.json` from the array so the app
   isn't launched pointing at a path nothing mounts. Either

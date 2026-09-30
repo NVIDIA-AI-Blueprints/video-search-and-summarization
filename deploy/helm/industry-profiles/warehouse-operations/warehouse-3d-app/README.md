@@ -331,8 +331,11 @@ branch name otherwise; omit `--set global.gitRef=...` to default to `develop`.
 **`analytics.vss-behavior-analytics.resourceFiles.calibration.apiUrl`** (default
 `http://vss-video-analytics-api:8081/config/calibration`) makes behavior-analytics
 fetch calibration.json from that endpoint via an initContainer, retrying until
-it returns real data and validating it before the main container starts. Clear
-it to fall back to the bundled `files/behavior-analytics/calibration.json`.
+it returns real data and validating it before the main container starts — only
+when **`resourceFiles.calibration.enabled`** is also `true` (default). Clear
+`apiUrl` to fall back to the bundled `files/behavior-analytics/calibration.json`,
+or set `resourceFiles.calibration.enabled=false` to skip both the initContainer
+and that fallback.
 
 #### Using a custom dataset
 
