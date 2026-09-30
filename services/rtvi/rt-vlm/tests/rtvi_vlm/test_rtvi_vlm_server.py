@@ -1777,6 +1777,28 @@ class TestCVStreamEndpoints:
         assert data["camera_id"] == camera_id
         assert data["asset_id"] == asset_id
 
+    def test_stream_remove_accepts_legacy_vios_camera_id(self, test_client, rtvi_server):
+        """A camera registered before the ID restriction can still be removed."""
+        camera_id = "camera/01"
+        asset_id = rtvi_server._asset_manager.add_live_stream(
+            "rtsp://example.com/stream", camera_id=camera_id
+        )
+
+        response = test_client.request(
+            "DELETE",
+            "/api/v1/camera/remove",
+            json={
+                "alert_type": "camera_status_change",
+                "created_at": "2026-07-01T07:15:20Z",
+                "event": {"camera_id": camera_id, "change": "camera_remove"},
+                "source": "vios",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["asset_id"] == asset_id
+        assert rtvi_server._asset_manager.get_asset_id_by_camera_id(camera_id) is None
+
     def test_stream_remove_accepts_vios_registration_without_asset(self, test_client):
         """VIOS camera_remove is idempotent after registration-only camera_add."""
         camera_id = f"vios-reg-remove-{uuid.uuid4()}"

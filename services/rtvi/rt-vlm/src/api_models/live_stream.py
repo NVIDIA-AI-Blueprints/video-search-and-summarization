@@ -772,9 +772,8 @@ class ViosStreamEventBase(CommonBaseModel):
 
     camera_id: str = Field(
         description="User-provided unique camera identifier.",
-        min_length=1,
         max_length=256,
-        pattern=STREAM_ID_PATTERN,
+        pattern=ANY_CHAR_PATTERN,
         examples=["camera-001"],
     )
     camera_name: Optional[str] = Field(
@@ -823,6 +822,13 @@ class ViosStreamEventBase(CommonBaseModel):
 class ViosStreamAddEvent(ViosStreamEventBase):
     """VIOS event payload for POST /v1/stream/add."""
 
+    camera_id: str = Field(
+        description="User-provided unique camera identifier.",
+        min_length=1,
+        max_length=256,
+        pattern=STREAM_ID_PATTERN,
+        examples=["camera-001"],
+    )
     camera_url: str = Field(
         description="Stream URL or absolute file path.",
         max_length=1024,
