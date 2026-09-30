@@ -30,11 +30,14 @@ TOKEN = "s3cr3t-gateway-token"
 class FakeHost:
     """The host as the watchdog sees it through subprocess: lsof, ps, curl, kill, recover."""
 
-    def __init__(self, *, listeners=None, status="200", recover_heals=True, recover_output=""):
+    def __init__(self, *, listeners=None, status="200", recover_heals=True, recover_output="",
+                 curl_rc=None, recover_hangs=False):
         self.listeners = dict(listeners if listeners is not None else {"4141": FORWARD})
         self.status = status
         self.recover_heals = recover_heals
         self.recover_output = recover_output
+        self.curl_rc = curl_rc
+        self.recover_hangs = recover_hangs
         self.calls: list[tuple[str, ...]] = []
 
     def run(self, command, **_kwargs):
@@ -45,11 +48,14 @@ class FakeHost:
         if command[:2] == ["ps", "-ww"]:
             return done(out=self.listeners.get(command[3], "") + "\n")
         if command[0] == "curl":
-            return done(0 if self.status != "000" else 7, out=self.status)
+            rc = self.curl_rc if self.curl_rc is not None else (0 if self.status != "000" else 7)
+            return done(rc, out=self.status)
         if command[0] == "kill":
             self.listeners.pop(command[-1], None)
             return done()
         if command[:3] == ["nemoclaw", SANDBOX, "recover"]:
+            if self.recover_hangs:
+                raise subprocess.TimeoutExpired(command, _kwargs.get("timeout"))
             if self.recover_heals and not self.listeners:
                 self.listeners = {"4242": FORWARD}
                 self.status = "200"
@@ -97,6 +103,11 @@ class ProbeTests(unittest.TestCase):
             with self.subTest(status=status), host(FakeHost(status=status)):
                 self.assertFalse(watchdog.forward_answers(PORT))
 
+    def test_a_status_line_followed_by_a_stall_is_not_answering(self) -> None:
+        # curl prints the status it received, then exits 28 when the body stalls.
+        with host(FakeHost(status="200", curl_rc=28)):
+            self.assertFalse(watchdog.forward_answers(PORT))
+
     def test_the_probe_bypasses_the_proxy_and_is_bounded(self) -> None:
         with host(FakeHost()) as fake:
             watchdog.forward_answers(PORT, timeout=3)
@@ -135,6 +146,14 @@ class RepairTests(unittest.TestCase):
         with mock.patch("subprocess.run", side_effect=stubborn), mock.patch("time.sleep"):
             watchdog.stop_verified_forward(SANDBOX, PORT)
         self.assertIn(("kill", "-9", "4141"), fake.calls)
+
+    def test_a_stalled_recover_is_bounded_and_counts_as_failed(self) -> None:
+        with host(FakeHost(listeners={}, status="000", recover_hangs=True)) as fake:
+            result = watchdog.repair(SANDBOX, PORT)
+        self.assertFalse(result.answering)
+        self.assertEqual(result.recover.returncode, 124)
+        self.assertIn("timed out", result.recover.stderr)
+        self.assertIn(("nemoclaw", SANDBOX, "recover"), fake.calls)
 
     def test_a_missing_forward_goes_straight_to_recover(self) -> None:
         with host(FakeHost(listeners={}, status="000")) as fake:

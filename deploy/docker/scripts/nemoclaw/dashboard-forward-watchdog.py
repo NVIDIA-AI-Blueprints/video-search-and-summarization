@@ -50,6 +50,7 @@ FORWARD_HOST = "127.0.0.1"
 # Proof that the forward carries HTTP. 401/403 are auth answers from the dashboard
 # behind it, which is transport enough; NemoClaw's own probes accept 401 too.
 ANSWERING = frozenset({200, 401, 403})
+RECOVER_TIMEOUT = 180.0
 _TOKEN = re.compile(r"(token=)[^\s&#\"']+", re.IGNORECASE)
 
 
@@ -108,7 +109,8 @@ def forward_answers(port: int, timeout: float = 5.0) -> bool:
         text=True,
     )
     code = probe.stdout.strip()
-    return code.isdigit() and int(code) in ANSWERING
+    # A status line followed by a stalled body still times out: that is not answering.
+    return probe.returncode == 0 and code.isdigit() and int(code) in ANSWERING
 
 
 def stop_verified_forward(sandbox: str, port: int, wait: float = 5.0) -> list[str]:
@@ -140,9 +142,14 @@ def repair(sandbox: str, port: int, wait: float = 15.0, timeout: float = 5.0) ->
     re-create it, and wait up to *wait* seconds for `/health`. A forward that is not
     listening at all goes straight to recover, which applies its own ownership gates."""
     stopped = [] if forward_answers(port, timeout) else stop_verified_forward(sandbox, port)
-    recovered = subprocess.run(
-        ["nemoclaw", sandbox, "recover"], capture_output=True, text=True, stdin=subprocess.DEVNULL
-    )
+    command = ["nemoclaw", sandbox, "recover"]
+    try:
+        recovered = subprocess.run(
+            command, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=RECOVER_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        # A stalled recover must not freeze the probe loop; count it as a failed repair.
+        recovered = subprocess.CompletedProcess(command, 124, "", f"timed out after {RECOVER_TIMEOUT:.0f}s")
     # recover returns before the detached forward is listening.
     deadline = time.monotonic() + wait
     answering = forward_answers(port, timeout)
