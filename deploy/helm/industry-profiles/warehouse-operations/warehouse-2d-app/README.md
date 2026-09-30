@@ -194,7 +194,7 @@ Order follows `values.yaml`. Set only the keys you need in your override file; H
 | **`vios.vstStorage.streamerVideos.size`** | **`20Gi`** | PVC size for the NVStreamer upload volume. |
 | **`vios.vss-vios-streamprocessing.useSoftwarePath`** | **`false`** | Set **`true`** (paired with **`resources: null`**) to use FFmpeg software encode/decode and free the second GPU. Both flags required — see [GPU requirements](#gpu-requirements). |
 | **`vios.vss-vios-streamprocessing.resources`** | `nvidia.com/gpu: 1` | Pod resource requests/limits for streamprocessing. Set **`null`** (with **`useSoftwarePath: true`**) to drop the GPU claim entirely. |
-| **`vios.vss-vios-nvstreamer.syncFileCount`** | **`3`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
+| **`vios.vss-vios-nvstreamer.syncFileCount`** | **`4`** | Number of sample video files NVStreamer syncs. Keep in step with `bp-configurator` `NUM_STREAMS`. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.resourceVersion`** | **`nvstaging/vss-warehouse/vss-warehouse-app-data:v3.3.0-09152026`** | NGC resource for the NVStreamer sample video seed. Keep in step with **`rtvi.vss-rtvi-cv.ngcAppDataResourceVersion`**. |
 | **`vios.vss-vios-nvstreamer.ngcVideoSeed.fromExistingClaim`** | **`vss-rtvi-cv-models`** | Reuses the PVC from the `vss-rtvi-cv` NGC download job so the video data is not downloaded twice. Clear this and set **`resourceVersion`** to download the video seed independently. |
 | **`vios.vss-vios-sensor.videoMetadataServerUrl`** | **`""`** (derived: `<elasticsearch-svc>:9200/mdx-raw*`) | VST overlay metadata source. Derived from the in-cluster `elasticsearch` Service; override for a non-standard endpoint. No `http://` scheme — VST rejects one. |
@@ -405,11 +405,13 @@ broken URL fails the Job instead of deploying with no calibration. Each
 
 Also configure, outside `global`:
 
-- **Stream count** — set to the number of sensors registered under
-  `global.cameraInfo.sensors`/`sensorsFile`, by running
-  `deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode 2d --num-streams <N>`
+- **Stream count** — set `<N>` to the number of cameras/streams for whichever
+  video source you picked above (sensors under `global.cameraInfo.sensors`/
+  `sensorsFile` for RTSP, or the number of video files for the recorded-video
+  path), by running
+  `python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode 2d --num-streams <N>`
   (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and
-  layering the generated file in. Left at the default 3, sensors past the 3rd
+  layering the generated file in. Left at the default 4, sensors past the 4th
   are dropped silently.
 
 `global.gitRef`, `global.sampleVideoDataset`, and (by default)
@@ -536,7 +538,7 @@ kubectl port-forward -n <namespace> svc/grafana 3000:3000
 
 ## Scaling: NUM_STREAMS by GPU
 
-The chart ships a fixed `NUM_STREAMS=3` in `bp-configurator.env` with no GPU cap —
+The chart ships a fixed `NUM_STREAMS=4` in `bp-configurator.env` with no GPU cap —
 unlike Docker Compose, which caps it automatically per `HARDWARE_PROFILE`. Before an initial
 install or an upgrade where you want streams sized to your hardware, generate a values-override:
 

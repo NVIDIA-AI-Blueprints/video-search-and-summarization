@@ -384,9 +384,11 @@ Also configure, outside `global`:
   model-selection values file (see the `warehouse.datasetType` row above).
   Left at the default `synthetic`, real footage still runs against the
   synthetic Sparse4D model/anchor/label set: no error, just wrong results.
-- **Stream count** — set to the number of sensors registered under
-  `global.cameraInfo.sensors`/`sensorsFile`, by running
-  `deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode 3d --num-streams <N>`
+- **Stream count** — set `<N>` to the number of cameras/streams for whichever
+  video source you picked above (sensors under `global.cameraInfo.sensors`/
+  `sensorsFile` for RTSP, or the number of video files for the recorded-video
+  path), by running
+  `python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode 3d --num-streams <N>`
   (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)) and
   layering the generated file in. Left at the default 4, sensors past the 4th
   are dropped silently.

@@ -599,9 +599,11 @@ replace that file too so it matches.
 
 Also configure, outside `global`:
 
-- **Stream count** — set to the number of sensors registered under
-  `global.cameraInfo.sensors`/`sensorsFile`, by running
-  `deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode mv3dt --num-streams <N>`
+- **Stream count** — set `<N>` to the number of cameras/streams for whichever
+  video source you picked above (sensors under `global.cameraInfo.sensors`/
+  `sensorsFile` for RTSP, or the number of video files for the recorded-video
+  path), by running
+  `python3 deploy/helm/industry-profiles/warehouse-operations/scripts/compute_stream_cap.py --mode mv3dt --num-streams <N>`
   (see [Scaling: NUM_STREAMS by GPU](#scaling-num_streams-by-gpu)), and set
   `rtvi.vss-rtvi-cv.standaloneWarehouse.mv3dt.batchSize`, `maxBatchSize`, and
   `fusion.maxExpectedSensors` to match — the stream-cap script doesn't touch
