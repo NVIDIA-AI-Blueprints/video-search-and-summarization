@@ -10,7 +10,10 @@ export function normalizeOpenShellMediaUrls(content: string, mediaProxyUrl?: str
   let proxyPath = '';
   if (mediaProxyUrl) {
     try {
-      proxyPath = new URL(mediaProxyUrl, 'https://vss-ui.invalid').pathname.replace(/\/+$/, '');
+      proxyPath = new URL(mediaProxyUrl, 'https://vss-ui.invalid').pathname;
+      let end = proxyPath.length;
+      while (end > 0 && proxyPath[end - 1] === '/') end -= 1;
+      proxyPath = proxyPath.slice(0, end);
     } catch {
       // The ingress still serves /vst directly when no proxy path is usable.
     }

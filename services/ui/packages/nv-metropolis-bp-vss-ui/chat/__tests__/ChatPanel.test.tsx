@@ -105,7 +105,11 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('chat-message-user')).toHaveTextContent('what happened?');
   });
 
-  it('opens NemoClaw Search media links through the same-origin VST proxy', async () => {
+  it.each([
+    { mediaProxyUrl: '/api/proxy', mediaPrefix: '/api/proxy' },
+    { mediaProxyUrl: '/api/proxy///', mediaPrefix: '/api/proxy' },
+    { mediaProxyUrl: undefined, mediaPrefix: '' },
+  ])('opens NemoClaw Search media links with proxy $mediaProxyUrl', async ({ mediaProxyUrl, mediaPrefix }) => {
     const internal = 'http://host.openshell.internal:7777';
     const mediaPath = '/vst/api/v1/replay/stream/stream-1/picture?startTime=2026-09-29T12%3A00%3A00Z';
     const answer = [
@@ -136,7 +140,7 @@ describe('ChatPanel', () => {
           url: '/api/agent',
           transport: 'agent-api',
           conversationId: 'thread_1',
-          mediaProxyUrl: '/api/proxy',
+          mediaProxyUrl,
         }}
         features={noHeader}
       />,
@@ -144,9 +148,9 @@ describe('ChatPanel', () => {
     await act(async () => typeAndSend('Find forklifts'));
 
     const media = await screen.findByRole('link', { name: 'Media' });
-    expect(media).toHaveAttribute('href', `/api/proxy${mediaPath}`);
+    expect(media).toHaveAttribute('href', `${mediaPrefix}${mediaPath}`);
     expect(screen.getByRole('link', { name: 'Frame' })).toHaveAttribute(
-      'href', '/api/proxy/vst/storage/frame.jpg?token=one',
+      'href', `${mediaPrefix}/vst/storage/frame.jpg?token=one`,
     );
     expect(screen.getByRole('link', { name: 'Docs' })).toHaveAttribute(
       'href', 'https://example.com/vst/help',
