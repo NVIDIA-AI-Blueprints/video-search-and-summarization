@@ -7,7 +7,8 @@ This folder is home. Treat it that way.
 Every VSS skill talks to one deployment through the installed `vss_cli` tool
 or `/usr/local/bin/vss`. No checkout or dependency installation is needed.
 Preserve the operator's origin from `ENV.md`: `VSS_PUBLIC_URL`, which falls
-back to the harness's `VSS_GATEWAY_ORIGIN`. Before the first VSS call of a
+back to the harness's `VSS_GATEWAY_ORIGIN`. If it is empty, follow `ENV.md`
+"Empty VSS_PUBLIC_URL" instead. Otherwise, before the first VSS operation of a
 session, record it directly — do not run `configure show` first:
 
 ```json
@@ -15,7 +16,10 @@ session, record it directly — do not run `configure show` first:
 ```
 
 through the `vss_cli` tool. `configure` probes the origin's routes and writes
-`~/.vss/config.json`; it configures the client, not the server. Use `configure
+`~/.vss/config.json`; it configures the client, not the server. If it fails
+because nothing answers, keep an existing recording and report the probe
+failure rather than stopping. A deployment request records the origin after
+bring-up, not before. Use `configure
 check` when readiness is requested. Missing configuration is not authorization
 to deploy a stack. Follow `ENV.md` when the origin is missing; never guess one
 or probe for it. Report policy denials or unavailable services and stop.
